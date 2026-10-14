@@ -1,6 +1,7 @@
 import type { z } from "zod"
 
 import { reconcileSchema } from "@/lib/contracts/sync"
+import { takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
@@ -44,8 +45,8 @@ type ReconcileInput = {
 // organisation, the cron token (no session) walks every organisation.
 // Declared `public` so the wrapper enforces neither mode; authentication,
 // role gating, the kill switch and body parsing run in the handler in the
-// original order (401, 403, 503, 400), all of it before the advisory lock so
-// an unauthenticated request never contends for the fleet lock.
+// original order (401, 403, 429, 503, 400), all of it before the advisory
+// lock so an unauthenticated request never contends for it.
 async function authenticate(request: Request) {
   const session = await getSession()
   if (!session && !isCronRequest(request)) {
@@ -259,12 +260,16 @@ async function runReconcilePage({
   requestId,
   clientRequestId,
 }: ReconcilePageInput) {
-  // A session reconcile takes the fleet lease too; recorded as manual so it
-  // cannot stand in for the cron's heartbeat.
+  // A session reconcile locks only its own organisation
+  // (`naba:reconcile:<organisationId>`, W8-08): under the fleet key one
+  // tenant's Sync now told every other tenant "a sync is already running".
+  // Recorded as manual so it cannot stand in for the cron's heartbeat.
   const result = await withAdvisoryLock(
     "naba:reconcile",
     () => reconcile({ session, input, requestId, clientRequestId }),
-    { trigger: session ? "manual" : "cron" }
+    session
+      ? { trigger: "manual", scope: session.organisationId }
+      : { trigger: "cron" }
   )
   if ("skipped" in result) {
     return {
@@ -283,6 +288,14 @@ export const POST = route({
   origin: "same",
   handler: async ({ request, requestId, clientRequestId }) => {
     const session = await authenticate(request)
+    // A person's sync is counted (W3-07): it pages Google inline against the
+    // budget every tenant shares. The cron is not.
+    if (session) {
+      await takeAbuseBudget("sync_manual", {
+        user: session.userId,
+        organisation: session.organisationId,
+      })
+    }
     await requireScopesEnabled("sync", SYNC_PAUSED)
     const input = reconcileSchema.parse(await request.json().catch(() => ({})))
     return runReconcilePage({ session, input, requestId, clientRequestId })

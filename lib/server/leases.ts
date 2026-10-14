@@ -150,19 +150,26 @@ export async function recordTickCycleCompleted(key: LeaseKey) {
   }
 }
 
+/**
+ * `options.scope` narrows the lock to one subject under the tick's lease (an
+ * organisation's own sync now: `naba:reconcile:<organisationId>`), so tenants
+ * never wait on each other's manual runs. The run is still recorded on the
+ * tick's heartbeat row.
+ */
 export async function withAdvisoryLock<T>(
   key: LeaseKey,
   fn: () => Promise<T>,
-  options: { trigger?: TickTrigger } = {}
+  options: { trigger?: TickTrigger; scope?: string } = {}
 ): Promise<T | { skipped: true }> {
   const trigger = options.trigger ?? "cron"
+  const lockKey = options.scope ? `${key}:${options.scope}` : key
   // The lock outlives many transactions, so it needs a session connection.
   // Closing that connection also releases the lock (the pooler resets the
   // backend with DISCARD ALL), so a failed unlock must not mask the tick's
   // own outcome.
   return withSessionConnection(async (connection) => {
     const [lock] = await connection<{ acquired: boolean }[]>`
-      select pg_try_advisory_lock(hashtext(${key})) as acquired
+      select pg_try_advisory_lock(hashtext(${lockKey})) as acquired
     `
     if (!lock.acquired) {
       await recordTickEvent(connection, key, trigger, "skipped")
@@ -181,7 +188,7 @@ export async function withAdvisoryLock<T>(
       return result
     } finally {
       await connection`
-        select pg_advisory_unlock(hashtext(${key}))
+        select pg_advisory_unlock(hashtext(${lockKey}))
       `.catch((error: unknown) => {
         log.warn("leases.unlock_failed", { key, error })
       })

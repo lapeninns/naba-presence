@@ -66,6 +66,16 @@ type Row = BulkReviewResult["results"][number]
 export const POST = route({
   roles: ["owner", "admin", "member"],
   body: bulkReviewActionSchema,
+  // Approve and template replies publish (or queue) a reply per row; assign
+  // and "no reply needed" are local writes and stay unlimited (W3-07).
+  limits: ({ session, body }) =>
+    body.action === "approve" || body.action === "template_reply"
+      ? {
+          scope: "bulk_request",
+          user: session.userId,
+          organisation: session.organisationId,
+        }
+      : null,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
     if (body.action === "approve" || body.action === "template_reply") {
       // Approving publishes, and so does a template-reply batch (its starter

@@ -87,6 +87,13 @@ export const POST = route({
   entitlement: "ai",
   roles: ["owner", "admin", "member"],
   params: reviewIdParamsSchema,
+  // Counted before the token reservation, so a burst is refused without
+  // touching the AI backstop (W3-07).
+  limits: ({ session }) => ({
+    scope: "ai_verify",
+    user: session.userId,
+    organisation: session.organisationId,
+  }),
   handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
     const { id } = params
 

@@ -166,6 +166,31 @@ export const ABUSE_POLICIES = {
     user: { limit: 30, windowSeconds: 10 * 60 },
     organisation: { limit: 120, windowSeconds: 10 * 60 },
   },
+  // Checking a draft (POST /api/drafts/[id]/verify) can call the model: a
+  // burst bound on top of the monthly token backstop, as for drafting. A
+  // person verifies each draft and every edit of it, hence twice ai_draft.
+  ai_verify: {
+    code: "verify_rate_limited",
+    user: { limit: 60, windowSeconds: 10 * 60 },
+    organisation: { limit: 240, windowSeconds: 10 * 60 },
+  },
+  // A person asking for a sync now (the session branch of /api/sync/*, and a
+  // history backfill): each one pages Google inline against the fleet's
+  // shared budget, so one organisation pressing refresh in a loop would push
+  // every other tenant into google_rate_limited (W3-07). The scheduled syncs
+  // already keep data fresh; this only bounds the extra on-demand ones.
+  sync_manual: {
+    code: "sync_rate_limited",
+    user: { limit: 10, windowSeconds: 10 * 60 },
+    organisation: { limit: 30, windowSeconds: 10 * 60 },
+  },
+  // Other on-demand work that reads Google or fans out per row: the import
+  // review refresh, a bulk listing preview, bulk review approvals.
+  bulk_request: {
+    code: "bulk_rate_limited",
+    user: { limit: 30, windowSeconds: 10 * 60 },
+    organisation: { limit: 120, windowSeconds: 10 * 60 },
+  },
   // Photo uploads for bulk changes (P09-R7): each one hands out a signed
   // storage URL and a staged object, so per person and per organisation.
   asset_upload: {
@@ -202,6 +227,12 @@ const MESSAGES: Record<string, string> = {
     "Too many photos were uploaded in a short time. Wait a while and try again.",
   draft_rate_limited:
     "Too many drafts were requested in a short time. Wait a moment and try again.",
+  verify_rate_limited:
+    "Too many drafts were checked in a short time. Wait a moment and try again.",
+  sync_rate_limited:
+    "Too many syncs were requested in a short time. Scheduled syncs keep running; try again in a few minutes.",
+  bulk_rate_limited:
+    "Too many requests like this in a short time. Wait a few minutes and try again.",
   invitation_email_rate_limited:
     "Too many invitation emails were sent in a short time. Copy the link and send it yourself, or try again later.",
 }

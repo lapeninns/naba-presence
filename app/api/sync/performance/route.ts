@@ -1,6 +1,7 @@
 import type { z } from "zod"
 
 import { performanceSyncSchema } from "@/lib/contracts/sync"
+import { takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { withAdvisoryLock } from "@/lib/server/leases"
@@ -50,6 +51,14 @@ export const POST = route({
   origin: "same",
   handler: async ({ request, requestId }) => {
     const session = await authenticate(request)
+    // A person's sync is counted (W3-07): it pages Google inline against the
+    // budget every tenant shares. The cron is not.
+    if (session) {
+      await takeAbuseBudget("sync_manual", {
+        user: session.userId,
+        organisation: session.organisationId,
+      })
+    }
     const input = performanceSyncSchema.parse(
       await request.json().catch(() => ({}))
     )
