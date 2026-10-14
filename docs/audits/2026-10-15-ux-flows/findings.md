@@ -13,7 +13,7 @@ Phase 1 of the frictionless-flows work (AMA-13). Audit only, no code changes. Th
 
 **Severity:** P0 blocks the task. P1 is friction that costs time, causes mistakes or misleads. P2 is polish.
 
-**Roles:** the code has four roles: owner, admin, member and viewer (`lib/settings/roles.ts`). "Agency" and "business" are workspace modes, not roles. There is no "manager" role, although some copy uses the word (INB-15, LST-26).
+**Roles:** the code has four roles: owner, admin, member and viewer (`lib/settings/roles.ts`). "Agency" and "business" are workspace modes, not roles. There is no "manager" role in the app, although the reply-approval toast uses the word (INB-15). "Manager" in listing invitations is Google's own role name (LST-26), which is correct.
 
 **Lanes** (who fixes what in Phase 2): **Presence Platform** owns the shared components, the shell, the design system, the audit tooling, and Team, Settings and sign-in. **Listings & GBP** owns the listing, Google profile and Calendar flows. **Reviews & AI** owns Inbox, Notifications, Clients, client setup and Reports. Each slice in plan.md names its lane.
 
@@ -23,10 +23,10 @@ Phase 1 of the frictionless-flows work (AMA-13). Audit only, no code changes. Th
 | --- | --- | --- | --- | --- |
 | Measurements | 0 | 1 | 3 | 4 |
 | Inbox, reviews and notifications | 0 | 9 | 16 | 25 |
-| Listings, Google profile and Calendar | 1 | 15 | 18 | 34 |
-| Clients and Reports | 0 | 7 | 18 | 25 |
+| Listings, Google profile and Calendar | 1 | 14 | 19 | 34 |
+| Clients and Reports | 0 | 6 | 19 | 25 |
 | Team, Settings, sign-in and the app shell | 0 | 3 | 32 | 35 |
-| **All** | **1** | **35** | **87** | **123** |
+| **All** | **1** | **33** | **89** | **123** |
 
 123 findings after merging duplicates (the five audits reported 132, and those raised in more than one place were folded into one entry). There is one P0: food-menu changes are shown to the operator as raw JSON at the point of consent (LST-01). The P1s fall into five themes:
 
@@ -45,8 +45,8 @@ The automated accessibility checks are clean: axe 0, contrast 212 of 212, focus 
 | --- | --- |
 | `pnpm check:contrast` | All 212 colour pairs pass in both themes |
 | `pnpm check:design --ratchet` | Passes. 106 token bypasses in 43 files: R1 type 12, R2 colour 9, R3 spacing 54, R4 radius/z 12, R5 raw primitive 1 (`window.confirm()` in `lib/hooks/use-dirty-guard.ts:134`), R6 inline style 2, R7 literal breakpoint 16 (`[@media(min-height:620px)]`). The top files are `app/design-system/page.tsx` (14), `components/inbox/inbox-view.tsx` (6) and `lib/clients/colours.ts` (6). |
-| `pnpm audit:mobile` (36 routes × 320 light, 390 light, 390 dark, 1280 light, 1280 dark = 180 loads) | 0 load errors, 0 horizontal overflow, 0 axe violations, 0 focus obscured, 0 iOS zoom inputs, 0 console errors, h1/main landmark correct on every page. Phone chrome is at most 20.4% of the screen. The smallest phone text is 13px, so the spec floor holds. Flagged: **260** touch targets under 44px (but see MEA-01), 3 WCAG 2.5.8 target-size failures, and **76** clipped labels (SET-07). |
-| `perf-lab` mobile (390, 4× CPU, Slow 4G, 3 cold runs, production build) | LCP 1.18-1.25s on 13 of 14 routes. CLS ≤ 0.018. TBT 35-164ms (highest on `/listings/{loc}/posts`). First-load JS is 245KB on `/sign-in` and 428-552KB on dashboard routes. Breaches against `tests/perf/budgets-baseline.json`: `/inbox` and `/inbox?selected=` first-load JS 552KB > 520 (INB-23), and `/settings/billing` LCP 3,336ms and lazy JS 72KB (MEA-02). |
+| `pnpm audit:mobile` (36 routes × 320 light, 390 light, 390 dark, 1280 light, 1280 dark = 180 loads) | 0 load errors, 0 horizontal overflow, 0 axe violations, 0 focus obscured, 0 iOS zoom inputs, 0 console errors, h1/main landmark correct on every page. Phone chrome is at most 20.4% of the screen. Phone text floor holds: the committed `smallestTextPx` of 12 is at 1280 (desk captions, allowed), and no page at 320 or 390 has text under 13px (per-page data in the uncommitted raw JSON). `textUnder14Phone` 2016 counts 13px captions, which the spec allows. Flagged: **260** touch targets under 44px (but see MEA-01), 3 WCAG 2.5.8 target-size failures, and **76** clipped labels (SET-07). |
+| `perf-lab` mobile (390, 4× CPU, Slow 4G, 3 cold runs, production build) | LCP 1.18-1.25s on 13 of 14 routes. CLS ≤ 0.018. TBT 35-164ms (highest on `/listings/{loc}/posts`). First-load JS is 245KB on `/sign-in` and 428-552KB on dashboard routes. Breaches against `tests/perf/budgets-baseline.json`, among the 14 routes perf-lab visits by default (the listing areas other than hours, photos and posts are not in its list): `/inbox` and `/inbox?selected=` first-load JS 552KB > 520 (INB-23), and `/settings/billing` LCP 3,336ms and lazy JS 72KB (MEA-02). |
 | `perf-lab` desktop (1280, unthrottled, 2 runs) | The same two `/inbox` JS breaches. LCP is under 200ms except Hours (992ms) and Photos (580ms), which stream their Google read. |
 | `route-js.mjs` | The dashboard shell's chunks, shared by all 34 dashboard routes: 42 files, 359.1KB gzip (baseline ceiling 400). |
 
@@ -59,7 +59,7 @@ The production server for perf-lab needed `PASSWORD_AUTH_ENABLED=false` as a pro
 - **Problem:** `audit:mobile` reports 260 phone targets under 44px. Most of them are primitives that already extend their hit area to `--np-touch` (44px) with an absolutely positioned `::before`/`::after`: `Button` `sm`/`icon-sm` (`components/ui/button.tsx:66-71`), `Switch` (`components/ui/switch.tsx:21`), `Checkbox` (`components/ui/checkbox.tsx:21`) and the chips (`components/ui/chip.tsx:46`, `:293`). The audit measures only the element's own box (`tests/visual/mobile-audit.mjs` has no pseudo-element handling), so "Check Google now" (151×20, a `link` `sm` button), the 16 notification switches (36×20) and the 36px row menus all count as failures. The baseline Phase 3 must compare against is therefore mostly noise, and it hides the few real offenders (MEA-03).
 - **Evidence:** offender lists in `baseline/mobile-audit.md`. Per route at 390 light: `/settings/notifications` 16 switches, `/listings/{loc}/hours` 7 switches and 7 "Copy to…" `sm` buttons, `/listings/{loc}` 8 area-card links at 20×20 (`[data-slot=card-link]`, `components/ui/card.tsx:148-160`).
 - **Affects:** the Phase 2 and 3 evidence, not users directly
-- **Fix:** Teach `tests/visual/mobile-audit.mjs` to measure the effective hit area: the union of the element's box and any absolutely positioned `::before`/`::after` box (read with `getComputedStyle(el, "::after")` and the element's rect). Keep the raw box count as a second metric. Re-run it on `4e0fa805` and replace `baseline/mobile-audit-totals.json` before any slice is measured. Check `card-link` separately: if it is a stretched link, the card is the target.
+- **Fix:** Teach `tests/visual/mobile-audit.mjs` to measure the effective hit area: the union of the element's box and any absolutely positioned `::before`/`::after` box (read with `getComputedStyle(el, "::after")` and the element's rect). Keep the raw box count as a second metric. Re-run it on `4e0fa805` and replace `baseline/mobile-audit-totals.json` before any slice is measured. `card-link` is a stretched link (its `::after` covers the card, `components/ui/card.tsx:150-153`), so the card is its target. Two limits to keep: the `sm` button and the chips extend only vertically (`inset-x-0`), so narrow ones are real failures; and the extended area must be clipped against any ancestor that scrolls or clips (TabNav, FilterChipStrip), or P01 would undercount.
 - **Slice:** P01
 
 #### MEA-02 · A disabled feature route takes 3.3 s to paint on a phone — P2 · RC-PERF
@@ -93,7 +93,7 @@ Each finding below carries one root-cause key. This section explains each cause 
 ### RC-ACTIONBAR: action bars that bypass `ActionBar`
 The spec has one `ActionBar` (`components/ui/action-bar.tsx`). It docks on a phone, rides the keyboard, appears with the first change, and carries one primary action with the rest in an overflow (`primary` + `secondaryActions`). It also publishes its measured height (`--np-dock-bar-h`), which the toast and scroll padding read. Editors and forms that predate it hand-roll the same job. The editor footer uses the free-form `actions` prop, Review & publish pins itself with `max-md:fixed`, and client forms use an inline `CardFooter`. Each loses one part of the contract: one primary, docking, the measured height, or hiding when clean.
 **Shared fix:** P02 moves the editor footer and Review & publish onto `ActionBar` and hides the idle bar at every width. Flow slices then adopt it for the forms in their area.
-**Members:** INB-02 (P1), INB-03 (P1), LST-04 (P1), LST-05 (P1), CLR-14 (P1), CLR-16 (P1), INB-17 (P2), CLR-10 (P2), SET-14 (P2)
+**Members:** INB-02 (P1), INB-03 (P1), LST-04 (P1), LST-05 (P1), CLR-16 (P1), INB-17 (P2), CLR-10 (P2), CLR-14 (P2), SET-14 (P2)
 
 ### RC-SHEET: overlays that don't share one anatomy
 The overlay foundation (`components/ui/overlay.tsx`) gives dialogs, menus and selects a bottom sheet on a phone. But each primitive draws its own header and footer, so dismiss and confirm look different in every sheet (×, Cancel, Keep editing, Close; grabber or none). Feature code also builds whole flows in sheets where a shared set already exists (`components/reviewed-write/*`), or stacks a sheet on a sheet.
@@ -123,7 +123,7 @@ The spec's record card is "headline, subtitle, one meta line, trailing status". 
 ### RC-NAVSTRIP: tab and chip strips that hide what matters
 Strips scroll with a fade and no visible alternative at desk width. They show "0" and "–" chips that mean nothing, and two chip primitives use two pressed styles (`chipClassName` with `bg-ink`, and `filterChipClassName` with `bg-accent-tint`). As a result, labels and the current item get cut off ("Sugges…", "Partially ch…").
 **Shared fix:** P04 gives `TabNav` a desk overflow mode, tab items a minimum touch width, `TabCount`/`ChipCount` one zero rule, and filters one chip primitive. L03, R07 and R16 adopt them.
-**Members:** CLR-19 (P1), DSK-01 (P1), INB-11 (P2), CLR-24 (P2)
+**Members:** CLR-19 (P1), INB-11 (P2), CLR-24 (P2), DSK-01 (P2)
 
 ### RC-APPBAR: shell chrome that crowds or repeats
 The phone app bar packs the workspace name or back label (up to half the width), a scrolled title echo, and up to two trailing controls, one of them a scope chip of up to 40vw. The title the user needs is what gets cut (76 clipped labels measured). On desk, one-crumb trails repeat the h1, the sidebar hides Team and Settings behind More even with room to spare, and two rows can be `aria-current`.
@@ -207,7 +207,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** The two screens above. "Live on Google" comes only from `publishStatus === "published"` (`lib/inbox/reply-state.ts:333-345`), and the toast is fixed by status (`lib/inbox/actions.ts:162-170`). Neither reads `reply.googleReplyState`. The banner is raised exactly when `googleReplyState === "PENDING"` (`components/inbox/detail/reply-exception.tsx:102-110`).
 - **Affects:** owner, admin, and members with publish access.
 - **Fix:** When `googleReplyState === "PENDING"`, derive status "Sent · waiting for Google's check" (the existing `sent` outcome with the note "not live until Google confirms"), and have `describeOutcomeToast` take that state into account. One status vocabulary in `lib/inbox/reply-state.ts`, shown through `components/ui/status-pill` and `components/ui/toast` (`useOutcomeToast`).
-- **Slice:** R01
+- **Slice:** R01a
 
 #### INB-02 · "Publish reply" parks the reply for approval in two-person mode — P1 · RC-ACTIONBAR
 - **Screen:** `03 - Inbox/01 - Review detail/03 - Approving a reply/screen-02.webp` (the button says "Publish reply"), `03 - Inbox/01 - Review detail/03 - Approving a reply/screen-03.webp` (toast: "Submitted for approval")
@@ -215,7 +215,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** The client chooses the verb from `capabilities.canPublish` alone (`lib/inbox/reply-state.ts:138-146`; "submit" only when `!canPublish && canRequestApproval`). The server parks when `require_two_person_approval && !has_qualifying_approval` (`lib/server/publishing/approval.ts:23-31`).
 - **Affects:** owner, admin, and members with publish access in two-person organisations.
 - **Fix:** Add the organisation's two-person flag (or a `primaryVerb`) to the review detail payload, and use the existing `submit` branch ("Submit for approval", status "Ready to submit for approval"). No new UI is needed: `components/inbox/action-bar.tsx:342-356` already draws it inside the shared `components/ui/action-bar` ActionBar. Needs an owner decision before Phase 2: it adds fields to the review-detail payload.
-- **Slice:** R01
+- **Slice:** R01b
 
 #### INB-03 · The person who submitted a reply is offered "Approve reply" and told "Approval required" — P1 · RC-ACTIONBAR
 - **Screen:** `03 - Inbox/01 - Review detail/03 - Approving a reply/screen-03.webp` (the same session that just submitted)
@@ -223,7 +223,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `approvalScope: review.capabilities.canPublish ? "me" : "others"` (`components/inbox/action-bar.tsx:136`). The code itself says `canPublish` "stays true for the very person who submitted the reply" (`components/inbox/detail/reply-exception.tsx:126-133`).
 - **Affects:** owner, admin, and members with publish access (two-person organisations).
 - **Fix:** Have the server send `approvalScope` (`me | others`), compared against `approval_requested_by`. Then show "Waiting for another approver" with no Approve button for the requester. Keep the shared ActionBar; only the status and primary-action inputs change. Needs an owner decision before Phase 2: it adds fields to the review-detail payload.
-- **Slice:** R01
+- **Slice:** R01b
 
 #### INB-04 · One tap on "Regenerate" during approval withdraws the request — P1 · RC-STATEGUARD
 - **Screen:** `03 - Inbox/01 - Review detail/03 - Approving a reply/screen-05.webp` (the approver sees the tone switch and "Regenerate" directly above the submitted reply)
@@ -263,12 +263,12 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** The detail menu items are at `components/inbox/review-detail.tsx:270-301`. There is no swipe, long-press or `mark_reviewed` handler in `components/inbox/review-list.tsx` or `review-detail.tsx`. Triage lives only in `components/inbox/bulk-action-bar.tsx:353-367`.
 - **Affects:** owner, admin, member (the bulk tools are hidden for viewers, `components/inbox/inbox-view.tsx:196`).
 - **Fix:** Add "No reply needed" and "Assign…" to the detail's ⋯ (the `DropdownMenu`, which becomes the menu sheet on a phone), and a trailing swipe on `components/ui/list-row` `ListRow` with a visible button alternative (WCAG 2.5.7). Pair both with an undo toast (INB-09).
-- **Slice:** R06, P10
+- **Slice:** R06a, P10
 
 #### INB-23 · The Inbox ships every dialog in its first load and breaks the JS budget — P1 · RC-PERF
 - **Screen:** `03 - Inbox/screen-01.webp`; [`baseline/perf-mobile.md`](baseline/perf-mobile.md), [`baseline/perf-desktop.md`](baseline/perf-desktop.md)
 - **Problem:** The Inbox imports every overlay statically, including ones a phone user may never open: `TemplateReplyDialog` (580 lines), the History dialog with `ActivityTimeline`, `ReviewMetadata`, and four AlertDialogs. Two Selects are always mounted but hidden (`className="hidden"`). Queue counts render as skeletons until hydration even when the server prefetched them, so tab widths change once the figures arrive.
-- **Evidence:** perf-lab measured `/inbox` and `/inbox?selected={review}` first-load JS at 552KB transfer (1,555KB decoded) on both profiles, over the 520KB `budgets-baseline.json` limit; these are the only first-load JS breaches in the app. No `dynamic()` under `components/inbox/`. `components/inbox/bulk-action-bar.tsx:14`, `components/inbox/review-detail.tsx:248-319`, `components/inbox/filter-toolbar.tsx:199`, `:209`, `components/inbox/inbox-view.tsx:163-165`, `components/inbox/queue-tabs.tsx:143-147`.
+- **Evidence:** perf-lab measured `/inbox` and `/inbox?selected={review}` first-load JS at 552KB transfer (1,555KB decoded) on both profiles, over the 520KB `budgets-baseline.json` limit; these are the only first-load JS breaches among the 14 routes perf-lab measured (its default list skips the listing areas; see LST-14). No `dynamic()` under `components/inbox/`. `components/inbox/bulk-action-bar.tsx:14`, `components/inbox/review-detail.tsx:248-319`, `components/inbox/filter-toolbar.tsx:199`, `:209`, `components/inbox/inbox-view.tsx:163-165`, `components/inbox/queue-tabs.tsx:143-147`.
 - **Affects:** all roles.
 - **Fix:** Load the template dialog, History and Review details with `next/dynamic`, as the shell already does for `ClientSearchList` and `CommandPaletteDialog`. Remove the hidden Selects or gate them by breakpoint in CSS. Reserve the tab count width (min-width on `TabCount`).
 - **Slice:** R09
@@ -279,7 +279,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `components/inbox/bulk-action-bar.tsx:432-462` (the comment: "There is no API to put a review back"). `components/inbox/reply-composer.tsx:461-484` (the dialog text says "You can undo it straight afterwards") and `:323-340` (Undo action).
 - **Affects:** owner, admin, member.
 - **Fix:** Add a server undo (`mark_unreviewed`) and replace the dialog with a `components/ui/toast` `ToastAction` "Undo" (kind "local"). Remove the regenerate confirmation and keep the Undo toast. Needs an owner decision before Phase 2: a server undo for "No reply needed".
-- **Slice:** R06, P07
+- **Slice:** R06b, P07
 
 #### INB-10 · The Filters sheet is long, repeats other controls and mixes control styles — P2 · RC-FORMS
 - **Screen:** `03 - Inbox/02 - Filtering reviews/screen-01.webp`, `03 - Inbox/02 - Filtering reviews/screen-02.webp`
@@ -328,7 +328,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `components/inbox/detail/reply-exception.tsx:131-135`, `components/inbox/action-bar.tsx:318-326` (Reject is `max-md:hidden`), `lib/inbox/actions.ts:176`, `lib/settings/roles.ts:14-23`.
 - **Affects:** owner, admin, member.
 - **Fix:** Banner: "Waiting for your approval. Approve it, or send it back with a note." Toast: "It goes live once someone with publishing rights approves it." On a phone, show Reject as a second `InlineAction` in the shared ActionBar, or name it as "⋯ › Reject".
-- **Slice:** R01
+- **Slice:** R01a
 
 #### INB-16 · Composer controls push the text box down and guidance looks tappable — P2 · RC-FORMS
 - **Screen:** `03 - Inbox/01 - Review detail/screen-01.webp`, `03 - Inbox/01 - Review detail/screen-03.webp`, `desktop/inbox.webp`, `desktop/inbox-selected--review.webp`
@@ -473,9 +473,9 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Fix:** On a phone, put the menu picker on its own full-width row (`basis-full` below `sm`), or make the title the switcher ("Lunch menu ⌄" as a `Select` opening a bottom sheet) with "New menu" as its last row. Make Edit/Preview a `SegmentedControl` on its own row. Set a minimum width on the trigger.
 - **Slice:** L07
 
-#### LST-04 · The editor save bar shows three equal buttons on a phone and an idle bar on desk — P1 · RC-ACTIONBAR
+#### LST-04 · The editor save bar shows three equal-width buttons on two rows on a phone, and an idle bar on desk — P1 · RC-ACTIONBAR
 - **Screen:** `04 - Listings/01 - Editing the profile/screen-02.webp`, `04 - Listings/02 - Editing hours/screen-02,05,06.webp`, `04 - Listings/03 - Editing the menu/screen-02..04,06.webp`, `desktop/listings--loc--hours.webp`
-- **Problem:** On a phone "Discard | Save here | Review changes" sit at equal weight under a status line, so the bar is about 100px tall (two rows, about 12% of an 844px screen). After "Save here" the bar stays with Discard and Save here disabled (`02 - Editing hours/screen-06`). On desk, a clean editor shows a floating dark bar 12px above the bottom edge that covers the Tuesday row, holding "These hours match Google." and three disabled buttons. The spec says a clean editor shows no bar, bars are inline on desk, and a bar has one primary with the rest in an overflow. Three greyed-out buttons with no reason also suggest the operator lacks permission.
+- **Problem:** On a phone "Discard | Save here | Review changes" sit as three equal-width buttons (`max-md:grow`; Review changes is the green primary, the other two ghost) under a status line, so the bar is about 100px tall (two rows, about 12% of an 844px screen). After "Save here" the bar stays with Discard and Save here disabled (`02 - Editing hours/screen-06`). On desk, a clean editor shows a floating dark bar 12px above the bottom edge that covers the Tuesday row, holding "These hours match Google." and three disabled buttons. The spec says a clean editor shows no bar, bars are inline on desk, and a bar has one primary with the rest in an overflow. Three greyed-out buttons with no reason also suggest the operator lacks permission.
 - **Evidence:** `04 - Listings/02 - Editing hours/screen-06`; `desktop/listings--loc--hours.webp` (bar covers the second day row while the hours are clean). `components/editors/editor-footer.tsx:209-243` uses the legacy free-form `actions` prop; the comment at `:172-177` admits two rows; the idle bar is kept on desk on purpose at `:160-165` (`idle ? "max-md:hidden"`). `components/editors/editor-frame.tsx:148` makes it sticky from `md` (`md:[@media(min-height:620px)]:sticky md:[@media(min-height:620px)]:bottom-3`). The `ActionBar` contract is at `components/ui/action-bar.tsx:36-60`.
 - **Affects:** owner, admin; on desk every listing editor (profile, hours, menu, booking) shows the idle bar to member as well.
 - **Fix:** In `EditorFooter`, render nothing when `idle` at every width (the area header's `StatusPill` already states the sync state). When dirty, use `ActionBar` with `primary={<Button>Review changes</Button>}` and `secondaryActions=[{label:"Save here"}, {label:"Discard edits", destructive:true}]`, inline at the end of the form on desk and one row with a "More actions" overflow on a phone. Hide disabled secondaries instead of greying them. Files: `components/editors/editor-footer.tsx`, `components/editors/editor-frame.tsx`.
@@ -557,7 +557,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 
 #### LST-14 · Seven area routes wait for a client fetch after hydration, and the header remounts on every area switch — P1 · RC-PERF
 - **Screen:** all area screens. The visible symptom is the `loading` skeleton on each area change (not capturable under `next dev`, per README).
-- **Problem:** Hours, photos and posts stream their Google read from the server (`StreamedTab`). Profile, menu, booking, people, verification, suggestions and changes only prefetch the summary, so their main data (`useProfile`, `useFoodMenus`, …) starts fetching after the client bundle hydrates. The code itself documents that `AreaFrame` remounts on each area switch. Code evidence only; numbers are to come from the separate perf run.
+- **Problem:** Hours, photos and posts stream their Google read from the server (`StreamedTab`). Profile, menu, booking, people, verification, suggestions and changes only prefetch the summary, so their main data (`useProfile`, `useFoodMenus`, …) starts fetching after the client bundle hydrates. The code itself documents that `AreaFrame` remounts on each area switch. Code evidence: perf-lab's default route list does not visit these seven areas, so the committed baseline has no paint figures for them; `baseline/route-js.md` shows `/listings/[id]/profile` with the largest first-load JS union of any route (543.7KB gzip, an upper bound, against 513.0KB for `/inbox`). L16 adds the seven areas to the perf-lab run before changing them.
 - **Evidence:** pages without `StreamedTab` are `app/(dashboard)/listings/[id]/{profile,menu,booking,people,verification,suggestions,changes}/page.tsx`; with it, `…/{hours,photos,posts}/page.tsx`. Client reads at `components/locations/profile/profile-editor.tsx:179-180` and `components/locations/menu-tab.tsx:38`. The remount gap is noted at `app/(dashboard)/listings/[id]/loading.tsx:10-13`.
 - **Affects:** all roles
 - **Fix:** Give the other seven routes the same `StreamedTab` + `*TabPrefetch` pattern. Move `AreaFrame` into a new `app/(dashboard)/listings/[id]/layout.tsx` so the header survives area switches. Files also include `lib/server/prefetch.ts`.
@@ -566,19 +566,11 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 #### LST-18 · A listing with no hours on Google reports green "In sync", and the hours notice mixes in an unrelated service-metadata warning — P1 · RC-STATES
 - **Screen:** `04 - Listings/02 - Editing hours/screen-01.webp`; `desktop/listings.webp`, `desktop/listings--loc.webp`, `desktop/listings--loc--hours.webp`
 - **Problem:** Stub location ffb14793 shows Health "In sync" on the Listings board, "Opening hours · In sync" on its Overview card, and an "In sync with Google" pill plus "These hours match Google." on the Hours page. The same page then warns "Google has no opening hours for this listing. Customers see 'Hours not available'." The green state is technically true (both sides are empty) but tells the operator nothing needs doing, so the board's "Worst first" sort and the "Needs attention" chip never surface a listing that customers see without hours. The notice also adds "Google service-type metadata could not be loaded. Existing services are preserved; adding services is unavailable until the lookup succeeds", a lookup failure about services, not hours, in developer language. The same strings show on a phone.
-- **Evidence:** `04 - Listings/02 - Editing hours/screen-01.webp`; `desktop/listings--loc--hours.webp`. `lib/server/hours.ts:190-193` (server-authored message at `:192`); `lib/editors/hours-notes.ts:45-52` (information-only, tone `"info"`, never feeds status; service note at `:49`); the footer hint is chosen only from `hours.status === "in_sync"` at `components/locations/hours-tab.tsx:454-457`, notice at `:114-160`. Neither `lib/listings/health.ts` nor `lib/listings/area-state.ts` checks for missing hours.
+- **Evidence:** `04 - Listings/02 - Editing hours/screen-01.webp`; `desktop/listings--loc--hours.webp`. `lib/server/hours.ts:190-193` (server-authored message at `:192`); `lib/editors/hours-notes.ts:45-52` (information-only, tone `"info"`, never feeds status; the "no opening hours" note at `:49`; the service-metadata note comes through the warnings loop at `:65-75`); the footer hint is chosen only from `hours.status === "in_sync"` at `components/locations/hours-tab.tsx:454-457`, notice at `:114-160`. Neither `lib/listings/health.ts` nor `lib/listings/area-state.ts` checks for missing hours.
 - **Affects:** all roles; owner, admin and member for agency triage on the Listings board.
-- **Fix:** Add a "No hours on Google" state with attention tone in `lib/listings/area-state.ts`, roll it up into listing health in `lib/listings/health.ts` so the board's "Needs attention" chip counts it, and show the pill as "No hours on Google" (warning tone), not "In sync". Use the footer hint "Google shows no hours yet" instead of "match". Drop the service-metadata note from the hours page, or show it only where services are edited, mapped in `hours-notes.ts` to plain copy ("Some service options couldn't load; try again later. Your existing services are safe."). Use `components/ui/alert.tsx` with one note per alert.
-- **Slice:** L05
+- **Fix:** Add a "No hours on Google" state with attention tone in `lib/listings/area-state.ts`, roll it up into listing health in `lib/listings/health.ts` so the board's "Needs attention" chip counts it, and show the pill as "No hours on Google" (warning tone), not "In sync". Use the footer hint "Google shows no hours yet" instead of "match". Drop the service-metadata note from the hours page, or show it only where services are edited, mapped in `hours-notes.ts` to plain copy ("Some service options couldn't load; try again later. Your existing services are safe."). Use `components/ui/alert.tsx` with one note per alert. Needs an owner decision before Phase 2 for the health roll-up only: the listing summary stores only hashes for hours (`lib/server/location-summary.ts:109-156`), so the board and client health (`lib/server/clients.ts:280`) need a server summary field and a contract change; the copy, hint and note fixes are client-only.
+- **Slice:** L05, L18
 - **Merged:** DSK-03, DSK-16 (hours and service-metadata part)
-
-#### DSK-01 · Listing area tabs overflow at 1280, which hides "Suggestions" and "Review & publish" — P1 · RC-NAVSTRIP
-- **Screen:** `desktop/listings--loc.webp`, `desktop/listings--loc--hours.webp`, `desktop/listings--loc--profile.webp`, `desktop/listings--loc--posts.webp`, `desktop/listings--loc--menu.webp`
-- **Problem:** The area tab row holds 11 items but has only about 975px. The row ends in a fade, so "Suggestions" is cut to "Sugges" and "Review & publish", the last tab, is entirely off-screen. The scrollbar is hidden and there are no scroll buttons, so a mouse user without a horizontal wheel cannot reach the tab that carries the changes-to-publish count. The spec rule "never truncate a label" is broken at desk width.
-- **Evidence:** All five captures show "Sugges" clipped at the right edge. The row is `hidden lg:block` (`components/listings/area-frame.tsx:139-152`). `TabNav` hides the scrollbar and relies on a mask fade (`components/ui/tabs.tsx:39-48`). "Review & publish" is added last (`lib/listings/area-nav.ts:121-122`).
-- **Affects:** owner, admin, member (anyone editing or publishing a listing).
-- **Fix:** Give `TabNav` a desk overflow mode: either wrap from `lg`, or keep as many tabs as fit and move the rest into a "More ▾" `DropdownMenu`. Move "Review & publish (n)" out of the strip into the `ListingAreaHeader` actions as a button beside Activity so it is always visible. On Overview the area cards already list every area, so the strip could start at the first area. Files: `components/ui/tabs.tsx`, `components/listings/area-frame.tsx`, `lib/listings/area-nav.ts`.
-- **Slice:** L03, P04
 
 #### LST-15 · The photo upload sheet contradicts itself and is not named like its entry button — P2 · RC-COPY
 - **Screen:** `04 - Listings/04 - Managing photos/screen-01.webp` ("Add photos"), `04 - Listings/04 - Managing photos/screen-03.webp` ("Add media")
@@ -693,6 +685,14 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Fix:** Use "booking link" throughout. Collapse the process copy into the reviewed-write steps (LST-10). Show expiry only when it is within the next hour. Files: `booking-tab.tsx`, `components/locations/place-actions/*`.
 - **Slice:** L08
 
+#### DSK-01 · Listing area tabs overflow at 1280, which hides "Suggestions" and "Review & publish" — P2 · RC-NAVSTRIP
+- **Screen:** `desktop/listings--loc.webp`, `desktop/listings--loc--hours.webp`, `desktop/listings--loc--profile.webp`, `desktop/listings--loc--posts.webp`, `desktop/listings--loc--menu.webp`
+- **Problem:** The area tab row holds 11 items but has only about 975px. The row ends in a fade, so "Suggestions" is cut to "Sugges" and "Review & publish", the last tab, is entirely off-screen. The scrollbar is hidden and there are no scroll buttons, so a mouse user without a horizontal wheel cannot reach the tab that carries the changes-to-publish count from the strip; it stays reachable through the header's "…" overflow (Review & publish), which is why this is P2. The spec rule "never truncate a label" is broken at desk width.
+- **Evidence:** All five captures show "Sugges" clipped at the right edge. The row is `hidden lg:block` (`components/listings/area-frame.tsx:139-152`). `TabNav` hides the scrollbar and relies on a mask fade (`components/ui/tabs.tsx:39-48`). "Review & publish" is added last (`lib/listings/area-nav.ts:121-122`).
+- **Affects:** owner, admin, member (anyone editing or publishing a listing).
+- **Fix:** Give `TabNav` a desk overflow mode: either wrap from `lg`, or keep as many tabs as fit and move the rest into a "More ▾" `DropdownMenu`. Move "Review & publish (n)" out of the strip into the `ListingAreaHeader` actions as a button beside Activity so it is always visible. On Overview the area cards already list every area, so the strip could start at the first area. Files: `components/ui/tabs.tsx`, `components/listings/area-frame.tsx`, `lib/listings/area-nav.ts`.
+- **Slice:** L03, P04
+
 #### DSK-05 · Listing pages repeat the same place four times while the breadcrumb trail is cut to stubs — P2 · RC-APPBAR
 - **Screen:** `desktop/listings--loc.webp`, `desktop/listings--loc--hours.webp`, `desktop/listings--loc--profile.webp`, `desktop/listings--loc--menu.webp`
 - **Problem:** On the listing Overview, "Journey Hospitality" appears in the breadcrumb, the health chip ("Journey Hospitality: Partially checked"), the switcher above the h1 and the sidebar. On area pages the trail is cut to "Listi… / Journey Hospit… / Stub location ffb1… / Opening hou…" even though there is free space, because the health chip refuses to shrink. Directly below, the eyebrow, switcher and h1 spell out the same trail in full. The code comment says crumbs were dropped below `wide` because they "repeated the eyebrow and the h1 below it", and at `wide` they still do.
@@ -779,7 +779,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `06 - Reports/screen-01.webp`; `components/performance/performance-view.tsx:233-295` (page reads `?clientId=` at `:119-121,249-258`); `components/reporting/report-toolbar.tsx:80-158` (sheet of Selects at `:141-157`); `components/performance/scope-select.tsx:62-81`; `components/app-shell/scope-sheet-model.tsx:42,78-85` (switcher treats `/reports` as a scoped path)
 - **Affects:** owner, admin, member, viewer (agency). In business mode the pill still holds Location and Period.
 - **Fix:** Make the app-bar chip (`ClientScopeChip` and the scope sheet, which already pushes to locations) the only client/location scope on a phone. Replace the page pill with the period alone, as a `ChipRow`/`ToggleChip` strip or `SegmentedControl` (`components/ui/chip.tsx`, `components/ui/segmented-control.tsx`) under the tabs, so the period is one tap. Keep the inline fields from `md`.
-- **Slice:** R12, P05
+- **Slice:** R12a, P05
 
 #### CLR-02 · On the Google and Keywords tabs, the figures sit below a screen of chrome and notices — P1 · RC-DENSITY
 - **Screen:** `06 - Reports/screen-03.webp`, `06 - Reports/screen-04.webp`
@@ -787,7 +787,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `06 - Reports/screen-03.webp`, `screen-04.webp`; `app/(dashboard)/reports/page.tsx:21-26`; `components/performance/google-performance-tab.tsx:63-84,205-221`; `components/performance/keywords-tab.tsx:61-84,127-136`; `components/reporting/presence-provenance.tsx:102-126`
 - **Affects:** all roles. Refresh is shown to owner/admin only, so their view is longest.
 - **Fix:** On a phone, hide the page description below `md`. Fold provenance into one caption line ("Through 14 Oct · 1 of 2 locations") with an info button that opens a `Sheet` for the detail. Move Refresh into an overflow menu (`DropdownMenu`, which becomes an action sheet on a phone). Collapse `PartialCoverageAlert` to a one-line `Alert` with "Details". Put "How Google counts these" as a footnote under `KeywordsTable`. Move CSV under the tiles.
-- **Slice:** R12
+- **Slice:** R12a
 
 #### CLR-13 · The hub says "Needs attention" and "Review checks are up to date" together — P1 · RC-COPY
 - **Screen:** client hub, visible behind the share sheet in `06 - Reports/01 - Sharing a report/screen-01.webp`
@@ -795,14 +795,6 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `06 - Reports/01 - Sharing a report/screen-01.webp`; `components/clients/client-hub.tsx:236-245`; `lib/clients/health.ts:513-529`
 - **Affects:** owner, admin, member, viewer (agency)
 - **Fix:** Fall back to `healthDescription("attention")` when `freshness.reason` is null. Better, name the listing or area that caused it, with a link.
-- **Slice:** R15
-
-#### CLR-14 · Four stacked header actions on the hub, indented under the avatar — P1 · RC-ACTIONBAR
-- **Screen:** `07 - Clients/screen-05.webp`
-- **Problem:** Report, Share report, Settings (bordered) and Open inbox (primary) take four rows of the first screen. They are inset by the avatar column because `PageHeader` sits inside the avatar's flex row, so the primary is narrower than the page. The design-system spec allows "one primary action, the rest in an overflow" and "at most two actions" in the app bar.
-- **Evidence:** `07 - Clients/screen-05.webp`; `components/clients/client-hub.tsx:152-218,224-261`
-- **Affects:** owner, admin. Member and viewer see Open inbox and Report only.
-- **Fix:** Make Open inbox full-width under the header, outside the avatar row. Put Report, Share report and Settings in one "More" `DropdownMenu`, which is an action sheet on a phone, or in the app bar's trailing slot through `PageChrome`.
 - **Slice:** R15
 
 #### CLR-16 · New client and client Details: the save bar is inline mid-page, the tab bar stays, and New client has no leave guard — P1 · RC-ACTIONBAR
@@ -840,7 +832,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `06 - Reports/screen-03.webp`; `components/reporting/presence-provenance.tsx:84-125`; `lib/server/presence-report.ts:229-247`
 - **Affects:** all roles
 - **Fix:** Derive one disjoint status per location on the server (has data / waiting for first fetch / refresh failed / stale), so the counts add up to `eligible`. Say it once in plain words ("Figures up to 14 Oct. 1 location hasn't sent figures yet."), and name that location only in the expandable detail. Needs an owner decision before Phase 2: a server-side disjoint status per location.
-- **Slice:** R12
+- **Slice:** R12b
 
 #### CLR-04 · The bar charts read wrong at a glance and their bars are about 10px tap targets — P2 · RC-CHART
 - **Screen:** `06 - Reports/screen-02.webp`, `06 - Reports/01 - Sharing a report/screen-04.webp`
@@ -859,7 +851,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
   - "Behind it: stub@example.test" for the connected Google login.
   - "Review import · Not started · Start the import", with no explanation of what is imported.
   - "Failed publishes".
-  
+
   The same strings show on a phone.
 - **Evidence:** `components/reporting/delta-badge.tsx:28-33`; `components/reporting/reply-figures.tsx:88-95,280-282`; `components/reporting/presence-provenance.tsx:84-86`; `components/performance/keywords-tab.tsx:65-67`; `components/clients/client-hub.tsx:404-407` ("Behind it"), `:302-308`, `:697-739` (Review import at `:702`, "Start the import" at `:738`)
 - **Affects:** all roles
@@ -905,7 +897,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `06 - Reports/screen-01.webp`; `components/performance/performance-view.tsx:140,286-294`; `components/clients/share-report-dialog.tsx:127-151`
 - **Affects:** owner, admin (agency)
 - **Fix:** With all clients in scope, show "Share a client's report" in the overflow menu. It should open the shared `Sheet` with a client list (the scope sheet's client rows), then the share step.
-- **Slice:** R12
+- **Slice:** R12a
 
 #### CLR-11 · The share sheet's actions don't follow the sheet footer pattern, and its rows are hand-built — P2 · RC-SHEET
 - **Screen:** `06 - Reports/01 - Sharing a report/screen-01.webp`, `06 - Reports/01 - Sharing a report/screen-02.webp`
@@ -922,6 +914,14 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Affects:** external recipients (no role)
 - **Fix:** Lead with the name and the period tabs. Move Venues, Prepared by and Generated to the footer, or into one caption line. Add `#main` (or a period-specific anchor) to the period links so the reload returns to the figures.
 - **Slice:** R14
+
+#### CLR-14 · Four stacked header actions on the hub, indented under the avatar — P2 · RC-ACTIONBAR
+- **Screen:** `07 - Clients/screen-05.webp`
+- **Problem:** Report, Share report, Settings (bordered) and Open inbox (primary) take four rows of the first screen. They are inset by the avatar column because `PageHeader` sits inside the avatar's flex row, so the primary is narrower than the page. The design-system spec allows "one primary action, the rest in an overflow" and "at most two actions" in the app bar.
+- **Evidence:** `07 - Clients/screen-05.webp`; `components/clients/client-hub.tsx:152-218,224-261`
+- **Affects:** owner, admin. Member and viewer see Open inbox and Report only.
+- **Fix:** Make Open inbox full-width under the header, outside the avatar row. Put Report, Share report and Settings in one "More" `DropdownMenu`, which is an action sheet on a phone, or in the app bar's trailing slot through `PageChrome`.
+- **Slice:** R15
 
 #### CLR-15 · Hub density: a duplicate count and a pill on every row even when all is well — P2 · RC-LISTROW
 - **Screen:** `07 - Clients/screen-06.webp`
@@ -949,7 +949,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 
 #### CLR-21 · Client settings: a second back button, and chevron rows that only jump down the page — P2 · RC-APPBAR
 - **Screen:** `07 - Clients/screen-07.webp`
-- **Problem:** The app bar already has "‹ Journey Hospital…", and the page adds a full-width "Back to Journey Hospitality" button. The phone index (Details / Listings / Archive, with chevrons) uses `GroupedListItem href="#…"`. Chevrons promise a pushed screen, but these rows scroll to sections that start right under them. The design-system spec's phone pattern for settings is an index that pushes.
+- **Problem:** The app bar already has "‹ Journey Hospital…", and the page adds a full-width "Back to Journey Hospitality" button. The phone index (Details / Listings / Archive, with chevrons) uses `GroupedListItem href="#…"`. Chevrons promise a pushed screen, but these rows scroll to sections that start right under them. The design-system spec's phone pattern for settings is an index that pushes. The same "second back button" defect exists in the Settings shell (SET-04).
 - **Evidence:** `07 - Clients/screen-07.webp`; `components/clients/client-settings.tsx:162-185,338-350`
 - **Affects:** owner, admin
 - **Fix:** Remove the in-page Back button below `md`. Either drop the anchor index on a phone and let the sections stack, or make each one a pushed sub-route with a labelled back, as `/settings` does.
@@ -969,7 +969,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `06 - Reports/screen-03.webp`, `screen-04.webp`; `components/performance/performance-view.tsx:52-60,149-159`; `lib/reporting/ranges.ts`
 - **Affects:** all roles
 - **Fix:** Map the period to the nearest equivalent (28 days → last full month) and show a one-line caption ("Keywords count whole months: showing the last 6 months"). Remember each tab's last choice in the URL (`?range_kw=`).
-- **Slice:** R12
+- **Slice:** R12a
 
 #### DSK-10 · The client page shows its listings as phone record cards at 1280 — P2 · RC-LISTROW
 - **Screen:** `desktop/clients--client.webp` (compare `desktop/listings.webp`)
@@ -1002,7 +1002,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 | `components/clients/share-report-dialog.tsx:543-585` (hand-built `ul` of links) | `components/ui/list-row.tsx` (`ListRow interactive={false}` with a trailing action) | R14 |
 | `components/clients/client-hub.tsx:684-766` (`ImportCard`/`ImportRow` status list) | `components/ui/settings-row.tsx` (`SettingsGroup`/`SettingsRow` with value) | R15 |
 | `components/clients/client-hub.tsx:152-218` (four header buttons) | `components/ui/action-bar.tsx` secondary-actions overflow, or `components/ui/dropdown-menu.tsx` | R15 |
-| `components/reporting/report-toolbar.tsx:80-158` (a second scope pill and sheet) | `components/app-shell/scope-sheet.tsx` (client/location) plus `components/ui/chip.tsx` `ChipRow` or `components/ui/segmented-control.tsx` (period) | R12, P05 |
+| `components/reporting/report-toolbar.tsx:80-158` (a second scope pill and sheet) | `components/app-shell/scope-sheet.tsx` (client/location) plus `components/ui/chip.tsx` `ChipRow` or `components/ui/segmented-control.tsx` (period) | R12a, P05 |
 | `components/performance/google-performance-tab.tsx:95-98` and `components/performance/keywords-tab.tsx:116-118` (generic `QueryPending` rows) | `components/reporting/reports-skeleton.tsx` (add tab variants) built on `components/ui/skeleton.tsx` | R13 |
 | `components/clients/clients-index.tsx:723-733` (an inline link nested in a tappable record card) | the `trailing` slot of `components/ui/list-row.tsx` / `DataTable` | R16 |
 | `components/share/shared-client-report.tsx:148-162` (anchor tabs styled with `textTabItemClassName`; its comment justifies it, no prefetch on a view-counted page, so this is acceptable) | A `TabNav` `prefetch={false}` option in `components/ui/tabs.tsx` would remove the copy | R14 |
@@ -1071,7 +1071,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 
 #### SET-04 · The Settings back control appears twice, and the in-page copy sits below the page actions — P2 · RC-APPBAR
 - **Screen:** `02 - Setting up/01 - Managing Google connections/screen-01.webp`, `10 - Settings/01 - Notification settings/screen-01.webp`, `10 - Settings/02 - Reply policy/screen-01.webp`, `10 - Settings/03 - Checking operations/screen-01.webp`
-- **Problem:** The app bar already shows "‹ Settings" (as the spec requires). Every settings area also draws "‹ All settings" below its header, which costs about 90px above the fold and offers two controls that do the same thing. On Google connections it sits after "Connect another account", between the action and the content.
+- **Problem:** The app bar already shows "‹ Settings" (as the spec requires). Every settings area also draws "‹ All settings" below its header, which costs about 90px above the fold and offers two controls that do the same thing. On Google connections it sits after "Connect another account", between the action and the content. Client settings has the same defect (CLR-21).
 - **Evidence:** Screens above; `components/settings/settings-nav.tsx:67-73` (`md:hidden` link); `components/app-shell/page-frame.tsx:121-127` (actions render before `tabs`); `components/app-shell/app-bar.tsx:34-85` (ShellBackLink); spec `mobile-first-design-system.md:134-135`; `app/(dashboard)/settings/loading.tsx` (skeleton reserves the link).
 - **Affects:** all roles (owner/admin for Connections and Operations)
 - **Fix:** Delete the phone "All settings" link and rely on `ShellBackLink`. Keep `TabNav` for md and up. Update the `settings/loading.tsx` skeleton to match.
@@ -1182,7 +1182,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `components/auth/invitation-view.tsx:42-60`; `app/api/invitations/[token]/route.ts:28-49` (returns `organisationName`, `email`, `expired`; no role).
 - **Affects:** invitees of every role
 - **Fix:** Add `role` and `expiresAt` to the lookup response. Show a `SettingsRow` reading "Role: Member. Drafts replies…" from `roleDescriptions` (once SET-01 is fixed), plus "Link expires on …". Needs an owner decision before Phase 2: the invitation lookup would return role and expiry to anyone holding the token.
-- **Slice:** P19
+- **Slice:** P19b
 
 #### SET-18 · Password forms ask for confirmation even though there is a reveal toggle, and they use composition rules — P2 · RC-FORMS
 - **Screen:** `01 - Signing in/screen-04.webp`, `01 - Signing in/02 - Accepting an invite/screen-02.webp`
@@ -1190,7 +1190,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `components/auth/sign-in-form.tsx:240-251,459-469`; `components/auth/reset-password-form.tsx:28,112-114`; `components/auth/password-requirements.tsx:13-18`; `components/auth/password-field.tsx` (reveal toggle).
 - **Affects:** every new user (all roles)
 - **Fix:** Remove the confirm field and keep the reveal toggle and the length rule. Whether to drop the character-class rules is a security-lane decision, and whether a server-side breached-password check exists is unverified. Needs an owner decision before Phase 2: password rules are a security decision.
-- **Slice:** P19
+- **Slice:** P19b
 
 #### SET-19 · Access-denied page: "403" is shown to users, the primary button goes to Inbox, and the access request is below the fold — P2 · RC-STATES
 - **Screen:** `11 - Empty, loading & error states/02 - Permission denied/screen-01.webp`, `screen-02.webp`
@@ -1230,7 +1230,7 @@ Peak and latest labels collide, 28 daily bars give about 10px tap targets, and a
 - **Evidence:** `lib/api/auth-errors.ts:34-41`, `:64-66`; `components/auth/forgot-password-form.tsx:188`; `components/auth/*-form.tsx`.
 - **Affects:** all users
 - **Fix:** Pass a surface ("sign-in", "reset", "invite") into the mapper and title it accordingly ("Password reset is temporarily unavailable."). Use "Sign in to continue." for the already-used invitation.
-- **Slice:** P19
+- **Slice:** P19a
 
 #### SET-24 · Disconnecting by typing an email opens a keyboard with no @ key, and the consequences are repeated — P2 · RC-FORMS
 - **Screen:** `02 - Setting up/01 - Managing Google connections/screen-03.webp`

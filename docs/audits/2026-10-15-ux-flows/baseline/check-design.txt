@@ -13,4 +13,3 @@ components/locations       ·     ·     1     ·     ·     ·     ·      1
 components/settings        ·     1     ·     ·     ·     ·     ·      1
 lib/hooks                  ·     ·     ·     ·     1     ·     ·      1
 total                     12     9    54    12     1     2    16    106
-

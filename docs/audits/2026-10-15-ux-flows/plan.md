@@ -15,6 +15,7 @@ The fixes for [findings.md](findings.md), grouped into independent slices. One s
   - Stage 3: slices waiting on an owner decision.
   - Stage 4: larger or optional work.
 - **Impact** (H 3, M 2, L 1) weighs severity, reach and frequency. **Effort** (S 1, M 2, L 3) is the size of one PR. **Score** = impact ÷ effort.
+- **Shared files in flow slices:** some flow slices touch a shared file: `components/ui/stepper.tsx` (L13, R18), `components/ui/selection-bar.tsx` (R09), `components/ui/toolbar.tsx` and `app/globals.css` (R10), `components/ui/publish-steps.tsx` (L11), `components/app-shell/context-health-chip.tsx` (L03), `components/app-shell/tab-bar.tsx` and `lib/navigation/destinations.ts` (L17), and `components/app-shell/use-needs-reply-count.ts` (R07, R03). Those PRs need a Platform review, and they merge after any earlier slice that edits the same file (listed in **Depends on**).
 - **Closes** lists finding IDs from findings.md. A finding with two slices (for example `DSK-01 L03, P04`) is closed by the first, once the second has landed.
 
 ## Gates for every slice (G)
@@ -45,7 +46,8 @@ Behaviour and permissions stay identical unless the slice says otherwise. No bac
 | D8 | Return role and expiry from the invitation lookup | P19b |
 | D9 | Password rules: drop "confirm password" and decide on character-class rules (security decision) | P19b |
 | D10 | Which help and feedback channel to link (email, form or help centre) | P21 |
-| D11 | Enable billing in the fixture so `/settings/billing` can be measured | P22 |
+| D11 | Enable billing in the fixture so the enabled `/settings/billing` page can be measured (the disabled-route fix in P22 does not need it) | P22 (measurement only) |
+| D12 | Add a "no hours on Google" field to the server listing summary and count it in listing and client health (`lib/server/location-summary.ts`, `lib/server/clients.ts`; contract change, no schema change) | L18 |
 
 ## Order
 
@@ -58,85 +60,128 @@ Behaviour and permissions stay identical unless the slice says otherwise. No bac
 | 5 | L02 Activity labels in words | Listings | 1 | LST-02 | M | S | 2 | none |
 | 6 | R04 Role-aware connection actions | Reviews | 1 | INB-06 | M | S | 2 | none |
 | 7 | R02 Read-only reply while awaiting approval | Reviews | 1 | INB-04 | M | S | 2 | none |
-| 8 | P05 Phone app bar and scope chip | Platform | 1 | SET-07, SET-08 | H | M | 1.5 | none |
-| 9 | P04 Navigation-strip primitives | Platform | 1 | MEA-03 (+ primitives for DSK-01, INB-11, CLR-19) | H | M | 1.5 | none |
-| 10 | P03 One overlay anatomy | Platform | 1 | SET-13 | M | M | 1 | none |
-| 11 | P07 Feedback primitives | Platform | 1 | INB-24 | M | S | 2 | none |
-| 12 | P08 State primitives and system pages | Platform | 1 | SET-19, SET-20 (+ part of SET-09) | M | S | 2 | none |
-| 13 | P09 Form primitives | Platform | 1 | SET-24, DSK-18 | L | S | 1 | none |
-| 14 | P11 Shared vocabulary helpers | Platform | 1 | (helpers for CLR-06, LST-17, LST-19) | M | S | 2 | none |
-| 15 | P10 ListRow trailing and swipe actions | Platform | 1 | (primitive for INB-08) | M | M | 1 | none |
-| 16 | P06 Desk navigation | Platform | 1 | DSK-07, DSK-08, DSK-09 | M | M | 1 | none |
-| 17 | L12 Verification page in plain words | Listings | 1 | LST-09 | M | S | 2 | none |
-| 18 | L11 Publish failure and read-only views | Listings | 1 | LST-13, LST-27 | M | S | 2 | none |
-| 19 | R18 Client setup connect step | Reviews | 1 | CLR-18, SET-12 | M | S | 2 | none |
-| 20 | R15 Client hub | Reviews | 1 | CLR-13, CLR-14, CLR-15, CLR-05, DSK-10 | H | M | 1.5 | none (CLR-06 wording after P11) |
-| 21 | R17 Client forms and settings | Reviews | 1 | CLR-16, CLR-17, CLR-21, CLR-22 | M | M | 1 | none |
-| 22 | P13 Invite and role sheets | Platform | 1 | SET-01, SET-03, SET-14 | H | M | 1.5 | none |
-| 23 | L03 Listing area header | Listings | 2 | LST-06, DSK-01, DSK-05, DSK-06, LST-21, DSK-15 | H | M | 1.5 | P04, P05 |
-| 24 | L05 Hours states and formats | Listings | 2 | LST-18, LST-17, LST-19, LST-29 | H | S | 3 | P11 |
-| 25 | R07 Inbox filters and counts | Reviews | 2 | INB-10, INB-11, INB-12 | M | M | 1 | P04 |
-| 26 | R05 One client scope in Inbox | Reviews | 2 | INB-07 | H | S | 3 | P05 |
-| 27 | R12a Reports scope, period and density | Reviews | 2 | CLR-01, CLR-02, CLR-10, CLR-24 | H | M | 1.5 | P05, P04 |
-| 28 | R16 Clients index and health filters | Reviews | 2 | CLR-19, CLR-20, DSK-11 | H | S | 3 | P04 |
-| 29 | L04 Listings board and overview | Listings | 2 | LST-07, LST-23 (+ one-item overflow from SET-13) | H | S | 3 | P03, P04 |
-| 30 | P12 Team list as rows | Platform | 2 | SET-02, SET-10, SET-09 | H | M | 1.5 | P08 |
-| 31 | P14 Notification settings | Platform | 2 | SET-05, SET-06, SET-29 | M | M | 1 | P03, P07 |
-| 32 | R08 Review detail and composer | Reviews | 2 | INB-13, INB-16, INB-14, DSK-22 | M | M | 1 | P05 |
-| 33 | R06a Triage from the review | Reviews | 2 | INB-08 | H | M | 1.5 | P10 |
-| 34 | R09 Inbox list chrome and first load | Reviews | 2 | INB-23, INB-17, INB-18, INB-22, DSK-12 | M | M | 1 | P07 |
-| 35 | R11 Notifications page | Reviews | 2 | INB-21 | L | S | 1 | P07 |
-| 36 | L08 Booking links on the reviewed-write sheet | Listings | 2 | LST-10, LST-31 (+ single-type picker from SET-13) | M | M | 1 | P03 |
-| 37 | L06 Hours day rows | Listings | 2 | LST-16 | M | M | 1 | P03, L05 |
-| 38 | L07 Menu editor | Listings | 2 | LST-03, LST-20 | M | S | 2 | P04 |
-| 39 | L09 Posts copy and empty state | Listings | 2 | LST-24, LST-25, DSK-14 | L | S | 1 | none |
-| 40 | L13 Invitations on one sheet | Listings | 2 | LST-26 | L | S | 1 | P03 |
-| 41 | L15 Photos sheet | Listings | 2 | LST-15 | L | S | 1 | none |
-| 42 | L16 Area data streaming | Listings | 2 | LST-14, MEA-04 | M | M | 1 | L03 |
-| 43 | L17 Calendar off state | Listings | 2 | LST-28 | L | S | 1 | P06 |
-| 44 | R13 Reports charts, loading and refresh | Reviews | 2 | CLR-04, CLR-08, CLR-09, CLR-07 | M | M | 1 | none (D7 for the refresh label) |
-| 45 | R14 Share sheet and public report | Reviews | 2 | CLR-11, CLR-12 | L | S | 1 | P03 |
-| 46 | P15 Settings shell | Platform | 2 | SET-04, SET-11, SET-26 | M | S | 2 | P05 |
-| 47 | P16 Reply policy | Platform | 2 | SET-15, SET-16 | L | S | 1 | none |
-| 48 | P17 Google connections page | Platform | 2 | SET-25, SET-28 | L | S | 1 | P05, P09 |
-| 49 | P18 Operations page | Platform | 2 | SET-21, SET-30 | L | S | 1 | none |
-| 50 | P20 Settings and Team server prefetch | Platform | 2 | SET-22 | M | M | 1 | P12, P14 |
-| 51 | P19a Sign-in error copy | Platform | 2 | SET-23 | L | S | 1 | none |
-| 52 | R01b Two-person approval wording | Reviews | 3 | INB-02, INB-03 | H | M | 1.5 | D1, R01a |
-| 53 | R06b Undo for "No reply needed" | Reviews | 3 | INB-09 | M | M | 1 | D3, R06a, P07 |
-| 54 | R03 Approver signals | Reviews | 3 | INB-05 | H | M | 1.5 | D2 for the notification half |
-| 55 | L10 Publish from the post composer, with a photo | Listings | 3 | LST-11, LST-12 | H | L | 1 | D4, P02 |
-| 56 | R12b One status per location | Reviews | 3 | CLR-03 | M | M | 1 | D6, R12a |
-| 57 | P19b Invitation role, password form | Platform | 3 | SET-17, SET-18 | M | M | 1 | D8, D9 |
-| 58 | P21 Help and feedback entry | Platform | 3 | SET-27 | L | S | 1 | D10 |
-| 59 | L14 One write path for the profile | Listings | 3 | LST-08 | M | L | 0.7 | D5, P02 |
-| 60 | P22 Disabled-route paint time | Platform | 3 | MEA-02 | L | S | 1 | D11 |
-| 61 | R10 Inbox bottom toolbar | Reviews | 4 | INB-19 | M | L | 0.7 | P10, R09 |
-| 62 | P23 Desk quick-look panel | Platform | 4 | DSK-23 | L | L | 0.3 | P03; adoption by R16 and L04 |
+| 8 | P07 Feedback primitives | Platform | 1 | INB-24 | M | S | 2 | none |
+| 9 | P08 State primitives and system pages | Platform | 1 | SET-19, SET-20 (+ part of SET-09) | M | S | 2 | none |
+| 10 | P11 Shared vocabulary helpers | Platform | 1 | (helpers for CLR-06, LST-17, LST-19) | M | S | 2 | none |
+| 11 | L12 Verification page in plain words | Listings | 1 | LST-09 | M | S | 2 | none |
+| 12 | L11 Publish failure and read-only views | Listings | 1 | LST-13, LST-27 | M | S | 2 | none |
+| 13 | R18 Client setup connect step | Reviews | 1 | CLR-18, SET-12 | M | S | 2 | none |
+| 14 | P05 Phone app bar and scope chip | Platform | 1 | SET-07, SET-08 | H | M | 1.5 | none |
+| 15 | P04 Navigation-strip primitives | Platform | 1 | MEA-03 (+ primitives for DSK-01, INB-11, CLR-19) | H | M | 1.5 | none |
+| 16 | R15 Client hub | Reviews | 1 | CLR-13, CLR-14, CLR-15, CLR-05, DSK-10 | H | M | 1.5 | none (CLR-06 wording after P11) |
+| 17 | P13 Invite and role sheets | Platform | 1 | SET-01, SET-03, SET-14 | H | M | 1.5 | none |
+| 18 | P03 One overlay anatomy | Platform | 1 | SET-13 | M | M | 1 | none |
+| 19 | P09 Form primitives | Platform | 1 | SET-24, DSK-18 | L | S | 1 | none |
+| 20 | P10 ListRow trailing and swipe actions | Platform | 1 | (primitive for INB-08) | M | M | 1 | none |
+| 21 | P06 Desk navigation | Platform | 1 | DSK-07, DSK-08, DSK-09 | M | M | 1 | none |
+| 22 | R17 Client forms and settings | Reviews | 1 | CLR-16, CLR-17, CLR-21, CLR-22 | M | M | 1 | none |
+| 23 | L09 Posts copy and empty state | Listings | 1 | LST-24, LST-25, DSK-14 | L | S | 1 | none |
+| 24 | L15 Photos sheet | Listings | 1 | LST-15 | L | S | 1 | none |
+| 25 | R13 Reports charts, loading and refresh | Reviews | 1 | CLR-04, CLR-08, CLR-09, CLR-07 | M | M | 1 | none (D7 only for the refresh label) |
+| 26 | P16 Reply policy | Platform | 1 | SET-15, SET-16 | L | S | 1 | none |
+| 27 | P18 Operations page | Platform | 1 | SET-21, SET-30 | L | S | 1 | none |
+| 28 | P19a Sign-in error copy | Platform | 1 | SET-23 | L | S | 1 | none |
+| 29 | P22 Disabled-route paint time | Platform | 1 | MEA-02 | L | S | 1 | none (D11 only to measure billing enabled) |
+| 30 | L05 Hours states and formats | Listings | 2 | LST-18 (status, hint and note), LST-17, LST-19, LST-29 | H | S | 3 | P11 |
+| 31 | R05 One client scope in Inbox | Reviews | 2 | INB-07 | H | S | 3 | P05 |
+| 32 | R16 Clients index and health filters | Reviews | 2 | CLR-19, CLR-20, DSK-11 | H | S | 3 | P04 |
+| 33 | L04 Listings board and overview | Listings | 2 | LST-07, LST-23 (+ one-item overflow from SET-13) | H | S | 3 | P03, P04 |
+| 34 | L07 Menu editor | Listings | 2 | LST-03, LST-20 | M | S | 2 | P04 |
+| 35 | P15 Settings shell | Platform | 2 | SET-04, SET-11, SET-26 | M | S | 2 | P05 |
+| 36 | L03 Listing area header | Listings | 2 | LST-06, DSK-01, DSK-05, DSK-06, LST-21, DSK-15 | H | M | 1.5 | P04, P05 |
+| 37 | R12a Reports scope, period and density | Reviews | 2 | CLR-01, CLR-02, CLR-10, CLR-24 | H | M | 1.5 | P05, P04 |
+| 38 | P12 Team list as rows | Platform | 2 | SET-02, SET-10, SET-09 | H | M | 1.5 | P08 |
+| 39 | R06a Triage from the review | Reviews | 2 | INB-08 | H | M | 1.5 | P10 |
+| 40 | R07 Inbox filters and counts | Reviews | 2 | INB-10, INB-11, INB-12 | M | M | 1 | P04 |
+| 41 | P14 Notification settings | Platform | 2 | SET-05, SET-06, SET-29 | M | M | 1 | P03, P07 |
+| 42 | R08 Review detail and composer | Reviews | 2 | INB-13, INB-16, INB-14, DSK-22 | M | M | 1 | P05 |
+| 43 | R09 Inbox list chrome and first load | Reviews | 2 | INB-23, INB-17, INB-18, INB-22, DSK-12 | M | M | 1 | P07 |
+| 44 | R11 Notifications page | Reviews | 2 | INB-21 | L | S | 1 | P07 |
+| 45 | L08 Booking links on the reviewed-write sheet | Listings | 2 | LST-10, LST-31 (+ single-type picker from SET-13) | M | M | 1 | P03 |
+| 46 | L06 Hours day rows | Listings | 2 | LST-16 | M | M | 1 | P03, L05 |
+| 47 | L13 Invitations on one sheet | Listings | 2 | LST-26 | L | S | 1 | P03 |
+| 48 | L16 Area data streaming | Listings | 2 | LST-14, MEA-04 | M | M | 1 | L03 |
+| 49 | L17 Calendar off state | Listings | 2 | LST-28 | L | S | 1 | P06, P05, P15 |
+| 50 | R14 Share sheet and public report | Reviews | 2 | CLR-11, CLR-12 | L | S | 1 | P03 |
+| 51 | P17 Google connections page | Platform | 2 | SET-25, SET-28 | L | S | 1 | P05, P09 |
+| 52 | P20 Settings and Team server prefetch | Platform | 2 | SET-22 | M | M | 1 | P12, P14 |
+| 53 | R01b Two-person approval wording | Reviews | 3 | INB-02, INB-03 | H | M | 1.5 | D1, R01a |
+| 54 | R03 Approver signals | Reviews | 3 | INB-05 | H | M | 1.5 | R07; D2 for the notification half |
+| 55 | L18 No-hours state in listing and client health | Listings | 3 | LST-18 (health roll-up) | H | M | 1.5 | D12, L05 |
+| 56 | R06b Undo for "No reply needed" | Reviews | 3 | INB-09 | M | M | 1 | D3, R06a, P07 |
+| 57 | L10 Publish from the post composer, with a photo | Listings | 3 | LST-11, LST-12 | H | L | 1 | D4, P02 |
+| 58 | R12b One status per location | Reviews | 3 | CLR-03 | M | M | 1 | D6, R12a |
+| 59 | P19b Invitation role, password form | Platform | 3 | SET-17, SET-18 | M | M | 1 | D8, D9 |
+| 60 | P21 Help and feedback entry | Platform | 3 | SET-27 | L | S | 1 | D10 |
+| 61 | L14 One write path for the profile | Listings | 3 | LST-08 | M | L | 0.7 | D5, P02 |
+| 62 | R10 Inbox bottom toolbar | Reviews | 4 | INB-19 | M | L | 0.7 | P10, R09 |
+| 63 | P23 Desk quick-look panel | Platform | 4 | DSK-23 | L | L | 0.3 | P03; adoption by R16 and L04 |
 
-Counted by lane: Platform 24 slices, Listings 17, Reviews 21: 62 PRs in all, with R01, R06, R12 and P19 each split in two by decision.
+Counted by lane: Platform 24 slices, Listings 18, Reviews 21: 63 PRs in all, with R01, R06, R12 and P19 each split in two by decision.
 
-```mermaid title="Staging"
+```mermaid title="Staging and dependencies"
 flowchart LR
-  subgraph S0[Stage 0]
-    P01; L01
+  subgraph S0["Stage 0: measure and the P0"]
+    L01; P01
   end
-  subgraph S1[Stage 1: shared components]
-    P02; P03; P04; P05; P06; P07; P08; P09; P10; P11
+  subgraph S1["Stage 1: shared components and independent fixes"]
+    P02; R01a; L02; R04; R02; P07; P08; P11; L12; L11; R18; P05; P04; R15; P13; P03; P09; P10; P06; R17; L09; L15; R13; P16; P18; P19a; P22
   end
-  subgraph S2[Stage 2: flows]
-    L03; L04; L05; L06; L07; L08; R05; R06a; R07; R08; R09; R12a; R16; P12; P14; P15
+  subgraph S2["Stage 2: flows adopting shared components"]
+    L05; R05; R16; L04; L07; P15; L03; R12a; P12; R06a; R07; P14; R08; R09; R11; L08; L06; L13; L16; L17; R14; P17; P20
   end
-  P04 --> L03 & R07 & R12a & R16 & L04 & L07
-  P05 --> L03 & R05 & R08 & R12a & P15 & P17
-  P03 --> L04 & L06 & L08 & L13 & P14 & R14
-  P07 --> R09 & R11 & P14
-  P10 --> R06a
+  subgraph S3["Stage 3: after an owner decision"]
+    R01b; R03; L18; R06b; L10; R12b; P19b; P21; L14
+  end
+  subgraph S4["Stage 4: larger or optional"]
+    R10; P23
+  end
+  P11 --> R15
   P11 --> L05
+  P05 --> R05
+  P04 --> R16
+  P03 --> L04
+  P04 --> L04
+  P04 --> L07
+  P05 --> P15
+  P04 --> L03
+  P05 --> L03
+  P05 --> R12a
+  P04 --> R12a
   P08 --> P12
-  P06 --> L17
+  P10 --> R06a
+  P04 --> R07
+  P03 --> P14
+  P07 --> P14
+  P05 --> R08
+  P07 --> R09
+  P07 --> R11
+  P03 --> L08
+  P03 --> L06
   L05 --> L06
+  P03 --> L13
   L03 --> L16
+  P06 --> L17
+  P05 --> L17
+  P15 --> L17
+  P03 --> R14
+  P05 --> P17
+  P09 --> P17
+  P12 --> P20
+  P14 --> P20
+  R01a --> R01b
+  R07 --> R03
+  L05 --> L18
+  R06a --> R06b
+  P07 --> R06b
+  P02 --> L10
+  R12a --> R12b
+  P02 --> L14
+  P10 --> R10
+  R09 --> R10
+  P03 --> P23
+  R16 --> P23
+  L04 --> P23
 ```
 
 ## Slices
@@ -162,7 +207,7 @@ Each slice lists its files, the expected before → after, and its checks on top
 #### P02 · ActionBar in editors and Review & publish (Platform)
 - **Closes:** LST-04 (incl. the desk idle bar), LST-05
 - **Files:** `components/editors/editor-footer.tsx`, `components/editors/editor-frame.tsx`, `components/listings/review-publish.tsx` (bar only), `components/ui/action-bar.tsx` (only if a gap appears), `/design-system` ActionBar demo
-- **Before → after:** three equal buttons on two rows (about 100px on a phone), and on desk a floating charcoal bar with three disabled buttons over a clean form. The Review & publish bar is docked by hand and the toast covers it. → One row on a phone: status, "Review changes" as primary, "Save here" and "Discard edits" in the overflow. No bar while clean at any width. Review & publish uses `ActionBar dock`, so the toast and scroll padding read its real height.
+- **Before → after:** three equal-width buttons on two rows (about 100px on a phone), and on desk a floating charcoal bar with three disabled buttons over a clean form. The Review & publish bar is docked by hand and the toast covers it. → One row on a phone: status, "Review changes" as primary, "Save here" and "Discard edits" in the overflow. No bar while clean at any width. Review & publish uses `ActionBar dock`, so the toast and scroll padding read its real height.
 - **Checks:** G. `tests/e2e/listings.spec.ts`, `gbp-management-tabs.spec.ts`, `touch-critical.spec.ts`. Chrome share of the screen on `/listings/{loc}/hours` while dirty (audit `chrome` metric). The ratchet falls by the two `[@media(min-height:620px)]` uses in `editor-frame.tsx`.
 
 #### R01a · Reply status matches Google (Reviews)
@@ -265,19 +310,62 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Closes:** CLR-13, CLR-14, CLR-15, CLR-05, DSK-10. CLR-06 once P11 lands.
 - **Files:** `components/clients/client-hub.tsx`, `lib/clients/health.ts` (description fallback only)
 - **Before → after:** "Needs attention" above "Review checks are up to date". Four stacked header buttons. Duplicate counts and pills on every row. Phone record cards at 1280. "Behind it", "Review import". → An attention description that names the cause. "Open inbox" as the one primary, with the rest in "More". Pills only for non-default states. A full-width table on desk. Plain labels.
-- **Checks:** G. `tests/e2e/journeys.spec.ts` (client hub). Unit test for the attention fallback.
+- **Checks:** G. A new `tests/e2e/clients.spec.ts` for the hub (no clients spec exists today; `routing.spec.ts` and `touch-critical.spec.ts` only open the routes). Unit test for the attention fallback.
 
 #### R17 · Client forms and settings (Reviews)
 - **Closes:** CLR-16, CLR-17, CLR-21, CLR-22
 - **Files:** `components/clients/client-form.tsx`, `components/clients/client-settings.tsx`, `components/clients/client-colour-field.tsx`
 - **Before → after:** an inline mid-page save with the tab bar visible and no leave guard on New client. Colour swatches as toggle buttons that read out hex. A second back button. Archive takes a confirm, a checkbox and Undo. → A docked `ActionBar` (New client always shown; Details only when dirty). `useUnsavedChanges` on New client. A colour `RadioGroup` with a live preview. No in-page back on a phone. Archive at once with Undo, using `SettingsDestructiveAction`.
-- **Checks:** G. `tests/e2e/journeys.spec.ts`, `accessibility.spec.ts`. The archive tap count drops from 5 to 2.
+- **Checks:** G. New form and archive cases in `tests/e2e/clients.spec.ts` (created by R15), `accessibility.spec.ts`. The archive tap count drops from 5 to 2.
 
 #### P13 · Invite and role sheets (Platform)
 - **Closes:** SET-01, SET-03, SET-14
 - **Files:** `lib/settings/roles.ts`, `components/settings/team-view.tsx` (role matrix), `components/settings/member-dialogs.tsx`, `components/settings/invitations-panel.tsx`, `lib/settings/gating.ts` (order)
 - **Before → after:** Member "edits listings" (it can't). Four tall role cards, Owner first, push Client access below the fold. Two primaries on success. → True role copy, with a test tying it to `canEditCanonical`. `OptionRow` roles ordered Member, Viewer, Admin, Owner. Client access visible before the button. One primary (Share).
-- **Checks:** G. `tests/e2e/settings.spec.ts` (invite and change role). Unit test on the role descriptions.
+- **Checks:** G. New invite and change-role cases in `tests/e2e/settings.spec.ts` (none exist today); `auth.spec.ts` for accepting. Unit test on the role descriptions.
+
+#### L09 · Posts copy and empty state (Listings)
+- **Closes:** LST-24, LST-25, DSK-14
+- **Files:** `components/locations/posts/post-card.tsx`, `components/locations/posts-tab.tsx`, `components/locations/posts/post-composer-sheet.tsx` (copy and fields), `components/locations/posts/post-preview.tsx`
+- **Before → after:** every card headed "Update", "Lifecycle", draft copy said three times, borderless fields, and an empty state pointing elsewhere → the first line of the summary as title, "History", the copy said once, default `Field` inputs, and "New post" in the empty state.
+- **Checks:** G. `tests/e2e/operations-features.spec.ts` (posts).
+
+#### L15 · Photos sheet (Listings)
+- **Closes:** LST-15
+- **Files:** `components/locations/photos/add-photo-dialog.tsx`
+- **Before → after:** "Add media" says photos go straight to Google, then shows "Review file upload" and "Upload N photos" → "Add photos", "Photos go to Google when you tap Upload", one primary.
+- **Checks:** G. `tests/e2e/listings.spec.ts` (photos).
+
+#### P16 · Reply policy (Platform)
+- **Closes:** SET-15, SET-16 (incl. DSK-19)
+- **Files:** `components/settings/policy-form.tsx`, `components/settings/agency-name-form.tsx`
+- **Before → after:** a native number spinner in mono, "Raw review content retention", the "sidebar" on a phone, and the approval state said three times → presets as a `Select`, "How long we keep review text", the "top of the app", and one `Alert`.
+- **Checks:** G. `tests/e2e/settings.spec.ts`.
+
+#### P18 · Operations page (Platform)
+- **Closes:** SET-21, SET-30
+- **Files:** `components/settings/operations-view.tsx`, the scheduled-jobs info module
+- **Before → after:** ten "Stale" pills in engineering words with no summary, and an accessible time in London time → a one-line `Alert` with what it means and what to do, the details in a disclosure of `ListRow`s, codes in words, and the organisation's time zone in labels.
+- **Checks:** G. `tests/e2e/settings.spec.ts` (operations).
+
+#### P19a · Sign-in error copy (Platform)
+- **Closes:** SET-23
+- **Files:** `lib/api/auth-errors.ts`, `components/auth/*-form.tsx`
+- **Before → after:** the reset page says "Sign-in is temporarily unavailable", and business workspaces read "agency" → surface-aware titles and "Sign in to continue."
+- **Checks:** G. `tests/e2e/auth.spec.ts`.
+
+#### R13 · Reports charts, loading and refresh (Reviews)
+- **Closes:** CLR-04, CLR-08, CLR-09, CLR-07 (labelling per D7)
+- **Files:** `components/reporting/report-bar-chart.tsx`, `components/reporting/reply-figures.tsx`, `components/reporting/reports-skeleton.tsx`, `components/performance/google-performance-tab.tsx`, `components/performance/keywords-tab.tsx`, `components/performance/location-report.tsx`, `components/performance/refresh-google-button.tsx`, `lib/queries/use-analytics-presence.ts`
+- **Before → after:** colliding peak and latest labels, about 10px bars, average rating as bars, generic loading rows, a directory → figures waterfall, and a refresh that doesn't poll → dated labels, scrub across the plot, weekly grouping on a phone, the rating as a line or KPI, tab-shaped skeletons, parallel queries, and polling while a sync runs.
+- **Checks:** G. `tests/e2e/reports.spec.ts`. perf-lab `/reports` CLS stays under 0.02.
+
+
+#### P22 · Disabled-route paint time (Platform)
+- **Closes:** MEA-02
+- **Files:** `app/(dashboard)/settings/layout.tsx`, `app/(dashboard)/settings/billing/*`
+- **Before → after:** "This page doesn't exist" for disabled billing takes 3.3s to paint on a throttled phone → under 1.5s, the same as other routes. Measuring the enabled billing page waits for D11.
+- **Checks:** G. perf-lab mobile `/settings/billing` within `budgets-baseline.json`.
 
 ### Stage 2: flows that adopt the shared components
 
@@ -288,10 +376,10 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Checks:** G. `tests/e2e/listings.spec.ts`, `gbp-management-tabs.spec.ts`. On `/listings/{loc}/profile` at 390, the first field moves from about 53% of the screen height to under 30%.
 
 #### L05 · Hours states and formats (Listings)
-- **Closes:** LST-18 (incl. DSK-03), LST-17, LST-19, LST-29
-- **Files:** `lib/listings/area-state.ts`, `lib/listings/health.ts`, `lib/editors/hours-notes.ts`, `lib/server/hours.ts` (note text only), `components/locations/hours-tab.tsx`, `components/locations/hours-editor.tsx`, `lib/locations/hours-diff.ts`
-- **Before → after:** green "In sync" everywhere for a listing with no hours on Google, which the board never surfaces. A services note on the hours page. 17:00 typed but "5:00 pm" confirmed. "Europe/London". "Copy to…" named differently. → A "No hours on Google" attention state that rolls up into listing health. The services note only where services are edited. 24-hour times throughout. "UK time". The label contains its visible text.
-- **Checks:** G. Unit tests for the new area state and health rollup. `tests/e2e/listings.spec.ts`. The board's "Needs attention" chip counts the no-hours fixture listing.
+- **Closes:** LST-18 (incl. DSK-03; the status, hint and note), LST-17, LST-19, LST-29. The health roll-up is L18.
+- **Files:** `lib/editors/hours-notes.ts`, `lib/server/hours.ts` (note text only), `components/locations/hours-tab.tsx`, `components/locations/hours-editor.tsx`, `components/listings/area-frame.tsx` (pill text on the hours page), `lib/locations/hours-diff.ts`
+- **Before → after:** green "In sync" everywhere for a listing with no hours on Google, which the board never surfaces. A services note on the hours page. 17:00 typed but "5:00 pm" confirmed. "Europe/London". "Copy to…" named differently. → The hours page shows "No hours on Google" (warning) instead of "In sync", with the hint "Google shows no hours yet". The services note only where services are edited. 24-hour times throughout. "UK time". The label contains its visible text.
+- **Checks:** G. Unit tests for the hours-page state and the 24-hour formatter. `tests/e2e/listings.spec.ts`.
 
 #### R07 · Inbox filters and counts (Reviews)
 - **Closes:** INB-10, INB-11 (incl. DSK-13), INB-12
@@ -315,7 +403,7 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Closes:** CLR-19 (incl. DSK-04, INB-20), CLR-20, DSK-11
 - **Files:** `components/clients/health-filter.tsx`, `components/clients/clients-index.tsx`, `lib/clients/health.ts`
 - **Before → after:** eight chips with empty near-synonyms first; the populated "Partially ch…" clipped. Two targets in one card. "Synced Not yet". A link in mono. → Zero buckets hidden unless selected, with the shared filter chip and plain words. Search on its own row on desk. One target per card. Sentence meta. Links in sans.
-- **Checks:** G. `tests/e2e/journeys.spec.ts` (clients). Screenshot at 1280 with no clipped chip.
+- **Checks:** G. Index and filter cases in `tests/e2e/clients.spec.ts` (created by R15, or here if R16 lands first). Screenshot at 1280 with no clipped chip.
 
 #### L04 · Listings board and overview (Listings)
 - **Closes:** LST-07, LST-23, and SET-13's one-item overflow follow-up
@@ -377,29 +465,17 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Before → after:** a 20px menu picker and five tool rows for one item → a full-width picker (or the title as switcher). Find tools only above a size threshold. Pluralisation via `count-text`.
 - **Checks:** G. `tests/e2e/listings.spec.ts`.
 
-#### L09 · Posts copy and empty state (Listings)
-- **Closes:** LST-24, LST-25, DSK-14
-- **Files:** `components/locations/posts/post-card.tsx`, `components/locations/posts-tab.tsx`, `components/locations/posts/post-composer-sheet.tsx` (copy and fields), `components/locations/posts/post-preview.tsx`
-- **Before → after:** every card headed "Update", "Lifecycle", draft copy said three times, borderless fields, and an empty state pointing elsewhere → the first line of the summary as title, "History", the copy said once, default `Field` inputs, and "New post" in the empty state.
-- **Checks:** G. `tests/e2e/operations-features.spec.ts` (posts).
-
 #### L13 · Invitations on one sheet (Listings)
 - **Closes:** LST-26
 - **Files:** `components/locations/administration/invitations.tsx`, `components/locations/administration/access-review.tsx`, `components/ui/stepper.tsx` (labels on phone)
 - **Before → after:** "Add administrator" with the role set to Manager, a jump from sheet to page panel, unlabelled steps, and "invitation review saved" → "Invite someone", the whole flow in `ReviewedWriteSheet`, labelled steps, and "Invitation ready to approve".
 - **Checks:** G. `tests/e2e/administration-access-backend.spec.ts`, `administration-access-recovery.spec.ts`.
 
-#### L15 · Photos sheet (Listings)
-- **Closes:** LST-15
-- **Files:** `components/locations/photos/add-photo-dialog.tsx`
-- **Before → after:** "Add media" says photos go straight to Google, then shows "Review file upload" and "Upload N photos" → "Add photos", "Photos go to Google when you tap Upload", one primary.
-- **Checks:** G. `tests/e2e/listings.spec.ts` (photos).
-
 #### L16 · Area data streaming (Listings)
 - **Closes:** LST-14, MEA-04
 - **Files:** `app/(dashboard)/listings/[id]/{profile,menu,booking,people,verification,suggestions,changes}/page.tsx`, `lib/server/prefetch.ts`, new `app/(dashboard)/listings/[id]/layout.tsx`, `components/listings/area-frame.tsx` (strip prefetch)
 - **Before → after:** seven areas fetch their main data after hydration, and the header remounts on each switch. 19 RSC requests per desk page load. → The `StreamedTab` + `*TabPrefetch` pattern on all ten areas, `AreaFrame` kept in a layout, and intent-only prefetch on the strip.
-- **Checks:** G. perf-lab mobile and desktop on all listing areas: LCP no worse; desk RSC requests per load at or under 4. `tests/e2e/gbp-management-tabs.spec.ts`.
+- **Checks:** G. First add the seven missing listing areas to perf-lab's route list and record their before figures. Then perf-lab mobile and desktop on all listing areas: LCP no worse; desk RSC requests per load at or under 4. `tests/e2e/gbp-management-tabs.spec.ts`.
 
 #### L17 · Calendar off state (Listings)
 - **Closes:** LST-28 (incl. the Calendar part of DSK-08)
@@ -407,17 +483,11 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Before → after:** an "off" dead end under a description of a calendar that isn't there, with no current nav item → no description when off, an action ("Contact support" for owners, "Go to Listings" for others), and a current item in the tab bar and sidebar.
 - **Checks:** G. `tests/e2e/business-mode.spec.ts`, `routing.spec.ts`.
 
-#### R13 · Reports charts, loading and refresh (Reviews)
-- **Closes:** CLR-04, CLR-08, CLR-09, CLR-07 (labelling per D7)
-- **Files:** `components/reporting/report-bar-chart.tsx`, `components/reporting/reply-figures.tsx`, `components/reporting/reports-skeleton.tsx`, `components/performance/google-performance-tab.tsx`, `components/performance/keywords-tab.tsx`, `components/performance/location-report.tsx`, `components/performance/refresh-google-button.tsx`, `lib/queries/use-analytics-presence.ts`
-- **Before → after:** colliding peak and latest labels, about 10px bars, average rating as bars, generic loading rows, a directory → figures waterfall, and a refresh that doesn't poll → dated labels, scrub across the plot, weekly grouping on a phone, the rating as a line or KPI, tab-shaped skeletons, parallel queries, and polling while a sync runs.
-- **Checks:** G. `tests/e2e/reports.spec.ts`. perf-lab `/reports` CLS stays under 0.02.
-
 #### R14 · Share sheet and public report (Reviews)
 - **Closes:** CLR-11, CLR-12
 - **Files:** `components/clients/share-report-dialog.tsx`, `components/share/shared-client-report.tsx`
 - **Before → after:** mid-sheet actions, restyled radios, a hand-built list, and a public report opening on four metadata rows that reloads to the top → `DialogFooter` actions, `OptionRowGroup`, `ListRow` links, and the name and period first with metadata in the footer and period links anchored to `#main`.
-- **Checks:** G. `tests/e2e/reports.spec.ts` (sharing).
+- **Checks:** G. New sharing cases in `tests/e2e/reports.spec.ts` (none exist today), including the public `/share/` page.
 
 #### P15 · Settings shell (Platform)
 - **Closes:** SET-04, SET-11, SET-26
@@ -425,23 +495,11 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Before → after:** "‹ Settings" and "‹ All settings" both shown. Setup has no back and no active tab. Theme is only in More, where "Match system" wraps. → One back control. Setup maps to Clients (agency) or Listings (business). An "Appearance" row in Settings. A `SegmentedControl` in More.
 - **Checks:** G. `tests/e2e/settings.spec.ts`, `setup.spec.ts`, `routing.spec.ts`.
 
-#### P16 · Reply policy (Platform)
-- **Closes:** SET-15, SET-16 (incl. DSK-19)
-- **Files:** `components/settings/policy-form.tsx`, `components/settings/agency-name-form.tsx`
-- **Before → after:** a native number spinner in mono, "Raw review content retention", the "sidebar" on a phone, and the approval state said three times → presets as a `Select`, "How long we keep review text", the "top of the app", and one `Alert`.
-- **Checks:** G. `tests/e2e/settings.spec.ts`.
-
 #### P17 · Google connections page (Platform)
 - **Closes:** SET-25, SET-28
 - **Files:** `components/settings/connection-card.tsx`, `components/settings/connections-workspace.tsx`, `components/app-shell/page-chrome.tsx`
 - **Before → after:** a red Disconnect in the headline spot, and a primary that scrolls away at the top → status trailing, Disconnect last in a ⋯ or detail sheet, and "Connect another account" in the app bar once the header scrolls.
 - **Checks:** G. `tests/e2e/connections-oauth.spec.ts`.
-
-#### P18 · Operations page (Platform)
-- **Closes:** SET-21, SET-30
-- **Files:** `components/settings/operations-view.tsx`, the scheduled-jobs info module
-- **Before → after:** ten "Stale" pills in engineering words with no summary, and an accessible time in London time → a one-line `Alert` with what it means and what to do, the details in a disclosure of `ListRow`s, codes in words, and the organisation's time zone in labels.
-- **Checks:** G. `tests/e2e/settings.spec.ts` (operations).
 
 #### P20 · Settings and Team server prefetch (Platform)
 - **Closes:** SET-22
@@ -449,16 +507,11 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Before → after:** every visit shows a skeleton while the client fetches → server prefetch through `HydrationBoundary`, as Inbox and Listings do.
 - **Checks:** G. perf-lab on `/team` and `/settings/notifications` (add them to the route list): content painted in the first response, LCP no worse.
 
-#### P19a · Sign-in error copy (Platform)
-- **Closes:** SET-23
-- **Files:** `lib/api/auth-errors.ts`, `components/auth/*-form.tsx`
-- **Before → after:** the reset page says "Sign-in is temporarily unavailable", and business workspaces read "agency" → surface-aware titles and "Sign in to continue."
-- **Checks:** G. `tests/e2e/auth.spec.ts`.
-
 ### Stage 3: after an owner decision
 
 | Slice | Lane | Closes | Decision | Files | Before → after | Extra checks |
 | --- | --- | --- | --- | --- | --- | --- |
+| L18 No-hours state in listing and client health | Listings | LST-18 (health roll-up) | D12 | `lib/server/location-summary.ts`, the listing summary contract, `lib/listings/area-state.ts`, `lib/listings/health.ts`, `lib/server/clients.ts` (client health counting; Reviews lane review) | a listing customers see without hours sorts as healthy on the board and in client health → it counts as "Needs attention" in both | `listings.spec.ts`; unit tests on health roll-up; integration test on the summary |
 | R01b Two-person approval wording | Reviews | INB-02, INB-03 | D1 | `lib/inbox/reply-state.ts`, `lib/contracts/reviews.ts`, review-detail route, `components/inbox/action-bar.tsx` | "Publish reply" parks the reply; the submitter is offered "Approve" → "Submit for approval"; the submitter sees "Waiting for another approver" | `inbox.spec.ts` approval journey; contract test |
 | R06b Undo for "No reply needed" | Reviews | INB-09 | D3 | bulk reviews route, `components/inbox/bulk-action-bar.tsx`, `components/inbox/reply-composer.tsx` | confirm dialog → act at once with an Undo toast; no regenerate confirm | `inbox.spec.ts`; integration test for the undo endpoint |
 | R03 Approver signals | Reviews | INB-05 | D2 (notification half) | `components/app-shell/use-needs-reply-count.ts`, `components/inbox/inbox-toolbar.tsx`, `lib/domain/notification-preferences.ts`, notification producers | an approver sees nothing → the badge and title count "awaiting my approval"; notifications for requests and send-backs | `inbox.spec.ts`; `operations-features.spec.ts` |
@@ -467,14 +520,13 @@ Each slice lists its files, the expected before → after, and its checks on top
 | P19b Invitation role, password form | Platform | SET-17, SET-18 | D8, D9 | `app/api/invitations/[token]/route.ts`, `components/auth/invitation-view.tsx`, `components/auth/sign-in-form.tsx`, `components/auth/reset-password-form.tsx`, `components/auth/password-requirements.tsx` | the invitee accepts blind; confirm-password and class rules → role and expiry shown; the password form per D9 | `auth.spec.ts`; route contract test |
 | P21 Help and feedback entry | Platform | SET-27 | D10 | `components/app-shell/more-sheet.tsx`, `components/settings/settings-index.tsx`, `lib/navigation/destinations.ts` | no route to help → a "Help and feedback" row in More and Settings | `routing.spec.ts` |
 | L14 One write path for the profile | Listings | LST-08 | D5 | `components/locations/profile/profile-editor.tsx`, `components/locations/profile/section-card.tsx`, `lib/listings/areas.ts`, `components/reviewed-write/*` | two models in one form, with per-field tags → one "Review changes" collecting both, one consent, per-row results | `listings.spec.ts`, `services-backend.spec.ts`, `lodging-*-backend.spec.ts` |
-| P22 Disabled-route paint time | Platform | MEA-02 | D11 | settings layout, `app/(dashboard)/settings/billing/*` | LCP 3.3s on a disabled route → under 1.5s; billing measured when enabled | perf-lab mobile `/settings/billing` within budget |
 
 ### Stage 4: larger or optional
 
 | Slice | Lane | Closes | Depends on | Files | Before → after | Extra checks |
 | --- | --- | --- | --- | --- | --- | --- |
 | R10 Inbox bottom toolbar | Reviews | INB-19 | P10, R09 | `components/inbox/inbox-toolbar.tsx`, `components/ui/toolbar.tsx`, `app/globals.css` (chrome contract) | search, filters and sync in the top 30% → a floating bottom toolbar above the tab bar that steps aside for the selection and action bars; pull to refresh with a button alternative | `touch-critical.spec.ts`; chrome budget in `audit:mobile` |
-| P23 Desk quick-look panel | Platform | DSK-23 | P03 | `components/ui/overlay.tsx`, `/design-system`, then `components/clients/clients-index.tsx` and `components/listings/listings-board.tsx` in their lanes | a full page change to see what is waiting → a right panel from `lg` with the row's work and an "Open" link | `journeys.spec.ts`, `listings.spec.ts` at 1280 |
+| P23 Desk quick-look panel | Platform | DSK-23 | P03 | `components/ui/overlay.tsx`, `/design-system`, then `components/clients/clients-index.tsx` and `components/listings/listings-board.tsx` in their lanes | a full page change to see what is waiting → a right panel from `lg` with the row's work and an "Open" link | `clients.spec.ts`, `listings.spec.ts` at 1280 |
 
 ## Phase 3 hooks
 

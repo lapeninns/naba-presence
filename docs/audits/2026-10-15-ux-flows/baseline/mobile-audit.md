@@ -102,4 +102,3 @@ Base http://localhost:3220 · widths 320, 390, 1280 · themes light, dark · 180
 | --- | --- | --- | --- | --- |
 | span in [data-slot=dropdown-menu-trigger] | 66 | 33 | span.truncate.text-caption |  |
 | [data-slot=workspace-name] | 10 | 10 | span[data-slot=workspace-name].min-w-0.truncate |  |
-
