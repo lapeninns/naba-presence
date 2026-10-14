@@ -148,8 +148,7 @@ They contain no customer content; every follow-on operation immediately enters
 ## Request skeleton: `route()`
 
 Every handler under `app/api/**/route.ts` is built by `route({...})` from
-`lib/server/route.ts` (77 of 78 route files; the last,
-`app/api/auth/callback/google/route.ts`, re-exports another handler). The
+`lib/server/route.ts` (all 159 route files). The
 wrapper owns, in order: the request id, generated once with
 `serverRequestId`, exposed as `ctx.requestId`, echoed as the `x-request-id`
 response header on success and error, and written into every error body
@@ -1380,11 +1379,14 @@ on purpose. Only readers served from our own database are prefetched (home
 counts and the 30-day overview, location capabilities, the posts list, the
 settings role projection): the Google-backed tabs read live and cost 3-5s per
 request inside a server render, which would hold first paint and be repeated
-by every `<Link prefetch>`. And it is never used on a page whose state lives
-in the URL: a page that reads `searchParams` re-renders on the server for
-every filter, queue or selection change, and Next moves focus to the
-re-rendered segment, which wiped text an operator had typed into the inbox
-location filter. Those pages hydrate client-side as before.
+by every `<Link prefetch>`. And a page whose state lives in the URL never
+reads `searchParams` to choose what to prefetch: such a page re-renders on
+the server for every filter, queue or selection change, and Next moves focus
+to the re-rendered segment, which wiped text an operator had typed into the
+inbox location filter. The inbox instead reads the first request's query
+string from `proxy.ts`'s header (`requestSearch`, which Next does not treat as
+a search-param read) and prefetches the list's first page, the counts and an
+open review (`inboxPrefetch`); later changes fetch client-side.
 
 ## Naming
 

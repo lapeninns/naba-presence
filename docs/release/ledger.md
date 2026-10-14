@@ -1,7 +1,7 @@
 # Launch acceptance ledger
 
 This is the single authoritative launch acceptance ledger for NabaPresence as
-deployed today: Next.js on Vercel (functions plus eight Vercel Cron entries in
+deployed today: Next.js on Vercel (functions plus nine Vercel Cron entries in
 `vercel.json`), hosted Supabase PostgreSQL through the pooler, hosted Supabase
 Auth, and Google Business Profile APIs. It replaces the topology assumptions in
 older records (container images, a Compose stack, a separate scheduler process).

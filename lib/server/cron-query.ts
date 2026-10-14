@@ -15,11 +15,12 @@ import "server-only"
  * else stays a string so the schema rejects it with 400 `invalid_request`
  * instead of silently running with a default.
  *
- * Each cron fire runs one page from the head of the tenant order (or from
- * the `organisationCursor` it is given). Nothing here follows `nextCursor`:
- * cursor-walking across pages is the always-on scheduler's job, and these
- * shims exist because production has no scheduler process (see
- * `docs/runbook.md`).
+ * Nothing here follows `nextCursor`. The reconcile, performance, keyword and
+ * sweep GETs only validate the parsed input and then enqueue work for the
+ * job runner, so their page parameters change nothing;
+ * presence-resources and billing hand it to `followCronCursor`, which
+ * resumes the walk where the previous fire stopped. These shims exist
+ * because production has no scheduler process (see `docs/runbook.md`).
  */
 export function cronPageInput(
   searchParams: URLSearchParams
