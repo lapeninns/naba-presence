@@ -158,6 +158,8 @@ const tabItemClassName = cn(
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
   "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
+  // A row of plain buttons (a queue switcher) marks its current one `aria-current="true"`.
+  "aria-[current=true]:font-semibold aria-[current=true]:text-ink aria-[current=true]:after:bg-ink",
   "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
 )
 
@@ -174,6 +176,8 @@ const textTabItemClassName = cn(
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
   "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
+  // A row of plain buttons (a queue switcher) marks its current one `aria-current="true"`.
+  "aria-[current=true]:font-semibold aria-[current=true]:text-ink aria-[current=true]:after:bg-ink",
   "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
 )
 

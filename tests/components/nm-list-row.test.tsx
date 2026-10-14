@@ -173,9 +173,11 @@ describe("ListRow", () => {
         <ListRow title="One" />
       </ListRows>
     )
-    expect(screen.getByRole("list", { name: "Rows" }).className).toContain(
-      "max-md:-mx-(--np-page-pad-x)"
-    )
+    // PageFrame pads px-5 on a phone: the bleed cancels exactly that, and
+    // the rows re-pad by the same 20px so the text column does not move.
+    const list = screen.getByRole("list", { name: "Rows" })
+    expect(list.className).toContain("max-md:-mx-5")
+    expect(list.className).toContain("max-md:[--np-page-pad-x:--spacing(5)]")
   })
 
   it("insets the divider to the text column", () => {

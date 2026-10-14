@@ -109,7 +109,11 @@ describe('DataTable responsive="list" (F5 R1)', () => {
     const container = table.closest('[data-slot="table-container"]')!
     expect(container).toHaveAttribute("data-bleed")
     expect(container.className).toContain("max-md:border-0")
-    expect(container.className).toContain("max-md:-mx-(--np-page-pad-x)")
+    // The same bleed as ListRows: PageFrame's phone px-5, exactly.
+    expect(container.className).toContain("max-md:-mx-5")
+    expect(container.className).toContain(
+      "max-md:[--np-page-pad-x:--spacing(5)]"
+    )
   })
 
   it("marks clickable rows for the trailing chevron and keeps selection outside the row click", async () => {

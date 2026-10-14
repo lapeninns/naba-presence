@@ -45,7 +45,10 @@ import { cn } from "@/lib/utils"
  *   receipt, an outcome). Its disclosure button sits OUTSIDE the hit
  *   element, with `aria-expanded`/`aria-controls`; the button's words are
  *   entirely the caller's ("Show receipt for The Bell").
- * - `wrapperProps`: attributes for the outer `<li>`/`<div>` (`data-status`).
+ * - `wrapperProps`: attributes for the outer `<li>`/`<div>` (`data-status`,
+ *   `aria-busy`). Its `data-slot` replaces the default `"list-row"` (the
+ *   inbox's `review-row-item`). `busy` marks the whole item `aria-busy`
+ *   while it works (a notification being marked read), not only its row.
  * - `footer` is a block `<div>` under the text column, outside the hit
  *   element, so it may hold buttons, a `<form>`, a `<dl>` or a `<details>`.
  *   `footerLayout="stack"` stacks its children full width (a form, a
@@ -72,6 +75,18 @@ import { cn } from "@/lib/utils"
  */
 
 type Emphasis = "unread" | "read" | "neutral"
+
+/**
+ * Full bleed on a phone. PageFrame pads `px-5` below `md` (20px), while
+ * `--np-page-pad-x` is 16px at 390, so a bleed by the token stopped 4px
+ * short of each edge. The bleed cancels the frame's 20px instead, and the
+ * rows inside pad by the same 20px (the page pad and the text inset that
+ * derives from it are re-set here, because a custom property's `var()` is
+ * resolved where it is declared, at the root), so the text column stays
+ * where it was and the hover, selected fill and hairline reach the edges.
+ */
+const LIST_BLEED_CLASS =
+  "max-md:-mx-5 max-md:[--np-page-pad-x:--spacing(5)] max-md:[--np-row-inset-start:calc(--spacing(5)+var(--np-avatar-list)+--spacing(3))]"
 
 /** `null` outside `ListRows`; inside, whether the list is a listbox. */
 const ListRowsContext = React.createContext<{ listbox: boolean } | null>(null)
@@ -149,7 +164,7 @@ function ListRows({
         data-bleed={bleed || undefined}
         className={cn(
           "flex min-w-0 list-none flex-col",
-          bleed && "max-md:-mx-(--np-page-pad-x)",
+          bleed && LIST_BLEED_CLASS,
           className
         )}
         {...props}
@@ -225,6 +240,11 @@ export type ListRowProps = Omit<
    */
   wrapperProps?: ListRowWrapperProps
   /**
+   * `aria-busy` on the outer `<li>`/`<div>`: the whole item (row, footer
+   * and details) is updating. Wins over `wrapperProps["aria-busy"]`.
+   */
+  busy?: boolean
+  /**
    * An expandable region under the row (a receipt). Needs `detailsLabel`.
    * Rendered (hidden while closed) so `aria-controls` always resolves.
    */
@@ -283,6 +303,7 @@ function ListRow({
   as,
   flush = false,
   wrapperProps,
+  busy,
   details,
   detailsLabel,
   detailsOpen,
@@ -488,7 +509,8 @@ function ListRow({
     <Wrapper
       {...wrapperProps}
       role={inListbox && Wrapper === "li" ? "presentation" : wrapperProps?.role}
-      data-slot="list-row"
+      aria-busy={busy ?? wrapperProps?.["aria-busy"]}
+      data-slot={wrapperProps?.["data-slot"] ?? "list-row"}
       data-selected={selected || undefined}
       data-bleed={bleed || undefined}
       data-flush={flush || undefined}
@@ -506,7 +528,7 @@ function ListRow({
                 : "after:start-(--np-page-pad-x)"
             ),
         "last:after:hidden data-selected:after:hidden",
-        bleed && "max-md:-mx-(--np-page-pad-x)",
+        bleed && LIST_BLEED_CLASS,
         wrapperClassName,
         wrapperProps?.className
       )}
@@ -638,4 +660,4 @@ function ListRowTag({
   )
 }
 
-export { ListRow, ListRowTag, ListRows }
+export { LIST_BLEED_CLASS, ListRow, ListRowTag, ListRows }
