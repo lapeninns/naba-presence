@@ -17,12 +17,12 @@ export const LEGACY_MIGRATION_FILES = [
 ]
 
 /**
- * Versions that were never used. Git history has no `0021` file. `0132` and
- * `0133` are reserved for other work packages of the 2026-10-14 audit
- * (docs/audits/2026-10-14-full-stack-audit); the change that adds either
+ * Versions that were never used. Git history has no `0021` file. `0133` is
+ * reserved for another work package of the 2026-10-14 audit
+ * (docs/audits/2026-10-14-full-stack-audit); the change that adds it
  * removes it here.
  */
-export const KNOWN_VERSION_GAPS = ["0021", "0132", "0133"]
+export const KNOWN_VERSION_GAPS = ["0021", "0133"]
 
 /** @param {string} file */
 export const versionNumber = (file) => Number(file.slice(0, 4))
