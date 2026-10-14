@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("server-only", () => ({}))
 
 /**
- * The request deadline in the two routes that loop over provider work
- * inside one request (W3-4 a/b, WP-04): the manual backfill stops starting
- * locations once a whole Google call no longer fits and names the ones it
- * did not reach; the per-row bulk approve skips the rows it has no time for
- * (`bulk_time_budget_reached`) instead of being killed mid-publish.
+ * The request deadline in the routes that loop over provider work inside
+ * one request (W3-4 a/b/c, WP-04): the manual backfill and the session
+ * sweep stop starting locations once a whole Google call no longer fits and
+ * name the ones they did not reach; the per-row bulk approve skips the rows
+ * it has no time for (`bulk_time_budget_reached`) instead of being killed
+ * mid-publish.
  */
 
 const GOOGLE_TIMEOUT_MS = 15_000
@@ -19,6 +20,7 @@ const completeApproval = vi.fn()
 
 vi.mock("@/lib/server/route", () => ({
   route: (config: unknown) => config,
+  isCronRequest: () => false,
 }))
 vi.mock("@/lib/server/env", () => ({
   getServerEnv: () => ({ GOOGLE_TIMEOUT_MS, GOOGLE_MUTATION_TIMEOUT_MS }),
@@ -28,6 +30,15 @@ vi.mock("@/lib/server/pause-controls", () => ({
   requireScopesEnabled: async () => undefined,
 }))
 vi.mock("@/lib/server/mfa", () => ({ requireRecentMfa: () => undefined }))
+vi.mock("@/lib/server/session", () => ({
+  getSession: async () => session,
+  requireRole: () => undefined,
+}))
+vi.mock("@/lib/server/db", () => ({
+  getDatabase: vi.fn(),
+  withTenant: async (_organisationId: string, fn: (s: never) => unknown) =>
+    fn(sql),
+}))
 vi.mock("@/lib/server/reviews", () => ({
   linkedLocations: async () => [
     { externalLocationId: "loc-1" },
@@ -49,6 +60,7 @@ vi.mock("@/lib/server/review-approval", () => ({
 
 import { POST as backfill } from "@/app/api/sync/backfill/route"
 import { POST as bulk } from "@/app/api/reviews/bulk/route"
+import { POST as sweep } from "@/app/api/sync/sweep/route"
 
 type Handler = (ctx: Record<string, unknown>) => Promise<unknown>
 const handlerOf = (config: unknown) => (config as { handler: Handler }).handler
@@ -123,6 +135,58 @@ describe("manual backfill deadline", () => {
         externalLocationIds: ["loc-1"],
         status: "partial",
       }),
+    ])
+    expect(result.notStartedExternalLocationIds).toEqual(["loc-2", "loc-3"])
+  })
+})
+
+describe("session sweep deadline", () => {
+  const request = () =>
+    new Request("http://localhost/api/sync/sweep", {
+      method: "POST",
+      body: JSON.stringify({ maxPagesPerLocation: 5 }),
+    })
+
+  it("passes a page deadline that leaves a whole Google call before the request's", async () => {
+    syncLinkedLocation.mockResolvedValue({
+      status: "succeeded",
+      pages: 1,
+      upserted: 0,
+      hasMore: false,
+    })
+    const deadline = NOW + 55_000
+    const result = (await handlerOf(sweep)({
+      request: request(),
+      requestId: "request-1",
+      deadline,
+    })) as { notStartedExternalLocationIds: string[] }
+    expect(syncLinkedLocation).toHaveBeenCalledTimes(3)
+    expect(syncLinkedLocation.mock.calls[0][0]).toMatchObject({
+      type: "sweep",
+      deadline: deadline - GOOGLE_TIMEOUT_MS,
+    })
+    expect(result.notStartedExternalLocationIds).toEqual([])
+  })
+
+  it("does not start a location's first page once the deadline is reached", async () => {
+    const deadline = NOW + 55_000
+    // The first location uses up the time a further page would need; before
+    // W3-4(c) every later location still fetched its first page.
+    syncLinkedLocation.mockImplementation(async () => {
+      vi.setSystemTime(deadline - GOOGLE_TIMEOUT_MS)
+      return { status: "failed", pages: 3, upserted: 30, hasMore: true }
+    })
+    const result = (await handlerOf(sweep)({
+      request: request(),
+      requestId: "request-1",
+      deadline,
+    })) as {
+      locations: { externalLocationId: string }[]
+      notStartedExternalLocationIds: string[]
+    }
+    expect(syncLinkedLocation).toHaveBeenCalledTimes(1)
+    expect(result.locations).toEqual([
+      expect.objectContaining({ externalLocationId: "loc-1" }),
     ])
     expect(result.notStartedExternalLocationIds).toEqual(["loc-2", "loc-3"])
   })

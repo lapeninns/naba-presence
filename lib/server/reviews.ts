@@ -452,7 +452,11 @@ export async function syncLinkedLocation(input: {
   maxPages: number
   /** Correlates the audit rows this sync writes with the caller's request. */
   requestId?: string
-  /** Epoch ms after which paging stops between pages (the caller's budget). */
+  /**
+   * Epoch ms after which no further page is started (the caller's budget,
+   * less one Google call). Checked between pages only: a caller looping over
+   * locations checks it before starting each one (W3-4c).
+   */
   deadline?: number
 }): Promise<SyncOutcome> {
   const header = await withTenant<SyncHeader | null>(
