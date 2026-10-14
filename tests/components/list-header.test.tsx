@@ -133,12 +133,14 @@ describe("ListHeader", () => {
     expect(readout()).toBe("none · off")
   })
 
-  it("lines the box up with the rows' 44px column and leaves the target to the Checkbox", () => {
+  it("lines the box up with the rows' leading column and leaves the target to the Checkbox", () => {
     const { container } = renderHeader()
     const column = container.querySelector<HTMLElement>(
       "[data-slot=inbox-select-all]"
     )!
-    expect(column).toHaveClass("w-11")
+    // ListRow's leading column, where the rows' tick boxes sit.
+    expect(column).toHaveClass("size-(--np-avatar-list)")
+    expect(column.className).not.toMatch(/-ml-|w-11/)
     // No local <label> wrapper: the primitive's own 44px touch hit area
     // (selectionHitAreaClassName) is the target.
     expect(column.tagName).toBe("SPAN")

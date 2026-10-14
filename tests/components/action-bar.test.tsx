@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -9,6 +9,7 @@ import {
   useRegisterDirtyGuard,
   type ComposerSave,
 } from "@/components/inbox/dirty-context"
+import { PHONE_OVERLAY_QUERY } from "@/components/ui/overlay"
 import { Toaster } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import type { ReviewDetail } from "@/lib/api/reviews"
@@ -615,15 +616,20 @@ describe("ActionBar", () => {
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
     expect(await screen.findByText("Reply published")).toBeInTheDocument()
     expect(screen.getByText("Live on Google.")).toBeInTheDocument()
-    const view = screen.getByRole("button", { name: "View on Google" })
-    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument()
-    const open = vi.spyOn(window, "open").mockReturnValue(null)
-    await user.click(view)
-    expect(open).toHaveBeenCalledWith(
-      "https://search.google.com/local/reviews?r=1",
-      "_blank",
-      "noopener,noreferrer"
+    // A real link into a new tab that is told nothing, not a button.
+    const view = screen.getByRole("link", { name: "View on Google" })
+    expect(view).toHaveAttribute(
+      "href",
+      "https://search.google.com/local/reviews?r=1"
     )
+    expect(view).toHaveAttribute("target", "_blank")
+    expect(view.getAttribute("rel")?.split(" ")).toEqual(
+      expect.arrayContaining(["noopener", "noreferrer"])
+    )
+    expect(
+      screen.queryByRole("button", { name: "View on Google" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument()
   })
 
   // One primary at the control height, sized to its words: never a
@@ -685,6 +691,56 @@ describe("ActionBar", () => {
     expect(
       screen.getByRole("button", { name: "Review actions" })
     ).toBeInTheDocument()
+  })
+
+  // On a phone the ⋯ is the shared bottom action sheet: titled with the
+  // trigger's name, Reject first, then a rule and the destructive row in the
+  // danger ink.
+  it("opens the phone's review actions as a titled sheet, delete last in danger", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === PHONE_OVERLAY_QUERY || query === "(pointer: coarse)",
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }))
+    try {
+      stubHooks(
+        detailWith({
+          workflowStatus: "awaiting_approval",
+          reply: {
+            id: "reply-1",
+            body: "Thanks for the feedback!",
+            publishStatus: "published",
+            googleReplyState: "APPROVED",
+            googlePolicyViolation: null,
+            googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+          },
+        })
+      )
+      renderActionBar()
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Review actions" }))
+      const sheet = await screen.findByRole("menu")
+      const popup = sheet.closest('[data-slot="dropdown-menu-content"]')
+      expect(popup).toHaveAttribute("data-presentation", "sheet")
+      expect(
+        popup?.querySelector('[data-slot="menu-sheet-title"]')
+      ).toHaveTextContent("Review actions")
+      const items = within(sheet).getAllByRole("menuitem")
+      expect(items.map((item) => item.textContent)).toEqual([
+        "Reject reply",
+        "Delete published reply",
+      ])
+      expect(within(sheet).getByRole("separator")).toBeInTheDocument()
+      expect(items[1]).toHaveClass("text-danger-ink")
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   // U2: onDelete must route through describeOutcomeToast(result.status) —

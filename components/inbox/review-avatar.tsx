@@ -2,7 +2,12 @@
 
 import { UserIcon } from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  type AvatarSize,
+} from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 
 /**
@@ -13,8 +18,8 @@ import { cn } from "@/lib/utils"
  * info, success and warning hues on rows where those colours mean a status
  * (design rule D3), so a reviewer could read as "failed" or "done".
  *
- * `size` is the primitive's: the list uses `default` (32px), the thread
- * keeps `lg` (44px).
+ * `size` is the primitive's: the list uses `list` (the ListRow leading
+ * column, `--np-avatar-list`), the thread keeps `lg` (44px).
  */
 function ReviewAvatar({
   name,
@@ -26,7 +31,7 @@ function ReviewAvatar({
   name: string
   anonymous: boolean
   photoUrl?: string | null
-  size?: "sm" | "default" | "lg"
+  size?: AvatarSize
   className?: string
 }) {
   const initials = name

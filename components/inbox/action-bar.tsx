@@ -380,7 +380,10 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             >
               <MoreHorizontalIcon aria-hidden strokeWidth={1.75} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top">
+            {/* On a phone the menu is the shared bottom action sheet
+                (menu-surface): this title over 44px rows, the destructive
+                row last in the danger ink after a rule, and a Cancel. */}
+            <DropdownMenuContent align="end" side="top" title="Review actions">
               {offerReject ? (
                 <DropdownMenuItem
                   className="md:hidden"

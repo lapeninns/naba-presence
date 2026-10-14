@@ -49,16 +49,17 @@ function ListHeader({
   return (
     <div
       data-slot="inbox-list-header"
-      className="flex min-h-11 shrink-0 items-center gap-2.5 border-b border-line-subtle px-(--np-page-pad-x) text-caption text-ink-muted"
+      className="flex min-h-11 shrink-0 items-center gap-3 border-b border-line-subtle px-(--np-page-pad-x) text-caption text-ink-muted"
     >
       {canBatch ? (
-        // A 44px column only to line the box up with the rows' checkbox
-        // column below it; the Checkbox's own hit area is the target.
+        // The rows' leading column (ListRow's `--np-avatar-list`, at the
+        // page gutter, `gap-3` to the text), only to line the box up with
+        // the rows' tick boxes below it; the Checkbox's own hit area is the
+        // target.
         <span
           data-slot="inbox-select-all"
           className={cn(
-            // Pulled back over the gutter, so it sits in the rows' column.
-            "-ml-(--np-page-pad-x) w-11 shrink-0 items-center justify-center",
+            "size-(--np-avatar-list) shrink-0 items-center justify-center",
             selectMode ? "flex" : "hidden desk:flex"
           )}
         >

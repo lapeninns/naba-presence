@@ -195,9 +195,8 @@ describe("EmptyState", () => {
       level: 2,
       name: "No reviews yet.",
     })
-    expect(heading.querySelector(".font-medium")).toHaveTextContent(
-      "No reviews yet."
-    )
+    // The Empty primitive's own title weight: text-title at 500.
+    expect(heading).toHaveClass("text-title", "font-medium")
   })
 
   it.each([
@@ -214,16 +213,21 @@ describe("EmptyState", () => {
     "draws a hidden line illustration for %s (%s), in place of the mark",
     (reason, queue) => {
       const { container } = render(<EmptyState reason={reason} queue={queue} />)
-      const art = container.querySelector('[data-slot="empty-illustration"]')
-      expect(art).toBeInTheDocument()
-      expect(art).toHaveAttribute("aria-hidden", "true")
+      // The Empty primitive's illustration slot, holding our line art.
+      const slot = container.querySelector('[data-slot="empty-illustration"]')
+      expect(slot).toBeInTheDocument()
+      expect(slot).toHaveAttribute("aria-hidden", "true")
+      expect(slot).toHaveClass("text-ink")
+      const art = slot?.querySelector("svg")
       expect(art).toHaveAttribute("stroke", "currentColor")
       expect(art).toHaveAttribute("stroke-width", "1.5")
       // Colour comes from ink tokens, never a literal.
-      expect(art?.outerHTML).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(/i)
+      expect(slot?.outerHTML).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(/i)
       // One drawing, not a drawing and a mark.
       expect(
-        container.querySelector('[data-slot="empty"] > span[aria-hidden]')
+        container.querySelector(
+          '[data-slot="empty"] > span[aria-hidden]:not([data-slot="empty-illustration"])'
+        )
       ).toBeNull()
     }
   )

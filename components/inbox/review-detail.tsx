@@ -891,11 +891,13 @@ function ReviewThread({
         className={cn(THREAD_ITEM_CLASS, "pt-7")}
       >
         <div>
+          {/* The venue's square: the neutral Avatar (D9: a location has no
+              colour of its own here), the reviewer's size beside it. */}
           <Avatar
             size="lg"
             shape="square"
             aria-hidden
-            className={cn("bg-ink text-canvas", THREAD_AVATAR_CLASS)}
+            className={THREAD_AVATAR_CLASS}
           >
             <AvatarFallback>{initialsOf(review.locationName)}</AvatarFallback>
           </Avatar>

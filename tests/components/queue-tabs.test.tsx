@@ -211,24 +211,28 @@ describe("QueueTabs", () => {
     const current = tab("failed")
     const other = tab("needs_reply")
     for (const control of [current, other]) {
+      // The primitive text tab (`textTabItemClassName`), its current-tab
+      // cue said for `aria-current="true"` as well as "page".
       expect(control).toHaveClass(
-        "text-ui",
-        "font-medium",
+        "text-body",
+        "font-normal",
         "text-ink-secondary",
+        "after:h-0.5",
         "aria-[current=true]:font-semibold",
         "aria-[current=true]:text-ink",
-        "aria-[current=true]:after:h-0.5",
         "aria-[current=true]:after:bg-ink",
         // 44px tall and wide on touch.
-        "h-(--np-touch)",
+        "h-11",
         "min-w-(--np-touch)"
       )
       // No segmented thumb and no accent tint on the current queue.
       expect(control.className).not.toMatch(/shadow-np-raised|accent/)
     }
+    // The primitive chip row: one sideways-scrolling row with faded edges,
+    // no track fill behind the tabs.
     const strip = nav().querySelector('[data-slot="queue-strip"]')
-    expect(strip).toHaveClass("bg-transparent")
-    expect(strip).not.toHaveClass("bg-fill")
+    expect(strip).toHaveClass("overflow-x-auto")
+    expect(strip?.className).not.toMatch(/(^|\s)bg-/)
   })
 
   it("sets counts in sans tabular figures, a non-zero Failed in the danger ink", () => {
@@ -270,8 +274,9 @@ describe("QueueTabs", () => {
       const strip = nav().querySelector<HTMLElement>(
         '[data-slot="queue-strip"]'
       )!
-      // Failed spans 300–400; it is kept 24px clear of the fading edge.
-      expect(strip.scrollLeft).toBe(400 + 24 - 200)
+      // Failed spans 300–400; it is kept clear of the row's 40px (2.5rem)
+      // fading edge.
+      expect(strip.scrollLeft).toBe(400 + 40 - 200)
       expect(scrollIntoView).not.toHaveBeenCalled()
     } finally {
       restore.forEach((undo) => undo())

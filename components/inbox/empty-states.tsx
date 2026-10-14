@@ -190,15 +190,13 @@ const NO_COUNTS: EmptyCounts = {
 }
 
 /**
- * A message in place of content (reference `.empty`): a tinted mark or a
- * line illustration, the title (an h2, at weight 500 like Notion Mail's
- * "All caught up!"), one muted sentence and at most one action. Used for
- * the pane that has nothing selected and for every reason a queue can be
- * empty.
- *
- * `illustration` takes the mark's place. It is drawn here, as the `Empty`
- * primitive's children, until the primitive grows its own illustration
- * slot (FOUNDATION Drop 1); the swap is moving this one prop.
+ * A message in place of content (reference `.empty`): the `Empty`
+ * primitive, with a tinted mark or, in its `illustration` slot, a line
+ * drawing; the title (an h2, the primitive's `text-title` at weight 500,
+ * like Notion Mail's "All caught up!"), one muted sentence and at most one
+ * action. Used for the pane that has nothing selected and for every reason
+ * a queue can be empty. `placement="page"` is for a state that fills its
+ * pane (it sits at about 35% of the height).
  */
 function Statement({
   title,
@@ -207,6 +205,7 @@ function Statement({
   icon = <InboxIcon />,
   illustration,
   tone = "neutral",
+  placement,
   className,
 }: {
   title: string
@@ -215,35 +214,35 @@ function Statement({
   icon?: React.ReactNode
   illustration?: React.ReactNode
   tone?: "neutral" | "ok" | "bad"
+  placement?: "inline" | "page"
   className?: string
 }) {
   return (
     <Empty
-      title={<span className="font-medium">{title}</span>}
+      title={title}
       description={description}
       action={action}
       icon={illustration ? null : icon}
+      illustration={illustration || undefined}
       tone={tone}
       titleAs="h2"
+      placement={placement}
       className={className}
-    >
-      {illustration || null}
-    </Empty>
+    />
   )
 }
 
 /**
  * Line art for the empty list (Notion Mail's inbox-zero drawing, in our own
- * shapes): 112px, a 1.5 stroke in `currentColor`, the muted ink for the
- * object and the full ink for the one detail that carries the meaning.
- * Always aria-hidden: the title says it in words. Nothing animates, so
- * reduced motion has nothing to stop (the hourglass is a still drawing,
- * never a spinner).
+ * shapes), for the `Empty` illustration slot: drawn on a 112 grid with a
+ * 1.5 stroke in `currentColor`, so the slot's ink, size and aria-hidden
+ * apply. Only the danger mark carries a colour of its own. Nothing
+ * animates, so reduced motion has nothing to stop (the hourglass is a still
+ * drawing, never a spinner).
  */
 function Art({ children }: { children: React.ReactNode }) {
   return (
     <svg
-      data-slot="empty-illustration"
       aria-hidden
       focusable="false"
       viewBox="0 0 112 112"
@@ -252,7 +251,6 @@ function Art({ children }: { children: React.ReactNode }) {
       strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-28 shrink-0 text-ink-muted"
     >
       {children}
     </svg>
@@ -283,7 +281,7 @@ const ALERT_MARK = (
 const TRAY_TICK = (
   <Art>
     {TRAY}
-    <path className="text-ink" d="m46 54 7 7 13-14" />
+    <path d="m46 54 7 7 13-14" />
   </Art>
 )
 
@@ -299,10 +297,7 @@ const TRAY_EMPTY = (
 const STOREFRONT = (
   <Art>
     <path d="M24 44 32 26h48l8 18" />
-    <path
-      className="text-ink"
-      d="M24 44a8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0"
-    />
+    <path d="M24 44a8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0" />
     <path d="M28 52v36h56V52" />
     <path d="M48 88V68h16v20" />
     <path d="M70 62h8v10h-8Z" />
@@ -316,8 +311,8 @@ const UNPLUGGED = (
     <path d="M8 58h14" />
     <rect x="22" y="48" width="20" height="20" rx="4" />
     <path d="M42 53h8M42 63h8" />
-    <rect className="text-ink" x="64" y="46" width="24" height="24" rx="5" />
-    <path className="text-ink" d="M72 55v6M80 55v6" />
+    <rect x="64" y="46" width="24" height="24" rx="5" />
+    <path d="M72 55v6M80 55v6" />
     <path d="M88 58h16" />
     <path d="m55 44 3-6M57 58h2M55 72l3 6" />
   </Art>
@@ -329,8 +324,8 @@ const UNPLUGGED_ALERT = (
     <path d="M8 66h14" />
     <rect x="22" y="56" width="20" height="20" rx="4" />
     <path d="M42 61h8M42 71h8" />
-    <rect className="text-ink" x="60" y="54" width="24" height="24" rx="5" />
-    <path className="text-ink" d="M68 63v6M76 63v6" />
+    <rect x="60" y="54" width="24" height="24" rx="5" />
+    <path d="M68 63v6M76 63v6" />
     <path d="M84 66h20" />
     {ALERT_MARK}
   </Art>
@@ -342,7 +337,7 @@ const HOURGLASS = (
     <path d="M38 18h36M38 94h36" />
     <path d="M42 18c0 20 14 26 14 38S42 74 42 94" />
     <path d="M70 18c0 20-14 26-14 38s14 18 14 38" />
-    <path className="text-ink" d="M48 30h16M48 88c2-6 6-8 8-8s6 2 8 8Z" />
+    <path d="M48 30h16M48 88c2-6 6-8 8-8s6 2 8 8Z" />
   </Art>
 )
 
@@ -417,6 +412,7 @@ function EmptyState({
   queue,
   nextQueue,
   canManageClients = false,
+  placement,
 }: {
   reason: EmptyReason
   counts?: EmptyCounts
@@ -427,6 +423,8 @@ function EmptyState({
   nextQueue?: { label: string; count: number; onSelect: () => void }
   /** Owners and admins, who can add a client. */
   canManageClients?: boolean
+  /** `page` when the state fills the list pane (see `Statement`). */
+  placement?: "inline" | "page"
 }) {
   const business = useWorkspaceMode() === "business"
   const { title, description } = content(
@@ -478,6 +476,7 @@ function EmptyState({
       action={action}
       icon={ICONS[reason]}
       illustration={illustrationFor(reason, queue)}
+      placement={placement}
       tone={
         // An empty Done queue is not good news; every other empty queue is.
         reason === "queue_empty" && queue && visibleQueue(queue) === "done"

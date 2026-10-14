@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ReviewList } from "@/components/inbox/review-list"
+import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
 
@@ -627,8 +627,10 @@ describe("ReviewList", () => {
         />
       )
       const column = screen
-        .getByRole("checkbox", { name: "Select the review from Sam Traveller" })
-        .closest('[data-slot="review-row-select"]')
+        .queryByRole("checkbox", {
+          name: "Select the review from Sam Traveller",
+        })
+        ?.closest('[data-slot="review-row-select"]')
       return { toggle, onSelect, column }
     }
 
@@ -664,7 +666,15 @@ describe("ReviewList", () => {
     it("opens the row on touch when select mode is off", async () => {
       stubPointer(true, false)
       const user = userEvent.setup()
-      const { toggle, onSelect } = renderSelectable(false)
+      const { toggle, onSelect, column } = renderSelectable(false)
+      // The tick box takes the avatar's place, so on touch outside select
+      // mode it is not mounted at all: nothing sits over the avatar where a
+      // tap should open the row.
+      expect(column).toBeUndefined()
+      expect(
+        document.querySelector('[data-slot="list-row-control"]')
+      ).toBeNull()
+      expect(document.querySelector("[data-reviewer-avatar]")).not.toBeNull()
       await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
       expect(onSelect).toHaveBeenCalledWith("a")
       expect(toggle).not.toHaveBeenCalled()
@@ -713,22 +723,31 @@ describe("ReviewList row anatomy", () => {
       "font-semibold",
       "text-ink"
     )
+    // The ListRow primitive's unread emphasis draws the dot.
+    expect(fresh).toHaveAttribute("data-emphasis", "unread")
     expect(
-      fresh.querySelector('[data-slot="review-row-indicator"]')
+      fresh.querySelector('[data-slot="list-row-unread-dot"]')
     ).toHaveAttribute("aria-hidden", "true")
-    expect(fresh.querySelector('[data-slot="review-row-preview"]')).toHaveClass(
-      "text-ink"
-    )
+    // The words take the primitive's snippet ink on every row (NM: the
+    // name and the dot carry "unread", not the snippet).
+    expect(
+      fresh
+        .querySelector('[data-slot="review-row-preview"]')!
+        .closest('[data-slot="list-row-preview"]')
+    ).toHaveClass("text-ink-secondary")
 
     expect(nameOf(handled, "Ben Handled")).toHaveClass(
       "font-normal",
       "text-ink-secondary"
     )
+    expect(handled).toHaveAttribute("data-emphasis", "read")
     expect(
-      handled.querySelector('[data-slot="review-row-indicator"]')
+      handled.querySelector('[data-slot="list-row-unread-dot"]')
     ).toBeNull()
     expect(
-      handled.querySelector('[data-slot="review-row-preview"]')
+      handled
+        .querySelector('[data-slot="review-row-preview"]')!
+        .closest('[data-slot="list-row-preview"]')
     ).toHaveClass("text-ink-secondary")
     // The status word stays: the dot and weight only reinforce it.
     expect(screen.getByLabelText("No reply yet")).toHaveTextContent(
@@ -750,9 +769,10 @@ describe("ReviewList row anatomy", () => {
     // In the Needs reply queue the pill would repeat the tab, so it is
     // dropped, and the dot is not words: a sr-only word carries it.
     expect(button.querySelector('[data-slot="reply-status"]')).toBeNull()
-    const spoken = screen.getAllByText("Needs reply")
+    const spoken = screen.getAllByText(/Needs reply/)
     expect(spoken).toHaveLength(1)
     expect(spoken[0]).toHaveClass("sr-only")
+    expect(spoken[0]).toHaveTextContent(/^, Needs reply$/)
 
     rerender(
       <ReviewList
@@ -762,10 +782,20 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    // Where the pill shows, it is the one that says it.
-    const again = screen.getAllByText("Needs reply")
+    // Where the pill shows, the words are seen once (the pill) and spoken
+    // once: the row's unread word after the name says the pill's sentence,
+    // and the pill is not spoken again.
+    const again = screen.getAllByText(/Needs reply/)
     expect(again).toHaveLength(1)
     expect(again[0]).toHaveAttribute("data-slot", "reply-status")
+    expect(again[0]).toHaveAttribute("aria-hidden", "true")
+    const said = screen.getAllByText(/No reply yet/)
+    expect(said).toHaveLength(1)
+    expect(said[0]).toHaveClass("sr-only")
+    expect(said[0]).toHaveTextContent(/^, No reply yet$/)
+    expect(
+      screen.getByRole("button", { name: /Sam Traveller, No reply yet/ })
+    ).toBeInTheDocument()
   })
 
   it("puts the status pill on the venue line, trailing, and the words last", () => {
@@ -780,10 +810,17 @@ describe("ReviewList row anatomy", () => {
     const button = screen.getByRole("button", { name: /Sam Traveller/ })
     const venue = button.querySelector('[data-slot="review-row-venue"]')!
     const pill = button.querySelector('[data-slot="reply-status"]')!
-    expect(venue).toContainElement(pill as HTMLElement)
-    expect(pill.parentElement).toHaveClass("ml-auto", "shrink-0")
-    // It may take its own line only where the row is very narrow.
-    expect(pill.parentElement).toHaveClass("@max-2xs/row:basis-full")
+    // The venue is the row's subtitle and the pill its trailing slot: one
+    // line, the pill at the end and never squeezed.
+    const subtitle = venue.closest('[data-slot="list-row-subtitle"]')!
+    const trailing = pill.closest('[data-slot="list-row-trailing"]')!
+    expect(subtitle).not.toBeNull()
+    expect(trailing).toHaveClass("shrink-0")
+    expect(subtitle.parentElement).toBe(trailing.parentElement)
+    expect(
+      subtitle.compareDocumentPosition(trailing) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     expect(
       button.querySelector('[data-slot="review-row-location"]')
     ).toHaveClass("truncate")
@@ -797,9 +834,14 @@ describe("ReviewList row anatomy", () => {
     expect(
       venue.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(preview).toHaveClass("line-clamp-2", "lg:line-clamp-1")
-    // The age is sans caption figures, not mono.
-    expect(time).toHaveClass("text-caption", "tabular-nums", "text-ink-muted")
+    expect(preview.closest('[data-slot="list-row-preview"]')).toHaveClass(
+      "line-clamp-2",
+      "desk:line-clamp-1"
+    )
+    // The age is the row's meta: sans caption figures, not mono.
+    const meta = time.closest('[data-slot="list-row-meta"]')!
+    expect(meta).toHaveClass("text-caption", "tabular-nums", "text-ink-muted")
+    expect(meta).not.toHaveClass("font-mono")
     expect(time).not.toHaveClass("font-mono")
   })
 
@@ -814,7 +856,8 @@ describe("ReviewList row anatomy", () => {
     const button = screen.getByRole("button", { name: /Sam Traveller/ })
     const avatar = button.querySelector("[data-reviewer-avatar]")!
     expect(avatar).not.toHaveAttribute("data-avatar-tone")
-    expect(avatar).toHaveAttribute("data-size", "default")
+    // The ListRow leading column's size (`--np-avatar-list`).
+    expect(avatar).toHaveAttribute("data-size", "list")
     // The primitive's neutral pair (Drop 1 names it --np-avatar-bg/-ink),
     // and none of the status tints the name hash used to pick.
     expect(avatar).toHaveClass("bg-avatar-bg", "text-avatar-ink")
@@ -835,19 +878,27 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const items = [
-      ...container.querySelectorAll('[data-slot="review-row-item"]'),
-    ]
-    expect(items[0]).toHaveClass("after:bg-line-subtle", "last:after:hidden")
-    // From the text column, past the gutter, avatar and gap — not a literal.
-    expect(items[0].className).toContain(
-      "after:left-[calc(var(--np-page-pad-x)+--spacing(8)+--spacing(3))]"
-    )
-    expect(items[1]).not.toHaveClass("after:bg-line-subtle")
-    expect(items[2]).toHaveClass("after:bg-line-subtle", "last:after:hidden")
+    // The ListRow primitive draws it: each row's <li> carries the hairline,
+    // hidden under the last and under the selected one.
+    const items = [...container.querySelectorAll('[data-slot="list-row"]')]
+    expect(items).toHaveLength(3)
+    for (const item of items) {
+      expect(item.tagName).toBe("LI")
+      expect(item).toHaveClass(
+        "after:bg-line-subtle",
+        "last:after:hidden",
+        "data-selected:after:hidden"
+      )
+      // From the text column, past the gutter, avatar and gap — a token,
+      // not a literal.
+      expect(item).toHaveClass("after:start-(--np-row-inset-start)")
+    }
+    expect(items[0]).not.toHaveAttribute("data-selected")
+    expect(items[1]).toHaveAttribute("data-selected", "true")
+    expect(items[2]).not.toHaveAttribute("data-selected")
   })
 
-  it("starts the row at the gutter, or flush with the tick-box column where it shows", () => {
+  it("keeps the row at the gutter and puts the tick box in the avatar's column", () => {
     const selection = (selectMode: boolean) => ({
       selected: new Set<string>(),
       toggle: vi.fn(),
@@ -862,7 +913,14 @@ describe("ReviewList row anatomy", () => {
       />
     )
     const button = () => screen.getByRole("button", { name: /Sam Traveller/ })
-    expect(button()).toHaveClass("pl-(--np-page-pad-x)", "pr-(--np-page-pad-x)")
+    const avatar = () =>
+      button().querySelector<HTMLElement>("[data-reviewer-avatar]")
+    const select = () =>
+      document.querySelector<HTMLElement>('[data-slot="review-row-select"]')
+    // The primitive's padding, whatever the selection tools.
+    expect(button()).toHaveClass("px-(--np-page-pad-x)")
+    expect(avatar()).not.toHaveClass("desk:hidden")
+    expect(select()).toBeNull()
 
     rerender(
       <ReviewList
@@ -872,7 +930,13 @@ describe("ReviewList row anatomy", () => {
         selection={selection(false)}
       />
     )
-    expect(button()).toHaveClass("pl-(--np-page-pad-x)", "desk:pl-0")
+    // A desk shows the tick box over the avatar's column (outside the
+    // row's button); the avatar steps aside there, and touch keeps it.
+    expect(button()).toHaveClass("px-(--np-page-pad-x)")
+    expect(button()).not.toContainElement(select())
+    expect(select()!.closest('[data-slot="list-row-control"]')).not.toBeNull()
+    expect(select()).toHaveClass("hidden", "desk:flex")
+    expect(avatar()).toHaveClass("desk:hidden")
 
     rerender(
       <ReviewList
@@ -882,7 +946,43 @@ describe("ReviewList row anatomy", () => {
         selection={selection(true)}
       />
     )
-    expect(button()).toHaveClass("pl-0")
-    expect(button()).not.toHaveClass("pl-(--np-page-pad-x)")
+    // Select mode: the tick box at every size, in place of the avatar.
+    expect(button()).toHaveClass("px-(--np-page-pad-x)")
+    expect(select()).toHaveClass("flex")
+    expect(select()).not.toHaveClass("hidden")
+    expect(avatar()).toBeNull()
+  })
+})
+
+// The loading outline is drawn by the same row primitive, so its padding,
+// leading column and hairline are the real rows' and nothing moves on swap.
+describe("ReviewRowsSkeleton", () => {
+  it("draws decorative ListRows at the rows' own geometry", () => {
+    const { container } = render(
+      <ReviewRowsSkeleton rows={3} aria-busy="true" />
+    )
+    const outline = container.querySelector(
+      '[data-slot="review-rows-skeleton"]'
+    )!
+    expect(outline).toHaveAttribute("aria-busy", "true")
+    const rows = outline.querySelectorAll('[data-slot="list-row"]')
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row).toHaveClass("after:start-(--np-row-inset-start)")
+      const hit = row.querySelector('[data-slot="list-row-hit"]')!
+      expect(hit.tagName).toBe("DIV")
+      expect(hit).toHaveAttribute("aria-hidden", "true")
+      expect(hit).toHaveClass("px-(--np-page-pad-x)", "py-(--np-row-mail-py)")
+      expect(
+        row.querySelector(
+          '[data-slot="list-row-leading"] [data-slot="skeleton"]'
+        )
+      ).toHaveClass("size-(--np-avatar-list)")
+      expect(
+        row.querySelector('[data-slot="list-row-trailing"]')
+      ).not.toBeNull()
+      expect(row.querySelector('[data-slot="list-row-preview"]')).not.toBeNull()
+    }
+    expect(container.querySelector("button")).toBeNull()
   })
 })

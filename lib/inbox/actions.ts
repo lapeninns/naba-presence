@@ -1,3 +1,4 @@
+import type { ToastData } from "@/components/ui/toast"
 import {
   isAllowedReviewTransition,
   REVIEW_WORKFLOW_STATES,
@@ -129,11 +130,15 @@ export type OutcomeToast = {
   description?: string
   type: "success" | "info" | "warning" | "error"
   /**
-   * The toast's one trailing action. Google writes never get "Undo" (a reply
-   * that reached Google cannot be taken back from a toast; D5): a published
-   * reply may offer "View on Google" instead, and nothing else does.
+   * The toast's trailing item. Google writes never get "Undo" (a reply that
+   * reached Google cannot be taken back from a toast; D5): a published reply
+   * may carry a "View on Google" link instead, and nothing else does. The
+   * toast (components/ui/toast.tsx) draws `link` as a real anchor that opens
+   * in a new tab, sharing nothing (`rel="noopener noreferrer"`).
    */
-  actionProps?: { children: string; onClick: () => void }
+  data?: Required<ToastData>
+  /** Set with the link: a link needs time to be read and reached. */
+  timeout?: number
 }
 
 export type OutcomeToastContext = {
@@ -144,13 +149,19 @@ export type OutcomeToastContext = {
   googleReplyUrl?: string | null
 }
 
-/** "View on Google": opens the review on Google in a new tab, sharing nothing. */
-function viewOnGoogle(url: string): OutcomeToast["actionProps"] {
+/**
+ * How long a toast carrying "View on Google" stays up: the toast's own
+ * `ACTION_TOAST_TIMEOUT` (components/ui/toast.tsx), restated here because
+ * this module is also loaded outside the browser (unit tests, e2e specs)
+ * and must not import the client toast module for a value.
+ */
+const VIEW_ON_GOOGLE_TIMEOUT = 10_000
+
+/** "View on Google": a Google-write toast's link to the review on Google. */
+function viewOnGoogle(url: string): Pick<OutcomeToast, "data" | "timeout"> {
   return {
-    children: "View on Google",
-    onClick: () => {
-      window.open(url, "_blank", "noopener,noreferrer")
-    },
+    data: { kind: "google", link: { href: url } },
+    timeout: VIEW_ON_GOOGLE_TIMEOUT,
   }
 }
 
@@ -179,9 +190,7 @@ export function describeOutcomeToast(
         title: "Reply published",
         description: "Live on Google.",
         type: "success",
-        ...(url && url.startsWith("https://")
-          ? { actionProps: viewOnGoogle(url) }
-          : {}),
+        ...(url && url.startsWith("https://") ? viewOnGoogle(url) : {}),
       }
     }
     case "awaiting_approval":

@@ -507,7 +507,7 @@ function InboxViewInner({
   // age, the stars and venue, and the review's words — at the rows' own
   // heights, so nothing moves when they arrive.
   function renderListSkeleton() {
-    return <ReviewRowsSkeleton aria-busy="true" selectColumn={canBatch} />
+    return <ReviewRowsSkeleton aria-busy="true" />
   }
 
   function renderList() {
