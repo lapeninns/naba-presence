@@ -100,6 +100,9 @@ describe("database migration contract", () => {
       "0136_review_reply_review_id_index.sql",
       "0137_review_reply_pending_draft_index.sql",
       "0138_approval_decision_review_id_index.sql",
+      "0157_publish_attempt_draft_id_index.sql",
+      "0158_approval_decision_draft_id_index.sql",
+      "0159_publish_attempt_event_attempt_index.sql",
     ])
   })
 
