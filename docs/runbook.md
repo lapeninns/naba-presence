@@ -55,11 +55,17 @@ does not deploy. In order:
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
    with `--skip`, from a base other than the last promoted commit, or with
-   any required step not passed, and pending migrations. It deploys with
-   `NABA_RELEASE_SHA=<sha>` and writes a receipt under
-   `docs/release/receipts/`, with the local receipt's bytes copied beside it
-   as `<receipt>.local.json`.
-5. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
+   any required step not passed, and pending migrations. Set
+   `READINESS_PROBE_TOKEN` (production's `CRON_SECRET`) and, if the project
+   uses Deployment Protection, `VERCEL_AUTOMATION_BYPASS_SECRET` in the
+   shell first. It deploys with `NABA_RELEASE_SHA=<sha>` and
+   `--skip-domain`, runs the readiness probe against the new deployment's
+   URL, and only when that passes runs `vercel promote`. A failed probe
+   exits 1 with production still on the previous deployment: nothing to roll
+   back. After promoting it writes a receipt under `docs/release/receipts/`,
+   with the local receipt's bytes copied beside it as `<receipt>.local.json`.
+5. Smoke: `pnpm ops:readiness --url <production> --expect-promoted`, and
+   `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
 6. Commit both receipt files and copy the receipt's `sha` and
@@ -95,6 +101,14 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
 Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
+Choosing the collector is decision D-41. To turn export on: pick an OTLP/HTTP
+destination; set `OTEL_EXPORTER_OTLP_ENDPOINT` (and
+`OTEL_EXPORTER_OTLP_HEADERS` for its credentials, as a sensitive variable) in
+the Vercel project's Preview environment first, deploy a preview, and confirm
+readiness reports `telemetry.state` `exporting` and the
+`nabapresence.http.server.duration` series arrives; then set them in
+Production. On Vercel, each request flushes metrics after its response
+(docs/observability.md, "Export on Vercel").
 
 ### Membership scope switch (0082/0083)
 
@@ -547,11 +561,13 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   swept within 4 (`tests/integration/routes/fleet-scale.test.ts`, production
   runner defaults, 240/min shared budget).
 - The owner/admin session POST of `/api/sync/reconcile`, `/performance` and
-  `/keywords` still runs its own organisation inline, and the bearer POST
-  still walks pages for `scripts/scheduler.mjs` (local and non-Vercel
-  deployments). Only presence resources still resume a cursor on the Vercel
-  path (`cron_cursor`); a null cursor means the walk finished, and a cursor
-  three fires in a row could not finish is abandoned for the head.
+  `/keywords` still runs its own organisation inline. `scripts/scheduler.mjs`
+  (local and non-Vercel deployments) fires the same cron GETs as `vercel.json`
+  (`scripts/scheduler-ticks.mjs`), so it enqueues too; the bearer POST still
+  walks pages inline but nothing schedules it. Only presence resources still
+  resume a cursor (`cron_cursor`, on both topologies); a null cursor means the
+  walk finished, and a cursor three fires in a row could not finish is
+  abandoned for the head.
 - The daily sweep does not page. `/api/sync/sweep` (cron) calls
   `enqueue_sweep_checkpoints`, which arms a `sweep` checkpoint for every
   linked location in every organisation in one statement, under the
@@ -574,8 +590,8 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   checkpoints, and the pause is enforced when the jobs runner claims work, so
   checkpoints accumulate and drain after the pause. The per-tenant
   `performance.organisation_failed` / `keywords.organisation_failed` lines with
-  503 `sync_paused` appear only on the session and local-scheduler POST paths;
-  read them as the pause, not as an incident.
+  503 `sync_paused` appear only on the session (and manual bearer) POST
+  paths; read them as the pause, not as an incident.
 - Retention cycle. `/api/cron/retention` with no `cursor` is a dispatcher
   (`lib/server/retention/cycle.ts`). Each five-minute fire resumes the
   running cycle, or at or after 03:00 UTC opens the day's
@@ -638,7 +654,7 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   transaction, not in the round audits or the cycle counts.
 - Presence resources and retention are bounded by a per-page budget
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
-  are the session and scheduler POST paths of reconcile, performance and
+  are the session and bearer POST paths of reconcile, performance and
   keywords (`RECONCILE_BUDGET_MS`, `PERFORMANCE_BUDGET_MS`,
   `KEYWORDS_BUDGET_MS`). Performance and keywords check the deadline between
   locations inside an organisation as well, so an owner's manual refresh
@@ -905,6 +921,29 @@ retention cycle failures:
 The incident resolves on the first health tick after the condition clears.
 The health tick cannot alert on its own absence; the readiness probe is that
 signal (below).
+
+### Hosted readiness probe
+
+`.github/workflows/readiness-probe.yml` probes production every 5 minutes
+(docs/observability.md, "The hosted probe"). Operator setup, once:
+
+1. Create the secret, entering production's `CRON_SECRET` at the prompt (never
+   on the command line):
+   `gh secret set NABA_READINESS_TOKEN -R lapeninns/naba-presence`.
+2. Point it at production:
+   `gh variable set NABA_READINESS_URL --body https://<production origin> -R lapeninns/naba-presence`.
+3. Optionally, `gh variable set NABA_READINESS_EXPECT_PROMOTED --body true`
+   to fail when production does not serve the newest promotion receipt's
+   commit. This fails between a promotion and the merge of its receipt.
+4. Run it once by hand: `gh workflow run readiness-probe.yml`, then
+   `gh run list --workflow readiness-probe.yml`.
+5. Check that the GitHub account that last edited the workflow's cron gets
+   Actions failure emails (Settings → Notifications → Actions).
+
+The job needs hosted Actions minutes, about 8,600 a month at one billed
+minute per run. While the Actions budget blocks hosted jobs (docs/ci.md), it
+does not run. When the secret is rotated with `CRON_SECRET`, update
+`NABA_READINESS_TOKEN` too, or every run fails `unauthorised`.
 
 ### Readiness probe failure
 
@@ -1394,7 +1433,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `hours_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `hoursAttempts`, `strandedHours`, cascade from `external_location` | gated | cascade only | internal |
 | `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
 | `invitation_delivery` | operational | keep | with its invitation; deleted when the invitation is revoked | none | none | no | lifecycle |
-| `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0139) | cascade from `review` | gated | yes | lifecycle |
+| `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0141) | cascade from `review` | gated | yes | lifecycle |
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |

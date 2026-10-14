@@ -501,7 +501,7 @@ export const RETENTION_INVENTORY = [
     provenance: "customer",
     action: "keep",
     window:
-      "with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0139)",
+      "with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0141)",
     cascadeFrom: ["review"],
     deletes: "gated",
     hold: "kept",

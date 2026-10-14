@@ -5,7 +5,12 @@ import { fileURLToPath } from "node:url"
 import nextEnv from "@next/env"
 import postgres from "postgres"
 
-import { migrationDatabaseUrl, prepareMigration } from "./migration-rules.mjs"
+import {
+  DEFAULT_LOCK_TIMEOUT,
+  migrationDatabaseUrl,
+  migrationLockTimeout,
+  prepareMigration,
+} from "./migration-rules.mjs"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const { loadEnvConfig } = nextEnv
@@ -40,6 +45,15 @@ const migrationFiles = (await readdir(migrationsDirectory))
 const LOCK_CLASS = 0x6e616261 // "naba"
 const LOCK_ID = 1 // db:migrate
 const lockWaitSeconds = Number(process.env.DB_MIGRATE_LOCK_TIMEOUT ?? 600)
+// Postgres lock_timeout for each transactional migration (`0` for none); a
+// file's own `-- migrate:lock-timeout <value>` header wins. Distinct from
+// DB_MIGRATE_LOCK_TIMEOUT above, which is how long to wait for another run.
+const tableLockTimeout =
+  process.env.MIGRATION_LOCK_TIMEOUT || DEFAULT_LOCK_TIMEOUT
+migrationLockTimeout("MIGRATION_LOCK_TIMEOUT", "", {
+  transactional: true,
+  fallback: tableLockTimeout,
+})
 
 const sql = postgres(url, { max: 1, prepare: false, max_lifetime: null })
 let connection
@@ -135,11 +149,28 @@ async function appliedVersions(db) {
 
 async function applyMigration(db, file, version, text) {
   const migration = prepareMigration(file, text)
+  // Validated by migrationLockTimeout (digits and a unit only), so it is safe
+  // to interpolate: SET takes no bind parameters.
+  const lockTimeout = migrationLockTimeout(file, text, {
+    transactional: migration.transactional,
+    fallback: tableLockTimeout,
+  })
 
   if (!migration.transactional) {
     // The file manages its own transactions (or runs statements that cannot
     // run inside one), so a failed self-record check cannot be rolled back.
-    await db.unsafe(migration.body)
+    if (lockTimeout) await db.unsafe(`set lock_timeout = '${lockTimeout}'`)
+    try {
+      // Each statement is sent alone: a multi-statement string would run as
+      // one implicit transaction.
+      for (const statement of migration.statements) {
+        await db.unsafe(statement)
+      }
+    } catch (error) {
+      throw explainLockTimeout(error, version, lockTimeout, false)
+    } finally {
+      if (lockTimeout) await db.unsafe("reset lock_timeout").catch(() => {})
+    }
     if (!(await isRecorded(db, version))) {
       throw new Error(
         `migration ${version} did not record itself (no-transaction file; ` +
@@ -151,7 +182,12 @@ async function applyMigration(db, file, version, text) {
 
   await db.unsafe("begin")
   try {
-    await db.unsafe(migration.body)
+    if (lockTimeout) {
+      await db.unsafe(`set local lock_timeout = '${lockTimeout}'`)
+    }
+    await db.unsafe(migration.body).catch((error) => {
+      throw explainLockTimeout(error, version, lockTimeout, true)
+    })
     if (!(await isRecorded(db, version))) {
       throw new Error(`migration ${version} did not record itself`)
     }
@@ -173,6 +209,20 @@ async function applyMigration(db, file, version, text) {
     await db.unsafe("rollback").catch(() => {})
     throw error
   }
+}
+
+function explainLockTimeout(error, version, lockTimeout, rolledBack) {
+  if (error?.code !== "55P03" || !lockTimeout) return error
+  return new Error(
+    `migration ${version} could not take a table lock within lock_timeout ` +
+      `${lockTimeout} (another transaction holds it)` +
+      (rolledBack
+        ? " and was rolled back; "
+        : "; no-transaction file, so earlier statements were not rolled back; ") +
+      "re-run db:migrate when the database is quieter, or raise the limit " +
+      "with MIGRATION_LOCK_TIMEOUT or a -- migrate:lock-timeout header",
+    { cause: error }
+  )
 }
 
 async function isRecorded(db, version) {

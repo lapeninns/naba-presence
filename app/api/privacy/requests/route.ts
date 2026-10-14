@@ -111,6 +111,7 @@ const WITHDRAWAL_STALLED_SQL = `(
 )`
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   handler: async ({ tenant }) => {
     // Stalled withdrawals first, then open requests, the closest to their
@@ -159,6 +160,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   entitlement: "exempt",
   roles: ["owner", "admin"],
@@ -215,6 +217,7 @@ export const POST = route({
 })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   entitlement: "exempt",
   roles: ["owner"],
@@ -357,7 +360,7 @@ export const PATCH = route({
           withdrawals,
         }
       }).catch((error: unknown) => {
-        // The backstop: review_legal_hold_guard (0139) refused to erase a
+        // The backstop: review_legal_hold_guard (0141) refused to erase a
         // review held after the check above, and the whole erasure rolled
         // back. The match's row locks make a hold wait for the erasure, so
         // this only answers for a writer that bypassed them.

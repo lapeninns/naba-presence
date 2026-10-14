@@ -12,14 +12,33 @@ exporter is registered only when an endpoint is set (or
 attributes and never attach review text, reply bodies, access tokens, or email
 addresses.
 
+**Export on Vercel.** A function instance is frozen between invocations, so
+the periodic metric reader (`OTEL_METRIC_EXPORT_INTERVAL`, 60 s) may never
+fire on an instance that serves a few short requests. On Vercel (`VERCEL` set)
+with an endpoint configured, every `route()` request and cron tick therefore
+flushes the meter provider after its response (`after()`, which holds the
+invocation open with `waitUntil`); concurrent requests on one instance share
+the export in flight (`flushMetricsAfterResponse`,
+`lib/server/request-metrics.ts`). Traces need nothing extra: with
+`OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) set,
+`@vercel/otel` adds an OTLP span processor and flushes it through the request
+context's `waitUntil` when a root span ends. Collector credentials go in
+`OTEL_EXPORTER_OTLP_HEADERS`. Self-hosted, the periodic reader alone exports.
+
 ## Metric catalog
 
 All application-owned metric names use the `nabapresence.` prefix.
 
 | Metric                                     | Type      | Unit | Attributes                                                                                                  | Source and purpose                                                                                                  |
 | ------------------------------------------ | --------- | ---: | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `nabapresence.tenant_transaction.duration` | histogram |   ms | `tenant.id`, `outcome`                                                                                      | `lib/server/db.ts`; latency of an RLS-scoped transaction                                                            |
-| `nabapresence.tenant_transaction.count`    | counter   |    1 | `tenant.id`, `outcome`                                                                                      | `lib/server/db.ts`; successful and failed RLS-scoped transactions                                                   |
+| `nabapresence.tenant_transaction.duration` | histogram |   ms | `outcome` (`tenant.id` is on the span only, so one series per tenant is not exported)                       | `lib/server/db.ts`; latency of an RLS-scoped transaction                                                            |
+| `nabapresence.tenant_transaction.count`    | counter   |    1 | `outcome`                                                                                                   | `lib/server/db.ts`; successful and failed RLS-scoped transactions                                                   |
+| `nabapresence.http.server.duration`        | histogram |   ms | `http.route`, `http.request.method`, `http.response.status_class`                                           | `lib/server/route.ts` via `request-metrics.ts`; every API route's latency (p50/p95/p99 baseline)                    |
+| `nabapresence.http.server.db_transactions` | histogram |    1 | `http.route`, `http.request.method`                                                                         | `withTenant` transactions one request ran                                                                           |
+| `nabapresence.http.server.google_calls`    | histogram |    1 | `http.route`, `server.address` (the Google API host)                                                        | Google requests one request or cron tick made, per API; recorded only when there was at least one                   |
+| `nabapresence.cron.tick.duration`          | histogram |   ms | same as `http.server.duration`                                                                              | every `auth: "cron"` route (Vercel Cron GET or scheduler POST)                                                      |
+| `nabapresence.jobs.claimed`                | counter   |    1 | `kind`                                                                                                      | `lib/server/jobs.ts`; jobs each tick claimed, by kind                                                               |
+| `nabapresence.scheduler.tick.age`          | gauge     |    s | `tick`                                                                                                      | `lib/server/notifications/platform.ts`; seconds since each tick last completed, read by the health tick             |
 | `nabapresence.google.request.duration`     | histogram |   ms | `server.address`, `http.request.method`, `http.response.status_code`, `nabapresence.google.mode`, `outcome` | `lib/server/google.ts`; provider latency including pacing and safe-read retries                                     |
 | `nabapresence.google.request.count`        | counter   |    1 | same as request duration                                                                                    | `lib/server/google.ts`; provider request outcomes                                                                   |
 | `nabapresence.webhook.discarded`           | counter   |    1 | `reason`                                                                                                    | `app/api/webhooks/google/pubsub/route.ts`; permanently malformed or unroutable deliveries acknowledged as discarded |
@@ -31,6 +50,16 @@ The application also emits the `database.tenant_transaction` and
 `nabapresence.request_id` and, when supplied,
 `nabapresence.client_request_id`. Google spans additionally receive
 `nabapresence.google.attempts`. Structured logs are redacted before output.
+
+Cardinality is bounded: `http.route` is the request path with identifier-like
+segments (numbers, UUIDs, long or digit-bearing tokens) replaced by `:id`, and
+an instance records at most 300 distinct routes before folding new ones into
+`other`; methods outside the standard set are `OTHER`. No metric carries a
+tenant, user or request id. Item-level job lag (claim time minus due time, by
+kind) is not measured yet: `claim_due_jobs` does not return the due time, so
+it needs a migration. Until then `nabapresence.scheduler.tick.age` and the
+platform health backlogs (`dueJobBacklog` and the per-source counts) are the
+lag signals.
 
 ## Health scraper
 
@@ -231,10 +260,22 @@ have been told.
 instance has its own, and a fresh instance reads `configured` until its first
 export interval has passed.
 
+### The hosted probe
+
+`.github/workflows/readiness-probe.yml` runs the same script every 5 minutes
+on a GitHub-hosted runner against `vars.NABA_READINESS_URL`, with the token
+from the `NABA_READINESS_TOKEN` secret (production's `CRON_SECRET`). A failed
+run is the alert: GitHub emails the failure of a scheduled run. It is inert
+until the variable is set; setup is in `docs/runbook.md`, "Hosted readiness
+probe". `NABA_READINESS_EXPECT_PROMOTED=true` adds `--expect-promoted`. GitHub
+starts scheduled runs on a best-effort basis, sometimes minutes late, and
+pauses them after 60 days without repository activity; a dedicated uptime
+service with bearer-header support is the stronger option if that matters.
+
 ### The local probe
 
-The probe runs outside the deployment, on an operator's machine (by hand, cron
-or a launchd agent); there is no hosted workflow:
+The probe can also run on an operator's machine (by hand, cron or a launchd
+agent):
 
 ```bash
 READINESS_PROBE_TOKEN=... pnpm ops:readiness --url https://<production> \

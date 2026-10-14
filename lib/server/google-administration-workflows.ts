@@ -5,7 +5,7 @@ import { reviewedAdministrationPayloadSchema } from "@/lib/contracts/google-admi
 import { withTenant } from "@/lib/server/db"
 import { currentAdministrationContext } from "@/lib/server/google-administration-state"
 import type { Session } from "@/lib/server/session"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 
 function decodeCursor(value: string | undefined) {
   if (!value) return undefined
@@ -26,6 +26,6 @@ export async function listAdministrationWorkflows(session: Session, locationId: 
     order by c.created_at desc, c.id desc limit ${query.limit + 1}
   `)
   const visible = rows.slice(0, query.limit), last = visible.at(-1)
-  return administrationWorkflowsResponseSchema.parse({ items: visible.map((row) => ({ ...row, request: reviewedAdministrationPayloadSchema.parse(row.payload).request })),
-    nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last.reviewId })).toString("base64url") : null })
+  return parseStored(administrationWorkflowsResponseSchema, { items: visible.map((row) => ({ ...row, request: parseStored(reviewedAdministrationPayloadSchema, row.payload, "administration_review.payload").request })),
+    nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last.reviewId })).toString("base64url") : null }, "administration_workflows")
 }

@@ -17,7 +17,7 @@ const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
 /**
- * Legal holds enforced by the database (0139, audit R2B-01): a hold that
+ * Legal holds enforced by the database (0141, audit R2B-01): a hold that
  * commits while a retention round or an erasure is already working on its
  * review wins, a delete can never take a hold with it, and released holds
  * still go with their review.

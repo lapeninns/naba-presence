@@ -23,6 +23,7 @@ export const maxDuration = 60
 const paramsSchema = z.object({ id: z.uuid() })
 
 export const GET = route({
+  maxDuration,
   params: paramsSchema,
   handler: async ({ session, params }) =>
     ({
@@ -31,6 +32,7 @@ export const GET = route({
 })
 
 export const PUT = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: saveFoodMenusSchema,
@@ -58,6 +60,7 @@ export const PUT = route({
 })
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   body: publishFoodMenusSchema,

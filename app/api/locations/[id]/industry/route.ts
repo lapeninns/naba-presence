@@ -26,6 +26,7 @@ export const maxDuration = 60
 const paramsSchema = z.object({ id: z.uuid() })
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
@@ -36,6 +37,7 @@ export const POST = route({
 })
 
 export const PUT = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: lodgingPreviewRequestSchema,
@@ -43,6 +45,7 @@ export const PUT = route({
 })
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: paramsSchema,
   query: z.union([z.object({ type: z.literal("attempt").default("attempt"), reviewId: z.uuid() }).strict(), lodgingWorkflowsQuerySchema, z.object({ type: z.literal("resource").default("resource") }).strict()]),
@@ -54,6 +57,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
