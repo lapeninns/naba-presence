@@ -1,10 +1,11 @@
 /**
  * Statuses that a background job, not the operator, moves on.
  *
- * `publish_requested` is the one the reply action leaves behind: the route
- * returns 200 with a pending outcome, the publish worker sends it to Google,
- * and the minute cron settles anything retryable or ambiguous through
- * `recoverAttempt`. Nothing about that reaches the browser on its own.
+ * `publish_requested` is the one the reply action can leave behind: the route
+ * sends the reply to Google inline (`executePublish`), and a retryable or
+ * ambiguous outcome leaves the review `publish_requested`; the minute cron
+ * then settles it through `recoverAttempt`. Nothing about that reaches the
+ * browser on its own.
  *
  * So the review pane sat on "Publishing — Your reply is on its way to Google"
  * and the toast said "Its status will update shortly", while neither

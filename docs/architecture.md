@@ -148,8 +148,7 @@ They contain no customer content; every follow-on operation immediately enters
 ## Request skeleton: `route()`
 
 Every handler under `app/api/**/route.ts` is built by `route({...})` from
-`lib/server/route.ts` (77 of 78 route files; the last,
-`app/api/auth/callback/google/route.ts`, re-exports another handler). The
+`lib/server/route.ts` (all 159 route files). The
 wrapper owns, in order: the request id, generated once with
 `serverRequestId`, exposed as `ctx.requestId`, echoed as the `x-request-id`
 response header on success and error, and written into every error body
@@ -1102,8 +1101,12 @@ queue: their cron only arms a checkpoint for every linked location
 per-organisation cap, and success books the next run on the kind's grid from
 the slot it was due in (`next_scheduled_run`). `sync_checkpoint.
 last_succeeded_at` moves only on success and is what every freshness signal
-reads. Vercel Cron drives eight ticks (`vercel.json`); `scripts/scheduler.mjs`
-POSTs the same eight for local and non-Vercel deployments.
+reads. Vercel Cron drives nine ticks (`vercel.json`), all GETs;
+`scripts/scheduler.mjs` fires the same nine for local and non-Vercel
+deployments, eight of them as POSTs (billing reconciliation is GET only). A
+POST is not the cron GET: the reconcile, performance and keyword POSTs run a
+page of the tenant walk inline, where their GETs enqueue checkpoints for the
+job runner.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and records
 each run in that loop's `ops_heartbeat` row (start, skip streak, failure and
@@ -1360,11 +1363,14 @@ on purpose. Only readers served from our own database are prefetched (home
 counts and the 30-day overview, location capabilities, the posts list, the
 settings role projection): the Google-backed tabs read live and cost 3-5s per
 request inside a server render, which would hold first paint and be repeated
-by every `<Link prefetch>`. And it is never used on a page whose state lives
-in the URL: a page that reads `searchParams` re-renders on the server for
-every filter, queue or selection change, and Next moves focus to the
-re-rendered segment, which wiped text an operator had typed into the inbox
-location filter. Those pages hydrate client-side as before.
+by every `<Link prefetch>`. And a page whose state lives in the URL never
+reads `searchParams` to choose what to prefetch: such a page re-renders on
+the server for every filter, queue or selection change, and Next moves focus
+to the re-rendered segment, which wiped text an operator had typed into the
+inbox location filter. The inbox instead reads the first request's query
+string from `proxy.ts`'s header (`requestSearch`, which Next does not treat as
+a search-param read) and prefetches the list's first page, the counts and an
+open review (`inboxPrefetch`); later changes fetch client-side.
 
 ## Naming
 
