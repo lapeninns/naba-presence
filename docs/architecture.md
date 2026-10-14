@@ -1037,6 +1037,13 @@ rather than a re-arm; the intent transaction also writes `review_reply`,
 is returned as an outcome the routes map to 409/429 rather than thrown. The
 boundary statement lives in both file headers and is kept in step.
 
+A request re-arms a queued row (`rearmAttempt`) only as a compare-and-set on
+the status and `attempt_no` it read, with any back-off elapsed, as the
+runner's retry claim does on `status = 'retryable'`. Without it a press that
+read the row before the runner claimed it (or before another press re-armed
+it) re-armed it again and called Google a second time. The loser resolves
+against the winner's row, as it does for a lost idempotency-key insert.
+
 The vocabulary also carries `superseded` (0035), which is not a provider
 verdict but a retirement: the mutation a queued attempt was keyed to is no
 longer the one the reply wants — a delete parked on a 429 while the operator

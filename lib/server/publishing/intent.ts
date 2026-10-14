@@ -288,8 +288,9 @@ export async function resolveExistingPublishAttempt(
  * attempt row (new or re-armed), its `started` event, the
  * `publish_requested` workflow transition and the audit event.
  *
- * Returns null when a concurrent request won the idempotency key, so the
- * caller can resolve against the row that request wrote.
+ * Returns null when a concurrent request (or the retry runner) won the
+ * idempotency key or the re-arm, so the caller can resolve against the row
+ * the winner wrote.
  */
 export async function startPublishIntent(
   sql: TransactionSql,
@@ -329,7 +330,7 @@ export async function startPublishIntent(
   )
   const attempt = key.existing
     ? await rearmAttempt(sql, {
-        attemptId: key.existing.id,
+        attempt: key.existing,
         intendedBody: record.body,
         authorisation,
       })
@@ -456,7 +457,8 @@ export async function preparePublish(
     if (intent) return { kind: "proceed", ...intent }
 
     // A concurrent request (a double click, or two approvers deciding at
-    // once) committed this key first. Its row is now visible, so resolve
+    // once) committed this key first, or re-armed the row (or the retry
+    // runner claimed it) after we read it. Its row is now visible, so resolve
     // against it: an in-flight winner answers `publish_in_progress`.
     const winner = await findAttemptByKey(sql, {
       organisationId: input.organisationId,
