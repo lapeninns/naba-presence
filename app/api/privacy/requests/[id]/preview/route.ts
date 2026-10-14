@@ -9,6 +9,7 @@ import {
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 /**
  * What fulfilling a request would touch, read before an owner confirms an
@@ -17,6 +18,7 @@ export const runtime = "nodejs"
  * whose match set has changed since. Owners only, like the fulfil.
  */
 export const GET = route({
+  maxDuration,
   roles: ["owner"],
   params: z.object({ id: z.uuid() }),
   handler: async ({ params, tenant }) => {
