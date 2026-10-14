@@ -228,13 +228,23 @@ const isOuterCommit = (words) =>
  * `-- migrate:no-transaction` on its first line. Comments, strings and
  * dollar-quoted bodies (PL/pgSQL `begin ... end;`) are ignored.
  *
+ * A no-transaction file is split into its top-level statements, which the
+ * runner sends one at a time: PostgreSQL runs a multi-statement query string
+ * as one implicit transaction, where `create index concurrently` is refused.
+ *
  * @param {string} file
  * @param {string} text
- * @returns {{ transactional: boolean, body: string }}
+ * @returns {{ transactional: boolean, body: string, statements?: string[] }}
  */
 export function prepareMigration(file, text) {
   if (text.split("\n", 1)[0].trim() === NO_TRANSACTION_MARKER) {
-    return { transactional: false, body: text }
+    return {
+      transactional: false,
+      body: text,
+      statements: statements(maskSql(text)).map(({ start, end }) =>
+        text.slice(start, end)
+      ),
+    }
   }
 
   const found = statements(maskSql(text))
