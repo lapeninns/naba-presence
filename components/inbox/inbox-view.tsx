@@ -743,7 +743,12 @@ function InboxViewInner({
   const workspaceControls = (
     <div
       data-slot="inbox-workspace-controls"
-      className="flex shrink-0 flex-col gap-3 pt-2 pb-4 md:px-5 md:pt-5"
+      // Edge to edge on a phone like the panes below it, with the page's
+      // own gutter as padding, so the white band has no grey margins.
+      className={cn(
+        "flex shrink-0 flex-col gap-3 pt-2 pb-4 max-md:px-4 md:px-5 md:pt-5",
+        PHONE_BLEED
+      )}
     >
       <InboxToolbar
         state={state}
