@@ -702,7 +702,13 @@ function ArchivedClients({
 function OpenWork({ client }: { client: ClientSummary }) {
   const { needsReply, awaitingApproval, failed } = client.openWork
   if (needsReply + awaitingApproval + failed === 0) {
-    return <span className="text-ink-muted">Clear</span>
+    // A state in words, drawn as a status (dot + word, no fill), so it can't
+    // be mistaken for a button beside the rows' "2 to reply" links.
+    return (
+      <StatusPill tone="neutral" variant="inline" data-slot="open-work-none">
+        Nothing to reply to
+      </StatusPill>
+    )
   }
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 tabular-nums">
