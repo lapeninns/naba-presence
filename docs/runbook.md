@@ -55,11 +55,17 @@ does not deploy. In order:
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
    with `--skip`, from a base other than the last promoted commit, or with
-   any required step not passed, and pending migrations. It deploys with
-   `NABA_RELEASE_SHA=<sha>` and writes a receipt under
-   `docs/release/receipts/`, with the local receipt's bytes copied beside it
-   as `<receipt>.local.json`.
-5. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
+   any required step not passed, and pending migrations. Set
+   `READINESS_PROBE_TOKEN` (production's `CRON_SECRET`) and, if the project
+   uses Deployment Protection, `VERCEL_AUTOMATION_BYPASS_SECRET` in the
+   shell first. It deploys with `NABA_RELEASE_SHA=<sha>` and
+   `--skip-domain`, runs the readiness probe against the new deployment's
+   URL, and only when that passes runs `vercel promote`. A failed probe
+   exits 1 with production still on the previous deployment: nothing to roll
+   back. After promoting it writes a receipt under `docs/release/receipts/`,
+   with the local receipt's bytes copied beside it as `<receipt>.local.json`.
+5. Smoke: `pnpm ops:readiness --url <production> --expect-promoted`, and
+   `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
 6. Commit both receipt files and copy the receipt's `sha` and

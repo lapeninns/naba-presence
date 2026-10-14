@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   GATE_STEPS,
@@ -10,13 +10,18 @@ import {
 import {
   buildReceipt,
   checkCandidate,
+  deployArgs,
   localReceiptCopyName,
   migrationReceipt,
   parseDeployOutput,
   parseEnvNames,
+  PROBE_ATTEMPTS,
+  probeArgs,
+  promoteArgs,
   readLocalReceipt,
   receiptFileName,
   secretLikePaths,
+  stagedPromotion,
   worktreeIssues,
 } from "../../scripts/release/promote.mjs"
 
@@ -27,12 +32,18 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
 
 type Step = { id: string; status: string; required?: boolean }
 
+const TEST_SUMMARIES: Record<string, string[]> = {
+  integration: ["Test Files 143 passed (143)", "Tests 1254 passed (1254)"],
+  e2e: ["572 passed (19.1m)"],
+}
+
 const passingSteps = (): Step[] =>
   GATE_STEPS.map((step: { id: string; required: boolean }) => ({
     id: step.id,
     required: step.required,
     status: "passed",
     durationMs: 1000,
+    ...(TEST_SUMMARIES[step.id] ? { summary: TEST_SUMMARIES[step.id] } : {}),
   }))
 
 const localContent = (overrides: Record<string, unknown> = {}) => ({
@@ -214,12 +225,23 @@ describe("release:promote checkCandidate", () => {
     expect(candidate({ localReceipt: local({ ok: false }) }).ok).toBe(false)
   })
 
-  it("accepts a skipped secret scan only, never a failed one", () => {
+  it("refuses a receipt whose integration step ran no tests", () => {
+    const steps = passingSteps().map((step) =>
+      step.id === "integration"
+        ? { ...step, summary: ["Tests 1254 skipped (1254)"] }
+        : step
+    )
+    expect(candidate({ localReceipt: local({ steps }) }).problems).toEqual([
+      'local gate: step "integration" passed but reported no test count',
+    ])
+  })
+
+  it("refuses a skipped or failed secret scan", () => {
     expect(
       candidate({
         localReceipt: local({ steps: withStep("secret-scan", "skipped") }),
-      }).ok
-    ).toBe(true)
+      }).problems
+    ).toEqual(['local gate: required step "secret-scan" skipped'])
     expect(
       candidate({
         localReceipt: local({ steps: withStep("secret-scan", "failed") }),
@@ -409,5 +431,121 @@ describe("release:promote CLI parsing", () => {
     expect(pkg.scripts["verify:release"]).toBe(
       "node scripts/release/verify-local.mjs"
     )
+  })
+})
+
+describe("staged promotion (W7-2): deploy, probe, then promote", () => {
+  const STAGED = {
+    id: "dpl_staged",
+    url: "https://naba-presence-abc123.vercel.app",
+  }
+
+  // The Vercel CLI and the probe, mocked: each call is recorded in order.
+  function mockCli(probeExitCodes: number[]) {
+    const calls: string[] = []
+    const exits = [...probeExitCodes]
+    return {
+      calls,
+      deploy: vi.fn(() => {
+        calls.push(`vercel ${deployArgs(SHA).join(" ")}`)
+        return STAGED
+      }),
+      probe: vi.fn((url: string) => {
+        calls.push(`probe ${probeArgs(url, SHA).join(" ")}`)
+        return exits.shift() ?? 2
+      }),
+      promote: vi.fn((id: string) => {
+        calls.push(`vercel ${promoteArgs(id).join(" ")}`)
+      }),
+      sleep: vi.fn(async () => {}),
+    }
+  }
+
+  it("deploys a production build without assigning the production domains", () => {
+    const args = deployArgs(SHA)
+    expect(args.slice(0, 3)).toEqual(["deploy", "--prod", "--skip-domain"])
+    expect(args).toEqual(
+      expect.arrayContaining([
+        `NABA_RELEASE_SHA=${SHA}`,
+        `releaseSha=${SHA}`,
+        "--format",
+      ])
+    )
+    expect(promoteArgs("dpl_x")).toEqual([
+      "promote",
+      "dpl_x",
+      "--yes",
+      "--timeout",
+      "5m",
+    ])
+    expect(probeArgs(STAGED.url, SHA)).toEqual([
+      "--url",
+      STAGED.url,
+      "--expect-sha",
+      SHA,
+    ])
+  })
+
+  it("promotes only after the probe passed against the staged deployment", async () => {
+    const cli = mockCli([0])
+    const outcome = await stagedPromotion(cli)
+    expect(outcome).toEqual({
+      promoted: true,
+      deployment: STAGED,
+      probeExitCode: 0,
+    })
+    expect(cli.calls).toEqual([
+      `vercel ${deployArgs(SHA).join(" ")}`,
+      `probe --url ${STAGED.url} --expect-sha ${SHA}`,
+      "vercel promote dpl_staged --yes --timeout 5m",
+    ])
+  })
+
+  it("retries a cold deployment before giving up", async () => {
+    const cli = mockCli([2, 0])
+    const outcome = await stagedPromotion({ ...cli, retryMs: 7 })
+    expect(outcome.promoted).toBe(true)
+    expect(cli.probe).toHaveBeenCalledTimes(2)
+    expect(cli.sleep).toHaveBeenCalledWith(7)
+  })
+
+  it("never promotes when the probe keeps failing, so the old deployment stays live", async () => {
+    for (const exitCode of [1, 2, 64]) {
+      const cli = mockCli(Array(PROBE_ATTEMPTS).fill(exitCode))
+      const onProbe = vi.fn()
+      const outcome = await stagedPromotion({ ...cli, onProbe })
+      expect(outcome).toEqual({
+        promoted: false,
+        deployment: STAGED,
+        probeExitCode: exitCode,
+      })
+      expect(cli.probe).toHaveBeenCalledTimes(PROBE_ATTEMPTS)
+      expect(onProbe).toHaveBeenLastCalledWith(PROBE_ATTEMPTS, exitCode)
+      expect(cli.promote).not.toHaveBeenCalled()
+    }
+  })
+
+  it("does not probe or promote when the deploy fails", async () => {
+    const cli = mockCli([0])
+    cli.deploy.mockImplementation(() => {
+      throw new Error("vercel deploy exited 1")
+    })
+    await expect(stagedPromotion(cli)).rejects.toThrow("vercel deploy exited 1")
+    expect(cli.probe).not.toHaveBeenCalled()
+    expect(cli.promote).not.toHaveBeenCalled()
+  })
+
+  it("reports the staged deployment before probing, so a failure can name it", async () => {
+    const cli = mockCli([2, 2, 2])
+    const order: string[] = []
+    await stagedPromotion({
+      ...cli,
+      onDeployed: (deployment) => order.push(`deployed ${deployment.id}`),
+      probe: (url) => {
+        order.push("probe")
+        return cli.probe(url)
+      },
+    })
+    expect(order[0]).toBe("deployed dpl_staged")
   })
 })

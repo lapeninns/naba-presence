@@ -3,6 +3,7 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { startAppServer } from "../helpers/app-server"
 import { startAuthProviderStub } from "../helpers/auth-provider"
+import { openConfirmationLink } from "../helpers/email-confirmation"
 import { createTestTenant, destroyTenants } from "../helpers/tenant"
 
 const describeDatabase =
@@ -96,11 +97,10 @@ describeDatabase("invitation-only pilot admission", () => {
     // registration's default workspace mode is never stored for them.
     expect(auth.users.get(email)?.metadata).not.toHaveProperty("workspace_mode")
     const tokenHash = auth.confirmationToken(email)!
-    const confirm = await fetch(
-      `${server.baseUrl}/auth/confirm?flow=signup&type=email&token_hash=${tokenHash}&inviteToken=${invitation.token}`,
-      { redirect: "manual" }
+    const confirm = await openConfirmationLink(
+      `${server.baseUrl}/auth/confirm?flow=signup&type=email&token_hash=${tokenHash}&inviteToken=${invitation.token}`
     )
-    expect(confirm.status).toBe(307)
+    expect(confirm.status).toBe(303)
     expect(confirm.headers.get("location")).toContain("/inbox")
     const cookie = confirm.headers.get("set-cookie")!.split(";")[0]
     const session = await (
