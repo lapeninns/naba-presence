@@ -1,9 +1,9 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 13,
+    "R1": 12,
     "R2": 9,
-    "R3": 67,
+    "R3": 58,
     "R4": 12,
     "R5": 1,
     "R6": 2,
@@ -15,23 +15,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[minmax(0,1fr)_minmax(22.5rem,32.5rem)]": 1
-        }
-      }
-    },
-    "app/(dashboard)/error.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_20rem]": 1
-        }
-      }
-    },
-    "app/(dashboard)/not-found.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[2.25rem_minmax(0,1fr)_auto]": 1,
-          "grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]": 1
         }
       }
     },
@@ -82,30 +65,6 @@
         "total": 2,
         "patterns": {
           "style={{…}}": 2
-        }
-      }
-    },
-    "app/global-error.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[12px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "max-w-[460px]": 2,
-          "p-[clamp(20px,5vw,32px)]": 1
-        }
-      }
-    },
-    "app/not-found.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "max-w-[460px]": 1,
-          "p-[clamp(20px,5vw,32px)]": 1
         }
       }
     },
@@ -163,11 +122,10 @@
     },
     "components/app-shell/client-switcher.tsx": {
       "R3": {
-        "total": 4,
+        "total": 3,
         "patterns": {
           "h-[34px]": 1,
           "max-w-[min(16rem,32vw)]": 1,
-          "pb-[max(20px,var(--np-safe-bottom))]": 1,
           "w-[min(320px,calc(100vw-24px))]": 1
         }
       }
