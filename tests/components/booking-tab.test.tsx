@@ -9,7 +9,8 @@ import type { PlaceActionsState } from "@/lib/api/location-booking"
 
 const useBookingMock = vi.fn()
 const useCapsMock = vi.fn()
-vi.mock("@/lib/queries/use-location-booking", () => ({ usePlaceActions: () => useBookingMock() }))
+const refreshPlaceActions = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false, isError: false }))
+vi.mock("@/lib/queries/use-location-booking", () => ({ usePlaceActions: () => useBookingMock(), useRefreshPlaceActions: () => refreshPlaceActions }))
 vi.mock("@/lib/queries/use-location-capabilities", () => ({ useLocationCapabilities: () => useCapsMock() }))
 
 function makeState(overrides: Partial<PlaceActionsState> = {}): PlaceActionsState {
@@ -41,6 +42,14 @@ function renderTab() {
 afterEach(() => vi.clearAllMocks())
 
 describe("BookingTab", () => {
+  it("says when Google was last checked and checks it again on request", async () => {
+    useBookingMock.mockReturnValue({ data: makeState({ observedAt: new Date(Date.now() - 2 * 60_000).toISOString(), source: "stored" }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getByText(/Checked with Google/)).toHaveTextContent("Checked with Google 2 minutes ago.")
+    await userEvent.click(screen.getByRole("button", { name: "Check Google now" }))
+    expect(refreshPlaceActions.mutate).toHaveBeenCalledOnce()
+  })
   it("hands unknown future provider action types to Google without presenting confirmed ineligibility or an editor", () => {
     useBookingMock.mockReturnValue({ data: makeState({ supportedTypes: [], unsupportedTypes: ["FUTURE_ACTION"], links: [] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })

@@ -1270,6 +1270,95 @@ describeDatabase("Local Posts CRUD", () => {
     // Every row carries the request that wrote it (never a fresh UUID).
     expect(audits.every((row) => Boolean(row.requestId))).toBe(true)
   })
+
+  it("serves the first page from the last reconciliation within the budget, and reconciles after a publish (W3-2)", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const name = postName("fresh-1")
+    let live: Array<Record<string, unknown>> = []
+    google.respond({ method: "GET", pathIncludes: "/localPosts" }, () => ({
+      status: 200,
+      json: { localPosts: live },
+    }))
+    // Registered last, so it is matched first (the stub prepends rules).
+    google.respond({ method: "GET", pathIncludes: "/localPosts/fresh-1" }, () =>
+      live[0]
+        ? { status: 200, json: live[0] }
+        : { status: 404, json: { error: { status: "NOT_FOUND" } } }
+    )
+    google.respond({ method: "POST", pathIncludes: "/localPosts" }, (call) => {
+      const created = {
+        name,
+        state: "PROCESSING",
+        createTime: "2026-10-14T09:00:00Z",
+        updateTime: "2026-10-14T09:00:00Z",
+        ...(call.body as object),
+      }
+      live = [created]
+      return { status: 200, json: created }
+    })
+    // The list, not a single post's readback.
+    const listReads = () =>
+      google.calls.filter(
+        (call) => call.method === "GET" && /\/localPosts(\?|$)/.test(call.path)
+      ).length
+    const read = async (query = "") => {
+      const response = await fetch(
+        `${server.baseUrl}/api/locations/${linked.locationId}/posts${query}`,
+        { headers: { cookie: owner.cookie } }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      return (await response.json()) as {
+        posts: Array<{ id: string; googleState: string | null }>
+        source: string | null
+        observedAt: string | null
+      }
+    }
+    const observation = async () =>
+      (
+        await admin<{ payload: unknown; attemptedAt: Date }[]>`
+          select observed_google_payload as payload,
+            observation_attempted_at as "attemptedAt"
+          from presence_resource_reconcile_state
+          where location_id = ${linked.locationId} and resource = 'posts'`
+      )[0]
+    const postRows = () =>
+      admin<{ id: string; updatedAt: Date }[]>`
+        select id::text as id, updated_at as "updatedAt" from gbp_local_post
+        where location_id = ${linked.locationId} order by id`
+
+    const first = await read()
+    expect(first.source).toBe("live")
+    expect(listReads()).toBe(1)
+    const recorded = await observation()
+    expect(recorded.payload).toMatchObject({ observedAt: first.observedAt })
+
+    // Reopened within the budget: no Google call and nothing written.
+    const postId = await createDraft(owner.cookie, linked.locationId, "Fresh")
+    const rowsBefore = await postRows()
+    const reopened = await read()
+    expect(reopened).toMatchObject({ source: "stored", observedAt: first.observedAt })
+    expect(reopened.posts.map((post) => post.id)).toEqual([postId])
+    expect(listReads()).toBe(1)
+    expect(await observation()).toEqual(recorded)
+    expect(await postRows()).toEqual(rowsBefore)
+
+    // `refresh=1` reconciles now.
+    expect((await read("?refresh=1")).source).toBe("live")
+    expect(listReads()).toBe(2)
+
+    // A publish drops the observation: the next open lists Google's state
+    // of the post instead of the rows from before the write.
+    const published = await publish(owner.cookie, linked.locationId, postId)
+    expect(published.status, await published.clone().text()).toBe(200)
+    expect((await observation()).payload).toBeNull()
+    live = [{ ...live[0], state: "LIVE" }]
+    const after = await read()
+    expect(after.source).toBe("live")
+    expect(after.posts[0]).toMatchObject({ id: postId, googleState: "LIVE" })
+    expect(listReads()).toBe(3)
+    expect((await read()).source).toBe("stored")
+    expect(listReads()).toBe(3)
+  })
 })
 
 function standardPost(summary: string) {

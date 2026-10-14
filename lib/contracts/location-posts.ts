@@ -10,6 +10,10 @@
 import { z } from "zod"
 
 import { decodeCursor, encodeCursor } from "@/lib/contracts/cursor"
+import {
+  editorReadSourceSchema,
+  editorRefreshQuerySchema,
+} from "@/lib/contracts/editor-freshness"
 import { httpUrl } from "@/lib/contracts/http-url"
 import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 // ---------------------------------------------------------------------------
@@ -268,6 +272,8 @@ export const postsListQuerySchema = z.object({
     .optional(),
   cursor: z.string().max(1024).optional(),
   post: z.uuid().optional(),
+  /** Reconcile with Google now, past the editor's staleness budget. */
+  refresh: editorRefreshQuerySchema.shape.refresh,
 })
 export type PostsListQuery = z.infer<typeof postsListQuerySchema>
 
@@ -323,6 +329,14 @@ export const postsListResponseSchema = z.object({
   timezone: z.string().optional(),
   writesEnabled: z.boolean(),
   reconciliationError: z.string().nullable(),
+  /**
+   * First page: when the posts were last reconciled with Google (null when
+   * never, or on a later page), and whether this response read Google
+   * (`live`) or served the rows of a reconciliation within the editor's
+   * staleness budget (`stored`). Optional so an older server still parses.
+   */
+  observedAt: z.string().nullable().optional(),
+  source: editorReadSourceSchema.nullable().optional(),
 })
 export type PostsListResponse = z.infer<typeof postsListResponseSchema>
 

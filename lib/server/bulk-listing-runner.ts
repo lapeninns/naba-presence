@@ -5,6 +5,7 @@ import {
   BULK_MAX_RUNNING_PER_ORGANISATION,
   bulkOperationInputSchema,
   type BulkOperationInput,
+  type BulkResourceKey,
 } from "@/lib/domain/bulk-merge"
 import { writeAudit } from "@/lib/server/audit"
 import {
@@ -24,7 +25,10 @@ import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
 import { ApiError, parseStored } from "@/lib/server/http"
-import { forgetObservedGooglePayload } from "@/lib/server/resource-observations"
+import {
+  forgetObservedGooglePayload,
+  type ObservedEditorResource,
+} from "@/lib/server/resource-observations"
 import {
   requireNoUnresolvedAccountChange,
   withGoogleAccountChangeLock,
@@ -34,6 +38,20 @@ import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { gbpWriteScopes, isScopeEnabled } from "@/lib/server/pause-controls"
+
+/**
+ * The editors served from a stored Google read (WP-11) that a bulk child of
+ * each resource writes to: business information (and categories) carries
+ * the profile's fields; attributes show in business information; Place
+ * Actions children write links. Post children only draft.
+ */
+const OBSERVED_BY_RESOURCE: Partial<
+  Record<BulkResourceKey, readonly ObservedEditorResource[]>
+> = {
+  business_info: ["profile", "businessInformation"],
+  attributes: ["businessInformation"],
+  place_actions: ["placeActions"],
+}
 
 type Child = {
   id: string
@@ -399,13 +417,14 @@ export async function processBulkChild(
   let outcome: Outcome | { failed: string }
   try {
     outcome = await withResourceLock(async () => {
-      // A business-information child writes fields the profile editor
-      // shows: its next open reads Google, not the observation before this.
-      if (family.resourceKey === "business_info")
+      // A child that writes what an editor shows from its last Google read
+      // drops that read: the editor's next open reads Google.
+      const observed = OBSERVED_BY_RESOURCE[family.resourceKey]
+      if (observed)
         await forgetObservedGooglePayload({
           organisationId,
           locationId: child.locationId,
-          resources: ["profile"],
+          resources: observed,
         })
       return family.accountLock
         ? withGoogleAccountChangeLock(gate.session, child.locationId, dispatch)

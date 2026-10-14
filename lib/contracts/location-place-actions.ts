@@ -7,6 +7,7 @@
  */
 import { z } from "zod"
 
+import { editorReadSourceSchema } from "@/lib/contracts/editor-freshness"
 import { httpUrl } from "@/lib/contracts/http-url"
 import { GOOGLE_PLACE_ACTION_TYPES } from "@/lib/domain/google-contract"
 import { operationSummaryField } from "@/lib/contracts/mutation-operations"
@@ -101,6 +102,13 @@ export const placeActionsStateSchema = z.object({
     )
     .optional(),
   latestMutation: placeActionMutationSummarySchema.nullable(),
+  /**
+   * When Google was last read for this state, and whether this response
+   * read it (`live`) or served that read within the editor's staleness
+   * budget (`stored`). Optional so an older server still parses.
+   */
+  observedAt: z.string().optional(),
+  source: editorReadSourceSchema.optional(),
 })
 export type PlaceActionsState = z.infer<typeof placeActionsStateSchema>
 

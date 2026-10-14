@@ -182,7 +182,8 @@ async function reconcileResource(
     const listed = await listLocalPosts(
       session.organisationId,
       session,
-      locationId
+      locationId,
+      { refresh: "1" }
     )
     if (listed.reconciliationError) {
       throw new ApiError(
@@ -220,7 +221,9 @@ async function reconcileResource(
     }
     return live.state
   }
-  return loadPlaceActions(session.organisationId, session, locationId)
+  return loadPlaceActions(session.organisationId, session, locationId, {
+    refresh: true,
+  })
 }
 
 async function reconcileOrganisations(

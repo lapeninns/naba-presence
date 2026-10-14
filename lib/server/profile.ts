@@ -844,7 +844,8 @@ async function publishProfileLocked(input: PublishProfileInput) {
   await forgetObservedGooglePayload({
     organisationId: input.session.organisationId,
     locationId: input.locationId,
-    resources: ["profile"],
+    // The business-information editor shows the same location fields.
+    resources: ["profile", "businessInformation"],
   })
   const organisationId = input.session.organisationId
   const patchGoogle = (validateOnly: boolean) =>

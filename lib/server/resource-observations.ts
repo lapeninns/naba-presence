@@ -3,13 +3,21 @@ import type { TransactionSql } from "postgres"
 
 import { jsonColumnOrNull, withTenant } from "@/lib/server/db"
 
-/** Records a profile/menu read only after its linked location was authorized. */
+/** The editors served from a stored Google read (WP-11). */
+export type ObservedEditorResource =
+  | "profile"
+  | "hours"
+  | "posts"
+  | "placeActions"
+  | "businessInformation"
+
+/** Records an editor's Google read only after its linked location was authorized. */
 export async function recordResourceObservation(
   sql: TransactionSql,
   input: {
     organisationId: string
     locationId: string
-    resource: "profile" | "foodMenus"
+    resource: "foodMenus" | ObservedEditorResource
     attemptedAt: Date
     errorCode?: string
     /**
@@ -49,7 +57,11 @@ export async function recordResourceObservation(
  */
 export async function readObservedGooglePayload(
   sql: TransactionSql,
-  input: { organisationId: string; locationId: string; resource: "profile" }
+  input: {
+    organisationId: string
+    locationId: string
+    resource: Exclude<ObservedEditorResource, "hours">
+  }
 ): Promise<{ payload: unknown; failed: boolean } | null> {
   const [row] = await sql<{ payload: unknown; failed: boolean }[]>`
     select observed_google_payload as payload,
@@ -71,7 +83,7 @@ export async function readObservedGooglePayload(
 export async function forgetObservedGooglePayload(input: {
   organisationId: string
   locationId: string
-  resources: readonly ("profile" | "hours")[]
+  resources: readonly ObservedEditorResource[]
 }) {
   await withTenant(
     input.organisationId,

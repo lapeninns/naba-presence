@@ -23,6 +23,7 @@ import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { LocationTab } from "@/components/locations/location-tab"
 import { usePlaceActionReview } from "@/components/locations/place-actions/use-place-action-review"
 import { SavedPlaceActionWork } from "@/components/locations/place-actions/saved-place-action-work"
@@ -78,7 +79,10 @@ import { editorGate } from "@/lib/editors/gate"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import type { LocationCapabilities } from "@/lib/locations/gating"
-import { usePlaceActions } from "@/lib/queries/use-location-booking"
+import {
+  usePlaceActions,
+  useRefreshPlaceActions,
+} from "@/lib/queries/use-location-booking"
 import { cn } from "@/lib/utils"
 
 export { humaniseActionType } from "@/lib/editors/booking-presentation"
@@ -105,6 +109,10 @@ export function BookingTab({ locationId }: { locationId: string }) {
       >
         {({ data: state, caps, publishReason }) => (
           <EditorFrame title="Booking links" titleHidden>
+            <PlaceActionsFreshness
+              locationId={locationId}
+              observedAt={state.observedAt}
+            />
             <BookingLinks
               locationId={locationId}
               state={state}
@@ -117,6 +125,25 @@ export function BookingTab({ locationId }: { locationId: string }) {
       </LocationTab>
       <SavedPlaceActionWork locationId={locationId} workflow={workflow} />
     </div>
+  )
+}
+
+/** "Checked with Google N min ago · Check Google now" for the links. */
+function PlaceActionsFreshness({
+  locationId,
+  observedAt,
+}: {
+  locationId: string
+  observedAt: string | undefined
+}) {
+  const refresh = useRefreshPlaceActions(locationId)
+  return (
+    <GoogleFreshness
+      observedAt={observedAt}
+      refreshing={refresh.isPending}
+      failed={refresh.isError}
+      onRefresh={() => refresh.mutate()}
+    />
   )
 }
 

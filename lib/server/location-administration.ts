@@ -381,11 +381,11 @@ export async function mutateLocationAdministration(input: {
     } else {
       const updateMask = input.payload.updateMask as string[]
       const payload = input.payload.location as Record<string, unknown>
-      // The patch may change fields the profile editor shows.
+      // The patch may change fields the listing editors show.
       await forgetObservedGooglePayload({
         organisationId: input.session.organisationId,
         locationId: input.locationId,
-        resources: ["profile", "hours"],
+        resources: ["profile", "hours", "businessInformation"],
       })
       await patchGoogleLocation(
         token,

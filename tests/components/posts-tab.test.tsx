@@ -12,7 +12,13 @@ import { matchesPostFilter } from "@/lib/locations/post-display"
 
 const usePostsMock = vi.fn()
 const useCapsMock = vi.fn()
+const refreshPosts = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  isPending: false,
+  isError: false,
+}))
 vi.mock("@/lib/queries/use-location-posts", () => ({
+  useRefreshPosts: () => refreshPosts,
   usePosts: (...args: unknown[]) => usePostsMock(...args),
 }))
 vi.mock("@/lib/queries/use-location-capabilities", () => ({
@@ -90,6 +96,28 @@ function renderTab() {
 afterEach(() => vi.clearAllMocks())
 
 describe("PostsTab", () => {
+  it("says when the posts were last checked with Google and checks again on request", async () => {
+    const user = userEvent.setup()
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        observedAt: new Date(Date.now() - 4 * 60_000).toISOString(),
+      }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    expect(screen.getByText(/Checked with Google/)).toHaveTextContent(
+      "Checked with Google 4 minutes ago."
+    )
+    await user.click(screen.getByRole("button", { name: "Check Google now" }))
+    expect(refreshPosts.mutate).toHaveBeenCalledOnce()
+  })
+
   it("opens on the posts, not on an empty form, and previews what is typed", async () => {
     const user = userEvent.setup()
     usePostsMock.mockReturnValue({

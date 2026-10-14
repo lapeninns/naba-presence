@@ -1,6 +1,11 @@
 "use client"
 
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query"
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 
 import { fetchPosts, type PostsState } from "@/lib/api/location-posts"
 import type { PostListFilter } from "@/lib/contracts/location-posts"
@@ -20,6 +25,8 @@ function mergePosts(pages: PostsState[]) {
     timezone: first.timezone,
     writesEnabled: first.writesEnabled,
     reconciliationError: first.reconciliationError,
+    // When the first page's rows were last reconciled with Google.
+    ...(first.observedAt ? { observedAt: first.observedAt } : {}),
   }
 }
 
@@ -44,4 +51,22 @@ export function usePosts(id: string, filter: PostListFilter = "all") {
     ...GOOGLE_LIVE_READ,
   })
   return usePagedResource(query, mergePosts)
+}
+
+/**
+ * "Check Google now": reconciles the posts with Google past the staleness
+ * budget, then reloads every view from the rows it wrote. Google being
+ * unreachable fails the check (the list itself still answers).
+ */
+export function useRefreshPosts(id: string, filter: PostListFilter = "all") {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const page = await fetchPosts(id, { filter, refresh: "1" })
+      if (page.reconciliationError) throw new Error(page.reconciliationError)
+      return page
+    },
+    onSettled: () =>
+      client.invalidateQueries({ queryKey: queryKeys.locationPosts(id) }),
+  })
 }
