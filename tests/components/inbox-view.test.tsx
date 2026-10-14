@@ -45,8 +45,14 @@ const INITIAL_PARAMS = new URLSearchParams("selected=rev-1&rating=4")
 let currentParams = INITIAL_PARAMS
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace, back }),
+  useRouter: () => ({ back }),
   useSearchParams: () => currentParams,
+}))
+// The inbox rewrites its own query string through the history API, never
+// through the router (no RSC round trip per click or keystroke).
+vi.mock("@/lib/navigation/shallow-url", () => ({
+  replaceUrl: (href: string) => replace(href),
+  pushUrl: (href: string) => push(href),
 }))
 
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
