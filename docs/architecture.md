@@ -1034,6 +1034,22 @@ intended body, and settles `succeeded`, `not_applied`, or `diverged`.
 `lib/server/jobs.ts` claims due retry/recovery work; `app/api/jobs/run/route.ts`
 exposes the cron-authenticated worker tick.
 
+Review sync and the reply pipeline lock rows in one order: the `review` row,
+then its `review_reply`, then `publish_attempt`. Sync's `upsertGoogleReview`
+locks the review before it upserts the reply. Every publishing transaction
+(intent, settle, recovery, retry claim and settle, delete, approval decision,
+the disconnected-recovery settle) calls `lockReview` before its first write.
+A settle that wrote the reply first and the workflow last deadlocked against a
+concurrent sync (40P01).
+
+A transaction that locks several reviews takes them in ascending id order
+before its first write (`lockReviews`): a bulk approval on the engine, a bulk
+template-reply batch (`key share`, for its child rows' references), the
+disconnect settle, and a sync page, which locks the reviews it will write
+(every review on a sweep page) before its first upsert. Two overlapping bulk
+approvals listed in opposite orders, or a page in Google's order against a bulk
+approval, otherwise each held a review the other wanted next.
+
 The reply pipeline shares `runGbpWrite`'s discipline and its
 `isAmbiguousProviderError` primitive but deliberately keeps its own attempt
 store and phase machine. `publish_attempt` schedules automatic retries

@@ -7,7 +7,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
 import { authorisationAssurance } from "@/lib/server/mfa"
 import { canPublishLocation, requireLocationAccess } from "@/lib/server/permissions"
-import { executePublish } from "@/lib/server/publishing"
+import { executePublish, lockReview } from "@/lib/server/publishing"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -39,6 +39,9 @@ export async function recordApprovalDecision(
   input: ApprovalInput,
   ctx: { requestId: string; clientRequestId?: string | null }
 ): Promise<ApprovalDecision> {
+  // A rejection writes the reply and then the review: lock order first
+  // (publishing/settle.ts, lockReview).
+  await lockReview(sql, reviewId)
   const [record] = await sql<
     {
       review_id: string

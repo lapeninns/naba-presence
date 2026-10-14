@@ -6,7 +6,7 @@ import {
 } from "@/lib/contracts/connections"
 import { updateGoogleNotificationSetting } from "@/lib/server/google"
 import { disconnect } from "@/lib/server/google/connections"
-import { writePublishAttemptEvent } from "@/lib/server/publishing"
+import { lockReviews, writePublishAttemptEvent } from "@/lib/server/publishing"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -86,6 +86,15 @@ async function settleStrandedAttempts(
       and pa.status in ('ambiguous', 'retryable')
   `
   if (!stranded.length) return 0
+  // The review rows first, then the reply and the attempt: the lock order
+  // review sync and every publishing settle follow (lockReview,
+  // lib/server/publishing/settle.ts). Taking the attempt first deadlocked
+  // against a recovery or retry settle on the same review. Sorted, so two
+  // transactions locking several of these reviews take them in one order.
+  await lockReviews(
+    sql,
+    stranded.map((attempt) => attempt.reviewId)
+  )
   // The runner holds no lock between reading an attempt and settling it, so
   // one it claimed before this transaction started can commit a readback
   // between the select above and this update -- which then reads the new row
