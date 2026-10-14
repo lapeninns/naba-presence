@@ -73,7 +73,7 @@ import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { formatNumber } from "@/lib/format"
-import { useNow } from "@/lib/time/server-now"
+import { useNowHour } from "@/lib/time/server-now"
 import { pushUrl, replaceUrl } from "@/lib/navigation/shallow-url"
 
 /**
@@ -136,10 +136,12 @@ function InboxViewInner({
   }, [business, searchParams])
   // An age preset's window moves on the hour. The hour comes from the
   // hydration-stable clock, so the server and the hydrating browser build
-  // the same query key however far the device clock is off.
-  const hour = Math.floor(useNow() / 3_600_000)
+  // the same query key however far the device clock is off. Read to the
+  // hour, not the millisecond: the clock ticks every 15 s, and re-rendering
+  // the whole inbox (list, rows, review) on each tick bought nothing.
+  const hour = useNowHour()
   const filters = useMemo(
-    () => toReviewsFilters(state, { now: hour * 3_600_000 }),
+    () => toReviewsFilters(state, { now: hour }),
     [state, hour]
   )
   const dirtyGate = useDirtyGate()
@@ -193,17 +195,25 @@ function InboxViewInner({
   // is hidden for view-only access). The server refuses them regardless.
   const canBatch = role !== "viewer"
 
-  const reviews = flattenReviews(reviewsQuery.data)
+  // One array per fetched result, not per render: the list's effects and
+  // observers, the handlers below and the hotkeys all follow it. The query
+  // result itself is a new object every render, so callbacks depend on the
+  // fields they read rather than on it.
+  const reviews = useMemo(
+    () => flattenReviews(reviewsQuery.data),
+    [reviewsQuery.data]
+  )
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = reviewsQuery
 
   // No page state: the list loads continuously. The seven-per-page control
   // over a fifty-row window meant "Page 3 of 8" was only ever true of the rows
   // already fetched, and an operator working a backlog spent as much time
   // paging as replying.
   const loadMore = useCallback(() => {
-    if (reviewsQuery.hasNextPage && !reviewsQuery.isFetchingNextPage) {
-      void reviewsQuery.fetchNextPage()
+    if (hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage()
     }
-  }, [reviewsQuery])
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
   // Selection, queue, filters and search live in the address, but only the
   // client reads them: each change rewrites the URL through the history API
@@ -365,12 +375,8 @@ function InboxViewInner({
         updateState({ selected: nextId }, "replace")
         return reviews.find((review) => review.id === nextId) ?? null
       }
-      if (
-        direction === "next" &&
-        reviewsQuery.hasNextPage &&
-        !reviewsQuery.isFetchingNextPage
-      ) {
-        const result = await reviewsQuery.fetchNextPage()
+      if (direction === "next" && hasNextPage && !isFetchingNextPage) {
+        const result = await fetchNextPage()
         const newItems = result.data?.pages.at(-1)?.items ?? []
         const firstNew = newItems[0]
         if (firstNew) {
@@ -380,7 +386,15 @@ function InboxViewInner({
       }
       return null
     },
-    [dirtyGate, reviews, reviewsQuery, state.selected, updateState]
+    [
+      dirtyGate,
+      fetchNextPage,
+      hasNextPage,
+      isFetchingNextPage,
+      reviews,
+      state.selected,
+      updateState,
+    ]
   )
 
   // Spec §6 auto-selection: on desktop, when the URL carries no selection, pick
@@ -419,9 +433,8 @@ function InboxViewInner({
   // waits PUBLISH_PULSE_MS so the situation strip's success ring (which lives
   // in the detail pane keyed on `state.selected`, and so unmounts on
   // navigation) is actually seen. The latest handler and selection are read
-  // through refs so the window listener subscribes once, not on every render
-  // (`onAdjacentReview` follows `reviewsQuery`, which is a new object each
-  // render).
+  // through refs so the window listener subscribes once, not every time the
+  // list or the selection changes.
   //
   // The advance was the operator's doing — they pressed Publish or Approve —
   // so it says what happened and where they now are, and puts focus on the
