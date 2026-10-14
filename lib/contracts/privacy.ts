@@ -55,11 +55,16 @@ export const privacyRequestStatusUpdateSchema = z.object({
   resolutionNote: resolutionNoteSchema,
 })
 
-/** PATCH `/api/privacy/requests` body, fulfil branch. */
+/**
+ * PATCH `/api/privacy/requests` body, fulfil branch. An erasure that matches
+ * any review needs `confirmation`: the token from
+ * GET `/api/privacy/requests/[id]/preview` for the match set the owner saw.
+ */
 export const privacyRequestFulfilSchema = z.object({
   id: z.uuid(),
   action: z.literal("fulfil"),
   resolutionNote: resolutionNoteSchema,
+  confirmation: z.string().min(1).max(128).optional(),
 })
 
 /** PATCH `/api/privacy/requests` body. */
@@ -194,6 +199,44 @@ export const privacyReplyWithdrawFailedResponseSchema = z.object({
 })
 export type PrivacyReplyWithdrawFailedResponse = z.infer<
   typeof privacyReplyWithdrawFailedResponseSchema
+>
+
+/**
+ * What fulfilling a request would touch (GET
+ * `/api/privacy/requests/[id]/preview`). `matchedByNameOnly` and `reviewers`
+ * show when a display name matches more than one person; `confirmation`
+ * goes back on the erasure's fulfil.
+ */
+export const privacyErasurePreviewSchema = z.object({
+  reviews: z.number().int().min(0),
+  reviewers: z.number().int().min(0),
+  matchedByNameOnly: z.number().int().min(0),
+  locations: z.number().int().min(0),
+  repliesToWithdraw: z.number().int().min(0),
+  heldReviews: z.number().int().min(0),
+  confirmation: z.string(),
+})
+export type PrivacyErasurePreview = z.infer<typeof privacyErasurePreviewSchema>
+
+export const privacyErasurePreviewResponseSchema = z.object({
+  preview: privacyErasurePreviewSchema,
+})
+export type PrivacyErasurePreviewResponse = z.infer<
+  typeof privacyErasurePreviewResponseSchema
+>
+
+/**
+ * PATCH `/api/privacy/requests` 409 when an erasure's fulfil carries no
+ * confirmation, or one for a different match set than the reviews it
+ * matches now. Nothing was erased; `preview` is the current match set.
+ */
+export const privacyErasureUnconfirmedResponseSchema = z.object({
+  error: z.literal("privacy_erasure_unconfirmed"),
+  message: z.string(),
+  preview: privacyErasurePreviewSchema,
+})
+export type PrivacyErasureUnconfirmedResponse = z.infer<
+  typeof privacyErasureUnconfirmedResponseSchema
 >
 
 /**

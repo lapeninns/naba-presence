@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import postgres from "postgres"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
@@ -116,11 +118,12 @@ describeDatabase(
       cookie: string,
       method: string,
       target: string,
-      body?: unknown
+      body?: unknown,
+      headers: Record<string, string> = {}
     ) {
       return fetch(target, {
         method,
-        headers: { cookie, "content-type": "application/json" },
+        headers: { cookie, "content-type": "application/json", ...headers },
         body: body === undefined ? "{}" : JSON.stringify(body),
       })
     }
@@ -264,6 +267,58 @@ describeDatabase(
       from gbp_local_post_attempt where post_id = ${postId}
     `
       expect(attempt.approvalDecisionId).not.toBeNull()
+    })
+
+    it("answers a retried approval that already published with its outcome, not a 409", async () => {
+      const { owner, second, locationId } = await twoPersonTenant()
+      const postId = await createDraft(owner.cookie, locationId, "Quiz night")
+      await send(owner.cookie, "POST", url(locationId, `/${postId}/publish`))
+      const intent = { "Idempotency-Key": randomUUID() }
+      const approve = () =>
+        send(
+          second.cookie,
+          "POST",
+          url(locationId, `/${postId}/approval`),
+          { decision: "approve", expectedRevision: 1 },
+          intent
+        )
+      const first = await approve()
+      expect(first.status, await first.clone().text()).toBe(200)
+      const answer = await first.json()
+      expect(answer).toMatchObject({ status: "published" })
+
+      // The answer was lost and the approver pressed Approve again.
+      const retried = await approve()
+      expect(retried.status, await retried.clone().text()).toBe(200)
+      expect(await retried.json()).toMatchObject({
+        status: "published",
+        postId,
+        googlePostName: answer.googlePostName,
+        operation: { operationId: answer.operation.operationId },
+      })
+      // Even without the intent, the same approver approving the revision
+      // they already approved is answered with what it did.
+      const again = await send(
+        second.cookie,
+        "POST",
+        url(locationId, `/${postId}/approval`),
+        { decision: "approve", expectedRevision: 1 }
+      )
+      expect(again.status, await again.clone().text()).toBe(200)
+      expect(await again.json()).toMatchObject({ status: "published", postId })
+      // One decision, one Google write.
+      expect(await decisions(postId)).toHaveLength(1)
+      expect(providerWrites()).toHaveLength(1)
+
+      // Another approver is still told it is not pending.
+      const other = await send(
+        owner.cookie,
+        "POST",
+        url(locationId, `/${postId}/approval`),
+        { decision: "approve", expectedRevision: 1 }
+      )
+      expect(other.status).toBe(409)
+      expect((await other.json()).error).toBe("approval_not_pending")
     })
 
     it("refuses an approval of a stale revision and of a post that is not pending", async () => {

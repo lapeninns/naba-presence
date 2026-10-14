@@ -10,7 +10,7 @@ import { stableGoogleHash } from "./gbp-management"
 import { connectionAccessToken, createGoogleLocation, googleAccountManagementApi } from "./google"
 import { checkedOnboardingDraft, requireEditableOnboardingDraft } from "./google-onboarding-drafts"
 import { requireOnboardingServiceSupport } from "./google-onboarding-services"
-import { ApiError } from "./http"
+import { ApiError, parseStored } from "./http"
 import { requireGbpDispatch } from "./pause-controls"
 import type { Session } from "./session"
 
@@ -60,13 +60,13 @@ function reviewHash(frozen: Frozen, requiresSecondApprover: boolean) {
 }
 
 function project(row: ReviewRow, session: Session) {
-  return googleOnboardingReviewSchema.parse({
+  return parseStored(googleOnboardingReviewSchema, {
     ...row.frozen, id: row.id, reviewHash: row.review_hash,
     requestedBy: row.requested_by, approvedBy: row.approved_by,
     requiresSecondApprover: row.require_two_person_approval,
     canApprove: !row.require_two_person_approval || row.requested_by !== session.userId,
     validatedAt: row.validated_at.toISOString(), approvalExpiresAt: row.approval_expires_at.toISOString(),
-  })
+  }, "google_onboarding_review")
 }
 
 export async function previewOnboardingCreation(session: Session, accountId: string, draftId: string, input: ReviewInput, requestId: string) {

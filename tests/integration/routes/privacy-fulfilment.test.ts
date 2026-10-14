@@ -161,14 +161,36 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     return organisations
   }
 
-  function fulfil(cookie: string, id: string, resolutionNote = "Fulfilled.") {
-    return fetch(`${server.baseUrl}/api/privacy/requests`, {
+  async function preview(cookie: string, id: string, baseUrl = server.baseUrl) {
+    return fetch(`${baseUrl}/api/privacy/requests/${id}/preview`, {
+      headers: { cookie },
+    })
+  }
+
+  /**
+   * Fulfils the way the console does: reads the preview first and sends its
+   * confirmation back. A caller the preview refuses (an admin) fulfils
+   * without one and meets the PATCH's own refusal.
+   */
+  async function fulfil(
+    cookie: string,
+    id: string,
+    resolutionNote = "Fulfilled.",
+    baseUrl = server.baseUrl
+  ) {
+    const previewed = await preview(cookie, id, baseUrl)
+    const confirmation = previewed.ok
+      ? ((await previewed.json()) as { preview: { confirmation: string } })
+          .preview.confirmation
+      : undefined
+    return fetch(`${baseUrl}/api/privacy/requests`, {
       method: "PATCH",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({
         id,
         action: "fulfil",
         resolutionNote,
+        confirmation,
       }),
     })
   }
@@ -310,6 +332,194 @@ describeDatabase("privacy fulfilment and audit retention", () => {
         and subject_id = ${request.id}
     `
     expect(audit.metadata.reviewsAffected).toBe(1)
+  })
+
+  it("previews an erasure's matches and erases only the confirmed set", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const sharedName = `Sam Shared ${randomUUID()}`
+    // Two people who share a display name, at two locations, one of whom
+    // has a live reply that the erasure would withdraw.
+    const first = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+      replyState: "APPROVED",
+    })
+    const second = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    await admin`
+      update review
+      set
+        reviewer_display_name = ${sharedName},
+        reviewer_profile_photo_url = 'https://example.test/' || id::text
+      where id in ${admin([first.reviewId, second.reviewId])}
+    `
+    const request = await createRequest(owner.cookie, "erasure", sharedName)
+
+    const previewed = await preview(owner.cookie, request.id)
+    expect(previewed.status).toBe(200)
+    const { preview: counts } = (await previewed.json()) as {
+      preview: Record<string, number | string>
+    }
+    expect(counts).toMatchObject({
+      reviews: 2,
+      reviewers: 2,
+      matchedByNameOnly: 2,
+      locations: 2,
+      repliesToWithdraw: 1,
+      heldReviews: 0,
+    })
+
+    const send = (confirmation?: string) =>
+      fetch(`${server.baseUrl}/api/privacy/requests`, {
+        method: "PATCH",
+        headers: { cookie: owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: request.id,
+          action: "fulfil",
+          resolutionNote: "Identity verified.",
+          confirmation,
+        }),
+      })
+    const untouched = async () => {
+      const rows = await admin<{ name: string | null }[]>`
+        select reviewer_display_name as name from review
+        where id in ${admin([first.reviewId, second.reviewId])}
+      `
+      expect(rows.map(({ name }) => name)).toEqual([sharedName, sharedName])
+    }
+
+    // Without a confirmation nothing is erased, and the 409 carries the
+    // current preview.
+    const blind = await send()
+    expect(blind.status).toBe(409)
+    expect(await blind.json()).toMatchObject({
+      error: "privacy_erasure_unconfirmed",
+      preview: { reviews: 2, confirmation: counts.confirmation },
+    })
+    await untouched()
+
+    // A third same-named review arrives after the preview: the confirmation
+    // no longer names the match set, so it is refused and counted again.
+    const third = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    await admin`
+      update review set reviewer_display_name = ${sharedName}
+      where id = ${third.reviewId}
+    `
+    const stale = await send(String(counts.confirmation))
+    expect(stale.status).toBe(409)
+    const restated = (await stale.json()) as {
+      preview: { reviews: number; confirmation: string }
+    }
+    expect(restated.preview.reviews).toBe(3)
+    expect(restated.preview.confirmation).not.toBe(counts.confirmation)
+    await untouched()
+
+    const confirmed = await send(restated.preview.confirmation)
+    expect([200, 409]).toContain(confirmed.status)
+    const erased = await admin<{ erased: boolean }[]>`
+      select erased_at is not null as erased from review
+      where id in ${admin([first.reviewId, second.reviewId, third.reviewId])}
+    `
+    expect(erased.every(({ erased }) => erased)).toBe(true)
+  })
+
+  it("is owner-only, and 404s for another organisation's request", async () => {
+    const fixture = await createFixture()
+    const request = await createRequest(
+      fixture.owner.cookie,
+      "erasure",
+      fixture.reviewerName
+    )
+    const actor = await createActor(fixture.owner.organisationId, "admin")
+    expect((await preview(actor.cookie, request.id)).status).toBe(403)
+    const stranger = await createTestTenant(admin)
+    organisations.push(stranger.organisationId)
+    expect((await preview(stranger.cookie, request.id)).status).toBe(404)
+  })
+
+  it("scrubs the verifier's reason messages, keeping codes and severities", async () => {
+    const fixture = await createFixture()
+    const derived = await seedDerivedBodies({
+      organisationId: fixture.owner.organisationId,
+      reviewId: fixture.review.reviewId,
+      body: `Thanks ${fixture.reviewerName}, glad you enjoyed it.`,
+      publishStatus: "not_published",
+    })
+    const [verification] = await admin<{ id: string }[]>`
+      insert into verification_result (
+        organisation_id, draft_id, verdict, reasons, checks_version
+      )
+      values (
+        ${fixture.owner.organisationId},
+        ${derived.draftId},
+        'fail',
+        ${admin.json([
+          {
+            code: "unsupported_claim",
+            severity: "fail",
+            message: `The reply says ${fixture.reviewerName} visited twice.`,
+          },
+          {
+            code: "personal_contact_data",
+            severity: "fail",
+            message: "The reply contains an email address or phone number.",
+          },
+        ])},
+        'test-checks'
+      )
+      returning id::text as id
+    `
+    const request = await createRequest(
+      fixture.owner.cookie,
+      "erasure",
+      fixture.reviewerName
+    )
+    expect((await fulfil(fixture.owner.cookie, request.id)).status).toBe(200)
+
+    const [row] = await admin<
+      {
+        verdict: string
+        reasons: { code: string; severity: string; message: string }[]
+      }[]
+    >`
+      select verdict, reasons from verification_result
+      where id = ${verification.id}
+    `
+    expect(row.verdict).toBe("fail")
+    expect(row.reasons).toEqual([
+      {
+        code: "unsupported_claim",
+        severity: "fail",
+        message: "[Removed at the data subject's request]",
+      },
+      {
+        code: "personal_contact_data",
+        severity: "fail",
+        message: "[Removed at the data subject's request]",
+      },
+    ])
+    expect(JSON.stringify(row.reasons)).not.toContain(fixture.reviewerName)
+    const [audit] = await admin<
+      { metadata: { verificationsRedacted?: number } }[]
+    >`
+      select metadata from audit_log
+      where organisation_id = ${fixture.owner.organisationId}
+        and action = 'privacy.request.fulfilled'
+        and subject_id = ${request.id}
+    `
+    expect(audit.metadata.verificationsRedacted).toBe(1)
   })
 
   it("blocks erasure under a hold, then releases and fulfils it", async () => {
@@ -1113,15 +1323,12 @@ describeDatabase("privacy fulfilment and audit retention", () => {
         where id = ${seed.reviewId}
       `
       const request = await createRequest(owner.cookie, "erasure", reviewerName)
-      const response = await fetch(`${paused.baseUrl}/api/privacy/requests`, {
-        method: "PATCH",
-        headers: { cookie: owner.cookie, "content-type": "application/json" },
-        body: JSON.stringify({
-          id: request.id,
-          action: "fulfil",
-          resolutionNote: "Fulfilled.",
-        }),
-      })
+      const response = await fulfil(
+        owner.cookie,
+        request.id,
+        "Fulfilled.",
+        paused.baseUrl
+      )
       expect(response.status).toBe(409)
       expect((await retryState(request.id)).lastErrorCode).toBe(
         "publishing_paused"

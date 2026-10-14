@@ -74,12 +74,15 @@ describeDatabase("platform session lifetimes", () => {
     lifetimes: { expires: string; absolute: string }
   ) {
     const token = randomBytes(32).toString("base64url")
+    // Last seen a while ago: a session minted a moment before is not slid
+    // again inside the minute (lookupSession throttles that write).
     await admin`
-      insert into app_session (token_hash, user_id, organisation_id, expires_at, absolute_expires_at)
+      insert into app_session (token_hash, user_id, organisation_id, expires_at, absolute_expires_at, last_seen_at)
       values (
         ${sha256(token)}, ${userId}, ${organisationId},
         now() + ${lifetimes.expires}::interval,
-        now() + ${lifetimes.absolute}::interval
+        now() + ${lifetimes.absolute}::interval,
+        now() - interval '2 minutes'
       )
     `
     return { token, cookie: `naba_session=${token}` }
@@ -110,6 +113,57 @@ describeDatabase("platform session lifetimes", () => {
     const [row] = await sessionRow(session.token)
     expect(row.idleDays).toBeGreaterThan(13.9)
     expect(row.idleDays).toBeLessThanOrEqual(14)
+  })
+
+  it("writes last_seen_at at most once a minute however many requests come", async () => {
+    const owner = await tenant()
+    const session = await addSession(owner.userId, owner.organisationId, {
+      expires: "1 hour",
+      absolute: "90 days",
+    })
+    // xmin names the transaction that wrote the row's current version, so
+    // it moves on every UPDATE, even one that writes the same values.
+    const version = () =>
+      admin<{ xmin: string; lastSeenAgoSeconds: number }[]>`
+        select xmin::text as xmin,
+          extract(epoch from (now() - last_seen_at))::float as "lastSeenAgoSeconds"
+        from app_session where token_hash = ${sha256(session.token)}
+      `.then(([row]) => row)
+    const before = await version()
+    expect(before.lastSeenAgoSeconds).toBeGreaterThan(60)
+
+    expect((await authed(session.cookie)).status).toBe(200)
+    const afterFirst = await version()
+    expect(afterFirst.xmin).not.toBe(before.xmin)
+    expect(afterFirst.lastSeenAgoSeconds).toBeLessThan(60)
+
+    for (let index = 0; index < 5; index += 1) {
+      expect((await authed(session.cookie)).status).toBe(200)
+    }
+    // Six requests inside the minute: one write.
+    expect((await version()).xmin).toBe(afterFirst.xmin)
+
+    // Once the minute has passed, the next request slides it again.
+    await admin`
+      update app_session set last_seen_at = now() - interval '61 seconds'
+      where token_hash = ${sha256(session.token)}
+    `
+    const aged = await version()
+    expect((await authed(session.cookie)).status).toBe(200)
+    expect((await version()).xmin).not.toBe(aged.xmin)
+  })
+
+  it("still ends an idle session inside the throttle minute", async () => {
+    const owner = await tenant()
+    const token = randomBytes(32).toString("base64url")
+    // Seen just now (so the slide is skipped) but already past its idle
+    // expiry: the throttle must not keep it alive.
+    await admin`
+      insert into app_session (token_hash, user_id, organisation_id, expires_at, absolute_expires_at, last_seen_at)
+      values (${sha256(token)}, ${owner.userId}, ${owner.organisationId},
+        now() - interval '1 second', now() + interval '80 days', now())
+    `
+    expect((await authed(`naba_session=${token}`)).status).toBe(401)
   })
 
   it("never slides past the absolute limit", async () => {

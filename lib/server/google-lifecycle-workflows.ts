@@ -3,7 +3,7 @@ import type { z } from "zod"
 import { lifecycleWorkflowCursorSchema, lifecycleWorkflowsQuerySchema, lifecycleWorkflowsResponseSchema } from "@/lib/contracts/google-lifecycle-workflows"
 import { reviewedLifecyclePayloadSchema } from "@/lib/contracts/google-lifecycle-review"
 import { withTenant } from "@/lib/server/db"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
@@ -30,7 +30,7 @@ export async function listLifecycleWorkflows(session: Session, locationId: strin
       order by c.created_at desc, c.id desc limit ${query.limit + 1}
     `
     const visible = rows.slice(0, query.limit), last = visible.at(-1)
-    return lifecycleWorkflowsResponseSchema.parse({ items: visible.map((row) => ({ reviewId: row.reviewId, createdAt: row.createdAt, attemptId: row.attemptId, request: reviewedLifecyclePayloadSchema.parse(row.payload).request })),
-      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.reviewId })).toString("base64url") : null })
+    return parseStored(lifecycleWorkflowsResponseSchema, { items: visible.map((row) => ({ reviewId: row.reviewId, createdAt: row.createdAt, attemptId: row.attemptId, request: parseStored(reviewedLifecyclePayloadSchema, row.payload, "lifecycle_review.payload").request })),
+      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.reviewId })).toString("base64url") : null }, "lifecycle_workflows")
   })
 }

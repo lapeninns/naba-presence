@@ -4,6 +4,7 @@ import { listVerificationWorkflows } from "@/lib/server/google-verification-work
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-export const GET = route({ roles: ["owner", "admin"], params: z.object({ id: z.uuid() }), query: verificationWorkflowQuerySchema,
+export const maxDuration = 60
+export const GET = route({ maxDuration, roles: ["owner", "admin"], params: z.object({ id: z.uuid() }), query: verificationWorkflowQuerySchema,
   handler: ({ session, params, query }) => listVerificationWorkflows(session, params.id, query),
 })

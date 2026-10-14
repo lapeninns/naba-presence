@@ -26,15 +26,12 @@ afterEach(() => {
 })
 
 const baseSession: ShellSession = {
-  sessionId: "s",
-  userId: "u",
   organisationId: "o",
   organisationName: "Lapen Inns Agency",
   workspaceMode: "agency",
   displayName: "Aman Shrestha",
   email: "a@example.test",
   role: "owner",
-  canPublish: true,
 }
 
 function client(id: string, name: string, health = "healthy") {
@@ -316,7 +313,6 @@ describe("More sheet account block", () => {
       session: {
         ...baseSession,
         supportActor: "support@example.test",
-        impersonationReason: "Ticket 12",
       },
     })
     const { sheet } = await openMore()

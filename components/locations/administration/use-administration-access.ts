@@ -21,7 +21,7 @@ export function useAdministrationAccessController(locationId: string) {
   const [confirmedAt, setConfirmedAt] = useState<number | null>(null)
   const unresolved = uncertain || attempt?.confirmationState === "unresolved" || attempt?.confirmationState === "pending"
   function invalidate() {
-    void client.invalidateQueries({ queryKey: ["administration-access-workflows", locationId] })
+    void client.invalidateQueries({ queryKey: queryKeys.locationAccessWorkflows(locationId) })
     void client.invalidateQueries({ queryKey: queryKeys.locationAdministration(locationId) })
     void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
   }

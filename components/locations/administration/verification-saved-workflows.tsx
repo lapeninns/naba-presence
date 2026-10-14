@@ -5,6 +5,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { SavedWorkList } from "@/components/reviewed-write"
 import { fetchGoogleVerificationWorkflows } from "@/lib/api/google-verification-workflows"
 import type { VerificationWorkflowItem } from "@/lib/contracts/google-verification-workflows"
+import { queryKeys } from "@/lib/queries/keys"
 import { verificationMethodName } from "./verification-method"
 
 /**
@@ -75,7 +76,7 @@ export function SavedVerificationWorkflows({
 }) {
   const start = operation === "start"
   const saved = useInfiniteQuery({
-    queryKey: ["verification-workflows", locationId, operation],
+    queryKey: queryKeys.locationVerificationWorkflows(locationId, operation),
     initialPageParam: "",
     queryFn: ({ pageParam, signal }) =>
       fetchGoogleVerificationWorkflows(

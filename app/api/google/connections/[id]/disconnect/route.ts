@@ -26,6 +26,7 @@ type StrandedAttempt = {
 }
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   entitlement: "exempt",
   roles: ["owner", "admin"],
