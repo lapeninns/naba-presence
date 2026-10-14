@@ -196,6 +196,25 @@ describeDatabase("retention inventory against the migrated schema", () => {
           now() - interval '1 day'
         )
       `
+      // An editor's stored Google read (WP-11): the hours one is past its
+      // 30 days, the profile one is not. Both locations keep theirs through
+      // the disconnect (the rows hang off the location, not its link).
+      for (const [resource, age] of [
+        ["hours", "31 days"],
+        ["profile", "1 day"],
+      ] as const) {
+        await admin`
+          insert into presence_resource_reconcile_state (
+            organisation_id, location_id, resource, status, observed_google_payload
+          )
+          values (
+            ${organisationId}, ${review.locationId}, ${resource}, 'succeeded',
+            jsonb_build_object(
+              'observedAt', now() - ${age}::interval, 'location', '{}'::jsonb
+            )
+          )
+        `
+      }
       const [post] = await admin<{ id: string }[]>`
         insert into gbp_local_post (
           organisation_id, location_id, external_location_id, topic_type,
@@ -412,6 +431,7 @@ describeDatabase("retention inventory against the migrated schema", () => {
         hoursAttempts: 1,
         strandedHours: 1,
         profileSnapshots: 1,
+        editorPayloads: 2,
         postPayloads: 1,
         postAttempts: 1,
         placeActionMutations: 0,

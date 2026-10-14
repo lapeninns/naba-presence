@@ -615,6 +615,18 @@ function purgeSteps(organisationId: string): PurgeStep[] {
       `,
       set: (sql) => sql`canonical_value = null, google_value = null`,
     }),
+    // A listing editor's stored Google read (WP-11). Editors serve it for
+    // minutes, so it is cleared 30 days after the read that stored it, as
+    // every cached Google payload is; the row's operational state stays.
+    rowsStep("editorPayloads", {
+      table: "presence_resource_reconcile_state",
+      where: (sql) => sql`
+        observed_google_payload is not null
+        and (observed_google_payload ->> 'observedAt')::timestamptz
+          <= now() - interval '30 days'
+      `,
+      set: (sql) => sql`observed_google_payload = null`,
+    }),
     rowsStep("profileAttempts", {
       destructive: true,
       location: ownLocation,
