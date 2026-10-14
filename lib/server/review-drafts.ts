@@ -30,6 +30,7 @@ import {
 } from "@/lib/server/ai-credits"
 import { finishVerifyUsage, reserveVerifyUsage } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
+import { hasTimeFor } from "@/lib/server/deadline"
 import {
   buildEvidenceHash,
   runSemanticVerification,
@@ -125,11 +126,38 @@ function assertDraftable(review: ReviewRecord) {
 }
 
 /**
- * How long a settled generation may go without its draft before a retry is
- * told it will not appear: phase three runs straight after the settle, so
- * past this it failed (a 409 from a concurrent publish, say).
+ * How long a generation may stay unfinished before a retry is told its
+ * draft will not appear. Longer than the drafts route's `maxDuration`, so
+ * past it the request that reserved the credit has ended one way or another
+ * (a 409 from a concurrent publish, or the function killed). Rows settled
+ * before the draft was stored come from before the charge moved into phase
+ * three; a reservation this old is released here, so the customer is not
+ * charged and the next click can start again at once.
  */
 const GENERATION_SETTLE_GRACE_SECONDS = 120
+
+/**
+ * Kept back from the request deadline after the last provider call for
+ * phase three: one transaction that re-reads the review, stores the draft,
+ * runs the rule checks, charges the credit and writes the audits.
+ */
+export const PHASE_THREE_RESERVE_MS = 5_000
+
+/**
+ * The least time worth giving the semantic pass. With less left before the
+ * deadline the pass is skipped and the draft stored `pending` (the same
+ * outcome as a provider outage), rather than starting a call the platform
+ * would kill before the draft is saved.
+ */
+export const MIN_VERIFY_MS = 10_000
+
+function generationNotRepeatable(): ApiError {
+  return new ApiError(
+    409,
+    "generation_not_repeatable",
+    "That generation did not produce a reply. Generate again."
+  )
+}
 
 /**
  * A retry of a generation already in the ledger (same generation key). It
@@ -137,20 +165,37 @@ const GENERATION_SETTLE_GRACE_SECONDS = 120
  * returned as it was stored, a generation still running answers 409
  * `generation_in_progress` (which the client resends under the same key),
  * and one that ended without a draft answers 409 `generation_not_repeatable`
- * so the next click starts a new generation.
+ * so the next click starts a new generation. "released" means this call
+ * released an abandoned reservation: the caller answers
+ * `generation_not_repeatable` once that release has committed.
  */
 async function replayGeneration(
   sql: TransactionSql,
   reviewId: string,
   generation: ExistingGeneration
-): Promise<DraftResult> {
+): Promise<DraftResult | "released"> {
   if (generation.reviewId !== reviewId) throw intentConflict()
   const inProgress = new ApiError(
     409,
     "generation_in_progress",
     "This reply is still being written. Try again in a moment."
   )
-  if (generation.status === "reserved") throw inProgress
+  if (generation.status === "reserved") {
+    // This transaction holds the organisation row lock (reserveDraftCredit),
+    // so the release cannot interleave with the ledger's own writes.
+    const abandoned = await sql<{ id: string }[]>`
+      update ai_usage
+      set status = 'released', credits = 0, settled_at = now()
+      where id = ${generation.id}
+        and status = 'reserved'
+        and created_at < now() - make_interval(
+          secs => ${GENERATION_SETTLE_GRACE_SECONDS}
+        )
+      returning id::text as id
+    `
+    if (abandoned.length === 0) throw inProgress
+    return "released"
+  }
   if (generation.status === "settled" && generation.draftId) {
     const [stored] = await sql<
       {
@@ -202,11 +247,7 @@ async function replayGeneration(
     `
     if (recent?.recent) throw inProgress
   }
-  throw new ApiError(
-    409,
-    "generation_not_repeatable",
-    "That generation did not produce a reply. Generate again."
-  )
+  throw generationNotRepeatable()
 }
 
 /**
@@ -233,6 +274,12 @@ export type CreateReviewDraftInput = {
    * has text by the time it is read is refused (409 template_review_has_text).
    */
   templateOnly?: boolean
+  /**
+   * The request deadline (epoch ms, lib/server/deadline.ts). Each provider
+   * call is sized to what is left of it, and the semantic pass is skipped
+   * when too little remains. Without one only OPENAI_TIMEOUT_MS bounds them.
+   */
+  deadline?: number
 }
 
 export async function createReviewDraft({
@@ -244,6 +291,7 @@ export async function createReviewDraft({
   tenant,
   draftId: givenDraftId,
   templateOnly = false,
+  deadline,
 }: CreateReviewDraftInput): Promise<ReviewDraftOutcome> {
   // DRAFTS_ENABLED is the hard override; the operator pause table
   // (lib/server/pause-controls.ts) pauses drafts without a redeploy.
@@ -322,6 +370,7 @@ export async function createReviewDraft({
           : null,
     }
   })
+  if (phaseOne.replay === "released") throw generationNotRepeatable()
   if (phaseOne.replay) return { ...phaseOne.replay, replayed: true }
   const { review, reservationId, verifyReservationId, verifyRefused } = phaseOne
 
@@ -334,7 +383,8 @@ export async function createReviewDraft({
 
   // Phase two: no connection is held here. A failed provider call releases
   // the reservation (the customer does not pay); a billed but unreadable
-  // response keeps its tokens on the released row for the backstop.
+  // response keeps its tokens on the released row for the backstop. The
+  // call is sized to the request deadline, keeping phase three's time back.
   const generated: {
     reply: string
     language: string
@@ -344,15 +394,18 @@ export async function createReviewDraft({
     ? { reply: input.body, language }
     : isRatingOnly
       ? ratingOnlyReply(review.rating, language, review.reviewer_name)
-      : await generateReply({
-          reviewText: review.review_text,
-          rating: review.rating,
-          reviewerName: review.reviewer_name,
-          locationName: review.location_name,
-          language,
-          tone: input.tone,
-          businessContext: input.businessContext,
-        }).catch(async (error: unknown) => {
+      : await generateReply(
+          {
+            reviewText: review.review_text,
+            rating: review.rating,
+            reviewerName: review.reviewer_name,
+            locationName: review.location_name,
+            language,
+            tone: input.tone,
+            businessContext: input.businessContext,
+          },
+          { deadline, reserveMs: PHASE_THREE_RESERVE_MS }
+        ).catch(async (error: unknown) => {
           if (reservationId) {
             await releaseDraftCredit(tenant, {
               id: reservationId,
@@ -364,42 +417,58 @@ export async function createReviewDraft({
           }
           throw error
         })
-  // Settle straight away: the provider was paid for whatever happens to the
-  // draft in phase three (a 409 from a concurrent sync, a later throw).
-  if (reservationId && generated.usage && generated.model) {
-    await settleDraftCredit(tenant, {
-      id: reservationId,
-      usage: generated.usage,
-      model: generated.model,
-      draftId,
-    })
+  // The credit is NOT charged here: it is settled in phase three, in the
+  // transaction that stores the draft, so the customer pays exactly when a
+  // draft exists. Until then the reservation only holds the credit. A throw
+  // from here to phase three's commit releases it (`releaseHeld`), keeping
+  // the provider's tokens for the backstop; a function killed in between
+  // leaves it `reserved` for the job-tick reaper to release
+  // (STALE_RESERVATION_MINUTES), or a retry past
+  // GENERATION_SETTLE_GRACE_SECONDS.
+  const releaseHeld = async (error: unknown): Promise<never> => {
+    if (reservationId) {
+      await releaseDraftCredit(tenant, {
+        id: reservationId,
+        usage: generated.usage,
+      })
+    }
+    throw error
   }
   const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
   // Past the token backstop semantic verification is skipped. A request key
   // already in the ledger (one key reused for two calls) is never read as
   // the backstop: the pass did not run, so the draft is left `pending`
-  // (`unavailable`) rather than settled on the rule checks alone.
+  // (`unavailable`) rather than settled on the rule checks alone. So is a
+  // pass there is no longer time for before the deadline: phase three must
+  // still run, and a kill after the provider call stores nothing.
+  const outOfTime =
+    deadline !== undefined &&
+    !hasTimeFor(deadline, PHASE_THREE_RESERVE_MS + MIN_VERIFY_MS)
   const semantic: SemanticOutcome =
     verifyRefused === "backstop"
       ? { status: "skipped", reasons: [] }
-      : verifyRefused === "duplicate"
+      : verifyRefused === "duplicate" || (verifyReservationId && outOfTime)
         ? { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
-        : await runSemanticVerification({
-            body: generated.reply,
-            reviewText: review.review_text,
-            reviewerName: review.reviewer_name,
-            locationName: review.location_name,
-            rating: review.rating,
-            expectedLanguage: language,
-          }).catch(async (error: unknown) => {
+        : await runSemanticVerification(
+            {
+              body: generated.reply,
+              reviewText: review.review_text,
+              reviewerName: review.reviewer_name,
+              locationName: review.location_name,
+              rating: review.rating,
+              expectedLanguage: language,
+            },
+            { deadline, reserveMs: PHASE_THREE_RESERVE_MS }
+          ).catch(async (error: unknown) => {
             if (verifyReservationId) {
               await finishVerifyUsage(tenant, { id: verifyReservationId })
             }
-            throw error
+            return releaseHeld(error)
           })
 
   // Verification usage is written in its own transaction against the
   // period it was reserved in; a ledger failure never fails the request.
+  // A pass skipped for time releases its reservation (no usage).
   if (verifyReservationId) {
     await finishVerifyUsage(tenant, {
       id: verifyReservationId,
@@ -529,6 +598,16 @@ export async function createReviewDraft({
         clientRequestId,
       },
     })
+    // The charge, last and in this transaction: it commits with the draft
+    // or not at all.
+    if (reservationId && generated.usage && generated.model) {
+      await settleDraftCredit(sql, {
+        id: reservationId,
+        usage: generated.usage,
+        model: generated.model,
+        draftId,
+      })
+    }
     return {
       draftId: draft.id,
       body: generated.reply,
@@ -536,6 +615,6 @@ export async function createReviewDraft({
       evidenceHash,
       verification,
     } satisfies DraftResult
-  })
+  }).catch(releaseHeld)
   return { ...result, replayed: false }
 }

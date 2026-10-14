@@ -49,6 +49,7 @@ async function authenticate(request: Request) {
 }
 
 export const POST = route({
+  maxDuration,
   auth: "public",
   origin: "same",
   handler: async ({ request, requestId }) => {
@@ -67,6 +68,7 @@ export const POST = route({
 // still validated so a malformed cron path fails loudly, but a fleet sweep
 // no longer pages: it queues every organisation at once.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ query, requestId }) => {
     await requireScopesEnabled("sync", SYNC_PAUSED)

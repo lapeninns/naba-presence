@@ -12,6 +12,7 @@ import {
 import { withAuditActor } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
+import { requestDeadline } from "@/lib/server/deadline"
 import {
   assertRouteEntitled,
   type RouteEntitlement,
@@ -127,17 +128,27 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      engineer and the stated reason. The session carries the customer's own
  *      user id, so without this the whole hour of impersonated actions is
  *      audited as the customer.
+ *  11. the deadline — `ctx.deadline` (epoch ms) is when the handler must
+ *      have finished its provider work: the request's start plus the
+ *      route's `maxDuration` less DEADLINE_MARGIN_MS (lib/server/deadline.ts).
+ *      Pass the file's own export in as `maxDuration` (a route reaching
+ *      Google or OpenAI must; tests/route-max-duration.test.ts checks it)
+ *      and hand `ctx.deadline` to every service that makes provider calls
+ *      in a row, so it stops cleanly instead of being killed between them.
  *
  * Not owned by the wrapper: `export const runtime = "nodejs"` and
  * `export const maxDuration` stay per-file static exports (Next requires them
- * to be literal exports it can read at build time), and kill switches /
- * capability checks stay inside the handler or the domain module.
+ * to be literal exports it can read at build time; the wrapper is handed the
+ * same constant for the deadline), and kill switches / capability checks
+ * stay inside the handler or the domain module.
  *
  * Usage:
  *
  *   export const runtime = "nodejs"
+ *   export const maxDuration = 60
  *
  *   export const PUT = route({
+ *     maxDuration,
  *     roles: ["owner", "admin"],
  *     params: z.object({ id: z.uuid() }),
  *     body: saveSchema,
@@ -183,6 +194,11 @@ export type RouteContext<
   clientRequestId: string | null
   /** The `Idempotency-Key` intent id on a mutation, or null. */
   intentId: string | null
+  /**
+   * Epoch ms by which provider work must be done (lib/server/deadline.ts):
+   * the request's start plus the route's `maxDuration`, less a margin.
+   */
+  deadline: number
   params: P
   query: Q
   body: B
@@ -201,6 +217,12 @@ export type RouteConfig<
 > = {
   /** Defaults to "session". */
   auth?: A
+  /**
+   * The route file's own `export const maxDuration` (seconds), which sets
+   * `ctx.deadline`. Without it the deadline assumes
+   * DEFAULT_MAX_DURATION_SECONDS.
+   */
+  maxDuration?: number
   /**
    * Whether mutations must come from the app's own origin. Defaults to
    * "same" for auth "session" and "any" otherwise. See the header comment.
@@ -289,6 +311,12 @@ export function searchParamsToObject(
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
+
+/**
+ * The deadline of a route that declares no `maxDuration`: the platform's
+ * default function limit. Routes doing provider work declare their own.
+ */
+export const DEFAULT_MAX_DURATION_SECONDS = 300
 
 function crossOrigin(): ApiError {
   return new ApiError(
@@ -394,6 +422,10 @@ async function handleRequest<A extends AuthMode, P, Q, B>(
   request: Request,
   context: NextRouteContext | undefined
 ): Promise<Response> {
+  const deadline = requestDeadline(
+    Date.now(),
+    config.maxDuration ?? DEFAULT_MAX_DURATION_SECONDS
+  )
   const rid = serverRequestId(request)
   try {
     if (origin === "same") assertSameOrigin(request)
@@ -429,6 +461,7 @@ async function handleRequest<A extends AuthMode, P, Q, B>(
       requestId: rid.id,
       clientRequestId: rid.clientId,
       intentId,
+      deadline,
       params,
       query,
       body,

@@ -190,6 +190,10 @@ const COPY: Record<string, string> = {
     "That generation did not produce a reply. Generate again.",
 
   // ---- Inbox: drafts, verification, publishing ----------------------------
+  // A bulk approval row the request had no time left to start: nothing was
+  // approved or sent for it.
+  bulk_time_budget_reached:
+    "Not approved: this batch ran out of time before reaching it. Select it and approve again.",
   verified_draft_required: "Verify a draft before publishing this reply.",
   // The 404s on this path all mean "the pane you are looking at is behind the
   // data", which the status fallback's "it may have been removed" only half

@@ -439,15 +439,41 @@ async function writeLedger(
 }
 
 /**
- * The provider call completed: write its real token counts. A draft row's
- * credit is spent (credits = 1); a verification row never costs one. Also
- * applies to a row the reaper already released, because the money was spent;
- * the allowance is deliberately not re-checked then (the provider call is
- * already paid for, and the ledger must say so). Overrun is bounded because
- * OPENAI_TIMEOUT_MS (max 55s) is far below STALE_RESERVATION_MINUTES.
+ * The settle itself, in the caller's transaction: the reservation's real
+ * token counts, and a draft row's credit spent (credits = 1; a verification
+ * row never costs one). Also applies to a row the reaper already released,
+ * because the money was spent; the allowance is deliberately not re-checked
+ * then (the provider call is already paid for, and the ledger must say so).
  * The row keeps the credit period it was reserved in. The organisation row
  * is locked, as in reserveDraftCredit, so a settle never interleaves with
- * another reservation's check-and-insert. Never throws.
+ * another reservation's check-and-insert.
+ */
+async function settleRow(
+  sql: TransactionSql,
+  input: { id: string; usage: AiUsage; model: string; draftId?: string }
+): Promise<void> {
+  await sql`
+    select o.id from organisation o
+    where o.id = (select organisation_id from ai_usage where id = ${input.id})
+    for update
+  `
+  await sql`
+    update ai_usage
+    set status = 'settled',
+        credits = case when kind = 'draft' then 1 else 0 end,
+        model = ${input.model},
+        input_tokens = ${input.usage.inputTokens},
+        output_tokens = ${input.usage.outputTokens},
+        draft_id = coalesce(${input.draftId ?? null}::uuid, draft_id),
+        settled_at = now()
+    where id = ${input.id} and status in ('reserved', 'released')
+  `
+}
+
+/**
+ * The provider call completed: write its real token counts (settleRow) in
+ * a transaction of its own. Overrun is bounded because OPENAI_TIMEOUT_MS
+ * (max 55s) is far below STALE_RESERVATION_MINUTES. Never throws.
  */
 export async function settleReservation(
   tenant: Tenant,
@@ -462,33 +488,24 @@ export async function settleReservation(
       inputTokens: input.usage.inputTokens,
       outputTokens: input.usage.outputTokens,
     },
-    async (sql) => {
-      await sql`
-        select o.id from organisation o
-        where o.id = (select organisation_id from ai_usage where id = ${input.id})
-        for update
-      `
-      await sql`
-        update ai_usage
-        set status = 'settled',
-            credits = case when kind = 'draft' then 1 else 0 end,
-            model = ${input.model},
-            input_tokens = ${input.usage.inputTokens},
-            output_tokens = ${input.usage.outputTokens},
-            draft_id = coalesce(${input.draftId ?? null}::uuid, draft_id),
-            settled_at = now()
-        where id = ${input.id} and status in ('reserved', 'released')
-      `
-    }
+    (sql) => settleRow(sql, input)
   )
 }
 
-/** Phase three of a draft generation: see settleReservation. */
+/**
+ * Phase three of a draft generation: the credit is spent in the same
+ * transaction that stores the draft, so the customer is charged exactly
+ * when they get a draft. If that transaction rolls back, or the function is
+ * killed before it runs, the row stays `reserved`; the caller releases it
+ * (releaseDraftCredit) and, failing that, the job-tick reaper does. Unlike
+ * settleReservation this throws: a ledger failure here must roll the draft
+ * back with it.
+ */
 export function settleDraftCredit(
-  tenant: Tenant,
+  sql: TransactionSql,
   input: { id: string; usage: AiUsage; model: string; draftId: string }
 ): Promise<void> {
-  return settleReservation(tenant, input)
+  return settleRow(sql, input)
 }
 
 /**
@@ -532,7 +549,9 @@ export function releaseDraftCredit(
 
 /**
  * Job-tick reaper: releases reservations whose process died before settling.
- * Their token cost is unknown and accepted; it is logged.
+ * Their token cost is unknown and accepted; it is logged. A draft whose
+ * function was killed between the provider call and phase three is one of
+ * these, so the customer is never charged for it.
  */
 export async function releaseStaleReservations(database: Sql): Promise<number> {
   const [row] = await database<{ released: number }[]>`
