@@ -516,6 +516,161 @@ describeDatabase("Stripe billing events", () => {
     expect(await periods(org.id)).toEqual([])
   })
 
+  describe("operator alerts (R2B-06)", () => {
+    const healthTick = async () => {
+      const response = await fetch(`${server.baseUrl}/api/cron/health`, {
+        method: "POST",
+        headers: { authorization: "Bearer route-harness-cron-secret" },
+      })
+      expect(response.status, await response.clone().text()).toBe(200)
+    }
+    const incidents = (organisationId: string) =>
+      admin<{ kind: string; status: string }[]>`
+        select kind, status from platform_incident
+        where subject = ${organisationId}
+        order by kind, status
+      `
+    const failureRun = async (organisationId: string) => {
+      const [row] = await admin<
+        { failures: number; code: string | null; failedAt: Date | null }[]
+      >`
+        select sync_failures as failures, last_sync_error_code as code,
+          last_sync_failed_at as "failedAt"
+        from organisation_billing where organisation_id = ${organisationId}
+      `
+      return row
+    }
+    const reconcile = (organisationId: string) =>
+      modules.syncOrganisationBilling({
+        stripe,
+        organisationId,
+        environment: "test",
+        trigger: { kind: "reconcile" },
+        requestId: crypto.randomUUID(),
+      })
+    const healthy = (id: string) =>
+      subscription(id, "active", {
+        start: nowSeconds - DAY,
+        end: nowSeconds + 29 * DAY,
+      })
+    /** Makes the organisation's failed events due again, as their back-off ends. */
+    const due = (customer: string) => admin`
+      update billing_event set next_attempt_at = now()
+      where stripe_customer_id = ${customer} and status = 'failed'
+    `
+
+    it("alerts at once on a subscribed price the catalog lacks, and resolves once a sync succeeds", async () => {
+      const org = await organisation("active")
+      const unknown = healthy(`sub_alertunknown${suffix}`)
+      ;(unknown.items.data[0].price as { id: string }).id =
+        `price_alertmissing${suffix}`
+      provider.set(org.customer, [unknown])
+      await receive("customer.subscription.updated", org.customer)
+      try {
+        await tick()
+        expect(await failureRun(org.id)).toMatchObject({
+          failures: 1,
+          code: "billing_plan_unknown",
+        })
+        await healthTick()
+        // A later failure and tick update the open incident, never a second.
+        await due(org.customer)
+        await tick()
+        await healthTick()
+        expect(await incidents(org.id)).toEqual([
+          { kind: "billing_plan_unknown", status: "open" },
+        ])
+
+        provider.set(org.customer, [healthy(`sub_alertunknown${suffix}`)])
+        await reconcile(org.id)
+        expect(await failureRun(org.id)).toMatchObject({
+          failures: 0,
+          code: null,
+        })
+        await healthTick()
+        expect(await incidents(org.id)).toEqual([
+          { kind: "billing_plan_unknown", status: "resolved" },
+        ])
+      } finally {
+        await admin`delete from platform_incident where subject = ${org.id}`
+      }
+    }, 60_000)
+
+    it("alerts once background syncs keep failing, not on the first failures", async () => {
+      const org = await organisation("active")
+      // A live-mode subscription in the test environment: every sync refuses.
+      provider.set(
+        org.customer,
+        [healthy(`sub_alertlive${suffix}`)].map((row) => ({
+          ...row,
+          livemode: true,
+        }))
+      )
+      await receive("invoice.paid", org.customer)
+      try {
+        await tick()
+        await due(org.customer)
+        await tick()
+        await healthTick()
+        expect(await failureRun(org.id)).toMatchObject({
+          failures: 2,
+          code: "billing_environment_mismatch",
+        })
+        expect(await incidents(org.id)).toEqual([])
+
+        await due(org.customer)
+        await tick()
+        await healthTick()
+        expect((await failureRun(org.id)).failures).toBe(3)
+        expect(await incidents(org.id)).toEqual([
+          { kind: "billing_sync_failing", status: "open" },
+        ])
+        await due(org.customer)
+        await tick()
+        await healthTick()
+        expect((await failureRun(org.id)).failures).toBe(4)
+        expect(await incidents(org.id)).toEqual([
+          { kind: "billing_sync_failing", status: "open" },
+        ])
+      } finally {
+        await admin`delete from platform_incident where subject = ${org.id}`
+      }
+    }, 60_000)
+
+    it("alerts on a dead event until a later sync catches up", async () => {
+      const org = await organisation("active")
+      provider.set(org.customer, [
+        { ...healthy(`sub_alertdead${suffix}`), livemode: true },
+      ])
+      const eventId = await receive("invoice.paid", org.customer)
+      // Seven attempts already spent: this failure is its last.
+      await admin`
+        update billing_event set retry_count = 7
+        where external_event_id = ${eventId}
+      `
+      try {
+        await tick()
+        expect((await event(eventId)).status).toBe("dead")
+        await healthTick()
+        await healthTick()
+        expect(await incidents(org.id)).toEqual([
+          { kind: "billing_event_dead", status: "open" },
+        ])
+
+        provider.set(org.customer, [healthy(`sub_alertdead${suffix}`)])
+        await reconcile(org.id)
+        await healthTick()
+        expect(await incidents(org.id)).toEqual([
+          { kind: "billing_event_dead", status: "resolved" },
+        ])
+        // The event itself stays dead for the operator to look at.
+        expect((await event(eventId)).status).toBe("dead")
+      } finally {
+        await admin`delete from platform_incident where subject = ${org.id}`
+      }
+    }, 60_000)
+  })
+
   it("releases the events it did not reach when its budget runs out", async () => {
     const orgs = [await organisation("active"), await organisation("active")]
     const eventIds: string[] = []

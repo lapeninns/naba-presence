@@ -246,6 +246,14 @@ before Google is called); nothing is ever unlinked automatically. To stop
 enforcing at once, set the env flag to `false` and redeploy, or clear the
 organisation's flag.
 
+A plan's `member_limit` (null = none) is checked in the app, under the same
+two switches, and never for a pilot: creating an invitation counts members
+plus open invitations and answers 402 `member_limit_reached` when no seat is
+left; accepting one counts members under the billing row lock and refuses
+the same way, which fails that sign-in. Revoking an invitation or removing a
+member frees a seat. A plan change below the current member count answers
+409 `member_limit_exceeded`; nobody is removed automatically.
+
 The env flag reaches the location-limit trigger only through the app's
 tenant transaction. A link written from an operator connection or a script
 follows the organisation's own `enforcement_enabled` flag alone, even with
@@ -304,6 +312,26 @@ update billing_event
 set status = 'failed', retry_count = 0, next_attempt_at = now()
 where status = 'dead' and external_event_id = '<evt_...>';
 ```
+
+### Billing alerts
+
+The health tick opens one platform incident per organisation (0146,
+`lib/server/billing/alerts.ts`); the subject is the organisation id:
+
+- `billing_event_dead`: a Stripe event used up its retries and no sync of
+  that organisation has succeeded since it died. Fix the cause (usually its
+  `last_error_code`), then re-arm the event as above or let the hourly
+  reconcile catch up.
+- `billing_sync_failing`: the last three or more background syncs (event
+  batches and reconcile) failed. `organisation_billing.sync_failures`,
+  `last_sync_error_code` and `last_sync_failed_at` hold the run; read
+  `billing.reconcile_failed` / `billing.event_failed` in the logs.
+- `billing_plan_unknown`: the organisation is subscribed to a price the
+  catalog lacks, so every sync fails and its record stays as it was (a pilot
+  keeps full access). Add the plan version with `pnpm billing:catalog`.
+
+Each resolves at the next evaluation after a sync of that organisation
+succeeds (the success resets the run and clears the code).
 
 ### Checkout and plan changes (P07-S5)
 

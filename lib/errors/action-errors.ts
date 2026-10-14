@@ -157,6 +157,12 @@ const COPY: Record<string, string> = {
   // 409 from a plan change below the linked locations (P07-S5).
   location_limit_exceeded:
     "That plan allows fewer locations than are linked. Unlink locations first; linked locations are never removed automatically.",
+  // 402 from an invitation over the plan's member limit (R2B-04).
+  member_limit_reached:
+    "This workspace has reached its plan's member limit. Remove a member, revoke an invitation or change plan to add someone.",
+  // 409 from a plan change below the current members.
+  member_limit_exceeded:
+    "That plan allows fewer members than this workspace has. Remove members first; nobody is removed automatically.",
   // ---- Billing (app/api/billing/**, P07-S5) ---------------------------------
   // 503 while billing is switched off, misconfigured or paused: nothing
   // reached Stripe, so say that rather than blaming Google.
