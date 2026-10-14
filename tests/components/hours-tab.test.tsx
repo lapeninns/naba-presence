@@ -11,7 +11,11 @@ import type { HoursState } from "@/lib/api/location-hours"
 
 const useHoursMock = vi.fn()
 const useCapsMock = vi.fn()
-const refreshHours = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }))
+const refreshHours = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  isPending: false,
+  isError: false,
+}))
 vi.mock("@/lib/queries/use-location-hours", () => ({
   useHours: () => useHoursMock(),
   useRefreshHours: () => refreshHours,

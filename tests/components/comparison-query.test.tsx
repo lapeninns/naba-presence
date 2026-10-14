@@ -46,35 +46,42 @@ describe("successful comparison query invalidation (W0-04)", () => {
     queryKeys.listingSummaries,
     queryKeys.clientsAll,
   ]
-  function renderHours() {
+  function renderArea(area: "hours" | "profile") {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
     const invalidate = vi.spyOn(client, "invalidateQueries")
-    const { result } = renderHook(() => useHours("l1"), {
+    const hook = area === "hours" ? useHours : useProfile
+    const { result } = renderHook(() => hook("l1"), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
     })
     return { result, invalidate }
   }
+  function serve(source: "stored" | "live") {
+    vi.spyOn(hoursApi, "fetchHours").mockResolvedValue({ source } as never)
+    vi.spyOn(profileApi, "fetchProfile").mockResolvedValue({ source } as never)
+  }
 
-  it("leaves the health consumers alone after an hours read served from storage", async () => {
-    vi.spyOn(hoursApi, "fetchHours").mockResolvedValue({
-      source: "stored",
-    } as never)
-    const { result, invalidate } = renderHours()
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(invalidate).not.toHaveBeenCalled()
-  })
+  it.each(["hours", "profile"] as const)(
+    "leaves the health consumers alone after a %s read served from storage",
+    async (area) => {
+      serve("stored")
+      const { result, invalidate } = renderArea(area)
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(invalidate).not.toHaveBeenCalled()
+    }
+  )
 
-  it("invalidates the health consumers after a live hours read", async () => {
-    vi.spyOn(hoursApi, "fetchHours").mockResolvedValue({
-      source: "live",
-    } as never)
-    const { result, invalidate } = renderHours()
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    for (const queryKey of healthKeys)
-      expect(invalidate).toHaveBeenCalledWith({ queryKey })
-  })
+  it.each(["hours", "profile"] as const)(
+    "invalidates the health consumers after a live %s read",
+    async (area) => {
+      serve("live")
+      const { result, invalidate } = renderArea(area)
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      for (const queryKey of healthKeys)
+        expect(invalidate).toHaveBeenCalledWith({ queryKey })
+    }
+  )
 })

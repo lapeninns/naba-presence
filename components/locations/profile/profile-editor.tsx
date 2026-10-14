@@ -19,6 +19,7 @@ import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { useReportEditorStatus, type EditorStatusReport } from "@/components/editors/editor-status"
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { industryCapability } from "@/lib/locations/industry-capability"
@@ -47,7 +48,7 @@ import { PRODUCT_CATALOGUE_ID, ProductCatalogueHandoff } from "@/components/loca
 import { PROFILE_SAVED_WORK_ID, ProfileUnreachable } from "@/components/locations/profile/profile-unreachable"
 import { googleUnreachable } from "@/lib/listings/health"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
-import { useProfile } from "@/lib/queries/use-location-profile"
+import { useProfile, useRefreshProfile } from "@/lib/queries/use-location-profile"
 import { ApiClientError } from "@/lib/api/client"
 import {
   publishBusinessAttributes,
@@ -256,6 +257,7 @@ function ProfileEditor({
   const disabled = originalDisabled || lodgingBlocked
   const publishReason = originalPublishReason ?? (lodgingBlocked ? "Check the active lodging request before another profile write." : null)
   const { profile, business } = state
+  const refresh = useRefreshProfile(locationId)
   const serviceActions = useRef<ServiceActions | null>(null)
   const [serviceStatus, setServiceStatus] = useState<ServiceEditorStatus>({ dirty: false, blocked: null })
   const revision = profile.canonicalResource.revision
@@ -424,8 +426,9 @@ function ProfileEditor({
         label: "Save name, description, phone and website here",
         run: async () => {
           const parsed = profileFormSchema.parse(values)
+          let response: Awaited<ReturnType<typeof saveProfile>>
           try {
-            await saveProfile(locationId, {
+            response = await saveProfile(locationId, {
               expectedCanonicalRevision: revision,
               values: toProfileValues(parsed),
             })
@@ -437,7 +440,9 @@ function ProfileEditor({
             if (Object.keys(fields).length > 0) setErrors(fields)
             throw cause
           }
-          saved.current = await fetchProfile(locationId)
+          // The save answers with the saved profile against the Google
+          // state last observed; the publish re-reads Google under its lock.
+          saved.current = response.profile ?? (await fetchProfile(locationId))
         },
       })
     }
@@ -533,6 +538,9 @@ function ProfileEditor({
     invalidate: [
       queryKeys.locationProfile(locationId),
       queryKeys.locationBusinessInformation(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
     ],
     successToast: (outcome) => ({
       outcome,
@@ -559,7 +567,12 @@ function ProfileEditor({
         values: toProfileValues(profileFormSchema.parse(values)),
       })
     },
-    invalidate: [queryKeys.locationProfile(locationId)],
+    invalidate: [
+      queryKeys.locationProfile(locationId),
+      queryKeys.listingSummary(locationId),
+      queryKeys.listingSummaries,
+      queryKeys.clientsAll,
+    ],
     onSuccess: () => expectValuesSave(),
     successToast: {
       outcome: "saved_locally",
@@ -960,6 +973,13 @@ function ProfileEditor({
       <DraftNotices
         drafts={[valuesDraft, listingDraft, attributesDraft]}
         noun="this profile"
+      />
+
+      <GoogleFreshness
+        observedAt={profile.observedAt}
+        refreshing={refresh.isPending}
+        failed={refresh.isError}
+        onRefresh={() => refresh.mutate()}
       />
 
       {!gate && needsAck ? (

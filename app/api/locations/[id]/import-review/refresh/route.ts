@@ -23,7 +23,11 @@ export const POST = route({
   body: importReviewRefreshRequestSchema,
   handler: async ({ session, params, body, requestId }) => {
     if (!getServerEnv().IMPORT_REVIEW_ENABLED) {
-      throw new ApiError(503, "import_review_paused", "Google import review is paused.")
+      throw new ApiError(
+        503,
+        "import_review_paused",
+        "Google import review is paused."
+      )
     }
     const locationId = params.id
     const outcomes: ImportReviewRefreshResponse["outcomes"] = {}
@@ -38,7 +42,9 @@ export const POST = route({
       })
     }
     if (body.resourceType === "profile" || body.resourceType === "all") {
-      const bundle = await readProfileStateBundle(session, locationId)
+      const bundle = await readProfileStateBundle(session, locationId, {
+        refresh: true,
+      })
       outcomes.profile = await raiseProfileProposals({
         session,
         locationId,
