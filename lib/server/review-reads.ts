@@ -14,7 +14,10 @@ import {
 } from "@/lib/server/capabilities"
 import { ApiError } from "@/lib/server/http"
 import { visibilityPredicate } from "@/lib/server/permissions"
-import { buildInboxQuery } from "@/lib/server/reviews-query"
+import {
+  boundedSearchMatches,
+  buildInboxQuery,
+} from "@/lib/server/reviews-query"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -55,6 +58,9 @@ export async function readReviewsPage(
     userId: session.userId,
     canPublish: session.canPublish,
     requireTwoPersonApproval: settings?.requireTwoPersonApproval ?? false,
+    searchReviewIds: query.search
+      ? await boundedSearchMatches(sql, query.search)
+      : undefined,
   })
   const capabilities = await reviewCapabilitiesForLocations(
     sql,
