@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { SavedVerificationWorkflows } from "@/components/locations/administration/verification-saved-workflows"
 import type { VerificationWorkflowItem } from "@/lib/contracts/google-verification-workflows"
+import { queryKeys } from "@/lib/queries/keys"
 
 vi.mock("@/lib/api/google-verification-workflows", () => ({
   fetchGoogleVerificationWorkflows: vi.fn(() => new Promise(() => {})),
@@ -37,7 +38,7 @@ describe("SavedVerificationWorkflows deadlines", () => {
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     })
-    client.setQueryData(["verification-workflows", "loc-1", "start"], {
+    client.setQueryData(queryKeys.locationVerificationWorkflows("loc-1", "start"), {
       pages: [{ workflows: [item(1, 60_000), item(2, 120_000)], nextCursor: null }],
       pageParams: [""],
     })
