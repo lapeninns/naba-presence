@@ -18,6 +18,7 @@ export {
   type HoursSelection,
   type NormalizedHours,
 } from "@/lib/domain/hours-vocabulary"
+import { editorReadSourceSchema } from "@/lib/contracts/editor-freshness"
 import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // Vocabularies come from the domain; the schemas only wrap them.
@@ -275,6 +276,15 @@ export const hoursStateSchema = z.object({
       finishedAt: z.string().nullable(),
     })
     .nullable(),
+  /**
+   * When Google was last read for this state. `source` says whether this
+   * response read it ("live") or was served from that read because it is
+   * within the editor's staleness budget ("stored"); `?refresh=1` forces a
+   * live read. Publishing always reads Google itself. The server always
+   * sends both; optional for older payloads.
+   */
+  observedAt: z.string().optional(),
+  source: editorReadSourceSchema.optional(),
 })
 export type HoursState = z.infer<typeof hoursStateSchema>
 

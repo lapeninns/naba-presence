@@ -18,19 +18,21 @@ import type { Session } from "@/lib/server/session"
  * The routes call these, and so does the hours, photos and posts pages'
  * streamed server prefetch (lib/server/prefetch.ts), so what paints in the
  * first HTML is produced exactly as a later client fetch produces it: the
- * same location access checks, Google reads, reconciliation and write
+ * same location access checks, Google reads (or, within an editor's
+ * staleness budget, the stored observation), reconciliation and write
  * switches (`writesEnabled`). Each returns the route's raw body; the
  * prefetch pushes it through the JSON round trip and contract schema the
  * browser applies.
  */
 
-/** `GET /api/locations/{id}/hours`. */
+/** `GET /api/locations/{id}/hours` (`refresh`: `?refresh=1`). */
 export async function readHoursResponse(
   session: Session,
-  locationId: string
+  locationId: string,
+  options: { refresh?: boolean } = {}
 ): Promise<HoursResponse> {
   return {
-    hours: await getHoursState(session, locationId),
+    hours: await getHoursState(session, locationId, options),
   } satisfies HoursResponse
 }
 

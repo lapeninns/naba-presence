@@ -14,8 +14,9 @@ vi.mock("@/lib/server/gbp-write", () => ({
 }))
 vi.mock("@/lib/server/canonical-resources", () => ({
   ensureCanonicalResource: async ({ initialPayload }: { initialPayload: NormalizedHours }) => ({ payload: initialPayload, revision: "1", updatedAt: new Date(), baselineCanonicalHash: null, baselineGoogleHash: null }),
+  readCanonicalResource: async () => null,
 }))
-vi.mock("@/lib/server/hours-observations", () => ({ recordHoursObservation: mocks.observation }))
+vi.mock("@/lib/server/hours-observations", () => ({ recordHoursObservation: mocks.observation, readHoursObservation: async () => null }))
 vi.mock("@/lib/server/google", () => ({
   getGoogleLocation: async () => ({ categories: { primaryCategory: { name: "gcid:test" } }, moreHours: [{ hoursTypeId: "EXISTING_SERVICE", periods: [] }] }),
   getGoogleHoursCategories: mocks.categories,

@@ -145,7 +145,10 @@ async function reconcileResource(
   locationId: string,
   requestId: string
 ) {
-  if (resource === "hours") return getHoursState(session, locationId)
+  // Forced past the editor's staleness budget, as media is below: the sweep
+  // is what observes listings nobody opens.
+  if (resource === "hours")
+    return getHoursState(session, locationId, { refresh: true })
   if (resource === "profile") {
     const bundle = await readProfileStateBundle(session, locationId)
     // Proposal raising is isolated: a raise failure must not poison the

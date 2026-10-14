@@ -22,8 +22,18 @@ export type {
   SaveHoursResponse,
 } from "@/lib/contracts/location-hours"
 
-export function fetchHours(id: string, options?: RequestOptions): Promise<HoursState> {
-  return apiFetch(`/api/locations/${id}/hours`, {
+/**
+ * The hours editor's state. Within the editor's staleness budget the server
+ * answers from its last Google read (`source: "stored"`); `refresh` reads
+ * Google now.
+ */
+export function fetchHours(
+  id: string,
+  options?: RequestOptions,
+  params: { refresh?: boolean } = {}
+): Promise<HoursState> {
+  const suffix = params.refresh ? "?refresh=1" : ""
+  return apiFetch(`/api/locations/${id}/hours${suffix}`, {
     schema: hoursResponseSchema,
     ...options,
   }).then((r) => r.hours)

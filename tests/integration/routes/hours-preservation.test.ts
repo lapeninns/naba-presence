@@ -122,8 +122,10 @@ describeDatabase("hours legacy transition and replacement routes", () => {
     )
     const url = `${server.baseUrl}/api/locations/${linked.locationId}/hours`
     const headers = { cookie: owner.cookie, "content-type": "application/json" }
-    const read = async () => {
-      const response = await fetch(url, { headers })
+    const read = async (options: { refresh?: boolean } = {}) => {
+      const response = await fetch(options.refresh ? `${url}?refresh=1` : url, {
+        headers,
+      })
       expect(response.status, await response.clone().text()).toBe(200)
       return hoursStateSchema.parse((await response.json()).hours)
     }
@@ -358,7 +360,7 @@ describeDatabase("hours legacy transition and replacement routes", () => {
         ],
       },
     })
-    const reviewed = await f.read()
+    const reviewed = await f.read({ refresh: true })
     expect(reviewed.partStatus).toBeUndefined()
     expect(reviewed.status).toBe("conflict")
 
@@ -515,7 +517,7 @@ describeDatabase("hours legacy transition and replacement routes", () => {
     delete sameDay.regular[1].periods[0].closeDayOfWeek
     const sameDayHash = legacyHoursHash(sameDay)
     await admin`update presence_canonical_resource set payload = ${admin.json(sameDay)}, baseline_canonical_hash = ${sameDayHash}, baseline_google_hash = ${sameDayHash} where organisation_id = ${f.owner.organisationId} and location_id = ${f.linked.locationId} and resource_type = 'hours'`
-    const unchanged = await f.read()
+    const unchanged = await f.read({ refresh: true })
     expect(unchanged.status).toBe("in_sync")
     expect(unchanged.canonicalHash).toBe(sameDayHash)
     expect(unchanged.googleHash).toBe(sameDayHash)
@@ -590,6 +592,77 @@ describeDatabase("hours legacy transition and replacement routes", () => {
       release()
       await holder.end()
     }
+  }, 30_000)
+
+  it("serves a reopen within the staleness budget from storage and reads Google on refresh and after a publish (W3-2)", async () => {
+    const f = await fixture()
+    const googleReads = () =>
+      google.calls.filter((call) => call.method === "GET").length
+    const first = await f.read()
+    expect(first.source).toBe("live")
+    expect(first.observedAt).toEqual(expect.any(String))
+
+    // Reopening within the budget: no Google call, the same comparison.
+    let before = googleReads()
+    const reopened = await f.read()
+    expect(googleReads()).toBe(before)
+    expect(reopened.source).toBe("stored")
+    expect({ ...reopened, source: "live" }).toEqual(first)
+
+    // A Google edit is not seen until the operator checks Google again.
+    const edited = structuredClone(f.provider())
+    edited.regularHours!.periods![0]!.openTime = { hours: 9, minutes: 30 }
+    f.setProvider(edited)
+    expect((await f.read()).googleHash).toBe(first.googleHash)
+    before = googleReads()
+    const refreshed = await f.read({ refresh: true })
+    expect(googleReads()).toBe(before + 2)
+    expect(refreshed.source).toBe("live")
+    expect(refreshed.googleHash).not.toBe(first.googleHash)
+    expect(refreshed.status).toBe("google_dirty")
+    // ...and the refreshed read is what later opens are served.
+    before = googleReads()
+    expect((await f.read()).googleHash).toBe(refreshed.googleHash)
+    expect(googleReads()).toBe(before)
+
+    // A local save is served from storage, classified as a live read would.
+    const draft = structuredClone(refreshed.canonical)
+    draft.regular[2].periods = [{ opensAt: "08:00", closesAt: "12:00" }]
+    draft.regular[2].isClosed = false
+    expect((await f.save(refreshed, draft)).status).toBe(200)
+    before = googleReads()
+    const saved = await f.read()
+    expect(googleReads()).toBe(before)
+    expect(saved.source).toBe("stored")
+    expect(saved.canonicalResource.revision).not.toBe(
+      refreshed.canonicalResource.revision
+    )
+    const live = await f.read({ refresh: true })
+    expect(live.status).toBe(saved.status)
+    expect(live.partStatus).toEqual(saved.partStatus)
+
+    // The publish reads Google itself; the next open reads the result.
+    const reviewed = await f.read()
+    const response = await fetch(
+      `${server.baseUrl}/api/locations/${f.linked.locationId}/hours`,
+      {
+        method: "POST",
+        headers: { cookie: f.owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          confirmation: "publish_nabapresence_hours_to_google",
+          expectedCanonicalRevision: reviewed.canonicalResource.revision,
+          expectedCanonicalHash: reviewed.canonicalHash,
+          expectedGoogleHash: reviewed.googleHash,
+          approvedUpdateMask: reviewed.updateMask,
+          confirmOverwriteGoogleChanges: true,
+        }),
+      }
+    )
+    expect(response.status, await response.clone().text()).toBe(200)
+    const published = await f.read()
+    expect(published.source).toBe("live")
+    expect(published.status).toBe("in_sync")
+    expect((await f.read()).source).toBe("stored")
   }, 30_000)
 
   it("saves an existing local schedule while Google reads are unavailable", async () => {

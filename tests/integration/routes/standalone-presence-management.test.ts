@@ -1393,12 +1393,13 @@ describeDatabase("standalone NabaPresence canonical management", () => {
         .observedAt
     ).toBe(checked.hours.observedAt)
     closing = 21
-    expect((await getJson(`${root}/hours`, owner.cookie, "hours")).status).toBe(
-      "google_dirty"
-    )
-    expect((await getJson(`${root}/hours`, owner.cookie, "hours")).status).toBe(
-      "google_dirty"
-    )
+    // Google changed: seen once the editor checks Google again (`refresh`);
+    // the next open within the staleness budget is served that read.
+    expect(
+      (await getJson(`${root}/hours?refresh=1`, owner.cookie, "hours")).status
+    ).toBe("google_dirty")
+    const reopened = await getJson(`${root}/hours`, owner.cookie, "hours")
+    expect(reopened).toMatchObject({ status: "google_dirty", source: "stored" })
     expect(
       (await getJson(`${root}/summary`, owner.cookie, "summary")).hours.status
     ).toBe("google_dirty")
@@ -1422,7 +1423,7 @@ describeDatabase("standalone NabaPresence canonical management", () => {
       "summary"
     )
     failed = true
-    const failure = await fetch(`${root}/hours`, {
+    const failure = await fetch(`${root}/hours?refresh=1`, {
       headers: { cookie: owner.cookie },
     })
     expect(failure.status).toBeGreaterThanOrEqual(400)
@@ -1512,11 +1513,15 @@ describeDatabase("standalone NabaPresence canonical management", () => {
             : { status: 200, json: payload(20) }
         }
       )
-      const older = fetch(`${root}/hours`, {
+      const older = fetch(`${root}/hours?refresh=1`, {
         headers: { cookie: owner.cookie },
       })
       await vi.waitFor(() => expect(calls).toBe(1))
-      const newer = await getJson(`${root}/hours`, owner.cookie, "hours")
+      const newer = await getJson(
+        `${root}/hours?refresh=1`,
+        owner.cookie,
+        "hours"
+      )
       await older
       const [stored] = await admin<
         { google_hash: string; error_code: string | null }[]
