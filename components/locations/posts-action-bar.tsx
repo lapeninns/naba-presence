@@ -54,7 +54,8 @@ import {
   resourceDisabledReason,
 } from "@/lib/locations/gating"
 import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
-import type { OutcomeMessage } from "@/lib/editors/outcome"
+import { useOutcomeToast } from "@/components/ui/toast"
+import { successToastFields, type OutcomeMessage } from "@/lib/editors/outcome"
 import { errorOutcome } from "@/lib/errors/action-errors"
 import { POST_ACTION_LABEL, postImageUrl } from "@/lib/locations/post-display"
 import {
@@ -94,6 +95,19 @@ export function publishOutcome(result: {
   // "published" with no outcome: Google took the post and did not reject
   // it; it may still be processing, so this is "sent", not "live".
   return { outcome: "sent", title: "Post sent to Google" }
+}
+
+/**
+ * The outcome toast for a publish or an approve-and-publish. Whatever went
+ * to Google is a Google write: never Undo (D5). The answer carries no
+ * Google link, so none is offered. A request for approval sent nothing to
+ * Google, so it stays a plain (local) toast.
+ */
+function publishToast(result: Parameters<typeof publishOutcome>[0]) {
+  const fields = successToastFields(publishOutcome(result))
+  return result.status === "awaiting_approval"
+    ? fields
+    : { ...fields, kind: "google" as const }
 }
 
 // What the Check Google round-trip found. `reconciliationError` is the only
@@ -151,6 +165,7 @@ export function PostsActionBar({
   }
 }) {
   const queryClient = useQueryClient()
+  const outcomeToast = useOutcomeToast()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   // Approving publishes, so the approver sees exactly what goes to Google.
@@ -167,9 +182,11 @@ export function PostsActionBar({
     // only while the post is the same revision; an edit mints a new intent.
     intentKey: () => [post.id, post.contentRevision],
     invalidate,
-    successToast: (result) => publishOutcome(result),
     errorContext: "post",
-    onSuccess: () => setPublishOpen(false),
+    onSuccess: (result) => {
+      setPublishOpen(false)
+      outcomeToast.show(publishToast(result))
+    },
     onError: () => setPublishOpen(false),
   })
   const decide = useResourceMutation({
@@ -179,16 +196,29 @@ export function PostsActionBar({
       // this approver never read.
       decidePostApproval(locationId, post.id, decision, post.contentRevision),
     invalidate,
-    successToast: (result, decision) =>
-      decision === "reject" ? "Sent back to draft" : publishOutcome(result),
+    // Rejecting only changes NabaPresence (a plain toast); approving
+    // publishes, so its toast is a Google write.
+    successToast: (_, decision) =>
+      decision === "reject" ? "Sent back to draft" : null,
     errorContext: "post",
+    onSuccess: (result, decision) => {
+      if (decision === "approve") outcomeToast.show(publishToast(result))
+    },
   })
   const remove = useResourceMutation({
     mutationFn: () => deletePost(locationId, post.id),
     invalidate,
-    successToast: "Post deleted",
     errorContext: "post",
-    onSuccess: () => setDeleteOpen(false),
+    onSuccess: () => {
+      setDeleteOpen(false)
+      // Deleting a live post removes it from Google: a Google write. A
+      // draft's delete touches NabaPresence only.
+      outcomeToast.show(
+        post.googlePostName
+          ? { title: "Post deleted", kind: "google" }
+          : { title: "Post deleted" }
+      )
+    },
   })
   const check = useResourceMutation({
     // The GET is the check: listLocalPosts reconciles against Google's live
@@ -347,10 +377,7 @@ export function PostsActionBar({
         >
           <MoreHorizontalIcon aria-hidden />
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          title={name}
-          className="max-w-xs"
-        >
+        <DropdownMenuContent title={name} className="max-w-xs">
           {editable ? (
             // Editing a draft touches NabaPresence only, so the pause switch
             // that blocks Google writes doesn't block it; the edit grant does.

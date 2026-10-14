@@ -520,10 +520,37 @@ describe("Schedule presets (presentation shortcut over the one-time form)", () =
       )
     ).toBeInTheDocument()
     await user.click(
-      within(sheet).getByRole("radio", { name: "Pick a date and time" })
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
     )
     expect(within(sheet).getByLabelText("Date")).toHaveValue(dates.monday)
     expect(within(sheet).getByLabelText("Local time")).toHaveValue("09:00")
+    // The form is pushed inside the sheet: its title takes focus, and Back
+    // returns to the rows, where the custom row says what was chosen.
+    await waitFor(() =>
+      expect(
+        within(sheet).getByText("Pick a date and time", {
+          selector: '[data-slot="sheet-title"]',
+        })
+      ).toHaveFocus()
+    )
+    await user.click(
+      within(sheet).getByRole("button", {
+        name: "Back to Schedule publication",
+      })
+    )
+    await waitFor(() =>
+      expect(
+        within(sheet).getByText("Schedule publication", {
+          selector: '[data-slot="sheet-title"]',
+        })
+      ).toHaveFocus()
+    )
+    expect(within(sheet).queryByLabelText("Date")).toBeNull()
+    expect(
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
+    ).toHaveAccessibleDescription(
+      new RegExp(`^${formatWallDay(dates.monday)}, 09:00 · `)
+    )
 
     // Never "Schedule" or "Send": the same submit-for-approval path.
     await user.click(

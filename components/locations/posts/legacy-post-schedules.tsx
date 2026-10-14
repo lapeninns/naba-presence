@@ -5,6 +5,7 @@ import { useState } from "react"
 
 import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
 import { Button } from "@/components/ui/button"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { StatusPill } from "@/components/ui/status-pill"
 import { ApiClientError } from "@/lib/api/client"
 import {
@@ -83,80 +84,88 @@ export function LegacyPostSchedules({
           {failure}
         </p>
       ) : null}
-      <ul className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface">
+      <ListRows className="rounded-(--np-radius-card) border border-line-subtle bg-surface px-3">
         {rows.map((row) => {
           const wall = row.scheduledPublishTime
             ? localWallTime(row.scheduledPublishTime, timezone)
             : null
           const label = row.summary.slice(0, 80) || row.topicType
           return (
-            <li key={row.id} className="flex min-w-0 flex-col gap-1 px-3 py-3">
-              <div className="flex min-w-0 items-start justify-between gap-2">
-                <span className="min-w-0 text-body font-semibold break-words text-ink">
-                  {label}
+            // A plain row: its two actions are its own buttons, in the
+            // footer outside the row's body.
+            <ListRow
+              key={row.id}
+              interactive={false}
+              flush
+              wrap
+              emphasis="neutral"
+              title={label}
+              subtitle={
+                <span className="tabular-nums">
+                  {wall
+                    ? `Was set for ${wall.date} ${wall.time} (${timezone})`
+                    : "No time was set"}
+                  {row.repeats ? ", with a repeat that is no longer used" : ""}.
                 </span>
-                <StatusPill tone="warn" className="shrink-0">
-                  Needs review
-                </StatusPill>
-              </div>
-              <p className="text-ui text-ink-secondary tabular-nums">
-                {wall
-                  ? `Was set for ${wall.date} ${wall.time} (${timezone})`
-                  : "No time was set"}
-                {row.repeats ? ", with a repeat that is no longer used" : ""}.
-              </p>
-              {row.alreadyScheduled ? (
-                <p className="text-caption text-ink-muted">
-                  This post already has a publication scheduled. Dismiss the old
-                  time.
-                </p>
-              ) : !row.schedulable ? (
-                <p className="text-caption text-ink-muted">
-                  This post is already on Google or being published, so it
-                  cannot be scheduled. Dismiss the old time.
-                </p>
-              ) : null}
-              <div className="mt-1 flex flex-wrap gap-1">
-                {row.schedulable ? (
-                  <SchedulePostSheet
-                    locationId={locationId}
-                    timezone={timezone}
-                    post={{
-                      id: row.postId,
-                      topicType: row.topicType,
-                      summary: row.summary,
-                    }}
-                    suggested={
-                      wall
-                        ? { startDate: wall.date, localTime: wall.time }
-                        : undefined
-                    }
-                    trigger={(show) => (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={show}
-                        aria-label={`Schedule post: ${label}`}
-                      >
-                        Schedule post
-                      </Button>
-                    )}
-                  />
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={dismiss.isPending}
-                  onClick={() => dismiss.mutate(row.id)}
-                  aria-label={`Dismiss old time: ${label}`}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            </li>
+              }
+              trailing={<StatusPill tone="warn">Needs review</StatusPill>}
+              footerLayout="stack"
+              footer={
+                <>
+                  {row.alreadyScheduled ? (
+                    <p className="text-caption text-ink-muted">
+                      This post already has a publication scheduled. Dismiss the
+                      old time.
+                    </p>
+                  ) : !row.schedulable ? (
+                    <p className="text-caption text-ink-muted">
+                      This post is already on Google or being published, so it
+                      cannot be scheduled. Dismiss the old time.
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-1">
+                    {row.schedulable ? (
+                      <SchedulePostSheet
+                        locationId={locationId}
+                        timezone={timezone}
+                        post={{
+                          id: row.postId,
+                          topicType: row.topicType,
+                          summary: row.summary,
+                        }}
+                        suggested={
+                          wall
+                            ? { startDate: wall.date, localTime: wall.time }
+                            : undefined
+                        }
+                        trigger={(show) => (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={show}
+                            aria-label={`Schedule post: ${label}`}
+                          >
+                            Schedule post
+                          </Button>
+                        )}
+                      />
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={dismiss.isPending}
+                      onClick={() => dismiss.mutate(row.id)}
+                      aria-label={`Dismiss old time: ${label}`}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </>
+              }
+            />
           )
         })}
-      </ul>
+      </ListRows>
     </section>
   )
 }

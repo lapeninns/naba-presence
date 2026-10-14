@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { StatusPill } from "@/components/ui/status-pill"
 import { ApiClientError } from "@/lib/api/client"
@@ -135,7 +136,7 @@ export function PostSchedules({
           </p>
         }
       >
-        <ul className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface">
+        <ListRows className="rounded-(--np-radius-card) border border-line-subtle bg-surface px-3">
           {schedules.map((schedule) => {
             const status = scheduleBadge(schedule)
             const reason = scheduleReasonText(schedule)
@@ -145,126 +146,135 @@ export function PostSchedules({
               enabled,
             })
             return (
-              <li
+              // A plain row (not one hit target): its actions are its own
+              // buttons, drawn in the footer outside the row's body.
+              <ListRow
                 key={schedule.id}
-                className="flex min-w-0 flex-col gap-1 px-3 py-3"
-              >
-                <div className="flex min-w-0 items-start justify-between gap-2">
-                  <span className="min-w-0 text-body font-semibold break-words text-ink">
-                    {schedule.template.summary.slice(0, 80) ||
-                      schedule.template.topicType}
+                interactive={false}
+                flush
+                wrap
+                emphasis="neutral"
+                title={
+                  schedule.template.summary.slice(0, 80) ||
+                  schedule.template.topicType
+                }
+                subtitle={
+                  <span className="tabular-nums">
+                    {scheduleWhen(
+                      schedule.rule,
+                      schedule.timezone,
+                      schedule.offsetMinutes
+                    )}
                   </span>
-                  <StatusPill tone={status.tone} className="shrink-0">
-                    {status.label}
-                  </StatusPill>
-                </div>
-                <p className="text-ui text-ink-secondary tabular-nums">
-                  {scheduleWhen(
-                    schedule.rule,
-                    schedule.timezone,
-                    schedule.offsetMinutes
-                  )}
-                </p>
-                <p className="text-caption text-ink-muted tabular-nums">
-                  {describeScheduleRule(
-                    schedule.rule,
-                    schedule.timezone,
-                    schedule.offsetMinutes
-                  )}
-                  {" · "}
-                  {Object.entries(schedule.counts)
-                    .map(([key, value]) => `${value} ${key}`)
-                    .join(" · ") || `${schedule.preview.total} planned`}
-                  {schedule.requiresSecondApprover
-                    ? " · needs a second approver"
-                    : ""}
-                </p>
-                {reason ? (
-                  <p role="status" className="text-ui text-danger-ink">
-                    {reason}
-                  </p>
-                ) : null}
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {actions.review ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setFailure(null)
-                        setReview(schedule)
-                      }}
-                    >
-                      Review schedule
-                    </Button>
-                  ) : null}
-                  {actions.pause ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={act.isPending}
-                      onClick={() =>
-                        act.mutate({ id: schedule.id, action: "pause" })
-                      }
-                    >
-                      Pause
-                    </Button>
-                  ) : null}
-                  {actions.resume ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={act.isPending}
-                      onClick={() =>
-                        act.mutate({ id: schedule.id, action: "resume" })
-                      }
-                    >
-                      {actions.resume}
-                    </Button>
-                  ) : null}
-                  {actions.change ? (
-                    <SchedulePostSheet
-                      locationId={locationId}
-                      timezone={timezone}
-                      recurring={recurring}
-                      existing={schedule}
-                      newTime={actions.change === "Choose a new time"}
-                      post={{
-                        id: schedule.sourcePostId ?? schedule.id,
-                        topicType: schedule.template.topicType,
-                        summary: schedule.template.summary,
-                      }}
-                      trigger={(show) => (
+                }
+                trailing={
+                  <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                }
+                footerLayout="stack"
+                footer={
+                  <>
+                    <p className="text-caption text-ink-muted tabular-nums">
+                      {describeScheduleRule(
+                        schedule.rule,
+                        schedule.timezone,
+                        schedule.offsetMinutes
+                      )}
+                      {" · "}
+                      {Object.entries(schedule.counts)
+                        .map(([key, value]) => `${value} ${key}`)
+                        .join(" · ") || `${schedule.preview.total} planned`}
+                      {schedule.requiresSecondApprover
+                        ? " · needs a second approver"
+                        : ""}
+                    </p>
+                    {reason ? (
+                      <p role="status" className="text-ui text-danger-ink">
+                        {reason}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-1">
+                      {actions.review ? (
                         <Button
                           size="sm"
-                          variant={
-                            actions.change === "Choose a new time"
-                              ? "secondary"
-                              : "ghost"
-                          }
-                          onClick={show}
+                          variant="secondary"
+                          onClick={() => {
+                            setFailure(null)
+                            setReview(schedule)
+                          }}
                         >
-                          {actions.change}
+                          Review schedule
                         </Button>
-                      )}
-                    />
-                  ) : null}
-                  {actions.cancel ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={act.isPending}
-                      onClick={() =>
-                        act.mutate({ id: schedule.id, action: "cancel" })
-                      }
-                    >
-                      Cancel schedule
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
+                      ) : null}
+                      {actions.pause ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={act.isPending}
+                          onClick={() =>
+                            act.mutate({ id: schedule.id, action: "pause" })
+                          }
+                        >
+                          Pause
+                        </Button>
+                      ) : null}
+                      {actions.resume ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={act.isPending}
+                          onClick={() =>
+                            act.mutate({ id: schedule.id, action: "resume" })
+                          }
+                        >
+                          {actions.resume}
+                        </Button>
+                      ) : null}
+                      {actions.change ? (
+                        <SchedulePostSheet
+                          locationId={locationId}
+                          timezone={timezone}
+                          recurring={recurring}
+                          existing={schedule}
+                          newTime={actions.change === "Choose a new time"}
+                          post={{
+                            id: schedule.sourcePostId ?? schedule.id,
+                            topicType: schedule.template.topicType,
+                            summary: schedule.template.summary,
+                          }}
+                          trigger={(show) => (
+                            <Button
+                              size="sm"
+                              variant={
+                                actions.change === "Choose a new time"
+                                  ? "secondary"
+                                  : "ghost"
+                              }
+                              onClick={show}
+                            >
+                              {actions.change}
+                            </Button>
+                          )}
+                        />
+                      ) : null}
+                      {actions.cancel ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={act.isPending}
+                          onClick={() =>
+                            act.mutate({ id: schedule.id, action: "cancel" })
+                          }
+                        >
+                          Cancel schedule
+                        </Button>
+                      ) : null}
+                    </div>
+                  </>
+                }
+              />
             )
           })}
-        </ul>
+        </ListRows>
       </QueryStates>
       <Dialog
         open={review !== null}

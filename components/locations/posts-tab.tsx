@@ -13,8 +13,7 @@ import { PostSchedules } from "@/components/locations/posts/post-schedules"
 import { PostsActionBar } from "@/components/locations/posts-action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { ChipCount, ChipRow, ToggleChip } from "@/components/ui/chip"
+import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
 import { LoadMore } from "@/components/ui/load-more"
@@ -54,7 +53,6 @@ import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import type { ListPaging } from "@/lib/queries/paged-list"
 import { usePosts } from "@/lib/queries/use-location-posts"
-import { cn } from "@/lib/utils"
 
 function headline(post: Post): string {
   // Events and offers carry a title of their own. An update has none, so it
@@ -289,68 +287,60 @@ function PostsList({
       ) : null}
 
       {counts.all === 0 ? (
-        <Card flush>
-          <Empty
-            icon={<Megaphone aria-hidden />}
-            titleAs="h3"
-            title="No posts yet"
-            description="A post is a short update, event or offer that shows on the listing for a week or so. Use New post above to write the first one."
-          />
-        </Card>
+        <Empty
+          placement="inline"
+          icon={<Megaphone aria-hidden />}
+          titleAs="h3"
+          title="No posts yet"
+          description={
+            // Why it is empty, then the next step, or why there is none.
+            composeReason || editReason
+              ? "A post is a short update, event or offer that shows on the listing on Google for about a week. The note above says why new posts can’t be written right now."
+              : "A post is a short update, event or offer that shows on the listing on Google for about a week. Write the first one with New post; nothing reaches Google until you publish it."
+          }
+        />
       ) : (
         <div className="flex flex-col gap-3">
-          <ChipRow role="group" aria-label="Filter posts by status">
+          <FilterChipStrip role="group" aria-label="Filter posts by status">
             {POST_FILTERS.map((option) => {
               const count = counts[option.value]
-              const alert = option.value === "attention" && count > 0
-              const pressed = filter === option.value
               return (
-                <ToggleChip
+                <FilterChip
                   key={option.value}
-                  pressed={pressed}
-                  // Filter-chip look: a filled capsule with no edge; the
-                  // current view takes the accent tint (the current item).
-                  className={cn(
-                    "border-transparent bg-fill-secondary hover-fine:hover:border-transparent hover-fine:hover:bg-fill",
-                    pressed &&
-                      "bg-accent-tint font-semibold text-accent-ink hover-fine:hover:border-transparent hover-fine:hover:bg-accent-tint"
-                  )}
+                  pressed={filter === option.value}
+                  count={count}
+                  // A bucket with posts that need attention keeps its
+                  // count in the danger ink; the label says what it counts.
+                  countTone={
+                    option.value === "attention" && count > 0
+                      ? "alert"
+                      : "default"
+                  }
                   onClick={() => setFilter(option.value)}
                 >
                   {option.label}
-                  <ChipCount
-                    tone={alert ? "alert" : "default"}
-                    className={
-                      alert
-                        ? undefined
-                        : "group-aria-pressed/chip:text-accent-ink"
-                    }
-                  >
-                    {count}
-                  </ChipCount>
-                </ToggleChip>
+                </FilterChip>
               )
             })}
-          </ChipRow>
+          </FilterChipStrip>
 
           {shown.length === 0 && !switching ? (
-            <Card flush>
-              <Empty
-                icon={<FilterIcon aria-hidden />}
-                titleAs="h3"
-                title="No posts in this view"
-                description={`Nothing matches “${POST_FILTERS.find((f) => f.value === filter)?.label}”.`}
-                action={
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setFilter("all")}
-                  >
-                    Show all posts
-                  </Button>
-                }
-              />
-            </Card>
+            <Empty
+              placement="inline"
+              icon={<FilterIcon aria-hidden />}
+              titleAs="h3"
+              title="No posts in this view"
+              description={`Nothing matches “${POST_FILTERS.find((f) => f.value === filter)?.label}”.`}
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setFilter("all")}
+                >
+                  Show all posts
+                </Button>
+              }
+            />
           ) : (
             <ul
               className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface"

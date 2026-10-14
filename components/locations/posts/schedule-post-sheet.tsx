@@ -8,7 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  OptionRow,
+  OptionRowGroup,
+  OptionSeparator,
+} from "@/components/ui/option-row"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -22,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import {
   Sheet,
+  SheetBack,
   SheetBody,
   SheetContent,
   SheetDescription,
@@ -56,12 +61,14 @@ import {
 import { usableSuggestion } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { COMMON_TIMEZONES, timezoneLabel } from "@/lib/settings/timezones"
+import { cn } from "@/lib/utils"
 
 type Frequency = ScheduleRule["frequency"]
-/** Which preset row is chosen; "custom" shows the full form. */
+/** Which preset row is chosen; "custom" is a date and time of one's own. */
 type When = SchedulePreset | "custom"
-/** A preset option row: 44px on touch, the same padding at the desk. */
-const PRESET_ROW = "px-3 desk:min-h-(--np-touch) desk:py-2.5"
+/** The inset sheet's pages: the preset rows, and the pushed full form. */
+type Page = "presets" | "custom"
+const TITLE = "Schedule publication"
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 /** Read only from the open handler, never during render. */
@@ -115,11 +122,13 @@ function initial(
  * time under review); `newTime` titles the sheet for a missed slot.
  *
  * A new one-time schedule (no `existing`, `suggested`, `newTime` or
- * repeating option) opens on preset rows first: "Tomorrow morning" and
- * "Next Monday", each at 09:00 in the venue's zone and shown resolved with
- * that zone, and "Pick a date and time" for the full form. A preset only
- * fills the form's date and time: the same validation, expansion preview
- * and "Submit schedule for approval" follow, and nothing publishes.
+ * repeating option) opens as an inset sheet on preset rows (Notion Mail's
+ * "Schedule send"): "Tomorrow morning" and "Next Monday", each at 09:00 in
+ * the venue's zone and shown resolved with that zone, and "Pick a date and
+ * time", which pushes the full form inside the sheet (Back returns). A
+ * preset only fills the form's date and time: the same validation,
+ * expansion preview and single "Submit schedule for approval" follow, and
+ * nothing publishes. Every other case opens the full form directly.
  */
 export function SchedulePostSheet({
   locationId,
@@ -156,6 +165,7 @@ export function SchedulePostSheet({
   const [failure, setFailure] = useState<string | null>(null)
   const offerPresets = !existing && !recurring && !newTime && !suggested
   const [when, setWhen] = useState<When>("tomorrow")
+  const [page, setPage] = useState<Page>("presets")
   // Read from the moment the sheet opened, in the venue's zone.
   const presets =
     offerPresets && openedAt ? presetDates(openedAt, timezone) : null
@@ -303,6 +313,7 @@ export function SchedulePostSheet({
       // zone on the first preset: exactly what that row says.
       setZone(timezone)
       setWhen("tomorrow")
+      setPage("presets")
       setForm({
         ...initial(existing, at, recurring, timezone, suggested),
         startDate: presetDates(at, timezone).tomorrow,
@@ -312,10 +323,10 @@ export function SchedulePostSheet({
     setTouched(false)
     setOpen(true)
   }
-  /** A preset fills the form's date and time; "custom" shows the form. */
-  function choose(next: When) {
+  /** A preset fills the form's date and time, and nothing else. */
+  function choose(next: SchedulePreset) {
     setWhen(next)
-    if (next === "custom" || !presets) return
+    if (!presets) return
     setTouched(true)
     setZone(timezone)
     setForm((current) => ({
@@ -336,7 +347,13 @@ export function SchedulePostSheet({
     const line = `${formatWallDay(date)}, ${PRESET_TIME} · venue time (${timezone})`
     return plan.ok ? line : `${line}. ${slotProblemMessage(plan.problem)}`
   }
-  const showForm = !offerPresets || when === "custom"
+  /** The custom row's sub-label: the date and time chosen, once there is one. */
+  const customLine =
+    when === "custom" && parsed.success
+      ? `${formatWallDay(parsed.data.startDate)}, ${parsed.data.localTime} · ${timezoneLabel(zone)}`
+      : "Choose the day, the time and the timezone."
+  const onPresets = offerPresets && page === "presets"
+  const showForm = !offerPresets || page === "custom"
   useImperativeHandle(openRef, () => ({ open: show }))
 
   return (
@@ -364,14 +381,30 @@ export function SchedulePostSheet({
           confirmLabel: "Discard schedule",
         }}
       >
-        <SheetContent side="right" size="wide" className="flex flex-col gap-0">
-          <SheetHeader>
+        <SheetContent
+          side="right"
+          // The presets are a short choice list: an inset sheet on a phone,
+          // a centred dialog from `sm`. The full form keeps the wide sheet.
+          variant={offerPresets ? "inset" : "edge"}
+          size={offerPresets ? "default" : "wide"}
+          className="flex flex-col gap-0"
+        >
+          <SheetHeader
+            page={offerPresets ? page : undefined}
+            back={
+              offerPresets && page === "custom" ? (
+                <SheetBack to={TITLE} onClick={() => setPage("presets")} />
+              ) : undefined
+            }
+          >
             <SheetTitle>
               {newTime
                 ? "Choose a new publication time"
                 : existing
                   ? "Change publication schedule"
-                  : "Schedule publication"}
+                  : offerPresets && page === "custom"
+                    ? "Pick a date and time"
+                    : TITLE}
             </SheetTitle>
             <SheetDescription>
               When NabaPresence publishes this post, separate from any repeat in
@@ -379,7 +412,14 @@ export function SchedulePostSheet({
               {existing ? ", and changing it needs a fresh approval" : ""}.
             </SheetDescription>
           </SheetHeader>
-          <SheetBody className="flex flex-col gap-5">
+          <SheetBody
+            className={cn(
+              "flex flex-col",
+              offerPresets ? "gap-3" : "gap-5",
+              // The pushed form keeps its fields off the inset card's edge.
+              offerPresets && page === "custom" && "px-4"
+            )}
+          >
             {recurring ? (
               <SegmentedControl
                 semantics="radio"
@@ -397,35 +437,36 @@ export function SchedulePostSheet({
                 </SegmentedControlItem>
               </SegmentedControl>
             ) : null}
-            {offerPresets && presets ? (
-              <RadioGroup
-                aria-label="When to publish"
-                value={when}
-                onValueChange={(value) => choose(value as When)}
-                className="gap-0 divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface"
-              >
-                <RadioGroupItem
-                  value="tomorrow"
-                  description={presetLine(presets.tomorrow)}
-                  labelClassName={PRESET_ROW}
-                >
-                  Tomorrow morning
-                </RadioGroupItem>
-                <RadioGroupItem
-                  value="monday"
-                  description={presetLine(presets.monday)}
-                  labelClassName={PRESET_ROW}
-                >
-                  Next Monday
-                </RadioGroupItem>
-                <RadioGroupItem
-                  value="custom"
-                  description="Choose the day, the time and the timezone."
-                  labelClassName={PRESET_ROW}
-                >
-                  Pick a date and time
-                </RadioGroupItem>
-              </RadioGroup>
+            {onPresets && presets ? (
+              <div className="flex flex-col gap-1">
+                <OptionRowGroup label="When to publish">
+                  <OptionRow
+                    indicator="radio"
+                    selected={when === "tomorrow"}
+                    label="Tomorrow morning"
+                    description={presetLine(presets.tomorrow)}
+                    onClick={() => choose("tomorrow")}
+                  />
+                  <OptionRow
+                    indicator="radio"
+                    selected={when === "monday"}
+                    label="Next Monday"
+                    description={presetLine(presets.monday)}
+                    onClick={() => choose("monday")}
+                  />
+                </OptionRowGroup>
+                <OptionSeparator />
+                {/* Pushes the full form, prefilled with what is chosen. */}
+                <OptionRow
+                  indicator="chevron"
+                  label="Pick a date and time"
+                  description={customLine}
+                  onClick={() => {
+                    setWhen("custom")
+                    setPage("custom")
+                  }}
+                />
+              </div>
             ) : null}
             {showForm ? (
               <>
@@ -624,7 +665,11 @@ export function SchedulePostSheet({
             ) : null}
             <section
               aria-labelledby={`${id}-preview`}
-              className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt p-3"
+              className={cn(
+                "flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt p-3",
+                // On the preset rows the preview lines up with their text.
+                onPresets && "mx-1"
+              )}
             >
               <h3
                 id={`${id}-preview`}
@@ -683,10 +728,15 @@ export function SchedulePostSheet({
             ) : null}
           </SheetBody>
           <SheetFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
+            {offerPresets ? null : (
+              // The inset sheet has its own close in the header; its one
+              // control down here is the submit.
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            )}
             <Button
+              block={offerPresets}
               disabled={Boolean(problem)}
               pending={save.isPending}
               onClick={() => save.mutate()}

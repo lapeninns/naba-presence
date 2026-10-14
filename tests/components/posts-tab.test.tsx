@@ -295,7 +295,7 @@ describe("PostsTab", () => {
     // A new one-time schedule opens on preset rows; the full form (Date,
     // Local time) is the "Pick a date and time" row.
     await user.click(
-      within(sheet).getByRole("radio", { name: "Pick a date and time" })
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
     )
     expect(within(sheet).getByLabelText("Date")).toBeInTheDocument()
     view.unmount()
