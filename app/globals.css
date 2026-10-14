@@ -204,12 +204,8 @@
   --color-tag-blue-ink: var(--np-tag-blue-ink);
   --color-tag-pink-bg: var(--np-tag-pink-bg);
   --color-tag-pink-ink: var(--np-tag-pink-ink);
-  --color-tag-orange-bg: var(--np-tag-orange-bg);
-  --color-tag-orange-ink: var(--np-tag-orange-ink);
   --color-tag-purple-bg: var(--np-tag-purple-bg);
   --color-tag-purple-ink: var(--np-tag-purple-ink);
-  --color-tag-green-bg: var(--np-tag-green-bg);
-  --color-tag-green-ink: var(--np-tag-green-ink);
 
   --radius-sm: var(--np-radius-tag);
   --radius-md: var(--np-radius-control);
@@ -387,20 +383,20 @@
   --np-ramp-info-600: oklch(0.56 0.15 250);
 
   /* Tags: a DECORATIVE ramp for user-defined labels only, never a status.
-     A tint at L 0.95 under an ink at L 0.45; hues sit between the status
-     hues (danger 27, warning 65–85, success 150, info 250). */
-  --np-ramp-tag-neutral-100: oklch(0.94 0.008 240);
-  --np-ramp-tag-neutral-600: oklch(0.45 0.015 240);
-  --np-ramp-tag-blue-100: oklch(0.95 0.025 235);
-  --np-ramp-tag-blue-600: oklch(0.45 0.085 235);
+     A tint at L 0.95 under an ink at L 0.45. Every tag hue sits at least
+     35° from every status hue (danger 25–27, warning 65–85, success 150,
+     info 250; both themes), which leaves 185–215 and 285–350: neutral 285
+     (near grey), blue 200, purple 300, pink 350. Orange and green had no
+     room and are retired (R2b P1-S1); tests/design-system-contract pins
+     the gap. */
+  --np-ramp-tag-neutral-100: oklch(0.94 0.008 285);
+  --np-ramp-tag-neutral-600: oklch(0.45 0.015 285);
+  --np-ramp-tag-blue-100: oklch(0.95 0.025 200);
+  --np-ramp-tag-blue-600: oklch(0.45 0.07 200);
   --np-ramp-tag-pink-100: oklch(0.95 0.025 350);
   --np-ramp-tag-pink-600: oklch(0.45 0.13 350);
-  --np-ramp-tag-orange-100: oklch(0.95 0.025 50);
-  --np-ramp-tag-orange-600: oklch(0.45 0.1 50);
   --np-ramp-tag-purple-100: oklch(0.95 0.025 300);
   --np-ramp-tag-purple-600: oklch(0.45 0.13 300);
-  --np-ramp-tag-green-100: oklch(0.95 0.03 170);
-  --np-ramp-tag-green-600: oklch(0.45 0.08 170);
 
   /* ---- 2. SEMANTIC ROLES ---------------------------------------------- */
   /* Paper, card, rail. `surface-alt` is the sunken step: table heads, card
@@ -487,12 +483,8 @@
   --np-tag-blue-ink: var(--np-ramp-tag-blue-600);
   --np-tag-pink-bg: var(--np-ramp-tag-pink-100);
   --np-tag-pink-ink: var(--np-ramp-tag-pink-600);
-  --np-tag-orange-bg: var(--np-ramp-tag-orange-100);
-  --np-tag-orange-ink: var(--np-ramp-tag-orange-600);
   --np-tag-purple-bg: var(--np-ramp-tag-purple-100);
   --np-tag-purple-ink: var(--np-ramp-tag-purple-600);
-  --np-tag-green-bg: var(--np-ramp-tag-green-100);
-  --np-tag-green-ink: var(--np-ramp-tag-green-600);
 
   --np-selection-bg: var(--np-accent-tint);
   --np-hover-bg: var(--np-ramp-neutral-150);
@@ -833,18 +825,14 @@
   --np-banner-ink: var(--np-warning-ink);
 
   /* Tags: a dark tint under a light ink. */
-  --np-tag-neutral-bg: oklch(0.3 0.012 240);
-  --np-tag-neutral-ink: oklch(0.85 0.01 240);
-  --np-tag-blue-bg: oklch(0.3 0.05 235);
-  --np-tag-blue-ink: oklch(0.85 0.07 235);
+  --np-tag-neutral-bg: oklch(0.3 0.012 285);
+  --np-tag-neutral-ink: oklch(0.85 0.01 285);
+  --np-tag-blue-bg: oklch(0.3 0.05 200);
+  --np-tag-blue-ink: oklch(0.85 0.07 200);
   --np-tag-pink-bg: oklch(0.3 0.06 350);
   --np-tag-pink-ink: oklch(0.85 0.08 350);
-  --np-tag-orange-bg: oklch(0.3 0.06 50);
-  --np-tag-orange-ink: oklch(0.85 0.08 50);
   --np-tag-purple-bg: oklch(0.3 0.06 300);
   --np-tag-purple-ink: oklch(0.85 0.08 300);
-  --np-tag-green-bg: oklch(0.3 0.05 170);
-  --np-tag-green-ink: oklch(0.85 0.08 170);
 
   --np-selection-bg: var(--np-accent-tint);
   --np-hover-bg: oklch(0.28 0.015 240);

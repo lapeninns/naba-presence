@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { Checkbox } from "@/components/ui/checkbox"
+import { LIST_BLEED_CLASS } from "@/components/ui/list-row"
 import { cn } from "@/lib/utils"
 
 /**
@@ -125,6 +126,10 @@ const RECORD_CLASS = cn(
 
   // desk-only: not on the card.
   "@max-3xl/table:[&_tbody>tr>td[data-priority=desk-only]]:hidden",
+
+  // A numeric cell is a table figure only in a table: on a card it is a
+  // label/value pair, set in sans like the caption beside it (D1).
+  "@max-3xl/table:[&_tbody>tr>td[data-numeric]]:font-sans",
 
   // A group-header row stays one full-width band.
   "@max-3xl/table:[&_tbody>tr[data-group]]:block @max-3xl/table:[&_tbody>tr[data-group]]:bg-surface-alt @max-3xl/table:[&_tbody>tr[data-group]]:py-2 @max-3xl/table:[&_tbody>tr[data-group]]:before:hidden"
@@ -263,7 +268,8 @@ function Table({
         list &&
           surface &&
           "max-md:rounded-none max-md:border-0 max-md:bg-transparent",
-        list && bleed && "max-md:-mx-(--np-page-pad-x) max-md:w-auto",
+        // The same bleed as `ListRows bleed`, so the two line up on a screen.
+        list && bleed && cn(LIST_BLEED_CLASS, "max-md:w-auto"),
         containerClassName
       )}
       tabIndex={focusable ? 0 : undefined}
@@ -346,6 +352,8 @@ function TableRow({
 /**
  * `numeric` right-aligns the column in mono tabular figures, so a column of
  * counts lines up. Set it on the head and every cell.
+ * On a record card a numeric cell is a labelled value, so it drops mono
+ * (tabular figures stay).
  */
 function TableHead({
   className,
@@ -423,6 +431,7 @@ function TableCell({
       data-label={label || undefined}
       data-span={span || undefined}
       data-priority={resolved}
+      data-numeric={numeric || undefined}
       className={cn(
         "px-(--np-cell-px) py-(--np-row-py) align-middle",
         numeric && "text-right font-mono whitespace-nowrap tabular-nums",

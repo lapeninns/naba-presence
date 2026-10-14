@@ -77,9 +77,10 @@ function SelectionBar({
   visible?: boolean
   /**
    * The docked spacer's `data-slot`. Default `"selection-bar-spacer"`;
-   * `"action-bar-spacer"` matches the shared ActionBar spacer.
+   * `"action-bar-spacer"` matches the shared ActionBar spacer; any other
+   * name is the caller's (a screen whose tests pin its own spacer slot).
    */
-  spacerSlot?: "selection-bar-spacer" | "action-bar-spacer"
+  spacerSlot?: "selection-bar-spacer" | "action-bar-spacer" | (string & {})
   /** The `SelectionBarTile`s. */
   children?: React.ReactNode
 }) {

@@ -432,3 +432,47 @@ describe("Drop 3 layout and focus utilities", () => {
     )
   })
 })
+
+describe("user tags never look like status (R2b P1-S1, D3)", () => {
+  const hueOf = (theme: "light" | "dark", name: string) => {
+    const value = resolveToken(tokens[theme], name, theme)
+    const match = /oklch\(\s*[\d.]+%?\s+([\d.]+)\s+([\d.]+)/.exec(value)
+    if (!match) throw new Error(`${name} (${theme}) is not oklch: ${value}`)
+    return { chroma: Number(match[1]), hue: Number(match[2]) }
+  }
+  const gap = (a: number, b: number) => {
+    const d = Math.abs(a - b) % 360
+    return Math.min(d, 360 - d)
+  }
+  const names = (theme: "light" | "dark", pattern: RegExp) =>
+    Object.keys({ ...tokens.light, ...tokens[theme] }).filter((name) =>
+      pattern.test(name)
+    )
+
+  it.each(["light", "dark"] as const)(
+    "keeps every tag hue at least 35° from every status hue (%s)",
+    (theme) => {
+      const statusHues = names(
+        theme,
+        /^--np-(success|warning|danger|info)-(ink|tint|solid|line)$/
+      ).map((name) => ({ name, ...hueOf(theme, name) }))
+      expect(statusHues.length).toBeGreaterThanOrEqual(16)
+      const tags = names(theme, /^--np-tag-[a-z]+-(bg|ink)$/)
+      expect(tags.length).toBe(8)
+      for (const tag of tags) {
+        const { hue } = hueOf(theme, tag)
+        for (const status of statusHues) {
+          expect(
+            gap(hue, status.hue),
+            `${tag} ${hue}° vs ${status.name} ${status.hue}°`
+          ).toBeGreaterThanOrEqual(35)
+        }
+      }
+    }
+  )
+
+  it("has retired the orange and green tag tones", () => {
+    expect(globals).not.toMatch(/--np-tag-(orange|green)-/)
+    expect(globals).not.toMatch(/--np-ramp-tag-(orange|green)-/)
+  })
+})

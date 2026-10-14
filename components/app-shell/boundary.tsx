@@ -48,19 +48,6 @@ function boundaryButtonClass(
 }
 
 /**
- * The quiet context line above a boundary's title: sans, sentence case,
- * muted (EYEBROW_CLASS in page-frame.tsx). Mono is for codes, not labels.
- */
-const BOUNDARY_EYEBROW_CLASS = "text-caption font-medium text-ink-muted"
-
-/**
- * The title every boundary leads with: a system page's title, set like an
- * empty state's (PageEmptyState), calm rather than a page-sized headline.
- */
-const BOUNDARY_TITLE_CLASS =
-  "text-title font-medium text-balance text-ink outline-none"
-
-/**
  * PageFrame's widths and gutters (page-frame.tsx) as a plain div carrying
  * the same `data-slot`, for the boundaries that replace a whole page.
  */
@@ -109,6 +96,11 @@ function BoundaryCode({ children }: { children: React.ReactNode }) {
  * as a quiet second action. The actions sit outside the alert so it
  * announces only what happened. The light twin of RouteErrorState in
  * query-states.tsx.
+ *
+ * `secondaryAction` replaces the quiet home link with the caller's own
+ * control (a button that must `router.replace` and reset, say); draw it
+ * with `boundaryButtonClass("ghost", "default", "pointer-coarse:min-h-11")`
+ * so it matches.
  */
 function BoundaryErrorState({
   title,
@@ -116,12 +108,15 @@ function BoundaryErrorState({
   onReset,
   homeHref = "/inbox",
   homeLabel = "Go to Inbox",
+  secondaryAction,
 }: {
   title: string
   description: React.ReactNode
   onReset: () => void
   homeHref?: string
   homeLabel?: string
+  /** Replaces the home link (`homeHref`/`homeLabel` are then unused). */
+  secondaryAction?: React.ReactNode
 }) {
   return (
     <div
@@ -150,16 +145,18 @@ function BoundaryErrorState({
         >
           Try again
         </button>
-        <Link
-          href={homeHref}
-          className={boundaryButtonClass(
-            "ghost",
-            "default",
-            "pointer-coarse:min-h-11"
-          )}
-        >
-          {homeLabel}
-        </Link>
+        {secondaryAction ?? (
+          <Link
+            href={homeHref}
+            className={boundaryButtonClass(
+              "ghost",
+              "default",
+              "pointer-coarse:min-h-11"
+            )}
+          >
+            {homeLabel}
+          </Link>
+        )}
       </div>
     </div>
   )
@@ -198,8 +195,6 @@ function BoundaryAlert({
 }
 
 export {
-  BOUNDARY_EYEBROW_CLASS,
-  BOUNDARY_TITLE_CLASS,
   BoundaryAlert,
   BoundaryCode,
   BoundaryErrorState,
