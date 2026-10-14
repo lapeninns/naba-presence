@@ -40,6 +40,19 @@ describe("readiness probe arguments", () => {
     ).toBe("cron-secret-value")
   })
 
+  it("sends the deployment-protection bypass only over https", () => {
+    const env = { ...TOKEN, VERCEL_AUTOMATION_BYPASS_SECRET: "bypass-value" }
+    expect(
+      parseProbeArgs(["--url", "https://naba-abc.vercel.app"], env).bypass
+    ).toBe("bypass-value")
+    expect(parseProbeArgs(["--url", "http://localhost:3000"], env).bypass).toBe(
+      null
+    )
+    expect(
+      parseProbeArgs(["--url", "https://naba-abc.vercel.app"], TOKEN).bypass
+    ).toBe(null)
+  })
+
   it("refuses to send the token over plain http off localhost", () => {
     expect(() =>
       parseProbeArgs(["--url", "http://app.example.com"], TOKEN)

@@ -22,11 +22,13 @@ const paramsSchema = z.object({ id: z.uuid() })
 // The read lives in lib/server/listing-reads.ts so the hours page's streamed
 // server prefetch produces exactly what this route answers.
 export const GET = route({
+  maxDuration,
   params: paramsSchema,
   handler: ({ session, params }) => readHoursResponse(session, params.id),
 })
 
 export const PUT = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: saveHoursBodySchema,
@@ -49,6 +51,7 @@ export const PUT = route({
 })
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   body: publishHoursBodySchema,

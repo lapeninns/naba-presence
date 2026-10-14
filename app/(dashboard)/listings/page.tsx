@@ -8,8 +8,11 @@ export const metadata = { title: "Listings · NabaPresence" }
 
 /**
  * Every Google Business Profile the agency looks after, health first.
- * No `searchParams` here: the board reads its client filter on the client
- * so a filter change never re-renders the server segment.
+ * No `searchParams` here: the board reads its filters on the client and
+ * rewrites them through the history API (lib/navigation/shallow-url.ts), so
+ * a filter change never re-renders the server segment. Not reading
+ * `searchParams` alone would not do that: `router.replace` re-runs a dynamic
+ * page whatever it reads.
  */
 export default async function ListingsPage() {
   const session = await getSession()

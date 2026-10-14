@@ -16,6 +16,12 @@
 // process's environment. The script never reads .env files and never prints
 // the token. `--url` falls back to READINESS_URL.
 //
+// A deployment URL behind Vercel Deployment Protection (a staged production
+// deployment before `vercel promote`, a preview) needs the project's
+// "Protection Bypass for Automation" secret: set VERCEL_AUTOMATION_BYPASS_SECRET
+// and it is sent as `x-vercel-protection-bypass`, over https only. Never
+// printed either.
+//
 // `--expect-sha` fails unless the deployment reports that commit;
 // `--expect-promoted` takes it from the newest promotion receipt in
 // docs/release/receipts/ (pnpm release:promote), so a probe after a promotion
@@ -102,6 +108,10 @@ export function parseProbeArgs(argv, env) {
   return {
     url: url.toString(),
     token,
+    // Never to localhost over http: only a Vercel deployment needs it.
+    bypass:
+      (url.protocol === "https:" && env.VERCEL_AUTOMATION_BYPASS_SECRET) ||
+      null,
     expectSha: expectSha ?? null,
     expectPromoted: values["expect-promoted"],
     failOnDegraded: values["fail-on-degraded"],
@@ -142,7 +152,9 @@ export function judgeReadiness({
     return {
       exitCode: EXIT.notReady,
       status: "unauthorised",
-      lines: ["readiness: 401, the token is not this deployment's CRON_SECRET"],
+      lines: [
+        "readiness: 401, the token is not this deployment's CRON_SECRET, or Vercel Deployment Protection refused it (set VERCEL_AUTOMATION_BYPASS_SECRET)",
+      ],
     }
   }
   const status =
@@ -207,7 +219,12 @@ export function promotedSha(dir) {
 async function ask(options) {
   try {
     const response = await fetch(options.url, {
-      headers: { authorization: `Bearer ${options.token}` },
+      headers: {
+        authorization: `Bearer ${options.token}`,
+        ...(options.bypass
+          ? { "x-vercel-protection-bypass": options.bypass }
+          : {}),
+      },
       cache: "no-store",
       redirect: "manual",
       signal: AbortSignal.timeout(options.timeoutMs),

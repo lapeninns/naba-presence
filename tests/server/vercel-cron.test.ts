@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 import { cronPageInput } from "@/lib/server/cron-query"
+import { SCHEDULER_TICK_PATHS } from "@/scripts/scheduler-ticks.mjs"
 
 const vercelJson = JSON.parse(
   readFileSync(new URL("../../vercel.json", import.meta.url), "utf8")
@@ -147,6 +148,29 @@ describe("Vercel Cron scheduler", () => {
       const route = cron.path.split("?")[0]
       expect(slots(minute, 60) * slots(hour, 24)).toBeLessThanOrEqual(
         firesPerDay[route]
+      )
+    }
+  })
+
+  // W0-02: the self-hosted scheduler used to POST the sync routes, whose
+  // cron branch walks organisations inline; Vercel's GET only enqueues.
+  it("is what the self-hosted scheduler fires, path for path", () => {
+    expect(Object.values(SCHEDULER_TICK_PATHS).sort()).toEqual(
+      expectedCrons.map((cron) => cron.path).sort()
+    )
+  })
+
+  it("leaves the self-hosted scheduler with no request but the cron GET", () => {
+    const scheduler = readFileSync(
+      new URL("../../scripts/scheduler.mjs", import.meta.url),
+      "utf8"
+    )
+    expect(scheduler).not.toMatch(/method:\s*"POST"/)
+    expect(scheduler.match(/\bfetch\(/g)).toHaveLength(1)
+    // Every tick is registered by name, and every name resolves to a path.
+    for (const name of Object.keys(SCHEDULER_TICK_PATHS)) {
+      expect(scheduler, name).toMatch(
+        new RegExp(`(tick|runEnqueue)\\("${name}"\\)`)
       )
     }
   })

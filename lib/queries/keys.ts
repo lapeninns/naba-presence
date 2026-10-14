@@ -165,6 +165,7 @@ export const queryKeys = {
   // page and with it the cache (components/app-shell/account-menu.tsx).
   privacyAll: ["privacy"] as const,
   privacyRequests: ["privacy", "requests"] as const,
+  privacyPreview: (id: string) => ["privacy", "preview", id] as const,
   legalHolds: ["privacy", "legal-holds"] as const,
   retentionStatus: ["privacy", "retention-status"] as const,
   members: ["members"] as const,

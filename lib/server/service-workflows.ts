@@ -1,7 +1,7 @@
 import "server-only"
 import { serviceWorkflowCursorSchema, serviceWorkflowsResponseSchema, type ServiceWorkflowQuery } from "@/lib/contracts/service-workflows"
 import { withTenant } from "./db"
-import { ApiError } from "./http"
+import { ApiError, parseStored } from "./http"
 import { requireLocationAccess } from "./permissions"
 import { requireRole, type Session } from "./session"
 
@@ -36,7 +36,7 @@ export async function listServiceWorkflows(session: Session, locationId: string,
       order by c.created_at desc,c.id desc limit ${query.limit + 1}
     `
     const visible = rows.slice(0, query.limit), last = visible.at(-1)
-    return serviceWorkflowsResponseSchema.parse({ items: visible.map((row) => ({ changeSet: row.changeSet, attemptId: row.attemptId })),
-      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.id })).toString("base64url") : null })
+    return parseStored(serviceWorkflowsResponseSchema, { items: visible.map((row) => ({ changeSet: row.changeSet, attemptId: row.attemptId })),
+      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.id })).toString("base64url") : null }, "service_workflows")
   })
 }

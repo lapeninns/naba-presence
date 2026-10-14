@@ -5,6 +5,7 @@ import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { AppShell } from "@/components/app-shell/app-shell"
+import { toShellSession } from "@/components/app-shell/shell-session"
 import { REQUEST_PATH_HEADER, signInPathFor } from "@/lib/api/next-path"
 import { sessionSchema } from "@/lib/contracts/session"
 import {
@@ -146,7 +147,7 @@ export default async function DashboardLayout({
     <QueryProvider>
       <HydrationBoundary state={dehydrate(queryClient)}>
         <AppShell
-          session={session}
+          session={session ? toShellSession(session) : null}
           rememberedClientId={rememberedClientId}
           hideCalendar={hideCalendar}
         >
