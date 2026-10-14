@@ -10,27 +10,12 @@ import { requestOptions } from "./request-options"
 export type ReviewCountsScope = {
   locationId?: string
   clientId?: string
-  /** Adds the per-client breakdown the inbox rail groups by. */
-  groupBy?: "client"
 }
 
-/**
- * Accepts the legacy positional location id as well as a scope object, so
- * existing callers keep working while the inbox moves to per-client counts.
- */
-export function useReviewCounts(scope?: string | ReviewCountsScope) {
-  const scoped: ReviewCountsScope =
-    typeof scope === "string" ? { locationId: scope } : (scope ?? {})
-  const key = [
-    scoped.locationId ?? "organisation",
-    scoped.clientId ?? "",
-    scoped.groupBy ?? "",
-  ]
-    .filter(Boolean)
-    .join(":")
+export function useReviewCounts(scope: ReviewCountsScope = {}) {
   return useQuery({
-    queryKey: queryKeys.reviewCounts(key),
-    queryFn: (ctx) => fetchReviewCounts(scoped, requestOptions(ctx)),
+    queryKey: queryKeys.reviewCountsFor(scope),
+    queryFn: (ctx) => fetchReviewCounts(scope, requestOptions(ctx)),
     // The rail's badges count the same rows the list polls, so they follow the
     // same rule: while anything is still on its way to Google, keep asking.
     // Without this the "Publishing" badge kept its number after the row it

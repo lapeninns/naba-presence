@@ -86,7 +86,7 @@ export default async function DashboardLayout({
     // Inbox page's own boundary could fill it (which made it fetch anyway).
     if (reviewCounts.status === "fulfilled") {
       queryClient.setQueryData(
-        queryKeys.reviewCounts("organisation"),
+        queryKeys.reviewCountsFor(),
         reviewCounts.value
       )
     }

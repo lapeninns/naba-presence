@@ -116,6 +116,24 @@ export const queryKeys = {
   locationIndustry: (id: string) => ["locations", id, "industry"] as const,
   locationAdministration: (id: string) =>
     ["locations", id, "administration"] as const,
+  // The administration tab's saved workflows and their outcomes. Beside the
+  // roster key, not under it: a roster refresh must not refetch every list.
+  locationLifecycleWorkflows: (id: string) =>
+    ["locations", id, "lifecycle-workflows"] as const,
+  // Prefix of every `locationLifecycleAttempt(id, reviewId)` key.
+  locationLifecycleAttempts: (id: string) =>
+    ["locations", id, "lifecycle-attempt"] as const,
+  locationLifecycleAttempt: (id: string, reviewId: string | undefined) =>
+    ["locations", id, "lifecycle-attempt", reviewId] as const,
+  // Prefix of both operations' `locationVerificationWorkflows(id, operation)`.
+  locationVerificationWorkflowsAll: (id: string) =>
+    ["locations", id, "verification-workflows"] as const,
+  locationVerificationWorkflows: (id: string, operation: string) =>
+    ["locations", id, "verification-workflows", operation] as const,
+  locationVerificationState: (id: string) =>
+    ["locations", id, "verification-state"] as const,
+  locationAccessWorkflows: (id: string) =>
+    ["locations", id, "access-workflows"] as const,
   businessInformationMetadata: (id: string, type: string, query: string) =>
     ["locations", id, "business-information", "metadata", type, query] as const,
   // Prefixes of every `reviewCounts(scope)` / `reviews(scope, filters)` key.
@@ -125,6 +143,16 @@ export const queryKeys = {
   reviewCountsAll: ["review-counts"] as const,
   reviewsAll: ["reviews"] as const,
   reviewCounts: (scope: string) => ["review-counts", scope] as const,
+  // The one place a counts scope becomes its key, shared by the hook and the
+  // server prefetch so hydrated counts land where the hook reads them. The
+  // unscoped key is reviewCounts("organisation").
+  reviewCountsFor: (scope: { locationId?: string; clientId?: string } = {}) =>
+    [
+      "review-counts",
+      [scope.locationId ?? "organisation", scope.clientId ?? ""]
+        .filter(Boolean)
+        .join(":"),
+    ] as const,
   reviews: (scope: string, filters: unknown) =>
     ["reviews", scope, filters] as const,
   reviewDetail: (id: string) => ["review-detail", id] as const,
