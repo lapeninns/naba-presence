@@ -5,38 +5,40 @@ import type {
   ClientUpdateInput,
 } from "@/lib/contracts/clients"
 
-import { apiFetch } from "./client"
+import { apiFetch, type RequestOptions } from "./client"
 
 // Schemas load on demand (see `ResponseSchema` in ./client): the sidebar
 // reads the client list on every page, and the contract pulls in zod.
 const contract = () => import("@/lib/contracts/clients")
 
-export function fetchClients(signal?: AbortSignal) {
+// Reads take `RequestOptions`, not a bare signal, so a query passes
+// `requestOptions(ctx)` and a background refetch's 401 never redirects.
+export function fetchClients(options?: RequestOptions) {
   return apiFetch("/api/clients", {
     schema: () => contract().then((m) => m.clientsResponseSchema),
-    signal,
+    ...options,
   })
 }
 
 /** Archived clients only, for the Clients page's Archived view. */
-export function fetchArchivedClients(signal?: AbortSignal) {
+export function fetchArchivedClients(options?: RequestOptions) {
   return apiFetch("/api/clients?archived=1", {
     schema: () => contract().then((m) => m.clientsResponseSchema),
-    signal,
+    ...options,
   })
 }
 
-export function fetchClient(clientId: string, signal?: AbortSignal) {
+export function fetchClient(clientId: string, options?: RequestOptions) {
   return apiFetch(`/api/clients/${clientId}`, {
     schema: () => contract().then((m) => m.clientResponseSchema),
-    signal,
+    ...options,
   })
 }
 
-export function fetchClientSetup(clientId: string, signal?: AbortSignal) {
+export function fetchClientSetup(clientId: string, options?: RequestOptions) {
   return apiFetch(`/api/clients/${clientId}/setup`, {
     schema: () => contract().then((m) => m.clientSetupResponseSchema),
-    signal,
+    ...options,
   })
 }
 

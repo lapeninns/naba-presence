@@ -3,16 +3,19 @@ import {
   aiCreditsSchema,
 } from "@/lib/contracts/ai-credits"
 
-import { ApiClientError, apiFetch } from "./client"
+import { ApiClientError, apiFetch, type RequestOptions } from "./client"
 
 export type { AiCredits } from "@/lib/contracts/ai-credits"
 
-export function getAiCreditsDaily() {
-  return apiFetch("/api/ai/credits/daily", { schema: aiCreditsDailySchema })
+export function getAiCreditsDaily(options?: RequestOptions) {
+  return apiFetch("/api/ai/credits/daily", {
+    schema: aiCreditsDailySchema,
+    ...options,
+  })
 }
 
-export function getAiCredits() {
-  return apiFetch("/api/ai/credits", { schema: aiCreditsSchema })
+export function getAiCredits(options?: RequestOptions) {
+  return apiFetch("/api/ai/credits", { schema: aiCreditsSchema, ...options })
 }
 
 /**

@@ -16,6 +16,6 @@ export function useReviewDetail(id: string | undefined) {
     // settling.ts for why the pane could otherwise sit on "Publishing" until
     // the operator reloaded the page.
     refetchInterval: (query) =>
-      settlingInterval([query.state.data?.review.workflowStatus]),
+      settlingInterval([query.state.data?.review.workflowStatus], query),
   })
 }
