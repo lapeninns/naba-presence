@@ -139,7 +139,11 @@ async function applyMigration(db, file, version, text) {
   if (!migration.transactional) {
     // The file manages its own transactions (or runs statements that cannot
     // run inside one), so a failed self-record check cannot be rolled back.
-    await db.unsafe(migration.body)
+    // Each statement is sent alone: a multi-statement string would run as
+    // one implicit transaction.
+    for (const statement of migration.statements) {
+      await db.unsafe(statement)
+    }
     if (!(await isRecorded(db, version))) {
       throw new Error(
         `migration ${version} did not record itself (no-transaction file; ` +

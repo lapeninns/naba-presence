@@ -674,6 +674,88 @@ function parsePostsCursor(
 }
 
 /**
+ * The rows of one posts page: `limit` posts of the location in `filter`,
+ * after `cursor`, ordered on the materialised sort time.
+ *
+ * A post's local edit time is its latest `post.draft.created` or
+ * `post.updated` audit row, probed per listed post through
+ * `audit_log_subject_idx`, rather than aggregated over every post edit the
+ * tenant has made (W4-04).
+ */
+export function localPostsListQuery(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    locationId: string
+    filter: PostListFilter
+    postId?: string
+    cursor: { at: string | null; id: string } | null
+    limit: number
+  }
+) {
+  const { cursor } = input
+  const after = cursor
+    ? cursor.at === null
+      ? sql`and listed.sort_at is null and listed.id > ${cursor.id}::uuid`
+      : sql`and (
+          listed.sort_at < ${cursor.at}::text::timestamptz
+          or (listed.sort_at = ${cursor.at}::text::timestamptz and listed.id > ${cursor.id}::uuid)
+          or listed.sort_at is null
+        )`
+    : sql``
+  return sql<(PostListRow & { cursorAt: string | null })[]>`
+    with listed as (
+      select
+        gbp_local_post.*,
+        local_edits.edited_at,
+        case
+          when status = 'published' or (status = 'failed' and google_state = 'REJECTED' and (last_error_code = 'google_post_rejected' or local_edits.edited_at is null))
+            then coalesce(provider_update_time, provider_create_time)
+          else local_edits.edited_at
+        end as sort_at
+      from gbp_local_post
+      left join lateral (
+        select max(created_at) as edited_at
+        from audit_log
+        where organisation_id = ${input.organisationId}
+          and subject_type = 'local_post'
+          and subject_id = gbp_local_post.id::text
+          and action in ('post.draft.created', 'post.updated')
+      ) local_edits on true
+      where location_id = ${input.locationId}
+        and status <> 'deleted'
+        and ${postFilterCondition(sql, input.filter)}
+        ${input.postId ? sql`and gbp_local_post.id = ${input.postId}::uuid` : sql``}
+    )
+    select
+      listed.id::text as id,
+      topic_type as "topicType",
+      language_code as "languageCode",
+      summary,
+      call_to_action as "callToAction",
+      event,
+      offer,
+      media,
+      status,
+      content_revision::integer as "contentRevision",
+      google_post_name as "googlePostName",
+      google_state as "googleState",
+      google_search_url as "googleSearchUrl",
+      last_error_code as "lastErrorCode",
+      created_at as "createdAt",
+      updated_at as "updatedAt",
+      provider_create_time as "providerCreatedAt",
+      provider_update_time as "providerUpdatedAt",
+      edited_at as "localEditedAt",
+      to_char(sort_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "cursorAt"
+    from listed
+    where true ${after}
+    order by sort_at desc nulls last, listed.id
+    limit ${input.limit}
+  `
+}
+
+/**
  * One page of the location's posts in one status view, newest first, plus
  * the counts of every view.
  *
@@ -727,66 +809,14 @@ export async function listLocalPosts(
       where location_id = ${locationId}
         and status <> 'deleted'
     `
-    const after = cursor
-      ? cursor.at === null
-        ? sql`and listed.sort_at is null and listed.id > ${cursor.id}::uuid`
-        : sql`and (
-            listed.sort_at < ${cursor.at}::text::timestamptz
-            or (listed.sort_at = ${cursor.at}::text::timestamptz and listed.id > ${cursor.id}::uuid)
-            or listed.sort_at is null
-          )`
-      : sql``
-    const rows = await sql<(PostListRow & { cursorAt: string | null })[]>`
-      with local_edits as (
-        select subject_id, max(created_at) as edited_at
-        from audit_log
-        where organisation_id = ${organisationId}
-          and subject_type = 'local_post'
-          and action in ('post.draft.created', 'post.updated')
-        group by subject_id
-      ),
-      listed as (
-        select
-          gbp_local_post.*,
-          local_edits.edited_at,
-          case
-            when status = 'published' or (status = 'failed' and google_state = 'REJECTED' and (last_error_code = 'google_post_rejected' or local_edits.edited_at is null))
-              then coalesce(provider_update_time, provider_create_time)
-            else local_edits.edited_at
-          end as sort_at
-        from gbp_local_post
-        left join local_edits on local_edits.subject_id = gbp_local_post.id::text
-        where location_id = ${locationId}
-          and status <> 'deleted'
-          and ${postFilterCondition(sql, filter)}
-          ${options.post ? sql`and gbp_local_post.id = ${options.post}::uuid` : sql``}
-      )
-      select
-        listed.id::text as id,
-        topic_type as "topicType",
-        language_code as "languageCode",
-        summary,
-        call_to_action as "callToAction",
-        event,
-        offer,
-        media,
-        status,
-        content_revision::integer as "contentRevision",
-        google_post_name as "googlePostName",
-        google_state as "googleState",
-        google_search_url as "googleSearchUrl",
-        last_error_code as "lastErrorCode",
-        created_at as "createdAt",
-        updated_at as "updatedAt",
-        provider_create_time as "providerCreatedAt",
-        provider_update_time as "providerUpdatedAt",
-        edited_at as "localEditedAt",
-        to_char(sort_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "cursorAt"
-      from listed
-      where true ${after}
-      order by sort_at desc nulls last, listed.id
-      limit ${pageSize + 1}
-    `
+    const rows = await localPostsListQuery(sql, {
+      organisationId,
+      locationId,
+      filter,
+      postId: options.post,
+      cursor,
+      limit: pageSize + 1,
+    })
     return { rows, counts, timezone: location?.timezone ?? "Europe/London" }
   })
   const page = rows.slice(0, pageSize)

@@ -16,8 +16,13 @@ export const LEGACY_MIGRATION_FILES = [
   "20260729000400_remove_local_demo_data.sql",
 ]
 
-/** Versions that were never used. Git history has no `0021` file. */
-export const KNOWN_VERSION_GAPS = ["0021"]
+/**
+ * Versions that were never used. Git history has no `0021` file. `0132` and
+ * `0133` are reserved for other work packages of the 2026-10-14 audit
+ * (docs/audits/2026-10-14-full-stack-audit); the change that adds either
+ * removes it here.
+ */
+export const KNOWN_VERSION_GAPS = ["0021", "0132", "0133"]
 
 /** @param {string} file */
 export const versionNumber = (file) => Number(file.slice(0, 4))
@@ -222,13 +227,23 @@ const isOuterCommit = (words) =>
  * `-- migrate:no-transaction` on its first line. Comments, strings and
  * dollar-quoted bodies (PL/pgSQL `begin ... end;`) are ignored.
  *
+ * A no-transaction file is split into its top-level statements, which the
+ * runner sends one at a time: PostgreSQL runs a multi-statement query string
+ * as one implicit transaction, where `create index concurrently` is refused.
+ *
  * @param {string} file
  * @param {string} text
- * @returns {{ transactional: boolean, body: string }}
+ * @returns {{ transactional: boolean, body: string, statements?: string[] }}
  */
 export function prepareMigration(file, text) {
   if (text.split("\n", 1)[0].trim() === NO_TRANSACTION_MARKER) {
-    return { transactional: false, body: text }
+    return {
+      transactional: false,
+      body: text,
+      statements: statements(maskSql(text)).map(({ start, end }) =>
+        text.slice(start, end)
+      ),
+    }
   }
 
   const found = statements(maskSql(text))
