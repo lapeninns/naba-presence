@@ -11,7 +11,7 @@ import { Toolbar } from "@/components/ui/toolbar"
 import { ViewHeader } from "@/components/ui/view-header"
 import { REVIEW_QUEUE_LABELS, type ReviewCounts } from "@/lib/contracts/reviews"
 import { formatNumber } from "@/lib/format"
-import { useBreakpoint } from "@/lib/hooks/use-media-query"
+import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
 import type { InboxState, Queue } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
@@ -107,8 +107,9 @@ function InboxToolbar({
   const { searchDraft, setSearchDraft, searchPending, cancel } =
     useReviewSearch(state, onFilterChange)
   // The Toolbar's own test for a touch layout, as a render input: search
-  // mode never takes over the desk.
-  const touch = !useBreakpoint("desk")
+  // mode never takes over the desk. Unknown (server and hydration render)
+  // counts as not touch, so a hard load never decides on a guess.
+  const touch = useHydratedBreakpoint("desk") === false
   // Entered by focusing the field (the Toolbar reports it); left only by
   // Cancel or Escape.
   const [searchEngaged, setSearchEngaged] = useState(false)
@@ -121,6 +122,12 @@ function InboxToolbar({
     if (!titleIsHeading) setSearchEngaged(false)
   }
   const searchMode = touch && (searchEngaged || state.search !== "")
+  // Only a tap on the field may focus it (R3 F2-S1). The Toolbar focuses its
+  // field on any switch into search mode, so a mode that comes from state —
+  // a ?search= link, a reload, the post-hydration touch answer, Back to a
+  // searched inbox — mounts a fresh Toolbar that is told not to take focus
+  // on mount. A tap (engaged) keeps the same instance, so focus stays put.
+  const searchModeFromState = searchMode && !searchEngaged
   const queueLabel =
     REVIEW_QUEUE_LABELS[state.queue as keyof typeof REVIEW_QUEUE_LABELS] ?? null
 
@@ -180,6 +187,8 @@ function InboxToolbar({
       </div>
 
       <Toolbar
+        key={searchModeFromState ? "search-from-state" : "search-by-user"}
+        focusSearchOnMount={false}
         sticky={false}
         className="py-0"
         searchLabel="Search reviews"

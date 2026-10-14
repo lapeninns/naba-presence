@@ -74,6 +74,29 @@ test.describe("inbox", () => {
     ).toBeHidden()
   })
 
+  // R3 F2-S2: at 320px the venue line keeps the client · location readable.
+  // Beside the stars, a status pill used to squeeze it to an ellipsis; under
+  // 2xs (18rem) the pill drops below the line instead.
+  test("keeps the venue readable on a 320px phone", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 })
+    await page.goto("/inbox")
+    const rows = page.locator('[data-slot="review-row-venue"]')
+    await expect(rows.first()).toBeVisible()
+    const count = await rows.count()
+    for (let index = 0; index < count; index += 1) {
+      const venue = rows.nth(index)
+      const location = venue.locator('[data-slot="review-row-location"]')
+      const box = await location.boundingBox()
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(96)
+      const status = venue.locator('[data-slot="review-row-status"]')
+      if ((await status.count()) > 0) {
+        const pill = await status.boundingBox()
+        // On its own line, under the venue, at this width.
+        expect(pill!.y).toBeGreaterThanOrEqual(box!.y + box!.height - 1)
+      }
+    }
+  })
+
   test("offers a location filter only when the org has several locations", async ({
     baseURL,
     page,

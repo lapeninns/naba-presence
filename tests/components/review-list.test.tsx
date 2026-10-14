@@ -810,20 +810,29 @@ describe("ReviewList row anatomy", () => {
     const button = screen.getByRole("button", { name: /Sam Traveller/ })
     const venue = button.querySelector('[data-slot="review-row-venue"]')!
     const pill = button.querySelector('[data-slot="reply-status"]')!
-    // The venue is the row's subtitle and the pill its trailing slot: one
-    // line, the pill at the end and never squeezed.
+    // The venue is the row's subtitle and the pill rides its line, last and
+    // never squeezed (R3 F2-S2): under 2xs (18rem, a 320px phone) the pill
+    // drops below so the client · location keeps its width; the location
+    // takes the rest with a zero basis, so it never forces that wrap itself.
     const subtitle = venue.closest('[data-slot="list-row-subtitle"]')!
-    const trailing = pill.closest('[data-slot="list-row-trailing"]')!
     expect(subtitle).not.toBeNull()
-    expect(trailing).toHaveClass("shrink-0")
-    expect(subtitle.parentElement).toBe(trailing.parentElement)
+    expect(venue).toHaveClass("@container/venue")
+    const status = pill.closest('[data-slot="review-row-status"]')!
+    expect(venue.contains(status)).toBe(true)
+    expect(status).toHaveClass(
+      "ml-auto",
+      "shrink-0",
+      "@max-2xs/venue:ml-0",
+      "@max-2xs/venue:basis-full"
+    )
+    expect(status.parentElement).toHaveClass("flex-wrap")
+    const location = button.querySelector('[data-slot="review-row-location"]')!
     expect(
-      subtitle.compareDocumentPosition(trailing) &
+      location.compareDocumentPosition(status) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(
-      button.querySelector('[data-slot="review-row-location"]')
-    ).toHaveClass("truncate")
+    expect(location).toHaveClass("truncate", "flex-1", "basis-0")
+    expect(button.querySelector('[data-slot="list-row-trailing"]')).toBeNull()
 
     // DOM order is the visual order: name and time, venue, then the words.
     const time = button.querySelector("time")!
