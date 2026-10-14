@@ -1,12 +1,12 @@
 "use client"
 
 import { Plus, RotateCcw, Trash2Icon, UtensilsCrossed } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useImperativeHandle, useRef, useState } from "react"
 
 import {
-  FieldCaption,
   InlineError,
-  MenuItemEditor,
+  MenuItemRow,
+  MenuItemSheet,
 } from "@/components/locations/menu/item-editor"
 import { MenuPreview } from "@/components/locations/menu/menu-preview"
 import { MenuSectionEditor } from "@/components/locations/menu/section-editor"
@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Textarea } from "@/components/ui/textarea"
 import type { FoodMenu } from "@/lib/api/location-menu"
 import {
@@ -190,6 +191,47 @@ export const menuFieldId = {
     `${scope(m)}-s${s}-i${i}-description`,
 }
 
+/** The row of an item, for focus to return to when its sheet closes. */
+const itemRowId = (s: number, i: number, m = 0) =>
+  `${menuFieldId.itemName(s, i, m)}-row`
+
+/** Where a field id points: its menu, and its section and item if any. */
+function parseFieldId(
+  fieldId: string
+): { m: number; s?: number; i?: number } | null {
+  const title = /^menu-m(\d+)-title$/.exec(fieldId)
+  if (title) return { m: Number(title[1]) }
+  const node =
+    /^menu(?:-m(\d+))?-s(\d+)(?:-i(\d+))?-(?:name|price|description)$/.exec(
+      fieldId
+    )
+  if (!node) return null
+  return {
+    m: node[1] === undefined ? 0 : Number(node[1]),
+    s: Number(node[2]),
+    i: node[3] === undefined ? undefined : Number(node[3]),
+  }
+}
+
+/**
+ * Opens whatever holds a field (its menu, its section, an item's sheet) and
+ * resolves once the field is in the document, for ValidationSummary's
+ * `onNavigate`.
+ */
+export type MenuFieldNavigator = (fieldId: string) => Promise<void>
+
+/** Resolves once `id` is in the document, or after about a second. */
+function whenMounted(id: string): Promise<void> {
+  return new Promise((resolve) => {
+    let frames = 0
+    const look = () => {
+      if (document.getElementById(id) || frames++ > 60) resolve()
+      else requestAnimationFrame(look)
+    }
+    look()
+  })
+}
+
 export type MenuProblem = {
   fieldId: string
   message: string
@@ -309,13 +351,18 @@ function removalItemCount(removal: Removal): number {
  * preview the draft, then review. The menu selector scopes editing only:
  * validation, review and publishing always cover every menu.
  *
- * Each section is a card with a sunken head holding its name, item count
- * and order controls; each item is a bordered row inside it with name,
- * description and price, and move, duplicate and remove controls that are
- * always visible (never hover-only). Removal asks first and can be undone
- * once without losing later edits. Anything else Google stores on menus,
- * sections and items (options, attributes, extra labels) is carried through
- * untouched, and an item with options says so.
+ * Each section is a settings group whose label is its name, with the item
+ * count, the disclosure and the order controls; each item is a list row
+ * (name, description, price) that opens the item's sheet, with move,
+ * duplicate and remove in an overflow menu that is always visible (never
+ * hover-only). Removal asks first and can be undone once without losing
+ * later edits. Anything else Google stores on menus, sections and items
+ * (options, attributes, extra labels) is carried through untouched, and an
+ * item with options says so.
+ *
+ * `navigatorRef` receives a `MenuFieldNavigator` for the tab's
+ * ValidationSummary, so every error link opens the field's menu, section
+ * or item sheet before focus moves to it.
  */
 export function MenuEditor({
   menus,
@@ -324,6 +371,7 @@ export function MenuEditor({
   problems = [],
   changedPaths = [],
   validationAttempt = 0,
+  navigatorRef,
 }: {
   menus: FoodMenu[]
   onChange: (next: FoodMenu[]) => void
@@ -332,10 +380,18 @@ export function MenuEditor({
   problems?: MenuProblem[]
   changedPaths?: readonly string[]
   validationAttempt?: number
+  navigatorRef?: React.Ref<MenuFieldNavigator>
 }) {
   const [search, setSearch] = useState("")
   const [changedOnly, setChangedOnly] = useState(false)
-  const [activeItem, setActiveItem] = useState<string | null>(null)
+  // The item whose sheet is open (or closing), and the field it opens on.
+  // An open sheet keeps its item shown under a filter, as a focused inline
+  // field did.
+  const [editing, setEditing] = useState<{
+    key: string
+    focusId?: string
+    open: boolean
+  } | null>(null)
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [view, setView] = useState<"edit" | "preview">("edit")
   const [pending, setPending] = useState<Removal | null>(null)
@@ -395,6 +451,23 @@ export function MenuEditor({
     setPendingSelect(null)
     setSelectedKey(keyOf(menus[pendingSelect]))
   }
+  // Opening the sheet of an item that only exists after the parent
+  // re-renders (a new or duplicated item), by position as its field ids are.
+  const [pendingEdit, setPendingEdit] = useState<{
+    m: number
+    s: number
+    i: number
+    focusId: string
+  } | null>(null)
+  if (pendingEdit) {
+    const node = itemsOf(
+      sectionsOf(menus[pendingEdit.m] ?? {})[pendingEdit.s] ?? {}
+    )[pendingEdit.i]
+    if (node) {
+      setPendingEdit(null)
+      setEditing({ key: keyOf(node), focusId: pendingEdit.focusId, open: true })
+    }
+  }
 
   const foundIndex = menus.findIndex(
     (menu) => registered.keys.get(menu) === selectedKey
@@ -440,7 +513,10 @@ export function MenuEditor({
     item: Json,
     itemIndex: number
   ) {
-    if (activeItem === keyOf(item) || activeSection === keyOf(section))
+    if (
+      (editing?.open && editing.key === keyOf(item)) ||
+      activeSection === keyOf(section)
+    )
       return true
     const details = readLabel(item)
     const itemPath = `menus[${activeIndex}].sections[${sectionIndex}].items[${itemIndex}]`
@@ -535,8 +611,12 @@ export function MenuEditor({
         )
       : { labels: [{ displayName: "" }] }
     setItems(sectionIndex, insertAt(items, position, created))
-    setFocusTarget({
-      fieldId: menuFieldId.itemName(sectionIndex, position, activeIndex),
+    // The new item opens in its sheet, on its name.
+    setPendingEdit({
+      m: activeIndex,
+      s: sectionIndex,
+      i: position,
+      focusId: menuFieldId.itemName(sectionIndex, position, activeIndex),
     })
     setAnnouncement(
       source
@@ -622,7 +702,8 @@ export function MenuEditor({
             i === s ? restored : entry
           ),
         }
-        fieldId = menuFieldId.itemName(s, index, m)
+        // The restored item's row: its fields are in its sheet.
+        fieldId = itemRowId(s, index, m)
         setCollapsed(
           (current) =>
             new Set([...current].filter((key) => key !== removal.sectionKey))
@@ -644,15 +725,68 @@ export function MenuEditor({
   const allProblems = validateMenu(menus)
   const previewBlocked = allProblems.length > 0
   const showPreview = view === "preview" && !previewBlocked
+
+  /**
+   * ValidationSummary's `onNavigate`: for an item field that would be on
+   * screen inline (its menu selected, the edit view shown, its section
+   * expanded and the item not filtered out), open the item's sheet on it.
+   * Nothing else changes: a field the editor isn't showing stays out of
+   * reach, exactly as the inline field was.
+   */
+  function reveal(fieldId: string): Promise<void> {
+    const at = parseFieldId(fieldId)
+    if (!at || at.i === undefined || at.s === undefined)
+      return Promise.resolve()
+    if (at.m !== activeIndex || showPreview) return Promise.resolve()
+    const section = sections[at.s]
+    const item = section ? itemsOf(section)[at.i] : undefined
+    if (!section || !item) return Promise.resolve()
+    const expanded = filtering || !collapsed.has(keyOf(section))
+    if (!expanded || !itemMatches(section, at.s, item, at.i))
+      return Promise.resolve()
+    setEditing({ key: keyOf(item), focusId: fieldId, open: true })
+    return whenMounted(fieldId)
+  }
+  useImperativeHandle(navigatorRef, () => reveal)
   const menuLabel = readLabel(menu)
   const menuNameId = menuFieldId.menuName(activeIndex)
   const menuNameError = problemFor(menuNameId)
   const pendingCount = pending ? removalItemCount(pending) : 0
 
+  // The item in the sheet, found by identity in the menu on screen: a move
+  // keeps it, and a removal (or a replaced draft) closes the sheet.
+  const sheet = (() => {
+    if (!editing) return null
+    for (const [s, section] of sections.entries()) {
+      const items = itemsOf(section)
+      const i = items.findIndex((item) => keyOf(item) === editing.key)
+      if (i === -1) continue
+      const item = items[i]!
+      return {
+        key: editing.key,
+        open: editing.open,
+        focusId: editing.focusId,
+        item,
+        s,
+        i,
+        count: items.length,
+        sectionName: readLabel(section).displayName || `Section ${s + 1}`,
+        update: (next: Json) => {
+          carryIdentity(item, next)
+          setItems(
+            s,
+            items.map((entry, index) => (index === i ? next : entry))
+          )
+        },
+      }
+    }
+    return null
+  })()
+
   if (menus.length === 0) {
     return (
       <Empty
-        framed
+        placement="page"
         icon={<UtensilsCrossed aria-hidden />}
         titleAs="h3"
         title="Build your first menu"
@@ -779,18 +913,12 @@ export function MenuEditor({
         />
       ) : (
         <>
-          <section
-            aria-labelledby="menu-details-heading"
-            className={GROUP_CLASS}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3
-                id="menu-details-heading"
-                className="text-caption font-medium text-ink-muted"
-              >
-                Menu details
-              </h3>
-              {!disabled ? (
+          <SettingsGroup
+            label="Menu details"
+            headingAs="h3"
+            headingId="menu-details-heading"
+            actions={
+              !disabled ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -803,47 +931,71 @@ export function MenuEditor({
                   <Trash2Icon aria-hidden />
                   Remove menu
                 </Button>
-              ) : null}
-            </div>
-            <div data-slot="field" className="flex min-w-0 flex-col gap-1">
-              <FieldCaption htmlFor={menuNameId}>Menu name</FieldCaption>
-              <Input
-                id={menuNameId}
-                aria-invalid={menuNameError ? true : undefined}
-                aria-describedby={
-                  menuNameError ? `${menuNameId}-error` : undefined
-                }
-                placeholder="For example, lunch menu"
-                value={menuLabel.displayName}
-                disabled={disabled}
-                onChange={(event) =>
-                  setMenu(
-                    withLabel(menu, event.target.value, menuLabel.description)
-                  )
-                }
-              />
-              <InlineError id={`${menuNameId}-error`} message={menuNameError} />
-            </div>
-            <div className="flex min-w-0 flex-col gap-1">
-              <FieldCaption htmlFor={`${menuNameId}-description`}>
-                Menu description <span className="font-normal">(optional)</span>
-              </FieldCaption>
-              <Textarea
-                id={`${menuNameId}-description`}
-                autoSize
-                minRows={2}
-                maxRows={8}
-                placeholder="A short introduction to this menu"
-                value={menuLabel.description}
-                disabled={disabled}
-                onChange={(event) =>
-                  setMenu(
-                    withLabel(menu, menuLabel.displayName, event.target.value)
-                  )
-                }
-              />
-            </div>
-          </section>
+              ) : undefined
+            }
+            card
+            bodyAs="div"
+            className="mt-0"
+          >
+            <SettingsRow
+              label="Menu name"
+              controlId={menuNameId}
+              className="desk:px-3"
+              control={
+                <div data-slot="field" className="flex min-w-0 flex-col gap-1">
+                  <Input
+                    id={menuNameId}
+                    aria-invalid={menuNameError ? true : undefined}
+                    aria-describedby={
+                      menuNameError ? `${menuNameId}-error` : undefined
+                    }
+                    placeholder="For example, lunch menu"
+                    value={menuLabel.displayName}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      setMenu(
+                        withLabel(
+                          menu,
+                          event.target.value,
+                          menuLabel.description
+                        )
+                      )
+                    }
+                  />
+                  <InlineError
+                    id={`${menuNameId}-error`}
+                    message={menuNameError}
+                  />
+                </div>
+              }
+            />
+            <SettingsRow
+              label={
+                <>
+                  Menu description{" "}
+                  <span className="font-normal text-ink-muted">(optional)</span>
+                </>
+              }
+              controlId={`${menuNameId}-description`}
+              className="desk:px-3"
+              control={
+                <Textarea
+                  id={`${menuNameId}-description`}
+                  autoSize
+                  minRows={2}
+                  maxRows={8}
+                  placeholder="A short introduction to this menu"
+                  value={menuLabel.description}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    setMenu(
+                      withLabel(menu, menuLabel.displayName, event.target.value)
+                    )
+                  }
+                />
+              }
+            />
+          </SettingsGroup>
 
           {sections.length > 0 ? (
             <div
@@ -858,7 +1010,6 @@ export function MenuEditor({
                   placeholder="Search items, descriptions or sections"
                   value={search}
                   onChange={(event) => {
-                    setActiveItem(null)
                     setActiveSection(null)
                     setSearch(event.target.value)
                   }}
@@ -1016,7 +1167,6 @@ export function MenuEditor({
                   if (!itemMatches(section, sectionIndex, item, itemIndex))
                     return null
                   const itemKey = keyOf(item)
-                  const itemLabel = readLabel(item)
                   const nameId = menuFieldId.itemName(
                     sectionIndex,
                     itemIndex,
@@ -1027,49 +1177,22 @@ export function MenuEditor({
                     itemIndex,
                     activeIndex
                   )
-                  const updateItem = (next: Json) => {
-                    carryIdentity(item, next)
-                    setItems(
-                      sectionIndex,
-                      items.map((it, i) => (i === itemIndex ? next : it))
-                    )
-                  }
+                  const errors = [
+                    problemFor(nameId),
+                    problemFor(priceId),
+                  ].filter((message): message is string => Boolean(message))
                   return (
-                    <MenuItemEditor
+                    <MenuItemRow
                       key={itemKey}
                       item={item}
-                      sectionIndex={sectionIndex}
                       itemIndex={itemIndex}
                       count={items.length}
-                      ids={{
-                        name: nameId,
-                        price: priceId,
-                        description: menuFieldId.itemDescription(
-                          sectionIndex,
-                          itemIndex,
-                          activeIndex
-                        ),
-                      }}
+                      rowId={itemRowId(sectionIndex, itemIndex, activeIndex)}
                       currency={currencyOf(item)}
                       priceText={priceText(item)}
                       disabled={disabled}
-                      nameError={problemFor(nameId)}
-                      priceError={problemFor(priceId)}
-                      onActivate={() => setActiveItem(itemKey)}
-                      onDeactivate={() => setActiveItem(null)}
-                      onName={(value) =>
-                        updateItem(
-                          withLabel(item, value, itemLabel.description)
-                        )
-                      }
-                      onDescription={(value) =>
-                        updateItem(
-                          withLabel(item, itemLabel.displayName, value)
-                        )
-                      }
-                      onPrice={(value) =>
-                        updateItem(withPriceText(item, value))
-                      }
+                      errors={errors}
+                      onOpen={() => setEditing({ key: itemKey, open: true })}
                       onMove={(direction) =>
                         setItems(
                           sectionIndex,
@@ -1104,6 +1227,55 @@ export function MenuEditor({
           ) : null}
         </>
       )}
+
+      {sheet ? (
+        <MenuItemSheet
+          // One sheet per item: another item's sheet starts fresh.
+          key={sheet.key}
+          open={sheet.open && !showPreview}
+          onClose={() =>
+            setEditing((current) =>
+              current ? { ...current, open: false } : current
+            )
+          }
+          focusId={sheet.focusId}
+          rowId={itemRowId(sheet.s, sheet.i, activeIndex)}
+          item={sheet.item}
+          sectionName={sheet.sectionName}
+          sectionIndex={sheet.s}
+          itemIndex={sheet.i}
+          count={sheet.count}
+          ids={{
+            name: menuFieldId.itemName(sheet.s, sheet.i, activeIndex),
+            price: menuFieldId.itemPrice(sheet.s, sheet.i, activeIndex),
+            description: menuFieldId.itemDescription(
+              sheet.s,
+              sheet.i,
+              activeIndex
+            ),
+          }}
+          currency={currencyOf(sheet.item)}
+          priceText={priceText(sheet.item)}
+          disabled={disabled}
+          nameError={problemFor(
+            menuFieldId.itemName(sheet.s, sheet.i, activeIndex)
+          )}
+          priceError={problemFor(
+            menuFieldId.itemPrice(sheet.s, sheet.i, activeIndex)
+          )}
+          onName={(value) =>
+            sheet.update(
+              withLabel(sheet.item, value, readLabel(sheet.item).description)
+            )
+          }
+          onDescription={(value) =>
+            sheet.update(
+              withLabel(sheet.item, readLabel(sheet.item).displayName, value)
+            )
+          }
+          onPrice={(value) => sheet.update(withPriceText(sheet.item, value))}
+        />
+      ) : null}
 
       <AlertDialog
         open={pending !== null}
