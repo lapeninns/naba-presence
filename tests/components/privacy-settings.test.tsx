@@ -9,6 +9,7 @@ import { PrivacyRequestsPanel } from "@/components/settings/privacy-requests-pan
 import { PrivacySettings } from "@/components/settings/privacy-settings"
 import { SettingsNav } from "@/components/settings/settings-nav"
 import type {
+  PrivacyErasurePreview,
   PrivacyExportResponse,
   PrivacyRequest,
 } from "@/lib/contracts/privacy"
@@ -16,6 +17,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { privacyAccessFromRole, privacyGating } from "@/lib/settings/gating"
 import {
   assembleSubjectExport,
+  describeErasurePreview,
   exportFilename,
   presentPrivacyRequest,
   sortPrivacyRequests,
@@ -78,6 +80,21 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
+
+function preview(overrides: Partial<PrivacyErasurePreview> = {}) {
+  return {
+    preview: {
+      reviews: 1,
+      reviewers: 1,
+      matchedByNameOnly: 0,
+      locations: 1,
+      repliesToWithdraw: 1,
+      heldReviews: 0,
+      confirmation: "token-1",
+      ...overrides,
+    },
+  }
+}
 
 describe("privacy gating", () => {
   it("lets an owner manage, an admin read, and nobody in while the feature is off", () => {
@@ -159,6 +176,40 @@ describe("privacy request ordering and state", () => {
     )
     expect(stalled.label).toBe("Withdrawal stalled")
     expect(stalled.detail).toContain("after 12 attempts (google_timeout)")
+  })
+})
+
+describe("erasure preview wording", () => {
+  it("says when nothing matches, and asks no acknowledgement", () => {
+    const empty = describeErasurePreview({
+      ...preview({ reviews: 0, reviewers: 0, locations: 0 }).preview,
+      repliesToWithdraw: 0,
+    })
+    expect(empty.title).toBe("No reviews match")
+    expect(empty.acknowledge).toBeNull()
+    expect(empty.submitLabel).toBe("Fulfil request")
+  })
+
+  it("asks for an acknowledgement only when the match may span people", () => {
+    expect(describeErasurePreview(preview().preview).acknowledge).toBeNull()
+    expect(
+      describeErasurePreview(preview({ reviewers: 2, reviews: 2 }).preview)
+        .acknowledge
+    ).toMatch(/all 2 reviews belong to this person/)
+    expect(
+      describeErasurePreview(preview({ matchedByNameOnly: 1 }).preview)
+        .acknowledge
+    ).not.toBeNull()
+  })
+
+  it("names held reviews and replies to withdraw", () => {
+    const held = describeErasurePreview(
+      preview({ heldReviews: 1, repliesToWithdraw: 0 }).preview
+    )
+    expect(held.lines).toContain(
+      "None of our replies needs withdrawing from Google."
+    )
+    expect(held.lines.at(-1)).toMatch(/1 review under a legal hold/)
   })
 })
 
@@ -325,6 +376,8 @@ describe("PrivacyRequestsPanel", () => {
         json({
           requests: [request({ id: "r1", subjectReference: "Held Person" })],
         }),
+      "GET /api/privacy/requests/r1/preview": () =>
+        json(preview({ heldReviews: 1 })),
       "PATCH /api/privacy/requests": () =>
         json(
           {
@@ -347,7 +400,7 @@ describe("PrivacyRequestsPanel", () => {
       "Verified identity"
     )
     await user.click(
-      within(dialog).getByRole("button", { name: "Fulfil request" })
+      await within(dialog).findByRole("button", { name: "Erase 1 review" })
     )
     expect(
       await within(dialog).findByText("A legal hold blocks this erasure")
@@ -364,6 +417,7 @@ describe("PrivacyRequestsPanel", () => {
         json({
           requests: [request({ id: "r1", subjectReference: "Live Reply" })],
         }),
+      "GET /api/privacy/requests/r1/preview": () => json(preview()),
       "PATCH /api/privacy/requests": () =>
         json(
           {
@@ -394,7 +448,7 @@ describe("PrivacyRequestsPanel", () => {
       "Verified identity"
     )
     await user.click(
-      within(dialog).getByRole("button", { name: "Fulfil request" })
+      await within(dialog).findByRole("button", { name: "Erase 1 review" })
     )
     expect(
       await screen.findByText("Erased here; a reply is still live on Google")
@@ -404,6 +458,130 @@ describe("PrivacyRequestsPanel", () => {
     await waitFor(() =>
       expect(screen.queryByLabelText("Resolution note")).not.toBeInTheDocument()
     )
+  })
+
+  it("shows what an erasure matches and sends its confirmation, ticked through when the name is shared", async () => {
+    const user = userEvent.setup()
+    const fetchMock = stubFetch({
+      "GET /api/privacy/requests": () =>
+        json({
+          requests: [request({ id: "r1", subjectReference: "Sam Smith" })],
+        }),
+      "GET /api/privacy/requests/r1/preview": () =>
+        json(
+          preview({
+            reviews: 3,
+            reviewers: 2,
+            matchedByNameOnly: 3,
+            locations: 2,
+            repliesToWithdraw: 2,
+            confirmation: "token-3",
+          })
+        ),
+      "PATCH /api/privacy/requests": () =>
+        json({
+          request: {
+            id: "r1",
+            requestType: "erasure",
+            status: "completed",
+            subjectReference: "Sam Smith",
+            resolutionNote: "Verified identity",
+            resolvedAt: "2099-01-02T00:00:00.000Z",
+          },
+        }),
+    })
+    renderWithProviders(<PrivacyRequestsPanel gating={OWNER} />)
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Fulfil request for Sam Smith",
+      })
+    )
+    const dialog = await screen.findByRole("dialog")
+    const summary = await within(dialog).findByTestId("erasure-preview")
+    expect(summary).toHaveTextContent("This erasure matches 3 reviews")
+    expect(summary).toHaveTextContent(
+      "3 reviews from 2 reviewer profiles across 2 locations."
+    )
+    expect(summary).toHaveTextContent(/matched on the display name alone/)
+    expect(summary).toHaveTextContent(
+      "2 of our replies will be withdrawn from Google."
+    )
+    await user.type(
+      within(dialog).getByLabelText("Resolution note"),
+      "Verified identity"
+    )
+    const erase = within(dialog).getByRole("button", {
+      name: "Erase 3 reviews",
+    })
+    expect(erase).toBeDisabled()
+    await user.click(
+      within(dialog).getByRole("checkbox", {
+        name: "I’ve checked that all 3 reviews belong to this person.",
+      })
+    )
+    await user.click(erase)
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")
+      ).toBe(true)
+    )
+    const [, init] = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "PATCH"
+    )!
+    expect(JSON.parse(String(init?.body))).toEqual({
+      id: "r1",
+      action: "fulfil",
+      resolutionNote: "Verified identity",
+      confirmation: "token-3",
+    })
+  })
+
+  it("counts again and erases nothing when the matches changed before the fulfil", async () => {
+    const user = userEvent.setup()
+    let previews = 0
+    stubFetch({
+      "GET /api/privacy/requests": () =>
+        json({
+          requests: [request({ id: "r1", subjectReference: "Moving Set" })],
+        }),
+      "GET /api/privacy/requests/r1/preview": () => {
+        previews += 1
+        return json(
+          previews === 1
+            ? preview()
+            : preview({ reviews: 2, reviewers: 1, confirmation: "token-2" })
+        )
+      },
+      "PATCH /api/privacy/requests": () =>
+        json(
+          {
+            error: "privacy_erasure_unconfirmed",
+            message: "Nothing was erased.",
+            preview: preview({ reviews: 2 }).preview,
+          },
+          409
+        ),
+    })
+    renderWithProviders(<PrivacyRequestsPanel gating={OWNER} />)
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Fulfil request for Moving Set",
+      })
+    )
+    const dialog = await screen.findByRole("dialog")
+    await user.type(
+      within(dialog).getByLabelText("Resolution note"),
+      "Verified identity"
+    )
+    await user.click(
+      await within(dialog).findByRole("button", { name: "Erase 1 review" })
+    )
+    expect(
+      await within(dialog).findByText("The matching reviews changed")
+    ).toBeInTheDocument()
+    expect(
+      await within(dialog).findByRole("button", { name: "Erase 2 reviews" })
+    ).toBeEnabled()
   })
 
   it("asks for a resolution note before rejecting", async () => {

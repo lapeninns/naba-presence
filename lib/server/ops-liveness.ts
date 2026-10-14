@@ -345,11 +345,11 @@ export async function schedulerLiveness(
 export const SCHEDULED_POST_STUCK_AFTER_SECONDS = 600
 /**
  * The every-tick sweep records a `scheduled` occurrence missed at its
- * deadline, but only inside the `naba:jobs` advisory lock: a tick that
- * overruns its 45 s budget makes the next minute's run skip the lock, so the
+ * deadline, but only inside the `naba:jobs` fleet lease: a tick that
+ * overruns its 45 s budget makes the next minute's run skip the lease, so the
  * sweep can lag about two minutes for a transient reason. Three minutes (two
  * jobs periods plus the budget, rounded up) keeps one slow tick from paging
- * operators; a lock that stays held is `tick_lock_wedged`'s alert.
+ * operators; a lease that stays held is `tick_lock_wedged`'s alert.
  */
 export const SCHEDULED_POST_OVERDUE_AFTER_SECONDS = 180
 /** The scopes the scheduled post path runs under in the jobs tick. */

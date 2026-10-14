@@ -1,3 +1,5 @@
+import { SCHEDULER_TICK_PATHS } from "./scheduler-ticks.mjs"
+
 const baseUrl = new URL(
   process.env.SCHEDULER_BASE_URL ??
     process.env.NEXTAUTH_URL ??
@@ -64,87 +66,30 @@ function log(level, event, context = {}) {
   else console.info(record)
 }
 
-async function post(path, body) {
-  const response = await fetch(new URL(path, baseUrl), {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${cronSecret}`,
-      "content-type": "application/json",
-      "x-request-id": crypto.randomUUID(),
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(55_000),
-  })
-  const result = await response.json().catch(() => null)
-  if (!response.ok) {
-    throw new Error(
-      `${path} returned ${response.status}: ${result?.error ?? "request_failed"}`
-    )
-  }
-  return result
-}
-
-/** A cron GET tick (the routes that only have a Vercel Cron entry point). */
-async function get(path) {
-  const response = await fetch(new URL(path, baseUrl), {
-    headers: {
-      authorization: `Bearer ${cronSecret}`,
-      "x-request-id": crypto.randomUUID(),
-    },
-    signal: AbortSignal.timeout(55_000),
-  })
-  const result = await response.json().catch(() => null)
-  if (!response.ok) {
-    throw new Error(
-      `${path} returned ${response.status}: ${result?.error ?? "request_failed"}`
-    )
-  }
-  return result
-}
-
-// ---------------------------------------------------------------------------
-// Cursor walks
-// ---------------------------------------------------------------------------
-
-const MAX_PAGES = 1000
 /**
- * How many consecutive ticks may fail on the same organisation before the
- * walk is sent back to the head. Resuming is the point of the watermark, but
- * a page that fails every time would otherwise starve every organisation
- * BEFORE it just as surely as restarting starved the ones after it.
+ * One cron tick: a GET with the cron bearer, as Vercel Cron fires it
+ * (scripts/scheduler-ticks.mjs).
  */
-const CURSOR_STALL_LIMIT = 3
-/** tick name -> { cursor, stalledTicks } for the walk in progress. */
-const walks = new Map()
+async function tick(name) {
+  const path = SCHEDULER_TICK_PATHS[name]
+  const response = await fetch(new URL(path, baseUrl), {
+    headers: {
+      authorization: `Bearer ${cronSecret}`,
+      "x-request-id": crypto.randomUUID(),
+    },
+    signal: AbortSignal.timeout(55_000),
+  })
+  const result = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(
+      `${path} returned ${response.status}: ${result?.error ?? "request_failed"}`
+    )
+  }
+  return result
+}
+
 /** tick name -> consecutive advisory-lock skips. */
 const skips = new Map()
-
-function walkCursor(name) {
-  return walks.get(name)?.cursor
-}
-
-function rememberCursor(name, cursor) {
-  if (cursor) walks.set(name, { cursor, stalledTicks: 0 })
-  else walks.delete(name)
-}
-
-function noteWalkFailure(name, startedFrom) {
-  const state = walks.get(name)
-  if (!state) return
-  if (state.cursor !== startedFrom) {
-    // The tick got at least one page further before it died, so the next one
-    // resumes somewhere new; that is progress, not a stall.
-    state.stalledTicks = 0
-    return
-  }
-  state.stalledTicks += 1
-  if (state.stalledTicks < CURSOR_STALL_LIMIT) return
-  walks.delete(name)
-  log("warn", `${name}.cursor_reset`, {
-    cursor: state.cursor,
-    stalledTicks: state.stalledTicks,
-  })
-}
 
 function noteSkip(name, context = {}) {
   const consecutive = (skips.get(name) ?? 0) + 1
@@ -163,78 +108,45 @@ function noteRun(name) {
   skips.delete(name)
 }
 
-/**
- * Drives one cursor-paged tick.
- *
- * The cursor lives in `walks` rather than in a call-local variable: a page
- * that throws (a 5xx, or the 55s client abort) used to discard it, so the
- * next tick restarted at the head of the tenant order and every organisation
- * after the slow one was never reached again. It survives a failed tick, not
- * a process restart, which is why a restart is a fresh walk from the head.
- *
- * `requestPage(cursor)` performs one page; `onPage(result)` accumulates it.
- */
-async function paginate(name, requestPage, onPage) {
-  const resumedFrom = walkCursor(name)
-  let cursor = resumedFrom
-  let pages = 0
-  try {
-    do {
-      const result = await requestPage(cursor)
-      if (result?.skipped === true) {
-        return { skipped: true, resumedFrom, pages }
-      }
-      onPage(result)
-      cursor = result?.nextCursor ?? undefined
-      rememberCursor(name, cursor)
-      pages += 1
-      if (cursor && pages >= MAX_PAGES) {
-        throw new Error(`${name} cursor exceeded ${MAX_PAGES} pages.`)
-      }
-    } while (cursor)
-    return { skipped: false, resumedFrom, pages }
-  } catch (error) {
-    noteWalkFailure(name, resumedFrom)
-    throw error
-  }
-}
-
-function completion(name, walk, startedAt, context) {
-  noteRun(name)
-  log("info", `${name}.completed`, {
-    ...context,
-    pages: walk.pages,
-    resumedFrom: walk.resumedFrom ?? null,
-    durationMs: Math.round(performance.now() - startedAt),
-  })
-}
-
 // ---------------------------------------------------------------------------
 // Ticks
 // ---------------------------------------------------------------------------
 
-async function runReconciliation() {
-  const startedAt = performance.now()
-  let organisations = 0
-  let failures = 0
-  const walk = await paginate(
-    "reconciliation",
-    (cursor) =>
-      post("/api/sync/reconcile", {
-        organisationCursor: cursor,
-        maxOrganisations: 100,
-      }),
-    (page) => {
-      organisations += page.processed ?? 0
-      failures += page.failures?.length ?? 0
-    }
-  )
-  if (walk.skipped) {
-    return noteSkip("reconciliation", { cursor: walk.resumedFrom ?? null })
-  }
-  if (failures) log("warn", "reconcile.partial", { failures })
-  completion("reconciliation", walk, startedAt, { organisations, failures })
+function completion(name, startedAt, context) {
+  noteRun(name)
+  log("info", `${name}.completed`, {
+    ...context,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
 }
+
+/**
+ * The recurring per-location syncs (reconcile, performance, keywords) and
+ * the review sweep. A fire only queues: one statement arms a checkpoint for
+ * every linked location in every organisation (lib/server/recurring-sync.ts,
+ * `enqueueFleetSweep`), and the jobs tick drains them every minute with its
+ * per-organisation fairness, leases and time budget. Nothing pages, so
+ * nothing is left behind on a cursor.
+ */
+async function runEnqueue(name) {
+  const startedAt = performance.now()
+  const result = await tick(name)
+  if (result?.skipped === true) return noteSkip(name)
+  completion(name, startedAt, {
+    organisations: result?.processed ?? 0,
+    queued: result?.queued ?? 0,
+  })
+}
+
+const runReconciliation = () => runEnqueue("reconciliation")
+const runPerformance = () => runEnqueue("performance")
+const runKeywords = () => runEnqueue("keywords")
+/**
+ * Tombstones reviews the provider has deleted. Nothing drove this before, so
+ * `provider_deleted_at` was never set outside a hand-made request and a
+ * deleted review stayed in the inbox for ever.
+ */
+const runSweep = () => runEnqueue("sweep")
 
 /**
  * One retention dispatcher fire (lib/server/retention/cycle.ts). The cycle
@@ -244,20 +156,18 @@ async function runReconciliation() {
  */
 async function runRetention() {
   const startedAt = performance.now()
-  const result = await post("/api/cron/retention", {})
+  const result = await tick("retention")
   if (result?.skipped === true) return noteSkip("retention")
-  noteRun("retention")
   const failures = result?.failures?.length ?? 0
   // The route isolates a failing tenant and records it on the cycle rather
   // than aborting the fire, so log it here too.
   if (failures) log("warn", "retention.partial", { failures })
-  log("info", "retention.completed", {
+  completion("retention", startedAt, {
     cycleDate: result?.cycle?.cycleDate ?? null,
     cycleStatus: result?.cycle?.status ?? null,
     cycleCompleted: result?.completed === true,
     organisations: result?.organisations?.length ?? 0,
     failures,
-    durationMs: Math.round(performance.now() - startedAt),
   })
 }
 
@@ -270,179 +180,69 @@ async function runRetention() {
  */
 async function runHealth() {
   const startedAt = performance.now()
-  const result = await post("/api/cron/health", {})
+  const result = await tick("health")
   if (result?.skipped === true) return noteSkip("health")
-  noteRun("health")
-  log("info", "health.completed", {
+  completion("health", startedAt, {
     organisations: result?.organisations ?? 0,
     opened: result?.opened ?? 0,
     resolved: result?.resolved ?? 0,
     sent: result?.sent ?? 0,
     failed: result?.failed ?? 0,
     errors: result?.errors ?? 0,
-    durationMs: Math.round(performance.now() - startedAt),
   })
 }
 
 /**
- * The hourly Stripe reconciliation (P07-S4): one page per tick, resumed by
- * the route from cron_cursor, as on Vercel. It completes doing nothing while
- * billing is disabled.
+ * Cursor-paged ticks: one page per fire, resumed by the route from
+ * `cron_cursor` (lib/server/cron-cursor.ts), as on Vercel. The cursor used
+ * to live in this process and was lost on every restart.
+ */
+function logTruncation(name, result) {
+  if (!result?.truncated) return
+  // The route stopped on its own wall-clock budget and stored a cursor;
+  // nothing else says how many organisations it did not reach.
+  log("warn", `${name}.truncated`, {
+    nextCursor: result.nextCursor ?? null,
+    skippedOrganisations: result.skippedOrganisations ?? 0,
+  })
+}
+
+async function runPresenceResources() {
+  const startedAt = performance.now()
+  const result = await tick("presence_resources")
+  if (result?.skipped === true) return noteSkip("presence_resources")
+  logTruncation("presence_resources", result)
+  const outcomes = result?.outcomes ?? []
+  completion("presence_resources", startedAt, {
+    succeeded: outcomes.filter((outcome) => outcome.status === "succeeded")
+      .length,
+    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
+    reapedProposals: result?.reapedProposals ?? 0,
+    nextCursor: result?.nextCursor ?? null,
+  })
+}
+
+/**
+ * The hourly Stripe reconciliation (P07-S4). It completes doing nothing
+ * while billing is disabled.
  */
 async function runBillingReconcile() {
   const startedAt = performance.now()
-  const result = await get("/api/billing/reconcile?maxOrganisations=100")
+  const result = await tick("billing_reconcile")
   if (result?.skipped === true) return noteSkip("billing_reconcile")
-  noteRun("billing_reconcile")
-  log("info", "billing_reconcile.completed", {
+  completion("billing_reconcile", startedAt, {
     enabled: result?.enabled ?? null,
     processed: result?.processed ?? 0,
     failures: result?.failures?.length ?? 0,
     nextCursor: result?.nextCursor ?? null,
-    durationMs: Math.round(performance.now() - startedAt),
   })
 }
 
 async function runJobs() {
   const startedAt = performance.now()
-  const result = await post("/api/jobs/run", {})
+  const result = await tick("jobs")
   if (result?.skipped === true) return noteSkip("jobs")
-  noteRun("jobs")
-  log("info", "jobs.completed", {
-    ...result,
-    durationMs: Math.round(performance.now() - startedAt),
-  })
-}
-
-function countOutcomes(page) {
-  return (
-    page.organisations?.reduce(
-      (sum, organisation) => sum + (organisation.outcomes?.length ?? 0),
-      0
-    ) ?? 0
-  )
-}
-
-function logTruncation(name, page, cursor) {
-  if (!page.truncated) return
-  // The route stopped on its own wall-clock budget and handed back a cursor;
-  // nothing else says which organisations it did not reach.
-  log("warn", `${name}.truncated`, {
-    organisationCursor: cursor ?? null,
-    skippedOrganisations: page.skippedOrganisations ?? 0,
-  })
-}
-
-async function runPerformance() {
-  const startedAt = performance.now()
-  let organisations = 0
-  let locations = 0
-  const walk = await paginate(
-    "performance",
-    (cursor) =>
-      post("/api/sync/performance", {
-        organisationCursor: cursor,
-        maxOrganisations: 100,
-        maxLocations: 25,
-      }),
-    (page) => {
-      organisations += page.organisations?.length ?? 0
-      locations += countOutcomes(page)
-      logTruncation("performance", page, page.nextCursor)
-    }
-  )
-  if (walk.skipped) {
-    return noteSkip("performance", { cursor: walk.resumedFrom ?? null })
-  }
-  completion("performance", walk, startedAt, { organisations, locations })
-}
-
-async function runKeywords() {
-  const startedAt = performance.now()
-  let organisations = 0
-  let locations = 0
-  const walk = await paginate(
-    "keywords",
-    (cursor) =>
-      post("/api/sync/keywords", {
-        organisationCursor: cursor,
-        maxOrganisations: 100,
-        maxLocations: 10,
-      }),
-    (page) => {
-      organisations += page.organisations?.length ?? 0
-      locations += countOutcomes(page)
-      logTruncation("keywords", page, page.nextCursor)
-    }
-  )
-  if (walk.skipped) {
-    return noteSkip("keywords", { cursor: walk.resumedFrom ?? null })
-  }
-  completion("keywords", walk, startedAt, { organisations, locations })
-}
-
-async function runPresenceResources() {
-  const startedAt = performance.now()
-  let succeeded = 0
-  let failed = 0
-  let reapedProposals = 0
-  const walk = await paginate(
-    "presence_resources",
-    (cursor) =>
-      post("/api/sync/presence-resources", {
-        organisationCursor: cursor,
-        maxOrganisations: 10,
-        maxLocations: 5,
-      }),
-    (page) => {
-      succeeded +=
-        page.outcomes?.filter((outcome) => outcome.status === "succeeded")
-          .length ?? 0
-      failed +=
-        page.outcomes?.filter((outcome) => outcome.status === "failed")
-          .length ?? 0
-      reapedProposals += page.reapedProposals ?? 0
-      logTruncation("presence_resources", page, page.nextCursor)
-    }
-  )
-  if (walk.skipped) {
-    return noteSkip("presence_resources", { cursor: walk.resumedFrom ?? null })
-  }
-  completion("presence_resources", walk, startedAt, {
-    succeeded,
-    failed,
-    reapedProposals,
-  })
-}
-
-/**
- * Tombstones reviews the provider has deleted. Nothing drove this before, so
- * `provider_deleted_at` was never set outside a hand-made request and a
- * deleted review stayed in the inbox for ever.
- *
- * A cron-token POST queues the whole fleet in one statement
- * (`enqueueFleetSweep` in app/api/sync/sweep/route.ts) and ignores any body;
- * the job runner then walks each location's history, since sweep is one of
- * the sync types claim_due_jobs claims. The walk below therefore ends after
- * its first page (`nextCursor` is always null).
- */
-async function runSweep() {
-  const startedAt = performance.now()
-  let organisations = 0
-  let failures = 0
-  const walk = await paginate(
-    "sweep",
-    () => post("/api/sync/sweep", {}),
-    (page) => {
-      organisations += page.processed ?? 0
-      failures += page.failures?.length ?? 0
-    }
-  )
-  if (walk.skipped) {
-    return noteSkip("sweep", { cursor: walk.resumedFrom ?? null })
-  }
-  if (failures) log("warn", "sweep.partial", { failures })
-  completion("sweep", walk, startedAt, { organisations, failures })
+  completion("jobs", startedAt, { ...result })
 }
 
 // ---------------------------------------------------------------------------
@@ -479,9 +279,6 @@ function recurring(name, task, everyMs, initialDelayMs, options = {}) {
       log("error", `${name}.failed`, {
         error: error instanceof Error ? error.message : String(error),
         attempt: attempt + 1,
-        // Which organisation the walk died on, so a starving fleet is
-        // nameable from the log alone.
-        cursor: walkCursor(name) ?? null,
         retrying,
       })
       if (retrying) {

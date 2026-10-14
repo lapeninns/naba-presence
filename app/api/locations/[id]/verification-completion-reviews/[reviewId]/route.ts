@@ -6,9 +6,9 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 export const maxDuration = 60
 const params = z.object({ id: z.uuid(), reviewId: z.uuid() })
-export const GET = route({ roles: ["owner", "admin"], params,
+export const GET = route({ maxDuration, roles: ["owner", "admin"], params,
   handler: async ({ session, params }) => ({ review: await readVerificationCompletionReview(session, params.id, params.reviewId) }),
 })
-export const POST = route({ mfa: "step_up", roles: ["owner", "admin"], params, body: verificationReviewApprovalSchema,
+export const POST = route({ maxDuration, mfa: "step_up", roles: ["owner", "admin"], params, body: verificationReviewApprovalSchema,
   handler: async ({ session, params, body, requestId }) => ({ review: await approveVerificationCompletionReview(session, params.id, params.reviewId, body.expectedPayloadHash, requestId) }),
 })

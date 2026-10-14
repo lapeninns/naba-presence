@@ -10,7 +10,7 @@ import { connectionAccessToken, getGoogleLocation } from "./google"
 import { resolveOnboardingAccountInTransaction } from "./google-onboarding"
 import { discoverOnboardingAccessibleMatches } from "./google-onboarding-accessible-matches"
 import { checkedOnboardingDraft, requireEditableOnboardingDraft } from "./google-onboarding-drafts"
-import { ApiError } from "./http"
+import { ApiError, parseStored } from "./http"
 import type { Session } from "./session"
 
 type Draft = Awaited<ReturnType<typeof checkedOnboardingDraft>>
@@ -60,9 +60,9 @@ function reviewHash(frozen: OnboardingMatchLinkFrozen, requiresSecondApprover: b
 }
 
 function project(row: ReviewRow, session: Session) {
-  return onboardingMatchLinkReviewSchema.parse({ ...row.frozen, id: row.id, reviewHash: row.review_hash, requestedBy: row.requested_by, approvedBy: row.approved_by,
+  return parseStored(onboardingMatchLinkReviewSchema, { ...row.frozen, id: row.id, reviewHash: row.review_hash, requestedBy: row.requested_by, approvedBy: row.approved_by,
     requiresSecondApprover: row.require_two_person_approval, canApprove: row.frozen.conflicts.length === 0 && (!row.require_two_person_approval || row.requested_by !== session.userId),
-    observedAt: row.observed_at.toISOString(), approvalExpiresAt: row.approval_expires_at.toISOString() })
+    observedAt: row.observed_at.toISOString(), approvalExpiresAt: row.approval_expires_at.toISOString() }, "onboarding_match_link_review")
 }
 
 export async function observeOnboardingMatchLinkProvider(session: Session, accountId: string, draftId: string, input: OnboardingMatchLinkInput) {

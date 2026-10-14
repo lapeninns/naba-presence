@@ -32,6 +32,8 @@ export const queryKeys = {
   clientSetup: (id: string) => ["clients", id, "setup"] as const,
   clientReportShares: (id: string) => ["clients", id, "report-shares"] as const,
   connections: ["connections"] as const,
+  // The shell's one poll; it seeds the counts, connections and badge keys.
+  shellStatus: ["shell-status"] as const,
   // Operational notifications: the per-viewer list and unread count, and the
   // viewer's own preferences. Rooted together so a read or resolve refreshes both.
   notificationsAll: ["operational-notifications"] as const,
@@ -116,6 +118,24 @@ export const queryKeys = {
   locationIndustry: (id: string) => ["locations", id, "industry"] as const,
   locationAdministration: (id: string) =>
     ["locations", id, "administration"] as const,
+  // The administration tab's saved workflows and their outcomes. Beside the
+  // roster key, not under it: a roster refresh must not refetch every list.
+  locationLifecycleWorkflows: (id: string) =>
+    ["locations", id, "lifecycle-workflows"] as const,
+  // Prefix of every `locationLifecycleAttempt(id, reviewId)` key.
+  locationLifecycleAttempts: (id: string) =>
+    ["locations", id, "lifecycle-attempt"] as const,
+  locationLifecycleAttempt: (id: string, reviewId: string | undefined) =>
+    ["locations", id, "lifecycle-attempt", reviewId] as const,
+  // Prefix of both operations' `locationVerificationWorkflows(id, operation)`.
+  locationVerificationWorkflowsAll: (id: string) =>
+    ["locations", id, "verification-workflows"] as const,
+  locationVerificationWorkflows: (id: string, operation: string) =>
+    ["locations", id, "verification-workflows", operation] as const,
+  locationVerificationState: (id: string) =>
+    ["locations", id, "verification-state"] as const,
+  locationAccessWorkflows: (id: string) =>
+    ["locations", id, "access-workflows"] as const,
   businessInformationMetadata: (id: string, type: string, query: string) =>
     ["locations", id, "business-information", "metadata", type, query] as const,
   // Prefixes of every `reviewCounts(scope)` / `reviews(scope, filters)` key.
@@ -125,6 +145,16 @@ export const queryKeys = {
   reviewCountsAll: ["review-counts"] as const,
   reviewsAll: ["reviews"] as const,
   reviewCounts: (scope: string) => ["review-counts", scope] as const,
+  // The one place a counts scope becomes its key, shared by the hook and the
+  // server prefetch so hydrated counts land where the hook reads them. The
+  // unscoped key is reviewCounts("organisation").
+  reviewCountsFor: (scope: { locationId?: string; clientId?: string } = {}) =>
+    [
+      "review-counts",
+      [scope.locationId ?? "organisation", scope.clientId ?? ""]
+        .filter(Boolean)
+        .join(":"),
+    ] as const,
   reviews: (scope: string, filters: unknown) =>
     ["reviews", scope, filters] as const,
   reviewDetail: (id: string) => ["review-detail", id] as const,
@@ -137,6 +167,7 @@ export const queryKeys = {
   // page and with it the cache (components/app-shell/account-menu.tsx).
   privacyAll: ["privacy"] as const,
   privacyRequests: ["privacy", "requests"] as const,
+  privacyPreview: (id: string) => ["privacy", "preview", id] as const,
   legalHolds: ["privacy", "legal-holds"] as const,
   retentionStatus: ["privacy", "retention-status"] as const,
   members: ["members"] as const,
