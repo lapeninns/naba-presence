@@ -9,6 +9,7 @@ import postgres, {
 } from "postgres"
 
 import { getServerEnv } from "@/lib/server/env"
+import { countDbTransaction } from "@/lib/server/request-metrics"
 
 declare global {
   var __nabaSql: Sql | undefined
@@ -134,10 +135,10 @@ export async function withTenant<T>(
         span.setStatus({ code: SpanStatusCode.ERROR })
         throw error
       } finally {
-        const attributes = {
-          "tenant.id": organisationId,
-          outcome,
-        }
+        // `tenant.id` stays on the span only: as a metric attribute it made
+        // one series per tenant (audit W7-11).
+        const attributes = { outcome }
+        countDbTransaction()
         tenantTransactionDuration.record(
           performance.now() - startedAt,
           attributes
