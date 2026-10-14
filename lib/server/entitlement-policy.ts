@@ -6,6 +6,7 @@ import type { Access } from "@/lib/domain/entitlements"
 import {
   accessFromView,
   getOrganisationBilling,
+  lockOrganisationBilling,
   type OrganisationBillingView,
 } from "@/lib/server/billing/state"
 import { getServerEnv } from "@/lib/server/env"
@@ -42,6 +43,11 @@ import type { Session } from "@/lib/server/session"
  *   - the location limit is a database trigger (0110
  *     location_link_enforce_limit), so every writer meets it;
  *     `locationLimitError` maps its error to 402 `location_limit_reached`.
+ *   - the member limit is checked in the app (assertNewMemberSeat): when an
+ *     invitation is created (members plus open invitations) and when one is
+ *     accepted (members, under the billing row lock), 402
+ *     `member_limit_reached`. Every membership but an organisation's first
+ *     owner is made by accepting an invitation.
  *
  * Read-only keeps everything that lets a customer leave, comply or come
  * back: sign-in and session switching, getting a two-step proof, billing, data export, privacy
@@ -246,4 +252,88 @@ export async function countBillableLocations(
     where organisation_id = ${organisationId} and is_active
   `
   return row?.n ?? 0
+}
+
+export const MEMBER_LIMIT_REACHED_MESSAGE =
+  "This workspace has reached its plan's member limit. Remove a member, revoke an invitation or change plan to add someone."
+
+export function memberLimitReachedError(limit: number): ApiError {
+  return new ApiError(402, "member_limit_reached", MEMBER_LIMIT_REACHED_MESSAGE, {
+    details: { limit },
+  })
+}
+
+/**
+ * The member limit new seats must fit, or null when none binds: enforcement
+ * off, a pilot, or a plan with no member limit. Like newLinkLimit for
+ * locations, a scheduled downgrade binds at once (the lower of the current
+ * and the pending plan's limit), and existing members are never removed.
+ */
+export function newMemberLimit(
+  view: OrganisationBillingView,
+  now: Date = new Date(),
+  enabled?: boolean
+): number | null {
+  if (!enforcementApplies(view, enabled)) return null
+  if (view.billing?.state === "pilot") return null
+  const current = accessFromView(view, now).memberLimit
+  const pending = view.billing?.pendingEffectiveAt
+    ? (view.pendingPlan?.memberLimit ?? null)
+    : null
+  if (current === null) return pending
+  return pending === null ? current : Math.min(current, pending)
+}
+
+/**
+ * Throws 402 `member_limit_reached` when one more person would not fit the
+ * plan (R2B-04). Seats are memberships of any role; `pendingInvitations`
+ * also counts open (unaccepted, unexpired) invitations, so creating one
+ * fails early rather than at acceptance. `joiningUserId` is not counted
+ * against itself: accepting as an existing member makes no new seat.
+ *
+ * Acceptance decides, so it passes `lock`: the billing row lock serialises
+ * two acceptances racing for the last seat. Only an organisation a limit
+ * binds takes it. Runs inside the organisation's tenant scope (the counts
+ * are under RLS).
+ */
+export async function assertNewMemberSeat(
+  sql: TransactionSql,
+  organisationId: string,
+  options: {
+    pendingInvitations?: boolean
+    joiningUserId?: string
+    lock?: boolean
+  } = {},
+  now: Date = new Date()
+): Promise<void> {
+  let limit = newMemberLimit(
+    await getOrganisationBilling(sql, organisationId),
+    now
+  )
+  if (limit === null) return
+  if (options.lock) {
+    limit = newMemberLimit(
+      await lockOrganisationBilling(sql, organisationId),
+      now
+    )
+    if (limit === null) return
+  }
+  const [row] = await sql<{ seats: number }[]>`
+    select (
+      (
+        select count(*)
+        from member
+        where organisation_id = ${organisationId}
+          and user_id is distinct from ${options.joiningUserId ?? null}::uuid
+      )
+      + case when ${options.pendingInvitations ?? false} then (
+        select count(*)
+        from invitation
+        where organisation_id = ${organisationId}
+          and accepted_at is null
+          and expires_at > now()
+      ) else 0 end
+    )::int as seats
+  `
+  if ((row?.seats ?? 0) >= limit) throw memberLimitReachedError(limit)
 }

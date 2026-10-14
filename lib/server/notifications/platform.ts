@@ -1,5 +1,6 @@
 import "server-only"
 
+import { billingHealth, type BillingFinding } from "@/lib/server/billing/alerts"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
@@ -10,6 +11,7 @@ import {
   type ScheduledPostFinding,
   type TickFinding,
 } from "@/lib/server/ops-liveness"
+import { recordSchedulerTickAges } from "@/lib/server/request-metrics"
 import { retentionCycleFailureFinding } from "@/lib/server/retention/cycle"
 
 import { runDeliveries, type DeliveryOutcome } from "./delivery"
@@ -19,6 +21,7 @@ import { renderPlatformEmail } from "./messages"
 export type PlatformIncidentKind =
   | TickFinding["kind"]
   | ScheduledPostFinding["kind"]
+  | BillingFinding["kind"]
   | "google_quota_pressure"
 
 const PLATFORM_INCIDENT_KINDS: readonly PlatformIncidentKind[] = [
@@ -30,6 +33,9 @@ const PLATFORM_INCIDENT_KINDS: readonly PlatformIncidentKind[] = [
   "google_quota_pressure",
   "scheduled_post_stuck",
   "scheduled_post_overdue",
+  "billing_event_dead",
+  "billing_sync_failing",
+  "billing_plan_unknown",
 ]
 
 type PlatformFinding = {
@@ -64,11 +70,17 @@ export type PlatformEvaluation = {
  * per organisation: an occurrence stuck `publishing` past its lease, or
  * still `scheduled` three minutes past its deadline. They report only; nothing
  * here publishes, resends or settles an occurrence.
+ *
+ * Billing findings (R2B-06, lib/server/billing/alerts.ts) are per
+ * organisation too: a dead Stripe event no sync has caught up with, a run of
+ * failed background syncs, and a subscribed price the catalog lacks. They
+ * report only; the next successful sync resolves them.
  */
 export async function evaluatePlatform(): Promise<PlatformEvaluation> {
   const database = getDatabase()
   const now = new Date()
   const liveness = await schedulerLiveness(now)
+  recordSchedulerTickAges(liveness.schedulerTicks, now)
   const findings: PlatformFinding[] = tickFindings(liveness.schedulerTicks, now)
   const cycleFailures = await retentionCycleFailureFinding()
   if (cycleFailures) findings.push(cycleFailures)
@@ -88,6 +100,15 @@ export async function evaluatePlatform(): Promise<PlatformEvaluation> {
   } catch (error) {
     unchecked.add("scheduled_post_stuck").add("scheduled_post_overdue")
     log.error("ops.scheduled_post_health_failed", { error })
+  }
+  try {
+    findings.push(...(await billingHealth()))
+  } catch (error) {
+    unchecked
+      .add("billing_event_dead")
+      .add("billing_sync_failing")
+      .add("billing_plan_unknown")
+    log.error("ops.billing_health_failed", { error })
   }
   for (const row of throttled) {
     findings.push({

@@ -11,7 +11,8 @@ import {
   UploadIcon,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
-import { useRef, useState } from "react"
+import dynamic from "next/dynamic"
+import { useState } from "react"
 
 import {
   AlertDialog,
@@ -21,16 +22,13 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  PostComposerSheet,
-  postFormValues,
-} from "@/components/locations/posts/post-composer-sheet"
+import { postFormValues } from "@/components/locations/posts/post-form-values"
+import { useDeferredSheet } from "@/components/locations/posts/use-deferred-sheet"
 import {
   OperationReceiptNotice,
   unconfirmedReceiptId,
 } from "@/components/locations/operation-outcome"
 import { PostPreview } from "@/components/locations/posts/post-preview"
-import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -65,6 +63,28 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
+
+// Each post row can edit and schedule, but few rows ever do: the two sheets
+// load (and mount) the first time one is asked to open, and opening the
+// row's menu starts the load.
+const loadComposer = () =>
+  import("@/components/locations/posts/post-composer-sheet")
+const loadScheduler = () =>
+  import("@/components/locations/posts/schedule-post-sheet")
+const PostComposerSheet = dynamic(
+  () =>
+    import("@/components/locations/posts/post-composer-sheet").then(
+      (m) => m.PostComposerSheet
+    ),
+  { ssr: false }
+)
+const SchedulePostSheet = dynamic(
+  () =>
+    import("@/components/locations/posts/schedule-post-sheet").then(
+      (m) => m.SchedulePostSheet
+    ),
+  { ssr: false }
+)
 
 /**
  * The toast for a publish answer. The route's `operation.outcome` says what
@@ -170,8 +190,8 @@ export function PostsActionBar({
   const [publishOpen, setPublishOpen] = useState(false)
   // Approving publishes, so the approver sees exactly what goes to Google.
   const [approveOpen, setApproveOpen] = useState(false)
-  const composer = useRef<{ open: () => void }>(null)
-  const scheduler = useRef<{ open: () => void }>(null)
+  const composer = useDeferredSheet()
+  const scheduler = useDeferredSheet()
   const name = label || post.summary.slice(0, 60) || "this post"
   const invalidate = [queryKeys.locationPosts(locationId)]
 
@@ -190,11 +210,16 @@ export function PostsActionBar({
     onError: () => setPublishOpen(false),
   })
   const decide = useResourceMutation({
-    mutationFn: (decision: "approve" | "reject") =>
+    mutationFn: (decision: "approve" | "reject", intent) =>
       // Bound to the revision on screen: an edit since the list loaded makes
       // the server refuse (approval_post_changed) rather than approve text
       // this approver never read.
-      decidePostApproval(locationId, post.id, decision, post.contentRevision),
+      decidePostApproval(locationId, post.id, decision, post.contentRevision, {
+        intentId: intent.intentId,
+      }),
+    // A retry after a lost answer resends the intent, so an approval that
+    // already published is answered with its outcome, not a 409.
+    intentKey: (decision) => [post.id, decision, post.contentRevision],
     invalidate,
     // Rejecting only changes NabaPresence (a plain toast); approving
     // publishes, so its toast is a Google write.
@@ -206,7 +231,11 @@ export function PostsActionBar({
     },
   })
   const remove = useResourceMutation({
-    mutationFn: () => deletePost(locationId, post.id),
+    // A retry after a lost answer resends the intent, so a delete that
+    // already landed is answered as deleted, not a 404.
+    mutationFn: (_: void, intent) =>
+      deletePost(locationId, post.id, { intentId: intent.intentId }),
+    intentKey: () => post.id,
     invalidate,
     errorContext: "post",
     onSuccess: () => {
@@ -365,7 +394,13 @@ export function PostsActionBar({
         </a>
       ) : null}
 
-      <DropdownMenu>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (!open) return
+          if (editable) void loadComposer()
+          if (canSchedule) void loadScheduler()
+        }}
+      >
         <DropdownMenuTrigger
           render={
             <Button
@@ -383,14 +418,14 @@ export function PostsActionBar({
             // that blocks Google writes doesn't block it; the edit grant does.
             <DropdownMenuItem
               disabledReason={editReason ?? undefined}
-              onClick={() => composer.current?.open()}
+              onClick={composer.open}
             >
               <PencilIcon aria-hidden />
               Edit
             </DropdownMenuItem>
           ) : null}
           {canSchedule ? (
-            <DropdownMenuItem onClick={() => scheduler.current?.open()}>
+            <DropdownMenuItem onClick={scheduler.open}>
               <CalendarClock aria-hidden />
               Schedule publication
             </DropdownMenuItem>
@@ -426,22 +461,22 @@ export function PostsActionBar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {editable ? (
+      {editable && composer.mounted ? (
         <PostComposerSheet
           locationId={locationId}
           disabledReason={editReason}
           post={post}
           timezone={timezone}
-          openRef={composer}
+          openRef={composer.openRef}
         />
       ) : null}
-      {canSchedule ? (
+      {canSchedule && scheduler.mounted ? (
         <SchedulePostSheet
           locationId={locationId}
           post={post}
           timezone={timezone}
           recurring={scheduling?.recurring === true}
-          openRef={scheduler}
+          openRef={scheduler.openRef}
         />
       ) : null}
       {receiptId ? (

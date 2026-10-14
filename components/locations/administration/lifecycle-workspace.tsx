@@ -5,6 +5,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { SavedWorkList, type SavedWorkItem } from "@/components/reviewed-write"
 import { ApiClientError } from "@/lib/api/client"
 import { fetchLifecycleAttempt, fetchLifecycleWorkflows } from "@/lib/api/google-lifecycle"
+import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -36,7 +37,7 @@ export function LifecycleWorkspace({ locationId, locationName, children }: {
   const role = useSessionRole(), directory = useLocationDirectory(role)
   const name = locationName ?? directory.data?.find((entry) => entry.id === locationId)?.name ?? ""
   const visible = (role === "owner" || role === "admin") && capabilities.data?.canEditCanonical === true
-  const saved = useInfiniteQuery({ queryKey: ["lifecycle-workflows", locationId], enabled: visible, initialPageParam: "",
+  const saved = useInfiniteQuery({ queryKey: queryKeys.locationLifecycleWorkflows(locationId), enabled: visible, initialPageParam: "",
     queryFn: ({ pageParam, signal }) => fetchLifecycleWorkflows(locationId, pageParam, { signal }), getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
   const items = saved.data?.pages.flatMap((page) => page.items) ?? []
@@ -45,7 +46,7 @@ export function LifecycleWorkspace({ locationId, locationName, children }: {
   const latestIndex = items.findIndex((item) => item.attemptId)
   const latestRecorded = latestIndex >= 0 ? items[latestIndex] : undefined
   const latest = useQuery({
-    queryKey: ["lifecycle-latest-attempt", locationId, latestRecorded?.reviewId], enabled: visible && Boolean(latestRecorded), retry: false,
+    queryKey: queryKeys.locationLifecycleAttempt(locationId, latestRecorded?.reviewId), enabled: visible && Boolean(latestRecorded), retry: false,
     queryFn: ({ signal }) => fetchLifecycleAttempt(locationId, latestRecorded?.reviewId ?? "", { signal }),
   })
   // An outcome held in this session counts unless it belongs to work that is

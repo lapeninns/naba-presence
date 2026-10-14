@@ -13,6 +13,7 @@ export const maxDuration = 60
  * answers 409 `location_limit_exceeded`.
  */
 export const POST = route({
+  maxDuration,
   roles: ["owner"],
   // Plan P07-S5: money moves, so an owner steps up first (P02-S9).
   mfa: "step_up",

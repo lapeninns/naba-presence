@@ -1,22 +1,23 @@
 import { apiFetch } from "./client"
-import {
-  mfaEnrollResponseSchema,
-  mfaFactorsResponseSchema,
-  mfaStepUpResponseSchema,
-  mfaVerifyResponseSchema,
-  type MfaEnrollInput,
-  type MfaEnrollResponse,
-  type MfaFactorsResponse,
-  type MfaStepUpInput,
-  type MfaStepUpResponse,
-  type MfaVerifyInput,
-  type MfaVerifyResponse,
+import type {
+  MfaEnrollInput,
+  MfaEnrollResponse,
+  MfaFactorsResponse,
+  MfaStepUpInput,
+  MfaStepUpResponse,
+  MfaVerifyInput,
+  MfaVerifyResponse,
 } from "@/lib/contracts/auth"
+
+// Schemas load on demand (see `ResponseSchema` in ./client), as in ./auth:
+// the contracts pull in zod, which /sign-in/verify would otherwise download
+// before it can render.
+const authContract = () => import("@/lib/contracts/auth")
 
 /** The authenticator apps a pending sign-in may answer with. */
 export function pendingFactors(): Promise<MfaFactorsResponse> {
   return apiFetch("/api/auth/mfa/factors", {
-    schema: mfaFactorsResponseSchema,
+    schema: () => authContract().then((m) => m.mfaFactorsResponseSchema),
   })
 }
 
@@ -27,7 +28,7 @@ export function verifyMfaCode(
   return apiFetch("/api/auth/mfa/verify", {
     method: "POST",
     body: input,
-    schema: mfaVerifyResponseSchema,
+    schema: () => authContract().then((m) => m.mfaVerifyResponseSchema),
   })
 }
 
@@ -43,7 +44,7 @@ export function startMfaEnrollment(
   return apiFetch("/api/auth/mfa/enroll", {
     method: "POST",
     body: input,
-    schema: mfaEnrollResponseSchema,
+    schema: () => authContract().then((m) => m.mfaEnrollResponseSchema),
   })
 }
 
@@ -55,6 +56,6 @@ export function stepUpMfa(input: MfaStepUpInput): Promise<MfaStepUpResponse> {
   return apiFetch("/api/auth/mfa/step-up", {
     method: "POST",
     body: input,
-    schema: mfaStepUpResponseSchema,
+    schema: () => authContract().then((m) => m.mfaStepUpResponseSchema),
   })
 }

@@ -7,7 +7,7 @@ import { jsonColumn, withTenant } from "@/lib/server/db"
 import { auditGbpMutation, gbpManagementAttemptStore } from "@/lib/server/gbp-management"
 import { observeLifecyclePostcondition } from "@/lib/server/google-lifecycle-observation"
 import { reconcileLifecycleTransfer } from "@/lib/server/google-lifecycle-reconciliation"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
@@ -46,17 +46,17 @@ export async function loadLifecycleAttempt(session: Session, locationId: string,
   })
 }
 export function projectLifecycleAttempt(row: LifecycleAttemptRow, idempotent = true) {
-  const baseline = googleLifecycleBaselineSchema.parse({ ...row.baseline, observedAt: row.requested.observedAt })
+  const baseline = parseStored(googleLifecycleBaselineSchema, { ...row.baseline, observedAt: row.requested.observedAt }, "lifecycle_attempt.baseline")
   const parsed = googleLifecycleObservationSchema.safeParse(row.observation)
   const observation = parsed.success ? parsed.data : null
   const postcondition = observation ? lifecycleConfirmation({ request: row.requested.request, baseline, observation }) : "unresolved"
-  return lifecycleAttemptSchema.parse({
+  return parseStored(lifecycleAttemptSchema, {
     id: row.id, reviewId: row.reviewId, locationId: row.locationId, operation: row.operation,
     target: row.target, payloadHash: row.payloadHash, request: row.requested.request, sourceAccount: baseline.source.account.name,
     executionState: row.executionState, confirmationState: row.confirmationState,
     localReconciliation: row.localReconciliation,
     postcondition, observedAt: observation?.observedAt ?? null, errorCode: row.errorCode, idempotent,
-  })
+  }, "lifecycle_attempt")
 }
 export async function readLifecycleAttempt(session: Session, locationId: string, reviewId: string, idempotent = true) {
   const row = await loadLifecycleAttempt(session, locationId, reviewId)
@@ -64,7 +64,7 @@ export async function readLifecycleAttempt(session: Session, locationId: string,
   return projectLifecycleAttempt(row, idempotent)
 }
 export async function refreshLifecycleObservation(session: Session, locationId: string, row: LifecycleAttemptRow, requestId: string) {
-  const baseline = googleLifecycleBaselineSchema.parse({ ...row.baseline, observedAt: row.requested.observedAt })
+  const baseline = parseStored(googleLifecycleBaselineSchema, { ...row.baseline, observedAt: row.requested.observedAt }, "lifecycle_attempt.baseline")
   let observation: z.infer<typeof googleLifecycleObservationSchema> | null = null
   try { observation = await observeLifecyclePostcondition(session, locationId, row.requested, baseline) }
   catch (error) { if (!(error instanceof Error)) throw error }

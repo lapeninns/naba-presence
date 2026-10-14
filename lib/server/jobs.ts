@@ -6,9 +6,22 @@ import "server-only"
  * Shape, in one tick:
  *
  *   reclaim_expired_jobs()   one reaper for every in-flight status
- *   claim_due_jobs(...)      one cross-tenant query -> a fair batch, leased
- *   run the batch            bounded concurrency, one tenant txn per item
- *   repeat                   until the batch comes back empty or time is up
+ *   scheduled posts          first, on a reserved slice (hard windows)
+ *   claim_due_jobs(...)      one cross-tenant query -> a fair batch, leased,
+ *                            user-facing kinds first (0144 job_kind_rank)
+ *   run the batch            bounded concurrency, one tenant txn per item;
+ *                            an item starts only while a provider call fits
+ *   repeat                   until the batch comes back empty or only the
+ *                            bulk reserve is left
+ *   bulk listing children    on the reserve, at least one claim per tick
+ *   the queue again          on the reserve, when bulk had nothing to run
+ *   privacy, invitations     on what is left
+ *
+ * The order is the scheduling policy (audit 2026-10-14, W8-02/W8-03): a
+ * reconcile herd cannot push a scheduled post past its 5-minute window, a
+ * reply retry is claimed ahead of the herd, and bulk children are never
+ * starved by a sync backlog. Each runner after the queue is caught on its
+ * own, so one throwing cannot skip the others.
  *
  * Why the claim is a SECURITY DEFINER function: RLS scopes a tenant
  * transaction to one organisation, so finding due work used to mean looping
@@ -50,10 +63,13 @@ import "server-only"
  * (`GOOGLE_REQUESTS_PER_SECOND`). Provider-bound items therefore overlap
  * their database and scheduling latency but not their Google traffic.
  *
- * `/api/jobs/run` still holds the `naba:jobs` advisory lock, so one tick runs
- * at a time. With row-level leases that lock is now an optimisation -- it
- * stops redundant ticks piling up -- rather than the thing that makes
- * claiming safe.
+ * `/api/jobs/run` still holds the `naba:jobs` fleet lease (0145), so one
+ * tick runs at a time. With row-level leases that lease is now an
+ * optimisation -- it stops redundant ticks piling up -- rather than the thing
+ * that makes claiming safe. Parallel ticks are deliberately not enabled yet:
+ * the bulk and schedule claims are, but the per-tick heartbeat and the
+ * measured pool headroom (production runs DATABASE_POOL_MAX=5) are not
+ * ready for them (docs/runbook.md, "Job runner scheduling").
  */
 
 import type { TransactionSql } from "postgres"
@@ -90,6 +106,7 @@ import {
   writePublishAttemptEvent,
 } from "@/lib/server/publishing"
 import { syncDuePerformance } from "@/lib/server/performance"
+import { recordJobsClaimed } from "@/lib/server/request-metrics"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 import {
@@ -254,18 +271,32 @@ export function claimableKinds(
 }
 
 /**
- * Runs `work` over `items` with at most `limit` in flight, stopping at the
- * tick deadline. Rejections are impossible: every worker settles its own
- * item. Items the deadline leaves unstarted keep their lease and are
- * re-armed by the reaper -- which, unlike a claim, costs no retry budget.
+ * How much of the tick an item of this kind must still have when it starts:
+ * one provider call. An item runs to completion once started -- killing it
+ * mid-call is what creates ambiguous attempts -- so this is what keeps the
+ * last item of a tick inside the route's maxDuration (the tick budget leaves
+ * one call's worth of margin). Kinds that page or walk months check the
+ * clock themselves between calls (reconcile) or are bounded by their
+ * per-location shape (performance, keywords: one location per item).
+ * `webhook_dead` only writes its terminal row.
+ */
+function itemStartMarginMs(kind: JobKind, env: ServerEnv): number {
+  return kind === "webhook_dead" ? 0 : env.GOOGLE_TIMEOUT_MS
+}
+
+/**
+ * Runs `work` over `items` with at most `limit` in flight, starting an item
+ * only while `canStart` allows it, and returns the items it never started.
+ * Rejections are impossible: every worker settles its own item.
  */
 async function runPool<T>(
   items: readonly T[],
   limit: number,
-  deadline: number,
+  canStart: (item: T) => boolean,
   work: (item: T) => Promise<void>
-): Promise<void> {
+): Promise<T[]> {
   let cursor = 0
+  const unstarted: T[] = []
   // Shared across the workers. Nothing in a batch may still be calling Google
   // after the tick has answered its HTTP request, so a worker that somehow
   // rejects stops its siblings pulling new items, and all of them are awaited
@@ -275,9 +306,13 @@ async function runPool<T>(
   const workers = Array.from(
     { length: Math.max(1, Math.min(limit, items.length)) },
     async () => {
-      while (!stopped && cursor < items.length && Date.now() < deadline) {
+      while (!stopped && cursor < items.length) {
         const item = items[cursor]
         cursor += 1
+        if (!canStart(item)) {
+          unstarted.push(item)
+          continue
+        }
         try {
           await work(item)
         } catch (error) {
@@ -287,9 +322,12 @@ async function runPool<T>(
       }
     }
   )
-  for (const result of await Promise.allSettled(workers)) {
+  const results = await Promise.allSettled(workers)
+  unstarted.push(...items.slice(cursor))
+  for (const result of results) {
     if (result.status === "rejected") throw result.reason
   }
+  return unstarted
 }
 
 async function reclaimExpired(): Promise<void> {
@@ -341,6 +379,31 @@ async function releaseLease(job: ClaimedJob): Promise<void> {
   } catch (error) {
     // A lease that outlives its item is harmless -- the reaper collects it.
     log.warn("jobs.lease_release_failed", {
+      organisationId: job.organisationId,
+      kind: job.kind,
+      jobId: job.jobId,
+      error,
+    })
+  }
+}
+
+/**
+ * Puts a claimed item the tick never started back exactly as claimable as it
+ * was (0144 `release_unstarted_job`), so the next tick takes it at once
+ * instead of the reaper after its lease. Nothing is spent: it never ran.
+ */
+async function releaseUnstarted(job: ClaimedJob): Promise<void> {
+  try {
+    await getDatabase()`
+      select release_unstarted_job(
+        ${job.kind},
+        ${job.organisationId}::uuid,
+        ${job.jobId}::uuid
+      )
+    `
+  } catch (error) {
+    // The lease still runs out and the reaper re-arms it, as before 0147.
+    log.warn("jobs.unstarted_release_failed", {
       organisationId: job.organisationId,
       kind: job.kind,
       jobId: job.jobId,
@@ -736,6 +799,13 @@ async function settleRecoveryFailure(
 const BILLING_HOLD_MS = 60 * 60_000
 /** The most of a tick Stripe event processing may use. */
 const BILLING_BUDGET_MS = 15_000
+/**
+ * The slice of every tick scheduled posts get before the queue runs (at
+ * least one provider call, so the runner can claim). A due post may only
+ * start inside its 5-minute window, so it must never wait behind a sync
+ * backlog; a tick with nothing due spends one claim query on it.
+ */
+const SCHEDULE_BUDGET_MS = 15_000
 
 /**
  * Central billing enforcement for a publish retry (plan P07-S3): a retry is
@@ -1105,38 +1175,89 @@ export async function runDueJobs(options: {
   // the tick budget plus a margin is the right ceiling.
   const leaseSeconds = Math.ceil(options.budgetMs / 1000) + 60
 
-  // Stop claiming once there is not even one provider call's worth of budget
-  // left: a claimed row that never runs is stranded until its lease expires,
-  // which is the whole reason a killed tick used to look like a failure.
-  while (Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline) {
-    const batch = await claimBatch({
-      limit: env.JOBS_BATCH_SIZE,
-      leaseSeconds,
-      perOrganisation: env.JOBS_PER_ORGANISATION,
-      kinds,
-    })
-    if (batch.length === 0) break
-    await runPool(batch, env.JOBS_CONCURRENCY, deadline, (job) =>
-      runJob(job, tick)
-    )
-  }
+  const remaining = () => Math.max(0, deadline - Date.now())
 
-  // Scheduled post publication shares the tick, its budget and the same
-  // lease-and-reap model (claim_due_publication_schedules). Paused with
+  // Scheduled posts first, on their reserved slice (W8-02). Paused with
   // publishing, like the other kinds that reach Google on a user's behalf,
-  // and each by its own operator scope (`bulk`, `scheduled_post`) as well.
-  // Bulk listing children, then scheduled posts, on what is left of the budget.
-  if (scopesEnabled(env, pauses, ["jobs", "publish", "bulk"])) {
-    summary.bulk = await runDueBulkChildren({
-      budgetMs: Math.max(0, deadline - Date.now()),
-      requestId: options.requestId,
-    })
-  }
+  // and by its own operator scope (`scheduled_post`) as well. It shares the
+  // tick's lease-and-reap model (claim_due_publication_schedules).
   if (scopesEnabled(env, pauses, ["jobs", "publish", "scheduled_post"])) {
     summary.schedules = await runDueSchedules({
-      budgetMs: Math.max(0, deadline - Date.now()),
+      budgetMs: Math.min(
+        remaining(),
+        Math.max(SCHEDULE_BUDGET_MS, env.GOOGLE_TIMEOUT_MS)
+      ),
       requestId: options.requestId,
+    }).catch((error: unknown) => {
+      log.error("post_schedule.tick_failed", {
+        requestId: options.requestId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
     })
+  }
+
+  // Bulk listing children get a reserve of one claim per tick, which the
+  // queue leaves free; when bulk has nothing to run, the queue gets it back.
+  const bulkEnabled = scopesEnabled(env, pauses, ["jobs", "publish", "bulk"])
+  const bulkReserve = bulkEnabled ? env.GOOGLE_TIMEOUT_MS : 0
+
+  // Stop claiming once there is not even one provider call's worth of budget
+  // left, and start an item only while its own call still fits: a claimed
+  // row that never runs is handed straight back (releaseUnstarted) rather
+  // than stranded until its lease expires.
+  const drainQueue = async (until: number, maxBatches = Infinity) => {
+    for (
+      let batches = 0;
+      batches < maxBatches && Date.now() + env.GOOGLE_TIMEOUT_MS <= until;
+      batches += 1
+    ) {
+      const batch = await claimBatch({
+        limit: env.JOBS_BATCH_SIZE,
+        leaseSeconds,
+        perOrganisation: env.JOBS_PER_ORGANISATION,
+        kinds,
+      })
+      if (batch.length === 0) return
+      recordJobsClaimed(batch.map((job) => job.kind))
+      const unstarted = await runPool(
+        batch,
+        env.JOBS_CONCURRENCY,
+        (job) => Date.now() + itemStartMarginMs(job.kind, env) <= until,
+        (job) => runJob(job, tick)
+      )
+      for (const job of unstarted) await releaseUnstarted(job)
+    }
+  }
+  // The queue always gets at least one batch when the tick has room for one,
+  // so user-facing work (ranked first by the claim) starts within a tick:
+  // when the bulk reserve would leave it none, it takes one batch from the
+  // reserve instead.
+  const queueUntil = deadline - bulkReserve
+  if (Date.now() + env.GOOGLE_TIMEOUT_MS <= queueUntil) {
+    await drainQueue(queueUntil)
+  } else {
+    await drainQueue(deadline, 1)
+  }
+
+  // Paused with publishing and by the `bulk` operator scope. At most
+  // JOBS_CONCURRENCY children run at once (W8-09).
+  if (bulkEnabled) {
+    summary.bulk = await runDueBulkChildren({
+      budgetMs: remaining(),
+      requestId: options.requestId,
+    }).catch((error: unknown) => {
+      log.error("bulk_listing.tick_failed", {
+        requestId: options.requestId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    })
+    // The reserve goes back to the queue only when bulk had nothing to run.
+    // A child's publish attempt is queue work too, and the queue must not
+    // pick up in the same tick what bulk has just dispatched: a fresh
+    // retry or read-back waits for the next tick, as it did before.
+    if (summary.bulk?.children === 0) await drainQueue(deadline)
   }
 
   // Parked privacy erasures. Held by the runner's own switch only: an
@@ -1146,8 +1267,14 @@ export async function runDueJobs(options: {
   // (lib/server/privacy/fulfil.ts settleWithdrawal).
   if (scopesEnabled(env, pauses, ["jobs"])) {
     summary.privacy = await runDuePrivacyWithdrawals({
-      budgetMs: Math.max(0, deadline - Date.now()),
+      budgetMs: remaining(),
       requestId: options.requestId,
+    }).catch((error: unknown) => {
+      log.error("privacy.withdrawals_tick_failed", {
+        requestId: options.requestId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
     })
   }
 
@@ -1156,8 +1283,14 @@ export async function runDueJobs(options: {
   // (`invitation_email`), not by publishing: nothing here reaches Google.
   if (scopesEnabled(env, pauses, ["jobs", "invitation_email"])) {
     summary.invitations = await runDueInvitationDeliveries({
-      budgetMs: Math.max(0, deadline - Date.now()),
+      budgetMs: remaining(),
       requestId: options.requestId,
+    }).catch((error: unknown) => {
+      log.error("invitations.delivery_tick_failed", {
+        requestId: options.requestId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
     })
   }
 

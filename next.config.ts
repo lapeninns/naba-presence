@@ -111,8 +111,27 @@ export const SHARE_HEADERS: { key: string; value: string }[] = [
   { key: "Cache-Control", value: "private, no-store, max-age=0" },
 ]
 
+/**
+ * Client chunking for `next build --webpack` (dev runs Turbopack, which does
+ * not call this). Next caps a page at 25 initial chunk requests; at that cap
+ * webpack stops splitting out shared modules and copies them into every
+ * chunk that uses them instead, so about a third of the emitted client JS
+ * was duplicates (the action-error table alone in 16 chunks). 50 lets those
+ * modules be shared: total client JS drops about 6% and the heaviest routes
+ * load less (WP-14, docs/audits/2026-10-14-full-stack-audit, measured as in
+ * raw/R2-W7b). Measure again with `tests/perf/route-js.mjs` before changing.
+ */
+const CLIENT_MAX_INITIAL_REQUESTS = 50
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  webpack(config, { dev, isServer }) {
+    if (!dev && !isServer && config.optimization?.splitChunks) {
+      config.optimization.splitChunks.maxInitialRequests =
+        CLIENT_MAX_INITIAL_REQUESTS
+    }
+    return config
+  },
   outputFileTracingRoot: process.cwd(),
   async redirects() {
     return RETIRED_ROUTES.map((route) => ({ ...route, permanent: false }))

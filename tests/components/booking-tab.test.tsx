@@ -112,6 +112,12 @@ describe("BookingTab", () => {
     const link = within(dialog).getByRole("textbox", { name: "Link" })
     await user.clear(link)
     await user.type(link, "https://book.test/new")
+    // A reload warns; the edit is not kept in the tab, since nothing could
+    // offer it back once the dialog is gone.
+    const reload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(reload)
+    expect(reload.defaultPrevented).toBe(true)
+    expect(Object.keys(sessionStorage).filter((key) => key.startsWith("naba:draft:"))).toEqual([])
     await user.keyboard("{Escape}")
     const prompt = await screen.findByRole("alertdialog", { name: "Close without saving?" })
     await user.click(within(prompt).getByRole("button", { name: "Keep editing" }))

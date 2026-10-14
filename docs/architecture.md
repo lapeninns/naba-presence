@@ -189,8 +189,9 @@ platform-level `abuse_rate_bucket` table, reached only through the SECURITY
 DEFINER `take_abuse_budget` and `purge_abuse_rate_buckets` functions, so every
 instance shares one count. Keys are HMAC digests under `NEXTAUTH_SECRET`,
 never plaintext. They cover password login, registration, confirmation resend,
-reset request and completion, the emailed confirmation link (`/auth/confirm`,
-per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
+reset request and completion, the emailed confirmation link (`POST
+/auth/confirm` from the `/confirm-email` interstitial, same-origin only; a GET
+of the link never spends the token; per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
 generation, support impersonation attempts (counted before the secret is
 compared) and `/share/report/[token]` lookups (which answer the same 404 as
 an unknown token when limited). The client IP comes only from the header named
@@ -208,9 +209,18 @@ stay in the domain module. Cron and public handlers import `withTenant` or
 `getDatabase` directly; the only `getDatabase()` calls left in route files are
 the commented cross-tenant enumeration and routing reads. `runtime` and
 `maxDuration` remain per-file static exports because Next reads them at build
-time. `getSession()` is wrapped in `React.cache`, so a server render that asks
-for the session from a layout, a page and a prefetch helper performs one
-lookup and one `last_seen_at` write; in route handlers the cache is a no-op.
+time; a route also hands its `maxDuration` to `route()`, which turns it into
+`ctx.deadline` (epoch ms, `lib/server/deadline.ts`: start + `maxDuration` −
+5 s). Services that make provider calls in a row take that plain `deadline`,
+size each call to what is left and stop before a step that cannot finish.
+`tests/route-max-duration.test.ts` requires both on every route whose imports
+reach the Google transport or the OpenAI client. A route whose Google calls
+can outrun 60 s and do not yet stop at the deadline (unbounded paging, a write
+and its read-back) declares 300, the Fluid compute default it ran under before
+the export was required; database-only routes declare 60. `getSession()` is
+wrapped in `React.cache`, so a server render that asks for the session from a
+layout, a page and a prefetch helper performs one lookup and one
+`last_seen_at` write; in route handlers the cache is a no-op.
 
 ## Location visibility: one rule
 
@@ -1036,6 +1046,13 @@ rather than a re-arm; the intent transaction also writes `review_reply`,
 is returned as an outcome the routes map to 409/429 rather than thrown. The
 boundary statement lives in both file headers and is kept in step.
 
+A request re-arms a queued row (`rearmAttempt`) only as a compare-and-set on
+the status and `attempt_no` it read, with any back-off elapsed, as the
+runner's retry claim does on `status = 'retryable'`. Without it a press that
+read the row before the runner claimed it (or before another press re-armed
+it) re-armed it again and called Google a second time. The loser resolves
+against the winner's row, as it does for a lost idempotency-key insert.
+
 The vocabulary also carries `superseded` (0035), which is not a provider
 verdict but a retirement: the mutation a queued attempt was keyed to is no
 longer the one the reply wants — a delete parked on a 429 while the operator
@@ -1101,12 +1118,11 @@ queue: their cron only arms a checkpoint for every linked location
 per-organisation cap, and success books the next run on the kind's grid from
 the slot it was due in (`next_scheduled_run`). `sync_checkpoint.
 last_succeeded_at` moves only on success and is what every freshness signal
-reads. Vercel Cron drives nine ticks (`vercel.json`), all GETs;
-`scripts/scheduler.mjs` fires the same nine for local and non-Vercel
-deployments, eight of them as POSTs (billing reconciliation is GET only). A
-POST is not the cron GET: the reconcile, performance and keyword POSTs run a
-page of the tenant walk inline, where their GETs enqueue checkpoints for the
-job runner.
+reads. Vercel Cron drives nine ticks (`vercel.json`); `scripts/scheduler.mjs`
+fires the same nine GETs with the cron bearer for local and non-Vercel
+deployments (`scripts/scheduler-ticks.mjs`), so both topologies enqueue the
+same way. The bearer POST of reconcile, performance and keywords still walks
+organisations inline; nothing schedules it.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and records
 each run in that loop's `ops_heartbeat` row (start, skip streak, failure and

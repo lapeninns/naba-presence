@@ -12,8 +12,19 @@ import {
 import { POST as uploadAsset } from "@/app/api/assets/route"
 import { POST as enrollMfa } from "@/app/api/auth/mfa/enroll/route"
 import { POST as draft } from "@/app/api/reviews/[id]/drafts/route"
+import { POST as verifyDraft } from "@/app/api/drafts/[id]/verify/route"
+import { POST as bulkReviews } from "@/app/api/reviews/bulk/route"
+import { POST as bulkPreview } from "@/app/api/listings/bulk/preview/route"
+import { POST as importReviewRefresh } from "@/app/api/locations/[id]/import-review/refresh/route"
+import { POST as backfill } from "@/app/api/sync/backfill/route"
+import { POST as syncKeywords } from "@/app/api/sync/keywords/route"
+import { POST as syncPerformance } from "@/app/api/sync/performance/route"
+import { POST as syncReconcile } from "@/app/api/sync/reconcile/route"
+import { POST as syncSweep } from "@/app/api/sync/sweep/route"
+import { GET as discoverAccounts } from "@/app/api/google/accounts/route"
+import { GET as discoverLocations } from "@/app/api/google/locations/route"
 import { POST as impersonate } from "@/app/api/support/impersonation/route"
-import { GET as confirmEmail } from "@/app/auth/confirm/route"
+import { POST as confirmEmail } from "@/app/auth/confirm/route"
 import { abuseLimitedError, takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { getDatabase } from "@/lib/server/db"
 import { verifyEmailToken } from "@/lib/server/password-auth"
@@ -70,6 +81,10 @@ function post(
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   })
+}
+
+function get(path: string) {
+  return new Request(`http://localhost${path}`)
 }
 
 function call(handler: RouteHandler, req: Request, params: RawParams = {}) {
@@ -177,6 +192,72 @@ describe.each([
     },
   },
   {
+    name: "draft verification",
+    send: () => call(verifyDraft, post("/x", {}), { id: REVIEW }),
+    scope: "ai_verify",
+    code: "verify_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  ...(
+    [
+      ["review sync now", syncReconcile],
+      ["review history sweep", syncSweep],
+      ["performance refresh", syncPerformance],
+      ["keywords refresh", syncKeywords],
+      ["history backfill", backfill],
+    ] as const
+  ).map(([name, handler]) => ({
+    name,
+    send: () => call(handler, post("/x", {})),
+    scope: "sync_manual",
+    code: "sync_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  })),
+  {
+    name: "import review refresh",
+    send: () => call(importReviewRefresh, post("/x", {}), { id: REVIEW }),
+    scope: "bulk_request",
+    code: "bulk_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
+    name: "bulk listing preview",
+    send: () =>
+      call(
+        bulkPreview,
+        post("/x", {
+          locationIds: [REVIEW],
+          input: {
+            operation: "attributes",
+            changes: [{ name: "attributes/has_wifi", values: [true] }],
+          },
+        })
+      ),
+    scope: "bulk_request",
+    code: "bulk_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
+    name: "bulk review approve",
+    send: () =>
+      call(
+        bulkReviews,
+        post("/x", {
+          action: "approve",
+          approvals: [
+            {
+              reviewId: REVIEW,
+              draftId: REVIEW,
+              reviewUpdateTime: "2026-10-14T10:00:00.000Z",
+            },
+          ],
+        })
+      ),
+    scope: "bulk_request",
+    code: "bulk_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
     name: "MFA enrollment",
     send: () => call(enrollMfa, post("/x", { password: "Password!1" })),
     scope: "mfa_enroll",
@@ -196,6 +277,20 @@ describe.each([
       ),
     scope: "asset_upload",
     code: "asset_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
+    name: "Google account discovery",
+    send: () => call(discoverAccounts, get("/x")),
+    scope: "google_discovery",
+    code: "discovery_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
+    name: "Google location discovery",
+    send: () => call(discoverLocations, get("/x?account_name=accounts/1")),
+    scope: "google_discovery",
+    code: "discovery_rate_limited",
     keys: { user: session.userId, organisation: session.organisationId },
   },
 ])("$name", ({ send, scope, keys, code = "auth_rate_limited" }) => {
@@ -240,12 +335,13 @@ describe("support impersonation", () => {
   })
 })
 
-describe("GET /auth/confirm", () => {
+describe("POST /auth/confirm", () => {
   it("is limited per IP before the token is verified", async () => {
     const response = await confirmEmail(
-      new Request(
-        `http://localhost/auth/confirm?token_hash=${"h".repeat(40)}&type=email`
-      )
+      new Request("http://localhost/auth/confirm", {
+        method: "POST",
+        body: new URLSearchParams({ token_hash: "h".repeat(40), type: "email" }),
+      })
     )
     expect(takeAbuseBudget).toHaveBeenCalledWith("confirm_email", { ip: IP })
     expect(verifyEmailToken).not.toHaveBeenCalled()

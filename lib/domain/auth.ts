@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { RESET_TOKEN_HASH_LENGTH } from "@/lib/domain/auth-limits"
 import { workspaceModeSchema } from "@/lib/contracts/session"
 
 export const emailSchema = z
@@ -40,6 +41,9 @@ export const resetRequestSchema = z.object({
 })
 
 export const resetPasswordSchema = z.object({
-  tokenHash: z.string().min(20).max(512),
+  tokenHash: z
+    .string()
+    .min(RESET_TOKEN_HASH_LENGTH.min)
+    .max(RESET_TOKEN_HASH_LENGTH.max),
   password: passwordSchema,
 })

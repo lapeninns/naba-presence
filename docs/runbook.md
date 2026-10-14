@@ -55,11 +55,17 @@ does not deploy. In order:
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
    with `--skip`, from a base other than the last promoted commit, or with
-   any required step not passed, and pending migrations. It deploys with
-   `NABA_RELEASE_SHA=<sha>` and writes a receipt under
-   `docs/release/receipts/`, with the local receipt's bytes copied beside it
-   as `<receipt>.local.json`.
-5. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
+   any required step not passed, and pending migrations. Set
+   `READINESS_PROBE_TOKEN` (production's `CRON_SECRET`) and, if the project
+   uses Deployment Protection, `VERCEL_AUTOMATION_BYPASS_SECRET` in the
+   shell first. It deploys with `NABA_RELEASE_SHA=<sha>` and
+   `--skip-domain`, runs the readiness probe against the new deployment's
+   URL, and only when that passes runs `vercel promote`. A failed probe
+   exits 1 with production still on the previous deployment: nothing to roll
+   back. After promoting it writes a receipt under `docs/release/receipts/`,
+   with the local receipt's bytes copied beside it as `<receipt>.local.json`.
+5. Smoke: `pnpm ops:readiness --url <production> --expect-promoted`, and
+   `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
 6. Commit both receipt files and copy the receipt's `sha` and
@@ -95,6 +101,14 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
 Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
+Choosing the collector is decision D-41. To turn export on: pick an OTLP/HTTP
+destination; set `OTEL_EXPORTER_OTLP_ENDPOINT` (and
+`OTEL_EXPORTER_OTLP_HEADERS` for its credentials, as a sensitive variable) in
+the Vercel project's Preview environment first, deploy a preview, and confirm
+readiness reports `telemetry.state` `exporting` and the
+`nabapresence.http.server.duration` series arrives; then set them in
+Production. On Vercel, each request flushes metrics after its response
+(docs/observability.md, "Export on Vercel").
 
 ### Membership scope switch (0082/0083)
 
@@ -246,6 +260,14 @@ before Google is called); nothing is ever unlinked automatically. To stop
 enforcing at once, set the env flag to `false` and redeploy, or clear the
 organisation's flag.
 
+A plan's `member_limit` (null = none) is checked in the app, under the same
+two switches, and never for a pilot: creating an invitation counts members
+plus open invitations and answers 402 `member_limit_reached` when no seat is
+left; accepting one counts members under the billing row lock and refuses
+the same way, which fails that sign-in. Revoking an invitation or removing a
+member frees a seat. A plan change below the current member count answers
+409 `member_limit_exceeded`; nobody is removed automatically.
+
 The env flag reaches the location-limit trigger only through the app's
 tenant transaction. A link written from an operator connection or a script
 follows the organisation's own `enforcement_enabled` flag alone, even with
@@ -304,6 +326,26 @@ update billing_event
 set status = 'failed', retry_count = 0, next_attempt_at = now()
 where status = 'dead' and external_event_id = '<evt_...>';
 ```
+
+### Billing alerts
+
+The health tick opens one platform incident per organisation (0146,
+`lib/server/billing/alerts.ts`); the subject is the organisation id:
+
+- `billing_event_dead`: a Stripe event used up its retries and no sync of
+  that organisation has succeeded since it died. Fix the cause (usually its
+  `last_error_code`), then re-arm the event as above or let the hourly
+  reconcile catch up.
+- `billing_sync_failing`: the last three or more background syncs (event
+  batches and reconcile) failed. `organisation_billing.sync_failures`,
+  `last_sync_error_code` and `last_sync_failed_at` hold the run; read
+  `billing.reconcile_failed` / `billing.event_failed` in the logs.
+- `billing_plan_unknown`: the organisation is subscribed to a price the
+  catalog lacks, so every sync fails and its record stays as it was (a pilot
+  keeps full access). Add the plan version with `pnpm billing:catalog`.
+
+Each resolves at the next evaluation after a sync of that organisation
+succeeds (the success resets the run and clears the code).
 
 ### Checkout and plan changes (P07-S5)
 
@@ -547,11 +589,13 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   swept within 4 (`tests/integration/routes/fleet-scale.test.ts`, production
   runner defaults, 240/min shared budget).
 - The owner/admin session POST of `/api/sync/reconcile`, `/performance` and
-  `/keywords` still runs its own organisation inline, and the bearer POST
-  still walks pages for `scripts/scheduler.mjs` (local and non-Vercel
-  deployments). Only presence resources still resume a cursor on the Vercel
-  path (`cron_cursor`); a null cursor means the walk finished, and a cursor
-  three fires in a row could not finish is abandoned for the head.
+  `/keywords` still runs its own organisation inline. `scripts/scheduler.mjs`
+  (local and non-Vercel deployments) fires the same cron GETs as `vercel.json`
+  (`scripts/scheduler-ticks.mjs`), so it enqueues too; the bearer POST still
+  walks pages inline but nothing schedules it. Only presence resources still
+  resume a cursor (`cron_cursor`, on both topologies); a null cursor means the
+  walk finished, and a cursor three fires in a row could not finish is
+  abandoned for the head.
 - The daily sweep does not page. `/api/sync/sweep` (cron) calls
   `enqueue_sweep_checkpoints`, which arms a `sweep` checkpoint for every
   linked location in every organisation in one statement, under the
@@ -562,7 +606,7 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   for a person.
 - Vercel does not retry a failed cron fire and may occasionally deliver a fire
   twice or drop one. The ticks are safe under all three: every route holds its
-  own advisory lock, so an overlapping or duplicate fire answers 200
+  own fleet lease (`fleet_lease`, 0145), so an overlapping or duplicate fire answers 200
   `{ skipped: true }` (no reason and no log line on Vercel; `lease_held` is
   logged only by `scripts/scheduler.mjs`) instead of doing the work twice, and a missed fire
   only delays work — each queue keeps its due rows and the next fire starts at
@@ -574,8 +618,8 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   checkpoints, and the pause is enforced when the jobs runner claims work, so
   checkpoints accumulate and drain after the pause. The per-tenant
   `performance.organisation_failed` / `keywords.organisation_failed` lines with
-  503 `sync_paused` appear only on the session and local-scheduler POST paths;
-  read them as the pause, not as an incident.
+  503 `sync_paused` appear only on the session (and manual bearer) POST
+  paths; read them as the pause, not as an incident.
 - Retention cycle. `/api/cron/retention` with no `cursor` is a dispatcher
   (`lib/server/retention/cycle.ts`). Each five-minute fire resumes the
   running cycle, or at or after 03:00 UTC opens the day's
@@ -638,7 +682,7 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   transaction, not in the round audits or the cycle counts.
 - Presence resources and retention are bounded by a per-page budget
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
-  are the session and scheduler POST paths of reconcile, performance and
+  are the session and bearer POST paths of reconcile, performance and
   keywords (`RECONCILE_BUDGET_MS`, `PERFORMANCE_BUDGET_MS`,
   `KEYWORDS_BUDGET_MS`). Performance and keywords check the deadline between
   locations inside an organisation as well, so an owner's manual refresh
@@ -770,8 +814,50 @@ means "the scheduler reached the web process", so a pause must not read as a
 dead scheduler. A missing heartbeat or one older than five minutes pages
 on-call. Verify that the Vercel Cron Jobs are enabled and firing (project Cron
 Jobs page and logs), that `CRON_SECRET` is set on the project, and check
-advisory-lock holders and database connectivity, then run one manual jobs tick
-and confirm the heartbeat advances.
+the `naba:jobs` row in `fleet_lease` and database connectivity, then run one
+manual jobs tick and confirm the heartbeat advances.
+
+### Job runner scheduling
+
+One tick (45 seconds inside the route's 60-second limit) spends its budget in
+this order (`runDueJobs`, audit 2026-10-14 W8-02/W8-03/W8-05/W8-09):
+
+1. The scheduled-post sweep and the Stripe billing slice, as before.
+2. **Scheduled posts**, first, on a slice of at most 15 seconds. A post may only
+   start inside its 5-minute window, so it never waits behind a sync backlog.
+   Schedules the slice does not reach are released for the next tick.
+3. **The queue** (`claim_due_jobs`), until only the bulk reserve (one Google
+   timeout, 15 seconds) is left. The claim ranks by kind before due time
+   (0144 `job_kind_rank`): publish retries and read-backs, uncertain listing
+   writes and webhooks first, then backfill and sweep checkpoints, then the
+   recurring reconcile, performance and keyword syncs. A reply retry is
+   therefore claimed in the first batch after it falls due, not behind its
+   organisation's reconcile herd. An item starts only while one Google call
+   still fits before the end of its lane; a claimed item the tick does not
+   start is handed straight back (`release_unstarted_job`), not left to the
+   reaper. If the reserve would leave the queue nothing, it takes one batch
+   from it.
+4. **Bulk listing children** on what is left, at least the reserve, at most
+   `JOBS_CONCURRENCY` at once. When bulk had nothing to run, the queue gets
+   the reserve back; when it ran children, the queue waits for the next tick,
+   so a retry or read-back of a publish bulk just dispatched is never picked
+   up in the same tick.
+5. Privacy erasures and invitation email on the remainder. Every runner from
+   step 2 on is caught on its own, so one that throws cannot skip the others.
+
+Scheduled ticks hold a **fleet lease** (`fleet_lease`, 0145) rather than a
+session advisory lock: an expiring row, renewed every 30 seconds while the run
+lasts and released when it ends. A tick frozen or killed while holding it
+stops renewing, and the next fire after the 90-second expiry takes it. A
+crashed tick therefore no longer frees its lease at once; expect at most one
+skipped fire after a crash. During the deploy that introduces 0145, an old
+instance (advisory lock) and a new one (lease row) do not exclude each other,
+so one tick may overlap once; row leases keep the queue's claims exclusive.
+
+Parallel job ticks are not enabled. Row leases already make concurrent claims
+safe, but the tick heartbeat and skip accounting are per lease, and production
+runs `DATABASE_POOL_MAX=5` with `JOBS_CONCURRENCY=3`. Measure item duration per
+kind and pooler headroom first (audit AR-3 step 5, AR-7).
 
 ### Retired sync checkpoints
 
@@ -886,9 +972,13 @@ retention cycle failures:
   refreshing proves the route works, not that the cron fires. Check the
   tick's entry in `vercel.json` and that its cron is enabled.
 - `tick_lock_wedged`: three or more scheduled fires in a row found the
-  advisory lock held. Find the holder in `pg_locks` (`locktype = 'advisory'`)
-  joined to `pg_stat_activity`; a session stuck holding it releases the lock
-  when its connection is terminated.
+  fleet lease held. Read `select holder, acquired_at, expires_at from
+  fleet_lease where name = '<key>'` (the key is `naba:<tick>`). A lease
+  expires 90 seconds after its holder last renewed it (every 30 seconds
+  while the run is alive), so a frozen or killed holder frees it on its own;
+  a lease that keeps being renewed means a run is still going. Since 0145
+  this is no longer a session advisory lock: there is nothing in `pg_locks`
+  to terminate.
 - `tick_cycle_overdue`: a tick that runs in cycles (retention) has not
   finished a walk over every organisation within `cycleStaleAfterSeconds`.
   Read the cycle's progress (see "Retention cycle" above) and the
@@ -905,6 +995,29 @@ retention cycle failures:
 The incident resolves on the first health tick after the condition clears.
 The health tick cannot alert on its own absence; the readiness probe is that
 signal (below).
+
+### Hosted readiness probe
+
+`.github/workflows/readiness-probe.yml` probes production every 5 minutes
+(docs/observability.md, "The hosted probe"). Operator setup, once:
+
+1. Create the secret, entering production's `CRON_SECRET` at the prompt (never
+   on the command line):
+   `gh secret set NABA_READINESS_TOKEN -R lapeninns/naba-presence`.
+2. Point it at production:
+   `gh variable set NABA_READINESS_URL --body https://<production origin> -R lapeninns/naba-presence`.
+3. Optionally, `gh variable set NABA_READINESS_EXPECT_PROMOTED --body true`
+   to fail when production does not serve the newest promotion receipt's
+   commit. This fails between a promotion and the merge of its receipt.
+4. Run it once by hand: `gh workflow run readiness-probe.yml`, then
+   `gh run list --workflow readiness-probe.yml`.
+5. Check that the GitHub account that last edited the workflow's cron gets
+   Actions failure emails (Settings → Notifications → Actions).
+
+The job needs hosted Actions minutes, about 8,600 a month at one billed
+minute per run. While the Actions budget blocks hosted jobs (docs/ci.md), it
+does not run. When the secret is rotated with `CRON_SECRET`, update
+`NABA_READINESS_TOKEN` too, or every run fails `unauthorised`.
 
 ### Readiness probe failure
 
@@ -1233,10 +1346,11 @@ Provision in this order:
    it stays open, and suspended Vercel instances keep their idle pools open,
    so session mode exhausted the pooler's 15 slots (`EMAXCONNSESSION`) with
    connections nobody was using. `DATABASE_SESSION_URL` uses the **session
-   pooler** (port 5432) and serves only the refresh lock and the scheduler
-   leases, which are session advisory locks that a transaction pooler would
+   pooler** (port 5432) and serves the refresh lock and the Google write
+   locks, which are session advisory locks that a transaction pooler would
    release between statements; each lock opens and closes its own
-   connection. Startup refuses a 6543 `DATABASE_URL` without it. Resolve the
+   connection. The scheduler leases are `fleet_lease` rows (0145) and use
+   the pooled `DATABASE_URL`. Startup refuses a 6543 `DATABASE_URL` without it. Resolve the
    hostname and open one test connection before pointing anything at it; the
    last production database died silently as NXDOMAIN and nothing paged.
 2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` until every file in
@@ -1372,6 +1486,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `cron_cursor` | operational | keep | one row per walk, updated in place | none | none | no | internal |
 | `draft` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect; scrubbed by privacy erasure | cascade from `review` | gated | yes | published |
 | `external_location` | google | redact | raw payload and address at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at), unless a review of it is held | `locations`, `disconnectedLocations` | gated | cascade only | published |
+| `fleet_lease` | operational | keep | one row per tick, updated in place | none | none | no | internal |
 | `food_menu_item_identity` | derived | keep | for the life of the location | none | none | no | pending D-28: keep the item mapping while the location exists; it is rebuilt on each menu reconcile |
 | `food_menus_state` | google | delete | expires_at (30 days after each observation) | `foodMenuStates`, cascade from `external_location` | gated | cascade only | published |
 | `food_menus_sync_attempt` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `foodMenuAttempts`, `strandedFoodMenus`, cascade from `external_location` | gated | cascade only | internal |
@@ -1394,7 +1509,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `hours_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `hoursAttempts`, `strandedHours`, cascade from `external_location` | gated | cascade only | internal |
 | `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
 | `invitation_delivery` | operational | keep | with its invitation; deleted when the invitation is revoked | none | none | no | lifecycle |
-| `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record | cascade from `review` | gated | yes | lifecycle |
+| `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0141) | cascade from `review` | gated | yes | lifecycle |
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |
@@ -1444,7 +1559,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `risc_event` | operational | keep | kept as the Cross-Account Protection record | none | none | no | pending D-47: keep received security events as their record |
 | `schema_migration` | operational | keep | one row per applied migration | none | none | no | internal |
 | `sync_checkpoint` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |
-| `verification_result` | customer | keep | with its draft | cascade from `draft` | gated | yes | published |
+| `verification_result` | customer | keep | with its draft; reason messages scrubbed by privacy erasure | cascade from `draft` | gated | yes | published |
 | `webhook_route` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |
 <!-- retention-inventory:end -->
 

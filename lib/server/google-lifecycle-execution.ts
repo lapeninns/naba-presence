@@ -1,6 +1,7 @@
 import "server-only"
 import { approvedGbpChange } from "@/lib/server/gbp-change-sets"
-import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { auditGbpMutation, settleGbpMutation, startGbpMutation } from "@/lib/server/gbp-management"
 import { deleteGoogleLocation, googleAccountManagementApi, GoogleMutationAmbiguousError } from "@/lib/server/google"
 import { currentAdministrationContext } from "@/lib/server/google-administration-state"
@@ -8,15 +9,16 @@ import { loadLifecycleAttempt, projectLifecycleAttempt, readLifecycleAttempt, re
 import { assertLifecycleCurrent, readLifecycleReview } from "@/lib/server/google-lifecycle-reviews"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
-import { requireNoUnresolvedPlaceAction } from "@/lib/server/google-account-change-lock"
+import { requireNoUnresolvedAccountChange } from "@/lib/server/google-account-change-lock"
 
 async function withLifecycleLock<T>(session: Session, locationId: string, work: () => Promise<T>) {
   const linked = await currentAdministrationContext(session, locationId, false)
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    const [claim] = await sql<{ acquired: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${linked.googleAccountId}:administration_access`}, 0)) as acquired`
-    if (!claim?.acquired) throw new ApiError(409, "administration_in_progress", "Another access or lifecycle action for this Google account is in progress. Read its saved outcome.")
-    return work()
-  }))
+  return withGoogleWriteSession({
+    surface: "google_lifecycle",
+    keys: [`${session.organisationId}:${linked.googleAccountId}:administration_access`],
+    mode: "try",
+    busy: () => { throw new ApiError(409, "administration_in_progress", "Another access or lifecycle action for this Google account is in progress. Read its saved outcome.") },
+  }, work)
 }
 function sameBinding(before: Awaited<ReturnType<typeof currentAdministrationContext>>, after: Awaited<ReturnType<typeof currentAdministrationContext>>) {
   if (before.connectionId !== after.connectionId || before.googleAccountId !== after.googleAccountId || before.googleLocationName !== after.googleLocationName || before.credentialGeneration !== after.credentialGeneration) throw new ApiError(409, "google_target_changed", "The exact linked Google target or credentials changed before sending. Create a fresh lifecycle review.")
@@ -34,14 +36,7 @@ export async function executeLifecycle(session: Session, locationId: string, rev
     await approvedGbpChange({ session, linked: initial, changeSetId: reviewId, payload: review.changeSet.payload, updateMask: [], resourceType: "location_lifecycle" })
     const { linked, payload } = await assertLifecycleCurrent(session, locationId, review)
     const token = await linked.accessToken()
-    await requireNoUnresolvedPlaceAction(session, linked.googleAccountId)
-    await withTenant(session.organisationId, async (sql) => {
-      const [unresolved] = await sql<{ id: string }[]>`select id from gbp_management_mutation
-        where google_account_id = ${linked.googleAccountId}
-          and resource_type in ('account_admin', 'location_admin', 'invitation', 'location_lifecycle')
-          and (status in ('started', 'validated', 'ambiguous') or confirmation_state in ('pending', 'unresolved') or local_reconciliation_state in ('pending', 'conflict')) limit 1`
-      if (unresolved) throw new ApiError(409, "google_confirmation_unresolved", "An earlier access or lifecycle change is awaiting confirmation. Read its saved outcome before another write.")
-    })
+    await requireNoUnresolvedAccountChange(session, linked.googleAccountId, "An earlier access or lifecycle change is awaiting confirmation. Read its saved outcome before another write.")
     const ready = await currentAdministrationContext(session, locationId)
     sameBinding(linked, ready)
     const change = await approvedGbpChange({ session, linked: ready, changeSetId: reviewId, payload: review.changeSet.payload, updateMask: [], resourceType: "location_lifecycle" })
