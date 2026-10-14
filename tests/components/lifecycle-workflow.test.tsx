@@ -182,6 +182,26 @@ describe("typed reviewed lifecycle workflow", () => {
     await transferDrift(code, message)
   })
 })
+describe("saved lifecycle work load failure copy", () => {
+  const lead = "Saved lifecycle work could not be loaded."
+  it("names a network failure when the read never reached the server", async () => {
+    vi.mocked(lifecycle.fetchLifecycleWorkflows).mockRejectedValue(new TypeError("Failed to fetch"))
+    render()
+    expect(await screen.findByText(`${lead} We couldn’t reach NabaPresence. Check your connection and try again.`)).toBeInTheDocument()
+    expect(screen.queryByText(/Check your current access/)).not.toBeInTheDocument()
+  })
+  it("asks the operator to try again after a server error, without blaming their access", async () => {
+    vi.mocked(lifecycle.fetchLifecycleWorkflows).mockRejectedValue(new ApiClientError(503, "service_unavailable", "Unavailable."))
+    render()
+    expect(await screen.findByText(`${lead} Try again.`)).toBeInTheDocument()
+    expect(screen.queryByText(/Check your current access/)).not.toBeInTheDocument()
+  })
+  it("keeps the access copy for a real permission refusal", async () => {
+    vi.mocked(lifecycle.fetchLifecycleWorkflows).mockRejectedValue(new ApiClientError(403, "permission_denied", "Forbidden."))
+    render()
+    expect(await screen.findByText(`${lead} Check your current access.`)).toBeInTheDocument()
+  })
+})
 async function transferDrift(code: string, message: RegExp) {
   const request = { operation: "transfer_location" as const, payload: { destinationAccount: "accounts/destination" } }
   const review = lifecycleReviewFixture(request)
