@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -172,7 +172,7 @@ describe("InboxToolbar", () => {
     )
   })
 
-  it("enters phone search mode on focus: title, filters and queues fold, Cancel and the results label appear", async () => {
+  it("enters phone search mode on focus: title and filters fold, the queues stay, Cancel and the results label appear", async () => {
     mockDesk(false)
     const user = userEvent.setup()
     renderToolbar("12 reviews")
@@ -186,9 +186,11 @@ describe("InboxToolbar", () => {
     const cancel = screen.getByRole("button", { name: "Cancel" })
     expect(cancel).toHaveAttribute("data-slot", "toolbar-cancel")
     expect(cancel).toHaveClass("min-h-(--np-touch)")
+    // The search runs inside a queue: the strip stays, so the queue can be
+    // changed without losing the search (R2b P2-S2).
     expect(
       screen.getByRole("navigation", { name: "Review queues" })
-    ).toHaveClass("hidden")
+    ).toBeVisible()
     // The filter end steps aside while the field has the row.
     expect(screen.queryByRole("button", { name: /^Filters/ })).toBeNull()
     // Folded for the eye only: the h1 is still the page's heading.
@@ -198,7 +200,7 @@ describe("InboxToolbar", () => {
       screen.getByRole("heading", { level: 1, name: "Inbox" })
     ).toBeInTheDocument()
     const results = header().querySelector('[data-slot="inbox-search-results"]')
-    expect(results).toHaveTextContent("Results · 12 reviews")
+    expect(results).toHaveTextContent("Results in Needs reply · 12 reviews")
     expect(results).toHaveClass("text-ui", "text-ink-muted")
     // Not live: the list header announces the count.
     expect(results).not.toHaveAttribute("role")
@@ -292,6 +294,46 @@ describe("InboxToolbar", () => {
     expect(
       screen.getByRole("searchbox", { name: "Search reviews" })
     ).toHaveValue("")
+  })
+
+  it("changes queue in search mode without clearing the search", async () => {
+    mockDesk(false)
+    const user = userEvent.setup()
+    const { props } = renderToolbar("3 reviews", {
+      state: { ...state, search: "parking" },
+    })
+    expect(header()).toHaveAttribute("data-search-mode")
+    const queues = screen.getByRole("navigation", { name: "Review queues" })
+    await user.click(within(queues).getByRole("button", { name: /^Approval/ }))
+    expect(props.onQueueChange).toHaveBeenCalledWith("approval")
+    expect(props.onFilterChange).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole("searchbox", { name: "Search reviews" })
+    ).toHaveValue("parking")
+  })
+
+  it.each([
+    [
+      "Cancel",
+      (user: ReturnType<typeof userEvent.setup>) =>
+        user.click(screen.getByRole("button", { name: "Cancel" })),
+    ],
+    [
+      "Escape",
+      (user: ReturnType<typeof userEvent.setup>) => user.keyboard("{Escape}"),
+    ],
+  ])("returns focus to the Filters button after %s", async (_, leave) => {
+    mockDesk(false)
+    const user = userEvent.setup()
+    renderToolbar()
+    await user.click(screen.getByRole("searchbox", { name: "Search reviews" }))
+    await leave(user)
+    expect(header()).not.toHaveAttribute("data-search-mode")
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: /^Filters/ })
+      )
+    )
   })
 
   it("Cancel with nothing typed changes no filter", async () => {
