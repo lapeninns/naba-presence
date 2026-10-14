@@ -391,6 +391,10 @@ export const reviewRowSchema = z.object({
   draftId: z.string().nullable(),
   draftBody: z.string().nullable(),
   verificationStatus: z.string().nullable(),
+  // While the reply awaits approval, the draft an approval would publish (the
+  // parked one; see `pendingDraft` on the detail). Null otherwise. Optional so
+  // older servers and stubs still parse.
+  pendingDraftId: z.string().nullable().optional(),
   replyStatus: z.string().nullable(),
   googleReplyState: z.string().nullable(),
   googlePolicyViolation: z.string().nullable(),
