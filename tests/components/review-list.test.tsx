@@ -859,20 +859,17 @@ describe("ReviewList row anatomy", () => {
     expect(status).toHaveClass(
       "ml-auto",
       "shrink-0",
-      "@max-sm/venue:ml-0",
+      "self-center",
       "@max-sm/venue:basis-full"
     )
+    expect(pill).toHaveClass("bg-transparent", "border-0")
     expect(status.parentElement).toHaveClass("flex-wrap")
     const location = button.querySelector('[data-slot="review-row-location"]')!
     expect(
       location.compareDocumentPosition(status) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(location).toHaveClass(
-      "wrap-break-word",
-      "flex-1",
-      "basis-0"
-    )
+    expect(location).toHaveClass("wrap-break-word", "flex-1", "basis-0")
     expect(location).not.toHaveClass("truncate")
     expect(location.className).not.toMatch(/line-clamp/)
     expect(venue).toHaveClass("whitespace-normal")
@@ -989,7 +986,12 @@ describe("ReviewList row anatomy", () => {
     expect(button()).not.toContainElement(select())
     expect(select()!.closest('[data-slot="list-row-control"]')).not.toBeNull()
     expect(select()).toHaveClass("hidden", "desk:flex")
-    expect(avatar()).toHaveClass("desk:hidden")
+    expect(avatar()).not.toHaveClass("desk:hidden")
+    expect(avatar()).toHaveClass("desk:group-hover/review-row:invisible")
+    expect(select()).toHaveClass(
+      "desk:opacity-0",
+      "desk:group-focus-within/review-row:opacity-100"
+    )
 
     rerender(
       <ReviewList
@@ -1025,7 +1027,7 @@ describe("ReviewRowsSkeleton", () => {
       const hit = row.querySelector('[data-slot="list-row-hit"]')!
       expect(hit.tagName).toBe("DIV")
       expect(hit).toHaveAttribute("aria-hidden", "true")
-      expect(hit).toHaveClass("px-(--np-page-pad-x)", "py-(--np-row-mail-py)")
+      expect(hit).toHaveClass("px-(--np-page-pad-x)", "py-3")
       expect(
         row.querySelector(
           '[data-slot="list-row-leading"] [data-slot="skeleton"]'

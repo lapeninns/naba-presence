@@ -45,7 +45,7 @@ export default async function InboxPage() {
   return (
     <PageFrame
       width="workspace"
-      className="min-h-0 flex-1 gap-3 pt-4 max-md:px-4 max-md:pt-3 md:pt-4"
+      className="min-h-0 flex-1 gap-0 pt-0 max-md:px-4 md:px-0 md:pt-0 md:pb-0"
     >
       <HydrationBoundary state={state}>
         <InboxView

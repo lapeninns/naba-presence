@@ -9,5 +9,5 @@ import type { CSSProperties } from "react"
  * `lg:grid-cols-[var(--inbox-list-w)_minmax(0,1fr)]`.
  */
 export const INBOX_SPLIT_STYLE = {
-  "--inbox-list-w": "clamp(18.75rem, 32%, 26.25rem)",
+  "--inbox-list-w": "clamp(18.75rem, 40%, 30rem)",
 } as CSSProperties

@@ -938,18 +938,17 @@ describe("InboxView — list and detail", () => {
       expect(slot(pane).className).not.toContain("rounded-")
     }
     expect(slot("inbox-workspace-controls")).toHaveClass(
-      "pt-2",
-      "pb-4",
+      "pt-4",
+      "pb-2",
       "md:px-5",
       "md:pt-5",
       // Bleeds like the panes on a phone, padded back to the page gutter.
       "max-md:-mx-4",
-      "max-md:px-4"
+      "px-4"
     )
-    expect(slot("inbox-list-header")).toHaveClass(
-      "border-line-subtle",
-      "px-(--np-page-pad-x)"
-    )
+    expect(slot("inbox-list-header")).toHaveClass("px-(--np-page-pad-x)")
+    expect(slot("inbox-list-column")).toContainElement(slot("inbox-controls"))
+    expect(slot("inbox-inspector")).not.toContainElement(slot("inbox-controls"))
   })
 
   it("renders the list view, with the review pane waiting, without ?selected=", () => {

@@ -765,7 +765,7 @@ function InboxViewInner({
       // Edge to edge on a phone like the panes below it, with the page's
       // own gutter as padding, so the white band has no grey margins.
       className={cn(
-        "flex shrink-0 flex-col gap-3 pt-2 pb-4 max-md:px-4 md:px-5 md:pt-5",
+        "flex shrink-0 flex-col gap-2 bg-surface px-4 pt-4 pb-2 md:px-5 md:pt-5",
         PHONE_BLEED
       )}
     >
@@ -1035,13 +1035,6 @@ function InboxViewInner({
       </p>
 
       <div
-        data-slot="inbox-controls"
-        className={cn("flex shrink-0 flex-col", hiddenInDetail)}
-      >
-        {workspaceControls}
-      </div>
-
-      <div
         data-slot="inbox-split"
         // Reference `.work`: the queue beside the thread from lg, a third of
         // the room between 300px and 420px (shared with loading.tsx).
@@ -1055,6 +1048,12 @@ function InboxViewInner({
             hiddenInDetail
           )}
         >
+          <div
+            data-slot="inbox-controls"
+            className={cn("flex shrink-0 flex-col", hiddenInDetail)}
+          >
+            {workspaceControls}
+          </div>
           {listPane}
         </div>
         {inspector}

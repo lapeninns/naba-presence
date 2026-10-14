@@ -162,7 +162,7 @@ function InboxToolbar({
       ref={bandRef}
       data-slot="inbox-toolbar"
       data-search-mode={searchMode ? "" : undefined}
-      className="flex shrink-0 flex-col gap-3"
+      className="flex shrink-0 flex-col gap-3 [&_[data-slot=view-header-count]]:text-title [&_[data-slot=view-header-title]]:basis-0 [&_[data-slot=view-header-title]>h1]:text-section [&_[data-slot=view-header-title]>p]:text-section"
     >
       <div
         data-slot="inbox-title-row"
@@ -177,9 +177,7 @@ function InboxToolbar({
               hidden={searchMode}
               className="flex min-w-0 items-center justify-end gap-2"
             >
-              <p className="min-w-0 truncate text-ui text-ink-muted max-xl:hidden">
-                Only verified replies reach Google.
-              </p>
+              <p className="sr-only">Only verified replies reach Google.</p>
               {actions}
             </div>
           }

@@ -582,13 +582,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           and the length beneath them. */}
       <div
         data-slot="reply-editor"
-        className="flex min-w-0 flex-col rounded-(--np-radius-card) border border-line transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink motion-reduce:transition-none"
+        className="flex min-w-0 flex-col rounded-(--np-radius-control) border border-transparent transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink motion-reduce:transition-none"
       >
         {/* The insert bar: plain text in, never rich text. AI rewrite (the
             tone and Generate) and the count. */}
         <div
           data-slot="composer-prompt-bar"
-          className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-t-(--np-radius-card) border-b border-line bg-surface p-1.5"
+          className="flex flex-wrap items-center gap-x-1.5 gap-y-2 px-1 py-1"
         >
           {toneControl}
           <span aria-hidden className="flex-1" />
@@ -616,7 +616,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             </Button>
           ) : null}
           <Button
-            variant="secondary"
+            variant="ghost"
             disabled={!canGenerate}
             pending={generateOrSave.isPending && !saving}
             pendingLabel="Writing…"
@@ -665,7 +665,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           placeholder="Write a reply, or generate one in the chosen tone."
           className={cn(
             // text-body is 16px on touch, so iOS does not zoom into the box.
-            "rounded-none border-0 bg-transparent px-3 pt-3.5 pb-3 text-body shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+            "rounded-none border-0 bg-transparent px-1 pt-5 pb-4 text-reading shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
             generateOrSave.isPending &&
               !saving &&
               "animate-pulse motion-reduce:animate-none"
@@ -675,7 +675,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         {guidance.length > 0 || nearLimit || overLimit || showCredits ? (
           <div
             data-slot="composer-foot"
-            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2.5"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line-subtle px-1 py-3"
           >
             {guidance.length > 0 ? (
               <ul
