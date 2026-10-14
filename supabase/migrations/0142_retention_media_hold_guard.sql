@@ -1,19 +1,19 @@
 begin;
 
 -- ---------------------------------------------------------------------------
--- 0153: the retention `media` step honours a hold committed mid-round
--- (follow-up to 0139, audit 2026-10-14 R2B-01).
+-- 0142: the retention `media` step honours a hold committed mid-round
+-- (follow-up to 0141, audit 2026-10-14 R2B-01).
 --
 -- The `media` step (lib/server/retention/purge.ts) deletes the
 -- review_media_item rows of reviews whose raw content has expired and that
--- carry no active hold. Like the other steps before 0139, it read that hold
+-- carry no active hold. Like the other steps before 0141, it read that hold
 -- against its own statement snapshot, and nothing made it wait for a hold
 -- being applied: a delete of review_media_item never touches the review row,
--- so the FOR NO KEY UPDATE that legal_hold_lock_review (0139) takes on the
+-- so the FOR NO KEY UPDATE that legal_hold_lock_review (0141) takes on the
 -- review did not stop it. A hold committed while the step ran therefore lost
 -- that review's media, though not its text or the hold itself.
 --
--- review_media_legal_hold_guard closes that the same way 0139 does for the
+-- review_media_legal_hold_guard closes that the same way 0141 does for the
 -- review: for a delete issued directly by a retention round
 -- (app.retention_run, pg_trigger_depth() = 1), it first takes FOR SHARE on
 -- the parent review. That conflicts with the hold's FOR NO KEY UPDATE, so a
@@ -68,7 +68,7 @@ create trigger review_media_legal_hold_guard
   execute function review_media_legal_hold_guard();
 
 insert into schema_migration (version)
-values ('0153_retention_media_hold_guard')
+values ('0142_retention_media_hold_guard')
 on conflict (version) do nothing;
 
 commit;

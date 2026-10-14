@@ -273,7 +273,7 @@ describeDatabase("legal hold enforcement", () => {
     })
     // The media step runs before the review redaction, so it is the first
     // statement to reach the held review: review_media_legal_hold_guard
-    // (0153) makes it wait for the hold instead of deleting past it.
+    // (0142) makes it wait for the hold instead of deleting past it.
     const purge = purgeOrganisation({
       organisationId: owner.organisationId,
       requestId: `hold-race-media-${randomUUID()}`,

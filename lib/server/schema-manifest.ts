@@ -150,6 +150,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0139_approval_decision_draft_id_index",
   "0140_publish_attempt_event_attempt_index",
   "0141_legal_hold_enforcement",
-  "0153_retention_media_hold_guard",
+  "0142_retention_media_hold_guard",
   "20260729000400_remove_local_demo_data",
 ]

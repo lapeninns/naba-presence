@@ -413,7 +413,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
         )
       `,
     }),
-    // review_media_legal_hold_guard (0153) is the backstop for a hold
+    // review_media_legal_hold_guard (0142) is the backstop for a hold
     // committed after this statement's snapshot: it waits for a hold being
     // applied to the review and skips that review's media.
     rowsStep("media", {
