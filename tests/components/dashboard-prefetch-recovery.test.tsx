@@ -3,11 +3,11 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import type { ReactNode, ComponentProps } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const stubs = vi.hoisted(() => ({ session: vi.fn(), clients: vi.fn(), connections: vi.fn(), directory: vi.fn(), counts: vi.fn() }))
+const stubs = vi.hoisted(() => ({ session: vi.fn(), clients: vi.fn(), connections: vi.fn(), directory: vi.fn(), counts: vi.fn(), shell: vi.fn() }))
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }), headers: async () => new Headers() }))
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }))
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: ComponentProps<"a">) => <a href={href} {...rest}>{children}</a> }))
-vi.mock("@/components/app-shell/app-shell", () => ({ AppShell: ({ children }: { children: ReactNode }) => <section aria-label="Dashboard shell">{children}</section> }))
+vi.mock("@/components/app-shell/app-shell", () => ({ AppShell: ({ children, ...props }: { children: ReactNode }) => { stubs.shell(props); return <section aria-label="Dashboard shell">{children}</section> } }))
 vi.mock("@/lib/server/session", () => ({ getSession: stubs.session, isLocalBootstrapEnabled: () => false }))
 vi.mock("@/lib/server/clients", () => ({ listClientSummaries: stubs.clients }))
 vi.mock("@/lib/server/connections", () => ({ listConnections: stubs.connections }))
@@ -78,6 +78,15 @@ describe("dashboard optional prefetch recovery", () => {
     render(await DashboardLayout({ children: <CountsProbe /> }))
     expect(screen.getByLabelText("Counts cache")).toHaveTextContent("null")
     expect(screen.getByRole("region", { name: "Dashboard shell" })).toBeInTheDocument()
+  })
+
+  it("hands the client shell only the session's display fields", async () => {
+    stubs.session.mockResolvedValue({ sessionId: "s1", userId: "u1", organisationId: "o1", organisationName: "Test", workspaceMode: "agency", displayName: "Owner", email: "test@invalid.test", role: "owner", canPublish: true, supportActor: null, impersonationReason: null, scopeFingerprint: "fp", access: "full", entitlementEnforced: true })
+    render(await DashboardLayout({ children: <p>Content</p> }))
+    const [props] = stubs.shell.mock.calls.at(-1) as [{ session: Record<string, unknown> }]
+    // The shell is a client component: its props are serialised into the RSC payload.
+    expect(props.session).toEqual({ organisationId: "o1", organisationName: "Test", workspaceMode: "agency", displayName: "Owner", email: "test@invalid.test", role: "owner", supportActor: null })
+    expect(JSON.stringify(props)).not.toContain("s1")
   })
 
   it("does not swallow authentication lookup failures", async () => {
