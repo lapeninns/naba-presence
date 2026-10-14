@@ -3,6 +3,7 @@
 import {
   useQueryClient,
   type InfiniteData,
+  type Query,
   type QueryClient,
 } from "@tanstack/react-query"
 
@@ -50,6 +51,10 @@ function patchRow(
   return changed ? { ...data, pages } : data
 }
 
+function hasData(query: Query) {
+  return query.state.data !== undefined
+}
+
 function refreshAroundReviews(client: QueryClient) {
   void client.invalidateQueries({ queryKey: queryKeys.reviewCountsAll })
   // The clients list carries each client's needs-reply count.
@@ -68,6 +73,25 @@ export async function applyReviewWrite(
   // A write can start a publish settling: poll it from a fresh clock.
   restartSettlingClock()
   const { row, detail } = snapshot
+  // A fetch already in flight was answered from before this write and would
+  // land over the patch — a next-page fetch even writes back every page it
+  // started from — so cancel it first, reverting to the cached data; the
+  // stale mark below re-reads it later. A first load is left alone: it has
+  // nothing to patch, and cancelling it would leave nothing on screen.
+  await Promise.all([
+    row
+      ? client.cancelQueries({
+          queryKey: queryKeys.reviewsAll,
+          predicate: hasData,
+        })
+      : null,
+    detail
+      ? client.cancelQueries({
+          queryKey: queryKeys.reviewDetail(reviewId),
+          predicate: hasData,
+        })
+      : null,
+  ])
   if (row) {
     client.setQueriesData<InfiniteData<ReviewsPage>>(
       { queryKey: queryKeys.reviewsAll },
