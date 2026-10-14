@@ -3,14 +3,14 @@ import { administrationAccessReviewSchema, reviewedAdministrationPayloadSchema, 
 import { approveGbpChange, listGbpChangeSets, readGbpChangeSet, saveGbpChangeSet } from "@/lib/server/gbp-change-sets"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { administrationBaselineSchema, currentAdministrationContext, observeAdministrationAccess, scopedAdministrationTarget } from "@/lib/server/google-administration-state"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 function projectReview(changeSet: AdministrationAccessReview["changeSet"], linked: Awaited<ReturnType<typeof currentAdministrationContext>>) {
   const payload = reviewedAdministrationPayloadSchema.safeParse(changeSet.payload)
   if (!payload.success) throw new ApiError(409, "administration_review_unreadable", "This administration review cannot be restored safely. Create a fresh review.")
   const target = scopedAdministrationTarget(payload.data.request, linked)
-  return administrationAccessReviewSchema.parse({ changeSet, request: payload.data.request, target: target.target, parent: target.parent, observedAt: payload.data.observedAt })
+  return parseStored(administrationAccessReviewSchema, { changeSet, request: payload.data.request, target: target.target, parent: target.parent, observedAt: payload.data.observedAt }, "administration_review")
 }
 
 function requireProposedChange(request: AdministrationAccessRequest, baseline: ReturnType<typeof administrationBaselineSchema.parse>) {
@@ -56,7 +56,7 @@ export async function listAdministrationAccessReviews(session: Session, location
 
 export async function assertAdministrationAccessCurrent(session: Session, locationId: string, review: AdministrationAccessReview) {
   const linked = await currentAdministrationContext(session, locationId)
-  const payload = reviewedAdministrationPayloadSchema.parse(review.changeSet.payload)
+  const payload = parseStored(reviewedAdministrationPayloadSchema, review.changeSet.payload, "administration_review.payload")
   if (payload.connectionId !== linked.connectionId || payload.credentialGeneration !== linked.credentialGeneration) throw new ApiError(409, "google_connection_changed", "The Google connection changed after review. Create a fresh review.")
   const observation = await observeAdministrationAccess(linked, payload.request)
   if (stableGoogleHash(observation.baseline) !== review.changeSet.baselineHash) throw new ApiError(409, "google_baseline_stale", "Google administration changed after review. Refresh and review again.")

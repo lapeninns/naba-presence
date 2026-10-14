@@ -15,6 +15,7 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { countGoogleCall } from "@/lib/server/request-metrics"
 import {
   googleTokenUnavailableError,
   handleUnauthenticated,
@@ -527,6 +528,7 @@ export async function googleRequest<T>(
         }
         googleRequestDuration.record(performance.now() - startedAt, attributes)
         googleRequestCount.add(1, attributes)
+        countGoogleCall(providerHost)
         span.setAttributes({
           ...attributes,
           "nabapresence.google.attempts": attempts,

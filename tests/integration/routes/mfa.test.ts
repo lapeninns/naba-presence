@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
 import { STUB_TOTP_CODE, startAuthProviderStub } from "../helpers/auth-provider"
+import { openConfirmationLink } from "../helpers/email-confirmation"
 import { createTestTenant, destroyTenants } from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
@@ -492,11 +493,10 @@ describeDatabase("two-step verification (P02-S8)", () => {
     })
     expect(registered.status).toBe(202)
     auth.addFactor(email)
-    const confirm = await fetch(
-      `${server.baseUrl}/auth/confirm?token_hash=${auth.confirmationToken(email)}&type=email`,
-      { redirect: "manual" }
+    const confirm = await openConfirmationLink(
+      `${server.baseUrl}/auth/confirm?token_hash=${auth.confirmationToken(email)}&type=email`
     )
-    expect(confirm.status).toBe(307)
+    expect(confirm.status).toBe(303)
     expect(new URL(confirm.headers.get("location")!).pathname).toBe(
       "/sign-in/verify"
     )
@@ -531,11 +531,11 @@ describeDatabase("two-step verification (P02-S8)", () => {
     expect(registered.status).toBe(202)
     auth.addFactor(email)
 
-    const confirm = await fetch(
+    const confirm = await openConfirmationLink(
       `${server.baseUrl}/auth/confirm?token_hash=${auth.confirmationToken(email)}&type=email&inviteToken=${encodeURIComponent(inviteToken)}`,
-      { headers: { cookie: otherCookie }, redirect: "manual" }
+      { cookie: otherCookie }
     )
-    expect(confirm.status).toBe(307)
+    expect(confirm.status).toBe(303)
     expect(new URL(confirm.headers.get("location")!).pathname).toBe(
       "/sign-in/verify"
     )

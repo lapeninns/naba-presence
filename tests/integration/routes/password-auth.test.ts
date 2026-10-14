@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
 import { startAuthProviderStub } from "../helpers/auth-provider"
+import { openConfirmationLink } from "../helpers/email-confirmation"
 import {
   createTestTenant,
   destroyTenants,
@@ -188,11 +189,10 @@ describeDatabase("email and password authentication", () => {
 
     const tokenHash = auth.confirmationToken(email)
     expect(tokenHash).toBeTruthy()
-    const confirmation = await fetch(
-      `${server.baseUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`,
-      { redirect: "manual" }
+    const confirmation = await openConfirmationLink(
+      `${server.baseUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`
     )
-    expect([303, 307]).toContain(confirmation.status)
+    expect(confirmation.status).toBe(303)
     expect(confirmation.headers.get("location")).toBe(`${server.baseUrl}/inbox`)
     const cookie = sessionCookie(confirmation)
     const sessionResponse = await fetch(`${server.baseUrl}/api/session`, {
@@ -201,6 +201,69 @@ describeDatabase("email and password authentication", () => {
     const session = (await sessionResponse.json()) as {
       session: { organisationId: string }
     }
+    organisations.push(session.session.organisationId)
+  })
+
+  it("spends the confirmation token only on a same-origin POST (W6-05)", async () => {
+    const email = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    const registration = await fetch(
+      `${server.baseUrl}/api/auth/password/register`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Scanned owner",
+          email,
+          password: "Correct horse!42",
+        }),
+      }
+    )
+    expect(registration.status).toBe(202)
+    const tokenHash = auth.confirmationToken(email)!
+    const link = `${server.baseUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=email`
+    const spent = () =>
+      auth.verifications.filter((call) => call.tokenHash === tokenHash)
+
+    // A mail scanner or link preview fetching the link, twice.
+    for (let i = 0; i < 2; i += 1) {
+      const opened = await fetch(link, { redirect: "manual" })
+      expect(opened.status).toBe(307)
+      expect(new URL(opened.headers.get("location")!).pathname).toBe(
+        "/confirm-email"
+      )
+      expect(opened.headers.getSetCookie()).toEqual([])
+    }
+    const interstitial = await fetch(
+      `${server.baseUrl}/confirm-email?token_hash=${encodeURIComponent(tokenHash)}`
+    )
+    expect(interstitial.status).toBe(200)
+    expect(interstitial.headers.getSetCookie()).toEqual([])
+    expect(spent()).toEqual([])
+
+    // Another site auto-submitting the form (login CSRF).
+    const forged = await fetch(`${server.baseUrl}/auth/confirm`, {
+      method: "POST",
+      headers: { origin: "https://evil.example" },
+      body: new URLSearchParams({ token_hash: tokenHash, type: "email" }),
+      redirect: "manual",
+    })
+    expect(forged.status).toBe(303)
+    const refused = new URL(forged.headers.get("location")!)
+    expect(refused.pathname).toBe("/sign-in")
+    expect(refused.searchParams.get("status")).toBe("cross_origin_request")
+    expect(forged.headers.getSetCookie()).toEqual([])
+    expect(spent()).toEqual([])
+
+    const confirmed = await openConfirmationLink(link)
+    expect(confirmed.status).toBe(303)
+    expect(confirmed.headers.get("location")).toBe(`${server.baseUrl}/inbox`)
+    expect(spent()).toEqual([{ tokenHash, type: "email" }])
+    const session = (await (
+      await fetch(`${server.baseUrl}/api/session`, {
+        headers: { cookie: sessionCookie(confirmed) },
+      })
+    ).json()) as { session: { organisationId: string } }
     organisations.push(session.session.organisationId)
   })
 
@@ -226,9 +289,8 @@ describeDatabase("email and password authentication", () => {
     )
     expect(registration.status).toBe(202)
     const tokenHash = auth.confirmationToken(email)
-    const confirmation = await fetch(
-      `${confirmUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`,
-      { redirect: "manual" }
+    const confirmation = await openConfirmationLink(
+      `${confirmUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`
     )
     const cookie = sessionCookie(confirmation)
     const session = (await (

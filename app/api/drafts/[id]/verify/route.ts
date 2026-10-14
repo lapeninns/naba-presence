@@ -17,6 +17,7 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
+import { PHASE_THREE_RESERVE_MS } from "@/lib/server/review-drafts"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -84,10 +85,18 @@ function expectedLanguage(draft: DraftRecord): string | null {
 }
 
 export const POST = route({
+  maxDuration,
   entitlement: "ai",
   roles: ["owner", "admin", "member"],
   params: reviewIdParamsSchema,
-  handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
+  handler: async ({
+    session,
+    params,
+    requestId,
+    clientRequestId,
+    tenant,
+    deadline,
+  }) => {
     const { id } = params
 
     // Load, commit, call the provider with no connection held, then settle —
@@ -127,14 +136,18 @@ export const POST = route({
         ? { status: "skipped", reasons: [] }
         : refused === "duplicate"
           ? { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
-          : await runSemanticVerification({
-              body: draft.body,
-              reviewText: draft.review_text,
-              reviewerName: draft.reviewer_name,
-              locationName: draft.location_name,
-              rating: draft.rating,
-              expectedLanguage: expectedLanguage(draft) ?? "en",
-            }).catch(async (error: unknown) => {
+          : await runSemanticVerification(
+              {
+                body: draft.body,
+                reviewText: draft.review_text,
+                reviewerName: draft.reviewer_name,
+                locationName: draft.location_name,
+                rating: draft.rating,
+                expectedLanguage: expectedLanguage(draft) ?? "en",
+              },
+              // Sized to the request deadline, keeping the settle's time back.
+              { deadline, reserveMs: PHASE_THREE_RESERVE_MS }
+            ).catch(async (error: unknown) => {
               if (reservationId) {
                 await finishVerifyUsage(tenant, { id: reservationId })
               }
