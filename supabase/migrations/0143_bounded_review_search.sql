@@ -51,7 +51,7 @@ grant execute on function search_review_ids_bounded(uuid, text, text, integer)
   to naba_app_runtime;
 
 insert into schema_migration (version)
-values ('0152_bounded_review_search')
+values ('0143_bounded_review_search')
 on conflict (version) do nothing;
 
 commit;

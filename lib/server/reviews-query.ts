@@ -105,7 +105,7 @@ export const SEARCH_MATCH_LIMIT = 1_000
 
 /**
  * The ids a search matches in this tenant, or `undefined` when there are
- * more than `SEARCH_MATCH_LIMIT`. The bounded definer helper (0152) reaches
+ * more than `SEARCH_MATCH_LIMIT`. The bounded definer helper (0143) reaches
  * the search GIN index, which the inline predicate below cannot use under
  * RLS; a rare term then narrows the list to a primary-key lookup. A common
  * term stops at the limit instead of materialising every match, and the list
