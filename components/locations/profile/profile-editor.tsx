@@ -976,7 +976,14 @@ function ProfileEditor({
       />
 
       <GoogleFreshness
-        observedAt={profile.observedAt}
+        // The older of the two halves' Google reads.
+        observedAt={
+          business?.observedAt &&
+          profile.observedAt &&
+          business.observedAt < profile.observedAt
+            ? business.observedAt
+            : profile.observedAt
+        }
         refreshing={refresh.isPending}
         failed={refresh.isError}
         onRefresh={() => refresh.mutate()}

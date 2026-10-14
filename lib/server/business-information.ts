@@ -11,6 +11,7 @@ import { relationshipsMatch, unsupportedRelationshipBaseline } from "@/lib/domai
 import { advertisingBaselineSupported, advertisingMatches } from "@/lib/domain/google-advertising"
 import { unsupportedAddressDetails } from "@/lib/domain/business-information"
 
+import type { EditorReadSource } from "@/lib/contracts/editor-freshness"
 import type {
   BusinessInformationMetadataType,
   BusinessInformationMutationResult,
@@ -43,7 +44,12 @@ import {
 } from "@/lib/server/gbp-management"
 import { classifyFailure, type GbpWritePhase } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
-import { forgetObservedGooglePayload } from "@/lib/server/resource-observations"
+import { shouldReadLive } from "@/lib/server/editor-freshness"
+import {
+  forgetObservedGooglePayload,
+  readObservedGooglePayload,
+  recordResourceObservation,
+} from "@/lib/server/resource-observations"
 import type { Session } from "@/lib/server/session"
 
 const READ_MASK = [
@@ -100,16 +106,79 @@ async function loadedContext(session: Session, locationId: string) {
   )
 }
 
+/**
+ * What a successful business-information read keeps as its observation
+ * (`observed_google_payload`): the three Google reads behind the editor,
+ * for which Google location, and when.
+ */
+type ObservedBusinessInformationPayload = {
+  observedAt: string
+  googleLocationName: string
+  location: Record<string, unknown>
+  attributes: Record<string, unknown>
+  attributeMetadata: Awaited<ReturnType<typeof loadGoogleAttributeMetadata>>
+}
+
+/**
+ * Drops the stored read, so the next open reads Google: called before every
+ * Google write to what this editor shows, and when a review or publish
+ * finds Google moved past the hash the editor showed (so the refresh that
+ * error asks for reads Google, not the same stored copy).
+ */
+function forgetBusinessInformation(
+  session: Session,
+  locationId: string,
+  resources: readonly ("profile" | "businessInformation")[] = [
+    "businessInformation",
+  ]
+) {
+  return forgetObservedGooglePayload({
+    organisationId: session.organisationId,
+    locationId,
+    resources,
+  })
+}
+
+/**
+ * The business-information editor: served from the latest observation within
+ * the editors' staleness budget in ONE read-only tenant transaction and no
+ * Google call (W3-2), read from Google otherwise (`refresh` always reads).
+ * It reads Google when nothing is stored, the read is past the budget or
+ * of another Google location, or a read failed since. Every review and
+ * publish reads Google itself and refuses a hash Google has moved past.
+ */
 export async function loadBusinessInformation(
   session: Session,
-  locationId: string
+  locationId: string,
+  options: { refresh?: boolean } = {}
 ): Promise<BusinessInformationState> {
-  const linked = await loadedContext(session, locationId)
+  const read = options.refresh
+    ? null
+    : await withTenant(session.organisationId, async (sql) => {
+        const linked = await resolveGbpLocationContext(sql, session, locationId)
+        const observation = await readObservedGooglePayload(sql, {
+          organisationId: session.organisationId,
+          locationId,
+          resource: "businessInformation",
+        })
+        const payload =
+          observation?.payload as ObservedBusinessInformationPayload | null
+        const fresh =
+          !!payload?.location &&
+          !observation?.failed &&
+          payload.googleLocationName === linked.googleLocationName &&
+          !shouldReadLive({ observedAt: payload.observedAt })
+        return { linked, payload: fresh ? payload : null }
+      })
+  if (read?.payload)
+    return businessInformationState(read.linked, read.payload, "stored")
+  const linked = read?.linked ?? (await loadedContext(session, locationId))
   const token = await connectionAccessToken(
     getDatabase(),
     session.organisationId,
     linked.connectionId
   )
+  const observedAt = new Date()
   const [location, attributes, metadata] = await Promise.all([
     getGoogleLocation(token, linked.googleLocationName, [...READ_MASK], {
       connectionKey: linked.connectionId,
@@ -119,7 +188,14 @@ export async function loadBusinessInformation(
     }),
     loadGoogleAttributeMetadata(token, linked.googleLocationName, linked.connectionId),
   ])
-  const [locationHash, attributesHash] = await Promise.all([
+  const payload: ObservedBusinessInformationPayload = {
+    observedAt: observedAt.toISOString(),
+    googleLocationName: linked.googleLocationName,
+    location,
+    attributes,
+    attributeMetadata: metadata,
+  }
+  await Promise.all([
     cacheGbpSnapshot({
       organisationId: session.organisationId,
       locationId,
@@ -136,21 +212,41 @@ export async function loadBusinessInformation(
       resourceName: `${linked.googleLocationName}/attributes`,
       payload: attributes,
     }),
+    withTenant(session.organisationId, (sql) =>
+      recordResourceObservation(sql, {
+        organisationId: session.organisationId,
+        locationId,
+        resource: "businessInformation",
+        attemptedAt: observedAt,
+        googlePayload: payload,
+      })
+    ),
   ])
+  return businessInformationState(linked, payload, "live")
+}
+
+function businessInformationState(
+  linked: { canPublish: boolean },
+  payload: ObservedBusinessInformationPayload,
+  source: EditorReadSource
+): BusinessInformationState {
+  const { location, attributes } = payload
   return {
     location,
     attributes,
-    attributeMetadata: metadata,
-    locationHash,
-    attributesHash,
+    attributeMetadata: payload.attributeMetadata,
+    locationHash: stableGoogleHash(location),
+    attributesHash: stableGoogleHash(attributes),
     canPublish: linked.canPublish,
     writesEnabled: writesEnabled(),
     capabilityDetails: locationFieldCapabilities({
       location,
       canPublish: linked.canPublish,
       writesEnabled: writesEnabled(),
-      observedAt: new Date().toISOString(),
+      observedAt: payload.observedAt,
     }),
+    observedAt: payload.observedAt,
+    source,
   }
 }
 
@@ -189,7 +285,10 @@ export async function previewBusinessInformation(input: Omit<BusinessInformation
   assertCompletePhoneNumbers(input.payload, input.updateMask)
   const token = await linked.accessToken()
   const current = await getGoogleLocation(token, linked.googleLocationName, [...READ_MASK], { connectionKey: linked.connectionId })
-  if (stableGoogleHash(current) !== input.expectedGoogleHash) throw new ApiError(409, "business_information_stale", "Google changed this location. Refresh before reviewing.")
+  if (stableGoogleHash(current) !== input.expectedGoogleHash) {
+    await forgetBusinessInformation(input.session, input.locationId)
+    throw new ApiError(409, "business_information_stale", "Google changed this location. Refresh before reviewing.")
+  }
   await validateServiceChange(input, current, token, linked.connectionId)
   return saveGbpChangeSet({ session: input.session, linked, resourceType: "business_info", baseline: current, payload: input.payload, updateMask: [...new Set(input.updateMask)].sort(), requestId: input.requestId })
 }
@@ -205,9 +304,10 @@ export async function updateBusinessInformation(input: BusinessInformationWrite)
   return withGoogleWriteSession({ surface: "business_information", keys: [`${input.session.organisationId}:${input.locationId}:business_info`] }, async () => {
     const linked = await loadedContext(input.session, input.locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
-    // The update may change fields the profile editor shows (title, phone,
-    // website, description, categories): its next open reads Google.
-    await forgetObservedGooglePayload({ organisationId: input.session.organisationId, locationId: input.locationId, resources: ["profile"] })
+    // The update changes what this editor shows, and may change fields the
+    // profile editor shows (title, phone, website, description, categories):
+    // the next open of either reads Google.
+    await forgetBusinessInformation(input.session, input.locationId, ["profile", "businessInformation"])
     const reviewed = await approvedGbpChange({ session: input.session, linked, changeSetId, payload: input.payload, updateMask: input.updateMask, resourceType: "business_info" })
     if (reviewed.baseline_hash !== input.expectedGoogleHash) throw new ApiError(409, "approval_stale", "The baseline changed after review.")
     const [existing] = await withTenant(input.session.organisationId, (sql) => sql<BusinessInformationMutationResult[]>`select id, status, execution_state as "executionState", confirmation_state as "confirmationState" from gbp_management_mutation where change_set_id = ${changeSetId}`)
@@ -220,7 +320,7 @@ export async function confirmBusinessInformation(session: Session, locationId: s
   return withGoogleWriteSession({ surface: "business_information_confirm", keys: [`${session.organisationId}:${locationId}:business_info`, `${session.organisationId}:${locationId}:attributes`], organisationId: session.organisationId }, async ({ sql }) => {
     const linked = await loadedContext(session, locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this location.")
-    await forgetObservedGooglePayload({ organisationId: session.organisationId, locationId, resources: ["profile"] })
+    await forgetBusinessInformation(session, locationId, ["profile", "businessInformation"])
     const [attempt] = await sql<{ resource_type: "business_info" | "attributes"; status: string; execution_state: string; confirmation_state: string; requested_payload: unknown; google_response: unknown; update_mask: string[]; target_resource_name: string | null; google_account_id: string | null; recovery_ready: boolean }[]>`
       select resource_type, status, execution_state, confirmation_state, requested_payload, google_response, update_mask, target_resource_name, google_account_id,
         (status = 'ambiguous' or (status in ('started', 'validated') and created_at < now() - interval '5 minutes')) as recovery_ready
@@ -300,6 +400,7 @@ async function executeBusinessInformation(input: BusinessInformationWrite): Prom
     { connectionKey: linked.connectionId }
   )
   if (stableGoogleHash(current) !== input.expectedGoogleHash) {
+    await forgetBusinessInformation(input.session, input.locationId)
     throw new ApiError(
       409,
       "business_information_stale",
@@ -487,7 +588,10 @@ export async function previewBusinessAttributes(input: {
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot review changes for this location.")
   const token = await linked.accessToken()
   const baseline = await getGoogleLocationAttributes(token, linked.googleLocationName, { connectionKey: linked.connectionId })
-  if (stableGoogleHash(baseline) !== input.expectedGoogleHash) throw new ApiError(409, "attributes_stale", "Google attributes changed. Refresh before reviewing.")
+  if (stableGoogleHash(baseline) !== input.expectedGoogleHash) {
+    await forgetBusinessInformation(input.session, input.locationId)
+    throw new ApiError(409, "attributes_stale", "Google attributes changed. Refresh before reviewing.")
+  }
   const metadata = await loadGoogleAttributeMetadata(token, linked.googleLocationName, linked.connectionId)
   if (unsupportedAttributeNames(metadata, input.attributes, input.attributeMask).length) throw new ApiError(409, "attribute_not_supported", "One or more attribute changes are not supported by Google's current location metadata.")
   return saveGbpChangeSet({ session: input.session, linked, resourceType: "attributes", baseline, payload: { attributes: input.attributes }, updateMask: input.attributeMask, requestId: input.requestId })
@@ -518,6 +622,7 @@ export async function updateBusinessAttributes(input: {
       const [existing] = await withTenant(input.session.organisationId, (sql) => sql<BusinessInformationMutationResult[]>`select id, status, execution_state as "executionState", confirmation_state as "confirmationState" from gbp_management_mutation where change_set_id = ${input.changeSetId ?? null}`)
       if (existing) return { ...existing, idempotent: true }
     }
+    await forgetBusinessInformation(input.session, input.locationId)
     return executeBusinessAttributes(input)
   })
 }
@@ -546,12 +651,14 @@ async function executeBusinessAttributes(input: Parameters<typeof updateBusiness
     linked.googleLocationName,
     { connectionKey: linked.connectionId }
   )
-  if (stableGoogleHash(current) !== input.expectedGoogleHash)
+  if (stableGoogleHash(current) !== input.expectedGoogleHash) {
+    await forgetBusinessInformation(input.session, input.locationId)
     throw new ApiError(
       409,
       "attributes_stale",
       "Google attributes changed. Refresh before publishing."
     )
+  }
   const metadata = await loadGoogleAttributeMetadata(token, linked.googleLocationName, linked.connectionId)
   if (unsupportedAttributeNames(metadata, input.attributes, input.attributeMask).length > 0) {
     throw new ApiError(409, "attribute_not_supported", "One or more attribute changes are not supported by Google's current location metadata. Refresh before publishing.")

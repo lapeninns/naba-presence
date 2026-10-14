@@ -65,8 +65,11 @@ export const GET = route({
         }),
       } satisfies BusinessInformationMetadataResponse
     }
+    // `?refresh=1` reads Google past the editor's staleness budget.
     return {
-      businessInformation: await loadBusinessInformation(session, params.id),
+      businessInformation: await loadBusinessInformation(session, params.id, {
+        refresh: search.get("refresh") === "1",
+      }),
     } satisfies BusinessInformationResponse
   },
 })

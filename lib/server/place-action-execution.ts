@@ -9,6 +9,7 @@ import { loadPlaceActionAttempt, projectPlaceActionAttempt, readPlaceActionAttem
 import { currentPlaceActionContext } from "@/lib/server/place-action-review-state"
 import { assertPlaceActionCurrent, readPlaceActionReview, requireSamePlaceActionBinding } from "@/lib/server/place-action-reviews"
 import { ApiError } from "@/lib/server/http"
+import { forgetObservedGooglePayload } from "@/lib/server/resource-observations"
 import type { Session } from "@/lib/server/session"
 
 export async function executePlaceAction(session: Session, locationId: string, reviewId: string, expectedPayloadHash: string, requestId: string) {
@@ -42,6 +43,9 @@ export async function executePlaceAction(session: Session, locationId: string, r
     if (!claim) return readPlaceActionAttempt(session, locationId, reviewId)
     await auditGbpMutation({ organisationId: session.organisationId, session, action: "google.place_action.requested", subjectType: "location", subjectId: locationId, requestId, metadata: { reviewId, mutationId: claim.id, payloadHash: expectedPayloadHash } })
     const options = { connectionKey: ready.connectionId }
+    // Whatever the write's outcome, the editor's last read predates it: its
+    // next open reads Google's links.
+    await forgetObservedGooglePayload({ organisationId: session.organisationId, locationId, resources: ["placeActions"] })
     try {
       const response = request.operation === "create" ? await createGooglePlaceActionLink(token, { locationName: ready.googleLocationName, payload: request.payload }, options)
         : request.operation === "update" ? await patchGooglePlaceActionLink(token, { name: request.name, payload: request.payload }, options)

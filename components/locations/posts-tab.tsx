@@ -5,6 +5,7 @@ import { FilterIcon, Megaphone } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { LocationTab } from "@/components/locations/location-tab"
 import { PostCard } from "@/components/locations/posts/post-card"
 import { LegacyPostSchedules } from "@/components/locations/posts/legacy-post-schedules"
@@ -52,7 +53,7 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import type { ListPaging } from "@/lib/queries/paged-list"
-import { usePosts } from "@/lib/queries/use-location-posts"
+import { usePosts, useRefreshPosts } from "@/lib/queries/use-location-posts"
 
 function headline(post: Post): string {
   // Events and offers carry a title of their own. An update has none, so it
@@ -177,6 +178,7 @@ export function PostsTab({ locationId }: { locationId: string }) {
           writesEnabled={state.writesEnabled}
           timezone={state.timezone ?? DEFAULT_TIMEZONE}
           reconciliationError={state.reconciliationError}
+          observedAt={state.observedAt}
           caps={caps}
         />
       )}
@@ -195,6 +197,7 @@ function PostsList({
   writesEnabled,
   timezone,
   reconciliationError,
+  observedAt,
   caps,
 }: {
   locationId: string
@@ -211,8 +214,11 @@ function PostsList({
   /** The listing's IANA timezone, for when a repeat ends. */
   timezone: string
   reconciliationError: string | null
+  /** When the posts were last reconciled with Google. */
+  observedAt: string | undefined
   caps: Parameters<typeof PostsActionBar>[0]["caps"]
 }) {
+  const refresh = useRefreshPosts(locationId, filter)
   const scheduling = caps?.postScheduling === true
   // The schedules list below reads the same query; here it only says which
   // posts already have a one-time publication on the way.
@@ -276,6 +282,13 @@ function PostsList({
         />
       }
     >
+      <GoogleFreshness
+        observedAt={observedAt}
+        refreshing={refresh.isPending}
+        failed={refresh.isError}
+        onRefresh={() => refresh.mutate()}
+      />
+
       {reconciliationError ? (
         <Alert variant="warning">
           <AlertTitle>Some Google posts may be out of date</AlertTitle>

@@ -7,6 +7,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 
+import { fetchBusinessInformation } from "@/lib/api/location-business-information"
 import { fetchProfile, type ProfileState } from "@/lib/api/location-profile"
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
@@ -42,14 +43,30 @@ export function useProfile(id: string) {
   })
 }
 
-/** "Check Google now": reads Google past the staleness budget. */
+/**
+ * "Check Google now": reads the profile and the business information (both
+ * halves of the editor) past the staleness budget. Whichever read succeeds
+ * replaces its copy; either failing fails the check.
+ */
 export function useRefreshProfile(id: string) {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: () => fetchProfile(id, undefined, { refresh: true }),
-    onSuccess: (profile) => {
-      client.setQueryData(queryKeys.locationProfile(id), profile)
+    mutationFn: async () => {
+      const [profile, business] = await Promise.allSettled([
+        fetchProfile(id, undefined, { refresh: true }),
+        fetchBusinessInformation(id, undefined, { refresh: true }),
+      ])
+      if (profile.status === "fulfilled")
+        client.setQueryData(queryKeys.locationProfile(id), profile.value)
+      if (business.status === "fulfilled")
+        client.setQueryData(
+          queryKeys.locationBusinessInformation(id),
+          business.value
+        )
       invalidateObservers(client, id)
+      if (profile.status === "rejected") throw profile.reason
+      if (business.status === "rejected") throw business.reason
+      return profile.value
     },
   })
 }

@@ -17,8 +17,14 @@ export type { PlaceActionLink, PlaceActionMutationOutcome, PlaceActionsState }
 export const PLACE_ACTION_TYPES = GOOGLE_PLACE_ACTION_TYPES
 export type PlaceActionType = GooglePlaceActionType
 
-export function fetchPlaceActions(id: string, options?: RequestOptions): Promise<PlaceActionsState> {
-  return apiFetch(`/api/locations/${id}/place-actions`, {
+/**
+ * The booking links editor's state. Within the editor's staleness budget
+ * the server answers from its last Google read (`source: "stored"`);
+ * `refresh` reads Google now.
+ */
+export function fetchPlaceActions(id: string, options?: RequestOptions, params: { refresh?: boolean } = {}): Promise<PlaceActionsState> {
+  const suffix = params.refresh ? "?refresh=1" : ""
+  return apiFetch(`/api/locations/${id}/place-actions${suffix}`, {
     schema: placeActionsResponseSchema,
     ...options,
   }).then((r) => r.placeActions)

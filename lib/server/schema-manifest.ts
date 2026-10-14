@@ -141,5 +141,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0130_bulk_review_families",
   "0131_bulk_review_claim_receipts",
   "0155_editor_observed_payload",
+  "0156_business_information_observation",
   "20260729000400_remove_local_demo_data",
 ]

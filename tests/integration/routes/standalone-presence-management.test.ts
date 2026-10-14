@@ -309,7 +309,9 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     })
     const url = `${server.baseUrl}/api/locations/${linked.locationId}/business-information`
     async function preview(payload: Record<string, unknown>) {
-      const loaded = await fetch(url, { headers: { cookie: owner.cookie } })
+      // The test edits Google directly between reviews: check Google now,
+      // past the editor's staleness budget (W3-2), as an operator would.
+      const loaded = await fetch(`${url}?refresh=1`, { headers: { cookie: owner.cookie } })
       const state = businessInformationResponseSchema.parse(await loaded.json()).businessInformation
       const body = { expectedGoogleHash: state.locationHash, updateMask: ["adWordsLocationExtensions"], payload: { adWordsLocationExtensions: payload } }
       const response = await fetch(url, { method: "PUT", headers: jsonHeaders(owner.cookie, "review-ads-phone"), body: JSON.stringify(body) })
@@ -492,6 +494,11 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     expect((await getJson(profileUrl, owner.cookie, "profile")).source).toBe("stored")
     const loaded = await fetch(url, { headers: { cookie: owner.cookie } })
     const state = businessInformationResponseSchema.parse(await loaded.json()).businessInformation
+    expect(state.source).toBe("live")
+    // Reopened within the budget: served from that read, no Google call (W3-2).
+    const readsBeforeReopen = google.calls.length
+    expect(await getJson(url, owner.cookie, "businessInformation")).toEqual({ ...state, source: "stored" })
+    expect(google.calls).toHaveLength(readsBeforeReopen)
     const body = { expectedGoogleHash: state.locationHash, updateMask: ["phoneNumbers"], payload: { phoneNumbers: { primaryPhone, additionalPhones: ["+44 1223 000009"] } } }
     // No change set: refused before Google is read, so nothing unreviewed
     // reaches the provider (the old non-service path executed directly).
@@ -526,7 +533,39 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     expect(location.phoneNumbers).toEqual(body.payload.phoneNumbers)
     // ...until a business-information write: then it reads what that left.
     expect((await getJson(profileUrl, owner.cookie, "profile")).source).toBe("live")
-  })
+    expect(await getJson(url, owner.cookie, "businessInformation")).toMatchObject({ source: "live", location: { phoneNumbers: body.payload.phoneNumbers } })
+  }, 30_000)
+
+  it("reads business information from Google again once a review finds Google moved past the stored read (W3-2)", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, { organisationId: owner.organisationId })
+    const linked = await seedLinkedReview(admin, { organisationId: owner.organisationId, connectionId: connection.connectionId, googleAccountName: connection.googleAccountName })
+    const location: Record<string, unknown> = { name: linked.googleLocationName, title: "Rose and Crown", phoneNumbers: { primaryPhone: "+44 1223 000000" } }
+    google.respond({ method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` }, () => ({ status: 200, json: location }))
+    google.respond({ method: "GET", pathIncludes: "/attributes" }, () => ({ status: 200, json: { attributes: [], attributeMetadata: [] } }))
+    const locationReads = () => google.calls.filter((call) => call.method === "GET" && new URL(call.path, google.baseUrl).pathname === `/v1/${linked.googleLocationName}`).length
+    const url = `${server.baseUrl}/api/locations/${linked.locationId}/business-information`
+    const shown = await getJson(url, owner.cookie, "businessInformation")
+    expect(shown.source).toBe("live")
+    const [snapshotBefore] = await admin<{ observedAt: Date }[]>`select observed_at as "observedAt" from gbp_resource_snapshot where location_id = ${linked.locationId} and resource_type = 'business_info'`
+    expect((await getJson(url, owner.cookie, "businessInformation")).source).toBe("stored")
+    const [snapshotAfter] = await admin<{ observedAt: Date }[]>`select observed_at as "observedAt" from gbp_resource_snapshot where location_id = ${linked.locationId} and resource_type = 'business_info'`
+    expect(snapshotAfter).toEqual(snapshotBefore)
+    const reads = locationReads()
+
+    // Edited at Google: the stored copy still shows the old title, so the
+    // review against it is refused, and the refresh it asks for reads Google.
+    location.title = "The Rose and Crown"
+    const preview = await fetch(url, { method: "PUT", headers: jsonHeaders(owner.cookie, "stale-title"), body: JSON.stringify({ expectedGoogleHash: shown.locationHash, updateMask: ["title"], payload: { title: "Rose & Crown" } }) })
+    expect(preview.status, await preview.clone().text()).toBe(409)
+    expect(await preview.json()).toMatchObject({ error: "business_information_stale" })
+    expect(locationReads()).toBe(reads + 1)
+    const refreshed = await getJson(url, owner.cookie, "businessInformation")
+    expect(refreshed).toMatchObject({ source: "live", location: { title: "The Rose and Crown" } })
+    expect(refreshed.locationHash).not.toBe(shown.locationHash)
+    expect((await getJson(`${url}?refresh=1`, owner.cookie, "businessInformation")).source).toBe("live")
+  }, 30_000)
 
   it("requires a second services approver and rejects a revoked approver before publishing", async () => {
     const owner = await createTestTenant(admin)

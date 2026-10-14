@@ -3,6 +3,7 @@ import "server-only"
 import type { Fragment, TransactionSql } from "postgres"
 import { z } from "zod"
 
+import type { EditorReadSource } from "@/lib/contracts/editor-freshness"
 import {
   DEFAULT_POSTS_PAGE_SIZE,
   decodePostsCursor,
@@ -44,6 +45,7 @@ import {
   googleLocalPosts,
   patchGoogleLocalPost,
 } from "@/lib/server/google"
+import { shouldReadLive } from "@/lib/server/editor-freshness"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import {
@@ -79,6 +81,11 @@ import type {
   RecoveryAttempt,
   SettledVerdict,
 } from "@/lib/server/mutation-recovery"
+import {
+  forgetObservedGooglePayload,
+  readObservedGooglePayload,
+  recordResourceObservation,
+} from "@/lib/server/resource-observations"
 import type { Session } from "@/lib/server/session"
 
 // Request/response shapes live in the contract; the old names stay exported
@@ -511,14 +518,29 @@ export async function reapStrandedLocalPosts(
   return { count: reaped.length }
 }
 
+/**
+ * What a successful reconciliation keeps as the posts observation
+ * (`observed_google_payload`): when it read Google, and which Google
+ * location. The posts themselves are the `gbp_local_post` rows it wrote.
+ */
+type ObservedPostsPayload = {
+  observedAt: string
+  googleLocationName: string
+}
+
 async function reconcileLocalPosts(
   organisationId: string,
   session: Session,
-  locationId: string
+  locationId: string,
+  /** Already loaded (and authorized) in this request. */
+  loaded?: LinkedLocation
 ) {
-  const linked = await withTenant(organisationId, (sql) =>
-    loadLinkedLocation(sql, session, locationId, POSTS_NOT_LINKED)
-  )
+  const linked =
+    loaded ??
+    (await withTenant(organisationId, (sql) =>
+      loadLinkedLocation(sql, session, locationId, POSTS_NOT_LINKED)
+    ))
+  const attemptedAt = new Date()
   const live = await fetchLiveLocalPosts(linked)
   await withTenant(organisationId, async (sql) => {
     // Before anything is inserted: a stranded post has no google_post_name to
@@ -544,6 +566,68 @@ async function reconcileLocalPosts(
         await sql`update gbp_local_post set status = 'deleted', provider_payload = null where id = ${post.id}`
       }
     }
+    // The rows now are Google's list: the next first page within the
+    // editor's staleness budget is served from them (readPostsFreshness).
+    await recordResourceObservation(sql, {
+      organisationId,
+      locationId,
+      resource: "posts",
+      attemptedAt,
+      googlePayload: {
+        observedAt: attemptedAt.toISOString(),
+        googleLocationName: linked.googleLocationName,
+      } satisfies ObservedPostsPayload,
+    })
+  })
+  return attemptedAt
+}
+
+/**
+ * Whether the first page may be served from the stored rows, in ONE
+ * read-only tenant transaction and no Google call (W3-2). It may not, and
+ * the list reconciles against Google first, when:
+ *   - no reconciliation is recorded, it is past the staleness budget, or it
+ *     read another Google location than the one now linked;
+ *   - a read or the sweep failed since;
+ *   - a post's publish never settled (`ambiguous`, or `publishing` past its
+ *     lease): only Google's live list settles it (settleStrandedLocalPosts).
+ * Google writes to the location's posts drop the observation first
+ * (`forgetObservedGooglePayload`), so the next open shows Google's verdict.
+ */
+async function readPostsFreshness(
+  organisationId: string,
+  session: Session,
+  locationId: string
+) {
+  return withTenant(organisationId, async (sql) => {
+    const linked = await loadLinkedLocation(
+      sql,
+      session,
+      locationId,
+      POSTS_NOT_LINKED
+    )
+    const [observation, [stranded]] = await Promise.all([
+      readObservedGooglePayload(sql, {
+        organisationId,
+        locationId,
+        resource: "posts",
+      }),
+      sql<{ unsettled: boolean }[]>`
+        select exists (
+          select 1 from gbp_local_post
+          where location_id = ${locationId}
+            and (status = 'ambiguous' or (${strandedLocalPost(sql)}))
+        ) as unsettled
+      `,
+    ])
+    const payload = observation?.payload as ObservedPostsPayload | null
+    const fresh =
+      !!payload?.observedAt &&
+      !observation?.failed &&
+      payload.googleLocationName === linked.googleLocationName &&
+      !stranded?.unsettled &&
+      !shouldReadLive({ observedAt: payload.observedAt })
+    return { linked, observedAt: payload?.observedAt ?? null, fresh }
   })
 }
 
@@ -678,8 +762,10 @@ function parsePostsCursor(
  * the counts of every view.
  *
  * The first page (no cursor) reconciles against Google's live list before it
- * reads; later pages read the database only, so loading more does not call
- * Google once per page. The list is keyset-paged on the materialised sort
+ * reads, unless the last reconciliation is within the editor's staleness
+ * budget (readPostsFreshness; `refresh` and `post` always reconcile); later
+ * pages read the database only, so loading more does not call Google once
+ * per page. The list is keyset-paged on the materialised sort
  * time (`sort_at desc nulls last`, then `id`): a post created or edited
  * between pages sorts above the cursor and does not shift the rows below it.
  * `post` narrows the read to one post, which is how the ambiguous-post check
@@ -700,9 +786,29 @@ export async function listLocalPosts(
     ? null
     : parsePostsCursor(options.cursor, locationId, filter)
   let reconciliationError: string | null = null
+  let observedAt: string | null = null
+  let source: EditorReadSource | null = null
   if (!cursor) {
     try {
-      await reconcileLocalPosts(organisationId, session, locationId)
+      // The ambiguous-post check (`post`) is a Google check by definition.
+      const freshness =
+        options.refresh || options.post
+          ? null
+          : await readPostsFreshness(organisationId, session, locationId)
+      observedAt = freshness?.observedAt ?? null
+      if (freshness?.fresh) {
+        source = "stored"
+      } else {
+        observedAt = (
+          await reconcileLocalPosts(
+            organisationId,
+            session,
+            locationId,
+            freshness?.linked
+          )
+        ).toISOString()
+        source = "live"
+      }
     } catch (error) {
       reconciliationError =
         error && typeof error === "object" && "code" in error
@@ -814,6 +920,10 @@ export async function listLocalPosts(
     timezone,
     writesEnabled: gbpWritesEnabled(getServerEnv(), "posts"),
     reconciliationError,
+    // First page only: when the rows were last reconciled with Google, and
+    // whether this response read Google for them.
+    observedAt,
+    source,
   }
 }
 
@@ -1677,6 +1787,14 @@ async function publishLocalPost(input: {
   const payload = providerPayload(post)
   const options = { connectionKey: linked.googleConnectionId }
   let googlePostName = post.googlePostName
+  // Whatever the write's outcome, the posts list's last reconciliation
+  // predates it: the next open reads Google's state of the post (PROCESSING,
+  // LIVE or REJECTED) instead of serving the rows for up to five minutes.
+  await forgetObservedGooglePayload({
+    organisationId: input.organisationId,
+    locationId: linked.locationId,
+    resources: ["posts"],
+  })
   const result = await runGbpWrite<
     Record<string, unknown>,
     Record<string, unknown>,
@@ -1952,6 +2070,12 @@ export async function deleteLocalPost(input: {
     message: "Publish permission is required to delete a live post.",
   })
   const googlePostName = post.googlePostName
+  // As publishing: the next open lists what Google kept.
+  await forgetObservedGooglePayload({
+    organisationId: input.organisationId,
+    locationId: linked.locationId,
+    resources: ["posts"],
+  })
   try {
     await runGbpWrite<void, { listed: boolean }, LocalPostAttemptIntent>({
       surface: "posts",

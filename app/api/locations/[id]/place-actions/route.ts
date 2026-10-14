@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { editorRefreshQuerySchema } from "@/lib/contracts/editor-freshness"
 import {
   placeActionCreateRequestSchema,
   type PlaceActionsResponse,
@@ -14,12 +15,15 @@ const paramsSchema = z.object({ id: z.string() })
 
 export const GET = route({
   params: paramsSchema,
-  handler: async ({ session, params }) =>
+  // `?refresh=1` reads Google past the editor's staleness budget.
+  query: editorRefreshQuerySchema,
+  handler: async ({ session, params, query }) =>
     ({
       placeActions: await loadPlaceActions(
         session.organisationId,
         session,
-        params.id
+        params.id,
+        { refresh: query.refresh === "1" }
       ),
     }) satisfies PlaceActionsResponse,
 })

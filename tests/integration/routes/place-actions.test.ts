@@ -153,7 +153,11 @@ describeDatabase("Google Place Actions", () => {
     const afterCreate = await fetch(base, {
       headers: { cookie: owner.cookie },
     })
-    const merchant = (await afterCreate.json()).placeActions.links.find(
+    const afterCreateState = (await afterCreate.json()).placeActions
+    // The send dropped the editor's stored read (W3-2): this open reads
+    // Google, within the staleness budget of the first.
+    expect(afterCreateState.source).toBe("live")
+    const merchant = afterCreateState.links.find(
       (link: { providerType: string }) => link.providerType === "MERCHANT"
     )
     expect(merchant).toMatchObject({
@@ -221,6 +225,67 @@ describeDatabase("Google Place Actions", () => {
     `
     expect(Number(audit.count)).toBe(3)
   }, 30_000)
+
+  it("serves an open within the budget from the last Google read: no Google call, no write (W3-2)", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionTypeMetadata" },
+      () => ({ status: 200, json: { placeActionTypeMetadata: [{ placeActionType: "DINING_RESERVATION" }, { placeActionType: "FUTURE_ACTION" }] } })
+    )
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionLinks" },
+      () => ({ status: 200, json: { placeActionLinks: [{
+        name: `${linked.googleLocationName}/placeActionLinks/fresh`,
+        providerType: "MERCHANT",
+        isEditable: true,
+        uri: "https://book.example.com/fresh",
+        placeActionType: "DINING_RESERVATION",
+        isPreferred: true,
+        createTime: "2026-10-14T09:00:00Z",
+        updateTime: "2026-10-14T09:00:00Z",
+      }] } })
+    )
+    const googleReads = () =>
+      google.calls.filter(
+        (call) =>
+          call.method === "GET" &&
+          call.path.includes(linked.googleLocationName.split("/")[1])
+      ).length
+    const base = `${server.baseUrl}/api/locations/${linked.locationId}/place-actions`
+    const read = async (query = "") => {
+      const response = await fetch(`${base}${query}`, { headers: { cookie: owner.cookie } })
+      expect(response.status, await response.clone().text()).toBe(200)
+      return (await response.json()).placeActions
+    }
+    const rows = () =>
+      admin<{ observedAt: Date; updatedAt: Date }[]>`
+        select observed_at as "observedAt", updated_at as "updatedAt"
+        from place_action_link where location_id = ${linked.locationId}`
+
+    const live = await read()
+    expect(live.source).toBe("live")
+    const readsAfterFirst = googleReads()
+    expect(readsAfterFirst).toBe(2)
+    const before = await rows()
+
+    const stored = await read()
+    expect(stored.source).toBe("stored")
+    expect({ ...stored, source: "live" }).toEqual(live)
+    expect(googleReads()).toBe(readsAfterFirst)
+    expect(await rows()).toEqual(before)
+
+    expect((await read("?refresh=1")).source).toBe("live")
+    expect(googleReads()).toBe(readsAfterFirst + 2)
+  })
 
   it("records a create Google answered without the link name as unknown and confirms it from the list", async () => {
     const owner = await createTestTenant(admin)

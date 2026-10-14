@@ -36,6 +36,7 @@ export function fetchPosts(
   if (params.pageSize) query.set("pageSize", String(params.pageSize))
   if (params.cursor) query.set("cursor", params.cursor)
   if (params.post) query.set("post", params.post)
+  if (params.refresh) query.set("refresh", params.refresh)
   const suffix = query.size ? `?${query}` : ""
   return apiFetch(`/api/locations/${id}/posts${suffix}`, { schema: postsListResponseSchema, ...options })
 }
