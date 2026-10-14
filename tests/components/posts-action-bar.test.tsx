@@ -95,7 +95,10 @@ describe("PostsActionBar", () => {
     expect(within(confirm).getByText("Open late tonight")).toBeInTheDocument()
     await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
 
-    expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
+    const sent = await screen.findByText("Post sent to Google")
+    // A Google write's toast: no Undo (D5).
+    expect(sent.closest("[data-kind]")).toHaveAttribute("data-kind", "google")
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull()
     expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
       intentId: expect.any(String),
     })
@@ -122,7 +125,9 @@ describe("PostsActionBar", () => {
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Publish to Google" })
     )
 
-    expect(await screen.findByText("Post submitted for approval.")).toBeInTheDocument()
+    const queued = await screen.findByText("Post submitted for approval.")
+    // Nothing reached Google, so it is not a Google-write toast.
+    expect(queued.closest("[data-kind]")).toHaveAttribute("data-kind", "local")
   })
 
   it("offers Edit on drafts and failed posts only, reusing the composer", async () => {
@@ -165,7 +170,9 @@ describe("PostsActionBar", () => {
     expect(within(dialog).getByText("Preview")).toBeInTheDocument()
     expect(api.decidePostApproval).not.toHaveBeenCalled()
     await userEvent.click(within(dialog).getByRole("button", { name: "Approve and publish" }))
-    expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
+    expect(
+      (await screen.findByText("Post sent to Google")).closest("[data-kind]")
+    ).toHaveAttribute("data-kind", "google")
     expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve", 3)
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
 

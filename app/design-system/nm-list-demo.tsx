@@ -221,7 +221,7 @@ function NmListDemo() {
               preview="Great Sunday roast, friendly staff, will be back."
               tags={
                 <>
-                  <ListRowTag tone="green">Food</ListRowTag>
+                  <ListRowTag tone="purple">Food</ListRowTag>
                   <ListRowTag tone="blue">Staff</ListRowTag>
                 </>
               }

@@ -29,7 +29,12 @@ import { cn } from "@/lib/utils"
  *   with a "Cancel" text button. Cancel or Escape clears the query, leaves
  *   search mode and puts focus back where it was before (or on the filter
  *   button). Controlled with `searchMode` + `onSearchModeChange`.
- * - `resultsLabel` is announced politely (`role="status"`).
+ * - `resultsLabel` is announced politely (`role="status"`);
+ *   `resultsLive={false}` draws it as plain text, for a screen that already
+ *   announces the count elsewhere.
+ * - `focusSearchOnMount={false}`: a toolbar that MOUNTS in search mode (a
+ *   phone landing on `?search=…`) leaves focus where it is; switching search
+ *   mode on later still moves focus to the field.
  * - `searchRegionLabel` names the `role="search"` landmark ("Filter
  *   listings"); unnamed by default. `search={false}` drops the field (and
  *   search mode) for a toolbar of filters only.
@@ -60,6 +65,11 @@ export type ToolbarProps = Omit<React.ComponentProps<"div">, "children"> & {
   /** Controlled search mode. */
   searchMode?: boolean
   onSearchModeChange?: (searchMode: boolean) => void
+  /**
+   * Whether mounting with `searchMode` already true focuses the field.
+   * Default true; later switches into search mode always focus it.
+   */
+  focusSearchOnMount?: boolean
   /** Enter search mode when the field gets focus on touch. Default true. */
   searchModeOnFocus?: boolean
   cancelLabel?: string
@@ -71,6 +81,8 @@ export type ToolbarProps = Omit<React.ComponentProps<"div">, "children"> & {
   chips?: React.ReactNode
   /** "12 reviews", "Results": `text-ui ink-muted`, announced politely. */
   resultsLabel?: React.ReactNode
+  /** `false`: the results label is not a live region. Default true. */
+  resultsLive?: boolean
   sticky?: boolean
 }
 
@@ -93,12 +105,14 @@ function Toolbar({
   searchRef,
   searchMode: searchModeProp,
   onSearchModeChange,
+  focusSearchOnMount = true,
   searchModeOnFocus = true,
   cancelLabel = "Cancel",
   filter,
   view,
   chips,
   resultsLabel,
+  resultsLive = true,
   sticky = true,
   className,
   ...props
@@ -113,6 +127,10 @@ function Toolbar({
   const filterRef = React.useRef<HTMLDivElement>(null)
   const returnFocusRef = React.useRef<HTMLElement | null>(null)
   const restorePendingRef = React.useRef(false)
+  // The search mode the focus effect last acted on. Seeded with the mount
+  // value when the mount must not take focus, so only a later switch does
+  // (and a Strict Mode re-run of the mount effect is a no-op).
+  const focusedModeRef = React.useRef(focusSearchOnMount ? false : searchMode)
 
   React.useImperativeHandle<HTMLInputElement | null, HTMLInputElement | null>(
     searchRef,
@@ -138,7 +156,9 @@ function Toolbar({
   // Search mode switched on from outside (a search icon, a shortcut): the
   // field takes focus, remembering where focus was.
   React.useEffect(() => {
-    if (!searchMode) return
+    const was = focusedModeRef.current
+    focusedModeRef.current = searchMode
+    if (!searchMode || was) return
     const input = inputRef.current
     if (!input || document.activeElement === input) return
     const from = document.activeElement
@@ -268,7 +288,7 @@ function Toolbar({
           mounts with it. Empty, it is visually hidden but stays in the
           accessibility tree. */}
       <p
-        role="status"
+        role={resultsLive ? "status" : undefined}
         data-slot="toolbar-results"
         className="text-ui text-ink-muted empty:sr-only"
       >

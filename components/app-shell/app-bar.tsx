@@ -6,6 +6,9 @@ import * as React from "react"
 
 import type { BackTarget } from "@/lib/navigation/back-target"
 import { destinationForPath } from "@/lib/navigation/destinations"
+import { useClients } from "@/lib/queries/use-clients"
+import { useLocationDirectory } from "@/lib/queries/use-locations"
+import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
@@ -281,9 +284,11 @@ function AppBar({
             )}
             {/* The scope reads the address (useSearchParams); the boundary
                 keeps a prerendered page from bailing the whole bar out to
-                client rendering. Until it resolves, the bar shows what it
-                shows with nothing to switch. */}
-            <React.Suspense fallback={ownSearch ? null : <NotificationsLink />}>
+                client rendering. Until it resolves the slot is held blank,
+                never the bell that the scope chip would then replace. */}
+            <React.Suspense
+              fallback={ownSearch ? null : <AppBarScopePending />}
+            >
               <AppBarScopeSlot
                 mode={mode}
                 ownSearch={ownSearch}
@@ -314,6 +319,13 @@ function AppBarScopeSlot({
   // A business switches location, an agency client (then location); the
   // chip hides itself when there is nothing to switch.
   const scope = useScopeLabel(mode)
+  // Whether there is anything to switch is unknown until the list that
+  // decides it (an agency's clients, a business's locations) has loaded.
+  // Same query keys as the switcher's, so nothing extra is fetched. The
+  // server and the first client render agree on "pending".
+  const clients = useClients({ enabled: mode === "agency" })
+  const directory = useLocationDirectory(useSessionRole())
+  const pending = mode === "agency" ? clients.isPending : directory.isPending
   if (scope.visible) {
     // Room for the leading name too: the chip gives way first.
     return (
@@ -324,7 +336,19 @@ function AppBarScopeSlot({
       />
     )
   }
-  return ownSearch ? null : <NotificationsLink />
+  if (ownSearch) return null
+  return pending ? <AppBarScopePending /> : <NotificationsLink />
+}
+
+/** The trailing slot held at one control's width while the scope loads. */
+function AppBarScopePending() {
+  return (
+    <span
+      aria-hidden
+      data-slot="app-bar-scope-pending"
+      className="size-11 shrink-0"
+    />
+  )
 }
 
 function AppBarLeading({

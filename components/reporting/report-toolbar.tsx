@@ -77,14 +77,21 @@ export function ReportToolbar({
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger
           render={
+            // One quiet pill row (the scope switcher): the grey fill, not a
+            // bordered control, so the figures stay the loudest thing.
             <Button
-              variant="secondary"
-              className="h-auto min-h-(--np-control-h) min-w-0 flex-1 justify-start py-2 md:hidden print:hidden"
+              variant="ghost"
+              pill
+              className="h-auto min-h-(--np-touch) min-w-0 flex-1 justify-start bg-fill-secondary py-2 font-normal md:hidden print:hidden"
             />
           }
         >
-          <SlidersHorizontalIcon aria-hidden strokeWidth={1.75} />
-          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-left">
+          <SlidersHorizontalIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="text-ink-secondary"
+          />
+          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-1 text-left">
             {parts.map((part, index) => (
               <React.Fragment key={`${index}-${part}`}>
                 {index > 0 ? (
@@ -98,9 +105,7 @@ export function ReportToolbar({
                 ) : null}
                 <span
                   className={cn(
-                    index === last
-                      ? "whitespace-nowrap"
-                      : "max-w-full truncate"
+                    index === last ? "whitespace-nowrap" : "max-w-full truncate"
                   )}
                 >
                   {part}
@@ -108,7 +113,11 @@ export function ReportToolbar({
               </React.Fragment>
             ))}
           </span>
-          <ChevronDownIcon aria-hidden strokeWidth={1.75} className="ml-auto" />
+          <ChevronDownIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="ml-auto text-ink-muted"
+          />
         </SheetTrigger>
         <SheetContent side="bottom">
           <SheetHeader>
@@ -122,7 +131,7 @@ export function ReportToolbar({
             ) : null}
           </SheetBody>
           <SheetFooter>
-            <SheetClose render={<Button className="w-full sm:w-auto" />}>
+            <SheetClose render={<Button block className="sm:w-auto" />}>
               Done
             </SheetClose>
           </SheetFooter>

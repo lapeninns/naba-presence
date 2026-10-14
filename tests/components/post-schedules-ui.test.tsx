@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { PostsTab } from "@/components/locations/posts-tab"
+import {
+  formatWallDay,
+  presetDates,
+  scheduleWhen,
+} from "@/components/locations/posts/schedule-dates"
 import type { Post } from "@/lib/api/location-posts"
 import { localWallTime } from "@/lib/domain/publication-schedule"
 import type {
@@ -239,7 +244,9 @@ describe("Posts tab scheduling (P08-R5)", () => {
     renderTab([post()], { postScheduling: true, postSchedulingRecurring: true })
     const user = userEvent.setup()
     await user.click(
-      screen.getByRole("button", { name: "More actions for Sunday roast is back" })
+      screen.getByRole("button", {
+        name: "More actions for Sunday roast is back",
+      })
     )
     await user.click(
       await screen.findByRole("menuitem", { name: "Schedule publication" })
@@ -473,5 +480,136 @@ describe("Posts tab scheduling (P08-R5)", () => {
     expect(
       calls.some((call) => call.url.includes("legacy-post-schedules"))
     ).toBe(false)
+  })
+})
+
+describe("Schedule presets (presentation shortcut over the one-time form)", () => {
+  it("offers venue-time presets that only fill the form, then submits for approval", async () => {
+    renderTab([post()], { postScheduling: true })
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole("button", {
+        name: "More actions for Sunday roast is back",
+      })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Schedule publication" })
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Schedule publication",
+    })
+    const dates = presetDates(Date.now(), "Europe/London")
+    const tomorrow = within(sheet).getByRole("radio", {
+      name: "Tomorrow morning",
+    })
+    expect(tomorrow).toBeChecked()
+    // Each preset says the resolved day and the zone in words.
+    expect(tomorrow).toHaveAccessibleDescription(
+      `${formatWallDay(dates.tomorrow)}, 09:00 · venue time (Europe/London)`
+    )
+    // The full form waits behind "Pick a date and time".
+    expect(within(sheet).queryByLabelText("Date")).toBeNull()
+    expect(
+      within(sheet).getByText(/1 publication from now/)
+    ).toBeInTheDocument()
+
+    await user.click(within(sheet).getByRole("radio", { name: "Next Monday" }))
+    expect(
+      within(sheet).getByText(
+        new RegExp(`^Once on ${dates.monday} at 09:00 \\(Europe/London`)
+      )
+    ).toBeInTheDocument()
+    await user.click(
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
+    )
+    expect(within(sheet).getByLabelText("Date")).toHaveValue(dates.monday)
+    expect(within(sheet).getByLabelText("Local time")).toHaveValue("09:00")
+    // The form is pushed inside the sheet: its title takes focus, and Back
+    // returns to the rows, where the custom row says what was chosen.
+    await waitFor(() =>
+      expect(
+        within(sheet).getByText("Pick a date and time", {
+          selector: '[data-slot="sheet-title"]',
+        })
+      ).toHaveFocus()
+    )
+    await user.click(
+      within(sheet).getByRole("button", {
+        name: "Back to Schedule publication",
+      })
+    )
+    await waitFor(() =>
+      expect(
+        within(sheet).getByText("Schedule publication", {
+          selector: '[data-slot="sheet-title"]',
+        })
+      ).toHaveFocus()
+    )
+    expect(within(sheet).queryByLabelText("Date")).toBeNull()
+    expect(
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
+    ).toHaveAccessibleDescription(
+      new RegExp(`^${formatWallDay(dates.monday)}, 09:00 · `)
+    )
+
+    // Never "Schedule" or "Send": the same submit-for-approval path.
+    await user.click(
+      within(sheet).getByRole("button", {
+        name: "Submit schedule for approval",
+      })
+    )
+    await waitFor(() =>
+      expect(
+        calls.find(
+          (call) =>
+            call.method === "POST" && call.url.includes("/post-schedules")
+        )
+      ).toMatchObject({
+        body: {
+          postId: DRAFT,
+          rule: {
+            frequency: "once",
+            startDate: dates.monday,
+            localTime: "09:00",
+          },
+          timezone: "Europe/London",
+        },
+      })
+    )
+  })
+
+  it("resolves the presets on the venue's calendar, across a clock change", () => {
+    // 00:30 BST on Sunday 25 Oct 2026, the night the clocks go back.
+    expect(
+      presetDates(Date.parse("2026-10-24T23:30:00Z"), "Europe/London")
+    ).toEqual({ tomorrow: "2026-10-26", monday: "2026-10-26" })
+    // On a Monday, "Next Monday" is a week on.
+    expect(
+      presetDates(Date.parse("2026-10-26T10:00:00Z"), "Europe/London").monday
+    ).toBe("2026-11-02")
+    // Late Sunday in New York is already Monday in London.
+    expect(
+      presetDates(Date.parse("2026-10-19T02:00:00Z"), "America/New_York")
+    ).toEqual({ tomorrow: "2026-10-19", monday: "2026-10-19" })
+  })
+
+  it("names a schedule row by its day, venue time and zone", () => {
+    const once = {
+      frequency: "once" as const,
+      startDate: "2026-10-20",
+      localTime: "09:00",
+    }
+    expect(scheduleWhen(once, "Europe/London", 60)).toBe(
+      "Tue 20 Oct, 09:00 BST · Once"
+    )
+    // The repeated hour on the night the clocks go back: the booked offset
+    // decides which one it is.
+    const repeated = { ...once, startDate: "2026-10-25", localTime: "01:30" }
+    expect(scheduleWhen(repeated, "Europe/London", 60)).toBe(
+      "Sun 25 Oct, 01:30 BST · Once"
+    )
+    expect(scheduleWhen(repeated, "Europe/London", 0)).toBe(
+      "Sun 25 Oct, 01:30 GMT · Once"
+    )
   })
 })

@@ -10,22 +10,14 @@ import {
 } from "lucide-react"
 import * as React from "react"
 
-import { Button } from "@/components/ui/button"
 import {
-  Command,
+  CommandDialog,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { StatusPill } from "@/components/ui/status-pill"
 import { healthTone } from "@/lib/clients/health"
 import { withClientScope } from "@/lib/clients/scope"
@@ -40,7 +32,6 @@ import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
-import { cn } from "@/lib/utils"
 
 import { useRememberedClient } from "./client-context"
 import { useClientSwitch } from "./client-switcher"
@@ -62,7 +53,7 @@ const ICON_CLASS = "size-4 shrink-0 text-ink-muted"
  * A result row: the primitive's 36px desk row (44px on a touch screen),
  * and a 48px row with room around the icon in the phone takeover.
  */
-const ROW_CLASS = "max-md:min-h-12 max-md:gap-3 max-md:px-4"
+const ROW_CLASS = "max-sm:min-h-12 max-sm:gap-3 max-sm:px-4"
 
 /**
  * The Inbox's review search with `query` filled in, keeping the remembered
@@ -137,7 +128,7 @@ function CommandPaletteDialog({
     clients.data?.items.map((client) => [client.id, client.name]) ?? []
   )
 
-  const groupClassName = trimmed ? undefined : "max-md:hidden"
+  const groupClassName = trimmed ? undefined : "max-sm:hidden"
 
   return (
     // "Commands", not "Search": this looks for clients, locations and
@@ -148,289 +139,200 @@ function CommandPaletteDialog({
     // the operator concluding the review does not exist.
     //
     // One popup, two drawings, chosen by CSS alone (never a media query at
-    // render): below `md` it is the full-screen search takeover (canvas,
-    // a pill field and Cancel along the top, results between it and the
-    // keyboard); from `md` it is the desk's ⌘K card, 12vh from the top.
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        presentation="dialog"
-        showCloseButton={false}
-        className={cn(
-          "flex flex-col gap-0 overflow-hidden p-0",
-          // Phone: the takeover. Pinned to the top and to the keyboard's
-          // top edge, inside the safe areas.
-          "max-md:inset-x-0 max-md:top-0 max-md:bottom-(--np-keyboard-inset) max-md:left-0 max-md:max-h-none! max-md:w-full max-md:max-w-none! max-md:translate-x-0! max-md:translate-y-0! max-md:rounded-none max-md:bg-canvas max-md:pt-safe max-md:px-safe max-md:shadow-none",
-          // Desk: the palette card, a menu radius, 12vh from the top.
-          "md:top-[12vh] md:max-w-(--np-sheet-max-w) md:translate-y-0 md:rounded-(--np-radius-menu) md:data-starting-style:translate-y-2"
-        )}
-      >
-        <DialogTitle className="sr-only">Commands</DialogTitle>
-        <DialogDescription className="sr-only">
-          {business
-            ? "Jump to a location or a page, or run an action. Type a customer's words to search reviews in the Inbox."
-            : "Jump to a client or a location, or run an action. Type a customer's words to search reviews in the Inbox."}
-        </DialogDescription>
-        <Command
-          className="min-h-0 flex-1 bg-transparent"
-          onKeyDown={(event) => {
-            // Below `md` the groups stay hidden until something is typed,
-            // but cmdk still highlights the first (hidden) row; Enter must
-            // never open a row the operator cannot see. Read at event time:
-            // behaviour, not layout.
-            if (event.key === "Enter" && !trimmed && isBelowDesk()) {
-              event.preventDefault()
-            }
-          }}
-        >
-          <div
-            data-slot="command-palette-bar"
-            className="flex shrink-0 items-center gap-1 max-md:py-2 max-md:pr-1 max-md:pl-3 md:border-b md:border-line"
-          >
-            {/* The field: a pill on a phone, the card's borderless top row
-                at the desk. The primitive's own row keeps its magnifier;
-                its hairline moves to this row so the clear button sits
-                inside the same line. */}
-            <div
-              className={cn(
-                "flex h-11 min-w-0 flex-1 items-center md:h-14",
-                "max-md:rounded-full max-md:bg-fill",
-                "[&_[data-slot=command-search]]:min-w-0 [&_[data-slot=command-search]]:flex-1 [&_[data-slot=command-search]]:border-0",
-                "max-md:[&_[data-slot=command-search]]:gap-2 max-md:[&_[data-slot=command-search]]:pr-1 max-md:[&_[data-slot=command-search]]:pl-3"
-              )}
+    // render): the primitive's `takeover` (below `sm` the full-screen search
+    // takeover, a pill field and Cancel along the top, results between it
+    // and the keyboard; from `sm` the desk's ⌘K card, 12vh from the top).
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      phone="takeover"
+      title="Commands"
+      description={
+        business
+          ? "Jump to a location or a page, or run an action. Type a customer's words to search reviews in the Inbox."
+          : "Jump to a client or a location, or run an action. Type a customer's words to search reviews in the Inbox."
+      }
+    >
+      <CommandInput
+        ref={inputRef}
+        value={query}
+        onValueChange={setQuery}
+        onKeyDown={(event) => {
+          // Below `sm` the groups stay hidden until something is typed,
+          // but cmdk still highlights the first (hidden) row; Enter must
+          // never open a row the operator cannot see. cmdk skips a key
+          // the field has already handled. Read at event time:
+          // behaviour, not layout.
+          if (event.key === "Enter" && !trimmed && isPhone()) {
+            event.preventDefault()
+          }
+        }}
+        placeholder={
+          business
+            ? "Go to a location or an action, or search reviews…"
+            : "Go to a client, a location or an action, or search reviews…"
+        }
+        trailing={
+          query ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("")
+                inputRef.current?.focus()
+              }}
+              className="-mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) hover:text-ink focus-visible:outline-none"
             >
-              {/* `text-body` keeps the field at 16px on a phone (iOS zooms
-                  the page on focus below that); the primitive's
-                  `text-title` is larger still at the desk. Nothing here
-                  sizes it down to `text-ui`. */}
-              <CommandInput
-                ref={inputRef}
-                value={query}
-                onValueChange={setQuery}
-                className="max-md:h-11 max-md:text-body"
-                placeholder={
-                  business
-                    ? "Go to a location or an action, or search reviews…"
-                    : "Go to a client, a location or an action, or search reviews…"
-                }
-              />
-              {query ? (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => {
-                    setQuery("")
-                    inputRef.current?.focus()
-                  }}
-                  className="flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) hover:text-ink focus-visible:outline-none md:mr-2"
-                >
-                  <CircleX className="size-4" strokeWidth={1.75} aria-hidden />
-                </button>
-              ) : null}
-            </div>
-            <DialogClose
-              render={
-                <Button
-                  variant="link"
-                  className="min-h-11 px-2! text-body no-underline md:hidden"
-                />
-              }
-            >
-              Cancel
-            </DialogClose>
-          </div>
+              <CircleX className="size-4" strokeWidth={1.75} aria-hidden />
+            </button>
+          ) : null
+        }
+      />
 
-          {/* The takeover's resting state: nothing typed yet. The desk
+      {/* The takeover's resting state: nothing typed yet. The desk
               lists everything at once, so this is a phone-only line. */}
-          {trimmed ? null : (
-            <div
-              data-slot="command-palette-hint"
-              className="flex flex-col items-center gap-2 px-6 py-16 text-center text-ink-muted md:hidden"
-            >
-              <Search className="size-5" strokeWidth={1.75} aria-hidden />
-              <p className="text-body">
-                {business
-                  ? "Search listings and pages"
-                  : "Search clients, listings and pages"}
-              </p>
-            </div>
-          )}
+      {trimmed ? null : (
+        <div
+          data-slot="command-palette-hint"
+          className="flex flex-col items-center gap-2 px-6 py-16 text-center text-ink-muted sm:hidden"
+        >
+          <Search className="size-5" strokeWidth={1.75} aria-hidden />
+          <p className="text-body">
+            {business
+              ? "Search listings and pages"
+              : "Search clients, listings and pages"}
+          </p>
+        </div>
+      )}
 
-          <CommandList className="max-md:max-h-none max-md:min-h-0 max-md:flex-1 max-md:px-0 max-md:pb-safe">
-            <CommandEmpty>
-              {trimmed
-                ? `Nothing matched “${trimmed}”. To search review text, choose Search reviews below.`
-                : "Nothing matched that."}
-            </CommandEmpty>
+      <CommandList className="max-sm:px-0">
+        <CommandEmpty>
+          {trimmed
+            ? `Nothing matched “${trimmed}”. To search review text, choose Search reviews below.`
+            : "Nothing matched that."}
+        </CommandEmpty>
 
-            {!business && clients.data?.items.length ? (
-              <CommandGroup
-                heading={<GroupHeading>Clients</GroupHeading>}
-                className={groupClassName}
+        {!business && clients.data?.items.length ? (
+          <CommandGroup heading="Clients" className={groupClassName}>
+            {clients.data.items.map((client) => (
+              <CommandItem
+                key={client.id}
+                value={`client ${client.name}`}
+                onSelect={() => go(`/clients/${client.id}`)}
+                className={ROW_CLASS}
               >
-                {clients.data.items.map((client) => (
-                  <CommandItem
-                    key={client.id}
-                    value={`client ${client.name}`}
-                    onSelect={() => go(`/clients/${client.id}`)}
-                    className={ROW_CLASS}
-                  >
-                    <StatusPill
-                      tone={healthTone(client.health)}
-                      variant="dot"
-                    />
-                    <span className="flex-1 truncate">{client.name}</span>
-                    <span className="text-caption text-ink-muted tabular-nums">
-                      {client.locationCount === 1
-                        ? "1 location"
-                        : `${client.locationCount} locations`}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ) : null}
+                <StatusPill tone={healthTone(client.health)} variant="dot" />
+                <span className="flex-1 truncate">{client.name}</span>
+                <span className="text-caption text-ink-muted tabular-nums">
+                  {client.locationCount === 1
+                    ? "1 location"
+                    : `${client.locationCount} locations`}
+                </span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        ) : null}
 
-            {locations.data?.length ? (
-              <CommandGroup
-                heading={<GroupHeading>Listings</GroupHeading>}
-                className={groupClassName}
+        {locations.data?.length ? (
+          <CommandGroup heading="Listings" className={groupClassName}>
+            {locations.data.map((location) => (
+              <CommandItem
+                key={location.id}
+                value={`listing ${location.name}`}
+                onSelect={() => go(`/listings/${location.id}`)}
+                className={ROW_CLASS}
               >
-                {locations.data.map((location) => (
-                  <CommandItem
-                    key={location.id}
-                    value={`listing ${location.name}`}
-                    onSelect={() => go(`/listings/${location.id}`)}
-                    className={ROW_CLASS}
-                  >
-                    <MapPin
-                      className={ICON_CLASS}
-                      strokeWidth={1.75}
-                      aria-hidden
-                    />
-                    <span className="flex-1 truncate">{location.name}</span>
-                    {!business && location.clientId ? (
-                      <span className="truncate text-caption text-ink-muted">
-                        {clientNameById.get(location.clientId)}
-                      </span>
-                    ) : null}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ) : null}
-
-            {business ? null : (
-              <React.Suspense fallback={null}>
-                <SwitchClientCommands
-                  onDone={() => onOpenChange(false)}
-                  className={groupClassName}
-                />
-              </React.Suspense>
-            )}
-
-            <CommandGroup
-              heading={<GroupHeading>Go to</GroupHeading>}
-              className={groupClassName}
-            >
-              {goTo.map((destination) => {
-                const Icon = destination.icon
-                return (
-                  <CommandItem
-                    key={destination.id}
-                    value={`go ${destination.label}`}
-                    onSelect={() =>
-                      go(destinationHref(destination, mode, remembered))
-                    }
-                    className={ROW_CLASS}
-                  >
-                    <Icon
-                      className={ICON_CLASS}
-                      strokeWidth={1.75}
-                      aria-hidden
-                    />
-                    {destination.label}
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-
-            <CommandGroup
-              heading={<GroupHeading>Actions</GroupHeading>}
-              className={groupClassName}
-            >
-              {actions.map((item) => {
-                const Icon = item.icon
-                return (
-                  <CommandItem
-                    key={item.label}
-                    value={`action ${item.label}`}
-                    onSelect={() => go(item.href)}
-                    className={ROW_CLASS}
-                  >
-                    <Icon
-                      className={ICON_CLASS}
-                      strokeWidth={1.75}
-                      aria-hidden
-                    />
-                    {item.label}
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-            {trimmed ? (
-              // Always present while there is a query (`forceMount` keeps
-              // it through the filter whatever the words) and always LAST:
-              // its value never matches, so cmdk sorts it below every real
-              // match and Enter still jumps to the client or listing the
-              // words name. With nothing else matching it is the one row,
-              // and Enter searches.
-              <CommandGroup
-                heading={<GroupHeading>Search</GroupHeading>}
-                forceMount
-              >
-                <CommandItem
-                  value="__review-search__"
-                  forceMount
-                  onSelect={() =>
-                    go(reviewSearchHref(trimmed, mode, remembered))
-                  }
-                  className={ROW_CLASS}
-                >
-                  <MessageSquareText
-                    className={ICON_CLASS}
-                    strokeWidth={1.75}
-                    aria-hidden
-                  />
-                  <span className="flex-1 truncate">
-                    Search reviews for “{trimmed}”
+                <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
+                <span className="flex-1 truncate">{location.name}</span>
+                {!business && location.clientId ? (
+                  <span className="truncate text-caption text-ink-muted">
+                    {clientNameById.get(location.clientId)}
                   </span>
-                </CommandItem>
-              </CommandGroup>
-            ) : null}
-          </CommandList>
-        </Command>
-      </DialogContent>
-    </Dialog>
+                ) : null}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        ) : null}
+
+        {business ? null : (
+          <React.Suspense fallback={null}>
+            <SwitchClientCommands
+              onDone={() => onOpenChange(false)}
+              className={groupClassName}
+            />
+          </React.Suspense>
+        )}
+
+        <CommandGroup heading="Go to" className={groupClassName}>
+          {goTo.map((destination) => {
+            const Icon = destination.icon
+            return (
+              <CommandItem
+                key={destination.id}
+                value={`go ${destination.label}`}
+                onSelect={() =>
+                  go(destinationHref(destination, mode, remembered))
+                }
+                className={ROW_CLASS}
+              >
+                <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
+                {destination.label}
+              </CommandItem>
+            )
+          })}
+        </CommandGroup>
+
+        <CommandGroup heading="Actions" className={groupClassName}>
+          {actions.map((item) => {
+            const Icon = item.icon
+            return (
+              <CommandItem
+                key={item.label}
+                value={`action ${item.label}`}
+                onSelect={() => go(item.href)}
+                className={ROW_CLASS}
+              >
+                <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
+                {item.label}
+              </CommandItem>
+            )
+          })}
+        </CommandGroup>
+        {trimmed ? (
+          // Always present while there is a query (`forceMount` keeps
+          // it through the filter whatever the words) and always LAST:
+          // its value never matches, so cmdk sorts it below every real
+          // match and Enter still jumps to the client or listing the
+          // words name. With nothing else matching it is the one row,
+          // and Enter searches.
+          <CommandGroup heading="Search" forceMount>
+            <CommandItem
+              value="__review-search__"
+              forceMount
+              onSelect={() => go(reviewSearchHref(trimmed, mode, remembered))}
+              className={ROW_CLASS}
+            >
+              <MessageSquareText
+                className={ICON_CLASS}
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <span className="flex-1 truncate">
+                Search reviews for “{trimmed}”
+              </span>
+            </CommandItem>
+          </CommandGroup>
+        ) : null}
+      </CommandList>
+    </CommandDialog>
   )
 }
 
-/** Whether the phone takeover is showing (below `md`), asked at event time. */
-function isBelowDesk(): boolean {
+/** Whether the phone takeover is showing (below `sm`), asked at event time. */
+function isPhone(): boolean {
   return (
     typeof window.matchMedia === "function" &&
-    !window.matchMedia(mediaQuery("md")).matches
-  )
-}
-
-/**
- * A group's label in the Notion Mail manner: sentence case, the UI size,
- * muted, set inside the primitive's mono uppercase heading slot so it
- * overrides it by inheritance (the slot's padding still applies). It is
- * still the heading cmdk names the group by.
- */
-function GroupHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="font-sans text-ui tracking-normal text-ink-muted normal-case">
-      {children}
-    </span>
+    !window.matchMedia(mediaQuery("sm")).matches
   )
 }
 
@@ -454,10 +356,7 @@ function SwitchClientCommands({
     void select(clientId)
   }
   return (
-    <CommandGroup
-      heading={<GroupHeading>Switch client</GroupHeading>}
-      className={className}
-    >
+    <CommandGroup heading="Switch client" className={className}>
       {current ? (
         <CommandItem
           value="switch client all clients"

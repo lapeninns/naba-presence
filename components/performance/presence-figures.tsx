@@ -134,7 +134,7 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
                 <dt className="text-caption text-ink-muted">
                   {metricLabel(metric)}
                 </dt>
-                <dd className="font-mono text-body font-semibold text-ink tabular-nums">
+                <dd className="text-body font-semibold text-ink tabular-nums">
                   {formatFigure(data.totals[metric])}
                 </dd>
               </div>
