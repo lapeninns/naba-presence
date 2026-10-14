@@ -1,15 +1,15 @@
 import * as React from "react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { cn } from "@/lib/utils"
 
 /**
- * Settings-row building blocks for the profile sections (Notion Mail
- * settings look, interim until Foundation Drop 1). Each maps one-to-one onto
- * a Drop 1 primitive, so the later swap is mechanical:
+ * Settings-row building blocks for the profile sections, on the Notion Mail
+ * primitives:
  *
- *   SettingsGroupLabel → SettingsGroup's label
- *   RowList / ItemRow  → ListRow (title, sub-label, trailing actions)
+ *   SettingsGroupLabel → a sub-group label inside a SettingsGroup section
+ *   RowList / ItemRow  → ListRows / ListRow (title, sub-label, trailing actions)
  *   HandoffNote        → the settings info card ("Manage it in Google")
  */
 
@@ -27,12 +27,16 @@ export function SettingsGroupLabel({
   )
 }
 
-/** Rows separated by a hairline, with no card of their own. */
+/**
+ * Rows separated by a hairline, with no card of their own (`ListRows`). It
+ * takes `ItemRow`s or plain `<li>`s; the hairlines are the list's, so both
+ * kinds are divided the same way.
+ */
 export function RowList({ className, ...props }: React.ComponentProps<"ul">) {
   return (
-    <ul
+    <ListRows
       className={cn(
-        "flex min-w-0 flex-col divide-y divide-line-subtle border-y border-line-subtle",
+        "divide-y divide-line-subtle border-y border-line-subtle",
         className
       )}
       {...props}
@@ -41,10 +45,10 @@ export function RowList({ className, ...props }: React.ComponentProps<"ul">) {
 }
 
 /**
- * One item: a title, an optional sub-label (a code or place ID, in mono, the
- * way IDs read everywhere) and trailing actions. At least `--np-row-h` tall,
- * and the trailing actions wrap under the title on a narrow phone rather
- * than squeezing it.
+ * One item (`ListRow`, not a hit target: it carries its own controls): a
+ * title, an optional sub-label (a code or place ID, in mono, the way IDs
+ * read everywhere) and trailing actions. At least 44px tall; the title and
+ * ID wrap rather than truncate, so two long IDs never look the same.
  */
 export function ItemRow({
   title,
@@ -58,26 +62,31 @@ export function ItemRow({
   className?: string
 }) {
   return (
-    <li
-      className={cn(
-        "flex min-h-(--np-row-h) min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2",
-        className
-      )}
-    >
-      <div className="min-w-0 grow basis-40">
-        <p className="text-body break-words text-ink">{title}</p>
-        {detail ? (
-          <p className="font-mono text-caption break-all text-ink-muted">
+    <ListRow
+      as="li"
+      flush
+      wrap
+      interactive={false}
+      emphasis="neutral"
+      // RowList draws the hairlines.
+      wrapperClassName="after:hidden"
+      className={cn("items-center py-2", className)}
+      title={<span className="font-normal">{title}</span>}
+      subtitle={
+        detail ? (
+          <span className="font-mono text-caption break-all text-ink-muted">
             {detail}
-          </p>
-        ) : null}
-      </div>
-      {trailing ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {trailing}
-        </div>
-      ) : null}
-    </li>
+          </span>
+        ) : undefined
+      }
+      trailing={
+        trailing ? (
+          <span className="flex flex-wrap items-center justify-end gap-2">
+            {trailing}
+          </span>
+        ) : undefined
+      }
+    />
   )
 }
 

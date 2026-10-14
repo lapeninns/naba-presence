@@ -735,6 +735,63 @@ describe("ProfileTab address lines", () => {
   })
 })
 
+describe("ProfileTab on a phone", () => {
+  /** A touch phone: no `desk` (or any other) media query matches. */
+  function stubPhone() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }))
+    )
+  }
+
+  it("picks the open status from a sheet and still confirms permanent closure", async () => {
+    stubPhone()
+    stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const status = await screen.findByRole("button", { name: /Open status/ })
+    await waitFor(() => expect(status).toBeEnabled())
+    expect(status).toHaveTextContent("Open")
+    await userEvent.click(status)
+    const sheet = await screen.findByRole("dialog", { name: "Open status" })
+    await userEvent.click(
+      within(sheet).getByRole("option", { name: "Temporarily closed" })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Open status/ })).toHaveTextContent(
+        "Temporarily closed"
+      )
+    )
+    await userEvent.click(screen.getByRole("button", { name: /Open status/ }))
+    const again = await screen.findByRole("dialog", { name: "Open status" })
+    await userEvent.click(
+      within(again).getByRole("option", { name: "Permanently closed" })
+    )
+    const confirm = await screen.findByRole("alertdialog", {
+      name: "Mark as permanently closed?",
+    })
+    const mark = within(confirm).getByRole("button", {
+      name: "Mark as permanently closed",
+    })
+    expect(mark).toBeDisabled()
+    await userEvent.click(within(confirm).getByRole("checkbox"))
+    await userEvent.click(mark)
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Open status/ })).toHaveTextContent(
+        "Permanently closed"
+      )
+    )
+  })
+})
+
 describe("ProfileTab while Google's half is still loading", () => {
   it("does not claim the listing is in sync before Google has answered", async () => {
     // The four NabaPresence fields match Google in this fixture, so `rows` is

@@ -1,7 +1,8 @@
 import { GlobeIcon, PenLine, ShieldCheckIcon } from "lucide-react"
 
-import { StatusPill } from "@/components/ui/status-pill"
 import { cardClassName } from "@/components/ui/card"
+import { SettingsGroup } from "@/components/ui/settings-row"
+import { StatusPill } from "@/components/ui/status-pill"
 import { cn } from "@/lib/utils"
 
 /** The reference `.changed-mark`: an info-ink word with a pen, never colour alone. */
@@ -99,20 +100,17 @@ export function SaveModelTag({
   )
 }
 
-/** A quiet bordered card, drawn on a desk only (`desk:` variants of `cardClassName`). */
-const DESK_CARD =
-  "desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:p-(--np-card-pad)"
-
 /**
- * One profile section, drawn as a settings group (Notion Mail settings): a
- * quiet group label, a caption saying where its edits go (SaveModelTag) and
- * what it is for, then the fields. On a phone the group sits flat on the
- * page, with only the space between groups setting them apart; on a desk it
- * keeps a quiet bordered card. `id` is the jump target for the section nav,
- * and `${id}-heading` the heading it focuses; the scroll margin keeps the
- * heading clear of the phone's sticky section tabs.
+ * One profile section, drawn as a settings group (Notion Mail settings,
+ * `SettingsGroup`): a quiet group label, a caption saying where its edits go
+ * (SaveModelTag) and what it is for, then the fields. On a phone the group
+ * sits flat on the page, with only the space between groups setting them
+ * apart; on a desk the rows sit in the group's quiet bordered card. `id` is
+ * the jump target for the section nav, and `${id}-heading` the heading it
+ * focuses (SettingsGroup's script-focusable heading); the scroll margin
+ * keeps the section clear of the phone's sticky section tabs.
  *
- * `bare`: no chrome, for a section made of its own groups (attributes).
+ * `bare`: no card, for a section made of its own groups (attributes).
  * `info`: an information card on every screen (the sunken surface), for a
  * note rather than fields, such as the Google details NabaPresence can't edit.
  */
@@ -140,40 +138,49 @@ export function SectionCard({
   info?: boolean
   className?: string
 }) {
-  const headingId = `${id}-heading`
+  // An info card says its piece inside the card; a settings group says
+  // where its edits go and what it is for in the caption under its label.
+  const lead = info ? null : description
+  const caption =
+    model || lead ? (
+      <span className="flex min-w-0 flex-col gap-1">
+        {model ? <SaveModelTag model={model} variant="caption" /> : null}
+        {lead ? <span className="text-pretty">{lead}</span> : null}
+      </span>
+    ) : undefined
   return (
-    <section
+    <SettingsGroup
       id={id}
-      aria-labelledby={headingId}
-      data-slot="section-card"
+      headingAs="h3"
+      label={title}
+      // The word beside the label, outside the heading, so the heading's
+      // name stays the section's name.
+      actions={changed ? <ChangedMark /> : undefined}
+      caption={caption}
+      bodyAs="div"
+      card={!bare && !info}
       className={cn(
-        // Clear of the phone's sticky section tabs; a desk has a rail.
-        "flex min-w-0 scroll-mt-18 flex-col gap-4 desk:scroll-mt-4",
-        info
-          ? cardClassName({ surface: "sunken", pad: true })
-          : !bare && DESK_CARD,
+        // The page's column gap spaces the groups; clear of the phone's
+        // sticky section tabs, a desk has a rail.
+        "mt-0 min-w-0 scroll-mt-18 desk:scroll-mt-4",
         className
       )}
     >
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <h3
-            id={headingId}
-            tabIndex={-1}
-            className="text-caption font-medium text-ink-muted outline-none"
-          >
-            {title}
-          </h3>
-          {changed ? <ChangedMark /> : null}
-        </div>
-        {model ? <SaveModelTag model={model} variant="caption" /> : null}
-        {description ? (
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-4",
+          info
+            ? cardClassName({ surface: "sunken", pad: true })
+            : !bare && "desk:p-(--np-card-pad)"
+        )}
+      >
+        {info && description ? (
           <p className="text-caption text-pretty text-ink-muted">
             {description}
           </p>
         ) : null}
+        {children}
       </div>
-      {children}
-    </section>
+    </SettingsGroup>
   )
 }

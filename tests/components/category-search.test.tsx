@@ -1,9 +1,12 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
-import { CategorySearch } from "@/components/locations/business-information/category-search"
+import {
+  CategoryPickerSheet,
+  CategorySearch,
+} from "@/components/locations/business-information/category-search"
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -68,6 +71,98 @@ describe("CategorySearch", () => {
     )
     await waitFor(() =>
       expect(input).toHaveAttribute("aria-describedby", alert.id)
+    )
+  })
+
+  it("picks a primary category from the phone's search sheet and closes it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          result: {
+            categories: [{ name: "categories/gcid:spa", displayName: "Spa" }],
+          },
+        })
+      )
+    )
+    const onSelect = vi.fn()
+    const onOpenChange = vi.fn()
+    renderWithProviders(
+      <CategoryPickerSheet
+        locationId="loc-1"
+        title="Change primary category"
+        type="single"
+        open
+        onOpenChange={onOpenChange}
+        isSelected={() => false}
+        onSelect={onSelect}
+      />
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Change primary category",
+    })
+    await userEvent.type(
+      within(sheet).getByLabelText("Search Google categories"),
+      "spa"
+    )
+    await userEvent.click(
+      await within(sheet).findByRole("option", { name: "Spa" })
+    )
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "categories/gcid:spa" })
+    )
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("ticks additional categories already in the draft and says why one can't be added", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          result: {
+            categories: [
+              { name: "categories/gcid:spa", displayName: "Spa" },
+              { name: "categories/gcid:pool", displayName: "Pool" },
+            ],
+          },
+        })
+      )
+    )
+    const onDeselect = vi.fn()
+    renderWithProviders(
+      <CategoryPickerSheet
+        locationId="loc-1"
+        title="Add another category"
+        type="multiple"
+        open
+        onOpenChange={() => {}}
+        isSelected={(category) => category.name === "categories/gcid:spa"}
+        unavailable={(category) =>
+          category.name === "categories/gcid:pool"
+            ? "A category can’t be both primary and additional."
+            : null
+        }
+        onSelect={() => {}}
+        onDeselect={onDeselect}
+      />
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Add another category",
+    })
+    await userEvent.type(
+      within(sheet).getByLabelText("Search Google categories"),
+      "s"
+    )
+    const spa = await within(sheet).findByRole("checkbox", { name: "Spa" })
+    expect(spa).toHaveAttribute("aria-checked", "true")
+    const pool = within(sheet).getByRole("checkbox", { name: "Pool" })
+    expect(pool).toBeDisabled()
+    expect(pool).toHaveAccessibleDescription(
+      "A category can’t be both primary and additional."
+    )
+    await userEvent.click(spa)
+    expect(onDeselect).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "categories/gcid:spa" })
     )
   })
 })
