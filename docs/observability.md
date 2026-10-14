@@ -121,7 +121,7 @@ ceiling all leave the window, so a rising backlog is real.
 `schedulerTicks` exists because `schedulerHeartbeatAt` cannot fail alone. The
 jobs tick stamps `scheduler` at the start of every authenticated run, so that
 row stays fresh while reconciliation, retention or an ingest has been failing,
-skipping on a wedged advisory lock, or was never registered. Each per-tick row
+skipping on a wedged fleet lease, or was never registered. Each per-tick row
 is stamped by that tick's own lease **on a completed run**, so a tick that never
 finishes reports stale. `staleAfterSeconds` is a small multiple of that tick's
 documented interval — one missed run is noise, a stopped tick is not — and it
@@ -303,13 +303,16 @@ the web process. On Vercel there is no scheduler process: a lock skip returns
 
 | Event                        | Level | Means                                                                                                                                                                                                                                                                                         |
 | ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<tick>.skipped`             | warn  | `reason: "previous_run_active"` (the last run has not returned) or `"lease_held"` (another process holds the advisory lock, and `consecutive` counts how many ticks in a row have bounced off it). Never accompanied by `<tick>.completed`, so a wedged lease cannot look like an idle fleet. |
+| `<tick>.skipped`             | warn  | `reason: "previous_run_active"` (the last run has not returned) or `"lease_held"` (another process holds the fleet lease, and `consecutive` counts how many ticks in a row have bounced off it). Never accompanied by `<tick>.completed`, so a wedged lease cannot look like an idle fleet. |
 | `<tick>.cursor_reset`        | warn  | Three ticks in a row died on the same cursor, so the walk was sent back to the head. Names the organisation the walk cannot get past.                                                                                                                                                         |
 | `<tick>.truncated`           | warn  | The route stopped on its own budget and handed back a cursor; `skippedOrganisations` is what that page did not reach. Performance, keywords and presence resources only.                                                                                                                      |
 | `<tick>.failed`              | error | The tick threw. `cursor` names the organisation it died on, `retrying` says whether a bounded back-off will try again before the next interval.                                                                                                                                               |
 | `jobs.kinds_paused`          | warn  | A kill switch narrowed the claim. Carries the three flags and the kinds still being claimed; the heartbeat stays fresh, so this is the only signal that work is deliberately not happening.                                                                                                   |
 | `jobs.leases_reclaimed`      | warn  | `reclaim_expired_jobs()` returned rows whose lease outlived their holder, counted per kind. Costs no retry budget. Repeated reclaims of one kind mean items are outliving the lease (tick budget plus 60s), not that they are failing.                                                        |
 | `leases.heartbeat_failed`    | warn  | A tick completed but could not stamp its `ops_heartbeat` row, so it will read as stale. Liveness bookkeeping never fails the tick that succeeded.                                                                                                                                             |
+| `leases.lease_lost`          | warn  | A running tick renewed its fleet lease (0148) and found it gone: it stopped renewing for a whole expiry (a frozen instance that thawed), so another run may hold the tick now. Row leases keep claimed work safe; investigate the stall. |
+| `leases.renew_failed`        | warn  | A fleet lease renewal could not be written. The lease keeps its previous expiry; repeated failures let it lapse while the run continues. |
+| `leases.release_failed`      | warn  | A finished tick could not end its fleet lease; the next fire takes it once it expires (at most 90 s). |
 | `sync.recurring_enqueued`    | info  | A reconcile/performance/keywords cron fire armed the fleet: `organisations` with linked locations, `queued` rows created or re-armed. |
 | `jobs.recurring_failed`      | error | A recurring run threw before its own settle; it retries in a few minutes. |
 | `google.rate_budget_deferred` | warn | A request could not get a shared-budget slot before its deadline and was deferred as `google_rate_limited`. |

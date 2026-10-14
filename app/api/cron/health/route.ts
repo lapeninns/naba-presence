@@ -1,5 +1,5 @@
 import { getDatabase } from "@/lib/server/db"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { log } from "@/lib/server/logger"
 import {
   buildDigests,
@@ -28,7 +28,7 @@ const BUDGET_MS = 45_000
  * stored cursor and is fair over runs.
  */
 async function runHealthTick(requestId: string) {
-  const result = await withAdvisoryLock("naba:health", async () => {
+  const result = await withFleetLease("naba:health", async () => {
     const deadline = Date.now() + BUDGET_MS
     // Cross-tenant enumeration, as every fleet tick does; each organisation
     // is then evaluated inside its own tenant transaction.

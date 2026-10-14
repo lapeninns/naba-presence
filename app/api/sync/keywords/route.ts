@@ -4,7 +4,7 @@ import { keywordsSyncSchema } from "@/lib/contracts/sync"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { syncDueKeywords, type KeywordSyncOutcome } from "@/lib/server/keywords"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { log } from "@/lib/server/logger"
 import { isCronRequest, route } from "@/lib/server/route"
 import { cronPageInput } from "@/lib/server/cron-query"
@@ -97,7 +97,7 @@ async function runKeywordsPage({
           `
       ).map((row) => row.id)
   const deadline = Date.now() + budgetMs()
-  const result = await withAdvisoryLock("naba:keywords", async () => {
+  const result = await withFleetLease("naba:keywords", async () => {
     const organisations: OrganisationResult[] = []
     const failures: OrganisationFailure[] = []
     let processed = 0

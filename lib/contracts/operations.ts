@@ -47,7 +47,7 @@ const rejectionRowSchema = z.object({
 
 /**
  * One scheduled tick's liveness. `lastCompletedAt` is the `ops_heartbeat` row
- * the tick's advisory lease stamps when a scheduled run completes, and
+ * the tick's fleet lease stamps when a scheduled run completes, and
  * `staleAfterSeconds` is the multiple of that tick's documented interval past
  * which the absence of a run is worth acting on. A tick that has never
  * completed reports `null` and `stale: true`.

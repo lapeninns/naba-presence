@@ -965,6 +965,15 @@ export const RETENTION_INVENTORY = [
     approval: { status: "internal" },
   },
   {
+    table: "fleet_lease",
+    provenance: "operational",
+    action: "keep",
+    window: "one row per tick, updated in place",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "internal" },
+  },
+  {
     table: "ops_pause_control",
     provenance: "operational",
     action: "keep",

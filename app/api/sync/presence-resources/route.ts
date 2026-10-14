@@ -12,7 +12,7 @@ import {
   raiseProfileProposals,
   reapStrandedProposals,
 } from "@/lib/server/import-review"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { loadMedia } from "@/lib/server/media"
 import { loadPlaceActions } from "@/lib/server/place-actions"
 import { listLocalPosts } from "@/lib/server/posts"
@@ -329,7 +329,7 @@ async function runPresenceResourcesPage(
   input: PresenceResourcesSyncInput,
   requestId: string
 ) {
-  const result = await withAdvisoryLock("naba:presence-resources", () =>
+  const result = await withFleetLease("naba:presence-resources", () =>
     reconcileOrganisations(input, requestId)
   )
   return "skipped" in result
