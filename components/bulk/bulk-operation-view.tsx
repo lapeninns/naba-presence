@@ -426,14 +426,16 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 </div>
               ) : null}
               <Deadline operation={op} now={now} offset={offset} />
-              {/* Approving and starting are for owners and admins; say so
-                rather than leave the page without actions or a reason. */}
+              {/* Approving, starting, cancelling and retrying are for owners
+                and admins; say so rather than leave the page without actions
+                or a reason. One sentence true in every unfinished status. */}
               {role &&
               !manager &&
               op.status !== "completed" &&
               op.status !== "cancelled" ? (
                 <p className="text-caption text-ink-muted">
-                  Only owners and admins can approve or start a bulk change.
+                  Only owners and admins can approve, start, cancel or retry a
+                  bulk change.
                 </p>
               ) : null}
             </div>
