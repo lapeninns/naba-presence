@@ -4,7 +4,7 @@ import { sweepSchema } from "@/lib/contracts/sync"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { log } from "@/lib/server/logger"
 import {
@@ -98,7 +98,7 @@ const SWEEP_MIN_INTERVAL = "20 hours"
  * Under the `naba:sweep` lease, which also stamps the tick's heartbeat.
  */
 async function enqueueFleetSweep(requestId: string) {
-  const result = await withAdvisoryLock("naba:sweep", async () => {
+  const result = await withFleetLease("naba:sweep", async () => {
     const [row] = await getDatabase()<
       { organisationCount: number; queued: number }[]
     >`

@@ -578,7 +578,7 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   for a person.
 - Vercel does not retry a failed cron fire and may occasionally deliver a fire
   twice or drop one. The ticks are safe under all three: every route holds its
-  own advisory lock, so an overlapping or duplicate fire answers 200
+  own fleet lease (`fleet_lease`, 0145), so an overlapping or duplicate fire answers 200
   `{ skipped: true }` (no reason and no log line on Vercel; `lease_held` is
   logged only by `scripts/scheduler.mjs`) instead of doing the work twice, and a missed fire
   only delays work — each queue keeps its due rows and the next fire starts at
@@ -786,8 +786,50 @@ means "the scheduler reached the web process", so a pause must not read as a
 dead scheduler. A missing heartbeat or one older than five minutes pages
 on-call. Verify that the Vercel Cron Jobs are enabled and firing (project Cron
 Jobs page and logs), that `CRON_SECRET` is set on the project, and check
-advisory-lock holders and database connectivity, then run one manual jobs tick
-and confirm the heartbeat advances.
+the `naba:jobs` row in `fleet_lease` and database connectivity, then run one
+manual jobs tick and confirm the heartbeat advances.
+
+### Job runner scheduling
+
+One tick (45 seconds inside the route's 60-second limit) spends its budget in
+this order (`runDueJobs`, audit 2026-10-14 W8-02/W8-03/W8-05/W8-09):
+
+1. The scheduled-post sweep and the Stripe billing slice, as before.
+2. **Scheduled posts**, first, on a slice of at most 15 seconds. A post may only
+   start inside its 5-minute window, so it never waits behind a sync backlog.
+   Schedules the slice does not reach are released for the next tick.
+3. **The queue** (`claim_due_jobs`), until only the bulk reserve (one Google
+   timeout, 15 seconds) is left. The claim ranks by kind before due time
+   (0144 `job_kind_rank`): publish retries and read-backs, uncertain listing
+   writes and webhooks first, then backfill and sweep checkpoints, then the
+   recurring reconcile, performance and keyword syncs. A reply retry is
+   therefore claimed in the first batch after it falls due, not behind its
+   organisation's reconcile herd. An item starts only while one Google call
+   still fits before the end of its lane; a claimed item the tick does not
+   start is handed straight back (`release_unstarted_job`), not left to the
+   reaper. If the reserve would leave the queue nothing, it takes one batch
+   from it.
+4. **Bulk listing children** on what is left, at least the reserve, at most
+   `JOBS_CONCURRENCY` at once. When bulk had nothing to run, the queue gets
+   the reserve back; when it ran children, the queue waits for the next tick,
+   so a retry or read-back of a publish bulk just dispatched is never picked
+   up in the same tick.
+5. Privacy erasures and invitation email on the remainder. Every runner from
+   step 2 on is caught on its own, so one that throws cannot skip the others.
+
+Scheduled ticks hold a **fleet lease** (`fleet_lease`, 0145) rather than a
+session advisory lock: an expiring row, renewed every 30 seconds while the run
+lasts and released when it ends. A tick frozen or killed while holding it
+stops renewing, and the next fire after the 90-second expiry takes it. A
+crashed tick therefore no longer frees its lease at once; expect at most one
+skipped fire after a crash. During the deploy that introduces 0145, an old
+instance (advisory lock) and a new one (lease row) do not exclude each other,
+so one tick may overlap once; row leases keep the queue's claims exclusive.
+
+Parallel job ticks are not enabled. Row leases already make concurrent claims
+safe, but the tick heartbeat and skip accounting are per lease, and production
+runs `DATABASE_POOL_MAX=5` with `JOBS_CONCURRENCY=3`. Measure item duration per
+kind and pooler headroom first (audit AR-3 step 5, AR-7).
 
 ### Retired sync checkpoints
 
@@ -902,9 +944,13 @@ retention cycle failures:
   refreshing proves the route works, not that the cron fires. Check the
   tick's entry in `vercel.json` and that its cron is enabled.
 - `tick_lock_wedged`: three or more scheduled fires in a row found the
-  advisory lock held. Find the holder in `pg_locks` (`locktype = 'advisory'`)
-  joined to `pg_stat_activity`; a session stuck holding it releases the lock
-  when its connection is terminated.
+  fleet lease held. Read `select holder, acquired_at, expires_at from
+  fleet_lease where name = '<key>'` (the key is `naba:<tick>`). A lease
+  expires 90 seconds after its holder last renewed it (every 30 seconds
+  while the run is alive), so a frozen or killed holder frees it on its own;
+  a lease that keeps being renewed means a run is still going. Since 0145
+  this is no longer a session advisory lock: there is nothing in `pg_locks`
+  to terminate.
 - `tick_cycle_overdue`: a tick that runs in cycles (retention) has not
   finished a walk over every organisation within `cycleStaleAfterSeconds`.
   Read the cycle's progress (see "Retention cycle" above) and the
@@ -1272,10 +1318,11 @@ Provision in this order:
    it stays open, and suspended Vercel instances keep their idle pools open,
    so session mode exhausted the pooler's 15 slots (`EMAXCONNSESSION`) with
    connections nobody was using. `DATABASE_SESSION_URL` uses the **session
-   pooler** (port 5432) and serves only the refresh lock and the scheduler
-   leases, which are session advisory locks that a transaction pooler would
+   pooler** (port 5432) and serves the refresh lock and the Google write
+   locks, which are session advisory locks that a transaction pooler would
    release between statements; each lock opens and closes its own
-   connection. Startup refuses a 6543 `DATABASE_URL` without it. Resolve the
+   connection. The scheduler leases are `fleet_lease` rows (0145) and use
+   the pooled `DATABASE_URL`. Startup refuses a 6543 `DATABASE_URL` without it. Resolve the
    hostname and open one test connection before pointing anything at it; the
    last production database died silently as NXDOMAIN and nothing paged.
 2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` until every file in
@@ -1411,6 +1458,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `cron_cursor` | operational | keep | one row per walk, updated in place | none | none | no | internal |
 | `draft` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect; scrubbed by privacy erasure | cascade from `review` | gated | yes | published |
 | `external_location` | google | redact | raw payload and address at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at), unless a review of it is held | `locations`, `disconnectedLocations` | gated | cascade only | published |
+| `fleet_lease` | operational | keep | one row per tick, updated in place | none | none | no | internal |
 | `food_menu_item_identity` | derived | keep | for the life of the location | none | none | no | pending D-28: keep the item mapping while the location exists; it is rebuilt on each menu reconcile |
 | `food_menus_state` | google | delete | expires_at (30 days after each observation) | `foodMenuStates`, cascade from `external_location` | gated | cascade only | published |
 | `food_menus_sync_attempt` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `foodMenuAttempts`, `strandedFoodMenus`, cascade from `external_location` | gated | cascade only | internal |

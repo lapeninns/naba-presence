@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/server/http"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { runRetentionCycle } from "@/lib/server/retention/cycle"
 import { dryRunPage, retainPage } from "@/lib/server/retention/purge"
 import { route } from "@/lib/server/route"
@@ -88,7 +88,7 @@ function runRetentionTick({
     })
   }
   if (query.mode === "page") {
-    return withAdvisoryLock(
+    return withFleetLease(
       "naba:retention",
       () =>
         retainPage({
@@ -103,7 +103,7 @@ function runRetentionTick({
   // The cycle reports its own completion to the tick ledger
   // (recordTickCycleCompleted) from inside this lease; each fire that runs
   // moves the tick's heartbeat whether or not the cycle finished.
-  return withAdvisoryLock("naba:retention", () =>
+  return withFleetLease("naba:retention", () =>
     runRetentionCycle({
       requestId,
       clientRequestId,

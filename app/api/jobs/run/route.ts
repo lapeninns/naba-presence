@@ -1,5 +1,5 @@
 import { runDueJobs } from "@/lib/server/jobs"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -8,7 +8,7 @@ export const maxDuration = 60
 // One drain of due webhook, checkpoint and publish-recovery work, bounded by
 // the tick budget so the fleet lock is never held past the function limit.
 function runJobsTick(requestId: string) {
-  return withAdvisoryLock("naba:jobs", () =>
+  return withFleetLease("naba:jobs", () =>
     runDueJobs({ budgetMs: 45_000, requestId })
   )
 }

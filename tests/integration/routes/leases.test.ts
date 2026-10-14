@@ -22,7 +22,7 @@ import {
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
-describeDatabase("scheduler advisory leases", () => {
+describeDatabase("scheduler fleet leases", () => {
   let admin: ReturnType<typeof postgres>
   let stub: GoogleStub
   let server: Awaited<ReturnType<typeof startAppServer>>
@@ -72,6 +72,33 @@ describeDatabase("scheduler advisory leases", () => {
     })
   }
 
+  /**
+   * Another run's live fleet lease (0145), as a tick on another instance
+   * holds it. A negative `expiresInSeconds` is a holder that stopped
+   * renewing that long ago: frozen or killed mid-tick.
+   */
+  async function holdLease(key: string, expiresInSeconds = 60) {
+    const holder = randomUUID()
+    await admin`
+      insert into fleet_lease (name, holder, acquired_at, expires_at)
+      values (
+        ${key},
+        ${holder},
+        now(),
+        now() + make_interval(secs => ${expiresInSeconds})
+      )
+      on conflict (name) do update
+      set holder = excluded.holder,
+          acquired_at = excluded.acquired_at,
+          expires_at = excluded.expires_at
+    `
+    return holder
+  }
+
+  async function releaseLease(key: string) {
+    await admin`update fleet_lease set expires_at = now() where name = ${key}`
+  }
+
   async function tickHeartbeat(name: string) {
     const [row] = await admin<{ beatAt: Date }[]>`
       select beat_at as "beatAt" from ops_heartbeat where name = ${name}
@@ -112,8 +139,7 @@ describeDatabase("scheduler advisory leases", () => {
     `
 
     const before = await tickHeartbeat("jobs")
-    const lock = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
-    await lock`select pg_advisory_lock(hashtext('naba:jobs'))`
+    await holdLease("naba:jobs")
     try {
       const skipped = await cronPost("/api/jobs/run")
       expect(skipped.status, await skipped.clone().text()).toBe(200)
@@ -128,8 +154,7 @@ describeDatabase("scheduler advisory leases", () => {
       // tick: a heartbeat written here would report a wedged lease as liveness.
       expect(await tickHeartbeat("jobs")).toEqual(before)
     } finally {
-      await lock`select pg_advisory_unlock(hashtext('naba:jobs'))`
-      await lock.end()
+      await releaseLease("naba:jobs")
     }
 
     const completed = await cronPost("/api/jobs/run")
@@ -138,6 +163,41 @@ describeDatabase("scheduler advisory leases", () => {
     const after = await tickHeartbeat("jobs")
     expect(after).not.toBeNull()
     if (before) expect(after!.getTime()).toBeGreaterThan(before.getTime())
+  })
+
+  it("takes over a lease its holder stopped renewing, and the next tick proceeds", async () => {
+    stub.reset()
+    // A tick frozen mid-run: its lease is still live, so fires skip.
+    const frozen = await holdLease("naba:jobs", 60)
+    const skipped = await cronPost("/api/jobs/run")
+    expect(skipped.status, await skipped.clone().text()).toBe(200)
+    expect(await skipped.json()).toEqual({ skipped: true })
+
+    // The holder never renewed, so its expiry passes (stood in for here by
+    // moving it into the past rather than waiting 90 seconds).
+    await admin`
+      update fleet_lease
+      set expires_at = now() - interval '1 second'
+      where name = 'naba:jobs' and holder = ${frozen}
+    `
+    const before = await tickHeartbeat("jobs")
+    const proceeded = await cronPost("/api/jobs/run")
+    expect(proceeded.status, await proceeded.clone().text()).toBe(200)
+    expect(await proceeded.json()).not.toHaveProperty("skipped")
+    const after = await tickHeartbeat("jobs")
+    expect(after).not.toBeNull()
+    if (before) expect(after!.getTime()).toBeGreaterThan(before.getTime())
+
+    // The tick took the row under its own holder and ended it on the way
+    // out, so the next fire is not held off for the expiry.
+    const [lease] = await admin<{ holder: string; ended: boolean }[]>`
+      select holder::text as holder, expires_at <= now() as ended
+      from fleet_lease where name = 'naba:jobs'
+    `
+    expect(lease.holder).not.toBe(frozen)
+    expect(lease.ended).toBe(true)
+    const next = await cronPost("/api/jobs/run")
+    expect(await next.json()).not.toHaveProperty("skipped")
   })
 
   type LedgerRow = {
@@ -194,8 +254,7 @@ describeDatabase("scheduler advisory leases", () => {
       update ops_heartbeat set consecutive_skips = 0 where name = 'sweep'
     `
     const before = await ledger("sweep")
-    const lock = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
-    await lock`select pg_advisory_lock(hashtext('naba:sweep'))`
+    await holdLease("naba:sweep")
     try {
       for (let fire = 0; fire < 2; fire += 1) {
         const skipped = await cronPost("/api/sync/sweep")
@@ -209,8 +268,7 @@ describeDatabase("scheduler advisory leases", () => {
       expect(wedged.beatAt).toEqual(before.beatAt)
       expect(wedged.lastStartedAt).toEqual(before.lastStartedAt)
     } finally {
-      await lock`select pg_advisory_unlock(hashtext('naba:sweep'))`
-      await lock.end()
+      await releaseLease("naba:sweep")
     }
 
     const completed = await cronPost("/api/sync/sweep")

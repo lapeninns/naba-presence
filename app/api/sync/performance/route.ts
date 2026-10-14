@@ -3,7 +3,7 @@ import type { z } from "zod"
 import { performanceSyncSchema } from "@/lib/contracts/sync"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { log } from "@/lib/server/logger"
 import {
   syncDuePerformance,
@@ -102,7 +102,7 @@ async function runPerformancePage({
           `
       ).map((row) => row.id)
   const deadline = Date.now() + budgetMs()
-  const result = await withAdvisoryLock("naba:performance", async () => {
+  const result = await withFleetLease("naba:performance", async () => {
     const organisations: OrganisationResult[] = []
     const failures: OrganisationFailure[] = []
     let processed = 0

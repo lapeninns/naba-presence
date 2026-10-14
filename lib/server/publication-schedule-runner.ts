@@ -965,6 +965,14 @@ export async function runDueSchedules(options: {
         await finish(row.organisationId, row.scheduleId).catch(() => undefined)
     if (!fresh.length) break
     for (const row of fresh) {
+      // A schedule starts only while the slice lasts (the first always
+      // does: the claim needed a whole provider call's worth). The rest are
+      // released for the next tick with their occurrences still scheduled,
+      // rather than run past the slice the job runner gave this runner.
+      if (Date.now() >= deadline) {
+        await finish(row.organisationId, row.scheduleId).catch(() => undefined)
+        continue
+      }
       seen.add(row.scheduleId)
       summary.schedules += 1
       try {
