@@ -168,4 +168,32 @@ describe("OptionRow", () => {
     await user.click(screen.getByRole("button", { name: "Tomorrow" }))
     expect(onClick).not.toHaveBeenCalled()
   })
+
+  it("keeps the caller's aria-describedby and aria-labelledby beside its own", () => {
+    render(
+      <>
+        <p id="file-rules">JPEG or PNG only, up to 5 MB.</p>
+        <span id="venue">The Old Crown</span>
+        <OptionRow label="Take photo" aria-describedby="file-rules" />
+        <OptionRow
+          label="Choose from library"
+          description="Photos and files"
+          aria-describedby="file-rules"
+          aria-labelledby="venue"
+        />
+      </>
+    )
+    // No description of its own: the caller's hint survives intact.
+    expect(
+      screen.getByRole("button", { name: "Take photo" })
+    ).toHaveAccessibleDescription("JPEG or PNG only, up to 5 MB.")
+    // Both: the caller's hint, then the row's sub-label; the row's label
+    // still starts the name.
+    const library = screen.getByRole("button", {
+      name: "Choose from library The Old Crown",
+    })
+    expect(library).toHaveAccessibleDescription(
+      "JPEG or PNG only, up to 5 MB. Photos and files"
+    )
+  })
 })

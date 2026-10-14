@@ -171,8 +171,15 @@ function OptionRow({
             onClick: (event: React.MouseEvent) => event.preventDefault(),
           }
         : {}),
-      "aria-labelledby": `${id}-label`,
-      "aria-describedby": description ? `${id}-desc` : undefined,
+      // Merged with the caller's ids, never in place of them (a picker's
+      // file-rule hint). The visible label leads the name (WCAG 2.5.3).
+      "aria-labelledby":
+        [`${id}-label`, props["aria-labelledby"]].filter(Boolean).join(" ") ||
+        undefined,
+      "aria-describedby":
+        [props["aria-describedby"], description && `${id}-desc`]
+          .filter(Boolean)
+          .join(" ") || undefined,
       className: cn(optionRowClassName, className),
       children: (
         <>
