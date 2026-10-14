@@ -396,9 +396,11 @@ describeDatabase("reply approval", () => {
       note: "Please make the reply more specific.",
     })
     expect(rejected.status).toBe(200)
-    expect(await rejected.json()).toEqual({
-      status: "returned_to_draft",
-    })
+    // Plus the review as it now stands (row, detail): see
+    // review-write-snapshot.test.ts.
+    const rejectedBody = await rejected.json()
+    expect(rejectedBody).toMatchObject({ status: "returned_to_draft" })
+    expect(rejectedBody.row.workflowStatus).toBe("drafted")
     const [state] = await admin<
       {
         workflow_status: string

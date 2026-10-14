@@ -22,6 +22,12 @@ export type InboxFilters = ReviewsQuery & {
   requireTwoPersonApproval: boolean
   /** `boundedSearchMatches` for `search`, when it found few enough to list. */
   searchReviewIds?: readonly string[]
+  /**
+   * One review only: server-side, never on the wire. A review write answers
+   * with its row through this same projection (`readReviewRow`), so the row
+   * the client patches into the list cannot drift from the one the list reads.
+   */
+  reviewId?: string
 }
 
 /**
@@ -208,6 +214,7 @@ export function buildInboxQuery(
     where r.organisation_id =
       nullif(current_setting('app.organisation_id', true), '')::uuid
       and r.provider_deleted_at is null
+      ${filters.reviewId ? sql`and r.id = ${filters.reviewId}` : sql``}
       ${
         filters.search
           ? searchPredicate(sql, filters.search, filters.searchReviewIds)

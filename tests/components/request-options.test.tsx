@@ -3,9 +3,9 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { useInvalidateReviewWrites } from "@/lib/queries/invalidate"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
+import { useClients } from "@/lib/queries/use-clients"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useReviews } from "@/lib/queries/use-reviews"
 
@@ -166,36 +166,32 @@ describe("query hooks forward abort + background to apiFetch", () => {
   })
 })
 
-describe("useInvalidateReviewWrites", () => {
-  it("drops the detail, every review list and every counts scope", () => {
+// W1-F10: the clients list is a shell poll (60 s, and every focus). It read
+// with a bare signal, so its refetch counted as foreground and a 401 on an
+// idle tab stashed drafts and yanked the operator to sign-in mid-edit.
+describe("useClients", () => {
+  const clients = { items: [] }
+
+  it("a refetch 401 on the clients list does not navigate", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => unauthorized()))
+    const assign = stubLocation()
     const client = newClient()
-    const spy = vi.spyOn(client, "invalidateQueries")
-    const { result } = renderHook(() => useInvalidateReviewWrites("rev-1"), {
+    client.setQueryData(queryKeys.clients, clients)
+    const { result } = renderHook(() => useClients(), {
       wrapper: wrapperWith(client),
     })
-    result.current()
-    const keys = spy.mock.calls.map((call) => call[0]?.queryKey)
-    expect(keys).toEqual([
-      queryKeys.reviewDetail("rev-1"),
-      queryKeys.reviewsAll,
-      queryKeys.reviewCountsAll,
-    ])
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toEqual(clients)
+    expect(assign).not.toHaveBeenCalled()
   })
 
-  it("prefix invalidation reaches scoped list and count keys", async () => {
-    const client = newClient()
-    client.setQueryData(queryKeys.reviews("organisation", { q: "x" }), { pages: [], pageParams: [] })
-    client.setQueryData(queryKeys.reviewCounts("loc-1"), counts)
-    client.setQueryData(queryKeys.reviewDetail("rev-9"), { id: "rev-9" })
-    const { result } = renderHook(() => useInvalidateReviewWrites("rev-1"), {
-      wrapper: wrapperWith(client),
+  it("a first load's 401 still goes to sign-in", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => unauthorized()))
+    const assign = stubLocation()
+    const { result } = renderHook(() => useClients(), {
+      wrapper: wrapperWith(newClient()),
     })
-    result.current()
-    await waitFor(() => {
-      expect(client.getQueryState(queryKeys.reviews("organisation", { q: "x" }))?.isInvalidated).toBe(true)
-      expect(client.getQueryState(queryKeys.reviewCounts("loc-1"))?.isInvalidated).toBe(true)
-    })
-    // Another review's detail is untouched.
-    expect(client.getQueryState(queryKeys.reviewDetail("rev-9"))?.isInvalidated).toBe(false)
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(assign).toHaveBeenCalledTimes(1)
   })
 })

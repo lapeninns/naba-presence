@@ -24,7 +24,8 @@ export function useReviewCounts(scope: ReviewCountsScope = {}) {
       settlingInterval(
         Object.entries(query.state.data?.byStatus ?? {}).flatMap(
           ([status, count]) => (count > 0 ? [status] : [])
-        )
+        ),
+        query
       ),
   })
 }

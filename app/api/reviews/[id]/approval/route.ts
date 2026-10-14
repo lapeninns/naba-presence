@@ -7,6 +7,7 @@ import {
   completeApproval,
   recordApprovalDecision,
 } from "@/lib/server/review-approval"
+import { readReviewWriteSnapshot } from "@/lib/server/review-reads"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -40,6 +41,9 @@ export const POST = route({
       })
     )
     const result = await completeApproval(session, params.id, decision, requestId)
-    return NextResponse.json(result)
+    return NextResponse.json({
+      ...result,
+      ...(await readReviewWriteSnapshot(tenant, session, params.id, requestId)),
+    })
   },
 })

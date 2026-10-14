@@ -7,7 +7,7 @@ import { intentFingerprint, mintIntentId } from "@/lib/api/client"
 import { runBulkReviewAction } from "@/lib/api/review-bulk"
 import type { BulkReviewActionInput } from "@/lib/contracts/reviews"
 import { isUnconfirmedFailure } from "@/lib/errors/action-errors"
-import { queryKeys } from "@/lib/queries/keys"
+import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 
 /**
  * Intents for calls made outside `useResourceMutation`, by what they send:
@@ -61,13 +61,10 @@ export function useBulkReviewAction() {
         throw error
       }
     },
-    onSuccess: (result) => {
-      void client.invalidateQueries({ queryKey: queryKeys.reviewsAll })
-      void client.invalidateQueries({ queryKey: queryKeys.reviewCountsAll })
-      void client.invalidateQueries({ queryKey: queryKeys.clientsAll })
-      for (const row of result.results) {
-        void client.invalidateQueries({ queryKey: queryKeys.reviewDetail(row.reviewId) })
-      }
-    },
+    onSuccess: (result) =>
+      invalidateReviewBatch(
+        client,
+        result.results.map((row) => row.reviewId)
+      ),
   })
 }

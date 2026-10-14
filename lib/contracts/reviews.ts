@@ -636,6 +636,22 @@ export type BulkReviewResult = z.infer<typeof bulkReviewResultSchema>
 // Drafts, verify, publish, reply delete, approval
 // ---------------------------------------------------------------------------
 
+/**
+ * The review as it stands after a write (publish, approval, reply delete,
+ * draft save, verify): `row` in the list's shape, `detail` in the detail
+ * route's. The client patches its caches from these instead of refetching
+ * every loaded list page. Optional and additive: a server that could not read
+ * them back leaves them out, and an older client ignores them.
+ */
+const reviewWriteSnapshot = {
+  row: reviewRowSchema.optional(),
+  detail: reviewDetailSchema.optional(),
+}
+export type ReviewWriteSnapshot = {
+  row?: ReviewRow
+  detail?: ReviewDetail
+}
+
 export const DRAFT_TONES = [
   "warm_professional",
   "concise",
@@ -660,10 +676,14 @@ export const draftResultSchema = z.object({
   bodyBytes: z.number(),
   evidenceHash: z.string().nullable(),
   verification: verificationSchema,
+  ...reviewWriteSnapshot,
 })
 export type DraftResult = z.infer<typeof draftResultSchema>
 
-export const verifyResultSchema = z.object({ verification: verificationSchema })
+export const verifyResultSchema = z.object({
+  verification: verificationSchema,
+  ...reviewWriteSnapshot,
+})
 export type VerifyResult = z.infer<typeof verifyResultSchema>
 
 export const publishInputSchema = z.object({
@@ -678,6 +698,7 @@ export const publishResultSchema = z.object({
   status: z.string(),
   googleReplyState: z.string().nullable(),
   idempotent: z.boolean().optional(),
+  ...reviewWriteSnapshot,
 })
 export type PublishResult = z.infer<typeof publishResultSchema>
 
@@ -686,6 +707,7 @@ export const deleteReplyResultSchema = z.object({
   // executeReplyDelete returns attemptId: string | null (a "cancelled" outcome
   // can omit it), so this is nullable.
   publishAttemptId: z.string().nullable(),
+  ...reviewWriteSnapshot,
 })
 export type DeleteReplyResult = z.infer<typeof deleteReplyResultSchema>
 
@@ -718,5 +740,6 @@ export const approvalResultSchema = z.object({
   publishAttemptId: z.string().optional(),
   reviewReplyId: z.string().optional(),
   idempotent: z.boolean().optional(),
+  ...reviewWriteSnapshot,
 })
 export type ApprovalResult = z.infer<typeof approvalResultSchema>

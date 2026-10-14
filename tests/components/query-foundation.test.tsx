@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
 import { queryKeys } from "@/lib/queries/keys"
-import { makeQueryClient } from "@/lib/queries/query-client"
+import { makeQueryClient, shouldRetryQuery } from "@/lib/queries/query-client"
 import { QueryProvider } from "@/lib/queries/provider"
 
 describe("query keys", () => {
@@ -59,7 +59,8 @@ describe("makeQueryClient", () => {
   it("applies the shared defaults", () => {
     const defaults = makeQueryClient().getDefaultOptions()
     expect(defaults.queries?.staleTime).toBe(30_000)
-    expect(defaults.queries?.retry).toBe(1)
+    // One retry, skipped for a deterministic 4xx (query-retry.test.tsx).
+    expect(defaults.queries?.retry).toBe(shouldRetryQuery)
     expect(defaults.mutations?.retry).toBe(0)
   })
 })
