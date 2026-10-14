@@ -10,6 +10,7 @@ import { requireClientAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 async function discoverAccounts(accessToken: string, connectionId: string) {
   const discovered: Array<Record<string, unknown>> = []
@@ -70,6 +71,7 @@ function accountScope(
 }
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   query: (searchParams) => ({
     connectionId: searchParams.get("connection_id"),
@@ -156,6 +158,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"],
   body: accountSelectionSchema,

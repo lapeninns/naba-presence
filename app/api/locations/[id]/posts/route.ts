@@ -10,9 +10,12 @@ import { readPostsListResponse } from "@/lib/server/listing-reads"
 import { createLocalPostDraft } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
+export const maxDuration = 60
+
 const paramsSchema = z.object({ id: z.string() })
 
 export const GET = route({
+  maxDuration,
   params: paramsSchema,
   query: postsListQuerySchema,
   // The read lives in lib/server/listing-reads.ts so the posts page's
@@ -22,6 +25,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  maxDuration,
   params: paramsSchema,
   body: localPostInputSchema,
   handler: async ({ session, params, body, requestId }) => {

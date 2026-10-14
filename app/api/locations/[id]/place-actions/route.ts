@@ -10,9 +10,12 @@ import {
 import { route } from "@/lib/server/route"
 import { ApiError } from "@/lib/server/http"
 
+export const maxDuration = 60
+
 const paramsSchema = z.object({ id: z.string() })
 
 export const GET = route({
+  maxDuration,
   params: paramsSchema,
   handler: async ({ session, params }) =>
     ({
@@ -25,6 +28,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  maxDuration,
   params: paramsSchema,
   body: placeActionCreateRequestSchema,
   handler: () => { throw new ApiError(409, "place_action_review_required", "Prepare and approve an exact action link review before sending it to Google.") },

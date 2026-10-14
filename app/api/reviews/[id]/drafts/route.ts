@@ -14,6 +14,7 @@ export const maxDuration = 60
  * of generating (and charging) again.
  */
 export const POST = route({
+  maxDuration,
   entitlement: "ai",
   roles: ["owner", "admin", "member"],
   params: reviewIdParamsSchema,
@@ -32,6 +33,7 @@ export const POST = route({
     requestId,
     clientRequestId,
     tenant,
+    deadline,
   }) => {
     const { replayed, ...result } = await createReviewDraft({
       session,
@@ -40,6 +42,7 @@ export const POST = route({
       requestId,
       clientRequestId,
       tenant,
+      deadline,
     })
     const body = {
       ...result,

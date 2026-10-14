@@ -6,8 +6,10 @@ import { loadPauseSnapshot } from "@/lib/server/pause-controls"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 export const GET = route({
+  maxDuration,
   params: z.object({ id: z.uuid() }),
   handler: async ({ session, params, tenant }) => {
     // Read before the transaction, never inside it (lib/server/db.ts).

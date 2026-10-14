@@ -7,9 +7,12 @@ import {
 import { submitListingChange } from "@/lib/server/listing-change-registry"
 import { route } from "@/lib/server/route"
 
+export const maxDuration = 60
+
 const paramsSchema = z.object({ id: z.string(), mediaId: z.string() })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   body: mediaUpdateRequestSchema,
@@ -26,6 +29,7 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   body: mediaDeleteRequestSchema,

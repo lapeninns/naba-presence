@@ -279,6 +279,7 @@ async function runReconcilePage({
 }
 
 export const POST = route({
+  maxDuration,
   auth: "public",
   origin: "same",
   handler: async ({ request, requestId, clientRequestId }) => {
@@ -297,6 +298,7 @@ export const POST = route({
 // so does the self-hosted scheduler (scripts/scheduler.mjs). The kill switch
 // is checked before parsing, preserving the POST order of 401, 503, then 400.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ query, requestId }) => {
     await requireScopesEnabled("sync", SYNC_PAUSED)

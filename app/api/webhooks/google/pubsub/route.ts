@@ -41,6 +41,7 @@ function discarded(reason: string) {
 // Google Pub/Sub push endpoint: there is no session or cron token, the
 // caller is authenticated by its OIDC token in `verifyPubSubRequest`.
 export const POST = route({
+  maxDuration,
   auth: "public",
   origin: "any",
   handler: async ({ request }) => {

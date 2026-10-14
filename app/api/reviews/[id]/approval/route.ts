@@ -19,6 +19,7 @@ export const maxDuration = 60
  * drift — approval is the human boundary in front of a provider write.
  */
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   params: reviewIdParamsSchema,
   body: approvalInputSchema,

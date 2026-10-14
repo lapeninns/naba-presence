@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 type GoogleAccountRow = {
   google_account_name: string
@@ -45,6 +46,7 @@ function addressOf(location: Record<string, unknown>) {
 }
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   query: (searchParams) => ({
     accountFilter: searchParams.get("account_name"),
