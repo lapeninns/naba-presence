@@ -7,7 +7,7 @@ import { destroyTenants } from "./helpers/tenant"
 // W4-08 follow-up (docs/audits/2026-10-14-full-stack-audit): when retention's
 // disconnectedReviews purge deletes a review, its drafts go with it, which
 // sets publish_attempt.draft_id and approval_decision.draft_id to null, and
-// its reply's publish attempts go too, which deletes their events. 0157-0159
+// its reply's publish attempts go too, which deletes their events. 0138-0140
 // give each of those foreign keys a leading index, so none of the three RI
 // statements scans its table.
 
@@ -257,7 +257,7 @@ describeDatabase("publish attempt and approval decision FK indexes", () => {
       { relname: "publish_attempt", seqScan: 0 },
       { relname: "publish_attempt_event", seqScan: 0 },
     ])
-    // The control: the same purge without 0157-0159 scans all three.
+    // The control: the same purge without 0138-0140 scans all three.
     const control = await deleteScans(true)
     expect(
       control.every((row) => row.seqScan > 0),

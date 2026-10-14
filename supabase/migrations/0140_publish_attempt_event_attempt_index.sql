@@ -18,4 +18,4 @@ drop index concurrently if exists publish_attempt_event_attempt_idx;
 create index concurrently if not exists publish_attempt_event_attempt_idx
   on publish_attempt_event (publish_attempt_id);
 
-insert into schema_migration(version) values ('0159_publish_attempt_event_attempt_index') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0140_publish_attempt_event_attempt_index') on conflict (version) do nothing;
