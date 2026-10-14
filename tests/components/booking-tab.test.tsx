@@ -74,7 +74,25 @@ describe("BookingTab", () => {
     useCapsMock.mockReturnValue({ data: { canEditCanonical: false, canPublish: false } })
     renderTab()
     expect(screen.getByRole("button", { name: "Review action link" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: /^Type/ })).toBeDisabled()
     expect(screen.getByText("You do not have permission to publish this location to Google.")).toBeInTheDocument()
+  })
+
+  it("chooses the new link's type from a short option list", async () => {
+    const user = userEvent.setup()
+    useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    // A table reservation is the default; the row shows the chosen type.
+    const typeRow = screen.getByRole("button", { name: /^Type/ })
+    expect(typeRow).toHaveTextContent("Reserve a table")
+    await user.click(typeRow)
+    const picker = await screen.findByRole("listbox", { name: "Booking link type" })
+    expect(within(picker).getAllByRole("option").map((option) => option.textContent)).toEqual(["Reserve a table", "Order online"])
+    expect(within(picker).getByRole("option", { name: "Reserve a table" })).toHaveAttribute("aria-selected", "true")
+    await user.click(within(picker).getByRole("option", { name: "Order online" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.getByRole("button", { name: /^Type/ })).toHaveTextContent("Order online")
   })
 
   it("asks before closing the edit dialog with an unsaved link", async () => {

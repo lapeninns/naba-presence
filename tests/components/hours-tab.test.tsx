@@ -256,6 +256,45 @@ describe("HoursTab", () => {
     // No sheet: nothing is offered for publishing while the draft is invalid.
     expect(screen.queryByRole("dialog")).toBeNull()
   })
+
+  it("opens a special day's sheet before the summary moves focus to its field", async () => {
+    const user = userEvent.setup()
+    const hours = makeHours()
+    hours.canonical.special = [
+      {
+        effectiveDate: "2099-12-24",
+        isClosed: false,
+        opensAt: "10:00",
+        closesAt: "10:00",
+      },
+    ]
+    useHoursMock.mockReturnValue({
+      data: hours,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    const summary = await screen.findByRole("alert", {
+      name: /problem to fix/i,
+    })
+    const link = within(summary).getByRole("link", {
+      name: /Special date 1: Opening and closing times are the same/,
+    })
+    expect(link).toHaveAttribute("href", "#special-0-opens")
+    // The field is in the day's sheet, which is closed until the link opens it.
+    expect(document.getElementById("special-0-opens")).toBeNull()
+    await user.click(link)
+    const sheet = await screen.findByRole("dialog", { name: /24 Dec 2099/ })
+    const opens = within(sheet).getByLabelText("Special date 1 opens")
+    await waitFor(() => expect(opens).toHaveFocus())
+    expect(opens).toHaveAttribute("aria-invalid", "true")
+  })
 })
 
 describe("HoursTab reviewed snapshots", () => {

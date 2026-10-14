@@ -30,7 +30,7 @@ import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, cardClassName } from "@/components/ui/card"
+import { cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -52,13 +52,16 @@ import {
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { ListRow, ListRowTag } from "@/components/ui/list-row"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import {
   type PlaceActionLink,
   type PlaceActionType,
@@ -125,13 +128,13 @@ function formatObserved(value: string) {
 }
 
 /**
- * A settings group's rows (Notion Mail settings): flat on the canvas with a
- * hairline between links on a phone, one bordered card from `sm`. Each row
- * bleeds 12px into the page padding on a phone so its words keep a margin.
+ * Link rows sit in a `SettingsGroup` (flat on a phone, a bordered card on
+ * the desk), as `ListRow`s that carry their own actions in the footer: flush
+ * to the text column on a phone, inset inside the desk card.
  */
-const groupListClassName =
-  "flex flex-col divide-y divide-line-subtle sm:overflow-hidden sm:rounded-(--np-radius-card) sm:border sm:border-line sm:bg-surface"
-const groupRowClassName = "-mx-3 px-3 py-3 sm:mx-0 sm:px-4"
+const linkRowClassName = "desk:px-2"
+/** A plain block inside a desk card group, aligned with the rows' words. */
+const cardBlockClassName = "py-2 desk:px-2"
 /** A group's label: a quiet heading in sentence case, never a card title. */
 const groupLabelClassName = "text-caption font-medium text-ink-muted"
 
@@ -199,41 +202,40 @@ function BookingLinks({
     )
     return (
       <div className="flex min-w-0 flex-col gap-4">
-        <Card flush>
-          <Empty
-            icon={<Unlink />}
-            titleAs="h2"
-            title={
-              unsupported
-                ? "Manage these action types in Google"
-                : "Google doesn’t offer action links for this listing"
-            }
-            description={
-              unsupported
-                ? "Google returned action types this editor cannot safely edit. Open Google Business Profile to manage them."
-                : "Google reports no action types for this exact listing. Check its category before preparing a new link."
-            }
-            action={
-              unsupported ? (
-                <a
-                  href="https://business.google.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(buttonVariants({ variant: "secondary" }))}
-                >
-                  Manage action links in Google
-                </a>
-              ) : (
-                <Link
-                  href={`/listings/${locationId}/profile`}
-                  className={cn(buttonVariants({ variant: "secondary" }))}
-                >
-                  Check categories
-                </Link>
-              )
-            }
-          />
-        </Card>
+        <Empty
+          framed
+          icon={<Unlink />}
+          titleAs="h2"
+          title={
+            unsupported
+              ? "Manage these action types in Google"
+              : "Google doesn’t offer action links for this listing"
+          }
+          description={
+            unsupported
+              ? "Google returned action types this editor cannot safely edit. Open Google Business Profile to manage them."
+              : "Google reports no action types for this exact listing. Check its category before preparing a new link."
+          }
+          action={
+            unsupported ? (
+              <a
+                href="https://business.google.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                Manage action links in Google
+              </a>
+            ) : (
+              <Link
+                href={`/listings/${locationId}/profile`}
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                Check categories
+              </Link>
+            )
+          }
+        />
         {/* The empty state above already carries the Google handoff. */}
         <GoogleManagedLinks
           links={state.unsupportedLinks ?? []}
@@ -300,70 +302,63 @@ function BookingLinks({
       <div className="grid grid-cols-1 items-start gap-6 @4xl/booking:grid-cols-[minmax(0,1fr)_--spacing(80)]">
         <div className="flex min-w-0 flex-col gap-6">
           {state.links.length === 0 ? (
-            <Card flush>
-              <Empty
-                icon={<Link2 />}
-                titleAs="h2"
-                title="No action links yet"
-                description="Prepare a supported action link below. Review, approval and sending are separate steps; Google decides its public appearance."
-              />
-            </Card>
+            <Empty
+              framed
+              icon={<Link2 />}
+              titleAs="h2"
+              title="No action links yet"
+              description="Prepare a supported action link below. Review, approval and sending are separate steps; Google decides its public appearance."
+            />
           ) : (
             groupTypes.map((type) => {
               const links = state.links.filter(
                 (link) => link.placeActionType === type
               )
               const Icon = TYPE_ICON[type] ?? Link2
-              const headingId = `booking-${type}`
               return (
-                <section
+                <SettingsGroup
                   key={type}
-                  aria-labelledby={headingId}
-                  className="flex min-w-0 flex-col gap-2"
-                >
-                  <div className="flex items-start justify-between gap-3 sm:px-1">
-                    <div className="flex min-w-0 items-start gap-2">
+                  headingId={`booking-${type}`}
+                  className="mt-0 min-w-0"
+                  card
+                  label={
+                    <span className="inline-flex items-center gap-2">
                       <Icon
-                        className="mt-0.5 size-4 shrink-0 text-ink-muted"
+                        className="size-4 shrink-0"
                         strokeWidth={1.75}
                         aria-hidden
                       />
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <h2 id={headingId} className={groupLabelClassName}>
-                          {actionTypeLabel(type)}
-                        </h2>
-                        {ACTION_TYPE_COPY[type] ? (
-                          <p className="text-caption text-ink-muted">
-                            {ACTION_TYPE_COPY[type].description}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <span className="shrink-0 text-caption text-ink-muted tabular-nums">
+                      {actionTypeLabel(type)}
+                    </span>
+                  }
+                  caption={ACTION_TYPE_COPY[type]?.description}
+                  actions={
+                    <span className="text-caption text-ink-muted tabular-nums">
                       {links.length} {links.length === 1 ? "link" : "links"}
                     </span>
-                  </div>
-                  <ul className={cn("@container/group", groupListClassName)}>
-                    {links.map((link) => {
-                      const observed = formatObserved(link.observedAt)
-                      return (
-                        <li
-                          key={link.id}
-                          className={cn(
-                            groupRowClassName,
-                            "grid grid-cols-1 items-center gap-x-4 gap-y-1 @xl/group:grid-cols-[minmax(0,1fr)_auto]"
-                          )}
-                        >
-                          <div className="flex min-w-0 flex-col gap-0.5">
-                            <span className="text-ui break-all text-ink">
-                              {link.uri}
-                            </span>
+                  }
+                  listProps={{ className: "divide-y divide-line-subtle" }}
+                >
+                  {links.map((link) => {
+                    const observed = formatObserved(link.observedAt)
+                    const note = !link.isEditable
+                      ? "Added by a booking provider · can’t be edited here"
+                      : observed
+                        ? `Checked on Google ${observed}`
+                        : null
+                    return (
+                      <ListRow
+                        key={link.id}
+                        as="li"
+                        flush
+                        wrap
+                        interactive={false}
+                        emphasis="neutral"
+                        wrapperClassName={linkRowClassName}
+                        title={link.uri}
+                        subtitle={
+                          !link.isEditable || note ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
-                              {link.isPreferred ? (
-                                <span className="font-semibold text-accent-ink">
-                                  Preferred
-                                </span>
-                              ) : null}
                               {!link.isEditable ? (
                                 <span className="inline-flex items-center gap-1 font-medium text-ink-secondary">
                                   <Lock
@@ -374,16 +369,17 @@ function BookingLinks({
                                   Managed by Google
                                 </span>
                               ) : null}
-                              <span className="text-ink-muted">
-                                {!link.isEditable
-                                  ? "Added by a booking provider · can’t be edited here"
-                                  : observed
-                                    ? `Checked on Google ${observed}`
-                                    : null}
-                              </span>
+                              <span className="text-ink-muted">{note}</span>
                             </span>
-                          </div>
-                          {link.isEditable ? (
+                          ) : undefined
+                        }
+                        tags={
+                          link.isPreferred ? (
+                            <ListRowTag tone="accent">Preferred</ListRowTag>
+                          ) : undefined
+                        }
+                        footer={
+                          link.isEditable ? (
                             <LinkActions
                               typeLabel={actionTypeLabel(type)}
                               canPrefer={!link.isPreferred && links.length > 1}
@@ -392,12 +388,12 @@ function BookingLinks({
                               onPrefer={() => setPreferTarget(link)}
                               onRemove={() => setDeleteTarget(link)}
                             />
-                          ) : null}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </section>
+                          ) : undefined
+                        }
+                      />
+                    )
+                  })}
+                </SettingsGroup>
               )
             })
           )}
@@ -509,7 +505,7 @@ function LinkActions({
   onRemove: () => void
 }) {
   return (
-    <div className="-ml-2.5 flex items-center gap-1 @xl/group:-mr-2.5 @xl/group:ml-0 @xl/group:justify-end">
+    <div className="-ml-2.5 flex items-center gap-1">
       <Button
         variant="ghost"
         size="sm"
@@ -581,39 +577,21 @@ function GoogleManagedLinks({
 }) {
   if (links.length === 0) return null
   return (
-    <section
-      aria-labelledby="booking-google-managed"
-      className="flex min-w-0 flex-col gap-2"
-    >
-      <div className="flex flex-col gap-0.5 sm:px-1">
-        <h2 id="booking-google-managed" className={groupLabelClassName}>
-          Managed in Google
-        </h2>
-        <p className="text-caption text-ink-muted">
+    <SettingsGroup
+      label="Managed in Google"
+      headingId="booking-google-managed"
+      className="mt-0 min-w-0"
+      card
+      caption={
+        <>
           Google lists {links.length === 1 ? "an action link" : "action links"}{" "}
           of a type this editor can’t change yet. They stay in place and are
           part of every review’s Google baseline.
-        </p>
-      </div>
-      <ul className={groupListClassName}>
-        {links.map((link) => (
-          <li
-            key={link.name}
-            className={cn(groupRowClassName, "flex min-w-0 flex-col gap-0.5")}
-          >
-            <span className="text-ui break-all text-ink">{link.uri}</span>
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
-              <span className="inline-flex items-center gap-1 font-medium text-ink-secondary">
-                <Lock className="size-3" strokeWidth={1.75} aria-hidden />
-                {humaniseActionType(link.placeActionType)}
-              </span>
-              <span className="text-ink-muted">Can’t be edited here</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {handoff ? (
-        <div className="-ml-2.5 flex sm:ml-0">
+        </>
+      }
+      listProps={{ className: "divide-y divide-line-subtle" }}
+      footer={
+        handoff ? (
           <a
             href="https://business.google.com/"
             target="_blank"
@@ -625,9 +603,31 @@ function GoogleManagedLinks({
           >
             Manage these links in Google
           </a>
-        </div>
-      ) : null}
-    </section>
+        ) : undefined
+      }
+    >
+      {links.map((link) => (
+        <ListRow
+          key={link.name}
+          as="li"
+          flush
+          wrap
+          interactive={false}
+          emphasis="neutral"
+          wrapperClassName={linkRowClassName}
+          title={link.uri}
+          subtitle={
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
+              <span className="inline-flex items-center gap-1 font-medium text-ink-secondary">
+                <Lock className="size-3" strokeWidth={1.75} aria-hidden />
+                {humaniseActionType(link.placeActionType)}
+              </span>
+              <span className="text-ink-muted">Can’t be edited here</span>
+            </span>
+          }
+        />
+      ))}
+    </SettingsGroup>
   )
 }
 
@@ -756,6 +756,7 @@ function AddLinkForm({
     editor.setDraft((current) => ({ ...current, preferred: next }))
   const [error, setError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  const [typeOpen, setTypeOpen] = useState(false)
 
   const sameType = state.links.filter((link) => link.placeActionType === type)
 
@@ -793,43 +794,36 @@ function AddLinkForm({
       noValidate
       onSubmit={submit}
       aria-labelledby={headingId}
-      className="flex min-w-0 flex-col gap-2"
+      className="flex min-w-0 flex-col"
     >
-      <div className="flex flex-col gap-0.5 sm:px-1">
-        <h2 id={headingId} className={groupLabelClassName}>
-          Add an action link
-        </h2>
-        <p className="text-caption text-ink-muted">
-          Prepare a review first. Approval saves the exact request; sending to
-          Google is a separate action.
-        </p>
-      </div>
-      <DraftNotices drafts={[editor]} noun="this action link" />
-      <div className="flex flex-col gap-4 sm:rounded-(--np-radius-card) sm:border sm:border-line sm:bg-surface sm:p-(--np-card-pad)">
-        <div className="grid gap-4 @xl/booking:grid-cols-[minmax(0,--spacing(60))_minmax(0,1fr)] @xl/booking:items-start">
-          <Field>
-            <FieldLabel>Type</FieldLabel>
-            <Select
-              value={type}
-              onValueChange={(next) => setType(next as PlaceActionType)}
-              disabled={disabled}
-            >
-              <SelectTrigger className="w-full" aria-label="Booking link type">
-                <SelectValue>
-                  {(value: string | null) =>
-                    value ? actionTypeLabel(value) : ""
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {state.supportedTypes.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {actionTypeLabel(t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+      <SettingsGroup
+        label="Add an action link"
+        headingId={headingId}
+        caption="Prepare a review first. Approval saves the exact request; sending to Google is a separate action."
+        bodyAs="div"
+        card
+        className="mt-0"
+        footer={
+          <Button
+            type="submit"
+            variant="secondary"
+            disabled={disabled}
+            pending={workflow.busy}
+            pendingLabel="Preparing review…"
+          >
+            Review action link
+          </Button>
+        }
+      >
+        <DraftNotices drafts={[editor]} noun="this action link" />
+        {/* The type is a short choice list: a row that opens it. */}
+        <SettingsRow
+          label="Type"
+          value={actionTypeLabel(type)}
+          disabled={disabled}
+          onClick={() => setTypeOpen(true)}
+        />
+        <div className={cardBlockClassName}>
           <Field error={error ?? undefined}>
             <FieldLabel htmlFor={uriId}>Link</FieldLabel>
             <Input
@@ -849,9 +843,9 @@ function AddLinkForm({
             />
             <FieldError />
           </Field>
+          {failure ? <FailureNote message={failure} /> : null}
         </div>
-        {failure ? <FailureNote message={failure} /> : null}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+        <div className={cardBlockClassName}>
           <Checkbox
             checked={preferred}
             onCheckedChange={(value) => setPreferred(value === true)}
@@ -860,17 +854,31 @@ function AddLinkForm({
             description="Google shows the preferred link first when a button has more than one."
             labelClassName="text-ui"
           />
-          <Button
-            type="submit"
-            variant="secondary"
-            disabled={disabled}
-            pending={workflow.busy}
-            pendingLabel="Preparing review…"
-          >
-            Review action link
-          </Button>
         </div>
-      </div>
+      </SettingsGroup>
+      <Sheet open={typeOpen} onOpenChange={setTypeOpen}>
+        <SheetContent variant="inset">
+          <SheetHeader>
+            <SheetTitle>Booking link type</SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            <OptionRowGroup applyOnChoose label="Booking link type">
+              {state.supportedTypes.map((t) => (
+                <OptionRow
+                  key={t}
+                  indicator="check"
+                  selected={t === type}
+                  label={actionTypeLabel(t)}
+                  onClick={() => {
+                    setType(t as PlaceActionType)
+                    setTypeOpen(false)
+                  }}
+                />
+              ))}
+            </OptionRowGroup>
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </form>
   )
 }
