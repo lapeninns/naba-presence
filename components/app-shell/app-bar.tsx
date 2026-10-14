@@ -328,12 +328,29 @@ function AppBarScopeSlot({
   const pending = mode === "agency" ? clients.isPending : directory.isPending
   if (scope.visible) {
     // Room for the leading name too: the chip gives way first.
+    if (ownSearch) {
+      return (
+        <ClientScopeChip
+          mode={mode}
+          onOpen={onOpenClientScope}
+          className="max-w-[40vw]"
+        />
+      )
+    }
+    // While a task's ActionBar or SelectionBar is docked the tab bar steps
+    // aside, taking More's unread badge with it, so the bell (and its count)
+    // takes the chip's place. The same CSS chrome contract that hides the tab
+    // bar (globals.css) swaps them: no JS reads the dock, so the server and
+    // the first client render agree.
     return (
-      <ClientScopeChip
-        mode={mode}
-        onOpen={onOpenClientScope}
-        className="max-w-[40vw]"
-      />
+      <>
+        <NotificationsLink className="hidden [body:has([data-docked=bottom])_&]:grid" />
+        <ClientScopeChip
+          mode={mode}
+          onOpen={onOpenClientScope}
+          className="max-w-[40vw] [body:has([data-docked=bottom])_&]:hidden"
+        />
+      </>
     )
   }
   if (ownSearch) return null
