@@ -439,6 +439,8 @@ const COPY: Record<string, string> = {
   privacy_legal_hold:
     "Some matching reviews are under an active legal hold and can’t be erased yet.",
   privacy_subject_not_found: "No records matched that reference.",
+  privacy_erasure_unconfirmed:
+    "The reviews this erasure matches changed. Nothing was erased: check the counts and confirm again.",
   privacy_request_resolved:
     "This request has already been completed or rejected, so it can’t be worked on again.",
   privacy_request_transition_invalid:
