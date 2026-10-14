@@ -1,10 +1,13 @@
 "use client"
 
+import { CalendarIcon } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useRef } from "react"
 
 import { longDay, utcDay } from "@/components/calendar/calendar-dates"
 import { Card } from "@/components/ui/card"
+import { Empty } from "@/components/ui/empty"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import {
   Sheet,
   SheetBody,
@@ -57,58 +60,23 @@ const countLabel = (count: number) =>
 type ByDate = Map<string, ScheduleOccurrence[]>
 
 /**
- * One publication. The full form is a 44px row in the shape of a mail row:
- * the time and the listing, the post's title under them, and the status word
- * trailing. `compact` is the one-line form inside a wide grid cell, with the
- * status for screen readers only.
+ * One publication in a grid cell: the one-line form inside a wide cell, with
+ * the status for screen readers only. Lists use `DayEntries` (mail rows).
  */
-function Entry({
-  occurrence,
-  compact,
-}: {
-  occurrence: ScheduleOccurrence
-  compact?: boolean
-}) {
+function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const status = STATUS[occurrence.status]
-  if (compact)
-    return (
-      <Link
-        href={`/listings/${occurrence.locationId}/posts`}
-        className="flex min-w-0 flex-col rounded-(--np-radius-control) px-1.5 py-1 text-left focus-halo hover:bg-fill focus-visible:outline-none"
-      >
-        <span className="truncate text-caption font-medium text-ink">
-          <span className="tabular-nums">{occurrence.localTime}</span>{" "}
-          {occurrence.locationName}
-        </span>
-        <span className="sr-only">
-          {status.label}: {occurrence.summary}
-        </span>
-      </Link>
-    )
   return (
     <Link
       href={`/listings/${occurrence.locationId}/posts`}
-      className="flex min-h-11 min-w-0 items-center gap-3 rounded-(--np-radius-control) px-2 py-1.5 text-left focus-halo hover:bg-fill focus-visible:outline-none"
+      className="flex min-w-0 flex-col rounded-(--np-radius-control) px-1.5 py-1 text-left focus-halo hover:bg-fill focus-visible:outline-none"
     >
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex min-w-0 items-baseline gap-1.5 text-ui text-ink">
-          <span className="shrink-0 font-semibold tabular-nums">
-            {occurrence.localTime}
-          </span>
-          <span aria-hidden className="text-ink-muted">
-            ·
-          </span>
-          <span className="truncate font-medium">
-            {occurrence.locationName}
-          </span>
-        </span>
-        <span className="truncate text-caption text-ink-secondary">
-          {occurrence.summary || occurrence.topicType}
-        </span>
+      <span className="truncate text-caption font-medium text-ink">
+        <span className="tabular-nums">{occurrence.localTime}</span>{" "}
+        {occurrence.locationName}
       </span>
-      <StatusPill tone={status.tone} plain className="shrink-0">
-        {status.label}
-      </StatusPill>
+      <span className="sr-only">
+        {status.label}: {occurrence.summary}
+      </span>
     </Link>
   )
 }
@@ -121,7 +89,7 @@ function OccurrenceMeta({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const note = clockChangeNote(occurrence.adjustment)
   const reason = occurrenceReasonText(occurrence)
   return (
-    <span className="block px-2 pb-1.5 text-caption text-ink-muted">
+    <span className="text-caption text-ink-muted">
       {occurrence.timezone}
       {note ? ` · ${note}` : ""}
       {reason ? ` · ${reason}` : ""}
@@ -129,17 +97,54 @@ function OccurrenceMeta({ occurrence }: { occurrence: ScheduleOccurrence }) {
   )
 }
 
-/** A day's publications as rows, hairlines between them. */
-function DayEntries({ entries }: { entries: ScheduleOccurrence[] }) {
+/**
+ * A day's publications as mail rows: the time and the listing, the post's
+ * title under them and the status word trailing, the whole row a link to the
+ * listing's posts. The zone, clock-change note and any reason sit under the
+ * row, outside the link. `flush` inside a sheet or card; otherwise the rows
+ * run edge to edge on a phone.
+ */
+function DayEntries({
+  entries,
+  flush = false,
+  className,
+}: {
+  entries: ScheduleOccurrence[]
+  flush?: boolean
+  className?: string
+}) {
   return (
-    <ul className="flex flex-col divide-y divide-line-subtle">
-      {entries.map((occurrence) => (
-        <li key={occurrence.id} className="py-0.5">
-          <Entry occurrence={occurrence} />
-          <OccurrenceMeta occurrence={occurrence} />
-        </li>
-      ))}
-    </ul>
+    <ListRows bleed={!flush} className={className}>
+      {entries.map((occurrence) => {
+        const status = STATUS[occurrence.status]
+        return (
+          <ListRow
+            key={occurrence.id}
+            href={`/listings/${occurrence.locationId}/posts`}
+            flush={flush}
+            bleed={false}
+            emphasis="neutral"
+            title={
+              <>
+                <span className="tabular-nums">{occurrence.localTime}</span>
+                <span aria-hidden className="text-ink-muted">
+                  {" "}
+                  ·{" "}
+                </span>
+                {occurrence.locationName}
+              </>
+            }
+            subtitle={occurrence.summary || occurrence.topicType}
+            trailing={
+              <StatusPill tone={status.tone} plain>
+                {status.label}
+              </StatusPill>
+            }
+            footer={<OccurrenceMeta occurrence={occurrence} />}
+          />
+        )
+      })}
+    </ListRows>
   )
 }
 
@@ -344,7 +349,7 @@ export function CalendarGrid({
                         <ul className="flex flex-col">
                           {entries.slice(0, 3).map((occurrence) => (
                             <li key={occurrence.id}>
-                              <Entry occurrence={occurrence} compact />
+                              <CompactEntry occurrence={occurrence} />
                             </li>
                           ))}
                         </ul>
@@ -369,7 +374,11 @@ export function CalendarGrid({
             if (!open) onPick(null)
           }}
         >
-          <SheetContent side="bottom" data-slot="calendar-day-sheet">
+          <SheetContent
+            side="bottom"
+            variant="inset"
+            data-slot="calendar-day-sheet"
+          >
             <SheetHeader>
               <SheetTitle>
                 {selected ? (
@@ -382,7 +391,7 @@ export function CalendarGrid({
               </SheetDescription>
             </SheetHeader>
             <SheetBody>
-              <DayEntries entries={selectedEntries} />
+              <DayEntries entries={selectedEntries} flush className="px-2" />
             </SheetBody>
           </SheetContent>
         </Sheet>
@@ -406,9 +415,11 @@ export function CalendarGrid({
               >
                 <time dateTime={selected}>{longDay(selected)}</time>
               </h3>
-              <div className="px-1.5">
-                <DayEntries entries={selectedEntries} />
-              </div>
+              <DayEntries
+                entries={selectedEntries}
+                flush
+                className="px-(--card-spacing)"
+              />
             </Card>
           ) : days.some((day) => byDate.get(day)?.length) ? (
             <p className="text-caption text-ink-muted">
@@ -434,12 +445,16 @@ export function CalendarAgenda({
   const withEntries = days.filter((day) => byDate.get(day)?.length)
   if (!withEntries.length)
     return (
-      <p className="text-ui text-ink-muted">
-        No scheduled publications in this period.
-      </p>
+      <Empty
+        size="sm"
+        framed
+        icon={<CalendarIcon />}
+        title="No scheduled publications in this period."
+        description="Use the arrows to look at another period, or widen the client and listing filters."
+      />
     )
   return (
-    <ol className="flex flex-col gap-5" aria-label="Scheduled publications">
+    <ol className="flex flex-col gap-6" aria-label="Scheduled publications">
       {withEntries.map((day) => (
         <li
           key={day}
@@ -447,8 +462,9 @@ export function CalendarAgenda({
           className="flex flex-col gap-1"
         >
           {/* A day group, as Notion Mail groups its list: a quiet date
-              label, then the day's publications as rows. */}
-          <h3 className="flex items-baseline gap-2 px-2 text-ui font-semibold text-ink">
+              label, then the day's publications as mail rows: edge to edge
+              on a phone, a bordered card from md. */}
+          <h3 className="flex items-baseline gap-2 text-ui font-semibold text-ink">
             <time dateTime={day}>{longDay(day)}</time>
             {day === today ? (
               <span className="text-caption font-semibold text-accent-ink">
@@ -456,9 +472,10 @@ export function CalendarAgenda({
               </span>
             ) : null}
           </h3>
-          <div className="border-y border-line-subtle">
-            <DayEntries entries={byDate.get(day) ?? []} />
-          </div>
+          <DayEntries
+            entries={byDate.get(day) ?? []}
+            className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
+          />
         </li>
       ))}
     </ol>

@@ -5,7 +5,6 @@ import { CalendarOffIcon, ChevronLeft, ChevronRight } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 
-import { PageHeader } from "@/components/app-shell/page-frame"
 import {
   CalendarAgenda,
   CalendarGrid,
@@ -26,13 +25,13 @@ import {
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationSelect } from "@/components/performance/location-select"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
+import { ViewHeader } from "@/components/ui/view-header"
 import { ApiClientError } from "@/lib/api/client"
 import { fetchScheduleOccurrences } from "@/lib/api/publication-schedules"
 import type { ScheduleOccurrence } from "@/lib/contracts/publication-schedules"
@@ -170,29 +169,38 @@ export function PublicationCalendar({
   // One line that names the zones in play: each entry's time is its
   // listing's own, and "today" is the organisation's date.
   const description = timeZone
-    ? `Scheduled post publications across the listings you can see. Times are each listing’s local time; today follows ${timeZone}.`
-    : "Scheduled post publications across the listings you can see. Times are each listing’s local time."
+    ? `Scheduled post publications across the listings you can see. Each time is in its listing’s local time; today is marked in the workspace time zone (${timeZone}).`
+    : "Scheduled post publications across the listings you can see. Each time is in its listing’s local time."
+  const header = (
+    <div className="flex flex-col gap-1">
+      <ViewHeader title="Publication calendar" />
+      <p className="max-w-prose text-body text-pretty text-ink-muted">
+        {description}
+      </p>
+    </div>
+  )
 
   if (unavailable) {
     const manager = role === "owner" || role === "admin"
     return (
       <>
-        <PageHeader title="Publication calendar" description={description} />
-        <Card flush>
-          <Empty
-            icon={<CalendarOffIcon />}
-            titleAs="h2"
-            title="Scheduled publishing is off"
-            description={
-              <>
-                Scheduled publishing is not switched on for this workspace.
-                {manager
-                  ? " It is turned on per workspace by NabaPresence support; ask them when you are ready to schedule posts."
-                  : " Ask an owner or admin if you need it."}
-              </>
-            }
-          />
-        </Card>
+        {header}
+        {/* The state is the page: no toolbar, no buttons, nothing to retry. */}
+        <Empty
+          variant="not-enabled"
+          placement="page"
+          icon={<CalendarOffIcon />}
+          titleAs="h2"
+          title="Scheduled publishing is off"
+          description={
+            <>
+              Scheduled publishing is not switched on for this workspace.
+              {manager
+                ? " It is turned on per workspace by NabaPresence support; ask them when you are ready to schedule posts."
+                : " Ask an owner or admin if you need it."}
+            </>
+          }
+        />
       </>
     )
   }
@@ -200,7 +208,7 @@ export function PublicationCalendar({
   const periodNoun = view === "agenda" ? "period" : view
   return (
     <>
-      <PageHeader title="Publication calendar" description={description} />
+      {header}
       <div className="flex flex-col gap-3">
         {/* The period header (Notion Mail's month header): the period's name
             on the left, then previous / next as round ghost buttons and a

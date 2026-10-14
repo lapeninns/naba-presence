@@ -9,6 +9,7 @@ import {
 } from "@/components/reporting/presence-provenance"
 import { ReplyLocationsTable } from "@/components/performance/reply-locations-table"
 import { ReplyFigures } from "@/components/reporting/reply-figures"
+import { textTabItemClassName } from "@/components/ui/tabs"
 import type { AnalyticsLocation } from "@/lib/contracts/analytics"
 import type { PresenceResponse } from "@/lib/contracts/analytics"
 import {
@@ -113,9 +114,7 @@ export function SharedClientReportView({
         Skip to the figures
       </a>
       <header className="flex flex-col gap-3 border-b border-line-subtle pb-5">
-        <p className={EYEBROW_CLASS}>
-          Performance report
-        </p>
+        <p className={EYEBROW_CLASS}>Performance report</p>
         <h1 className="text-page-title font-semibold text-balance [overflow-wrap:anywhere] text-ink">
           {report.clientName}
         </h1>
@@ -142,30 +141,23 @@ export function SharedClientReportView({
             <ZonedTime iso={report.generatedAt} timeZone={timezone} />
           </dd>
         </dl>
+        {/* Notion Mail text tabs, drawn with the TextTabs item style but as
+            plain anchors in a wrapping row: TabNav's Next links would
+            navigate client-side (and may prefetch this view-counted page),
+            and its strip scrolls sideways, which a public page should not. */}
         <nav aria-label="Report period" className="pt-1 print:hidden">
-          <ul className="flex flex-wrap gap-x-1 gap-y-1">
-            {SHARE_PERIODS.map((option) => {
-              const current = option.id === period.id
-              return (
-                <li key={option.id}>
-                  <a
-                    href={`?period=${option.id}`}
-                    aria-current={current ? "page" : undefined}
-                    className={cn(
-                      // Text tabs: the current period is the accent tint
-                      // (the "current item" use of the accent), the others
-                      // plain text that takes a quiet fill on hover.
-                      "inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-control) px-3 text-ui focus-halo focus-visible:outline-none",
-                      current
-                        ? "bg-accent-tint font-semibold text-accent-ink"
-                        : "text-ink-secondary hover-fine:hover:bg-fill hover-fine:hover:text-ink"
-                    )}
-                  >
-                    {option.label}
-                  </a>
-                </li>
-              )
-            })}
+          <ul className="-ms-2 flex list-none flex-wrap gap-0.5">
+            {SHARE_PERIODS.map((option) => (
+              <li key={option.id} className="flex">
+                <a
+                  href={`?period=${option.id}`}
+                  aria-current={option.id === period.id ? "page" : undefined}
+                  className={textTabItemClassName}
+                >
+                  {option.label}
+                </a>
+              </li>
+            ))}
           </ul>
         </nav>
       </header>
