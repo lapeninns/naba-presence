@@ -11,6 +11,6 @@ alter table presence_resource_reconcile_state
   add column observed_google_payload jsonb;
 
 insert into schema_migration (version)
-values ('0155_editor_observed_payload') on conflict (version) do nothing;
+values ('0147_editor_observed_payload') on conflict (version) do nothing;
 
 commit;
