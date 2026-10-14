@@ -473,9 +473,13 @@ function purgeSteps(organisationId: string): PurgeStep[] {
       `,
       set: (sql) => sql`raw_payload = null, address_json = null`,
     }),
-    // review -> external_location and legal_hold -> review are both ON
-    // DELETE CASCADE (0001), so without the hold predicate the purge would
-    // destroy held reviews and the holds protecting them in one statement.
+    // review -> external_location is ON DELETE CASCADE (0001). The hold
+    // predicate keeps a held location's reviews out; review_legal_hold_guard
+    // (0139) is the backstop for a hold committed after this statement's
+    // snapshot: it skips that review under app.retention_run, and fails a
+    // cascade from external_location rather than delete a held review. A
+    // review's released holds go with it (the guard deletes them; the
+    // legal_hold -> review key is RESTRICT).
     // The row bound applies to the rows a statement selects, not to what
     // they cascade to, so a disconnected location's reviews (with their
     // media, replies and holds) are deleted in bounded batches first, and a
@@ -927,6 +931,9 @@ export async function purgeOrganisation({
   let heldLocationsSkipped = 0
   for (;;) {
     const round = await withTenant(organisationId, async (sql) => {
+      // Lets the round delete expired audit rows (0008), and makes
+      // review_legal_hold_guard (0139) skip a review held mid-round instead
+      // of failing the round: the next round's predicates exclude it.
       await sql`
         select set_config('app.retention_run', 'true', true)
       `
