@@ -94,6 +94,8 @@ export async function startAuthProviderStub() {
   const resendRequests: Array<{ email: string; redirectTo: string | null }> =
     []
   const passwordUpdates: Array<{ email: string; password: string }> = []
+  // Every /verify call, so a test can prove a route did not spend a token.
+  const verifications: Array<{ tokenHash: string; type: string }> = []
   const accessTokens = new Map<string, { email: string; aal: string }>()
   const challenges = new Map<string, string>()
   const mfaCalls: Array<{ kind: "enroll" | "challenge" | "verify"; factorId?: string }> = []
@@ -252,6 +254,7 @@ export async function startAuthProviderStub() {
       if (request.method === "POST" && url.pathname === "/auth/v1/verify") {
         const tokenHash = String(body.token_hash ?? "")
         const type = String(body.type ?? "")
+        verifications.push({ tokenHash, type })
         const email =
           type === "email"
             ? confirmationTokens.get(tokenHash)
@@ -429,6 +432,7 @@ export async function startAuthProviderStub() {
     resetRequests,
     resendRequests,
     passwordUpdates,
+    verifications,
     mfaCalls,
     options,
     addUser,
