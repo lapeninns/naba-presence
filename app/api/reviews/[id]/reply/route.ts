@@ -11,6 +11,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 export const DELETE = route({
+  maxDuration,
   mfa: "step_up",
   params: reviewIdParamsSchema,
   handler: async ({ session, params, requestId }) => {

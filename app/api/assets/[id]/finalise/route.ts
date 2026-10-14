@@ -12,6 +12,7 @@ export const maxDuration = 60
  * asset (422).
  */
 export const POST = route({
+  maxDuration,
   // Viewers cannot add photos (also refused in lib/server/assets.ts).
   roles: ["owner", "admin", "member"],
   params: z.object({ id: z.uuid() }),

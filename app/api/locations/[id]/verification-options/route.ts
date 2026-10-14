@@ -9,12 +9,14 @@ export const maxDuration = 60
 const params = z.object({ id: z.uuid() })
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"], params,
   query: verificationOptionsInputSchema.omit({ context: true }),
   handler: ({ session, params, query }) => loadGoogleVerificationOptions(session, params.id, query),
 })
 
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"], params, body: verificationOptionsInputSchema,
   handler: ({ session, params, body }) => loadGoogleVerificationOptions(session, params.id, body),
 })

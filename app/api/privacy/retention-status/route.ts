@@ -10,6 +10,7 @@ import { countHeldDisconnectedLocations } from "@/lib/server/retention/purge"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 type CycleRow = {
   cycleDate: string
@@ -52,6 +53,7 @@ function summary(row: CycleRow | undefined): RetentionCycleSummary | null {
  * `privacy_settings` feature is on, like the page it feeds.
  */
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   handler: async ({ session, tenant }) => {
     const tenantState = await tenant(async (sql) => {

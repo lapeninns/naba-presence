@@ -190,8 +190,9 @@ platform-level `abuse_rate_bucket` table, reached only through the SECURITY
 DEFINER `take_abuse_budget` and `purge_abuse_rate_buckets` functions, so every
 instance shares one count. Keys are HMAC digests under `NEXTAUTH_SECRET`,
 never plaintext. They cover password login, registration, confirmation resend,
-reset request and completion, the emailed confirmation link (`/auth/confirm`,
-per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
+reset request and completion, the emailed confirmation link (`POST
+/auth/confirm` from the `/confirm-email` interstitial, same-origin only; a GET
+of the link never spends the token; per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
 generation, support impersonation attempts (counted before the secret is
 compared) and `/share/report/[token]` lookups (which answer the same 404 as
 an unknown token when limited). The client IP comes only from the header named
@@ -209,9 +210,18 @@ stay in the domain module. Cron and public handlers import `withTenant` or
 `getDatabase` directly; the only `getDatabase()` calls left in route files are
 the commented cross-tenant enumeration and routing reads. `runtime` and
 `maxDuration` remain per-file static exports because Next reads them at build
-time. `getSession()` is wrapped in `React.cache`, so a server render that asks
-for the session from a layout, a page and a prefetch helper performs one
-lookup and one `last_seen_at` write; in route handlers the cache is a no-op.
+time; a route also hands its `maxDuration` to `route()`, which turns it into
+`ctx.deadline` (epoch ms, `lib/server/deadline.ts`: start + `maxDuration` −
+5 s). Services that make provider calls in a row take that plain `deadline`,
+size each call to what is left and stop before a step that cannot finish.
+`tests/route-max-duration.test.ts` requires both on every route whose imports
+reach the Google transport or the OpenAI client. A route whose Google calls
+can outrun 60 s and do not yet stop at the deadline (unbounded paging, a write
+and its read-back) declares 300, the Fluid compute default it ran under before
+the export was required; database-only routes declare 60. `getSession()` is
+wrapped in `React.cache`, so a server render that asks for the session from a
+layout, a page and a prefetch helper performs one lookup and one
+`last_seen_at` write; in route handlers the cache is a no-op.
 
 ## Location visibility: one rule
 
