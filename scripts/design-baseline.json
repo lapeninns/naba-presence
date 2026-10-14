@@ -3,7 +3,7 @@
   "totals": {
     "R1": 13,
     "R2": 9,
-    "R3": 67,
+    "R3": 65,
     "R4": 12,
     "R5": 1,
     "R6": 2,
@@ -81,7 +81,7 @@
       "R6": {
         "total": 2,
         "patterns": {
-          "style={{…}}": 2
+          "style={{\u2026}}": 2
         }
       }
     },
@@ -298,22 +298,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[repeat(auto-fill,minmax(min(100%,10rem),1fr))]": 1
-        }
-      }
-    },
-    "components/locations/posts/post-card.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[112px_minmax(0,1fr)]": 1
-        }
-      }
-    },
-    "components/locations/posts/post-composer-sheet.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_300px]": 1
         }
       }
     },

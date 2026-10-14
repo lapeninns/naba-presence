@@ -1,11 +1,9 @@
 "use client"
 
-import { SearchXIcon } from "lucide-react"
 import Link from "next/link"
 
 import { buttonVariants } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Empty } from "@/components/ui/empty"
+import { Empty, EmptyIllustration } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
@@ -19,14 +17,19 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * A `?clientId=` or `?locationId=` that is not in the viewer's directory
  * (removed, or a client they cannot see). Nothing is reported for it; there
  * is no fallback to some other client.
+ *
+ * It is all the page shows under its title, so it is a page-placed empty
+ * state (no card, sitting at about a third of the height) with the
+ * lookup-found-nothing drawing.
  */
 export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
   const business = useWorkspaceMode() === "business"
   return (
-    <Card data-slot="not-in-directory" flush>
+    <div data-slot="not-in-directory" className="flex flex-1 flex-col">
       <Empty
         titleAs="h2"
-        icon={<SearchXIcon />}
+        placement="page"
+        illustration={<EmptyIllustration name="search" />}
         title={
           kind === "client"
             ? "This client isn’t in your directory"
@@ -46,6 +49,6 @@ export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
           </Link>
         }
       />
-    </Card>
+    </div>
   )
 }

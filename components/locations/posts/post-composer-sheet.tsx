@@ -1,6 +1,6 @@
 "use client"
 
-import { PencilIcon, Plus } from "lucide-react"
+import { ChevronDownIcon, PencilIcon, Plus } from "lucide-react"
 import { useEffect, useId, useImperativeHandle, useRef, useState } from "react"
 
 import { DraftNotices } from "@/components/editors/draft-notices"
@@ -50,7 +50,7 @@ import {
   localPostFormSchema,
   type LocalPostFormValues,
 } from "@/lib/locations/forms/local-post"
-import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
+import { POST_ACTION_LABEL, postImageUrl } from "@/lib/locations/post-display"
 import {
   DEFAULT_TIMEZONE,
   NO_RECURRENCE,
@@ -66,6 +66,7 @@ import {
 } from "@/lib/locations/post-recurrence"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
+import { cn } from "@/lib/utils"
 
 const TOPICS: ReadonlyArray<{ value: LocalPostTopicType; label: string }> = [
   { value: "STANDARD", label: "Update" },
@@ -79,6 +80,23 @@ const REPEATS: ReadonlyArray<{ value: PostRepeat; label: string }> = [
   { value: "weekly", label: "Every week" },
   { value: "monthly", label: "Every month" },
 ]
+
+/**
+ * A header field row (the editor's "To / Subject" rows): the label in words
+ * at the start, the value after it. Below ~360px of sheet the label stacks
+ * above its value rather than squeezing it.
+ */
+const ROW =
+  "flex flex-col gap-1 py-2 @[360px]/composer:flex-row @[360px]/composer:items-center @[360px]/composer:gap-3"
+const ROW_LABEL =
+  "shrink-0 text-ui font-normal text-ink-muted @[360px]/composer:w-28"
+const ROW_VALUE = "flex min-w-0 flex-1 flex-col gap-1"
+/**
+ * Borderless at rest, so the rows read as one surface; the edge and the
+ * focus ring come back on hover, focus and an error.
+ */
+const BARE =
+  "border-transparent bg-transparent hover-fine:hover:border-line"
 
 /** The summary limit the posts route parses with (`localPostInputSchema`). */
 const SUMMARY_MAX = 1500
@@ -380,6 +398,16 @@ export function PostComposerSheet({
   const datesId = useId()
   const repeatId = useId()
   const weekdaysLabelId = useId()
+  const mediaLabelId = useId()
+  const previewId = useId()
+  // On a phone the preview waits under the fields until asked for.
+  const [previewOpen, setPreviewOpen] = useState(true)
+  // Photos are carried over as they are: there is no upload or removal in
+  // this path, so the strip is read-only.
+  // Thumbnails follow the list's rule: Google's copy first, http(s) only.
+  const thumbnails = (post && Array.isArray(post.media) ? post.media : [])
+    .map((entry) => postImageUrl({ media: [entry] }))
+    .filter((url): url is string => url !== null)
 
   const set = <K extends keyof Values>(key: K, value: Values[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
@@ -518,288 +546,348 @@ export function PostComposerSheet({
 
         <SheetBody className="@container/composer">
           <DraftNotices drafts={[editor]} noun="this post" />
-          <div className="grid grid-cols-1 items-start gap-6 @[760px]/composer:grid-cols-[minmax(0,1fr)_300px]">
-            <div ref={formRef} className="flex min-w-0 flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <span
-                  id={typeLabelId}
-                  className="text-ui font-semibold text-ink"
-                >
-                  Type
-                </span>
-                <SegmentedControl
-                  semantics="radio"
-                  aria-labelledby={typeLabelId}
-                  value={values.topicType}
-                  onValueChange={(next) =>
-                    set("topicType", next as LocalPostTopicType)
-                  }
-                  className="self-start"
-                >
-                  {TOPICS.map((topic) => (
-                    <SegmentedControlItem key={topic.value} value={topic.value}>
-                      {topic.label}
-                    </SegmentedControlItem>
-                  ))}
-                </SegmentedControl>
-              </div>
-
-              {event ? (
-                <Field error={errors.eventTitle}>
-                  <FieldLabel>
-                    {offer ? "Offer title" : "Event title"}
-                  </FieldLabel>
-                  <Input
-                    value={values.eventTitle}
-                    onChange={(e) => set("eventTitle", e.target.value)}
-                    disabled={disabled}
-                    autoComplete="off"
-                  />
-                  <FieldError>{errors.eventTitle}</FieldError>
-                </Field>
-              ) : null}
-
-              {event ? (
-                <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
-                  <legend className="mb-1.5 text-ui font-semibold text-ink">
-                    When it runs{" "}
-                    <span className="font-normal text-ink-muted">
-                      (optional for a draft)
-                    </span>
-                  </legend>
-                  <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
-                    <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
-                      <Field>
-                        <FieldLabel>Starts</FieldLabel>
-                        <Input
-                          type="date"
-                          value={values.startDate}
-                          onChange={(e) => set("startDate", e.target.value)}
-                          disabled={disabled}
-                          aria-invalid={errors.dates ? true : undefined}
-                          aria-describedby={datesId}
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>
-                          <span className="sr-only">Start </span>Time
-                        </FieldLabel>
-                        <Input
-                          type="time"
-                          value={values.startTime}
-                          onChange={(e) => set("startTime", e.target.value)}
-                          disabled={disabled}
-                        />
-                      </Field>
-                    </div>
-                    <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
-                      <Field>
-                        <FieldLabel>Ends</FieldLabel>
-                        <Input
-                          type="date"
-                          value={values.endDate}
-                          min={values.startDate || undefined}
-                          onChange={(e) => set("endDate", e.target.value)}
-                          disabled={disabled}
-                          aria-invalid={errors.dates ? true : undefined}
-                          aria-describedby={datesId}
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>
-                          <span className="sr-only">End </span>Time
-                        </FieldLabel>
-                        <Input
-                          type="time"
-                          value={values.endTime}
-                          onChange={(e) => set("endTime", e.target.value)}
-                          disabled={disabled}
-                        />
-                      </Field>
-                    </div>
-                  </div>
-                  {errors.dates ? (
-                    <p
-                      id={datesId}
-                      role="alert"
-                      className="text-caption font-medium text-danger-ink"
+          <div className="flex flex-col items-start gap-6 @[760px]/composer:flex-row">
+            <div ref={formRef} className="flex w-full min-w-0 flex-1 flex-col">
+              {/* Header fields: borderless rows, each with its label in
+                  words at the start (stacked above the value when the
+                  sheet is narrow), separated by a faint hairline. */}
+              <div className="flex flex-col divide-y divide-line-subtle">
+                <div className={ROW}>
+                  <span id={typeLabelId} className={ROW_LABEL}>
+                    Type
+                  </span>
+                  <div className={ROW_VALUE}>
+                    <SegmentedControl
+                      semantics="radio"
+                      aria-labelledby={typeLabelId}
+                      value={values.topicType}
+                      onValueChange={(next) =>
+                        set("topicType", next as LocalPostTopicType)
+                      }
+                      className="self-start"
                     >
-                      {errors.dates}
-                    </p>
-                  ) : (
-                    <p id={datesId} className="text-caption text-ink-muted">
-                      Times are the listing’s local time. Without a time, the
-                      post runs all day.
-                    </p>
-                  )}
-                </fieldset>
-              ) : null}
-
-              {event ? (
-                <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
-                  <legend className="sr-only">Repeat</legend>
-                  <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
-                    <Field>
-                      <FieldLabel>Repeats</FieldLabel>
-                      <Select
-                        value={values.repeat}
-                        onValueChange={(next) =>
-                          changeRepeat(next as PostRepeat)
-                        }
-                        disabled={disabled}
-                      >
-                        <SelectTrigger
-                          className="w-full"
-                          aria-invalid={errors.repeat ? true : undefined}
-                          aria-describedby={repeatId}
+                      {TOPICS.map((topic) => (
+                        <SegmentedControlItem
+                          key={topic.value}
+                          value={topic.value}
                         >
-                          <SelectValue>
-                            {(value: string | null) =>
-                              REPEATS.find((entry) => entry.value === value)
-                                ?.label ?? "Doesn’t repeat"
-                            }
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {REPEATS.map((entry) => (
-                            <SelectItem key={entry.value} value={entry.value}>
-                              {entry.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    {values.repeat !== "none" ? (
-                      <Field>
-                        <FieldLabel optional>Last repeat</FieldLabel>
-                        <Input
-                          type="date"
-                          value={values.seriesEnd}
-                          min={values.startDate || undefined}
-                          onChange={(e) => set("seriesEnd", e.target.value)}
-                          disabled={disabled}
-                          aria-invalid={errors.repeat ? true : undefined}
-                          aria-describedby={repeatId}
-                        />
-                      </Field>
-                    ) : null}
+                          {topic.label}
+                        </SegmentedControlItem>
+                      ))}
+                    </SegmentedControl>
                   </div>
-                  {values.repeat === "weekly" ? (
-                    <div className="flex flex-col gap-1.5">
-                      <span
-                        id={weekdaysLabelId}
-                        className="text-ui font-semibold text-ink"
+                </div>
+
+                {event ? (
+                  <Field error={errors.eventTitle} className={ROW}>
+                    <FieldLabel className={ROW_LABEL}>
+                      {offer ? "Offer title" : "Event title"}
+                    </FieldLabel>
+                    <div className={ROW_VALUE}>
+                      <Input
+                        value={values.eventTitle}
+                        onChange={(e) => set("eventTitle", e.target.value)}
+                        disabled={disabled}
+                        autoComplete="off"
+                        className={BARE}
+                      />
+                      <FieldError>{errors.eventTitle}</FieldError>
+                    </div>
+                  </Field>
+                ) : null}
+
+                {event ? (
+                  <fieldset className="m-0 flex min-w-0 flex-col border-0 p-0">
+                    <legend className="sr-only">
+                      When it runs (optional for a draft)
+                    </legend>
+                    <div className="flex flex-col divide-y divide-line-subtle">
+                      <Field className={ROW}>
+                        <FieldLabel className={ROW_LABEL}>Starts</FieldLabel>
+                        <div className={cn(ROW_VALUE, "flex-row gap-2")}>
+                          <Input
+                            type="date"
+                            value={values.startDate}
+                            onChange={(e) => set("startDate", e.target.value)}
+                            disabled={disabled}
+                            aria-invalid={errors.dates ? true : undefined}
+                            aria-describedby={datesId}
+                            className={cn(BARE, "flex-[1.3]")}
+                          />
+                          <Field className="min-w-0 flex-1">
+                            <FieldLabel className="sr-only">
+                              Start time
+                            </FieldLabel>
+                            <Input
+                              type="time"
+                              value={values.startTime}
+                              onChange={(e) => set("startTime", e.target.value)}
+                              disabled={disabled}
+                              className={BARE}
+                            />
+                          </Field>
+                        </div>
+                      </Field>
+                      <Field className={ROW}>
+                        <FieldLabel className={ROW_LABEL}>Ends</FieldLabel>
+                        <div className={cn(ROW_VALUE, "flex-row gap-2")}>
+                          <Input
+                            type="date"
+                            value={values.endDate}
+                            min={values.startDate || undefined}
+                            onChange={(e) => set("endDate", e.target.value)}
+                            disabled={disabled}
+                            aria-invalid={errors.dates ? true : undefined}
+                            aria-describedby={datesId}
+                            className={cn(BARE, "flex-[1.3]")}
+                          />
+                          <Field className="min-w-0 flex-1">
+                            <FieldLabel className="sr-only">
+                              End time
+                            </FieldLabel>
+                            <Input
+                              type="time"
+                              value={values.endTime}
+                              onChange={(e) => set("endTime", e.target.value)}
+                              disabled={disabled}
+                              className={BARE}
+                            />
+                          </Field>
+                        </div>
+                      </Field>
+                    </div>
+                    {errors.dates ? (
+                      <p
+                        id={datesId}
+                        role="alert"
+                        className="pb-2.5 text-caption font-medium text-danger-ink"
                       >
-                        On
-                      </span>
-                      <div
-                        role="group"
-                        aria-labelledby={weekdaysLabelId}
-                        className="flex flex-wrap gap-2"
+                        {errors.dates}
+                      </p>
+                    ) : (
+                      <p
+                        id={datesId}
+                        className="pb-2.5 text-caption text-ink-muted"
                       >
-                        {DAYS_OF_WEEK.map((day) => (
-                          <ToggleChip
-                            key={day}
-                            pressed={values.weekdays.includes(day)}
-                            onClick={() => toggleWeekday(day)}
+                        Optional for a draft. Times are the listing’s local
+                        time. Without a time, the post runs all day.
+                      </p>
+                    )}
+                  </fieldset>
+                ) : null}
+
+                {event ? (
+                  <fieldset className="m-0 flex min-w-0 flex-col border-0 p-0">
+                    <legend className="sr-only">Repeat</legend>
+                    <div className="flex flex-col divide-y divide-line-subtle">
+                      <Field className={ROW}>
+                        <FieldLabel className={ROW_LABEL}>Repeats</FieldLabel>
+                        <div className={ROW_VALUE}>
+                          <Select
+                            value={values.repeat}
+                            onValueChange={(next) =>
+                              changeRepeat(next as PostRepeat)
+                            }
                             disabled={disabled}
                           >
-                            {WEEKDAY_SHORT[day]}
-                          </ToggleChip>
-                        ))}
-                      </div>
+                            <SelectTrigger
+                              className={cn(BARE, "w-full")}
+                              aria-invalid={errors.repeat ? true : undefined}
+                              aria-describedby={repeatId}
+                            >
+                              <SelectValue>
+                                {(value: string | null) =>
+                                  REPEATS.find((entry) => entry.value === value)
+                                    ?.label ?? "Doesn’t repeat"
+                                }
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {REPEATS.map((entry) => (
+                                <SelectItem
+                                  key={entry.value}
+                                  value={entry.value}
+                                >
+                                  {entry.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </Field>
+                      {values.repeat !== "none" ? (
+                        <Field className={ROW}>
+                          <FieldLabel optional className={ROW_LABEL}>
+                            Last repeat
+                          </FieldLabel>
+                          <div className={ROW_VALUE}>
+                            <Input
+                              type="date"
+                              value={values.seriesEnd}
+                              min={values.startDate || undefined}
+                              onChange={(e) => set("seriesEnd", e.target.value)}
+                              disabled={disabled}
+                              aria-invalid={errors.repeat ? true : undefined}
+                              aria-describedby={repeatId}
+                              className={BARE}
+                            />
+                          </div>
+                        </Field>
+                      ) : null}
+                      {values.repeat === "weekly" ? (
+                        <div className={ROW}>
+                          <span id={weekdaysLabelId} className={ROW_LABEL}>
+                            On
+                          </span>
+                          <div
+                            role="group"
+                            aria-labelledby={weekdaysLabelId}
+                            className={cn(
+                              ROW_VALUE,
+                              "flex-row flex-wrap gap-2"
+                            )}
+                          >
+                            {DAYS_OF_WEEK.map((day) => (
+                              <ToggleChip
+                                key={day}
+                                pressed={values.weekdays.includes(day)}
+                                onClick={() => toggleWeekday(day)}
+                                disabled={disabled}
+                              >
+                                {WEEKDAY_SHORT[day]}
+                              </ToggleChip>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {values.repeat === "monthly" ? (
+                        <Field className={ROW}>
+                          <FieldLabel className={ROW_LABEL}>
+                            Each month
+                          </FieldLabel>
+                          <div className={ROW_VALUE}>
+                            <Select
+                              value={
+                                monthly.some(
+                                  (entry) => entry.value === values.monthly
+                                )
+                                  ? values.monthly
+                                  : "date"
+                              }
+                              onValueChange={(next) =>
+                                set("monthly", next as MonthlyRepeat)
+                              }
+                              disabled={disabled}
+                            >
+                              <SelectTrigger className={cn(BARE, "w-full")}>
+                                <SelectValue>
+                                  {(value: string | null) =>
+                                    monthly.find(
+                                      (entry) => entry.value === value
+                                    )?.label ?? monthly[0].label
+                                  }
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                {monthly.map((entry) => (
+                                  <SelectItem
+                                    key={entry.value}
+                                    value={entry.value}
+                                  >
+                                    {entry.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </Field>
+                      ) : null}
                     </div>
-                  ) : null}
-                  {values.repeat === "monthly" ? (
-                    <Field>
-                      <FieldLabel>Each month</FieldLabel>
-                      <Select
-                        value={
-                          monthly.some(
-                            (entry) => entry.value === values.monthly
-                          )
-                            ? values.monthly
-                            : "date"
-                        }
-                        onValueChange={(next) =>
-                          set("monthly", next as MonthlyRepeat)
-                        }
-                        disabled={disabled}
+                    {errors.repeat ? (
+                      <p
+                        id={repeatId}
+                        role="alert"
+                        className="pb-2.5 text-caption font-medium text-danger-ink"
                       >
-                        <SelectTrigger className="w-full">
-                          <SelectValue>
-                            {(value: string | null) =>
-                              monthly.find((entry) => entry.value === value)
-                                ?.label ?? monthly[0].label
-                            }
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {monthly.map((entry) => (
-                            <SelectItem key={entry.value} value={entry.value}>
-                              {entry.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        {errors.repeat}
+                      </p>
+                    ) : values.repeat !== "none" ? (
+                      <p
+                        id={repeatId}
+                        className="pb-2.5 text-caption text-ink-muted"
+                      >
+                        {recurrenceText ||
+                          "Set the start date to see when it repeats."}
+                      </p>
+                    ) : null}
+                  </fieldset>
+                ) : null}
+
+                {offer ? (
+                  <>
+                    <Field className={ROW}>
+                      <FieldLabel optional className={ROW_LABEL}>
+                        Voucher code
+                      </FieldLabel>
+                      <div className={ROW_VALUE}>
+                        <Input
+                          value={values.couponCode}
+                          onChange={(e) => set("couponCode", e.target.value)}
+                          disabled={disabled}
+                          maxLength={100}
+                          autoComplete="off"
+                          className={BARE}
+                        />
+                      </div>
                     </Field>
-                  ) : null}
-                  {errors.repeat ? (
-                    <p
-                      id={repeatId}
-                      role="alert"
-                      className="text-caption font-medium text-danger-ink"
-                    >
-                      {errors.repeat}
-                    </p>
-                  ) : values.repeat !== "none" ? (
-                    <p id={repeatId} className="text-caption text-ink-muted">
-                      {recurrenceText ||
-                        "Set the start date to see when it repeats."}
-                    </p>
-                  ) : null}
-                </fieldset>
-              ) : null}
+                    <Field error={errors.redeemUrl} className={ROW}>
+                      <FieldLabel optional className={ROW_LABEL}>
+                        Redeem online link
+                      </FieldLabel>
+                      <div className={ROW_VALUE}>
+                        <Input
+                          type="url"
+                          inputMode="url"
+                          placeholder="https://"
+                          value={values.redeemUrl}
+                          onChange={(e) => set("redeemUrl", e.target.value)}
+                          disabled={disabled}
+                          className={BARE}
+                        />
+                        <FieldError>{errors.redeemUrl}</FieldError>
+                      </div>
+                    </Field>
+                    <Field className={ROW}>
+                      <FieldLabel optional className={ROW_LABEL}>
+                        Terms
+                      </FieldLabel>
+                      <div className={ROW_VALUE}>
+                        <Input
+                          value={values.terms}
+                          onChange={(e) => set("terms", e.target.value)}
+                          disabled={disabled}
+                          className={BARE}
+                        />
+                      </div>
+                    </Field>
+                  </>
+                ) : null}
+              </div>
 
-              {offer ? (
-                <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
-                  <Field>
-                    <FieldLabel optional>Voucher code</FieldLabel>
-                    <Input
-                      value={values.couponCode}
-                      onChange={(e) => set("couponCode", e.target.value)}
-                      disabled={disabled}
-                      maxLength={100}
-                      autoComplete="off"
-                    />
-                  </Field>
-                  <Field error={errors.redeemUrl}>
-                    <FieldLabel optional>Redeem online link</FieldLabel>
-                    <Input
-                      type="url"
-                      inputMode="url"
-                      placeholder="https://"
-                      value={values.redeemUrl}
-                      onChange={(e) => set("redeemUrl", e.target.value)}
-                      disabled={disabled}
-                    />
-                    <FieldError>{errors.redeemUrl}</FieldError>
-                  </Field>
-                  <Field className="@[440px]/composer:col-span-2">
-                    <FieldLabel optional>Terms</FieldLabel>
-                    <Input
-                      value={values.terms}
-                      onChange={(e) => set("terms", e.target.value)}
-                      disabled={disabled}
-                    />
-                  </Field>
-                </div>
-              ) : null}
-
-              <Field error={errors.summary}>
+              {/* One hairline between the header fields and the body. */}
+              <Field
+                error={errors.summary}
+                className="mt-1 gap-1 border-t border-line pt-3"
+              >
                 <div className="flex items-baseline justify-between gap-2">
-                  <FieldLabel>Summary</FieldLabel>
-                  <FieldCounter over={summaryLength > SUMMARY_MAX}>
+                  <FieldLabel className="font-normal text-ink-muted">
+                    Summary
+                  </FieldLabel>
+                  <FieldCounter
+                    over={summaryLength > SUMMARY_MAX}
+                    count={summaryLength}
+                    max={SUMMARY_MAX}
+                  >
                     {summaryLength.toLocaleString("en-GB")} /{" "}
                     {SUMMARY_MAX.toLocaleString("en-GB")}
                   </FieldCounter>
@@ -812,96 +900,162 @@ export function PostComposerSheet({
                   maxRows={16}
                   disabled={disabled}
                   aria-label="Post summary"
+                  className={BARE}
                 />
                 <FieldError>{errors.summary}</FieldError>
               </Field>
 
-              <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
-                <Field>
-                  <FieldLabel optional>Button</FieldLabel>
-                  <Select
-                    value={values.action || "NONE"}
-                    onValueChange={(next) =>
-                      set(
-                        "action",
-                        next === "NONE" ? "" : (next as LocalPostActionType)
-                      )
-                    }
-                    disabled={disabled}
+              {thumbnails.length > 0 ? (
+                <div className="flex flex-col gap-2 border-t border-line-subtle py-3">
+                  <span id={mediaLabelId} className="text-ui text-ink-muted">
+                    Photos
+                  </span>
+                  <ul
+                    aria-labelledby={mediaLabelId}
+                    className="flex gap-2 overflow-x-auto pb-1"
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue>
-                        {(value: string | null) =>
-                          value && value !== "NONE"
-                            ? POST_ACTION_LABEL[value as LocalPostActionType]
-                            : "No button"
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NONE">No button</SelectItem>
-                      {LOCAL_POST_ACTION_TYPES.map((action) => (
-                        <SelectItem key={action} value={action}>
-                          {POST_ACTION_LABEL[action]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    {thumbnails.map((url, index) => (
+                      <li
+                        key={`${url}-${index}`}
+                        className="size-16 shrink-0 overflow-hidden rounded-(--np-radius-control) border border-line bg-fill"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- a remote Google/merchant URL shown as-is */}
+                        <img
+                          src={url}
+                          alt={`Photo ${index + 1} of ${thumbnails.length}`}
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          className="size-full object-cover"
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                  <span className="text-caption text-ink-muted">
+                    Kept as they are when you save.
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="flex flex-col divide-y divide-line-subtle border-t border-line-subtle">
+                <Field className={ROW}>
+                  <FieldLabel optional className={ROW_LABEL}>
+                    Button
+                  </FieldLabel>
+                  <div className={ROW_VALUE}>
+                    <Select
+                      value={values.action || "NONE"}
+                      onValueChange={(next) =>
+                        set(
+                          "action",
+                          next === "NONE" ? "" : (next as LocalPostActionType)
+                        )
+                      }
+                      disabled={disabled}
+                    >
+                      <SelectTrigger className={cn(BARE, "w-full")}>
+                        <SelectValue>
+                          {(value: string | null) =>
+                            value && value !== "NONE"
+                              ? POST_ACTION_LABEL[value as LocalPostActionType]
+                              : "No button"
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">No button</SelectItem>
+                        {LOCAL_POST_ACTION_TYPES.map((action) => (
+                          <SelectItem key={action} value={action}>
+                            {POST_ACTION_LABEL[action]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {values.action === "CALL" ? (
+                      <p className="text-caption text-ink-muted">
+                        Call now uses the listing’s phone number on Google.
+                      </p>
+                    ) : null}
+                  </div>
                 </Field>
                 {values.action && values.action !== "CALL" ? (
-                  <Field error={errors.actionUrl}>
-                    <FieldLabel>Button link</FieldLabel>
-                    <Input
-                      type="url"
-                      inputMode="url"
-                      placeholder="https://"
-                      value={values.actionUrl}
-                      onChange={(e) => set("actionUrl", e.target.value)}
-                      disabled={disabled}
-                    />
-                    <FieldError>{errors.actionUrl}</FieldError>
+                  <Field error={errors.actionUrl} className={ROW}>
+                    <FieldLabel className={ROW_LABEL}>Button link</FieldLabel>
+                    <div className={ROW_VALUE}>
+                      <Input
+                        type="url"
+                        inputMode="url"
+                        placeholder="https://"
+                        value={values.actionUrl}
+                        onChange={(e) => set("actionUrl", e.target.value)}
+                        disabled={disabled}
+                        className={BARE}
+                      />
+                      <FieldError>{errors.actionUrl}</FieldError>
+                    </div>
                   </Field>
-                ) : values.action === "CALL" ? (
-                  <p className="self-end pb-2 text-caption text-ink-muted">
-                    Call now uses the listing’s phone number on Google.
-                  </p>
                 ) : null}
               </div>
 
               {serverError ? (
-                <p role="alert" className="text-ui text-danger-ink">
+                <p role="alert" className="pt-3 text-ui text-danger-ink">
                   {serverError}
                 </p>
               ) : null}
               {disabledReason ? (
-                <p role="note" className="text-caption text-ink-muted">
+                <p role="note" className="pt-3 text-caption text-ink-muted">
                   {disabledReason}
                 </p>
               ) : null}
             </div>
 
-            <aside
-              aria-label="Preview"
-              className="flex min-w-0 flex-col gap-2 @[760px]/composer:sticky @[760px]/composer:top-0"
-            >
-              <PostPreview
-                topicType={values.topicType}
-                summary={values.summary}
-                eventTitle={values.eventTitle}
-                schedule={
-                  event && values.startDate && values.endDate
-                    ? { ...values }
-                    : null
-                }
-                actionLabel={
-                  values.action ? POST_ACTION_LABEL[values.action] : ""
-                }
-                recurrence={recurrenceText}
-              />
-              <span className="text-caption text-ink-muted">
-                An illustration. Google decides the final layout.
-              </span>
-            </aside>
+            {/* The preview: beside the fields on a wide sheet; on a phone a
+                disclosure under them, collapsed until asked for. It stays
+                in the page either way, so it always follows the fields. */}
+            <div className="flex w-full min-w-0 flex-col gap-2 @[760px]/composer:sticky @[760px]/composer:top-0 @[760px]/composer:w-75 @[760px]/composer:shrink-0">
+              <button
+                type="button"
+                aria-expanded={previewOpen}
+                aria-controls={previewId}
+                onClick={() => setPreviewOpen((current) => !current)}
+                className="flex min-h-(--np-touch) w-full items-center justify-between gap-2 rounded-(--np-radius-control) border-t border-line-subtle text-ui text-ink focus-halo @[760px]/composer:hidden"
+              >
+                Preview
+                <ChevronDownIcon
+                  aria-hidden
+                  className={cn(
+                    "size-4 text-ink-muted transition-transform motion-reduce:transition-none",
+                    previewOpen && "rotate-180"
+                  )}
+                />
+              </button>
+              <aside
+                id={previewId}
+                aria-label="Preview"
+                className={cn(
+                  "min-w-0 flex-col gap-2 @[760px]/composer:flex",
+                  previewOpen ? "flex" : "hidden"
+                )}
+              >
+                <PostPreview
+                  topicType={values.topicType}
+                  summary={values.summary}
+                  eventTitle={values.eventTitle}
+                  schedule={
+                    event && values.startDate && values.endDate
+                      ? { ...values }
+                      : null
+                  }
+                  actionLabel={
+                    values.action ? POST_ACTION_LABEL[values.action] : ""
+                  }
+                  recurrence={recurrenceText}
+                  imageUrl={post ? postImageUrl(post) : null}
+                />
+                <span className="text-caption text-ink-muted">
+                  An illustration. Google decides the final layout.
+                </span>
+              </aside>
+            </div>
           </div>
         </SheetBody>
 

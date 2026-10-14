@@ -71,6 +71,8 @@ export function ReportingPanel({
   icon,
   action,
   titleAs = "p",
+  placement = "inline",
+  illustration,
 }: {
   variant: PanelVariant
   title?: string
@@ -95,6 +97,18 @@ export function ReportingPanel({
    * note inside a card stays a `p`.
    */
   titleAs?: "p" | "h2" | "h3"
+  /**
+   * `page` only when the panel IS what the page shows under its title (a
+   * scope that resolves to nothing); every in-tab or in-section state is
+   * `inline`.
+   */
+  placement?: "inline" | "page"
+  /**
+   * A line drawing in place of the glyph (`<EmptyIllustration … />`), only
+   * where the drawing names the real reason (a filter or lookup that found
+   * nothing draws "search").
+   */
+  illustration?: React.ReactNode
 }) {
   if (variant === "loading") {
     // The shared pending state: a named, announced wait when a caller says
@@ -128,6 +142,8 @@ export function ReportingPanel({
       title={title ?? copy.title}
       description={description ?? copy.description}
       action={action}
+      placement={placement}
+      illustration={illustration}
     />
   )
   if (!framed) return empty

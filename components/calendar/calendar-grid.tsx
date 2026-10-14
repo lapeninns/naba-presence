@@ -1,10 +1,13 @@
 "use client"
 
+import { CalendarIcon } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useRef } from "react"
 
 import { longDay, utcDay } from "@/components/calendar/calendar-dates"
 import { Card } from "@/components/ui/card"
+import { Empty } from "@/components/ui/empty"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import {
   Sheet,
   SheetBody,
@@ -57,43 +60,23 @@ const countLabel = (count: number) =>
 type ByDate = Map<string, ScheduleOccurrence[]>
 
 /**
- * One publication. The full form is a 44px row (time and listing, then the
- * status word and summary); `compact` is the one-line form inside a wide
- * grid cell, with the status for screen readers only.
+ * One publication in a grid cell: the one-line form inside a wide cell, with
+ * the status for screen readers only. Lists use `DayEntries` (mail rows).
  */
-function Entry({
-  occurrence,
-  compact,
-}: {
-  occurrence: ScheduleOccurrence
-  compact?: boolean
-}) {
+function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const status = STATUS[occurrence.status]
   return (
     <Link
       href={`/listings/${occurrence.locationId}/posts`}
-      className={cn(
-        "flex min-w-0 flex-col gap-0.5 rounded-(--np-radius-control) px-1.5 py-1 text-left focus-halo hover:bg-fill focus-visible:outline-none",
-        !compact && "min-h-11 justify-center"
-      )}
+      className="flex min-w-0 flex-col rounded-(--np-radius-control) px-1.5 py-1 text-left focus-halo hover:bg-fill focus-visible:outline-none"
     >
-      <span className="truncate text-caption font-semibold text-ink tabular-nums">
-        {occurrence.localTime} {occurrence.locationName}
+      <span className="truncate text-caption font-medium text-ink">
+        <span className="tabular-nums">{occurrence.localTime}</span>{" "}
+        {occurrence.locationName}
       </span>
-      {compact ? (
-        <span className="sr-only">
-          {status.label}: {occurrence.summary}
-        </span>
-      ) : (
-        <span className="flex flex-wrap items-center gap-1 text-caption text-ink-muted">
-          <StatusPill tone={status.tone} plain>
-            {status.label}
-          </StatusPill>
-          <span className="truncate">
-            {occurrence.summary || occurrence.topicType}
-          </span>
-        </span>
-      )}
+      <span className="sr-only">
+        {status.label}: {occurrence.summary}
+      </span>
     </Link>
   )
 }
@@ -106,7 +89,7 @@ function OccurrenceMeta({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const note = clockChangeNote(occurrence.adjustment)
   const reason = occurrenceReasonText(occurrence)
   return (
-    <span className="block px-1.5 text-caption text-ink-muted">
+    <span className="text-caption text-ink-muted">
       {occurrence.timezone}
       {note ? ` · ${note}` : ""}
       {reason ? ` · ${reason}` : ""}
@@ -114,27 +97,86 @@ function OccurrenceMeta({ occurrence }: { occurrence: ScheduleOccurrence }) {
   )
 }
 
-function DayEntries({ entries }: { entries: ScheduleOccurrence[] }) {
+/**
+ * A day's publications as mail rows: the time and the listing, the post's
+ * title under them and the status word trailing, the whole row a link to the
+ * listing's posts. The zone, clock-change note and any reason sit under the
+ * row, outside the link. `flush` inside a sheet or card; otherwise the rows
+ * run edge to edge on a phone.
+ */
+function DayEntries({
+  entries,
+  flush = false,
+  className,
+}: {
+  entries: ScheduleOccurrence[]
+  flush?: boolean
+  className?: string
+}) {
   return (
-    <ul className="flex flex-col gap-1">
-      {entries.map((occurrence) => (
-        <li key={occurrence.id}>
-          <Entry occurrence={occurrence} />
-          <OccurrenceMeta occurrence={occurrence} />
-        </li>
-      ))}
-    </ul>
+    <ListRows bleed={!flush} className={className}>
+      {entries.map((occurrence) => {
+        const status = STATUS[occurrence.status]
+        return (
+          <ListRow
+            key={occurrence.id}
+            href={`/listings/${occurrence.locationId}/posts`}
+            flush={flush}
+            bleed={false}
+            emphasis="neutral"
+            title={
+              <>
+                <span className="tabular-nums">{occurrence.localTime}</span>
+                <span aria-hidden className="text-ink-muted">
+                  {" "}
+                  ·{" "}
+                </span>
+                {occurrence.locationName}
+              </>
+            }
+            subtitle={occurrence.summary || occurrence.topicType}
+            trailing={
+              <StatusPill tone={status.tone} plain>
+                {status.label}
+              </StatusPill>
+            }
+            footer={<OccurrenceMeta occurrence={occurrence} />}
+          />
+        )
+      })}
+    </ListRows>
   )
 }
 
-/** The date number; today is drawn as a filled disc. */
-function DayNumber({ day, isToday }: { day: string; isToday: boolean }) {
+/**
+ * The date number. Today is a filled accent disc (the "current item" use of
+ * the accent); the picked day a grey disc; a picked today keeps the accent
+ * and gains a ring. `compact` is the phone cell's larger numeral.
+ */
+function DayNumber({
+  day,
+  isToday,
+  isSelected = false,
+  compact = false,
+}: {
+  day: string
+  isToday: boolean
+  isSelected?: boolean
+  compact?: boolean
+}) {
   return (
     <time
       dateTime={day}
       className={cn(
-        "inline-grid min-w-6 place-items-center rounded-full px-1",
-        isToday && "bg-primary font-semibold text-primary-foreground"
+        "inline-grid place-items-center rounded-full tabular-nums",
+        compact ? "size-8 text-body" : "min-w-6 px-1",
+        isToday && "bg-primary font-semibold text-primary-foreground",
+        isSelected &&
+          !isToday &&
+          "bg-fill-secondary font-semibold text-ink ring-1 ring-line-strong",
+        isSelected &&
+          isToday &&
+          "ring-2 ring-line-strong ring-offset-1 ring-offset-surface"
       )}
     >
       {utcDay(day).getUTCDate()}
@@ -194,17 +236,24 @@ export function CalendarGrid({
         data-slot="calendar-grid"
         className="min-w-0"
       >
-        <Table surface className="table-fixed text-caption">
+        {/* Compact (under 36rem of its own width) draws Notion Mail's month
+            grid: no header fill, no column or row hairlines, the numeral
+            centred. Wide cells hold entries, so their lines come back. */}
+        <Table
+          surface
+          containerClassName="border-line-subtle"
+          className="table-fixed text-caption"
+        >
           <caption className="sr-only">
             Scheduled publications by day. The agenda view lists the same
             publications.
           </caption>
-          <TableHeader>
+          <TableHeader className="@max-xl/cal:[&_th]:border-b-0 @max-xl/cal:[&_th]:bg-transparent">
             <TableRow>
               {WEEKDAY_NAMES.map((day) => (
                 <TableHead
                   key={day}
-                  className="h-auto px-1 py-1.5 text-center @xl/cal:px-2 @xl/cal:text-left"
+                  className="h-auto px-1 pt-2.5 pb-1 text-center text-caption font-medium text-ink-muted @xl/cal:px-2 @xl/cal:py-1.5 @xl/cal:text-left"
                 >
                   <abbr title={day} className="no-underline">
                     {day.slice(0, 3)}
@@ -215,7 +264,10 @@ export function CalendarGrid({
           </TableHeader>
           <TableBody>
             {weeks.map((week) => (
-              <TableRow key={week[0]} className="hover:bg-transparent">
+              <TableRow
+                key={week[0]}
+                className="hover:bg-transparent @max-xl/cal:border-b-0 hover-fine:hover:bg-transparent"
+              >
                 {week.map((day) => {
                   const entries = byDate.get(day) ?? []
                   const outside =
@@ -227,11 +279,12 @@ export function CalendarGrid({
                       key={day}
                       aria-current={isToday ? "date" : undefined}
                       className={cn(
-                        "h-14 border-l border-line p-0.5 align-top first:border-l-0 @xl/cal:h-28 @xl/cal:p-1",
-                        outside && "bg-surface-alt"
+                        "h-14 border-line p-0.5 align-top @xl/cal:h-28 @xl/cal:border-l @xl/cal:p-1 @xl/cal:first:border-l-0",
+                        outside && "@xl/cal:bg-surface-alt"
                       )}
                     >
-                      {/* Compact: the date and a count; the day's list opens on a tap. */}
+                      {/* Compact: the whole cell is the day. A day with
+                          publications is a button that opens its list. */}
                       <div className="@xl/cal:hidden">
                         {entries.length ? (
                           <button
@@ -244,15 +297,19 @@ export function CalendarGrid({
                               onPick(isSelected ? null : day)
                             }}
                             className={cn(
-                              "flex min-h-11 w-full flex-col items-center justify-center gap-0.5 rounded-(--np-radius-control) text-caption tabular-nums focus-halo hover:bg-fill focus-visible:outline-none",
-                              outside ? "text-ink-muted" : "text-ink",
-                              isSelected && "bg-fill ring-1 ring-line-strong"
+                              "flex h-13 w-full flex-col items-center justify-start gap-0.5 rounded-(--np-radius-control) pt-0.5 focus-halo hover:bg-fill focus-visible:outline-none",
+                              outside ? "text-ink-muted" : "text-ink"
                             )}
                           >
-                            <DayNumber day={day} isToday={isToday} />
+                            <DayNumber
+                              day={day}
+                              isToday={isToday}
+                              isSelected={isSelected}
+                              compact
+                            />
                             <span
                               aria-hidden
-                              className="min-w-5 rounded-full bg-info-tint px-1 text-caption font-semibold text-info-ink"
+                              className="min-w-5 rounded-full bg-info-tint px-1 text-center text-caption font-semibold text-info-ink tabular-nums"
                             >
                               {entries.length}
                             </span>
@@ -260,11 +317,11 @@ export function CalendarGrid({
                         ) : (
                           <p
                             className={cn(
-                              "pt-1 text-center text-caption tabular-nums",
+                              "flex h-13 flex-col items-center pt-0.5",
                               outside ? "text-ink-muted" : "text-ink"
                             )}
                           >
-                            <DayNumber day={day} isToday={isToday} />
+                            <DayNumber day={day} isToday={isToday} compact />
                             {isToday ? (
                               <span className="sr-only"> (today)</span>
                             ) : null}
@@ -292,7 +349,7 @@ export function CalendarGrid({
                         <ul className="flex flex-col">
                           {entries.slice(0, 3).map((occurrence) => (
                             <li key={occurrence.id}>
-                              <Entry occurrence={occurrence} compact />
+                              <CompactEntry occurrence={occurrence} />
                             </li>
                           ))}
                         </ul>
@@ -317,7 +374,11 @@ export function CalendarGrid({
             if (!open) onPick(null)
           }}
         >
-          <SheetContent side="bottom" data-slot="calendar-day-sheet">
+          <SheetContent
+            side="bottom"
+            variant="inset"
+            data-slot="calendar-day-sheet"
+          >
             <SheetHeader>
               <SheetTitle>
                 {selected ? (
@@ -330,7 +391,7 @@ export function CalendarGrid({
               </SheetDescription>
             </SheetHeader>
             <SheetBody>
-              <DayEntries entries={selectedEntries} />
+              <DayEntries entries={selectedEntries} flush className="px-2" />
             </SheetBody>
           </SheetContent>
         </Sheet>
@@ -354,9 +415,11 @@ export function CalendarGrid({
               >
                 <time dateTime={selected}>{longDay(selected)}</time>
               </h3>
-              <div className="px-2">
-                <DayEntries entries={selectedEntries} />
-              </div>
+              <DayEntries
+                entries={selectedEntries}
+                flush
+                className="px-(--card-spacing)"
+              />
             </Card>
           ) : days.some((day) => byDate.get(day)?.length) ? (
             <p className="text-caption text-ink-muted">
@@ -382,27 +445,37 @@ export function CalendarAgenda({
   const withEntries = days.filter((day) => byDate.get(day)?.length)
   if (!withEntries.length)
     return (
-      <p className="text-ui text-ink-muted">
-        No scheduled publications in this period.
-      </p>
+      <Empty
+        size="sm"
+        framed
+        icon={<CalendarIcon />}
+        title="No scheduled publications in this period."
+        description="Use the arrows to look at another period."
+      />
     )
   return (
-    <ol className="flex flex-col gap-3" aria-label="Scheduled publications">
+    <ol className="flex flex-col gap-6" aria-label="Scheduled publications">
       {withEntries.map((day) => (
-        <li key={day} aria-current={day === today ? "date" : undefined}>
-          <Card size="sm" className="gap-1">
-            <h3 className="px-(--card-spacing) text-ui font-semibold text-ink">
-              <time dateTime={day}>{longDay(day)}</time>
-              {day === today ? (
-                <span className="ml-2 text-caption font-semibold text-accent-ink">
-                  Today
-                </span>
-              ) : null}
-            </h3>
-            <div className="px-2">
-              <DayEntries entries={byDate.get(day) ?? []} />
-            </div>
-          </Card>
+        <li
+          key={day}
+          aria-current={day === today ? "date" : undefined}
+          className="flex flex-col gap-1"
+        >
+          {/* A day group, as Notion Mail groups its list: a quiet date
+              label, then the day's publications as mail rows: edge to edge
+              on a phone, a bordered card from md. */}
+          <h3 className="flex items-baseline gap-2 text-ui font-semibold text-ink">
+            <time dateTime={day}>{longDay(day)}</time>
+            {day === today ? (
+              <span className="text-caption font-semibold text-accent-ink">
+                Today
+              </span>
+            ) : null}
+          </h3>
+          <DayEntries
+            entries={byDate.get(day) ?? []}
+            className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
+          />
         </li>
       ))}
     </ol>
