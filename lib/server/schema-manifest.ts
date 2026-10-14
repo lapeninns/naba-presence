@@ -140,5 +140,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0129_media_assets_bulk_photos",
   "0130_bulk_review_families",
   "0131_bulk_review_claim_receipts",
+  "0152_bounded_review_search",
   "20260729000400_remove_local_demo_data",
 ]
