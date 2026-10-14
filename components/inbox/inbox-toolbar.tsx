@@ -9,7 +9,7 @@ import { useReviewSearch } from "@/components/inbox/review-filters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toolbar } from "@/components/ui/toolbar"
 import { ViewHeader } from "@/components/ui/view-header"
-import type { ReviewCounts } from "@/lib/contracts/reviews"
+import { REVIEW_QUEUE_LABELS, type ReviewCounts } from "@/lib/contracts/reviews"
 import { formatNumber } from "@/lib/format"
 import { useBreakpoint } from "@/lib/hooks/use-media-query"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
@@ -121,6 +121,25 @@ function InboxToolbar({
     if (!titleIsHeading) setSearchEngaged(false)
   }
   const searchMode = touch && (searchEngaged || state.search !== "")
+  const queueLabel =
+    REVIEW_QUEUE_LABELS[state.queue as keyof typeof REVIEW_QUEUE_LABELS] ?? null
+
+  // Leaving search mode puts focus on the Filters button (R2b P2-S3). The
+  // Toolbar's own fallback takes the first button in the filter slot, which
+  // here is a desk-only inline filter, hidden on the phone where search mode
+  // happens, so focus would drop to the document. Runs after the Toolbar's
+  // effect in the same commit, so this is where focus lands.
+  const bandRef = useRef<HTMLDivElement>(null)
+  const leavingSearchRef = useRef(false)
+  useEffect(() => {
+    if (searchMode || !leavingSearchRef.current) return
+    leavingSearchRef.current = false
+    bandRef.current
+      ?.querySelector<HTMLElement>(
+        '[data-slot="inbox-filter-toolbar"] button[aria-haspopup="dialog"]'
+      )
+      ?.focus()
+  }, [searchMode])
 
   // `/` from the hotkey layer puts the caret in the search.
   useEffect(() => {
@@ -133,6 +152,7 @@ function InboxToolbar({
 
   return (
     <div
+      ref={bandRef}
       data-slot="inbox-toolbar"
       data-search-mode={searchMode ? "" : undefined}
       className="flex shrink-0 flex-col gap-3"
@@ -174,6 +194,7 @@ function InboxToolbar({
             setSearchEngaged(true)
             return
           }
+          leavingSearchRef.current = true
           cancel()
           setSearchEngaged(false)
         }}
@@ -200,7 +221,7 @@ function InboxToolbar({
           data-slot="inbox-search-results"
           className="min-w-0 text-ui text-ink-muted"
         >
-          Results · {resultLabel}
+          {queueLabel ? `Results in ${queueLabel}` : "Results"} · {resultLabel}
         </p>
       ) : null}
 
@@ -208,8 +229,10 @@ function InboxToolbar({
         queue={state.queue}
         counts={counts}
         countsPending={countsPending}
+        // Stays in search mode (R2b P2-S2): a search runs inside a queue,
+        // so the queue is named above and can still be changed without
+        // losing the words typed.
         onQueueChange={onQueueChange}
-        className={cn(searchMode && "hidden")}
       />
     </div>
   )

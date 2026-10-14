@@ -34,7 +34,7 @@ export default function InboxLoading() {
             <div className="flex min-w-0 items-center gap-3 max-md:contents">
               <div className="flex min-w-0 flex-1 items-baseline gap-3 max-md:col-start-1 max-md:row-start-1">
                 <div className="flex min-w-0 items-baseline gap-2">
-                  <h1 className="font-display text-section font-semibold text-ink md:text-page-title">
+                  <h1 className="text-section font-semibold text-ink md:text-page-title">
                     Inbox
                   </h1>
                   {/* The needs-reply count after the title, pending. */}

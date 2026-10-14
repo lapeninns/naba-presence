@@ -1,19 +1,10 @@
 "use client"
 
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react"
-import {
-  BracesIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleIcon,
-  FileTextIcon,
   InfoIcon,
   PenLineIcon,
   RotateCcwIcon,
@@ -29,12 +20,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -101,23 +86,6 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
-/**
- * The plain-text template the composer can insert: a greeting by name (when
- * the review gives one) and a sign-off from the venue, with the caret left on
- * the empty line between them. Built from what is on screen only: no network,
- * no credit, nothing checked until the reply is saved like any other text.
- */
-function replyTemplate(
-  name: string | null,
-  venue: string
-): { text: string; caret: number } {
-  const opening = `${name ? `Hi ${name},` : "Hello,"}\n\n`
-  return {
-    text: `${opening}\n\nBest wishes,\nThe team at ${venue}`,
-    caret: opening.length,
-  }
-}
-
 function ReplyComposer({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
   const review = detail.data?.review
@@ -158,21 +126,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // stale, so the message under the editor goes until the next check.
   const [verdictStale, setVerdictStale] = useState(false)
   const [saving, setSaving] = useState(false)
-  // Where the caret goes after an insert, applied once the new text is in
-  // the box; and whether the Variable menu should hand focus back to the box
-  // (it did insert) rather than to its trigger (it was dismissed).
-  const pendingCaretRef = useRef<number | null>(null)
-  const insertedRef = useRef(false)
-  // Until the box has been focused its selection means nothing, so an insert
-  // goes at the end of the text.
-  const caretKnownRef = useRef(false)
-  useLayoutEffect(() => {
-    const caret = pendingCaretRef.current
-    if (caret === null) return
-    pendingCaretRef.current = null
-    textareaRef.current?.setSelectionRange(caret, caret)
-  })
-
   const isDirty = body !== seededBody
   const askDiscard = useAskDiscardConfirm()
   const { confirmDiscard, restore, markDiscarded } = useDirtyGuard({
@@ -305,11 +258,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     return () => window.removeEventListener(REPLY_GENERATE_EVENT, onGenerate)
   }, [])
 
-  function focusEditor({ keepCaret = false }: { keepCaret?: boolean } = {}) {
+  function focusEditor() {
     requestAnimationFrame(() => {
       const field = textareaRef.current
       field?.focus()
-      if (keepCaret) return
       const length = field?.value.length ?? 0
       field?.setSelectionRange(length, length)
     })
@@ -389,19 +341,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     focusEditor()
   }
 
-  // An insert is an edit like typing: the same setBody, the same stale
-  // verdict, the same dirty state. It goes in at the caret (replacing a
-  // selection), or at the end before the box has been used.
-  function insertText(text: string, caretWithin = text.length) {
-    const field = textareaRef.current
-    const known = caretKnownRef.current && field !== null
-    const start = known ? field.selectionStart : body.length
-    const end = known ? field.selectionEnd : body.length
-    setBody(body.slice(0, start) + text + body.slice(end))
-    setVerdictStale(true)
-    pendingCaretRef.current = start + caretWithin
-  }
-
   // Saves AND checks: the drafts route verifies what it stores. A failed
   // check is said under the editor, where the fix is made.
   async function onSave(): Promise<ComposerSaveResult | null> {
@@ -452,7 +391,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     review.reviewerDisplayName,
     review.reviewerIsAnonymous
   )
-  const venueName = review.locationName
   // Advice, ticked off as they type; never a gate — the verification above
   // is the only check that can stop a publish.
   const guidance = editable
@@ -610,97 +548,19 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         className="flex min-w-0 flex-col rounded-(--np-radius-card) border border-line transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink motion-reduce:transition-none"
       >
         {/* The insert bar: plain text in, never rich text. AI rewrite (the
-            tone and Generate), a template, a variable, and the count. */}
+            tone and Generate) and the count. */}
         <div
           data-slot="composer-prompt-bar"
           className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-t-(--np-radius-card) border-b border-line bg-surface p-1.5"
         >
           {toneControl}
-          <Button
-            variant="ghost"
-            iconOnlyBelow="md"
-            title="Insert template"
-            disabled={!editable || generateOrSave.isPending}
-            onClick={() => {
-              const template = replyTemplate(reviewerGreeting, venueName)
-              // Appended after words already there (the box not yet
-              // used), it starts on its own paragraph rather than running
-              // on from the last sentence.
-              const appending = !caretKnownRef.current && body.trim() !== ""
-              const gap = appending ? (body.endsWith("\n") ? "\n" : "\n\n") : ""
-              insertText(gap + template.text, gap.length + template.caret)
-              focusEditor({ keepCaret: true })
-            }}
-          >
-            <FileTextIcon aria-hidden data-icon="inline-start" />
-            Insert template
-          </Button>
-          <DropdownMenu
-            onOpenChange={(open) => {
-              if (open) insertedRef.current = false
-            }}
-          >
-            <DropdownMenuTrigger
-              disabled={!editable || generateOrSave.isPending}
-              render={
-                <Button
-                  variant="ghost"
-                  iconOnlyBelow="md"
-                  title="Insert variable"
-                />
-              }
-            >
-              <BracesIcon aria-hidden data-icon="inline-start" />
-              Insert variable
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              title="Insert variable"
-              finalFocus={() =>
-                insertedRef.current ? textareaRef.current : true
-              }
-            >
-              <DropdownMenuItem
-                disabled={!reviewerGreeting}
-                disabledReason={
-                  reviewerGreeting
-                    ? undefined
-                    : "This review gives no first name to greet."
-                }
-                onClick={() => {
-                  if (!reviewerGreeting) return
-                  insertedRef.current = true
-                  insertText(reviewerGreeting)
-                }}
-              >
-                Reviewer&rsquo;s first name
-                {reviewerGreeting ? (
-                  <span className="ml-auto pl-3 text-caption text-ink-muted">
-                    {reviewerGreeting}
-                  </span>
-                ) : null}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  insertedRef.current = true
-                  insertText(venueName)
-                }}
-              >
-                Venue name
-                <span className="ml-auto truncate pl-3 text-caption text-ink-muted">
-                  {venueName}
-                </span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
           <span aria-hidden className="flex-1" />
           <span
             data-slot="char-count"
-            data-over={overLimit || undefined}
-            className={cn(
-              "px-1 text-count whitespace-nowrap tabular-nums",
-              overLimit ? "font-semibold text-danger-ink" : "text-ink-muted"
-            )}
+            // Neutral on purpose: Google's limit is in bytes, which the
+            // foot's length note states; a red character count would claim a
+            // limit in a unit it does not show.
+            className="px-1 text-count whitespace-nowrap text-ink-muted tabular-nums"
           >
             {body.length.toLocaleString("en-GB")}{" "}
             {body.length === 1 ? "character" : "characters"}
@@ -753,9 +613,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
               .join(" ") || undefined
           }
           aria-keyshortcuts="Meta+Enter Control+Enter"
-          onFocus={() => {
-            caretKnownRef.current = true
-          }}
           onChange={(event) => {
             setBody(event.target.value)
             setVerdictStale(true)
