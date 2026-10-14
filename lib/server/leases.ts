@@ -180,7 +180,7 @@ async function renewFleetLease(connection: Sql, key: LeaseKey, holder: string) {
 }
 
 /**
- * Runs `fn` under the tick's fleet lease (0148), or returns `{ skipped }`
+ * Runs `fn` under the tick's fleet lease (0145), or returns `{ skipped }`
  * when another run holds it.
  *
  * The lease is an expiring row rather than a session advisory lock: an

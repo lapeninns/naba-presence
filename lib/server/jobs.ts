@@ -8,7 +8,7 @@ import "server-only"
  *   reclaim_expired_jobs()   one reaper for every in-flight status
  *   scheduled posts          first, on a reserved slice (hard windows)
  *   claim_due_jobs(...)      one cross-tenant query -> a fair batch, leased,
- *                            user-facing kinds first (0147 job_kind_rank)
+ *                            user-facing kinds first (0144 job_kind_rank)
  *   run the batch            bounded concurrency, one tenant txn per item;
  *                            an item starts only while a provider call fits
  *   repeat                   until the batch comes back empty or only the
@@ -63,7 +63,7 @@ import "server-only"
  * (`GOOGLE_REQUESTS_PER_SECOND`). Provider-bound items therefore overlap
  * their database and scheduling latency but not their Google traffic.
  *
- * `/api/jobs/run` still holds the `naba:jobs` fleet lease (0148), so one
+ * `/api/jobs/run` still holds the `naba:jobs` fleet lease (0145), so one
  * tick runs at a time. With row-level leases that lease is now an
  * optimisation -- it stops redundant ticks piling up -- rather than the thing
  * that makes claiming safe. Parallel ticks are deliberately not enabled yet:
@@ -389,7 +389,7 @@ async function releaseLease(job: ClaimedJob): Promise<void> {
 
 /**
  * Puts a claimed item the tick never started back exactly as claimable as it
- * was (0147 `release_unstarted_job`), so the next tick takes it at once
+ * was (0144 `release_unstarted_job`), so the next tick takes it at once
  * instead of the reaper after its lease. Nothing is spent: it never ran.
  */
 async function releaseUnstarted(job: ClaimedJob): Promise<void> {

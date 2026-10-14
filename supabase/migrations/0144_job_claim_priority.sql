@@ -396,7 +396,7 @@ revoke all on function release_unstarted_job(text, uuid, uuid) from public;
 grant execute on function release_unstarted_job(text, uuid, uuid)
   to naba_app_runtime;
 
-insert into schema_migration (version) values ('0147_job_claim_priority')
+insert into schema_migration (version) values ('0144_job_claim_priority')
 on conflict (version) do nothing;
 
 commit;

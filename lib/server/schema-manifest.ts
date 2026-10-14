@@ -152,7 +152,7 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0141_legal_hold_enforcement",
   "0142_retention_media_hold_guard",
   "0143_bounded_review_search",
-  "0147_job_claim_priority",
-  "0148_fleet_lease",
+  "0144_job_claim_priority",
+  "0145_fleet_lease",
   "20260729000400_remove_local_demo_data",
 ]

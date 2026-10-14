@@ -16,30 +16,8 @@ export const LEGACY_MIGRATION_FILES = [
   "20260729000400_remove_local_demo_data.sql",
 ]
 
-/**
- * Versions that were never used. Git history has no `0021` file. `0132` to
- * `0146` are reserved for other work packages of the 2026-10-14 audit
- * (docs/audits/2026-10-14-full-stack-audit); the change that adds one
- * removes it here.
- */
-export const KNOWN_VERSION_GAPS = [
-  "0021",
-  "0132",
-  "0133",
-  "0134",
-  "0135",
-  "0136",
-  "0137",
-  "0138",
-  "0139",
-  "0140",
-  "0141",
-  "0142",
-  "0143",
-  "0144",
-  "0145",
-  "0146",
-]
+/** Versions that were never used. Git history has no `0021` file. */
+export const KNOWN_VERSION_GAPS = ["0021"]
 
 /** @param {string} file */
 export const versionNumber = (file) => Number(file.slice(0, 4))

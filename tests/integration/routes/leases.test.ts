@@ -73,7 +73,7 @@ describeDatabase("scheduler fleet leases", () => {
   }
 
   /**
-   * Another run's live fleet lease (0148), as a tick on another instance
+   * Another run's live fleet lease (0145), as a tick on another instance
    * holds it. A negative `expiresInSeconds` is a holder that stopped
    * renewing that long ago: frozen or killed mid-tick.
    */

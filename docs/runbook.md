@@ -578,7 +578,7 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   for a person.
 - Vercel does not retry a failed cron fire and may occasionally deliver a fire
   twice or drop one. The ticks are safe under all three: every route holds its
-  own fleet lease (`fleet_lease`, 0148), so an overlapping or duplicate fire answers 200
+  own fleet lease (`fleet_lease`, 0145), so an overlapping or duplicate fire answers 200
   `{ skipped: true }` (no reason and no log line on Vercel; `lease_held` is
   logged only by `scripts/scheduler.mjs`) instead of doing the work twice, and a missed fire
   only delays work — each queue keeps its due rows and the next fire starts at
@@ -800,7 +800,7 @@ this order (`runDueJobs`, audit 2026-10-14 W8-02/W8-03/W8-05/W8-09):
    Schedules the slice does not reach are released for the next tick.
 3. **The queue** (`claim_due_jobs`), until only the bulk reserve (one Google
    timeout, 15 seconds) is left. The claim ranks by kind before due time
-   (0147 `job_kind_rank`): publish retries and read-backs, uncertain listing
+   (0144 `job_kind_rank`): publish retries and read-backs, uncertain listing
    writes and webhooks first, then backfill and sweep checkpoints, then the
    recurring reconcile, performance and keyword syncs. A reply retry is
    therefore claimed in the first batch after it falls due, not behind its
@@ -817,12 +817,12 @@ this order (`runDueJobs`, audit 2026-10-14 W8-02/W8-03/W8-05/W8-09):
 5. Privacy erasures and invitation email on the remainder. Every runner from
    step 2 on is caught on its own, so one that throws cannot skip the others.
 
-Scheduled ticks hold a **fleet lease** (`fleet_lease`, 0148) rather than a
+Scheduled ticks hold a **fleet lease** (`fleet_lease`, 0145) rather than a
 session advisory lock: an expiring row, renewed every 30 seconds while the run
 lasts and released when it ends. A tick frozen or killed while holding it
 stops renewing, and the next fire after the 90-second expiry takes it. A
 crashed tick therefore no longer frees its lease at once; expect at most one
-skipped fire after a crash. During the deploy that introduces 0148, an old
+skipped fire after a crash. During the deploy that introduces 0145, an old
 instance (advisory lock) and a new one (lease row) do not exclude each other,
 so one tick may overlap once; row leases keep the queue's claims exclusive.
 
@@ -948,7 +948,7 @@ retention cycle failures:
   fleet_lease where name = '<key>'` (the key is `naba:<tick>`). A lease
   expires 90 seconds after its holder last renewed it (every 30 seconds
   while the run is alive), so a frozen or killed holder frees it on its own;
-  a lease that keeps being renewed means a run is still going. Since 0148
+  a lease that keeps being renewed means a run is still going. Since 0145
   this is no longer a session advisory lock: there is nothing in `pg_locks`
   to terminate.
 - `tick_cycle_overdue`: a tick that runs in cycles (retention) has not
@@ -1321,7 +1321,7 @@ Provision in this order:
    pooler** (port 5432) and serves the refresh lock and the Google write
    locks, which are session advisory locks that a transaction pooler would
    release between statements; each lock opens and closes its own
-   connection. The scheduler leases are `fleet_lease` rows (0148) and use
+   connection. The scheduler leases are `fleet_lease` rows (0145) and use
    the pooled `DATABASE_URL`. Startup refuses a 6543 `DATABASE_URL` without it. Resolve the
    hostname and open one test connection before pointing anything at it; the
    last production database died silently as NXDOMAIN and nothing paged.

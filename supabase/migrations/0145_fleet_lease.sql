@@ -28,7 +28,7 @@ create table if not exists fleet_lease (
 
 grant select, insert, update on fleet_lease to naba_app_runtime;
 
-insert into schema_migration (version) values ('0148_fleet_lease')
+insert into schema_migration (version) values ('0145_fleet_lease')
 on conflict (version) do nothing;
 
 commit;

@@ -17,7 +17,7 @@ const read = (file: string) =>
 
 const previous = read("0048_fleet_queue.sql")
 const latest = read("0092_mutation_recovery_jobs.sql")
-const priority = read("0147_job_claim_priority.sql")
+const priority = read("0144_job_claim_priority.sql")
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim()
 
@@ -65,7 +65,7 @@ describe("claim_due_jobs contract (0048 -> 0092)", () => {
     expect(defining.slice(-3)).toEqual([
       "0048_fleet_queue.sql",
       "0092_mutation_recovery_jobs.sql",
-      "0147_job_claim_priority.sql",
+      "0144_job_claim_priority.sql",
     ])
   })
 
@@ -262,7 +262,7 @@ describe("claim_due_jobs contract (0048 -> 0092)", () => {
   })
 })
 
-describe("claim_due_jobs contract (0092 -> 0147)", () => {
+describe("claim_due_jobs contract (0092 -> 0144)", () => {
   it("keeps every 0092 due arm verbatim", () => {
     const arms = dueArms(latest)
     expect(arms).toHaveLength(7)
@@ -301,7 +301,7 @@ describe("claim_due_jobs contract (0092 -> 0147)", () => {
     expect(priority).toMatch(
       /grant execute on function release_unstarted_job\(text, uuid, uuid\)\s+to naba_app_runtime/
     )
-    expect(REQUIRED_MIGRATIONS).toContain("0147_job_claim_priority")
+    expect(REQUIRED_MIGRATIONS).toContain("0144_job_claim_priority")
   })
 
   describe("against PGlite", () => {
