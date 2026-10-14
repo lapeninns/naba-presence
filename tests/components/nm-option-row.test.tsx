@@ -22,7 +22,9 @@ describe("OptionRow", () => {
     const row = screen.getByRole("button", { name: "Custom date" })
     expect(row.tagName).toBe("BUTTON")
     expect(row).toHaveAttribute("type", "button")
-    expect(row).toHaveClass("min-h-(--np-touch)", "w-full", "focus-halo")
+    // An inset ring: a sheet body or menu that clips can't cut it off.
+    expect(row).toHaveClass("min-h-(--np-touch)", "w-full", "focus-ring-inset")
+    expect(row).not.toHaveClass("focus-halo")
     expect(row).toHaveAccessibleDescription("Pick a date and time")
     expect(row).not.toHaveAttribute("aria-checked")
     expect(screen.getByText("Pick a date and time")).toHaveClass(
@@ -38,7 +40,7 @@ describe("OptionRow", () => {
     ).toBeInTheDocument()
   })
 
-  it("is a radio in a radiogroup, chosen with Enter and Space, arrows move between rows", async () => {
+  it("is a radio in a radiogroup, chosen with Enter and Space, arrows move and choose", async () => {
     const user = userEvent.setup()
     const choose = vi.fn()
     render(
@@ -71,6 +73,9 @@ describe("OptionRow", () => {
     public_.focus()
     await user.keyboard("{ArrowDown}")
     expect(note).toHaveFocus()
+    // APG radio: the arrow chooses the row it lands on.
+    expect(choose).toHaveBeenLastCalledWith("note")
+    choose.mockClear()
     await user.keyboard("{Enter}")
     expect(choose).toHaveBeenLastCalledWith("note")
     await user.keyboard("{ArrowDown}")

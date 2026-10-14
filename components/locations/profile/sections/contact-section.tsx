@@ -257,7 +257,7 @@ export function DescriptionSection({
             <span
               aria-live="polite"
               className={cn(
-                "font-mono text-caption tabular-nums",
+                "text-caption tabular-nums",
                 over ? "font-semibold text-danger-ink" : "text-ink-muted"
               )}
             >

@@ -5,7 +5,14 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query"
-import { LogOut, Monitor, Moon, MoreHorizontal, Sun } from "lucide-react"
+import {
+  Building2,
+  LogOut,
+  Monitor,
+  Moon,
+  MoreHorizontal,
+  Sun,
+} from "lucide-react"
 import { useTheme } from "next-themes"
 import * as React from "react"
 
@@ -28,8 +35,14 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  SettingsDestructiveAction,
+  SettingsGroup,
+  SettingsRow,
+} from "@/components/ui/settings-row"
 import { useToastManager } from "@/components/ui/toast"
 import { signedOutHereOnly, signOut } from "@/lib/api/auth"
 import { ApiClientError, apiFetch } from "@/lib/api/client"
@@ -46,9 +59,8 @@ import type { ShellSession } from "./app-shell"
 // The error copy table is large and only a failed sign-out or switch reads
 // it, so it loads then rather than with every page.
 async function describeActionError(error: unknown): Promise<string> {
-  const { describeActionError: describe } = await import(
-    "@/lib/errors/action-errors"
-  )
+  const { describeActionError: describe } =
+    await import("@/lib/errors/action-errors")
   return describe(error)
 }
 
@@ -309,12 +321,7 @@ function AccountMenu({
             />
           }
         >
-          <span
-            aria-hidden
-            className="grid size-6 shrink-0 place-items-center rounded-full bg-fill text-count leading-none font-semibold tracking-[0.02em] text-ink-secondary"
-          >
-            {initialsFor(displayName)}
-          </span>
+          <PersonAvatar name={displayName} size="sm" />
           <span
             className={cn(
               "flex min-w-0 flex-1 flex-col",
@@ -437,6 +444,14 @@ function AccountMenu({
  * The phone More sheet's account block: the same identity, theme,
  * organisation switch and sign-out as the desk menu, laid out as rows a
  * thumb can hit (44px) instead of a menu that opens upward out of a sheet.
+ *
+ * Styled with the settings primitives (Notion Mail's settings look): a
+ * profile header (the neutral person avatar, name, email), groups under
+ * quiet sentence-case labels with no cards or rules, `SettingsRow`s with
+ * the 28px filled icon circle, and the way out last as the centred
+ * danger-ink `SettingsDestructiveAction`. Signing out removes no data, so
+ * it keeps its one-tap behaviour (no TypedConfirmation); "everywhere"
+ * still asks first.
  */
 function AccountPanel({
   session,
@@ -446,45 +461,53 @@ function AccountPanel({
   className?: string
 }) {
   const account = useAccount(session)
+  const headingId = React.useId()
   const themeLabelId = React.useId()
-  const orgLabelId = React.useId()
   return (
     <section
-      aria-label="Account"
+      aria-labelledby={headingId}
       data-slot="account-panel"
-      className={cn("flex flex-col gap-4", className)}
+      className={cn("flex flex-col gap-6 px-3", className)}
     >
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden
-          className="grid size-10 shrink-0 place-items-center rounded-full bg-fill text-ui font-semibold text-ink-secondary"
-        >
-          {initialsFor(account.displayName)}
-        </span>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="truncate text-body font-semibold text-ink">
-            {account.displayName}
-          </p>
-          {session?.email ? (
-            <p className="text-caption break-all text-ink-muted">
-              {session.email}
+      <div className="flex flex-col gap-2">
+        <h3 id={headingId} className={PANEL_LABEL_CLASS}>
+          Account
+        </h3>
+        <div className="flex items-center gap-3">
+          <PersonAvatar name={account.displayName} size="lg" />
+          <div className="flex min-w-0 flex-col">
+            <p className="truncate text-body font-semibold text-ink">
+              {account.displayName}
             </p>
-          ) : null}
-          {account.roleLabel || session?.organisationName ? (
-            <p className="text-caption text-ink-muted">
-              {[account.roleLabel, session?.organisationName]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          ) : null}
-          {account.explanation ? (
-            <p className="text-caption text-ink-muted">{account.explanation}</p>
-          ) : null}
+            {session?.email ? (
+              <p className="text-caption break-all text-ink-muted">
+                {session.email}
+              </p>
+            ) : null}
+          </div>
         </div>
+        {account.roleLabel ||
+        session?.organisationName ||
+        account.explanation ? (
+          <div className="flex flex-col gap-0.5">
+            {account.roleLabel || session?.organisationName ? (
+              <p className="text-caption text-ink-secondary">
+                {[account.roleLabel, session?.organisationName]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            ) : null}
+            {account.explanation ? (
+              <p className="text-caption text-ink-muted">
+                {account.explanation}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2">
-        <p id={themeLabelId} className="text-ui font-semibold text-ink">
+        <p id={themeLabelId} className={PANEL_LABEL_CLASS}>
           Theme
         </p>
         <RadioGroup
@@ -497,7 +520,7 @@ function AccountPanel({
             <RadioGroupItem
               key={option.value}
               value={option.value}
-              labelClassName="min-h-11 items-center rounded-(--np-radius-control) border border-line px-3 text-ui has-[[data-checked]]:border-primary has-[[data-checked]]:bg-accent-tint [&>[data-slot=radio]]:mt-0"
+              labelClassName="min-h-11 items-center rounded-(--np-radius-control) bg-fill-secondary px-3 text-ui has-[[data-checked]]:bg-accent-tint has-[[data-checked]]:font-semibold [&>[data-slot=radio]]:mt-0"
             >
               {option.label}
             </RadioGroupItem>
@@ -506,65 +529,70 @@ function AccountPanel({
       </div>
 
       {account.others.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          <p id={orgLabelId} className="text-ui font-semibold text-ink">
-            Switch organisation
-          </p>
-          <ul aria-labelledby={orgLabelId} className="flex flex-col">
-            {account.others.map((organisation) => (
-              <li key={organisation.organisationId}>
-                <button
-                  type="button"
-                  disabled={account.switching}
-                  onClick={() =>
-                    void account.switchTo(
-                      organisation.organisationId,
-                      organisation.name
-                    )
-                  }
-                  className={PANEL_ROW_CLASS}
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {organisation.name}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <SettingsGroup label="Switch organisation" as="h3" className="mt-0">
+          {account.others.map((organisation) => (
+            <SettingsRow
+              key={organisation.organisationId}
+              icon={<Building2 />}
+              label={
+                <span className="block truncate">{organisation.name}</span>
+              }
+              disabled={account.switching}
+              onClick={() =>
+                void account.switchTo(
+                  organisation.organisationId,
+                  organisation.name
+                )
+              }
+            />
+          ))}
+        </SettingsGroup>
       ) : null}
 
-      <div className="flex flex-col border-t border-line pt-2">
-        <button
-          type="button"
-          disabled={account.signingOut}
-          onClick={() => void account.handleSignOut(false)}
-          className={PANEL_ROW_CLASS}
-        >
-          <LogOut className="size-4 text-ink-muted" aria-hidden />
-          Sign out
-        </button>
+      <div className="flex flex-col">
         {/* Every device and organisation. Google connections and background
             sync keep running: they never depended on anyone being signed in. */}
-        <button
-          type="button"
+        <SettingsGroup>
+          <SettingsRow
+            icon={<LogOut />}
+            label="Sign out everywhere…"
+            disabled={account.signingOut}
+            onClick={() => account.setConfirmEverywhere(true)}
+          />
+        </SettingsGroup>
+        {/* The way out comes last, as plain danger-ink text. */}
+        <SettingsDestructiveAction
           disabled={account.signingOut}
-          onClick={() => account.setConfirmEverywhere(true)}
-          className={PANEL_ROW_CLASS}
+          onClick={() => void account.handleSignOut(false)}
+          className="w-full"
         >
-          <LogOut className="size-4 text-ink-muted" aria-hidden />
-          Sign out everywhere…
-        </button>
+          Sign out
+        </SettingsDestructiveAction>
       </div>
       <SignOutEverywhereDialog account={account} />
     </section>
   )
 }
 
-const PANEL_ROW_CLASS = cn(
-  "flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-left text-ui font-medium text-ink",
-  "transition-colors duration-(--np-duration-fast) hover:bg-fill",
-  "focus-halo focus-visible:outline-none disabled:opacity-50"
-)
+/** A group's label in the account block: sentence case, quiet (D8). */
+const PANEL_LABEL_CLASS = "text-caption font-medium text-ink-muted"
+
+/**
+ * The signed-in person's mark: the neutral avatar primitive (D9: people are
+ * neutral; client marks keep their colour and stay `ClientAvatar`).
+ */
+function PersonAvatar({
+  name,
+  size,
+}: {
+  name: string
+  size: React.ComponentProps<typeof Avatar>["size"]
+}) {
+  return (
+    <Avatar size={size} aria-hidden>
+      <AvatarFallback>{initialsFor(name)}</AvatarFallback>
+    </Avatar>
+  )
+}
 
 export { AccountMenu, AccountPanel, roleExplanation, ROLE_LABEL }

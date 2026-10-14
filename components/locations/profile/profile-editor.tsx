@@ -874,7 +874,7 @@ function ProfileEditor({
         id="section-other-google-details"
         title="Other Google details"
         description={<>Google holds more on this listing than NabaPresence can edit yet: {unsupported.map(({ label }) => label).join(", ")}. Change those in Google directly.</>}
-        className="bg-surface-alt"
+        info
       >
         {business?.capabilityDetails?.fields.serviceItems?.reasonCode ? (
           <p className="text-ui text-ink-muted">
@@ -971,10 +971,13 @@ function ProfileEditor({
         />
       ) : null}
 
-      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-3 desk:grid-cols-[var(--np-form-rail-w)_minmax(0,1fr)]">
+      {/* gap-x-6 is the rail-to-form gap the footer offset above adds. */}
+      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-4 desk:grid-cols-[var(--np-form-rail-w)_minmax(0,1fr)]">
         <SectionNav entries={navEntries} />
 
-        <div className="@container/profile-body flex min-w-0 flex-col gap-5">
+        {/* Settings groups: flat on a phone, so the space between them is
+            what sets one group apart from the next. */}
+        <div className="@container/profile-body flex min-w-0 flex-col gap-(--np-gap-section)">
           <ValidationSummary
             errors={attempts > 0 ? issues.list : []}
             focusKey={attempts}

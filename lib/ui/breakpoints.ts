@@ -3,7 +3,7 @@
  *
  * CSS owns the breakpoints: Tailwind v4 reads `--breakpoint-*` from the
  * `@theme` block in app/globals.css (or its own defaults when none is set),
- * and the `controls` / `capsules` custom variants carry their own media
+ * and the `controls` / `capsules` / `desk` / `tall` custom variants carry their own media
  * query. This file mirrors those values for the few places JavaScript has to
  * ask the same question — `matchMedia` for behaviour, never for layout (see
  * lib/hooks/use-media-query.ts). tests/breakpoints.test.ts parses
@@ -51,6 +51,12 @@ export const BREAKPOINTS = Object.fromEntries(
 export const CONTROLS_MIN_HEIGHT: Breakpoint = { rem: 34, px: 34 * REM_PX }
 
 /**
+ * The height floor of the `tall` variant: room for a sticky header block
+ * on top of the content (globals.css explains it). 38.75rem is 620px.
+ */
+export const TALL_MIN_HEIGHT: Breakpoint = { rem: 38.75, px: 38.75 * REM_PX }
+
+/**
  * `min-width` / `max-width` rather than the range syntax Tailwind emits
  * (`width >= 48rem`): both mean the same thing, and the older form is the
  * one every engine's matchMedia parses.
@@ -92,8 +98,8 @@ const DESK = `${minWidth("md")} and (pointer: fine)`
 
 /**
  * Media queries by name. Each breakpoint name means "at least this wide",
- * exactly like the Tailwind prefix of the same name; `controls` and
- * `capsules` are the custom variants, word for word.
+ * exactly like the Tailwind prefix of the same name; `controls`,
+ * `capsules`, `desk` and `tall` are the custom variants, word for word.
  *
  * There is deliberately no `max-*` entry: "below md" is `!matches("md")`,
  * which avoids the 0.02px gap a hand-written `max-width: 47.98rem` leaves.
@@ -110,8 +116,9 @@ export const MEDIA_QUERIES = {
   desk: DESK,
   capsules: `not all and ${controls}`,
   phoneOverlay: PHONE_OVERLAY,
+  tall: `(min-height: ${TALL_MIN_HEIGHT.rem}rem)`,
 } as const satisfies Record<
-  BreakpointName | "controls" | "capsules" | "desk" | "phoneOverlay",
+  BreakpointName | "controls" | "capsules" | "desk" | "phoneOverlay" | "tall",
   string
 >
 

@@ -25,6 +25,13 @@
    within a quarter of the screen. Pair it with `max-md:` for phones. */
 @custom-variant short (@media not all and (min-height: 40rem));
 
+/* A tall viewport: at least 38.75rem (620px) high. Chrome that only earns
+   its vertical space when there is room for it (a page or area frame's
+   sticky header block, a second header row) switches on here instead of a
+   hand-written `[@media(min-height:620px)]:`. Mirrored as `tall` in
+   lib/ui/breakpoints.ts for matchMedia. */
+@custom-variant tall (@media (min-height: 38.75rem));
+
 /* Hover motion only where a fine pointer can actually hover. */
 @custom-variant hover-fine (@media (hover: hover) and (pointer: fine));
 
@@ -1131,6 +1138,26 @@
     &:focus-visible {
       outline: 2px solid CanvasText !important;
       outline-offset: 2px !important;
+    }
+  }
+}
+
+/* Focus for a row inside a clipping list (an `overflow-hidden` grouped
+   card, a scrolling list): a 2px accent ring drawn INSIDE the row's box, so
+   the list's edge can never cut it off. Its own inset shadow, not
+   `inset var(--np-focus-halo)`: an `inset` keyword only applies to the
+   first shadow of a list, so the halo's accent ring would stay outside.
+   Forced-colours mode drops box-shadow, so it draws a real CanvasText
+   outline, also inside the box. */
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--np-focus-ring);
+  }
+  @media (forced-colors: active) {
+    &:focus-visible {
+      outline: 2px solid CanvasText !important;
+      outline-offset: -2px !important;
     }
   }
 }

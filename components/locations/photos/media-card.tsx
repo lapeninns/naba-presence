@@ -88,16 +88,22 @@ export function MediaCard({
     <li
       data-slot="media-card"
       data-selected={selected || undefined}
-      className={cn(
-        "@container/card flex min-w-0 flex-col overflow-hidden rounded-lg border bg-surface",
-        selected ? "border-primary ring-2 ring-primary" : "border-line"
-      )}
+      className="@container/card flex min-w-0 flex-col gap-2"
     >
+      {/* A clean tile (Notion Mail's attachment look): the photo itself is
+          the card, rounded on the card radius over the fill placeholder, no
+          frame; the selected ring draws on the photo. */}
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Preview ${categoryLabel} ${mediaKind}`}
-        className="group/tile relative block aspect-[4/3] w-full cursor-zoom-in overflow-hidden bg-fill text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        className={cn(
+          "group/tile relative block aspect-4/3 w-full cursor-zoom-in overflow-hidden rounded-(--np-radius-card) bg-fill text-left focus-halo outline-none",
+          // On ::after, not the button's own box-shadow: focus-halo is a
+          // shadow too and would replace the selected ring while focused.
+          selected &&
+            "after:pointer-events-none after:absolute after:inset-0 after:rounded-(--np-radius-card) after:ring-2 after:ring-primary after:ring-inset"
+        )}
       >
         {item.thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -136,11 +142,9 @@ export function MediaCard({
         </span>
       </button>
 
-      <div className="flex min-h-12 flex-wrap items-center gap-2 border-t border-line p-2">
+      <div className="flex min-h-(--np-control-h) flex-wrap items-center gap-2">
         {customer ? (
-          <p className="px-1 text-caption text-ink-muted">
-            Shared by a customer
-          </p>
+          <p className="text-caption text-ink-muted">Shared by a customer</p>
         ) : (
           <>
             {/* A span, not a label: the Select's trigger is a `button`,
@@ -175,44 +179,44 @@ export function MediaCard({
               </Select>
             </span>
             <span className="ml-auto flex items-center gap-1">
-            {isLogo ? null : (
+              {isLogo ? null : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => onCategoryChange("LOGO")}
+                        disabled={disabled || updating}
+                        // Moving a photo to LOGO through the category list
+                        // works, but nobody looking for "make this our logo"
+                        // thinks to open a list called "Move to category".
+                        aria-label={`Use this ${mediaKind} as the logo`}
+                      />
+                    }
+                  >
+                    <StarIcon aria-hidden />
+                  </TooltipTrigger>
+                  <TooltipContent>Use as logo</TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => onCategoryChange("LOGO")}
+                      className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
+                      onClick={onDelete}
                       disabled={disabled || updating}
-                      // Moving a photo to LOGO through the category list
-                      // works, but nobody looking for "make this our logo"
-                      // thinks to open a list called "Move to category".
-                      aria-label={`Use this ${mediaKind} as the logo`}
+                      aria-label={`Delete ${categoryLabel} ${mediaKind}`}
                     />
                   }
                 >
-                  <StarIcon aria-hidden />
+                  <Trash2Icon aria-hidden />
                 </TooltipTrigger>
-                <TooltipContent>Use as logo</TooltipContent>
+                <TooltipContent>Delete from Google</TooltipContent>
               </Tooltip>
-            )}
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
-                    onClick={onDelete}
-                    disabled={disabled || updating}
-                    aria-label={`Delete ${categoryLabel} ${mediaKind}`}
-                  />
-                }
-              >
-                <Trash2Icon aria-hidden />
-              </TooltipTrigger>
-              <TooltipContent>Delete from Google</TooltipContent>
-            </Tooltip>
             </span>
           </>
         )}

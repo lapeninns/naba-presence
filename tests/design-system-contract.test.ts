@@ -411,3 +411,24 @@ describe("primitives read tokens, not literals", () => {
     expect(pageFrame).toContain("@container")
   })
 })
+
+describe("Drop 3 layout and focus utilities", () => {
+  it("defines the inset row focus ring with a forced-colours outline inside the box", () => {
+    const block = globals.match(/@utility focus-ring-inset \{[\s\S]*?\n\}/)?.[0]
+    expect(block).toBeDefined()
+    // A dedicated inset shadow: `inset var(--np-focus-halo)` would only
+    // inset the halo's first shadow.
+    expect(block).toMatch(
+      /&:focus-visible \{\s*outline: none;\s*box-shadow: inset 0 0 0 2px var\(--np-focus-ring\);/
+    )
+    expect(block).toContain("@media (forced-colors: active)")
+    expect(block).toContain("outline: 2px solid CanvasText !important;")
+    expect(block).toContain("outline-offset: -2px !important;")
+  })
+
+  it("defines the tall height variant at 620px (38.75rem)", () => {
+    expect(globals).toMatch(
+      /@custom-variant tall \(@media \(min-height: 38\.75rem\)\);/
+    )
+  })
+})

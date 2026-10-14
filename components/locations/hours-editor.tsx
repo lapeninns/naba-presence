@@ -1,13 +1,12 @@
 "use client"
 
 import { CalendarPlus, CircleAlert, Copy, Plus, Trash2, X } from "lucide-react"
-import { useId, useState } from "react"
+import { useId, useState, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
-  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -16,7 +15,6 @@ import {
 } from "@/components/ui/dialog"
 import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input } from "@/components/ui/input"
-import { SectionHeader } from "@/components/ui/section-header"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -28,6 +26,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { TimeField } from "@/components/ui/time-field"
 import type { NormalizedHours } from "@/lib/api/location-hours"
@@ -151,6 +158,54 @@ function ClosingDaySelect({
   )
 }
 
+/**
+ * A settings-group label (Notion Mail's "Preferences"): a quiet heading in
+ * sentence case with an optional caption under it. It stays a real heading
+ * so the group is a labelled region and heading navigation still finds it.
+ */
+function GroupLabel({
+  id,
+  as: Heading = "h2",
+  title,
+  description,
+}: {
+  id?: string
+  as?: "h2" | "h3"
+  title: ReactNode
+  description?: ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 sm:px-1">
+      <Heading id={id} className="text-caption font-medium text-ink-muted">
+        {title}
+      </Heading>
+      {description ? (
+        <p className="text-caption text-ink-muted">{description}</p>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The rows of one group. On a phone the rows sit flat on the canvas with a
+ * hairline between them (seven similar rows scan better separated); from
+ * `sm` the group is one bordered card. Each row bleeds 12px into the page
+ * padding on a phone so a changed row's tint has room around its words.
+ */
+const groupListClassName =
+  "flex flex-col divide-y divide-line-subtle sm:overflow-hidden sm:rounded-(--np-radius-card) sm:border sm:border-line sm:bg-surface"
+const groupRowClassName = "-mx-3 px-3 py-3 sm:mx-0 sm:px-4"
+
+/** "12:00 – 16:00" or "Closed": a special day's hours as one value. */
+function specialSummary(entry: NormalizedHours["special"][number]): string {
+  if (entry.isClosed) return "Closed"
+  const range = `${entry.opensAt || "--:--"} – ${entry.closesAt || "--:--"}`
+  const end = entry.endDate ?? entry.effectiveDate
+  return end && end !== entry.effectiveDate
+    ? `${range}, closing ${formatSpecialDate(end)}`
+    : range
+}
+
 function FieldProblem({ id, message }: { id: string; message?: string }) {
   if (!message) return null
   return (
@@ -167,15 +222,18 @@ function FieldProblem({ id, message }: { id: string; message?: string }) {
 /**
  * The weekly schedule and its special days (reference listing-hours).
  *
- * Regular hours are one bordered card with a row per day, Monday first. On a
- * wide container a row is a grid — day, open switch, periods, "Copy to…";
- * under 700px of its own width it becomes a per-day block with the switch
- * beside the day name and the periods underneath, so nothing squeezes on a
- * phone. A day that differs from Google carries a "Changed" word and an
- * info-coloured inset edge.
+ * Laid out as calm settings groups: a quiet group label, then rows. Regular
+ * hours are one group with a row per day, Monday first. On a wide container
+ * (`@2xl`, 42rem of its own width) a row is a grid — day, open switch, then
+ * the periods with their quiet text actions ("Add split period",
+ * "Copy to…") under them; narrower, the switch sits beside the day name and
+ * the periods and actions run underneath, so nothing squeezes on a phone. A
+ * day that differs from Google carries a "Changed" word and a fill tint.
  *
- * Special days are cards with a calendar badge, the date, a Closed / Custom
- * hours choice and the times.
+ * Special days are rows in one group: the date and its hours as a summary
+ * line ("Thu 25 Dec 2026 · Closed", with "Changed" and "Past" words), and
+ * the fields to edit it inline underneath (inline, not in a sheet, so the
+ * validation summary can always reach them).
  *
  * `errors` maps field ids (see `hoursFieldId`) to messages; each message is
  * drawn under its field and wired with `aria-describedby`/`aria-invalid`, and
@@ -277,13 +335,18 @@ export function HoursEditor({
 
   return (
     <div className="flex flex-col gap-6">
-      <section aria-labelledby={headingId} className="flex flex-col gap-2.5">
-        <SectionHeader
+      <section aria-labelledby={headingId} className="flex flex-col gap-2">
+        <GroupLabel
           id={headingId}
+          as={serviceId ? "h3" : "h2"}
           title={scheduleName}
-          description="Use 24-hour times. Choose the closing day explicitly for overnight hours; 24:00 means midnight at the end of that day."
+          description={
+            serviceId
+              ? undefined
+              : "Use 24-hour times. Choose the closing day explicitly for overnight hours; 24:00 means midnight at the end of that day."
+          }
         />
-        <ul className="@container/week divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
+        <ul className={cn("@container/week", groupListClassName)}>
           {WEEK_ORDER.map((dayOfWeek) => {
             const day = dayOf(value, dayOfWeek)
             const label = serviceId
@@ -299,19 +362,20 @@ export function HoursEditor({
                 data-day={dayOfWeek}
                 data-changed={changed || undefined}
                 className={cn(
-                  "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-4 py-3",
-                  "@[700px]/week:grid-cols-[auto_auto_minmax(0,1fr)_auto]",
+                  groupRowClassName,
+                  "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2",
+                  "@2xl/week:grid-cols-[auto_auto_minmax(0,1fr)]",
                   changed && "bg-fill"
                 )}
               >
-                <span className="flex min-h-(--np-control-h) flex-col justify-center @[700px]/week:w-28">
-                  <span className="text-body font-semibold text-ink">
+                <span className="flex min-h-(--np-control-h) flex-col justify-center @2xl/week:w-28">
+                  <span className="text-body font-medium text-ink">
                     {label}
                   </span>
                   {changed ? <ChangedMark /> : null}
                 </span>
 
-                <span className="flex min-h-(--np-control-h) items-center gap-2 justify-self-end @[700px]/week:w-32 @[700px]/week:justify-self-start">
+                <span className="flex min-h-(--np-control-h) items-center gap-2 justify-self-end @2xl/week:w-32 @2xl/week:justify-self-start">
                   <Switch
                     id={hoursFieldId.dayOpen(dayOfWeek)}
                     checked={!day.isClosed}
@@ -355,7 +419,7 @@ export function HoursEditor({
                   </span>
                 </span>
 
-                <div className="col-span-2 flex min-w-0 flex-col gap-2 @[700px]/week:col-span-1">
+                <div className="col-span-2 flex min-w-0 flex-col gap-2 @2xl/week:col-span-1">
                   {day.isClosed ? (
                     <span className="flex min-h-(--np-control-h) items-center text-ui text-ink-muted">
                       Closed all day
@@ -456,44 +520,40 @@ export function HoursEditor({
                     id={`${hoursFieldId.dayOpen(dayOfWeek)}-error`}
                     message={dayError}
                   />
-                  {!disabled &&
-                  !day.isClosed &&
-                  canSplit(day.periods, dayOfWeek) ? (
-                    <div>
+                  {!disabled ? (
+                    // The row's quiet text actions, under its periods.
+                    <div className="-ml-2.5 flex flex-wrap items-center gap-x-1">
+                      {!day.isClosed && canSplit(day.periods, dayOfWeek) ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-ink-secondary"
+                          onClick={() =>
+                            setDay({
+                              ...day,
+                              periods: withSplitPeriod(day.periods, dayOfWeek),
+                            })
+                          }
+                        >
+                          <Plus aria-hidden />
+                          Add split period
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="-ml-2.5"
-                        onClick={() =>
-                          setDay({
-                            ...day,
-                            periods: withSplitPeriod(day.periods, dayOfWeek),
-                          })
-                        }
+                        className="text-ink-secondary"
+                        aria-label={`Copy ${label}’s hours to other days`}
+                        onClick={() => setCopyFrom(dayOfWeek)}
                       >
-                        <Plus aria-hidden />
-                        Add split period
+                        <Copy aria-hidden />
+                        Copy to…
                       </Button>
                     </div>
                   ) : null}
                 </div>
-
-                {!disabled ? (
-                  <div className="col-span-2 flex items-center @[700px]/week:col-span-1 @[700px]/week:min-h-(--np-control-h) @[700px]/week:justify-end">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="-ml-2.5 @[700px]/week:ml-0"
-                      aria-label={`Copy ${label}’s hours to other days`}
-                      onClick={() => setCopyFrom(dayOfWeek)}
-                    >
-                      <Copy aria-hidden />
-                      Copy to…
-                    </Button>
-                  </div>
-                ) : null}
               </li>
             )
           })}
@@ -502,12 +562,12 @@ export function HoursEditor({
 
       {!weeklyOnly ? (
         <section aria-label="Service hours" className="flex flex-col gap-4">
-          <SectionHeader
+          <GroupLabel
             title="Service hours"
             description="Separate schedules for the services this listing supports. Special dates below apply to the venue, not individual services."
           />
           {value.moreHours.length === 0 ? (
-            <p className="text-ui text-ink-muted">
+            <p className="text-ui text-ink-muted sm:px-1">
               No service schedules are saved.
             </p>
           ) : null}
@@ -559,25 +619,26 @@ export function HoursEditor({
                   serviceId={entry.hoursTypeId}
                   scheduleName={metadata?.displayName ?? entry.hoursTypeId}
                 />
-                <p className="text-caption text-ink-muted">
-                  {entry.hoursTypeId}
-                  {metadata
-                    ? ""
-                    : " · Google has not confirmed this service type. Its saved schedule is preserved and shown read-only."}
-                </p>
-                {!disabled && metadata ? (
-                  <div>
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:px-1">
+                  <p className="min-w-0 grow basis-48 text-caption text-ink-muted">
+                    {entry.hoursTypeId}
+                    {metadata
+                      ? ""
+                      : " · Google has not confirmed this service type. Its saved schedule is preserved and shown read-only."}
+                  </p>
+                  {!disabled && metadata ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
+                      className="text-danger-ink"
                       onClick={() => setRemoveType(entry.hoursTypeId)}
                     >
                       <Trash2 aria-hidden />
                       Remove {metadata.displayName} schedule
                     </Button>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             )
           })}
@@ -680,15 +741,15 @@ export function HoursEditor({
       {!weeklyOnly ? (
         <section
           aria-labelledby={specialHeadingId}
-          className="@container/special flex flex-col gap-2.5"
+          className="flex flex-col gap-2"
         >
-          <SectionHeader
+          <GroupLabel
             id={specialHeadingId}
             title="Special hours"
             description="Bank holidays, Christmas and one-off closures. These override the regular week on that date."
           />
           {value.special.length > 0 ? (
-            <ul className="flex flex-col gap-2">
+            <ul className={groupListClassName}>
               {specialOrder(value.special).map((index) => {
                 const entry = value.special[index]!
                 const dateId = hoursFieldId.specialDate(index)
@@ -711,34 +772,38 @@ export function HoursEditor({
                     describeSpecialEntry(googleEntry) !==
                       describeSpecialEntry(entry)
                   : false
-                const date = entry.effectiveDate
-                  ? new Date(`${entry.effectiveDate}T12:00:00`)
-                  : null
-                const validDate = date && !Number.isNaN(date.getTime())
                 return (
                   <li
                     key={specialKeys[index]}
                     data-past={past || undefined}
-                    className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 @[520px]/special:grid-cols-[auto_minmax(0,1fr)_auto]"
+                    data-changed={changed || undefined}
+                    className={cn(
+                      groupRowClassName,
+                      "flex flex-col gap-2",
+                      changed && "bg-fill"
+                    )}
                   >
-                    <span
-                      aria-hidden
-                      className="w-14 overflow-hidden rounded-(--np-radius-control) border border-line bg-surface text-center"
-                    >
-                      <span className="block bg-fill py-0.5 font-mono text-count tracking-wide text-ink-secondary uppercase">
-                        {validDate
-                          ? date.toLocaleDateString("en-GB", { month: "short" })
-                          : "Date"}
+                    {/* The summary line: the date and its hours as one
+                        value, then the status words. */}
+                    <div className="flex min-h-(--np-control-h-sm) flex-wrap items-center gap-x-2.5 gap-y-1">
+                      <span className="min-w-0 text-body text-ink">
+                        <span className="font-medium tabular-nums">
+                          {entry.effectiveDate
+                            ? formatSpecialDate(entry.effectiveDate)
+                            : "New special day"}
+                        </span>
+                        <span className="text-ink-secondary tabular-nums">
+                          {" · "}
+                          {specialSummary(entry)}
+                        </span>
                       </span>
-                      <span
-                        className={cn(
-                          "block py-0.5 font-mono text-section font-semibold tabular-nums",
-                          !validDate && "text-ink-muted"
-                        )}
-                      >
-                        {validDate ? date.getDate() : "–"}
-                      </span>
-                    </span>
+                      {changed ? <ChangedMark /> : null}
+                      {past ? (
+                        <span className="text-caption font-semibold text-ink-secondary">
+                          Past
+                        </span>
+                      ) : null}
+                    </div>
 
                     <div className="flex min-w-0 flex-col gap-2">
                       <div className="flex flex-wrap items-center gap-2.5">
@@ -803,12 +868,6 @@ export function HoursEditor({
                             Custom hours
                           </SegmentedControlItem>
                         </SegmentedControl>
-                        {changed ? <ChangedMark /> : null}
-                        {past ? (
-                          <span className="rounded-(--np-radius-tag) bg-fill px-1.5 text-count font-semibold text-ink-secondary">
-                            Past
-                          </span>
-                        ) : null}
                       </div>
 
                       {!entry.isClosed ? (
@@ -876,21 +935,23 @@ export function HoursEditor({
                         </div>
                       ) : null}
 
-                      <span className="text-caption text-ink-muted">
-                        {entry.effectiveDate
-                          ? `${formatSpecialDate(entry.effectiveDate)}${entry.isClosed ? " · closed all day" : ""}${past ? " · already passed, so customers no longer see it" : ""}`
-                          : "Choose the date this applies to."}
-                      </span>
+                      {!entry.effectiveDate || past ? (
+                        <span className="text-caption text-ink-muted">
+                          {entry.effectiveDate
+                            ? "Already passed, so customers no longer see it."
+                            : "Choose the date this applies to."}
+                        </span>
+                      ) : null}
                       <FieldProblem id={errorId} message={message} />
                     </div>
 
                     {!disabled ? (
-                      <div className="col-span-2 @[520px]/special:col-span-1">
+                      <div className="-ml-2.5 flex">
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="-ml-2.5 @[520px]/special:ml-0"
+                          className="text-danger-ink"
                           onClick={() => removeSpecial(index)}
                         >
                           <Trash2 aria-hidden />
@@ -903,16 +964,17 @@ export function HoursEditor({
               })}
             </ul>
           ) : (
-            <p className="rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3 text-caption text-ink-muted">
+            <p className="text-ui text-ink-muted sm:px-1">
               No special days yet. Holidays and one-off closures go here.
             </p>
           )}
           {!disabled ? (
-            <div>
+            <div className="-ml-2.5 flex sm:ml-0">
               <Button
                 type="button"
-                variant="secondary"
+                variant="ghost"
                 size="sm"
+                className="text-accent-ink"
                 onClick={addSpecial}
               >
                 <CalendarPlus aria-hidden />
@@ -966,7 +1028,12 @@ const QUICK_PICKS: { label: string; days: readonly number[] }[] = [
   { label: "Every day", days: WEEK_ORDER },
 ]
 
-/** Copy one day's hours onto others. Local only: nothing reaches Google. */
+/**
+ * Copy one day's hours onto others. Local only: nothing reaches Google, and
+ * nothing here is validated input, so it can live in a sheet: a bottom sheet
+ * at every width, with the days as checkbox rows (the label is the target)
+ * and the quick picks as quiet text actions above them.
+ */
 function CopyDaysDialog({
   from,
   value,
@@ -989,9 +1056,9 @@ function CopyDaysDialog({
   const others = WEEK_ORDER.filter((day) => day !== from)
 
   return (
-    // A sheet on a phone (the Dialog default). Ticked days are input, so a
-    // stray swipe or scrim tap asks before throwing them away.
-    <Dialog
+    // Ticked days are input, so a stray swipe or scrim tap asks before
+    // throwing them away.
+    <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
       dirty={picked.length > 0}
@@ -1002,22 +1069,23 @@ function CopyDaysDialog({
         cancelLabel: "Keep choosing",
       }}
     >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Copy {label}’s hours</DialogTitle>
-          <DialogDescription>
+      <SheetContent side="bottom" className="flex flex-col gap-0">
+        <SheetHeader>
+          <SheetTitle>Copy {label}’s hours</SheetTitle>
+          <SheetDescription>
             {from !== null ? describeDay(dayOf(value, from)) : ""}. Choose the
             days that should match.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-3">
-          <div className="flex flex-wrap gap-1.5">
+          </SheetDescription>
+        </SheetHeader>
+        <SheetBody className="gap-3">
+          <div className="-ml-2.5 flex flex-wrap gap-x-1">
             {QUICK_PICKS.map((pick) => (
               <Button
                 key={pick.label}
                 type="button"
                 variant="ghost"
                 size="sm"
+                className="text-accent-ink"
                 onClick={() =>
                   setPicked(pick.days.filter((day) => day !== from))
                 }
@@ -1029,38 +1097,42 @@ function CopyDaysDialog({
               type="button"
               variant="ghost"
               size="sm"
+              className="text-ink-secondary"
               onClick={() => setPicked([])}
             >
               Clear
             </Button>
           </div>
           <Fieldset>
-            <FieldsetLegend>Copy to</FieldsetLegend>
-            <div className="grid gap-x-4 sm:grid-cols-2">
+            <FieldsetLegend className="text-caption font-medium text-ink-muted">
+              Copy to
+            </FieldsetLegend>
+            <ul className="flex flex-col divide-y divide-line-subtle">
               {others.map((day) => (
-                <Checkbox
-                  key={day}
-                  checked={picked.includes(day)}
-                  onCheckedChange={(checked) =>
-                    setPicked((current) =>
-                      checked
-                        ? [...current, day]
-                        : current.filter((other) => other !== day)
-                    )
-                  }
-                  label={DAY_LABELS[day]}
-                  description={`Now: ${describeDay(dayOf(value, day))}`}
-                  labelClassName="text-ui"
-                />
+                <li key={day} className="py-1">
+                  <Checkbox
+                    checked={picked.includes(day)}
+                    onCheckedChange={(checked) =>
+                      setPicked((current) =>
+                        checked
+                          ? [...current, day]
+                          : current.filter((other) => other !== day)
+                      )
+                    }
+                    label={DAY_LABELS[day]}
+                    description={`Now: ${describeDay(dayOf(value, day))}`}
+                    labelClassName="text-body"
+                  />
+                </li>
               ))}
-            </div>
+            </ul>
           </Fieldset>
           <p className="text-caption text-ink-muted">
             This replaces the hours on the days you tick. Nothing reaches Google
             until you publish.
           </p>
-        </DialogBody>
-        <DialogFooter>
+        </SheetBody>
+        <SheetFooter>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
@@ -1073,8 +1145,8 @@ function CopyDaysDialog({
               ? "Copy"
               : `Copy to ${picked.length} ${picked.length === 1 ? "day" : "days"}`}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   )
 }

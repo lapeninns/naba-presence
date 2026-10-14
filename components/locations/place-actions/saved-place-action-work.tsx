@@ -14,7 +14,6 @@ import { reviewedPlaceActionPayloadSchema } from "@/lib/contracts/place-action-r
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
 import type { usePlaceActionReview } from "./use-place-action-review"
 import { PlaceActionApprovalSheet } from "./place-action-approval-sheet"
-import { cardClassName } from "@/components/ui/card"
 /**
  * What a saved request does, in the customer's words: "Add Shop online link"
  * plus the link it concerns. Never the raw Google resource name.
@@ -70,28 +69,30 @@ export function SavedPlaceActionWork({
   return (
     <section
       aria-label="Saved action link work"
-      className="flex min-w-0 flex-col gap-3"
+      className="flex min-w-0 flex-col gap-2"
     >
-      <h2 className="text-title font-semibold text-ink">
-        Saved action link work
-      </h2>
-      <p className="text-ui text-ink-muted">
-        Recorded outcomes remain available when Google cannot be read. Expired
-        approvals cannot be sent again.
-      </p>
+      <div className="flex flex-col gap-0.5 sm:px-1">
+        <h2 className="text-caption font-medium text-ink-muted">
+          Saved action link work
+        </h2>
+        <p className="text-caption text-ink-muted">
+          Recorded outcomes remain available when Google cannot be read. Expired
+          approvals cannot be sent again.
+        </p>
+      </div>
       {workflow.error && !workflow.open ? (
         <p role="alert" className="text-ui text-danger-ink">
           {workflow.error}
         </p>
       ) : null}
       {query.isPending ? (
-        <p role="status" className="text-ui text-ink-muted">
+        <p role="status" className="text-ui text-ink-muted sm:px-1">
           Loading saved action link work…
         </p>
       ) : query.isError ? (
         <p
           role="alert"
-          className="flex flex-wrap items-center gap-2 text-ui text-ink"
+          className="flex flex-wrap items-center gap-2 text-ui text-ink sm:px-1"
         >
           Saved action link work could not be loaded.{" "}
           <Button
@@ -103,44 +104,48 @@ export function SavedPlaceActionWork({
           </Button>
         </p>
       ) : items.length === 0 ? (
-        <p className="text-ui text-ink-muted">No saved action link requests.</p>
+        <p className="text-ui text-ink-muted sm:px-1">
+          No saved action link requests.
+        </p>
       ) : (
-        items.map((item) => (
-          <div
-            key={item.changeSet.id}
-            className={cardClassName({
-              className: "flex min-w-0 flex-col gap-2 p-3",
-            })}
-          >
-            <SavedPlaceActionLabel changeSet={item.changeSet} />
-            <p className="text-caption text-ink-muted">
-              {item.attemptId ? (
-                "Request outcome recorded"
-              ) : (
-                <>
-                  {item.changeSet.approvedBy
-                    ? "Approved request"
-                    : "Awaiting approval"}{" "}
-                  · <ApprovalExpiry expiresAt={item.changeSet.expiresAt} />
-                </>
-              )}
-            </p>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={
-                workflow.busy ||
-                (workflow.unresolved &&
-                  workflow.review?.changeSet.id !== item.changeSet.id)
-              }
-              onClick={() => workflow.restore(item.changeSet)}
+        // One row per saved request, as a settings group: flat with
+        // hairlines on a phone, one bordered card from `sm`.
+        <ul className="flex flex-col divide-y divide-line-subtle sm:overflow-hidden sm:rounded-(--np-radius-card) sm:border sm:border-line sm:bg-surface">
+          {items.map((item) => (
+            <li
+              key={item.changeSet.id}
+              className="-mx-3 flex min-w-0 flex-col items-start gap-1.5 px-3 py-3 sm:mx-0 sm:px-4"
             >
-              {item.attemptId
-                ? "Open action link outcome"
-                : "Open action link review"}
-            </Button>
-          </div>
-        ))
+              <SavedPlaceActionLabel changeSet={item.changeSet} />
+              <p className="text-caption text-ink-muted">
+                {item.attemptId ? (
+                  "Request outcome recorded"
+                ) : (
+                  <>
+                    {item.changeSet.approvedBy
+                      ? "Approved request"
+                      : "Awaiting approval"}{" "}
+                    · <ApprovalExpiry expiresAt={item.changeSet.expiresAt} />
+                  </>
+                )}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={
+                  workflow.busy ||
+                  (workflow.unresolved &&
+                    workflow.review?.changeSet.id !== item.changeSet.id)
+                }
+                onClick={() => workflow.restore(item.changeSet)}
+              >
+                {item.attemptId
+                  ? "Open action link outcome"
+                  : "Open action link review"}
+              </Button>
+            </li>
+          ))}
+        </ul>
       )}
       {query.hasNextPage ? (
         <Button
@@ -170,9 +175,9 @@ function SavedPlaceActionLabel({
   const label = placeActionWorkLabel(changeSet)
   return (
     <>
-      <p className="text-ui font-semibold text-ink">{label.title}</p>
+      <p className="text-body font-medium text-ink">{label.title}</p>
       {label.uri ? (
-        <p className="text-ui break-all text-ink">{label.uri}</p>
+        <p className="text-ui break-all text-ink-secondary">{label.uri}</p>
       ) : null}
       {/* Google's resource name is for support, not for deciding. */}
       <SupportDetails

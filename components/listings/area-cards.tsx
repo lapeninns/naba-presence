@@ -1,6 +1,20 @@
 "use client"
 
-import { EyeIcon, PencilIcon } from "lucide-react"
+import {
+  BadgeCheckIcon,
+  CalendarCheckIcon,
+  ChevronRightIcon,
+  ClockIcon,
+  EyeIcon,
+  ImageIcon,
+  MegaphoneIcon,
+  PencilIcon,
+  SparklesIcon,
+  StoreIcon,
+  UsersIcon,
+  UtensilsIcon,
+  type LucideIcon,
+} from "lucide-react"
 
 import { ShellLink } from "@/components/app-shell/shell-link"
 import { buttonVariants } from "@/components/ui/button"
@@ -15,6 +29,7 @@ import {
   listingHref,
   visibleListingAreas,
   type ListingArea,
+  type ListingAreaKey,
 } from "@/lib/listings/areas"
 import {
   resourceDisabledReason,
@@ -23,29 +38,72 @@ import {
 import { cn } from "@/lib/utils"
 import { useNow } from "@/lib/time/server-now"
 
+/**
+ * The areas answer to their own width (`@container/areas`): under 36rem
+ * (a phone) each area is a settings-style row, one per line; from 36rem a
+ * card grid of two columns, three from 56rem.
+ */
 const GRID =
-  "grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]"
+  "grid gap-2 @xl/areas:grid-cols-2 @xl/areas:gap-3 @4xl/areas:grid-cols-3"
+
+/** The neutral leading mark of each area (an icon, never a status). */
+const AREA_ICON: Record<ListingAreaKey, LucideIcon> = {
+  profile: StoreIcon,
+  hours: ClockIcon,
+  booking: CalendarCheckIcon,
+  photos: ImageIcon,
+  posts: MegaphoneIcon,
+  menu: UtensilsIcon,
+  people: UsersIcon,
+  verification: BadgeCheckIcon,
+  suggestions: SparklesIcon,
+}
+
+function AreaIcon({ area }: { area: ListingAreaKey }) {
+  const Icon = AREA_ICON[area]
+  return (
+    <span
+      aria-hidden
+      className="grid size-7 shrink-0 place-items-center rounded-full bg-fill text-ink-secondary"
+    >
+      <Icon className="size-4" strokeWidth={1.75} />
+    </span>
+  )
+}
 
 function AreaCardSkeleton() {
   return (
-    <div className={cardClassName({ className: "flex flex-col gap-2.5 p-4" })}>
-      <Skeleton className="h-4 w-2/5" />
-      <Skeleton className="h-3.5 w-4/5" />
-      <Skeleton className="ml-auto h-8 w-20" />
+    <div className={cardClassName({ className: "flex items-start gap-3 p-4" })}>
+      <Skeleton className="size-7 shrink-0 rounded-full" />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <Skeleton className="h-4 w-2/5" />
+        <Skeleton className="h-3.5 w-4/5" />
+        <Skeleton className="h-5 w-24 @xl/areas:hidden" />
+        <Skeleton className="hidden h-8 w-20 self-end @xl/areas:block" />
+      </div>
     </div>
   )
 }
 
 /**
- * One area as a card (reference `.area-card`): name and what it holds, the
- * status pill at the top edge, and the one line of substance with the way in
- * at the foot. A blocked area is drawn sunken and says why instead of
- * offering the way in.
+ * One area (reference `.area-card`), drawn two ways from one DOM:
+ *
+ *   phone, a settings-style row     desk, a card
+ *   (o) Label .............. ›      (o) Label ........ [pill]
+ *       description                     description
+ *       [pill]                      line ............ [Check]
+ *       line
+ *
+ * The parts are flex items placed by `order`, so the one link and the one
+ * status line move between the two layouts without being rendered twice.
+ * A blocked area is drawn sunken and says why instead of offering the way
+ * in.
  *
  * An interactive `Card` (listings-content-18): the way in is the card's
- * `CardLink`, drawn as the small verb button, and its hit area is the whole
- * card, so a thumb can tap anywhere on it while the card draws the hover,
- * pressed and focus states. Its name keeps the verb ("Check Opening hours").
+ * `CardLink`, whose hit area is the whole card, so a thumb can tap anywhere
+ * on it while the card draws the hover, pressed and focus states. Its name
+ * keeps the verb ("Check Opening hours"); on a desk the verb is drawn as a
+ * small button, on a phone as the row's chevron.
  */
 function AreaCard({
   area,
@@ -71,27 +129,39 @@ function AreaCard({
       data-slot="area-card"
       data-area={area.key}
       className={cn(
-        "gap-2.5 px-(--card-spacing)",
+        "gap-0 px-(--card-spacing) py-3 @xl/areas:py-(--card-spacing)",
         emphasis && "border-warning-solid"
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
-        <div className="flex min-w-0 grow basis-36 flex-col gap-0.5">
-          <h3 className="text-title font-semibold text-ink">{area.label}</h3>
+      <div className="flex flex-1 flex-wrap items-start gap-x-3 gap-y-1.5 @xl/areas:content-between @xl/areas:gap-y-0">
+        <AreaIcon area={area.key} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h3 className="text-body font-semibold text-ink @xl/areas:text-title">
+            {area.label}
+          </h3>
           <p className="text-caption text-ink-muted">{area.description}</p>
         </div>
-        {pill}
-      </div>
-      <div className="mt-auto flex items-end justify-between gap-3">
+        <div className="order-2 flex basis-full ps-10 @xl/areas:order-none @xl/areas:basis-auto @xl/areas:ps-0">
+          {pill}
+        </div>
+        {action ? (
+          <div className="order-1 flex shrink-0 self-center @xl/areas:order-6 @xl/areas:mt-2.5 @xl/areas:self-end">
+            {action}
+          </div>
+        ) : null}
+        <span
+          aria-hidden
+          className="hidden h-0 basis-full @xl/areas:order-4 @xl/areas:block"
+        />
         <p
           className={cn(
-            "min-w-0 text-ui break-words",
+            "order-3 min-w-0 basis-full ps-10 text-caption break-words",
+            "@xl/areas:order-5 @xl/areas:mt-2.5 @xl/areas:grow @xl/areas:basis-0 @xl/areas:self-end @xl/areas:ps-0 @xl/areas:text-ui",
             blocked ? "text-ink-muted" : "text-ink-secondary"
           )}
         >
           {line}
         </p>
-        {action}
       </div>
     </Card>
   )
@@ -142,157 +212,173 @@ function AreaCards({
 
   if (!summary && !summaryFailed) {
     return (
-      <div aria-busy="true" className={GRID}>
-        {areas.map((area) => (
-          <AreaCardSkeleton key={area.key} />
-        ))}
+      <div className="@container/areas">
+        <div aria-busy="true" className={GRID}>
+          {areas.map((area) => (
+            <AreaCardSkeleton key={area.key} />
+          ))}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className={GRID}>
-      {areas.map((area) => {
-        const blocked = !linked
-          ? "Link this listing to Google to manage it here."
-          : area.capability
-            ? resourceDisabledReason(caps, area.capability, true)
-            : null
-        const capability = caps?.resources?.[area.capability ?? ""]
-        const readOnly =
-          capability?.state === "readOnly" ||
-          (capability?.state === "blocked" &&
-            ["publish_not_allowed", "publishing_paused"].includes(
-              capability.reasonCode ?? ""
-            )) ||
-          (!blocked &&
-            area.model === "canonical" &&
-            caps?.canEditCanonical === false)
+    <div className="@container/areas">
+      <div className={GRID}>
+        {areas.map((area) => {
+          const blocked = !linked
+            ? "Link this listing to Google to manage it here."
+            : area.capability
+              ? resourceDisabledReason(caps, area.capability, true)
+              : null
+          const capability = caps?.resources?.[area.capability ?? ""]
+          const readOnly =
+            capability?.state === "readOnly" ||
+            (capability?.state === "blocked" &&
+              ["publish_not_allowed", "publishing_paused"].includes(
+                capability.reasonCode ?? ""
+              )) ||
+            (!blocked &&
+              area.model === "canonical" &&
+              caps?.canEditCanonical === false)
 
-        if (blocked && !readOnly) {
-          return (
-            <AreaCard
-              key={area.key}
-              area={area}
-              blocked
-              pill={
-                <StatusPill tone="neutral" plain>
-                  Unavailable
-                </StatusPill>
-              }
-              line={blocked}
-            />
+          if (blocked && !readOnly) {
+            return (
+              <AreaCard
+                key={area.key}
+                area={area}
+                blocked
+                pill={
+                  <StatusPill tone="neutral" plain>
+                    Unavailable
+                  </StatusPill>
+                }
+                line={blocked}
+              />
+            )
+          }
+
+          const synced =
+            summary &&
+            (area.key === "profile" ||
+              area.key === "hours" ||
+              area.key === "menu")
+              ? summary[area.key]
+              : null
+          const needsReview =
+            area.key === "suggestions" ||
+            synced?.status === "core_dirty" ||
+            synced?.status === "conflict" ||
+            synced?.status === "google_dirty"
+          const verb = needsReview
+            ? "Review"
+            : readOnly ||
+                (area.key === "menu" && summary?.menu.eligible === false)
+              ? "View"
+              : !summary ||
+                  (synced && comparisonCheck(synced, now) !== "checked") ||
+                  ["photos", "posts", "people", "verification"].includes(
+                    area.key
+                  )
+                ? "Check"
+                : "Edit"
+          const action = (
+            // The card's link. `static` so the stretched hit area reaches the
+            // card's edges (no button's touch overhang can shrink it to a
+            // band: the button look is drawn by a span inside). A ShellLink,
+            // so it prefetches on intent, not on view. Focus draws on the
+            // whole card, inset.
+            <ShellLink
+              data-slot="card-link"
+              href={listingHref(locationId, area.segment)}
+              className={cn(
+                cardLinkClassName,
+                "static flex items-center after:inset-0 hover-fine:hover:no-underline desk:after:block"
+              )}
+              aria-label={`${verb} ${area.label}`}
+            >
+              <span
+                className={cn(
+                  buttonVariants({ variant: "secondary", size: "sm" }),
+                  "hidden @xl/areas:inline-flex"
+                )}
+              >
+                {verb === "Edit" ? (
+                  <PencilIcon aria-hidden strokeWidth={1.75} />
+                ) : verb === "View" ? (
+                  <EyeIcon aria-hidden strokeWidth={1.75} />
+                ) : null}
+                {verb}
+              </span>
+              <ChevronRightIcon
+                aria-hidden
+                strokeWidth={1.75}
+                className="size-5 text-ink-faint @xl/areas:hidden"
+              />
+            </ShellLink>
           )
-        }
 
-        const synced =
-          summary &&
-          (area.key === "profile" ||
-            area.key === "hours" ||
-            area.key === "menu")
-            ? summary[area.key]
-            : null
-        const needsReview =
-          area.key === "suggestions" ||
-          synced?.status === "core_dirty" ||
-          synced?.status === "conflict" ||
-          synced?.status === "google_dirty"
-        const verb = needsReview
-          ? "Review"
-          : readOnly ||
-              (area.key === "menu" && summary?.menu.eligible === false)
-            ? "View"
-            : !summary ||
-                (synced && comparisonCheck(synced, now) !== "checked") ||
-                ["photos", "posts", "people", "verification"].includes(area.key)
-              ? "Check"
-              : "Edit"
-        const action = (
-          // The card's link, drawn as a button. `static` undoes the button's
-          // `relative` so the stretched hit area reaches the card's edges;
-          // the button keeps its own focus halo and drops the link's hover
-          // underline. A ShellLink, so it prefetches on intent, not on view.
-          // The small button's own touch overhang (`after:inset-y-…`) would
-          // win the merge and shrink the stretch to a band across the card's
-          // middle, so the full-card `after:inset-0` is restated last.
-          <ShellLink
-            data-slot="card-link"
-            href={listingHref(locationId, area.segment)}
-            className={cn(
-              cardLinkClassName,
-              buttonVariants({ variant: "secondary", size: "sm" }),
-              "static after:inset-0 hover-fine:hover:no-underline desk:after:block"
-            )}
-            aria-label={`${verb} ${area.label}`}
-          >
-            {verb === "Edit" ? (
-              <PencilIcon aria-hidden strokeWidth={1.75} />
-            ) : verb === "View" ? (
-              <EyeIcon aria-hidden strokeWidth={1.75} />
-            ) : null}
-            {verb}
-          </ShellLink>
-        )
+          if (!summary) {
+            return (
+              <AreaCard
+                key={area.key}
+                area={area}
+                pill={
+                  <StatusPill tone="neutral" dashed>
+                    Open to check
+                  </StatusPill>
+                }
+                line={
+                  <span className="text-ink-muted">
+                    Status unknown ·{" "}
+                    {area.model === "google_direct"
+                      ? "changes go to Google directly"
+                      : "editable here"}
+                  </span>
+                }
+                action={action}
+              />
+            )
+          }
 
-        if (!summary) {
+          const state = areaState(area.key, summary, now)
           return (
             <AreaCard
               key={area.key}
               area={area}
-              pill={
-                <StatusPill tone="neutral" dashed>
-                  Open to check
-                </StatusPill>
-              }
+              emphasis={area.key === "suggestions"}
+              pill={<StatusPill tone={state.tone}>{state.label}</StatusPill>}
               line={
-                <span className="text-ink-muted">
-                  Status unknown ·{" "}
-                  {area.model === "google_direct"
-                    ? "changes go to Google directly"
-                    : "editable here"}
-                </span>
+                <>
+                  {state.line && state.since ? (
+                    <RelativeTime
+                      iso={state.since}
+                      prefix={`${state.line} `}
+                      casing="mid-sentence"
+                    />
+                  ) : (
+                    (state.line ?? (
+                      <span className="text-ink-muted">Nothing to add</span>
+                    ))
+                  )}
+                  {area.key === "photos" ? (
+                    <span className="mt-1 block text-caption text-ink-muted">
+                      Owner photos on Google, including uploads outside this
+                      app.
+                    </span>
+                  ) : null}
+                  {area.key === "posts" ? (
+                    <span className="mt-1 block text-caption text-ink-muted">
+                      Posts on Google, including posts created outside this app.
+                    </span>
+                  ) : null}
+                </>
               }
               action={action}
             />
           )
-        }
-
-        const state = areaState(area.key, summary, now)
-        return (
-          <AreaCard
-            key={area.key}
-            area={area}
-            emphasis={area.key === "suggestions"}
-            pill={<StatusPill tone={state.tone}>{state.label}</StatusPill>}
-            line={
-              <>
-                {state.line && state.since ? (
-                  <RelativeTime
-                    iso={state.since}
-                    prefix={`${state.line} `}
-                    casing="mid-sentence"
-                  />
-                ) : (
-                  (state.line ?? (
-                    <span className="text-ink-muted">Nothing to add</span>
-                  ))
-                )}
-                {area.key === "photos" ? (
-                  <span className="mt-1 block text-caption text-ink-muted">
-                    Owner photos on Google, including uploads outside this app.
-                  </span>
-                ) : null}
-                {area.key === "posts" ? (
-                  <span className="mt-1 block text-caption text-ink-muted">
-                    Posts on Google, including posts created outside this app.
-                  </span>
-                ) : null}
-              </>
-            }
-            action={action}
-          />
-        )
-      })}
+        })}
+      </div>
     </div>
   )
 }

@@ -168,7 +168,7 @@ export function PlaceActionApprovalSheet({
           />
           {recorded || sending ? null : (
             <>
-              <p className="text-caption text-ink-muted">
+              <p className="text-caption text-ink-muted tabular-nums">
                 {expired ? "Approval expired" : "Approval expires"}:{" "}
                 <ReviewTime value={review.changeSet.expiresAt} />
               </p>
@@ -206,22 +206,30 @@ export function PlaceActionApprovalSheet({
           {outcome ? (
             <section
               aria-label="Action link request outcome"
-              className="flex flex-col gap-2"
+              className="flex flex-col gap-1.5"
             >
-              <p className="text-body text-ink">
-                {executionWords(outcome.executionState)}
+              <p
+                aria-hidden
+                className="text-caption font-medium text-ink-muted"
+              >
+                Outcome
               </p>
-              <p className="text-body text-ink">
-                {confirmationWords(outcome.confirmationState)}
-              </p>
-              <p className="text-caption text-ink-muted">
-                Observation:{" "}
-                {outcome.observedAt ? (
-                  <ReviewTime value={outcome.observedAt} />
-                ) : (
-                  "No dated observation recorded."
-                )}
-              </p>
+              <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
+                <li className="py-2.5 text-body text-ink">
+                  {executionWords(outcome.executionState)}
+                </li>
+                <li className="py-2.5 text-body text-ink">
+                  {confirmationWords(outcome.confirmationState)}
+                </li>
+                <li className="py-2.5 text-caption text-ink-muted">
+                  Observation:{" "}
+                  {outcome.observedAt ? (
+                    <ReviewTime value={outcome.observedAt} />
+                  ) : (
+                    "No dated observation recorded."
+                  )}
+                </li>
+              </ul>
             </section>
           ) : null}
           {workflow.error ? (
@@ -230,12 +238,15 @@ export function PlaceActionApprovalSheet({
             </p>
           ) : null}
           {review.changeSet.approvedBy && !outcome && !workflow.uncertain ? (
-            <Checkbox
-              checked={consent}
-              onCheckedChange={(checked) => setConsent(checked === true)}
-              disabled={blocked}
-              label="Send this exact approved action link change to Google."
-            />
+            // The consent is its own step, set apart from the review above.
+            <div className="border-t border-line-subtle pt-3">
+              <Checkbox
+                checked={consent}
+                onCheckedChange={(checked) => setConsent(checked === true)}
+                disabled={blocked}
+                label="Send this exact approved action link change to Google."
+              />
+            </div>
           ) : null}
         </SheetBody>
         <SheetFooter className="sm:items-center">

@@ -124,7 +124,7 @@ export function IdentitySection({
               <LabelRow
                 changed={changed.labels}
                 extra={
-                  <span className="font-mono text-caption text-ink-muted tabular-nums">
+                  <span className="text-caption text-ink-muted tabular-nums">
                     {draft.labels.length} of {MAX_LABELS}
                   </span>
                 }
@@ -186,18 +186,20 @@ export function CategoriesSection({
       changed={changed.primary || changed.additional}
     >
       <div className="flex flex-col gap-2">
-        <LabelRow changed={changed.primary}>
-          <span className="text-ui font-semibold text-ink">
-            Primary category
-          </span>
-        </LabelRow>
-        <div className="flex flex-wrap items-center gap-2.5 rounded-(--np-radius-control) bg-surface-alt px-3 py-2.5">
+        {/* A settings row: the label, then the current value on the right
+            (under it on a narrow phone), with the search to change it below. */}
+        <div className="flex min-h-(--np-row-h) flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <LabelRow changed={changed.primary}>
+            <span className="text-ui font-medium text-ink">
+              Primary category
+            </span>
+          </LabelRow>
           {draft.primaryCategory ? (
             <StatusPill tone="accent" plain>
               {categoryLabel(draft.primaryCategory)}
             </StatusPill>
           ) : (
-            <span className="text-caption text-ink-muted">
+            <span className="text-ui text-ink-muted">
               No primary category set.
             </span>
           )}
@@ -218,16 +220,16 @@ export function CategoriesSection({
         />
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 border-t border-line-subtle pt-4">
         <LabelRow
           changed={changed.additional}
           extra={
-            <span className="font-mono text-caption text-ink-muted tabular-nums">
+            <span className="text-caption text-ink-muted tabular-nums">
               {draft.additionalCategories.length} of {MAX_ADDITIONAL}
             </span>
           }
         >
-          <span className="text-ui font-semibold text-ink">
+          <span className="text-ui font-medium text-ink">
             Additional categories
           </span>
         </LabelRow>

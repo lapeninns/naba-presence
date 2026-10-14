@@ -9,6 +9,8 @@ import { billingBanner } from "@/lib/billing/presentation"
 import { useBilling } from "@/lib/queries/use-billing"
 import { cn } from "@/lib/utils"
 
+import { NOTICE_ACTION_CLASS, NOTICE_STRIP_CLASS } from "./shell-notices"
+
 const BILLING_PATH = "/settings/billing"
 
 /**
@@ -18,6 +20,9 @@ const BILLING_PATH = "/settings/billing"
  * everyone else is told who can fix it. Not shown on the Billing screens,
  * which say the same in full. A background read: if the overview cannot be
  * loaded the banner stays off, and the server still refuses what it must.
+ *
+ * Drawn as the shell's notice strip. The tint follows the meaning: the
+ * grace period is a warning, read-only access is a stop.
  */
 export function BillingBanner() {
   const pathname = usePathname()
@@ -35,14 +40,15 @@ export function BillingBanner() {
     <Banner
       tone={banner.tone}
       data-slot="billing-banner"
+      className={NOTICE_STRIP_CLASS}
       action={
         overview.canManage && billingScreen ? (
           <Link
             href={BILLING_PATH}
             prefetch={false}
             className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              "pointer-coarse:min-h-11"
+              buttonVariants({ variant: "link" }),
+              NOTICE_ACTION_CLASS
             )}
           >
             Go to Billing

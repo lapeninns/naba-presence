@@ -1,12 +1,10 @@
 "use client"
 
-import { ArrowLeft, ChevronRight, Search } from "lucide-react"
+import { ArrowLeft, ChevronRight, FileQuestion, Search } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import {
-  BOUNDARY_EYEBROW_CLASS,
-  BOUNDARY_TITLE_CLASS,
   BoundaryCode,
   BoundaryFrame,
   boundaryButtonClass,
@@ -15,6 +13,7 @@ import {
   openCommandPalette,
   useShortcutHint,
 } from "@/components/app-shell/command-palette"
+import { useShellNavigation } from "@/components/app-shell/shell-navigation"
 import { visibleDestinations } from "@/lib/navigation/destinations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -23,6 +22,10 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * Inside the shell, not the bare root 404: someone who follows a stale link to
  * a deleted client should still have their navigation, and a list of where
  * they can go instead. Team is offered only to the roles that can open it.
+ *
+ * The look is a calm, centred empty state (an outline icon, the title, why,
+ * one primary action) followed by the destinations drawn as drawer rows:
+ * icon, label, chevron, 48px tall, under a muted group label.
  *
  * Plain markup and the light helpers in components/app-shell/boundary.tsx
  * only (the palette module is the shell's own, already loaded): this file is
@@ -36,10 +39,10 @@ export default function DashboardNotFound() {
   const business = mode === "business"
   // The shell's own destination list (lib/navigation/destinations.ts), so
   // this page offers exactly what the navigation does for this role and
-  // mode. Calendar is offered whenever the role may see it: the 404 cannot
-  // read the scheduling flag, and the Calendar page explains itself when
-  // scheduling is off.
-  const destinations = visibleDestinations({ role, mode }).map(
+  // mode, including leaving Calendar out when scheduling is off (the shell
+  // holds that flag; outside the shell it is unknown and Calendar shows).
+  const hideCalendar = useShellNavigation()?.hideCalendar ?? false
+  const destinations = visibleDestinations({ role, mode, hideCalendar }).map(
     (destination) => ({
       ...destination,
       description: destination.description[mode],
@@ -50,31 +53,31 @@ export default function DashboardNotFound() {
     <BoundaryFrame>
       <div
         data-slot="page-empty-state"
-        className="flex flex-wrap items-end justify-between gap-4"
+        className="flex flex-col items-center gap-2 pt-6 text-center sm:pt-12 lg:pt-16"
       >
-        <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1.5">
-          <span
-            aria-hidden
-            className="mb-1.5 flex size-11 items-center justify-center rounded-lg bg-fill text-ink-secondary"
-          >
-            <Search className="size-5" strokeWidth={1.75} />
-          </span>
-          <p className={BOUNDARY_EYEBROW_CLASS}>Page not found · 404</p>
-          <h1 tabIndex={-1} className={BOUNDARY_TITLE_CLASS}>
-            This page doesn’t exist
-          </h1>
-          <p className="max-w-prose text-body text-pretty text-ink-muted">
-            {business
-              ? "The listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
-              : "The client, listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."}
+        <span
+          aria-hidden
+          className="mb-1 grid size-11 place-items-center rounded-lg bg-fill text-ink-secondary"
+        >
+          <FileQuestion className="size-5" strokeWidth={1.5} />
+        </span>
+        <h1
+          tabIndex={-1}
+          className="text-title font-medium text-balance text-ink outline-none"
+        >
+          This page doesn’t exist
+        </h1>
+        <p className="max-w-md text-ui text-pretty text-ink-muted">
+          {business
+            ? "The listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
+            : "The client, listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."}
+        </p>
+        {pathname ? (
+          <p className="flex max-w-full min-w-0 flex-wrap items-center justify-center gap-2 text-caption text-ink-muted">
+            You asked for <BoundaryCode>{pathname}</BoundaryCode>
           </p>
-          {pathname ? (
-            <p className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-ui text-ink-muted">
-              You asked for <BoundaryCode>{pathname}</BoundaryCode>
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-2 @max-md:w-full @max-md:*:flex-1">
+        ) : null}
+        <div className="mt-3 flex w-full max-w-sm flex-col items-stretch gap-1 sm:w-auto sm:items-center">
           <Link
             href="/inbox"
             className={boundaryButtonClass(
@@ -89,9 +92,9 @@ export default function DashboardNotFound() {
           <button
             type="button"
             className={boundaryButtonClass(
-              "outline",
+              "ghost",
               "default",
-              "pointer-coarse:min-h-11"
+              "text-ink-secondary pointer-coarse:min-h-11"
             )}
             onClick={openCommandPalette}
           >
@@ -107,39 +110,39 @@ export default function DashboardNotFound() {
         </div>
       </div>
 
-      <section aria-labelledby="where-to-go" className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <h2 id="where-to-go" className="text-section font-semibold text-ink">
-            Where to go instead
-          </h2>
-          <p className="text-ui text-ink-muted">
-            The parts of NabaPresence you can reach from here.
-          </p>
-        </div>
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))] gap-3">
+      <section
+        aria-labelledby="where-to-go"
+        className="mx-auto flex w-full max-w-md flex-col gap-1"
+      >
+        <h2
+          id="where-to-go"
+          className="px-3 text-ui font-medium text-ink-muted"
+        >
+          Where to go instead
+        </h2>
+        <ul className="flex flex-col">
           {destinations.map((destination) => (
-            <li key={destination.href} className="flex">
+            <li key={destination.href}>
               <Link
                 href={destination.href}
-                className="grid w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-line bg-surface p-4 focus-halo transition-[border-color,box-shadow] duration-(--np-duration-fast) hover:border-line-strong hover:shadow-np-raised focus-visible:outline-none"
+                className="flex min-h-12 items-center gap-3 rounded-(--np-radius-menu) px-3 py-1.5 text-ink focus-halo transition-colors duration-(--np-duration-fast) focus-visible:outline-none hover-fine:bg-fill"
               >
-                <span
+                <destination.icon
                   aria-hidden
-                  className="grid size-9 place-items-center rounded-lg bg-surface-alt text-ink-secondary"
-                >
-                  <destination.icon className="size-4" strokeWidth={1.75} />
-                </span>
-                <span className="flex min-w-0 flex-col">
-                  <span className="font-semibold text-ink">
+                  className="size-5 shrink-0 text-ink-secondary"
+                  strokeWidth={1.5}
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-body text-ink">
                     {destination.label}
                   </span>
-                  <span className="text-ui text-ink-muted">
+                  <span className="text-caption text-pretty text-ink-muted">
                     {destination.description}
                   </span>
                 </span>
                 <ChevronRight
                   aria-hidden
-                  className="size-4 text-ink-muted"
+                  className="size-4 shrink-0 text-ink-muted"
                   strokeWidth={1.75}
                 />
               </Link>
@@ -150,12 +153,12 @@ export default function DashboardNotFound() {
 
       <section
         aria-labelledby="link-help"
-        className="flex flex-col gap-1.5 rounded-lg bg-surface-alt p-4"
+        className="mx-auto flex w-full max-w-md flex-col gap-1 px-3 text-center"
       >
-        <h2 id="link-help" className="text-body font-semibold text-ink">
+        <h2 id="link-help" className="text-ui font-medium text-ink">
           Followed a link from a teammate?
         </h2>
-        <p className="text-ui text-ink-muted">
+        <p className="text-caption text-pretty text-ink-muted">
           {business
             ? "Ask them to open it again. If it still fails, the listing was probably removed. If you can’t see a location they can, an owner or admin can give you access from the Team page."
             : "Ask them to open it again. If it still fails, the client or listing was probably removed. If you can’t see a client they can, an owner or admin can give you access from the Team page."}

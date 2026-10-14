@@ -142,11 +142,22 @@ function useCurrentInView(
   }, [ref, selector, key])
 }
 
-/** One tab or tab link. */
+/**
+ * Focus is drawn INSIDE the tab (`focus-ring-inset`): the row scrolls
+ * sideways (`overflow-x-auto`), so it clips everything outside its padding
+ * box, and an outer halo would lose its bottom edge to the hairline and its
+ * sides at either end of the row. Vertical padding cannot save the sides.
+ *
+ * One tab or tab link. The current one is `data-active` (a Base UI tab),
+ * `aria-current="page"` (a route link) or `aria-current="location"` (a link
+ * to a section of the same page, e.g. a profile's section nav).
+ */
 const tabItemClassName = cn(
-  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
+  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
+  // An in-page section nav marks its current section `aria-current="location"`.
+  "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
   "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
 )
 
@@ -158,9 +169,11 @@ const tabItemClassName = cn(
  * a faded, clipped edge rather than squeezing a label.
  */
 const textTabItemClassName = cn(
-  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
+  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
+  // An in-page section nav marks its current section `aria-current="location"`.
+  "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
   "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
 )
 
@@ -445,6 +458,7 @@ export {
   TabLabel,
   TabCount,
   TextTabs,
+  useScrollFade,
   tabItemClassName,
   tabsRowClassName,
   textTabItemClassName,

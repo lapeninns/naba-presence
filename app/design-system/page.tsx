@@ -20,6 +20,7 @@ import {
   ThemeToggleDemo,
   ValidationDemo,
 } from "@/app/design-system/interactive-demos"
+import { NmDrop3Demo } from "@/app/design-system/nm-drop3-demo"
 import { NmFeedbackDemo } from "@/app/design-system/nm-feedback-demo"
 import { NmFormsDemo } from "@/app/design-system/nm-forms-demo"
 import { NmListDemo } from "@/app/design-system/nm-list-demo"
@@ -1556,6 +1557,7 @@ export default function Page() {
           <NmLists1bDemo />
           <NmFormsDemo />
           <NmOverlaysDemo />
+          <NmDrop3Demo />
         </Section>
 
         <Section
