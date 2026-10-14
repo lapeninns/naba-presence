@@ -250,7 +250,10 @@ export function renderPlatformEmail(
     | "tick_cycle_failures"
     | "google_quota_pressure"
     | "scheduled_post_stuck"
-    | "scheduled_post_overdue",
+    | "scheduled_post_overdue"
+    | "billing_event_dead"
+    | "billing_sync_failing"
+    | "billing_plan_unknown",
   subject: string,
   details: Record<string, unknown>
 ): { subject: string; text: string } {
@@ -333,6 +336,37 @@ export function renderPlatformEmail(
         `Organisation ${subject} has ${details.occurrences ?? "?"} scheduled post publication(s) still waiting more than three minutes after their 5-minute window closed (oldest deadline ${text(details.oldestDeadlineAt, "unknown")}).`,
         "None of them will publish late, but the jobs tick's sweep has not recorded them as missed, so nobody has been told.",
         'Check the jobs tick and post_schedule.sweep_failed in the logs (docs/runbook.md, "Scheduled post alerts").',
+      ].join("\n"),
+    }
+  }
+  // R2B-06. The subject is an organisation id; nothing from Stripe is named.
+  if (kind === "billing_event_dead") {
+    return {
+      subject: "NabaPresence: a billing event was dead-lettered",
+      text: [
+        `Organisation ${subject} has ${details.events ?? "?"} Stripe event(s) that failed every retry, the oldest at ${text(details.oldestDeadAt, "an unknown time")} (last error ${text(details.lastErrorCode, "unknown")}), and no sync has succeeded since.`,
+        "Its billing record may not match Stripe; the hourly reconcile repairs it once the cause is fixed.",
+        'Read billing.event_failed in the logs (docs/runbook.md, "Billing alerts").',
+      ].join("\n"),
+    }
+  }
+  if (kind === "billing_sync_failing") {
+    return {
+      subject: "NabaPresence: billing keeps failing to sync",
+      text: [
+        `The last ${details.failures ?? "?"} background billing syncs for organisation ${subject} failed, most recently at ${text(details.lastFailedAt, "an unknown time")} with ${text(details.lastErrorCode, "an unknown error")}.`,
+        "Its billing record is not following Stripe, so its access may be wrong.",
+        'Read billing.reconcile_failed and billing.event_failed in the logs (docs/runbook.md, "Billing alerts").',
+      ].join("\n"),
+    }
+  }
+  if (kind === "billing_plan_unknown") {
+    return {
+      subject: "NabaPresence: a subscribed price is missing from the billing catalog",
+      text: [
+        `Organisation ${subject} is subscribed to a Stripe price the plan catalog does not know (last failure ${text(details.lastFailedAt, "at an unknown time")}).`,
+        "Every sync for it fails until the catalog has that price, and its access stays as it was: a pilot keeps full access.",
+        'Add the price with scripts/billing-catalog.mjs (docs/runbook.md, "Billing alerts").',
       ].join("\n"),
     }
   }

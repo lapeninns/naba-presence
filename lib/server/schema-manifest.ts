@@ -154,5 +154,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0143_bounded_review_search",
   "0144_job_claim_priority",
   "0145_fleet_lease",
+  "0146_billing_operator_alerts",
   "20260729000400_remove_local_demo_data",
 ]

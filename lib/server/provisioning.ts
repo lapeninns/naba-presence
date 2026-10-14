@@ -11,6 +11,7 @@ import {
   grantLocationListings,
 } from "@/lib/server/client-access"
 import { getDatabase } from "@/lib/server/db"
+import { assertNewMemberSeat } from "@/lib/server/entitlement-policy"
 import { ApiError } from "@/lib/server/http"
 import { createHomeClient } from "@/lib/server/clients"
 import {
@@ -366,6 +367,12 @@ export async function provisionAuthenticatedMember(
       }
       const user = await provisionAuthenticatedUser(sql, identity)
       await sql`select set_config('app.user_id', ${user.id}, true)`
+      // The plan's member limit (R2B-04), decided here under the billing row
+      // lock. Refusing fails this sign-in, as an expired invitation does.
+      await assertNewMemberSeat(sql, invitation.organisationId, {
+        joiningUserId: user.id,
+        lock: true,
+      })
       // do nothing, never do update: acceptance may create a membership but
       // must never rewrite one. The owner_role_required and last_owner guards
       // live in PATCH /api/members, and an upsert here bypassed both from
@@ -543,6 +550,10 @@ export async function acceptInvitationForSessionUser(
       )
     }
     await sql`select set_config('app.user_id', ${user.userId}, true)`
+    await assertNewMemberSeat(sql, invitation.organisationId, {
+      joiningUserId: user.userId,
+      lock: true,
+    })
     // Same do-nothing rule as provisionAuthenticatedMember: acceptance may
     // create a membership but never rewrite an existing one.
     const joined = await sql`
