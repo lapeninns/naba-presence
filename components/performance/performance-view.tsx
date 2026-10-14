@@ -288,6 +288,7 @@ export function PerformanceView() {
             <ShareReportButton
               clientId={shareClient.id}
               clientName={shareClient.name}
+              compact
             />
           ) : null
         }

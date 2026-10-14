@@ -119,10 +119,14 @@ export function ShareReportButton({
   clientId,
   clientName,
   variant = "secondary",
+  compact = false,
 }: {
   clientId: string
   clientName: string
   variant?: "default" | "secondary" | "ghost"
+  /** Below md, the icon alone (the name stays "Share report"), so a row it
+   *  shares with the report scope pill keeps the scope uncut. */
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   // Mounted on first use and kept, so it costs nothing on a page where it is
@@ -132,13 +136,18 @@ export function ShareReportButton({
     <>
       <Button
         variant={variant}
+        className={
+          compact ? "max-md:min-w-(--np-touch) max-md:px-0" : undefined
+        }
         onClick={() => {
           setUsed(true)
           setOpen(true)
         }}
       >
         <Share2Icon aria-hidden strokeWidth={1.75} />
-        Share report
+        <span className={compact ? "max-md:sr-only" : undefined}>
+          Share report
+        </span>
       </Button>
       {used ? (
         <ShareReportDialog

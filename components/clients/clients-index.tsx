@@ -705,8 +705,18 @@ function OpenWork({ client }: { client: ClientSummary }) {
     // A state in words, drawn as a status (dot + word, no fill), so it can't
     // be mistaken for a button beside the rows' "2 to reply" links.
     return (
-      <StatusPill tone="neutral" variant="inline" data-slot="open-work-none">
-        Nothing to reply to
+      // Sans, not the numeric column's mono; on a record card the short word
+      // keeps the client name to one line (the full phrase stays for readers).
+      <StatusPill
+        tone="neutral"
+        variant="inline"
+        data-slot="open-work-none"
+        className="font-sans"
+      >
+        <span className="@max-3xl/table:sr-only">Nothing to reply to</span>
+        <span aria-hidden className="@3xl/table:hidden">
+          Nothing due
+        </span>
       </StatusPill>
     )
   }

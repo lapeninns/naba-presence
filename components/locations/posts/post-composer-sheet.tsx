@@ -95,8 +95,7 @@ const ROW_VALUE = "flex min-w-0 flex-1 flex-col gap-1"
  * Borderless at rest, so the rows read as one surface; the edge and the
  * focus ring come back on hover, focus and an error.
  */
-const BARE =
-  "border-transparent bg-transparent hover-fine:hover:border-line"
+const BARE = "border-transparent bg-transparent hover-fine:hover:border-line"
 
 /** The summary limit the posts route parses with (`localPostInputSchema`). */
 const SUMMARY_MAX = 1500
@@ -1078,9 +1077,11 @@ export function PostComposerSheet({
           {/* Shown at every width: on a phone it wraps above the buttons. */}
           <div className="flex min-w-0 flex-col gap-0.5 text-caption text-pretty text-ink-muted sm:mr-auto sm:flex-1">
             {saveReason ? <p id={saveReasonId}>{saveReason}</p> : null}
+            {/* The composer only saves: publishing (or asking for approval,
+                or scheduling where it is on) happens from the post list. */}
             <p>
-              Posts publish when you press Publish; scheduling isn’t
-              available.
+              This saves a draft. Nothing goes to Google until it is published
+              from the list.
             </p>
           </div>
           {/* Marked as the overlay's close control so a dirty composer
@@ -1093,7 +1094,11 @@ export function PostComposerSheet({
             onClick={submit}
             disabled={disabled || !isDirty}
             aria-describedby={
-              disabled ? disabledReasonId : saveReason ? saveReasonId : undefined
+              disabled
+                ? disabledReasonId
+                : saveReason
+                  ? saveReasonId
+                  : undefined
             }
             pending={create.isPending}
             pendingLabel="Saving…"

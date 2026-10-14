@@ -415,15 +415,20 @@ function ReviewList({
                   data-slot="review-row-venue"
                   className="@container/venue block min-w-0 whitespace-normal"
                 >
-                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                    <Stars
-                      value={review.rating}
-                      label={
-                        review.rating === null
-                          ? undefined
-                          : ratingLabel(review.rating)
-                      }
-                    />
+                  {/* Start-aligned, each item centred in one line's height,
+                      so the stars sit on the venue's first line when it
+                      wraps (QA N4), not midway down the block. */}
+                  <span className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
+                    <span className="flex h-lh shrink-0 items-center">
+                      <Stars
+                        value={review.rating}
+                        label={
+                          review.rating === null
+                            ? undefined
+                            : ratingLabel(review.rating)
+                        }
+                      />
+                    </span>
                     <span
                       data-slot="review-row-location"
                       title={venue}
@@ -432,25 +437,29 @@ function ReviewList({
                       {venue}
                     </span>
                     {review.hasMedia ? (
-                      <ImageIcon
-                        role="img"
-                        aria-label="Has photos"
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-ink-muted"
-                      />
+                      <span className="flex h-lh shrink-0 items-center">
+                        <ImageIcon
+                          role="img"
+                          aria-label="Has photos"
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-ink-muted"
+                        />
+                      </span>
                     ) : null}
                     {parsed?.original ? (
-                      <GlobeIcon
-                        role="img"
-                        aria-label="Translated"
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-ink-muted"
-                      />
+                      <span className="flex h-lh shrink-0 items-center">
+                        <GlobeIcon
+                          role="img"
+                          aria-label="Translated"
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-ink-muted"
+                        />
+                      </span>
                     ) : null}
                     {pillRepeatsQueue ? null : (
                       <span
                         data-slot="review-row-status"
-                        className="ml-auto flex shrink-0 @max-sm/venue:ml-0 @max-sm/venue:basis-full"
+                        className="ml-auto flex shrink-0 self-center @max-sm/venue:ml-0 @max-sm/venue:basis-full"
                       >
                         <StatusPill
                           tone={pill.tone}

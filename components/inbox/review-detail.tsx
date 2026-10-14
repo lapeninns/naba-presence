@@ -220,10 +220,12 @@ function ReviewerIdentity({
         <span>Google review</span>
       </p>
       {/* Which venue this is for, on every review: the client first for an
-          agency, the location alone for a business. */}
+          agency, the location alone for a business. It wraps rather than
+          truncates, as the inbox row does (QA #2): two venues of one client
+          often differ only at the end. */}
       <p
         data-slot="review-venue"
-        className="min-w-0 truncate text-caption text-ink-secondary"
+        className="min-w-0 text-caption wrap-break-word text-ink-secondary"
       >
         {venueLabel(review, clientName)}
       </p>

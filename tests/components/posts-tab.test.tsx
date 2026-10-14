@@ -12,8 +12,12 @@ import { matchesPostFilter } from "@/lib/locations/post-display"
 
 const usePostsMock = vi.fn()
 const useCapsMock = vi.fn()
-vi.mock("@/lib/queries/use-location-posts", () => ({ usePosts: (...args: unknown[]) => usePostsMock(...args) }))
-vi.mock("@/lib/queries/use-location-capabilities", () => ({ useLocationCapabilities: () => useCapsMock() }))
+vi.mock("@/lib/queries/use-location-posts", () => ({
+  usePosts: (...args: unknown[]) => usePostsMock(...args),
+}))
+vi.mock("@/lib/queries/use-location-capabilities", () => ({
+  useLocationCapabilities: () => useCapsMock(),
+}))
 
 function post(overrides: Partial<Post> = {}): Post {
   return {
@@ -35,18 +39,39 @@ function post(overrides: Partial<Post> = {}): Post {
     ...overrides,
   }
 }
-const noMore: ListPaging = { hasMore: false, loadingMore: false, loadMoreFailed: false, loadMore: () => {} }
+const noMore: ListPaging = {
+  hasMore: false,
+  loadingMore: false,
+  loadMoreFailed: false,
+  loadMore: () => {},
+}
 type View = PostsView & { paging: ListPaging }
 function countsOf(posts: Post[]): View["counts"] {
-  const count = (filter: Parameters<typeof matchesPostFilter>[1]) => posts.filter((row) => matchesPostFilter(row, filter)).length
+  const count = (filter: Parameters<typeof matchesPostFilter>[1]) =>
+    posts.filter((row) => matchesPostFilter(row, filter)).length
   return {
-    all: posts.length, draft: count("draft"), awaiting: count("awaiting"), published: count("published"), attention: count("attention"),
-    live: posts.filter((row) => row.status === "published" && row.googleState === "LIVE").length,
+    all: posts.length,
+    draft: count("draft"),
+    awaiting: count("awaiting"),
+    published: count("published"),
+    attention: count("attention"),
+    live: posts.filter(
+      (row) => row.status === "published" && row.googleState === "LIVE"
+    ).length,
   }
 }
 function makeState(overrides: Partial<View> = {}): View {
   const posts = overrides.posts ?? [post()]
-  return { posts, counts: countsOf(posts), filter: "all", paging: noMore, writesEnabled: true, reconciliationError: null, timezone: undefined, ...overrides }
+  return {
+    posts,
+    counts: countsOf(posts),
+    filter: "all",
+    paging: noMore,
+    writesEnabled: true,
+    reconciliationError: null,
+    timezone: undefined,
+    ...overrides,
+  }
 }
 
 function renderTab() {
@@ -100,7 +125,7 @@ describe("PostsTab", () => {
   })
 
   // RC3 #15 and #20: Save draft was off with no reason, and the footer's
-  // "scheduling isn't available" note was hidden below 640px.
+  // note on what saving does was hidden below 640px.
   it("says in words why Save draft is off, and keeps the footer note at every width", async () => {
     const user = userEvent.setup()
     usePostsMock.mockReturnValue({
@@ -125,9 +150,15 @@ describe("PostsTab", () => {
       within(sheet).getByText("Nothing to save yet. Write the post first.")
     ).toBeVisible()
 
-    const note = within(sheet).getByText(/scheduling isn’t available/)
-    for (let node: HTMLElement | null = note; node && node !== sheet; node = node.parentElement)
-      expect(node.className).not.toMatch(/(^|\s)(hidden|max-sm:hidden|sr-only)(\s|$)/)
+    const note = within(sheet).getByText(/Nothing goes to Google until/)
+    for (
+      let node: HTMLElement | null = note;
+      node && node !== sheet;
+      node = node.parentElement
+    )
+      expect(node.className).not.toMatch(
+        /(^|\s)(hidden|max-sm:hidden|sr-only)(\s|$)/
+      )
 
     await user.type(
       within(sheet).getByRole("textbox", { name: "Post summary" }),
@@ -169,7 +200,9 @@ describe("PostsTab", () => {
     renderTab()
     expect(screen.getByText(/Repeats weekly on Fri/)).toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "More actions for Quiz night" }))
+    await user.click(
+      screen.getByRole("button", { name: "More actions for Quiz night" })
+    )
     await user.click(await screen.findByRole("menuitem", { name: "Edit" }))
     const sheet = await screen.findByRole("dialog")
     const group = within(sheet).getByRole("group", { name: "On" })
@@ -188,36 +221,75 @@ describe("PostsTab", () => {
 
   it("asks before closing a composer with unsaved text, and keeps it when the operator stays", async () => {
     const user = userEvent.setup()
-    usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
-    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    usePostsMock.mockReturnValue({
+      data: makeState(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
     renderTab()
     await user.click(screen.getByRole("button", { name: "New post" }))
     const sheet = await screen.findByRole("dialog")
-    await user.type(within(sheet).getByRole("textbox", { name: "Post summary" }), "Late opening")
+    await user.type(
+      within(sheet).getByRole("textbox", { name: "Post summary" }),
+      "Late opening"
+    )
 
     await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
-    const prompt = await screen.findByRole("alertdialog", { name: "Close without saving?" })
-    await user.click(within(prompt).getByRole("button", { name: "Keep editing" }))
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "Close without saving?",
+    })
+    await user.click(
+      within(prompt).getByRole("button", { name: "Keep editing" })
+    )
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
-    expect(within(screen.getByRole("dialog")).getByRole("textbox", { name: "Post summary" })).toHaveValue("Late opening")
+    expect(
+      within(screen.getByRole("dialog")).getByRole("textbox", {
+        name: "Post summary",
+      })
+    ).toHaveValue("Late opening")
 
     await user.keyboard("{Escape}")
-    const again = await screen.findByRole("alertdialog", { name: "Close without saving?" })
-    await user.click(within(again).getByRole("button", { name: "Close and discard" }))
+    const again = await screen.findByRole("alertdialog", {
+      name: "Close without saving?",
+    })
+    await user.click(
+      within(again).getByRole("button", { name: "Close and discard" })
+    )
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
 
     // Reopening starts from an empty post: the discarded text is gone.
     await user.click(screen.getByRole("button", { name: "New post" }))
-    expect(within(await screen.findByRole("dialog")).getByRole("textbox", { name: "Post summary" })).toHaveValue("")
+    expect(
+      within(await screen.findByRole("dialog")).getByRole("textbox", {
+        name: "Post summary",
+      })
+    ).toHaveValue("")
   })
 
   it("closes a clean edit at once, and keeps edits to a saved post across a close that was declined", async () => {
     const user = userEvent.setup()
-    usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
-    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    usePostsMock.mockReturnValue({
+      data: makeState(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
     renderTab()
     const edit = async () => {
-      await user.click(screen.getByRole("button", { name: "More actions for Open late tonight" }))
+      await user.click(
+        screen.getByRole("button", {
+          name: "More actions for Open late tonight",
+        })
+      )
       await user.click(await screen.findByRole("menuitem", { name: "Edit" }))
     }
     await edit()
@@ -232,10 +304,18 @@ describe("PostsTab", () => {
     await user.clear(summary)
     await user.type(summary, "Closed for refit")
     await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
-    const prompt = await screen.findByRole("alertdialog", { name: "Close without saving?" })
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "Close without saving?",
+    })
     expect(prompt).toHaveTextContent("keeps the saved draft")
-    await user.click(within(prompt).getByRole("button", { name: "Keep editing" }))
-    expect(within(screen.getByRole("dialog")).getByRole("textbox", { name: "Post summary" })).toHaveValue("Closed for refit")
+    await user.click(
+      within(prompt).getByRole("button", { name: "Keep editing" })
+    )
+    expect(
+      within(screen.getByRole("dialog")).getByRole("textbox", {
+        name: "Post summary",
+      })
+    ).toHaveValue("Closed for refit")
   })
 
   it("shows a paused notice and blocks composing when posts are paused", async () => {
@@ -282,8 +362,12 @@ describe("PostsTab", () => {
       within(screen.getByRole("article")).getByText("Awaiting approval")
     ).toBeInTheDocument()
     // Reject is a second choice, so it is in the post's menu.
-    await userEvent.click(screen.getByRole("button", { name: "More actions for Open late tonight" }))
-    expect(await screen.findByRole("menuitem", { name: "Reject" })).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole("button", { name: "More actions for Open late tonight" })
+    )
+    expect(
+      await screen.findByRole("menuitem", { name: "Reject" })
+    ).toBeInTheDocument()
   })
 
   // P08-R1: scheduling is an organisation feature, off by default.
@@ -421,26 +505,53 @@ describe("PostsTab paging and views", () => {
     usePostsMock.mockReturnValue({
       data: makeState({
         posts: [post({ id: "a", summary: "First draft" })],
-        counts: { all: 41, draft: 25, awaiting: 3, published: 10, attention: 3, live: 9 },
+        counts: {
+          all: 41,
+          draft: 25,
+          awaiting: 3,
+          published: 10,
+          attention: 3,
+          live: 9,
+        },
         paging: { ...noMore, hasMore: true, loadMore },
       }),
-      isPending: false, isError: false, error: null, refetch: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
     })
-    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
     renderTab()
-    expect(screen.getByRole("button", { name: /Drafts/ })).toHaveTextContent("25")
+    expect(screen.getByRole("button", { name: /Drafts/ })).toHaveTextContent(
+      "25"
+    )
     // The counts are on the filter chips; the area header above owns the
     // status, so the list repeats no summary pill.
-    expect(screen.getByRole("button", { name: /Needs attention/ })).toHaveTextContent("3")
-    expect(screen.getByText("Showing 1 of 41 posts")).toHaveAttribute("role", "status")
+    expect(
+      screen.getByRole("button", { name: /Needs attention/ })
+    ).toHaveTextContent("3")
+    expect(screen.getByText("Showing 1 of 41 posts")).toHaveAttribute(
+      "role",
+      "status"
+    )
     await user.click(screen.getByRole("button", { name: "Load more posts" }))
     expect(loadMore).toHaveBeenCalledTimes(1)
   })
 
   it("asks the server for the chosen view and keeps the list while it loads", async () => {
     const user = userEvent.setup()
-    usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
-    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    usePostsMock.mockReturnValue({
+      data: makeState(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
     renderTab()
     expect(usePostsMock).toHaveBeenLastCalledWith("loc-1", "all")
     await user.click(screen.getByRole("button", { name: /Drafts/ }))

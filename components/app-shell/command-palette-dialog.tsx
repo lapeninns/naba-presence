@@ -153,11 +153,8 @@ function CommandPaletteDialog({
         ref={inputRef}
         value={query}
         onValueChange={setQuery}
-        placeholder={
-          business
-            ? "Go to a location or an action, or search reviews…"
-            : "Go to a client, a location or an action, or search reviews…"
-        }
+        // Short enough for a 390px phone; the description names what it finds.
+        placeholder="Search reviews or jump to…"
         trailing={
           query ? (
             <button
