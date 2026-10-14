@@ -531,15 +531,8 @@ function HoursForm({
       <GoogleFreshness
         observedAt={hours.observedAt}
         refreshing={refresh.isPending}
-        onRefresh={() =>
-          refresh.mutate(undefined, {
-            onSuccess: () => setFormError(null),
-            onError: () =>
-              setFormError(
-                "Google couldn’t be checked just now. The hours shown are from the last check. Try again."
-              ),
-          })
-        }
+        failed={refresh.isError}
+        onRefresh={() => refresh.mutate()}
       />
 
       <HoursEditor

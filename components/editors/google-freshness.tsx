@@ -15,11 +15,14 @@ export function GoogleFreshness({
   observedAt,
   onRefresh,
   refreshing,
+  failed,
   disabled,
 }: {
   observedAt: string | undefined
   onRefresh: () => void
   refreshing: boolean
+  /** The last "Check Google now" failed; what shows is the earlier check. */
+  failed?: boolean
   disabled?: boolean
 }) {
   if (!observedAt) return null
@@ -48,6 +51,11 @@ export function GoogleFreshness({
         />
         {refreshing ? "Checking Google…" : "Check Google now"}
       </Button>
+      {failed && !refreshing ? (
+        <span role="status" className="text-ink">
+          Google couldn’t be checked just now. Try again.
+        </span>
+      ) : null}
     </p>
   )
 }

@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { editorRefreshQuerySchema } from "@/lib/contracts/editor-freshness"
 import {
   PROFILE_OPERATION_CONFIRMATIONS,
   profileOperationBodySchema,
@@ -25,12 +26,17 @@ export const maxDuration = 60
 
 const paramsSchema = z.object({ id: z.uuid() })
 
+// Within the editor's staleness budget the stored observation answers
+// (read only, no Google call); `?refresh=1` reads Google now.
 export const GET = route({
   maxDuration,
   params: paramsSchema,
-  handler: async ({ session, params }) =>
+  query: editorRefreshQuerySchema,
+  handler: async ({ session, params, query }) =>
     ({
-      profile: await getProfileState(session, params.id),
+      profile: await getProfileState(session, params.id, {
+        refresh: query.refresh === "1",
+      }),
     }) satisfies ProfileResponse,
 })
 
@@ -40,20 +46,26 @@ export const PUT = route({
   params: paramsSchema,
   body: saveProfileBodySchema,
   handler: async ({ session, params, body, requestId }) => {
-    const saved = (await saveCanonicalProfile({
+    const saved = await saveCanonicalProfile({
       session,
       locationId: params.id,
       expectedCanonicalRevision: body.expectedCanonicalRevision,
       values: body.values,
       requestId,
-    })) satisfies SaveProfileResponse
+    })
     // A publish waiting for approval was for the profile before this save.
     await invalidatePendingListingChanges({
       organisationId: session.organisationId,
       locationId: params.id,
       kinds: ["profile_publish"],
     })
-    return saved
+    // The saved copy against the Google state last observed, whatever its
+    // age: the editor publishes from it without fetching again, and the
+    // publish compares it with a live read anyway.
+    const profile = await getProfileState(session, params.id, {
+      maxAgeMs: Infinity,
+    })
+    return { ...saved, profile } satisfies SaveProfileResponse
   },
 })
 

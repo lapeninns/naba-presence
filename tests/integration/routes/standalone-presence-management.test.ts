@@ -486,6 +486,10 @@ describeDatabase("standalone NabaPresence canonical management", () => {
       return { status: 200, json: location }
     })
     const url = `${server.baseUrl}/api/locations/${linked.locationId}/business-information`
+    // The profile editor's next open is served from its stored Google read...
+    const profileUrl = `${server.baseUrl}/api/locations/${linked.locationId}/profile`
+    expect((await getJson(profileUrl, owner.cookie, "profile")).source).toBe("live")
+    expect((await getJson(profileUrl, owner.cookie, "profile")).source).toBe("stored")
     const loaded = await fetch(url, { headers: { cookie: owner.cookie } })
     const state = businessInformationResponseSchema.parse(await loaded.json()).businessInformation
     const body = { expectedGoogleHash: state.locationHash, updateMask: ["phoneNumbers"], payload: { phoneNumbers: { primaryPhone, additionalPhones: ["+44 1223 000009"] } } }
@@ -520,6 +524,8 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     expect(published.status, await published.clone().text()).toBe(200)
     expect(mutations).toBe(1)
     expect(location.phoneNumbers).toEqual(body.payload.phoneNumbers)
+    // ...until a business-information write: then it reads what that left.
+    expect((await getJson(profileUrl, owner.cookie, "profile")).source).toBe("live")
   })
 
   it("requires a second services approver and rejects a revoked approver before publishing", async () => {
@@ -1340,6 +1346,124 @@ describeDatabase("standalone NabaPresence canonical management", () => {
           !call.path.includes("validateOnly=true")
       )
     ).toHaveLength(1)
+  })
+
+  it("serves profile opens from storage and reads Google's profile at most twice for a save and publish (W0-04)", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    let providerLocation: Record<string, unknown> = {
+      name: linked.googleLocationName,
+      title: "Rose and Crown",
+      websiteUri: "https://rose.example",
+    }
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+      () => ({ status: 200, json: providerLocation })
+    )
+    google.respond(
+      { method: "PATCH", pathIncludes: `/v1/${linked.googleLocationName}` },
+      (call) => {
+        const url = new URL(call.path, google.baseUrl)
+        if (url.searchParams.get("validateOnly") !== "true")
+          providerLocation = {
+            ...providerLocation,
+            ...(call.body as Record<string, unknown>),
+          }
+        return { status: 200, json: providerLocation }
+      }
+    )
+    const profileReads = () =>
+      google.calls.filter(
+        (call) =>
+          call.method === "GET" && call.path.includes(linked.googleLocationName)
+      ).length
+    const root = `${server.baseUrl}/api/locations/${linked.locationId}`
+    const initial = await getJson(`${root}/profile`, owner.cookie, "profile")
+    expect(initial.source).toBe("live")
+
+    // Reopening within the budget: no Google read, no write.
+    let before = profileReads()
+    const [observedBefore] = await admin<{ observed_at: Date }[]>`
+      select observed_at from presence_resource_reconcile_state
+      where location_id = ${linked.locationId} and resource = 'profile'`
+    const reopened = await getJson(`${root}/profile`, owner.cookie, "profile")
+    expect(reopened.source).toBe("stored")
+    // The same comparison; the first read's baselines are now on record.
+    const comparison = (profile: typeof initial) => ({
+      ...profile,
+      source: undefined,
+      fields: profile.fields.map(
+        ({ lastReconciledAt, ...field }: Record<string, unknown>) => {
+          void lastReconciledAt
+          return field
+        }
+      ),
+    })
+    expect(comparison(reopened)).toEqual(comparison(initial))
+    expect(profileReads()).toBe(before)
+    const [observedAfter] = await admin<{ observed_at: Date }[]>`
+      select observed_at from presence_resource_reconcile_state
+      where location_id = ${linked.locationId} and resource = 'profile'`
+    expect(observedAfter.observed_at).toEqual(observedBefore.observed_at)
+
+    // Save and publish: the save reads no Google and answers with the saved
+    // profile; the publish reads Google before its PATCH and back after it;
+    // the editor's refetch is served from that readback.
+    before = profileReads()
+    const save = await fetch(`${root}/profile`, {
+      method: "PUT",
+      headers: jsonHeaders(owner.cookie, "save-fresh-profile"),
+      body: JSON.stringify({
+        expectedCanonicalRevision: initial.canonicalResource.revision,
+        values: { name: "The Rose and Crown" },
+      }),
+    })
+    expect(save.status, await save.clone().text()).toBe(200)
+    const saved = (await save.json()).profile
+    expect(saved).toMatchObject({ source: "stored" })
+    expect(profileReads()).toBe(before)
+    const published = await fetch(`${root}/profile`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie, "publish-fresh-profile"),
+      body: JSON.stringify({
+        direction: "to_google",
+        confirmation: "publish_nabapresence_profile_to_google",
+        selectedFields: ["name"],
+        expectedCanonicalRevision: saved.canonicalResource.revision,
+        expectedCanonicalHash: saved.canonicalHash,
+        expectedGoogleHash: saved.googleHash,
+        confirmOverwriteGoogleChanges: false,
+        confirmOverwriteCanonicalChanges: false,
+      }),
+    })
+    expect(published.status, await published.clone().text()).toBe(200)
+    const after = await getJson(`${root}/profile`, owner.cookie, "profile")
+    expect(after.source).toBe("stored")
+    expect(
+      after.fields.find((field: { key: string }) => field.key === "name")
+    ).toMatchObject({ status: "in_sync", googleValue: "The Rose and Crown" })
+    expect(profileReads() - before).toBeLessThanOrEqual(2)
+
+    // A Google edit shows once the operator checks Google again.
+    providerLocation = { ...providerLocation, websiteUri: "https://rose.example/new" }
+    expect(
+      (await getJson(`${root}/profile`, owner.cookie, "profile")).googleHash
+    ).toBe(after.googleHash)
+    const refreshed = await getJson(
+      `${root}/profile?refresh=1`,
+      owner.cookie,
+      "profile"
+    )
+    expect(refreshed.source).toBe("live")
+    expect(refreshed.googleHash).not.toBe(after.googleHash)
   })
 
   it("persists never-published checks and Google drift, retains edits and success time after failure", async () => {

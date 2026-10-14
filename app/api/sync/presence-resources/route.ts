@@ -150,7 +150,9 @@ async function reconcileResource(
   if (resource === "hours")
     return getHoursState(session, locationId, { refresh: true })
   if (resource === "profile") {
-    const bundle = await readProfileStateBundle(session, locationId)
+    const bundle = await readProfileStateBundle(session, locationId, {
+      refresh: true,
+    })
     // Proposal raising is isolated: a raise failure must not poison the
     // state observation itself.
     if (getServerEnv().IMPORT_REVIEW_ENABLED) {

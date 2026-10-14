@@ -21,8 +21,18 @@ export type {
   SaveProfileResponse,
 } from "@/lib/contracts/location-profile"
 
-export function fetchProfile(id: string, options?: RequestOptions): Promise<ProfileState> {
-  return apiFetch(`/api/locations/${id}/profile`, {
+/**
+ * The profile editor's state. Within the editor's staleness budget the
+ * server answers from its last Google read (`source: "stored"`); `refresh`
+ * reads Google now.
+ */
+export function fetchProfile(
+  id: string,
+  options?: RequestOptions,
+  params: { refresh?: boolean } = {}
+): Promise<ProfileState> {
+  const suffix = params.refresh ? "?refresh=1" : ""
+  return apiFetch(`/api/locations/${id}/profile${suffix}`, {
     schema: profileResponseSchema,
     ...options,
   }).then((r) => r.profile)

@@ -43,6 +43,7 @@ import {
 } from "@/lib/server/gbp-management"
 import { classifyFailure, type GbpWritePhase } from "@/lib/server/gbp-write"
 import { ApiError, parseStored } from "@/lib/server/http"
+import { forgetObservedGooglePayload } from "@/lib/server/resource-observations"
 import type { Session } from "@/lib/server/session"
 
 const READ_MASK = [
@@ -204,6 +205,9 @@ export async function updateBusinessInformation(input: BusinessInformationWrite)
   return withGoogleWriteSession({ surface: "business_information", keys: [`${input.session.organisationId}:${input.locationId}:business_info`] }, async () => {
     const linked = await loadedContext(input.session, input.locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
+    // The update may change fields the profile editor shows (title, phone,
+    // website, description, categories): its next open reads Google.
+    await forgetObservedGooglePayload({ organisationId: input.session.organisationId, locationId: input.locationId, resources: ["profile"] })
     const reviewed = await approvedGbpChange({ session: input.session, linked, changeSetId, payload: input.payload, updateMask: input.updateMask, resourceType: "business_info" })
     if (reviewed.baseline_hash !== input.expectedGoogleHash) throw new ApiError(409, "approval_stale", "The baseline changed after review.")
     const [existing] = await withTenant(input.session.organisationId, (sql) => sql<BusinessInformationMutationResult[]>`select id, status, execution_state as "executionState", confirmation_state as "confirmationState" from gbp_management_mutation where change_set_id = ${changeSetId}`)
@@ -216,6 +220,7 @@ export async function confirmBusinessInformation(session: Session, locationId: s
   return withGoogleWriteSession({ surface: "business_information_confirm", keys: [`${session.organisationId}:${locationId}:business_info`, `${session.organisationId}:${locationId}:attributes`], organisationId: session.organisationId }, async ({ sql }) => {
     const linked = await loadedContext(session, locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this location.")
+    await forgetObservedGooglePayload({ organisationId: session.organisationId, locationId, resources: ["profile"] })
     const [attempt] = await sql<{ resource_type: "business_info" | "attributes"; status: string; execution_state: string; confirmation_state: string; requested_payload: unknown; google_response: unknown; update_mask: string[]; target_resource_name: string | null; google_account_id: string | null; recovery_ready: boolean }[]>`
       select resource_type, status, execution_state, confirmation_state, requested_payload, google_response, update_mask, target_resource_name, google_account_id,
         (status = 'ambiguous' or (status in ('started', 'validated') and created_at < now() - interval '5 minutes')) as recovery_ready

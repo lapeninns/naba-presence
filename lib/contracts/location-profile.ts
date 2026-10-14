@@ -3,6 +3,7 @@
 // (lib/domain/profile.ts hashes with node:crypto; see lib/domain/README.md).
 import { z } from "zod"
 
+import { editorReadSourceSchema } from "@/lib/contracts/editor-freshness"
 import { httpUrl } from "@/lib/contracts/http-url"
 import {
   PROFILE_DRIFT_STATUSES,
@@ -100,13 +101,29 @@ export const profileStateSchema = z.object({
     createdAt: z.string(),
     finishedAt: z.string().nullable(),
   }).nullable(),
+  /**
+   * When Google was last read for this state, and whether this response read
+   * it ("live") or was served from that read within the editor's staleness
+   * budget ("stored"); `?refresh=1` forces a live read. Publishing always
+   * reads Google itself. The server always sends both.
+   */
+  observedAt: z.string().optional(),
+  source: editorReadSourceSchema.optional(),
 })
 export type ProfileState = z.infer<typeof profileStateSchema>
 
 export const profileResponseSchema = z.object({ profile: profileStateSchema })
 export type ProfileResponse = z.infer<typeof profileResponseSchema>
 
-export const saveProfileResponseSchema = z.object({ saved: z.literal(true), revision: z.string() })
+export const saveProfileResponseSchema = z.object({
+  saved: z.literal(true),
+  revision: z.string(),
+  /**
+   * The profile after the save, against the Google state last observed (no
+   * Google read), so a save-and-publish does not fetch it again.
+   */
+  profile: profileStateSchema.optional(),
+})
 export type SaveProfileResponse = z.infer<typeof saveProfileResponseSchema>
 
 export const profileOperationResponseSchema = z.object({

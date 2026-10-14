@@ -24,6 +24,7 @@ import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
 import { ApiError, parseStored } from "@/lib/server/http"
+import { forgetObservedGooglePayload } from "@/lib/server/resource-observations"
 import {
   requireNoUnresolvedAccountChange,
   withGoogleAccountChangeLock,
@@ -397,11 +398,19 @@ export async function processBulkChild(
     )
   let outcome: Outcome | { failed: string }
   try {
-    outcome = await withResourceLock(() =>
-      family.accountLock
+    outcome = await withResourceLock(async () => {
+      // A business-information child writes fields the profile editor
+      // shows: its next open reads Google, not the observation before this.
+      if (family.resourceKey === "business_info")
+        await forgetObservedGooglePayload({
+          organisationId,
+          locationId: child.locationId,
+          resources: ["profile"],
+        })
+      return family.accountLock
         ? withGoogleAccountChangeLock(gate.session, child.locationId, dispatch)
         : dispatch()
-    )
+    })
   } catch (error) {
     if (
       error instanceof ApiError &&
