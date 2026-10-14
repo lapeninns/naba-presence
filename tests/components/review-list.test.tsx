@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { selectionHitAreaClassName } from "@/components/ui/checkbox"
 import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
@@ -654,6 +655,41 @@ describe("ReviewList", () => {
       expect(onSelect).not.toHaveBeenCalled()
     })
 
+    // RC3 QA #1: on a phone a tap on the tick box landed on the row's
+    // control wrapper, whose 44px `after:` overhang was drawn over the box.
+    it("ticks the row once from a touch on its tick box, without opening it", async () => {
+      stubPointer(true, false)
+      const user = userEvent.setup()
+      const { toggle, onSelect } = renderSelectable(true)
+      const box = screen.getByRole("checkbox", {
+        name: "Select the review from Sam Traveller",
+      })
+      await user.pointer({ keys: "[TouchA]", target: box })
+      expect(toggle).toHaveBeenCalledTimes(1)
+      expect(toggle).toHaveBeenCalledWith("a")
+      expect(onSelect).not.toHaveBeenCalled()
+      // The box stacks above the wrapper's overhang (the wrapper is a
+      // positioned z-raised layer, so `z-raised` here is within it), and
+      // keeps its own 44px touch halo, so it is the topmost target.
+      const wrapper = box.closest('[data-slot="list-row-control"]')!
+      expect(wrapper).toHaveClass("z-raised")
+      expect(box).toHaveClass("relative", "z-raised")
+      expect(box).toHaveClass(...selectionHitAreaClassName.split(" "))
+    })
+
+    it("ticks the row from a touch on the overhang beside the box", async () => {
+      stubPointer(true, false)
+      const user = userEvent.setup()
+      const { toggle, onSelect } = renderSelectable(true)
+      const wrapper = document.querySelector<HTMLElement>(
+        '[data-slot="list-row-control"]'
+      )!
+      await user.pointer({ keys: "[TouchA]", target: wrapper })
+      expect(toggle).toHaveBeenCalledTimes(1)
+      expect(toggle).toHaveBeenCalledWith("a")
+      expect(onSelect).not.toHaveBeenCalled()
+    })
+
     it("still opens the row with a mouse on a wide screen", async () => {
       stubPointer(false, true)
       const user = userEvent.setup()
@@ -811,9 +847,10 @@ describe("ReviewList row anatomy", () => {
     const venue = button.querySelector('[data-slot="review-row-venue"]')!
     const pill = button.querySelector('[data-slot="reply-status"]')!
     // The venue is the row's subtitle and the pill rides its line, last and
-    // never squeezed (R3 F2-S2): under 2xs (18rem, a 320px phone) the pill
-    // drops below so the client · location keeps its width; the location
-    // takes the rest with a zero basis, so it never forces that wrap itself.
+    // never squeezed (R3 F2-S2, RC3 QA #2): under sm (24rem, any phone up
+    // to ~470px) the pill drops below so the client · location keeps its
+    // width; the location takes the rest with a zero basis, so it never
+    // forces that wrap itself, and wraps instead of truncating.
     const subtitle = venue.closest('[data-slot="list-row-subtitle"]')!
     expect(subtitle).not.toBeNull()
     expect(venue).toHaveClass("@container/venue")
@@ -822,8 +859,8 @@ describe("ReviewList row anatomy", () => {
     expect(status).toHaveClass(
       "ml-auto",
       "shrink-0",
-      "@max-2xs/venue:ml-0",
-      "@max-2xs/venue:basis-full"
+      "@max-sm/venue:ml-0",
+      "@max-sm/venue:basis-full"
     )
     expect(status.parentElement).toHaveClass("flex-wrap")
     const location = button.querySelector('[data-slot="review-row-location"]')!
@@ -831,7 +868,14 @@ describe("ReviewList row anatomy", () => {
       location.compareDocumentPosition(status) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(location).toHaveClass("truncate", "flex-1", "basis-0")
+    expect(location).toHaveClass(
+      "wrap-break-word",
+      "flex-1",
+      "basis-0"
+    )
+    expect(location).not.toHaveClass("truncate")
+    expect(location.className).not.toMatch(/line-clamp/)
+    expect(venue).toHaveClass("whitespace-normal")
     expect(button.querySelector('[data-slot="list-row-trailing"]')).toBeNull()
 
     // DOM order is the visual order: name and time, venue, then the words.

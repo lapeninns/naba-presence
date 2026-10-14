@@ -74,34 +74,93 @@ test.describe("inbox", () => {
     ).toBeHidden()
   })
 
-  // R3 F2-S2: at 320px the venue line keeps the client · location readable.
-  // Beside the stars, a status pill used to squeeze it to an ellipsis; under
-  // 2xs (18rem) the pill drops below the line instead.
-  test("keeps the venue readable on a 320px phone", async ({
-    baseURL,
-    page,
-  }) => {
-    // The seeded tenant, in the queue that shows every status pill (no tab
-    // to repeat it), so the pill-beside-venue case is really drawn.
-    const state = await readJourneyState()
-    await applyCookie(page, baseURL, state.cookie)
-    await page.setViewportSize({ width: 320, height: 700 })
-    await page.goto("/inbox?queue=all")
-    const rows = page.locator('[data-slot="review-row-venue"]')
-    await expect(rows.first()).toBeVisible()
-    const count = await rows.count()
-    for (let index = 0; index < count; index += 1) {
-      const venue = rows.nth(index)
-      const location = venue.locator('[data-slot="review-row-location"]')
-      const box = await location.boundingBox()
-      expect(box?.width ?? 0).toBeGreaterThanOrEqual(96)
-      const status = venue.locator('[data-slot="review-row-status"]')
-      if ((await status.count()) > 0) {
-        const pill = await status.boundingBox()
-        // On its own line, under the venue, at this width.
-        expect(pill!.y).toBeGreaterThanOrEqual(box!.y + box!.height - 1)
+  // R3 F2-S2 / RC3 QA #2: on a phone the venue line keeps the client ·
+  // location readable. Beside the stars, a status pill used to squeeze it to
+  // an ellipsis, and at 390 the line truncated even without one ("Stub
+  // locat…"). The pill now drops under the venue below sm (24rem), and the
+  // venue wraps (two lines at most) instead of truncating.
+  for (const width of [320, 360, 390]) {
+    test(`keeps the venue readable on a ${width}px phone`, async ({
+      baseURL,
+      page,
+    }) => {
+      // The seeded tenant, in the queue that shows every status pill (no
+      // tab to repeat it), so the pill-beside-venue case is really drawn.
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.cookie)
+      await page.setViewportSize({ width, height: 700 })
+      await page.goto("/inbox?queue=all")
+      const rows = page.locator('[data-slot="review-row-venue"]')
+      await expect(rows.first()).toBeVisible()
+      const count = await rows.count()
+      for (let index = 0; index < count; index += 1) {
+        const venue = rows.nth(index)
+        const location = venue.locator('[data-slot="review-row-location"]')
+        const box = await location.boundingBox()
+        const line = await venue.boundingBox()
+        // The venue has the line beside the stars to itself: well over half
+        // of it, and never a sliver.
+        expect(box?.width ?? 0).toBeGreaterThanOrEqual(96)
+        expect(box!.width).toBeGreaterThan(line!.width * 0.55)
+        // Every word of the client · location is drawn: nothing is cut off.
+        const clipped = await location.evaluate(
+          (node) =>
+            node.scrollWidth > node.clientWidth + 1 ||
+            node.scrollHeight > node.clientHeight + 1
+        )
+        expect(clipped).toBe(false)
+        const status = venue.locator('[data-slot="review-row-status"]')
+        if ((await status.count()) > 0) {
+          const pill = await status.boundingBox()
+          // On its own line, under the venue, at phone widths.
+          expect(pill!.y).toBeGreaterThanOrEqual(box!.y + box!.height - 1)
+        }
       }
-    }
+    })
+  }
+
+  // RC3 QA #1: on a phone in select mode a tap on a row's tick box landed
+  // on the row's control wrapper (its 44px overhang was drawn over the box),
+  // so Playwright's tap, like the agentic run's, found the box covered and
+  // nothing was ticked. A tap must reach the box itself and tick it.
+  test.describe("on a touch phone", () => {
+    test.use({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+    })
+
+    test("a tap on a row's tick box ticks it in select mode", async ({
+      baseURL,
+      page,
+    }) => {
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.cookie)
+      await page.goto("/inbox")
+      await page.getByRole("button", { name: "Select", exact: true }).tap()
+      const boxes = page.getByRole("checkbox", {
+        name: /^Select the review from /,
+      })
+      await expect(boxes.first()).toBeVisible()
+      await boxes.first().tap()
+      await expect(boxes.first()).toHaveAttribute("aria-checked", "true")
+      // Ticking does not open the review.
+      expect(new URL(page.url()).searchParams.get("selected")).toBeNull()
+      // QA #11: the selection bar says how many once, with its one "Clear
+      // selection"; the band keeps its one "Cancel selection".
+      const bar = page.locator('[data-slot="bulk-action-bar"]')
+      await expect(bar).toContainText("1 selected")
+      await expect(page.getByText(/\d+ selected$/)).toHaveCount(1)
+      await expect(
+        page.getByRole("button", { name: "Clear selection" })
+      ).toHaveCount(1)
+      await expect(
+        page.getByRole("button", { name: "Cancel selection" })
+      ).toHaveCount(1)
+      // Untick from the box again.
+      await boxes.first().tap()
+      await expect(boxes.first()).toHaveAttribute("aria-checked", "false")
+    })
   })
 
   test("offers a location filter only when the org has several locations", async ({
