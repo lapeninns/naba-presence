@@ -6,7 +6,6 @@ import {
   CircleX,
   MapPin,
   MessageSquareText,
-  Search,
 } from "lucide-react"
 import * as React from "react"
 
@@ -27,7 +26,6 @@ import {
   visibleDestinations,
 } from "@/lib/navigation/destinations"
 import { useClients } from "@/lib/queries/use-clients"
-import { mediaQuery } from "@/lib/ui/breakpoints"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -128,8 +126,6 @@ function CommandPaletteDialog({
     clients.data?.items.map((client) => [client.id, client.name]) ?? []
   )
 
-  const groupClassName = trimmed ? undefined : "max-sm:hidden"
-
   return (
     // "Commands", not "Search": this looks for clients, locations and
     // actions, and never looks inside review text itself. Review text is
@@ -157,16 +153,6 @@ function CommandPaletteDialog({
         ref={inputRef}
         value={query}
         onValueChange={setQuery}
-        onKeyDown={(event) => {
-          // Below `sm` the groups stay hidden until something is typed,
-          // but cmdk still highlights the first (hidden) row; Enter must
-          // never open a row the operator cannot see. cmdk skips a key
-          // the field has already handled. Read at event time:
-          // behaviour, not layout.
-          if (event.key === "Enter" && !trimmed && isPhone()) {
-            event.preventDefault()
-          }
-        }}
         placeholder={
           business
             ? "Go to a location or an action, or search reviews…"
@@ -189,22 +175,6 @@ function CommandPaletteDialog({
         }
       />
 
-      {/* The takeover's resting state: nothing typed yet. The desk
-              lists everything at once, so this is a phone-only line. */}
-      {trimmed ? null : (
-        <div
-          data-slot="command-palette-hint"
-          className="flex flex-col items-center gap-2 px-6 py-16 text-center text-ink-muted sm:hidden"
-        >
-          <Search className="size-5" strokeWidth={1.75} aria-hidden />
-          <p className="text-body">
-            {business
-              ? "Search listings and pages"
-              : "Search clients, listings and pages"}
-          </p>
-        </div>
-      )}
-
       <CommandList className="max-sm:px-0">
         <CommandEmpty>
           {trimmed
@@ -213,7 +183,7 @@ function CommandPaletteDialog({
         </CommandEmpty>
 
         {!business && clients.data?.items.length ? (
-          <CommandGroup heading="Clients" className={groupClassName}>
+          <CommandGroup heading="Clients">
             {clients.data.items.map((client) => (
               <CommandItem
                 key={client.id}
@@ -234,7 +204,7 @@ function CommandPaletteDialog({
         ) : null}
 
         {locations.data?.length ? (
-          <CommandGroup heading="Listings" className={groupClassName}>
+          <CommandGroup heading="Listings">
             {locations.data.map((location) => (
               <CommandItem
                 key={location.id}
@@ -256,14 +226,11 @@ function CommandPaletteDialog({
 
         {business ? null : (
           <React.Suspense fallback={null}>
-            <SwitchClientCommands
-              onDone={() => onOpenChange(false)}
-              className={groupClassName}
-            />
+            <SwitchClientCommands onDone={() => onOpenChange(false)} />
           </React.Suspense>
         )}
 
-        <CommandGroup heading="Go to" className={groupClassName}>
+        <CommandGroup heading="Go to">
           {goTo.map((destination) => {
             const Icon = destination.icon
             return (
@@ -282,7 +249,7 @@ function CommandPaletteDialog({
           })}
         </CommandGroup>
 
-        <CommandGroup heading="Actions" className={groupClassName}>
+        <CommandGroup heading="Actions">
           {actions.map((item) => {
             const Icon = item.icon
             return (
@@ -328,27 +295,13 @@ function CommandPaletteDialog({
   )
 }
 
-/** Whether the phone takeover is showing (below `sm`), asked at event time. */
-function isPhone(): boolean {
-  return (
-    typeof window.matchMedia === "function" &&
-    !window.matchMedia(mediaQuery("sm")).matches
-  )
-}
-
 /**
  * "Switch client: …" for every client but the current one, and "All
  * clients" while one is in scope. The same switch the top-bar switcher
  * makes, so it follows the same page rules and the Inbox's unsaved-reply
  * guard. Offered only when there is more than one client to switch between.
  */
-function SwitchClientCommands({
-  onDone,
-  className,
-}: {
-  onDone: () => void
-  className?: string
-}) {
+function SwitchClientCommands({ onDone }: { onDone: () => void }) {
   const { clients, current, select } = useClientSwitch()
   if (!clients || clients.length <= 1) return null
   const choose = (clientId: string | null) => {
@@ -356,7 +309,7 @@ function SwitchClientCommands({
     void select(clientId)
   }
   return (
-    <CommandGroup heading="Switch client" className={className}>
+    <CommandGroup heading="Switch client">
       {current ? (
         <CommandItem
           value="switch client all clients"
