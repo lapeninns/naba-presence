@@ -277,6 +277,30 @@ export async function beginOperation(
 }
 
 /**
+ * The receipt already recorded under the request's ambient intent, read
+ * without claiming the intent: for a route that must recognise a retry of a
+ * write that already landed before its own state checks refuse it (a
+ * deleted post is not found; a published one is no longer pending). Null
+ * without an intent or a receipt.
+ */
+export async function loadAmbientReceipt(
+  sql: TransactionSql,
+  organisationId: string
+): Promise<(MutationOperation & { targetRef: string | null }) | null> {
+  const intentId = currentIntentId()
+  if (!intentId) return null
+  const [receipt] = await sql<
+    (MutationOperation & { targetRef: string | null })[]
+  >`
+    select ${operationColumns(sql)}, target_ref as "targetRef"
+    from mutation_operation
+    where organisation_id = ${organisationId}
+      and intent_id = ${intentId}
+  `
+  return receipt ?? null
+}
+
+/**
  * Points a receipt at the attempt row that carries its write, and -- when it
  * is the ambient intent's own receipt -- that intent's followers still
  * waiting on a write (`sent`, unlinked).
