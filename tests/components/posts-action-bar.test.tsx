@@ -173,12 +173,16 @@ describe("PostsActionBar", () => {
     expect(
       (await screen.findByText("Post sent to Google")).closest("[data-kind]")
     ).toHaveAttribute("data-kind", "google")
-    expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve", 3)
+    expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve", 3, {
+      intentId: expect.any(String),
+    })
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
 
     await userEvent.click(await menuItem(/^Reject/))
     expect(await screen.findByText("Sent back to draft")).toBeInTheDocument()
-    expect(api.decidePostApproval).toHaveBeenLastCalledWith("loc-1", "p1", "reject", 3)
+    expect(api.decidePostApproval).toHaveBeenLastCalledWith("loc-1", "p1", "reject", 3, {
+      intentId: expect.any(String),
+    })
   })
 
   it("deletes after confirmation, closes the dialog and invalidates", async () => {
@@ -196,9 +200,49 @@ describe("PostsActionBar", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }))
 
     expect(await screen.findByText("Post deleted")).toBeInTheDocument()
-    expect(api.deletePost).toHaveBeenCalledWith("loc-1", "p1")
+    expect(api.deletePost).toHaveBeenCalledWith("loc-1", "p1", {
+      intentId: expect.any(String),
+    })
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument())
+  })
+
+  it("resends a delete's and an approval's intent on a retry after a lost answer", async () => {
+    // The connection dropped: the first request may have landed.
+    api.deletePost.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    api.deletePost.mockResolvedValueOnce({ status: "deleted" })
+    renderBar()
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await userEvent.click(await menuItem(/^Delete/))
+      const dialog = await screen.findByRole("alertdialog")
+      await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }))
+      await waitFor(() => expect(api.deletePost).toHaveBeenCalledTimes(attempt + 1))
+      if (attempt === 0) await userEvent.keyboard("{Escape}")
+    }
+    const [first, second] = api.deletePost.mock.calls.map((call) => call[2].intentId)
+    expect(first).toEqual(expect.any(String))
+    expect(second).toBe(first)
+  })
+
+  it("mints a fresh approval intent after a definite refusal", async () => {
+    api.decidePostApproval.mockRejectedValueOnce(
+      new ApiClientError(409, "approval_post_changed", "changed")
+    )
+    api.decidePostApproval.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    api.decidePostApproval.mockResolvedValueOnce({ status: "published", postId: "p1", googlePostName: null })
+    renderBar({ post: post({ status: "awaiting_approval", contentRevision: 3 }) })
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await userEvent.click(screen.getByRole("button", { name: "Approve" }))
+      const dialog = await screen.findByRole("alertdialog")
+      await userEvent.click(within(dialog).getByRole("button", { name: "Approve and publish" }))
+      await waitFor(() => expect(api.decidePostApproval).toHaveBeenCalledTimes(attempt + 1))
+      if (screen.queryByRole("alertdialog")) await userEvent.keyboard("{Escape}")
+    }
+    const intents = api.decidePostApproval.mock.calls.map((call) => call[4].intentId)
+    // A refused approval applied nothing: the next press is a new action.
+    expect(intents[1]).not.toBe(intents[0])
+    // A lost answer may have applied: the retry is the same action.
+    expect(intents[2]).toBe(intents[1])
   })
 
   it("uses the posts wording for approval-flow errors and never the raw server text", async () => {

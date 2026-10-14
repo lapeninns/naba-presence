@@ -50,6 +50,7 @@ function budgetMs() {
  * cron is alive.
  */
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ query, requestId }) => {
     const pauses = await loadPauseSnapshot()

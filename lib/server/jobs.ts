@@ -106,6 +106,7 @@ import {
   writePublishAttemptEvent,
 } from "@/lib/server/publishing"
 import { syncDuePerformance } from "@/lib/server/performance"
+import { recordJobsClaimed } from "@/lib/server/request-metrics"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 import {
@@ -1218,6 +1219,7 @@ export async function runDueJobs(options: {
         kinds,
       })
       if (batch.length === 0) return
+      recordJobsClaimed(batch.map((job) => job.kind))
       const unstarted = await runPool(
         batch,
         env.JOBS_CONCURRENCY,

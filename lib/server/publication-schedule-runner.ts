@@ -26,7 +26,7 @@ import {
 } from "@/lib/server/db"
 import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import {
@@ -135,11 +135,21 @@ function googleDate(date: string) {
  * publishes exactly the content that was approved.
  */
 function occurrenceContent(schedule: Schedule, occurrence: Due) {
-  const template = localPostInputSchema.parse(schedule.template)
-  const once = scheduleRuleSchema.parse(schedule.rule).frequency === "once"
+  const template = parseStored(
+    localPostInputSchema,
+    schedule.template,
+    "post_schedule.template"
+  )
+  const once =
+    parseStored(scheduleRuleSchema, schedule.rule, "post_schedule.rule")
+      .frequency === "once"
   const offsets =
     !once && schedule.eventOffsets
-      ? eventOffsetsSchema.parse(schedule.eventOffsets)
+      ? parseStored(
+          eventOffsetsSchema,
+          schedule.eventOffsets,
+          "post_schedule.event_offsets"
+        )
       : null
   if (!offsets || !template.event)
     return { content: template, eventEndDate: eventEnd(template.event) }
@@ -202,7 +212,8 @@ async function markMissed(
   if (!marked) return
   if (
     reason !== "expired_content" &&
-    scheduleRuleSchema.parse(schedule.rule).frequency === "once"
+    parseStored(scheduleRuleSchema, schedule.rule, "post_schedule.rule")
+      .frequency === "once"
   )
     await sql`update post_publication_schedule set status = 'needs_review', status_reason = ${reason}, updated_at = now()
       where id = ${schedule.id} and status in ('active', 'paused')`
@@ -447,7 +458,7 @@ export async function processSchedule(
     const availability = await schedulingAvailability(
       sql,
       organisationId,
-      scheduleRuleSchema.parse(schedule.rule)
+      parseStored(scheduleRuleSchema, schedule.rule, "post_schedule.rule")
     )
     if (availability !== "ok") return blocked(availability)
     const env = getServerEnv()
@@ -500,7 +511,10 @@ export async function processSchedule(
     // edit takes them in), so an edit waits for this claim or lands first.
     let postId = run.postId
     let source: { revision: number; hash: string | null } | null = null
-    if (scheduleRuleSchema.parse(schedule.rule).frequency === "once") {
+    if (
+      parseStored(scheduleRuleSchema, schedule.rule, "post_schedule.rule")
+        .frequency === "once"
+    ) {
       const [post] = schedule.sourcePostId
         ? await sql<
             {

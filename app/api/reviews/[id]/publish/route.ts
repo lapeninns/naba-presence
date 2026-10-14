@@ -16,6 +16,7 @@ export const maxDuration = 60
 // checked here because `PublishOutcome.reviewReplyId` is declared optional in
 // lib/server/publishing/types.ts although every non-failed outcome sets it.
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   params: reviewIdParamsSchema,
   body: publishInputSchema,

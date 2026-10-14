@@ -345,6 +345,7 @@ async function runPresenceResourcesPage(
 }
 
 export const POST = route({
+  maxDuration,
   auth: "cron",
   body: presenceResourcesSyncSchema,
   handler: async ({ body, requestId }) =>
@@ -356,6 +357,7 @@ export const POST = route({
 // (`?maxOrganisations=10&maxLocations=5`). Cron-only like POST — a session
 // caller keeps using POST.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   query: (searchParams) => cronPageInput(searchParams),
   handler: async ({ query, requestId }) =>

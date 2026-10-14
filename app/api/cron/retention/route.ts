@@ -113,6 +113,7 @@ function runRetentionTick({
 }
 
 export const POST = route({
+  maxDuration,
   auth: "cron",
   query: retentionPostQuery,
   handler: ({ requestId, clientRequestId, query }) =>
@@ -122,6 +123,7 @@ export const POST = route({
 // Vercel Cron entry point: identical to POST. The route takes its input from
 // the query string with an empty body, so the cron fires it unchanged.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   query: retentionQuery,
   handler: ({ requestId, clientRequestId, query }) =>

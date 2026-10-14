@@ -66,39 +66,34 @@ export async function readReviewCounts(
     ${scope.clientId ? sql`and l.client_id = ${scope.clientId}` : sql``}
     and ${visibilityPredicate(sql, session, sql`r.location_id`)}
   `
-  const queueColumns = REVIEW_QUEUES.map(
-    (queue) =>
-      sql`count(*) filter (where ${queuePredicate(sql, actor, queue, options)})::integer as ${sql(queue)}`
-  ).reduce((left, right) => sql`${left}, ${right}`)
+  const countColumns = [
+    ...REVIEW_WORKFLOW_STATES.map(
+      (status) =>
+        sql`count(*) filter (where r.workflow_status = ${status})::integer as ${sql(`status:${status}`)}`
+    ),
+    ...REVIEW_QUEUES.map(
+      (queue) =>
+        sql`count(*) filter (where ${queuePredicate(sql, actor, queue, options)})::integer as ${sql(queue)}`
+    ),
+  ].reduce((left, right) => sql`${left}, ${right}`)
 
-  const [totals] = await sql<(Record<ReviewQueue, number> & { total: number })[]>`
-    select count(*)::integer as total, ${queueColumns}
-    from review r
-    join location l on l.id = r.location_id
-    where ${filters}
-  `
-
-  const statuses = await sql<
-    { workflowStatus: ReviewWorkflowState; count: number }[]
-  >`
-    select r.workflow_status as "workflowStatus", count(*)::integer as count
-    from review r
-    join location l on l.id = r.location_id
-    where ${filters}
-    group by r.workflow_status
-  `
-
+  // One pass over the visible reviews (W4-06). Totals, statuses and queues
+  // are all filters on the same scan; when the rail groups by client, the
+  // grand totals are the sum of the client rows, because every review
+  // belongs to exactly one location and so to exactly one group.
+  type CountRow = Record<
+    ReviewQueue | `status:${ReviewWorkflowState}` | "total",
+    number
+  >
   const groups = scope.groupBy
     ? await sql<
-        (Record<ReviewQueue, number> & {
-          clientId: string | null
-          clientName: string
-        })[]
+        (CountRow & { clientId: string | null; clientName: string })[]
       >`
         select
           c.id::text as "clientId",
           coalesce(c.name, 'Unassigned locations') as "clientName",
-          ${queueColumns}
+          count(*)::integer as total,
+          ${countColumns}
         from review r
         join location l on l.id = r.location_id
         left join client c on c.id = l.client_id
@@ -107,17 +102,30 @@ export async function readReviewCounts(
         order by lower(coalesce(c.name, 'zzz'))
       `
     : undefined
+  const rows: CountRow[] =
+    groups ??
+    (await sql<CountRow[]>`
+      select count(*)::integer as total, ${countColumns}
+      from review r
+      join location l on l.id = r.location_id
+      where ${filters}
+    `)
 
   const byStatus = Object.fromEntries(
     REVIEW_WORKFLOW_STATES.map((status) => [status, 0])
   ) as Record<ReviewWorkflowState, number>
-  for (const row of statuses) byStatus[row.workflowStatus] = row.count
-
   const byQueue = zeroQueues()
-  for (const queue of REVIEW_QUEUES) byQueue[queue] = totals?.[queue] ?? 0
+  let total = 0
+  for (const row of rows) {
+    total += row.total
+    for (const status of REVIEW_WORKFLOW_STATES) {
+      byStatus[status] += row[`status:${status}`]
+    }
+    for (const queue of REVIEW_QUEUES) byQueue[queue] += row[queue]
+  }
 
   return {
-    total: totals?.total ?? 0,
+    total,
     byStatus,
     byQueue,
     groups: groups?.map((group) => {

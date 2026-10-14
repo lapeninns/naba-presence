@@ -8,7 +8,7 @@ import { jsonColumn, withTenant } from "@/lib/server/db"
 import { auditGbpMutation, gbpManagementAttemptStore } from "@/lib/server/gbp-management"
 import { administrationBaselineSchema, currentAdministrationContext, scopedAdministrationTarget } from "@/lib/server/google-administration-state"
 import { observeAdministrationPostcondition } from "@/lib/server/google-administration-observation"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 const rowSchema = z.object({
@@ -50,13 +50,13 @@ export function projectAdministrationAttempt(row: AdministrationAttemptRow, idem
   const observation = parsed.success ? parsed.data : null
   const receipt = receiptSchema.safeParse(row.providerResponse)
   const confirmation = observation ? administrationAccessConfirmation({ request: row.requested.request, baseline: row.baseline, observation, receipt: receipt.success ? receipt.data : null }) : null
-  return administrationAccessAttemptSchema.parse({
+  return parseStored(administrationAccessAttemptSchema, {
     id: row.id, reviewId: row.reviewId, payloadHash: row.payloadHash,
     request: row.requested.request, target: row.target, status: row.status,
     executionState: row.executionState, confirmationState: row.confirmationState, idempotent,
     observation, postcondition: confirmation?.postcondition ?? "unknown", pendingInvitation: confirmation?.pendingInvitation ?? null,
     error: row.executionState === "rejected" ? "provider_rejected" : row.confirmationError === "administration_refresh_failed" ? "refresh_unavailable" : row.confirmationState === "unresolved" ? "outcome_unresolved" : null,
-  })
+  }, "administration_attempt")
 }
 
 export async function readAdministrationAccessAttempt(session: Session, locationId: string, reviewId: string, idempotent = true) {

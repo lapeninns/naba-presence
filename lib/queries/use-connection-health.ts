@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { fetchConnections } from "@/lib/api/connections"
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
+import { SEEDED_BY_SHELL } from "./use-shell-status"
 
 export type ConnectionHealth =
   | "loading"
@@ -25,7 +26,8 @@ export function useConnectionHealth() {
   const query = useQuery({
     queryKey: queryKeys.connections,
     queryFn: (ctx) => fetchConnections(requestOptions(ctx)),
-    refetchInterval: 60_000,
+    // Kept current by the shell's one poll (useShellStatus).
+    ...SEEDED_BY_SHELL,
   })
   const status: ConnectionHealth = query.data
     ? query.data.connections.some((c) => c.status === "active")

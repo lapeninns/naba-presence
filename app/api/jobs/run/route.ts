@@ -14,6 +14,7 @@ function runJobsTick(requestId: string) {
 }
 
 export const POST = route({
+  maxDuration,
   auth: "cron",
   // The tick's request id correlates every audit row it writes - the
   // dead-lettered webhooks and the exhausted recoveries - with this run.
@@ -25,6 +26,7 @@ export const POST = route({
 // cron bearer arrives as the `Authorization` header automatically when
 // `CRON_SECRET` is set on the Vercel project.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: ({ requestId }) => runJobsTick(requestId),
 })

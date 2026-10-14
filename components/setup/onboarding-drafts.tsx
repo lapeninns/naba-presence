@@ -42,7 +42,8 @@ import {
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { queryKeys } from "@/lib/queries/keys"
-import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import {
   codeLabel,
   countryOptions,
@@ -676,16 +677,20 @@ function DraftDetails({
     !parsedPayload.success ||
     JSON.stringify(parsedPayload.data) !== JSON.stringify(draft.payload)
   const unsaved = dirty || reviewDirty || matchDirty || areaEntryDirty || relationshipEntryDirty || hoursEntryDirty || moreHoursEntryDirty
-  const leave = useLeaveGuard({ when: unsaved || matchBusy || reviewBusy || matchStatusBusy })
-  useEffect(() => {
-    if (!unsaved) return
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ""
-    }
-    window.addEventListener("beforeunload", warn)
-    return () => window.removeEventListener("beforeunload", warn)
-  }, [unsaved])
+  // A reload warns while edits are unsaved (not after a forced sign-out);
+  // an in-app link or the back button asks first, also while a match or
+  // review is on its way. The draft is saved on the server, so the edits
+  // are not stashed in the tab.
+  const draftKey = useDraftKey({
+    resource: "onboarding-draft",
+    resourceId: draft.id,
+    schemaVersion: 1,
+  })
+  const { leavePrompt } = useUnsavedChanges({
+    scope: draftKey,
+    isDirty: unsaved,
+    leaveWhen: unsaved || matchBusy || reviewBusy || matchStatusBusy,
+  })
   const save = useMutation({
     mutationFn: () => {
       const parsed = googleOnboardingPayloadSchema.safeParse(payload)
@@ -1166,7 +1171,7 @@ function DraftDetails({
             onCreated={onCreated}
           />
         )}
-      <DiscardDialog {...leave} announce={false} />
+      <DiscardDialog {...leavePrompt} announce={false} />
     </div>
   )
 }

@@ -103,6 +103,7 @@ function assertEnabled() {
 }
 
 export const POST = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ requestId }) => {
     await assertEnabled()
@@ -112,6 +113,7 @@ export const POST = route({
 
 // Vercel Cron entry point.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ requestId }) => {
     await assertEnabled()

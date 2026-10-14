@@ -28,7 +28,7 @@ import {
 import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import {
   requireNoUnresolvedAccountChange,
   withGoogleAccountChangeLock,
@@ -166,7 +166,11 @@ export async function processBulkChild(
   if (!child) return
   // The child's own change from the batch's ordered list (0126); the claim
   // only hands it over once the earlier changes at its listing settled.
-  const input = bulkOperationInputSchema.parse(child.input)
+  const input = parseStored(
+    bulkOperationInputSchema,
+    child.input,
+    "bulk_listing_child.input"
+  )
   const family = bulkFamily(input.operation)
   const fail = async (code: string) => {
     await settle(organisationId, childId, "failed", { code })
