@@ -8,9 +8,12 @@ const push = vi.fn()
 const replace = vi.fn()
 let search = ""
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace }),
   usePathname: () => "/listings",
   useSearchParams: () => new URLSearchParams(search),
+}))
+vi.mock("@/lib/navigation/shallow-url", () => ({
+  replaceUrl: (href: string) => replace(href),
+  pushUrl: (href: string) => push(href),
 }))
 vi.mock("next/link", () => ({
   default: ({
@@ -98,8 +101,10 @@ function stub({
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
   replace.mockClear()
   search = ""
+  window.history.replaceState(null, "", "/")
 })
 
 const entries: locationsHook.DirectoryEntry[] = [
@@ -242,9 +247,7 @@ describe("ListingsBoard", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "By client" }))
     expect(names()).toEqual(["Pier Cafe", "Harbour View", "Old Crown Girton"])
-    expect(replace).toHaveBeenLastCalledWith("/listings?order=client", {
-      scroll: false,
-    })
+    expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
   })
 
   it("follows the top-bar switcher when it changes the address", () => {
@@ -276,6 +279,9 @@ describe("ListingsBoard", () => {
 
   it("keeps search, health and client in the URL and reads them back", async () => {
     search = "health=unpublished&clientId=c1&q=crown"
+    // The board rewrites the address it is on, which the hook mock above
+    // does not stand for.
+    window.history.replaceState(null, "", `/listings?${search}`)
     stub({
       entries,
       summaries: [
@@ -302,9 +308,47 @@ describe("ListingsBoard", () => {
         { name: /^All/ }
       )
     )
-    expect(replace).toHaveBeenLastCalledWith("/listings?clientId=c1&q=crown", {
-      scroll: false,
+    expect(replace).toHaveBeenLastCalledWith("/listings?clientId=c1&q=crown")
+  })
+
+  it("rewrites the URL once a search pauses, not on every keystroke", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
     })
+    const user = userEvent.setup({
+      advanceTimers: vi.advanceTimersByTime,
+      delay: 50,
+    })
+    render(<ListingsBoard role="owner" />)
+    const box = screen.getByRole("searchbox", { name: "Search listings" })
+    await user.type(box, "crown")
+    // The rows follow each keystroke; the address waits.
+    expect(screen.queryByRole("link", { name: "Harbour View" })).toBeNull()
+    expect(replace).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(300)
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenLastCalledWith("/listings?q=crown")
+  })
+
+  it("carries a search still waiting into a filter written before it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ListingsBoard role="owner" />)
+    await user.type(
+      screen.getByRole("searchbox", { name: "Search listings" }),
+      "crown"
+    )
+    await user.click(screen.getByRole("button", { name: "By client" }))
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenLastCalledWith("/listings?q=crown&order=client")
+    vi.advanceTimersByTime(1_000)
+    expect(replace).toHaveBeenCalledTimes(1)
   })
 
   it("filters with pressed buttons, so arrowing through them never rewrites the URL", async () => {
@@ -325,9 +369,7 @@ describe("ListingsBoard", () => {
     ).toHaveFocus()
     expect(replace).not.toHaveBeenCalled()
     await user.keyboard("{Enter}")
-    expect(replace).toHaveBeenLastCalledWith("/listings?order=client", {
-      scroll: false,
-    })
+    expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
     const health = screen.getByRole("group", { name: "Filter by health" })
     for (const label of [
       "All",
