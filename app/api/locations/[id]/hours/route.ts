@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { editorRefreshQuerySchema } from "@/lib/contracts/editor-freshness"
 import {
   publishHoursBodySchema,
   saveHoursBodySchema,
@@ -21,10 +22,13 @@ const paramsSchema = z.object({ id: z.uuid() })
 
 // The read lives in lib/server/listing-reads.ts so the hours page's streamed
 // server prefetch produces exactly what this route answers.
+// `?refresh=1` reads Google past the editor's staleness budget.
 export const GET = route({
   maxDuration,
   params: paramsSchema,
-  handler: ({ session, params }) => readHoursResponse(session, params.id),
+  query: editorRefreshQuerySchema,
+  handler: ({ session, params, query }) =>
+    readHoursResponse(session, params.id, { refresh: query.refresh === "1" }),
 })
 
 export const PUT = route({

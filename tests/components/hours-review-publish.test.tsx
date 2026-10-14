@@ -43,6 +43,7 @@ vi.mock("@/lib/queries/use-location-profile", () => ({
 }))
 vi.mock("@/lib/queries/use-location-hours", () => ({
   useHours: () => ({ data: hours.value, isPending: false }),
+  useRefreshHours: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 vi.mock("@/lib/queries/use-location-menu", () => ({
   useFoodMenus: () => ({ isPending: false }),

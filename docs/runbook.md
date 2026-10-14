@@ -1543,7 +1543,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `post_publication_schedule` | customer | keep | for the life of the location | none | none | no | pending D-47: keep finished and cancelled schedules for the life of the location |
 | `presence_canonical_resource` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `presence_import_proposal` | google | delete | expires_at (90 days after it is raised) | `importProposals`, cascade from `external_location` | gated | cascade only | published |
-| `presence_resource_reconcile_state` | operational | keep | one row per location and resource, for the life of the location | none | none | no | internal |
+| `presence_resource_reconcile_state` | google | redact | the stored Google payload 30 days after the read that stored it; the row for the life of the location | `editorPayloads` | none | no | published |
 | `privacy_request` | customer | keep | kept after it is resolved | none | none | no | pending D-47: keep resolved privacy requests as the record of how each was answered |
 | `processed_webhook_event` | google | redact | payload at payload_expires_at (30 days; legacy rows only, new events store no payload); the dedupe row is kept | `webhookPayloads` | none | no | published |
 | `profile_field_state` | google | redact | canonical and Google values at snapshot_expires_at (30 days after each observation) | `profileSnapshots`, cascade from `external_location` | gated | cascade only | published |

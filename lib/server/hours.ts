@@ -32,15 +32,13 @@ import type {
 import { writeAudit } from "@/lib/server/audit"
 import {
   ensureCanonicalResource,
+  readCanonicalResource,
   reconcileCanonicalResource,
   updateCanonicalResource,
+  type CanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import {
-  jsonColumn,
-  jsonColumnOrNull,
-  withTenant,
-} from "@/lib/server/db"
+import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import {
@@ -57,7 +55,13 @@ import {
   getGoogleHoursCategories,
   patchGoogleLocationHours,
 } from "@/lib/server/google"
-import { recordHoursObservation } from "@/lib/server/hours-observations"
+import { shouldReadLive } from "@/lib/server/editor-freshness"
+import {
+  hoursObservationUnchanged,
+  readHoursObservation,
+  recordHoursObservation,
+  type HoursObservation,
+} from "@/lib/server/hours-observations"
 import { ApiError } from "@/lib/server/http"
 import { operationSummary } from "@/lib/server/mutation-operations"
 import {
@@ -91,17 +95,19 @@ const hoursAttempts = attemptStore({
 /** The GET response shape is owned by the wire contract; re-exported for server callers. */
 export type { HoursState }
 
+const LINKED_HOURS_LOCATION = {
+  notFound: { message: "The requested location was not found." },
+  notLinked: {
+    message: "Link this location to Google before managing hours.",
+  },
+}
+
 async function linkedHoursLocation(
   session: Session,
   locationId: string
 ): Promise<LinkedLocation> {
   return withTenant(session.organisationId, (sql) =>
-    loadLinkedLocation(sql, session, locationId, {
-      notFound: { message: "The requested location was not found." },
-      notLinked: {
-        message: "Link this location to Google before managing hours.",
-      },
-    })
+    loadLinkedLocation(sql, session, locationId, LINKED_HOURS_LOCATION)
   )
 }
 
@@ -122,8 +128,13 @@ type StoredHours = NormalizedHours & {
   boundaryBaseline?: { legacyGoogleHash: string; observedGoogleHash: string }
 }
 
-async function readLiveHours(session: Session, locationId: string) {
-  const linked = await linkedHoursLocation(session, locationId)
+async function readLiveHours(
+  session: Session,
+  locationId: string,
+  /** Already loaded (and authorized) in this request. */
+  loaded?: LinkedLocation
+) {
+  const linked = loaded ?? (await linkedHoursLocation(session, locationId))
   const attemptedAt = new Date()
   let accessToken: string
   let googleLocation: GoogleLocationHours
@@ -193,13 +204,53 @@ async function readLiveHours(session: Session, locationId: string) {
       actorUserId: session.userId,
     })
   )
+  const compared = compareHours(resource, googleLocation, metadataWarnings)
+  const observation = await withTenant(session.organisationId, (sql) =>
+    recordHoursObservation(sql, {
+      organisationId: session.organisationId,
+      locationId,
+      attemptedAt,
+      outcome: "observed",
+      ...observationHashes(compared),
+      googlePayload: {
+        observedAt: attemptedAt.toISOString(),
+        location: googleLocation,
+        metadataWarnings,
+      } satisfies ObservedHoursPayload,
+    })
+  )
+  return {
+    ...compared,
+    ...classify(compared, observation),
+    observation,
+    linked,
+    accessToken,
+    observedAt: attemptedAt,
+  }
+}
+
+/**
+ * What a successful hours read keeps for the editor (the observation's
+ * `observed_google_payload`): Google's location as the editor needs it,
+ * with resolved categories, and the metadata warnings of that read.
+ */
+type ObservedHoursPayload = {
+  observedAt: string
+  location: GoogleLocationHours
+  metadataWarnings: string[]
+}
+
+/** The saved schedule against Google's, as every hours read compares them. */
+function compareHours(
+  resource: CanonicalResource<StoredHours>,
+  googleLocation: GoogleLocationHours,
+  metadataWarnings: string[]
+) {
+  const google = normalizeGoogleHours(googleLocation)
   const { boundaryBaseline, ...canonical } = resource.payload
   const patch = buildGoogleHoursPatch({ canonical, googleLocation })
   patch.warnings.push(...metadataWarnings)
-  const canonicalHash = hashHours(canonical)
   const googleHash = hashHours(google)
-  const canonicalParts = hoursPartHashes(canonical)
-  const googleParts = hoursPartHashes(google)
   const comparisonBaseline =
     boundaryBaseline?.legacyGoogleHash === resource.baselineGoogleHash
       ? boundaryBaseline
@@ -210,45 +261,48 @@ async function readLiveHours(session: Session, locationId: string) {
             observedGoogleHash: googleHash,
           }
         : undefined
-  const observation = await withTenant(session.organisationId, (sql) =>
-    recordHoursObservation(sql, {
-      organisationId: session.organisationId,
-      locationId,
-      attemptedAt,
-      outcome: "observed",
-      canonicalHash,
-      googleHash,
-      baselineCanonicalHash: resource.baselineCanonicalHash,
-      baselineGoogleHash:
-        comparisonBaseline?.observedGoogleHash ?? resource.baselineGoogleHash,
-      blocked: patch.blockingIssues.length > 0,
-      canonicalParts,
-      googleParts,
-    })
-  )
-  const partStatus = classifyHoursPartDrift({
-    canonicalParts,
-    googleParts,
-    baseline: observation.comparisonParts ?? null,
-  })
   return {
-    observation,
     comparisonBaseline,
-    linked,
-    accessToken,
     googleLocation,
     google,
     resource,
     canonical,
-    canonicalHash,
+    canonicalHash: hashHours(canonical),
     googleHash,
-    canonicalParts,
-    googleParts,
-    partStatus,
+    canonicalParts: hoursPartHashes(canonical),
+    googleParts: hoursPartHashes(google),
     patch,
+  }
+}
+
+type ComparedHours = ReturnType<typeof compareHours>
+
+/** The successful-observation fields `recordHoursObservation` takes. */
+function observationHashes(compared: ComparedHours) {
+  return {
+    canonicalHash: compared.canonicalHash,
+    googleHash: compared.googleHash,
+    baselineCanonicalHash: compared.resource.baselineCanonicalHash,
+    baselineGoogleHash:
+      compared.comparisonBaseline?.observedGoogleHash ??
+      compared.resource.baselineGoogleHash,
+    blocked: compared.patch.blockingIssues.length > 0,
+    canonicalParts: compared.canonicalParts,
+    googleParts: compared.googleParts,
+  }
+}
+
+function classify(compared: ComparedHours, observation: HoursObservation) {
+  const partStatus = classifyHoursPartDrift({
+    canonicalParts: compared.canonicalParts,
+    googleParts: compared.googleParts,
+    baseline: observation.comparisonParts ?? null,
+  })
+  return {
+    partStatus,
     status: classifyHoursDrift({
-      canonicalHash,
-      googleHash,
+      canonicalHash: compared.canonicalHash,
+      googleHash: compared.googleHash,
       baselineCanonicalHash: observation.comparisonCanonicalHash,
       baselineGoogleHash: observation.comparisonGoogleHash,
       parts: partStatus,
@@ -256,37 +310,131 @@ async function readLiveHours(session: Session, locationId: string) {
   }
 }
 
+type LatestHoursAttempt = {
+  id: string
+  status: string
+  createdAt: Date
+  finishedAt: Date | null
+}
+
+async function latestHoursAttempt(
+  sql: TransactionSql,
+  locationId: string
+): Promise<LatestHoursAttempt | null> {
+  const [attempt] = await sql<LatestHoursAttempt[]>`
+    select
+      id::text as id,
+      status,
+      created_at as "createdAt",
+      finished_at as "finishedAt"
+    from hours_sync_attempt
+    where location_id = ${locationId}
+    order by created_at desc
+    limit 1
+  `
+  return attempt ?? null
+}
+
+/**
+ * The editor's hours from what the latest read observed, in ONE tenant
+ * transaction and no Google call (W3-2). `stored` is null when that is not
+ * good enough and Google must be read (the `linked` location loaded here is
+ * reused for it):
+ *   - no saved schedule or observed payload yet;
+ *   - the observation is past the staleness budget;
+ *   - a read or the sweep failed since (an open retries Google, as it
+ *     always did), or the read carried a metadata warning (the service-type
+ *     lookup is retried);
+ *   - a later writer (a publish readback) moved Google's hash past the
+ *     payload;
+ *   - recording this comparison would move a baseline (a save that brought
+ *     a part in line with Google), which only a live read records.
+ */
+async function readStoredHours(session: Session, locationId: string) {
+  return withTenant(session.organisationId, async (sql) => {
+    const linked = await loadLinkedLocation(
+      sql,
+      session,
+      locationId,
+      LINKED_HOURS_LOCATION
+    )
+    const [resource, observation] = await Promise.all([
+      readCanonicalResource<StoredHours>({
+        sql,
+        organisationId: session.organisationId,
+        locationId,
+        resourceType: "hours",
+      }),
+      readHoursObservation(sql, {
+        organisationId: session.organisationId,
+        locationId,
+      }),
+    ])
+    const payload = observation?.googlePayload as
+      ObservedHoursPayload | null | undefined
+    if (
+      !resource ||
+      !observation ||
+      !payload?.location ||
+      observation.errorCode !== null ||
+      observation.reconcileFailed ||
+      (payload.metadataWarnings?.length ?? 0) > 0 ||
+      shouldReadLive({ observedAt: payload.observedAt })
+    )
+      return { linked, stored: null }
+    const compared = compareHours(resource, payload.location, [])
+    if (
+      compared.googleHash !== observation.googleHash ||
+      !hoursObservationUnchanged(observation, observationHashes(compared))
+    )
+      return { linked, stored: null }
+    return {
+      linked,
+      stored: {
+        ...compared,
+        ...classify(compared, observation),
+        linked,
+        observedAt: new Date(payload.observedAt),
+        latestAttempt: await latestHoursAttempt(sql, locationId),
+      },
+    }
+  })
+}
+
 type LiveHours = Awaited<ReturnType<typeof readLiveHours>>
 
+/**
+ * The editor's hours. Served from the latest observation when it is within
+ * the staleness budget (`readStoredHours`); read from Google (and recorded)
+ * when it is not, or when the caller asks to `refresh` ("Check Google now",
+ * the presence sweep). Publishing always reads Google itself.
+ */
 export async function getHoursState(
   session: Session,
-  locationId: string
+  locationId: string,
+  options: { refresh?: boolean } = {}
 ): Promise<HoursState> {
-  const live = await readLiveHours(session, locationId)
-  const latestAttempt = await withTenant(
-    session.organisationId,
-    async (sql) => {
-      const [attempt] = await sql<
-        {
-          id: string
-          status: string
-          createdAt: Date
-          finishedAt: Date | null
-        }[]
-      >`
-      select
-        id::text as id,
-        status,
-        created_at as "createdAt",
-        finished_at as "finishedAt"
-      from hours_sync_attempt
-      where location_id = ${locationId}
-      order by created_at desc
-      limit 1
-    `
-      return attempt ?? null
-    }
+  const read = options.refresh
+    ? null
+    : await readStoredHours(session, locationId)
+  if (read?.stored)
+    return hoursState(read.stored, read.stored.latestAttempt, "stored")
+  const live = await readLiveHours(session, locationId, read?.linked)
+  const latestAttempt = await withTenant(session.organisationId, (sql) =>
+    latestHoursAttempt(sql, locationId)
   )
+  return hoursState(live, latestAttempt, "live")
+}
+
+function hoursState(
+  live: ComparedHours &
+    ReturnType<typeof classify> & {
+      linked: LinkedLocation
+      observedAt: Date
+    },
+  latestAttempt: LatestHoursAttempt | null,
+  source: HoursState["source"]
+): HoursState {
   return {
     location: {
       id: live.linked.locationId,
@@ -323,6 +471,8 @@ export async function getHoursState(
           finishedAt: latestAttempt.finishedAt?.toISOString() ?? null,
         }
       : null,
+    observedAt: live.observedAt.toISOString(),
+    source,
   }
 }
 

@@ -854,13 +854,18 @@ export const RETENTION_INVENTORY = [
     approval: { status: "internal" },
   },
   {
+    // Operational sweep and observation state, plus the Google payload of the
+    // latest editor read (observed_google_payload, WP-11): that column is
+    // provider content and is redacted 30 days after its read.
     table: "presence_resource_reconcile_state",
-    provenance: "operational",
-    action: "keep",
-    window: "one row per location and resource, for the life of the location",
+    provenance: "google",
+    action: "redact",
+    window:
+      "the stored Google payload 30 days after the read that stored it; the row for the life of the location",
+    steps: ["editorPayloads"],
     deletes: "none",
     hold: "none",
-    approval: { status: "internal" },
+    approval: { status: "published" },
   },
   {
     table: "organisation_job_route",

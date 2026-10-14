@@ -39,3 +39,42 @@ describe("failed comparison query invalidation", () => {
     }
   )
 })
+
+describe("successful comparison query invalidation (W0-04)", () => {
+  const healthKeys = [
+    queryKeys.listingSummary("l1"),
+    queryKeys.listingSummaries,
+    queryKeys.clientsAll,
+  ]
+  function renderHours() {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    const { result } = renderHook(() => useHours("l1"), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    })
+    return { result, invalidate }
+  }
+
+  it("leaves the health consumers alone after an hours read served from storage", async () => {
+    vi.spyOn(hoursApi, "fetchHours").mockResolvedValue({
+      source: "stored",
+    } as never)
+    const { result, invalidate } = renderHours()
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
+  it("invalidates the health consumers after a live hours read", async () => {
+    vi.spyOn(hoursApi, "fetchHours").mockResolvedValue({
+      source: "live",
+    } as never)
+    const { result, invalidate } = renderHours()
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    for (const queryKey of healthKeys)
+      expect(invalidate).toHaveBeenCalledWith({ queryKey })
+  })
+})

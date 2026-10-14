@@ -18,6 +18,7 @@ import {
   locationTabPrefetch,
   photosTabPrefetch,
   postsTabPrefetch,
+  PREFETCH_SKIP,
   prefetch,
   readHours,
   readMediaFirstPage,
@@ -457,6 +458,23 @@ describe("streamed listing editors", () => {
     expect(readListingSummaries).toHaveBeenCalledOnce()
     expect(readHoursResponse).toHaveBeenCalledOnce()
     vi.mocked(withTenant).mockReset()
+  })
+
+  it("hoursTabPrefetch does not re-read the summary after an hours read served from storage", async () => {
+    const { readHoursResponse } = await import("@/lib/server/listing-reads")
+    const { readListingSummaries } = await import(
+      "@/lib/server/location-summary"
+    )
+    vi.mocked(readListingSummaries).mockClear()
+    vi.mocked(readHoursResponse).mockResolvedValueOnce({
+      hours: { ...hoursBody.hours, source: "stored" },
+    } as never)
+    const [, summary] = hoursTabPrefetch(LOCATION)(session)
+    await expect(summary.load()).resolves.toBe(PREFETCH_SKIP)
+    expect(readListingSummaries).not.toHaveBeenCalled()
+    const client = makeQueryClient()
+    await prefetch(session, [summary], client)
+    expect(client.getQueryData(summary.queryKey)).toBeUndefined()
   })
 
   it("readHours returns the route's hours through the wire", async () => {

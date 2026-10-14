@@ -58,6 +58,24 @@ export async function ensureCanonicalResource<T>(input: {
     )
     on conflict (organisation_id, location_id, resource_type) do nothing
   `
+  const row = await readCanonicalResource<T>(input)
+  if (!row) {
+    throw new ApiError(
+      500,
+      "canonical_resource_unavailable",
+      "The NabaPresence canonical resource could not be initialized."
+    )
+  }
+  return row
+}
+
+/** A location's canonical resource, or null when none is saved yet. Read only. */
+export async function readCanonicalResource<T>(input: {
+  sql: TransactionSql
+  organisationId: string
+  locationId: string
+  resourceType: CanonicalResourceType
+}): Promise<CanonicalResource<T> | null> {
   const [row] = await input.sql<ResourceRow[]>`
     select
       id::text as id,
@@ -74,14 +92,7 @@ export async function ensureCanonicalResource<T>(input: {
       and resource_type = ${input.resourceType}
     limit 1
   `
-  if (!row) {
-    throw new ApiError(
-      500,
-      "canonical_resource_unavailable",
-      "The NabaPresence canonical resource could not be initialized."
-    )
-  }
-  return { ...row, payload: row.payload as T }
+  return row ? { ...row, payload: row.payload as T } : null
 }
 
 export async function updateCanonicalResource<T>(input: {

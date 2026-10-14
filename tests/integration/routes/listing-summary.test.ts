@@ -219,7 +219,8 @@ describeDatabase("listing summary routes", () => {
           }
         }
       )
-      const older = fetch(`${root}/${endpoint}`, {
+      // A live read (`refresh` past the editors' staleness budget).
+      const older = fetch(`${root}/${endpoint}?refresh=1`, {
         headers: { cookie: owner.cookie },
       })
       await vi.waitFor(() => expect(started).toBe(true))
