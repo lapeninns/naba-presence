@@ -221,7 +221,26 @@ export async function readReviewDetail(
   if (!row) {
     throw new ApiError(404, "review_not_found", "Review not found.")
   }
-  const timeline = await sql`
+  const timeline = await reviewTimelineQuery(sql, id)
+  const capabilities = await reviewCapabilities(
+    sql,
+    session,
+    row.locationId as string
+  )
+  return {
+    ...row,
+    timeline,
+    capabilities,
+  }
+}
+
+/**
+ * A review's newest 100 audit rows. The tenant comes from RLS, so the query
+ * seeks `audit_log_subject_idx` on (organisation, subject) and reads it in
+ * `created_at desc` order (W4-04).
+ */
+export function reviewTimelineQuery(sql: TransactionSql, reviewId: string) {
+  return sql`
     select
       a.action,
       a.created_at as "createdAt",
@@ -236,20 +255,10 @@ export async function readReviewDetail(
       end as "metadataSummary"
     from audit_log a
     left join app_user u on u.id = a.actor_user_id
-    where a.subject_type = 'review' and a.subject_id = ${id}
+    where a.subject_type = 'review' and a.subject_id = ${reviewId}
     order by a.created_at desc
     limit 100
   `
-  const capabilities = await reviewCapabilities(
-    sql,
-    session,
-    row.locationId as string
-  )
-  return {
-    ...row,
-    timeline,
-    capabilities,
-  }
 }
 
 /**

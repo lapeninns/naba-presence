@@ -94,7 +94,13 @@ describe("database migration contract", () => {
     }
     // A new `-- migrate:no-transaction` file must be added here on purpose:
     // db:migrate cannot roll it back if it fails half-way.
-    expect(noTransaction).toEqual([])
+    expect(noTransaction).toEqual([
+      "0134_audit_log_subject_index.sql",
+      "0135_draft_review_id_index.sql",
+      "0136_review_reply_review_id_index.sql",
+      "0137_review_reply_pending_draft_index.sql",
+      "0138_approval_decision_review_id_index.sql",
+    ])
   })
 
   it("uses unique Supabase migration versions", async () => {
@@ -339,12 +345,39 @@ describe("db:migrate transaction handling", () => {
     ).toThrow(/needs a matching final commit/)
   })
 
-  it("runs a marked file verbatim outside a transaction", () => {
-    const text = `${NO_TRANSACTION_MARKER}\ncreate index concurrently i on t (id);\n`
+  it("runs a marked file outside a transaction, one statement at a time", () => {
+    const text = [
+      NO_TRANSACTION_MARKER,
+      "-- A comment; with a semicolon.",
+      "drop index concurrently if exists i;",
+      "",
+      "create index concurrently i",
+      "  on t (id);",
+      "insert into schema_migration(version) values ('0099_t');",
+      "",
+    ].join("\n")
     expect(prepareMigration("0099_t.sql", text)).toEqual({
       transactional: false,
       body: text,
+      statements: [
+        "drop index concurrently if exists i;",
+        "create index concurrently i\n  on t (id);",
+        "insert into schema_migration(version) values ('0099_t');",
+      ],
     })
+  })
+
+  it("builds every no-transaction migration's index concurrently, one per file", async () => {
+    for (const file of await migrationFiles()) {
+      const text = await readFile(new URL(file, migrationsDirectory), "utf8")
+      const prepared = prepareMigration(file, text)
+      if (prepared.transactional) continue
+      const creates = (prepared.statements ?? []).filter((statement) =>
+        /^create\s+(unique\s+)?index\b/i.test(statement)
+      )
+      expect(creates, file).toHaveLength(1)
+      expect(creates[0], file).toMatch(/^create\s+(unique\s+)?index\s+concurrently\b/i)
+    }
   })
 
   it("ignores legacy names when finding the highest version", () => {
