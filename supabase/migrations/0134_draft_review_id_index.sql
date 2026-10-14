@@ -15,4 +15,4 @@ drop index concurrently if exists draft_review_id_idx;
 create index concurrently draft_review_id_idx
   on draft (review_id);
 
-insert into schema_migration(version) values ('0135_draft_review_id_index') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0134_draft_review_id_index') on conflict (version) do nothing;

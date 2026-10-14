@@ -15,4 +15,4 @@ drop index concurrently if exists approval_decision_review_id_idx;
 create index concurrently approval_decision_review_id_idx
   on approval_decision (review_id);
 
-insert into schema_migration(version) values ('0138_approval_decision_review_id_index') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0137_approval_decision_review_id_index') on conflict (version) do nothing;

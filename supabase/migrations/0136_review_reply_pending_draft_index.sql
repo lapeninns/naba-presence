@@ -18,4 +18,4 @@ create index concurrently review_reply_pending_draft_idx
   on review_reply (pending_draft_id)
   where pending_draft_id is not null;
 
-insert into schema_migration(version) values ('0137_review_reply_pending_draft_index') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0136_review_reply_pending_draft_index') on conflict (version) do nothing;
