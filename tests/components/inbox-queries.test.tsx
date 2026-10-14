@@ -76,7 +76,7 @@ describe("useReviewCounts", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
     const client = newClient()
-    const { result } = renderHook(() => useReviewCounts("loc-1"), {
+    const { result } = renderHook(() => useReviewCounts({ locationId: "loc-1" }), {
       wrapper: wrapperWith(client),
     })
     await waitFor(() => expect(result.current.data).toBeDefined())
@@ -84,6 +84,22 @@ describe("useReviewCounts", () => {
     // snake_case on the wire, matching every other review parameter.
     expect(url.searchParams.get("location_id")).toBe("loc-1")
     expect(client.getQueryData(queryKeys.reviewCounts("loc-1"))).toBeDefined()
+  })
+
+  it("caches client-scoped counts under the key the inbox prefetch hydrates", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ total: 0, byStatus: {}, byQueue: { needs_reply: 0, approval: 0, awaiting_my_approval: 0, awaiting_others: 0, publishing: 0, failed: 0, done: 0, all: 0 } })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const client = newClient()
+    const { result } = renderHook(() => useReviewCounts({ clientId: "c-1" }), {
+      wrapper: wrapperWith(client),
+    })
+    await waitFor(() => expect(result.current.data).toBeDefined())
+    expect(new URL(fetchMock.mock.calls[0][0] as string, "http://t").searchParams.get("client_id")).toBe("c-1")
+    // lib/server/prefetch.ts builds the same key with reviewCountsFor.
+    expect(queryKeys.reviewCountsFor({ clientId: "c-1" })).toEqual(["review-counts", "organisation:c-1"])
+    expect(client.getQueryData(queryKeys.reviewCountsFor({ clientId: "c-1" }))).toBeDefined()
   })
 
   it("uses the organisation scope when no location is given", async () => {

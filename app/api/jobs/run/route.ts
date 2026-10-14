@@ -1,5 +1,5 @@
 import { runDueJobs } from "@/lib/server/jobs"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -8,12 +8,13 @@ export const maxDuration = 60
 // One drain of due webhook, checkpoint and publish-recovery work, bounded by
 // the tick budget so the fleet lock is never held past the function limit.
 function runJobsTick(requestId: string) {
-  return withAdvisoryLock("naba:jobs", () =>
+  return withFleetLease("naba:jobs", () =>
     runDueJobs({ budgetMs: 45_000, requestId })
   )
 }
 
 export const POST = route({
+  maxDuration,
   auth: "cron",
   // The tick's request id correlates every audit row it writes - the
   // dead-lettered webhooks and the exhausted recoveries - with this run.
@@ -25,6 +26,7 @@ export const POST = route({
 // cron bearer arrives as the `Authorization` header automatically when
 // `CRON_SECRET` is set on the Vercel project.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: ({ requestId }) => runJobsTick(requestId),
 })

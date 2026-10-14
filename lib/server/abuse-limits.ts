@@ -173,6 +173,14 @@ export const ABUSE_POLICIES = {
     user: { limit: 60, windowSeconds: HOUR },
     organisation: { limit: 300, windowSeconds: HOUR },
   },
+  // Google account and location discovery (W3-01): each GET pages every
+  // account or every location from Google and rewrites the rows. The setup
+  // screens read it once per account and on Refresh; this bounds a loop.
+  google_discovery: {
+    code: "discovery_rate_limited",
+    user: { limit: 60, windowSeconds: MINUTES_15 },
+    organisation: { limit: 120, windowSeconds: MINUTES_15 },
+  },
 } as const satisfies Record<
   string,
   { code: string } & Partial<Record<AbuseKeyKind, Window>>
@@ -202,6 +210,8 @@ const MESSAGES: Record<string, string> = {
     "Too many photos were uploaded in a short time. Wait a while and try again.",
   draft_rate_limited:
     "Too many drafts were requested in a short time. Wait a moment and try again.",
+  discovery_rate_limited:
+    "Google accounts and locations were refreshed too often. Wait a few minutes and try again.",
   invitation_email_rate_limited:
     "Too many invitation emails were sent in a short time. Copy the link and send it yourself, or try again later.",
 }

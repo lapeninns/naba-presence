@@ -31,6 +31,10 @@ import {
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
+// Not 60: its Google calls (OAuth exchange, then every account and location
+// page) do not stop at ctx.deadline yet, so this keeps the platform default it
+// ran under.
+export const maxDuration = 300
 
 const stateSchema = z.object({
   nonce: z.string().min(1),
@@ -95,6 +99,8 @@ type OAuthInput = {
   request: Request
   requestId: string
   clientRequestId: string | null
+  /** The request deadline; the post-response review sync shares it. */
+  deadline: number
 }
 
 /**
@@ -108,6 +114,7 @@ async function completeOAuth({
   request,
   requestId,
   clientRequestId,
+  deadline,
 }: OAuthInput) {
   const params = await oauthParameters(request)
   if (params.error) {
@@ -236,6 +243,9 @@ async function completeOAuth({
     }
   }
   if (setup.kind === "automatic" && getServerEnv().SYNC_ENABLED) {
+    // `after()` runs inside this function's own time limit, so the first
+    // backfill pages share the request deadline (whole Google calls only);
+    // the checkpoint resumes anything left on the next backfill.
     after(async () => {
       try {
         const outcome = await syncLinkedLocation({
@@ -243,6 +253,7 @@ async function completeOAuth({
           externalLocationId: setup.externalLocationId,
           type: "backfill",
           maxPages: 10,
+          deadline: deadline - getServerEnv().GOOGLE_TIMEOUT_MS,
         })
         if (outcome.status === "failed") {
           log.warn("google.automatic_review_sync_failed", {
@@ -306,8 +317,9 @@ const OAUTH_ERROR_REASONS = new Set([
 
 // Browser redirect from Google: errors become a redirect, never a JSON body.
 export const GET = route({
+  maxDuration,
   auth: "public",
-  handler: async ({ request, requestId, clientRequestId }) => {
+  handler: async ({ request, requestId, clientRequestId, deadline }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     // Read before completeOAuth: it deletes the state cookie once the session
     // matches, and a failure after that (the token exchange) must still know
@@ -318,6 +330,7 @@ export const GET = route({
         request,
         requestId,
         clientRequestId,
+        deadline,
       })
       // Back to the step the operator left, not to a settings page they never
       // asked for. The path came through the signed state and is checked
@@ -371,7 +384,8 @@ export const GET = route({
 })
 
 export const POST = route({
+  maxDuration,
   auth: "public",
-  handler: ({ request, requestId, clientRequestId }) =>
-    completeOAuth({ request, requestId, clientRequestId }),
+  handler: ({ request, requestId, clientRequestId, deadline }) =>
+    completeOAuth({ request, requestId, clientRequestId, deadline }),
 })

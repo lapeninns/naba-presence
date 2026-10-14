@@ -20,6 +20,7 @@ export const maxDuration = 60
 const paramsSchema = z.object({ id: z.uuid() })
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: paramsSchema,
   handler: async ({ session, params }) =>
@@ -29,6 +30,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: administrationMatchSchema,
@@ -43,6 +45,7 @@ export const POST = route({
 })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,

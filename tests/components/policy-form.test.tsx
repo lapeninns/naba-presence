@@ -84,7 +84,10 @@ function renderForm(role: string) {
   )
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  sessionStorage.clear()
+})
 
 describe("PolicyForm", () => {
   it("renders the current policy and enables save once an owner edits", () => {
@@ -461,5 +464,82 @@ describe("PolicyForm", () => {
         screen.queryByRole("region", { name: "Save reply policy" })
       ).not.toBeInTheDocument()
     })
+  })
+
+  it("warns on a reload while dirty and offers unsaved policy edits back on the next visit", () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings(),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: {
+        canManageTeam: true,
+        canManageConnections: true,
+        canEditSettings: true,
+      },
+    })
+    const first = renderForm("owner")
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "Days to keep raw review content" }),
+      { target: { value: "7" } }
+    )
+    const reload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(reload)
+    expect(reload.defaultPrevented).toBe(true)
+    first.unmount()
+
+    renderForm("owner")
+    const retention = screen.getByRole("spinbutton", {
+      name: "Days to keep raw review content",
+    })
+    expect(retention).toHaveValue(14)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Restore unsaved edits" })
+    )
+    expect(retention).toHaveValue(7)
+    expect(
+      screen.getByRole("region", { name: "Save reply policy" })
+    ).toHaveTextContent("1 unsaved change")
+    expect(
+      screen.queryByRole("button", { name: "Restore unsaved edits" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("offers nothing back to someone who cannot edit the policy", () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings(),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: {
+        canManageTeam: true,
+        canManageConnections: true,
+        canEditSettings: true,
+      },
+    })
+    const first = renderForm("owner")
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "Days to keep raw review content" }),
+      { target: { value: "7" } }
+    )
+    first.unmount()
+    expect(
+      Object.keys(sessionStorage).some((key) => key.startsWith("naba:draft:"))
+    ).toBe(true)
+    useCapsMock.mockReturnValue({
+      data: {
+        canManageTeam: false,
+        canManageConnections: false,
+        canEditSettings: false,
+      },
+    })
+    renderForm("member")
+    expect(
+      screen.queryByRole("button", { name: "Restore unsaved edits" })
+    ).not.toBeInTheDocument()
   })
 })

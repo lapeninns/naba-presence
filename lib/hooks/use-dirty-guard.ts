@@ -74,15 +74,20 @@ export function useDirtyGuard({
   const foreign = useRef(false)
   // The signed-in identity the current content was written under.
   const owner = useRef<string | null>(null)
-  useEffect(() => {
-    latest.current = { isDirty, snapshot, askConfirm, confirmMessage }
-    if (!isDirty) foreign.current = false
-  })
-
   // Set once `confirmDiscard` resolves true, so the unmount that follows a
   // deliberate discard does not stash the very text the user just gave up.
-  // Reset whenever the key changes, because a discard concerns one draft.
+  // Reset whenever the key changes, because a discard concerns one draft,
+  // and whenever the content is clean again: a discard whose navigation kept
+  // the page (a leave prompt over a `run` request) must not leave the next
+  // edits unguarded.
   const discarded = useRef(false)
+  useEffect(() => {
+    latest.current = { isDirty, snapshot, askConfirm, confirmMessage }
+    if (!isDirty) {
+      foreign.current = false
+      discarded.current = false
+    }
+  })
 
   useEffect(() => {
     discarded.current = false

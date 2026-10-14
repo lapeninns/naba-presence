@@ -5,9 +5,11 @@ import { approvePublicationSchedule } from "@/lib/server/publication-schedules"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 const params = z.object({ id: z.uuid(), scheduleId: z.uuid() })
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"], params, body: scheduleApprovalSchema,
   handler: async ({ session, params, body, requestId }) => ({ schedule: await approvePublicationSchedule(session, params.id, params.scheduleId, body, requestId) }),

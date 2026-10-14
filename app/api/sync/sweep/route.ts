@@ -2,8 +2,9 @@ import type { z } from "zod"
 
 import { sweepSchema } from "@/lib/contracts/sync"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { log } from "@/lib/server/logger"
 import {
@@ -49,14 +50,15 @@ async function authenticate(request: Request) {
 }
 
 export const POST = route({
+  maxDuration,
   auth: "public",
   origin: "same",
-  handler: async ({ request, requestId }) => {
+  handler: async ({ request, requestId, deadline }) => {
     const session = await authenticate(request)
     await requireScopesEnabled("sync", SYNC_PAUSED)
     const input = sweepSchema.parse(await request.json().catch(() => ({})))
     return session
-      ? runSweepPage({ session, input, requestId })
+      ? runSweepPage({ session, input, requestId, deadline })
       : enqueueFleetSweep(requestId)
   },
 })
@@ -67,6 +69,7 @@ export const POST = route({
 // still validated so a malformed cron path fails loudly, but a fleet sweep
 // no longer pages: it queues every organisation at once.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ query, requestId }) => {
     await requireScopesEnabled("sync", SYNC_PAUSED)
@@ -95,7 +98,7 @@ const SWEEP_MIN_INTERVAL = "20 hours"
  * Under the `naba:sweep` lease, which also stamps the tick's heartbeat.
  */
 async function enqueueFleetSweep(requestId: string) {
-  const result = await withAdvisoryLock("naba:sweep", async () => {
+  const result = await withFleetLease("naba:sweep", async () => {
     const [row] = await getDatabase()<
       { organisationCount: number; queued: number }[]
     >`
@@ -128,13 +131,6 @@ async function enqueueFleetSweep(requestId: string) {
   }
 }
 
-/**
- * The session sweep's wall-clock budget, inside `maxDuration`: without it a
- * location with deep history ran until the platform killed the request,
- * losing the page it was on.
- */
-const SESSION_SWEEP_BUDGET_MS = 45_000
-
 // An owner/admin sweeping their own organisation, inline. (`session: null`
 // is still accepted so the shape matches the reconcile walk, but the cron
 // paths above enqueue instead.)
@@ -142,10 +138,12 @@ async function runSweepPage({
   session,
   input,
   requestId,
+  deadline,
 }: {
   session: Session | null
   input: z.infer<typeof sweepSchema>
   requestId: string
+  deadline: number
 }) {
   // Cross-tenant enumeration: the cron walks every organisation that has a
   // job route, so this one read deliberately runs outside withTenant.
@@ -164,8 +162,16 @@ async function runSweepPage({
             limit ${input.maxOrganisations}
           `
       ).map((organisation) => organisation.id)
-  const deadline = Date.now() + SESSION_SWEEP_BUDGET_MS
+  // The locations run one after another inside this request, so they share
+  // its deadline (lib/server/deadline.ts). A page, the first of a location
+  // included, is only started while a whole Google call still fits before
+  // it: without that a location with deep history ran until the platform
+  // killed the request, losing the page it was on. A location that cannot
+  // start is left as it was and named in `notStartedExternalLocationIds`;
+  // one stopped between pages parks its cursor for the next sweep.
+  const pageDeadline = deadline - getServerEnv().GOOGLE_TIMEOUT_MS
   const failures: SweepFailure[] = []
+  const notStarted: string[] = []
   const organisations: Array<{
     organisationId: string
     locations: Array<{ externalLocationId: string } & SyncOutcome>
@@ -194,6 +200,10 @@ async function runSweepPage({
     }
     const results: Array<{ externalLocationId: string } & SyncOutcome> = []
     for (const location of locations) {
+      if (Date.now() >= pageDeadline) {
+        notStarted.push(location.externalLocationId)
+        continue
+      }
       try {
         const outcome = await syncLinkedLocation({
           organisationId,
@@ -201,7 +211,7 @@ async function runSweepPage({
           type: "sweep",
           maxPages: input.maxPagesPerLocation,
           requestId,
-          deadline,
+          deadline: pageDeadline,
         })
         results.push({
           externalLocationId: location.externalLocationId,
@@ -234,10 +244,17 @@ async function runSweepPage({
     !session && organisationIds.length === input.maxOrganisations
       ? (organisationIds.at(-1) ?? null)
       : null
+  if (notStarted.length) {
+    log.info("sweep.time_budget_reached", {
+      requestId,
+      notStarted: notStarted.length,
+    })
+  }
   return {
     processed: organisationIds.length,
     nextCursor,
     failures,
+    notStartedExternalLocationIds: notStarted,
     ...(session ? { locations: organisations[0]?.locations ?? [] } : {}),
   }
 }

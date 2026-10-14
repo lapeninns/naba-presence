@@ -11,8 +11,9 @@ const CRON_BEARER = "Bearer route-harness-cron-secret"
 
 // The Vercel Cron paths from `vercel.json`, with the scheduler-parity
 // page sizes. The harness database ships seeded organisations, so these prove
-// the GET shims walk a real (small) fleet exactly the way the scheduler's
-// POSTs did — same auth, same single-page shapes, same cron-branch isolation.
+// the GET shims walk a real (small) fleet — same auth, same single-page
+// shapes, same cron-branch isolation. The self-hosted scheduler fires these
+// same GETs (scripts/scheduler-ticks.mjs, scheduler-parity.test.ts).
 const ticks = [
   "/api/jobs/run",
   "/api/sync/reconcile?maxOrganisations=100",

@@ -220,8 +220,20 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   }
 
   const onDecision = async (decision: "approve" | "reject", note?: string) => {
+    // An approval names the draft the composer shows and the review as read,
+    // so a pane gone stale is refused (409) rather than approving unseen text.
+    const shownDraftId = review.drafts[0]?.id
+    if (decision === "approve" && !shownDraftId) return
     try {
-      const result = await approval.mutateAsync({ decision, note })
+      const result = await approval.mutateAsync(
+        decision === "approve"
+          ? {
+              decision,
+              draftId: shownDraftId!,
+              expectedReviewUpdateTime: review.updateTime,
+            }
+          : { decision, note }
+      )
       outcomeToast.show(
         describeOutcomeToast(result.status, {
           googleReplyUrl: review.googleReplyUrl,

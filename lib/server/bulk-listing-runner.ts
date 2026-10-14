@@ -23,7 +23,7 @@ import { getDatabase, jsonColumn, withTenant } from "@/lib/server/db"
 import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import {
   requireNoUnresolvedAccountChange,
   withGoogleAccountChangeLock,
@@ -162,7 +162,11 @@ export async function processBulkChild(
   if (!child) return
   // The child's own change from the batch's ordered list (0126); the claim
   // only hands it over once the earlier changes at its listing settled.
-  const input = bulkOperationInputSchema.parse(child.input)
+  const input = parseStored(
+    bulkOperationInputSchema,
+    child.input,
+    "bulk_listing_child.input"
+  )
   const family = bulkFamily(input.operation)
   const fail = async (code: string) => {
     await settle(organisationId, childId, "failed", { code })
@@ -644,11 +648,15 @@ export async function runDueBulkChildren(options: {
   // reply's idempotency key before sending (0130).
   await getDatabase()`select requeue_interrupted_review_children(${env.JOBS_BATCH_SIZE})`
   while (Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline) {
+    // At most JOBS_CONCURRENCY children per claim, all started at once: the
+    // job runner's concurrency bound holds here too (each child holds pool
+    // connections and calls Google), and a claimed child is never left
+    // unstarted, because an expired claim settles it ambiguous.
     const claimed = await getDatabase()<
       { organisationId: string; childId: string }[]
     >`
       select organisation_id::text as "organisationId", child_id::text as "childId"
-      from claim_due_bulk_children(${env.JOBS_BATCH_SIZE}, ${Math.ceil(options.budgetMs / 1000) + 60}, ${Math.min(env.JOBS_PER_ORGANISATION, BULK_MAX_RUNNING_PER_ORGANISATION)})`
+      from claim_due_bulk_children(${env.JOBS_CONCURRENCY}, ${Math.ceil(options.budgetMs / 1000) + 60}, ${Math.min(env.JOBS_PER_ORGANISATION, BULK_MAX_RUNNING_PER_ORGANISATION)})`
     if (!claimed.length) break
     const operations = new Map<string, string>()
     await Promise.all(
@@ -671,14 +679,26 @@ export async function runDueBulkChildren(options: {
             () => undefined
           )
         }
-        const [owner] = await withTenant(
-          row.organisationId,
-          (sql) =>
-            sql<
-              { operationId: string }[]
-            >`select operation_id::text as "operationId" from bulk_listing_child where id = ${row.childId}`
-        )
-        if (owner) operations.set(owner.operationId, row.organisationId)
+        // Inside its own guard: a rejection here would reject the whole
+        // batch while its siblings were still writing. A child whose
+        // operation is not found here is finished by the
+        // bulk_operations_ready_to_finish pass below.
+        try {
+          const [owner] = await withTenant(
+            row.organisationId,
+            (sql) =>
+              sql<
+                { operationId: string }[]
+              >`select operation_id::text as "operationId" from bulk_listing_child where id = ${row.childId}`
+          )
+          if (owner) operations.set(owner.operationId, row.organisationId)
+        } catch (error) {
+          log.error("bulk_listing.child_owner_lookup_failed", {
+            organisationId: row.organisationId,
+            childId: row.childId,
+            error,
+          })
+        }
       })
     )
     for (const [operationId, organisationId] of operations)

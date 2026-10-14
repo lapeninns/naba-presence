@@ -1,6 +1,7 @@
 "use client"
 
 import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { StashedEditsNotice } from "@/components/editors/stashed-edits-notice"
 import {
   Alert,
   AlertActions,
@@ -47,33 +48,11 @@ function DraftNotices({ drafts, noun }: { drafts: DraftLike[]; noun: string }) {
   return (
     <>
       {stashed.length > 0 ? (
-        <Alert variant="info" data-slot="draft-restore">
-          <AlertTitle>You left unsaved edits to {noun}</AlertTitle>
-          <AlertDescription>
-            They were kept in this browser tab when you last left the page.
-            Restore them to carry on, or dismiss them to start from what
-            NabaPresence has saved.
-          </AlertDescription>
-          <AlertActions>
-            {/* Secondary, not the green primary: restoring is a local
-                step, and the accent is kept for the action that reaches
-                Google. */}
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => stashed.forEach((draft) => draft.restoreStashed())}
-            >
-              Restore unsaved edits
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => stashed.forEach((draft) => draft.dismissStashed())}
-            >
-              Dismiss
-            </Button>
-          </AlertActions>
-        </Alert>
+        <StashedEditsNotice
+          noun={noun}
+          onRestore={() => stashed.forEach((draft) => draft.restoreStashed())}
+          onDismiss={() => stashed.forEach((draft) => draft.dismissStashed())}
+        />
       ) : null}
 
       {incoming.length > 0 ? (
