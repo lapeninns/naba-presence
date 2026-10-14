@@ -450,7 +450,7 @@ export function CalendarAgenda({
         framed
         icon={<CalendarIcon />}
         title="No scheduled publications in this period."
-        description="Use the arrows to look at another period, or widen the client and listing filters."
+        description="Use the arrows to look at another period."
       />
     )
   return (
