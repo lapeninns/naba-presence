@@ -130,6 +130,42 @@ describe("HoursEditor special hours", () => {
   })
 })
 
+describe("HoursEditor special-day focus return", () => {
+  it("returns focus to the new day's row, not the Add button, after Done", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await addSpecialDay("2099-12-25")
+    const add = screen.getByRole("button", { name: "Add a special day" })
+    await user.click(add)
+    const dialog = await screen.findByRole("dialog")
+    fireEvent.change(within(dialog).getByLabelText(/^Special date \d$/), {
+      target: { value: "2099-01-01" },
+    })
+    await user.click(within(dialog).getByRole("button", { name: "Done" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    // The new day sorts before the earlier one; focus follows it there.
+    const row = screen.getByRole("button", { name: /1 Jan 2099/ })
+    await waitFor(() => expect(row).toHaveFocus())
+    expect(add).not.toHaveFocus()
+  })
+
+  it("returns focus to an existing day's row after editing it", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await addSpecialDay("2099-12-25")
+    await user.click(screen.getByRole("button", { name: /25 Dec 2099/ }))
+    const dialog = await screen.findByRole("dialog")
+    fireEvent.change(within(dialog).getByLabelText(/^Special date \d$/), {
+      target: { value: "2099-12-26" },
+    })
+    await user.click(within(dialog).getByRole("button", { name: "Done" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /26 Dec 2099/ })).toHaveFocus()
+    )
+  })
+})
+
 describe("HoursEditor day switch and special-day order", () => {
   it("brings a day's own periods back when it is switched off and on", () => {
     render(<Harness />)

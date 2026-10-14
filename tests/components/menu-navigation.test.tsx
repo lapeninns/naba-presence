@@ -279,6 +279,27 @@ describe("large menu navigation", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByText(/No items match these filters/)).toBeVisible()
   })
+  it("returns focus to the search field when the edited row no longer matches", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    const search = screen.getByRole("searchbox", { name: "Search menu" })
+    await user.click(search)
+    await user.paste("Dish 33-8")
+    await user.click(itemRow("Dish 33-8"))
+    const name = await screen.findByRole("textbox", {
+      name: "Item name — section 33, item 8",
+    })
+    await user.clear(name)
+    await user.type(name, "Renamed")
+    await closeItem(user)
+    // The row unmounted on close (the search no longer matches it), so focus
+    // lands on the search field rather than on <body>.
+    expect(
+      screen.queryByRole("button", { name: "Edit Renamed" })
+    ).not.toBeInTheDocument()
+    await waitFor(() => expect(search).toHaveFocus())
+    expect(document.body).not.toHaveFocus()
+  })
   it("keeps the searched section name mounted until editing ends", async () => {
     const user = userEvent.setup()
     render(<Harness />)
