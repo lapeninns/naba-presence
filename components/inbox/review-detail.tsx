@@ -185,7 +185,7 @@ function ReviewerIdentity({
         ref={headingRef}
         tabIndex={-1}
         data-slot="review-heading"
-        className="line-clamp-2 min-w-0 text-title font-semibold break-words text-ink focus-visible:outline-none"
+        className="line-clamp-2 min-w-0 text-section font-medium break-words text-ink focus-visible:outline-none"
       >
         {displayName}
       </h2>
@@ -865,7 +865,7 @@ function ReviewThread({
       <article
         aria-label={`Review from ${displayName}`}
         data-slot="thread-review"
-        className={cn(THREAD_ITEM_CLASS, "border-b border-line pb-7")}
+        className={cn(THREAD_ITEM_CLASS, "border-b border-line-subtle pb-8")}
       >
         <div className="relative">
           <ReviewerAvatar review={review} />
@@ -965,7 +965,7 @@ const FOOTER_CHARCOAL_CLASS = "border-charcoal"
 // else the page does. The thread keeps a reading measure and centres in a
 // wide pane.
 const SCROLL_CLASS =
-  "flex min-h-0 flex-1 flex-col px-7 pt-6 pb-8 max-md:px-(--np-page-pad-x) @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 lg:[@media(min-height:620px)]:overflow-y-auto"
+  "flex min-h-0 flex-1 flex-col px-8 pt-8 pb-10 max-md:px-(--np-page-pad-x) @max-[480px]/detail:pt-5 @max-[480px]/detail:pb-6 lg:[@media(min-height:620px)]:overflow-y-auto"
 
 const COLUMN_CLASS =
   "mx-auto flex w-full max-w-(--np-page-narrow-width) flex-col gap-5"

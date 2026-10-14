@@ -53,7 +53,7 @@ function ListHeader({
   return (
     <div
       data-slot="inbox-list-header"
-      className="flex min-h-11 shrink-0 items-center gap-3 border-b border-line-subtle px-(--np-page-pad-x) text-caption text-ink-muted"
+      className="flex min-h-11 shrink-0 items-center gap-3 px-(--np-page-pad-x) text-caption text-ink-muted"
     >
       {canBatch ? (
         // The rows' leading column (ListRow's `--np-avatar-list`, at the
@@ -120,7 +120,7 @@ function ListHeader({
         <span
           aria-hidden={refreshed ? undefined : true}
           className={cn(
-            "whitespace-nowrap tabular-nums",
+            "sr-only tabular-nums",
             !refreshed && "invisible",
             selectMode && "hidden desk:inline"
           )}

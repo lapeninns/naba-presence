@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const ROW_CLASS =
+  "py-3 [&_[data-slot=list-row-body]]:gap-0.5 [&_[data-slot=list-row-preview]]:text-ink-muted"
 
 /**
  * The status words a queue already says. A row in Needs reply that reads
@@ -323,6 +325,7 @@ function ReviewList({
               key={review.id}
               render={<button type="button" data-slot="review-row" />}
               selected={selected}
+              className={ROW_CLASS}
               tabIndex={isTabStop ? 0 : -1}
               onClick={() => {
                 if (selection?.selectMode && tapTogglesSelection()) {
@@ -338,11 +341,11 @@ function ReviewList({
               // (the primitive has none): an ink bar down the leading edge
               // (reference `.q-item[aria-selected]`), the accent staying
               // reserved for the one action that publishes.
-              wrapperClassName={
-                selected
-                  ? "before:absolute before:inset-y-2 before:start-0 before:z-raised before:w-0.75 before:rounded-e-full before:bg-ink before:content-['']"
-                  : undefined
-              }
+              wrapperClassName={cn(
+                "group/review-row",
+                selected &&
+                  "before:absolute before:inset-y-2 before:start-0 before:z-raised before:w-0.75 before:rounded-e-full before:bg-ink before:content-['']"
+              )}
               leading={
                 selection?.selectMode && showControl ? null : (
                   <ReviewAvatar
@@ -350,7 +353,11 @@ function ReviewList({
                     anonymous={review.reviewer.isAnonymous}
                     photoUrl={review.reviewer.profilePhotoUrl}
                     size="list"
-                    className={showControl ? "desk:hidden" : undefined}
+                    className={
+                      showControl
+                        ? "desk:group-focus-within/review-row:invisible desk:group-hover/review-row:invisible"
+                        : undefined
+                    }
                   />
                 )
               }
@@ -363,8 +370,10 @@ function ReviewList({
                   <span
                     data-slot="review-row-select"
                     className={cn(
-                      "size-full items-center justify-center",
-                      selection.selectMode ? "flex" : "hidden desk:flex"
+                      "size-full items-center justify-center bg-surface",
+                      selection.selectMode || selection.selected.has(review.id)
+                        ? "flex"
+                        : "hidden desk:flex desk:opacity-0 desk:group-focus-within/review-row:opacity-100 desk:group-hover/review-row:opacity-100"
                     )}
                   >
                     <Checkbox
@@ -475,6 +484,7 @@ function ReviewList({
                         <StatusPill
                           tone={pill.tone}
                           dashed={pill.dashed}
+                          className="border-0 bg-transparent px-0"
                           // The full sentence is the accessible name, so a reader
                           // hears "Draft checked · Ready to publish" rather than
                           // the abbreviation the row has room for. Where the title
@@ -557,6 +567,7 @@ function ReviewRowsSkeleton({
           key={index}
           interactive={false}
           aria-hidden
+          className={ROW_CLASS}
           leading={
             <Skeleton className="size-(--np-avatar-list) rounded-(--np-radius-pill)" />
           }

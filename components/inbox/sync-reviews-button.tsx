@@ -88,16 +88,16 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
   return (
     <div className="relative flex flex-col items-end gap-1">
       <Button
-        variant="secondary"
+        variant="ghost"
         onClick={() => void run()}
         pending={pending}
         // The words fold away on a phone, where it is a square 44px icon
         // button; they stay its name, and "Syncing…" its name while it runs.
-        pendingLabel={<span className="max-md:sr-only">Syncing…</span>}
-        className="max-md:min-w-(--np-touch) max-md:px-0"
+        pendingLabel={<span className="sr-only">Syncing…</span>}
+        className="min-w-(--np-touch) rounded-full px-0"
       >
         <RefreshCwIcon aria-hidden data-icon="inline-start" />
-        <span className="max-md:sr-only">Sync reviews</span>
+        <span className="sr-only">Sync reviews</span>
       </Button>
       {error ? (
         <span

@@ -196,11 +196,7 @@ function FilterToolbar({
       aria-label="Filter reviews"
       className={cn("flex min-w-0 items-center justify-end gap-2", className)}
     >
-      <AgeSelect
-        state={state}
-        onChange={onChange}
-        className="w-auto shrink-0 max-xl:hidden"
-      />
+      <AgeSelect state={state} onChange={onChange} className="hidden" />
 
       {isApproval ? (
         <OwnerSelect
@@ -210,11 +206,7 @@ function FilterToolbar({
         />
       ) : null}
 
-      <ReviewSortSelect
-        state={state}
-        onChange={onChange}
-        className="w-auto shrink-0 max-lg:hidden"
-      />
+      <ReviewSortSelect state={state} onChange={onChange} className="hidden" />
 
       {/* The Toolbar's Filter button (Notion Mail's circle): 44px on
           touch, the control height at the desk. Its name says how many are

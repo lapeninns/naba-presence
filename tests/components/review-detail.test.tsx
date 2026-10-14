@@ -179,7 +179,7 @@ describe("ReviewDetail", () => {
     const review = container.querySelector<HTMLElement>(
       '[data-slot="thread-review"]'
     )!
-    expect(review).toHaveClass("border-b", "border-line")
+    expect(review).toHaveClass("border-b", "border-line-subtle", "pb-8")
     expect(review.querySelector('[data-slot="thread-rail"]')).toHaveClass(
       "hidden"
     )

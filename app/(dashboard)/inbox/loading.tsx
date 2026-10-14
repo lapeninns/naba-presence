@@ -26,64 +26,64 @@ export default function InboxLoading() {
   return (
     <PageFrame
       width="workspace"
-      className="min-h-0 flex-1 gap-3 pt-4 max-md:px-4 max-md:pt-3 md:pt-4"
+      className="min-h-0 flex-1 gap-0 pt-0 max-md:px-4 md:px-0 md:pt-0 md:pb-0"
     >
-      <div className="flex min-h-0 flex-1 flex-col bg-surface">
-        <div className="flex shrink-0 flex-col gap-3 pt-2 pb-4 max-md:-mx-4 max-md:px-4 md:px-5 md:pt-5">
-          {/* The band (inbox-toolbar.tsx) at every width: ViewHeader, then
+      <div
+        role="status"
+        aria-busy="true"
+        style={INBOX_SPLIT_STYLE}
+        className="grid min-h-0 flex-1 grid-cols-1 border-t border-line bg-surface lg:grid-cols-[var(--inbox-list-w)_minmax(0,1fr)]"
+      >
+        <div className="flex min-h-0 flex-col lg:border-r lg:border-line">
+          <div className="flex shrink-0 flex-col gap-3 bg-surface px-4 pt-4 pb-2 max-md:-mx-4 md:px-5 md:pt-5">
+            {/* The band (inbox-toolbar.tsx) at every width: ViewHeader, then
               the Toolbar row (search pill + Filters circle), then the queue
               strip. */}
-          <div className="flex shrink-0 flex-col gap-3">
-            <ViewHeader
-              title="Inbox"
-              count={
-                <Skeleton
-                  aria-hidden
-                  className="inline-block h-5 w-8 align-middle"
-                />
-              }
-              actions={
-                <Skeleton aria-hidden className="size-(--np-control-h)" />
-              }
-            />
-            <div aria-hidden className="flex min-w-0 items-center gap-2">
-              <Skeleton className="h-(--np-touch) min-w-0 flex-1 basis-48 rounded-(--np-radius-pill) desk:h-(--np-control-h)" />
-              <Skeleton className="size-(--np-touch) shrink-0 rounded-(--np-radius-pill) desk:size-(--np-control-h)" />
-            </div>
-            <div aria-hidden className="flex min-w-0 gap-2 overflow-hidden">
-              {[0, 1, 2, 3, 4].map((index) => (
-                <Skeleton
-                  key={index}
-                  className="h-(--np-touch) w-24 shrink-0 rounded-(--np-radius-control) desk:h-(--np-control-h)"
-                />
-              ))}
+            <div className="flex shrink-0 flex-col gap-3 [&_[data-slot=view-header-title]]:basis-0 [&_[data-slot=view-header-title]>h1]:text-section">
+              <ViewHeader
+                title="Inbox"
+                count={
+                  <Skeleton
+                    aria-hidden
+                    className="inline-block h-5 w-8 align-middle"
+                  />
+                }
+                actions={
+                  <Skeleton aria-hidden className="size-(--np-control-h)" />
+                }
+              />
+              <div aria-hidden className="flex min-w-0 items-center gap-2">
+                <Skeleton className="h-(--np-touch) min-w-0 flex-1 basis-48 rounded-(--np-radius-pill) desk:h-(--np-control-h)" />
+                <Skeleton className="size-(--np-touch) shrink-0 rounded-(--np-radius-pill) desk:size-(--np-control-h)" />
+              </div>
+              <div aria-hidden className="flex min-w-0 gap-2 overflow-hidden">
+                {[0, 1, 2, 3, 4].map((index) => (
+                  <Skeleton
+                    key={index}
+                    className="h-(--np-touch) w-24 shrink-0 rounded-(--np-radius-control) desk:h-(--np-control-h)"
+                  />
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        <div
-          role="status"
-          aria-busy="true"
-          style={INBOX_SPLIT_STYLE}
-          className="grid flex-1 grid-cols-1 border-t border-line lg:grid-cols-[var(--inbox-list-w)_minmax(0,1fr)]"
-        >
           <div
-            className="flex min-h-0 flex-col overflow-hidden bg-surface max-md:-mx-4 lg:border-r lg:border-line"
+            className="flex min-h-0 flex-col overflow-hidden bg-surface max-md:-mx-4"
             aria-hidden
           >
-            <div className="flex min-h-11 items-center gap-3 border-b border-line-subtle px-(--np-page-pad-x)">
+            <div className="flex min-h-11 items-center gap-3 px-(--np-page-pad-x)">
               <Skeleton className="h-3 w-20" />
             </div>
             <ReviewRowsSkeleton />
           </div>
-          <div className="hidden min-h-0 items-center justify-center bg-surface lg:flex">
-            <p className="flex items-center gap-2 text-ui text-ink-muted">
-              <Spinner decorative size="sm" />
-              Loading reviews
-            </p>
-          </div>
-          <p className="sr-only lg:hidden">Loading reviews</p>
         </div>
+        <div className="hidden min-h-0 items-center justify-center bg-surface lg:flex">
+          <p className="flex items-center gap-2 text-ui text-ink-muted">
+            <Spinner decorative size="sm" />
+            Loading reviews
+          </p>
+        </div>
+        <p className="sr-only lg:hidden">Loading reviews</p>
       </div>
     </PageFrame>
   )
