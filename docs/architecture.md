@@ -1112,8 +1112,11 @@ queue: their cron only arms a checkpoint for every linked location
 per-organisation cap, and success books the next run on the kind's grid from
 the slot it was due in (`next_scheduled_run`). `sync_checkpoint.
 last_succeeded_at` moves only on success and is what every freshness signal
-reads. Vercel Cron drives eight ticks (`vercel.json`); `scripts/scheduler.mjs`
-POSTs the same eight for local and non-Vercel deployments.
+reads. Vercel Cron drives nine ticks (`vercel.json`); `scripts/scheduler.mjs`
+fires the same nine GETs with the cron bearer for local and non-Vercel
+deployments (`scripts/scheduler-ticks.mjs`), so both topologies enqueue the
+same way. The bearer POST of reconcile, performance and keywords still walks
+organisations inline; nothing schedules it.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and records
 each run in that loop's `ops_heartbeat` row (start, skip streak, failure and
