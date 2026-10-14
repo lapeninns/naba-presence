@@ -66,9 +66,12 @@ export type JourneyState = {
   memberUnassignedCookie: string
 }
 
+// Inside Playwright's output directory, so concurrent local shards
+// (scripts/ci/sharded.mjs sets PLAYWRIGHT_OUTPUT_DIR) never share it.
 export const journeyStatePath = resolve(
   process.cwd(),
-  "test-results/e2e-journey-state.json"
+  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results",
+  "e2e-journey-state.json"
 )
 
 export async function readJourneyState() {

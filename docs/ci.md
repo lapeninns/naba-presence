@@ -211,8 +211,8 @@ Hosted CI is not a release gate: GitHub Actions has not run since about
 | `migrate-fresh` | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current` |
 | `migrate-upgrade` | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one |
 | `migrate-concurrent` | two `db:migrate` runs at once; each version recorded exactly once |
-| `integration` | `pnpm test:integration` on a freshly migrated database; passes only if its `Tests` line shows more than 0 passed and none skipped |
-| `e2e` | `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100 (a free pair if 3100/3101 are busy); passes only if more than 0 passed |
+| `integration` | `pnpm test:integration:sharded` (see *Local sharding* below; `pnpm test:integration` on the gate's freshly migrated database when `NABA_TEST_SHARDS=1`); passes only if its `Tests` line shows more than 0 passed and none skipped |
+| `e2e` | `pnpm test:e2e:sharded --forbid-only` (with `NABA_TEST_SHARDS=1`: `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100, or a free pair if 3100/3101 are busy); passes only if more than 0 passed |
 | `audit` | `pnpm audit --prod --audit-level high` |
 | `secret-scan` | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see). **Required**: without gitleaks installed the step is skipped with a note and the gate fails (SEC-13 follow-up) |
 
@@ -234,7 +234,8 @@ or `.nvmrc` are recorded in the receipt (`gateSource`) and promotion refuses
 it. It starts its own PostgreSQL 17 with `scripts/ci/postgres.mjs` and stops
 it at the end, even on failure or Ctrl-C. The steps inherit only an allowlist
 of your shell's variables (`PATH`, `HOME`, temp and terminal variables, the
-pnpm, npm config, corepack and nvm ones, `NABA_PG_BIN`/`NABA_PG_MODE`, Docker,
+pnpm, npm config, corepack and nvm ones, `NABA_PG_BIN`/`NABA_PG_MODE`,
+`NABA_TEST_SHARDS`, Docker,
 proxy and Playwright browser locations; `INHERITED_ENV` in
 `scripts/release/verify-local.mjs`), so database URLs, CI variables and any
 provider credentials you have sourced never reach integration or e2e, and it
@@ -253,6 +254,25 @@ duration, test counts and note. The exit code is 0 only when the gate passed.
 passes promotion. `--list` prints the steps; `--keep-worktree` keeps the
 worktree for debugging. Rules are unit-tested in
 `tests/server/release-verify-local.test.ts`.
+
+**Local sharding:** `pnpm test:integration:sharded` and
+`pnpm test:e2e:sharded` (`scripts/ci/sharded.mjs`) split the suite across N
+shards on this machine, the same way CI's matrix does across runners. N is
+`--shards N`, else `NABA_TEST_SHARDS`, else a quarter of the CPUs, at most 4.
+Each shard starts its own cluster with `scripts/ci/postgres.mjs` (its own
+`NABA_PG_DIR` and `SHARD`), migrates it and adds the runtime role, points
+every database URL at it (`DATABASE_SESSION_URL` too, whatever `.env` says),
+then runs `vitest run tests/integration --shard=i/N` or
+`playwright test --shard=i/N`. E2E shards also get their own
+`PLAYWRIGHT_PORT` pair and `PLAYWRIGHT_OUTPUT_DIR`
+(`test-results/shard-i/`, which holds that shard's journey state file).
+Output is prefixed `[mode i/N]` and kept in `shard-i.log` in the printed run
+directory; totals are printed in vitest's and Playwright's own formats; the
+exit code is 0 only when every shard passed. It stops its clusters and kills
+its shards' process groups on exit, failure or Ctrl-C, and touches nothing
+it did not start. With N=1 it runs `test:integration` / `test:e2e` exactly,
+against the environment's database. `pnpm verify:release` inherits
+`NABA_TEST_SHARDS`; set it to 1 for the old single-cluster run.
 
 `test:integration`, `test:e2e` and `test:a11y` go through
 `scripts/run-test-command.mjs`, which refuses a non-local host in

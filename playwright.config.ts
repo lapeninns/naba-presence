@@ -10,6 +10,9 @@ const tokenEncryptionKey =
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // scripts/ci/sharded.mjs gives each local shard its own directory, since
+  // Playwright empties this one when a run starts.
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results",
   globalSetup: "./tests/e2e/helpers/stub-bridge.ts",
   workers: 1, // §9: pin to one worker (deterministic; no cross-spec CPU contention)
   fullyParallel: false,

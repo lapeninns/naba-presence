@@ -20,6 +20,11 @@
 //   e2e steps pass only when their output shows tests ran
 //   (local-receipt.mjs `testCountProblem`).
 //
+// Integration and e2e run split across NABA_TEST_SHARDS shards (default: a
+// quarter of the CPUs, at most 4) by scripts/ci/sharded.mjs, each shard on
+// its own throwaway cluster and ports; NABA_TEST_SHARDS=1 runs them unsharded
+// on the gate's cluster, as before.
+//
 // It writes a receipt (scripts/release/local-receipt.mjs) to
 // docs/release/receipts/local/ in the invoking checkout (gitignored), with
 // the SHA, base, Node/pnpm/PostgreSQL versions and each step's result, and
@@ -65,6 +70,7 @@ import {
   latestPromotedRelease,
   localReceiptFileName,
 } from "./local-receipt.mjs"
+import { shardCount } from "../ci/sharded.mjs"
 
 /**
  * The placeholder values from ci.yml's top-level `env:`. CI needs no real
@@ -99,6 +105,8 @@ export const INHERITED_ENV = [
   // scripts/ci/postgres.mjs: where PostgreSQL lives, native or docker.
   "NABA_PG_BIN",
   "NABA_PG_MODE",
+  // scripts/ci/sharded.mjs: how many shards integration and e2e use.
+  "NABA_TEST_SHARDS",
   "DOCKER_HOST",
   "DOCKER_CONTEXT",
   "DOCKER_CONFIG",
@@ -376,6 +384,14 @@ async function main() {
     )
   }
 
+  let shards
+  try {
+    shards = shardCount({ env: process.env.NABA_TEST_SHARDS })
+  } catch (error) {
+    console.error(`verify:release: NABA_TEST_SHARDS: ${error.message}`)
+    return 2
+  }
+
   const runDir = mkdtempSync(join(tmpdir(), `naba-verify-${sha.slice(0, 12)}-`))
   const worktree = join(runDir, "src")
   const pgDir = join(runDir, "pg")
@@ -613,11 +629,30 @@ async function main() {
     integration: async () => {
       // The suite starts the standalone build (.next/standalone/server.js).
       requires("frozen-install", "build")
+      if (shards > 1) {
+        // Each shard starts, migrates and stops its own cluster.
+        const result = await must("pnpm", [
+          "test:integration:sharded",
+          "--shards",
+          String(shards),
+        ])
+        return { output: result.output, note: `${shards} shards` }
+      }
       await freshMigratedDatabase()
       return must("pnpm", ["test:integration"])
     },
     e2e: async () => {
       requires("build")
+      if (shards > 1) {
+        // Each shard has its own cluster, ports and output directory.
+        const result = await must("pnpm", [
+          "test:e2e:sharded",
+          "--shards",
+          String(shards),
+          "--forbid-only",
+        ])
+        return { output: result.output, note: `${shards} shards` }
+      }
       await freshMigratedDatabase()
       let port = E2E_PORT
       if (!((await isFree(port)) && (await isFree(port + 1)))) {
