@@ -172,7 +172,9 @@ export function NotificationsView() {
           title="Notifications"
           titleAs="h1"
           count={unread > 0 ? unread : undefined}
-          countLabel="open and unread"
+          // The header's screen-reader words replace the figure, so they
+          // carry the number (PageChrome's label above is a suffix).
+          countLabel={`${unread} open and unread`}
           actions={
             // The words show from sm; on a narrow phone the glyph alone
             // keeps the title whole, and the name stays the same words.

@@ -265,9 +265,22 @@ describe("CommandPalette review search", () => {
     renderPalette()
     const dialog = await openPalette()
     const input = within(dialog).getByRole("combobox")
-    // The takeover runs below `md` now, so the 16px floor does too.
-    expect(input).toHaveClass("max-md:text-body")
+    // The primitive's 16px floor on a touch screen; nothing here sizes the
+    // field down to `text-ui`.
+    expect(input).toHaveClass("pointer-coarse:text-base!")
     expect(input).not.toHaveClass("text-ui")
+  })
+
+  it("draws the primitive's phone takeover, with D8 group labels", async () => {
+    renderPalette()
+    const dialog = await openPalette()
+    expect(dialog).toHaveAttribute("data-phone", "takeover")
+    expect(
+      dialog.querySelector('[data-slot="command-takeover-bar"]')
+    ).not.toBeNull()
+    // The palette's own field row and heading override are gone.
+    expect(dialog.querySelector('[data-slot="command-palette-bar"]')).toBeNull()
+    expect(dialog.querySelector(".font-sans")).toBeNull()
   })
 
   it("says nothing matched and still offers the review search", async () => {
@@ -286,7 +299,7 @@ describe("CommandPalette review search", () => {
   })
 })
 
-/** Pretends the viewport is a phone (below `md`) or a desk. */
+/** Pretends the viewport is a phone (below `sm`) or a desk. */
 function stubViewport(desk: boolean) {
   vi.stubGlobal(
     "matchMedia",

@@ -224,12 +224,21 @@ function MenuSwitcher({ clients, client, onSelect, className }: SwitcherProps) {
             void onSelect(value === ALL ? null : value)
           }
         >
-          <DropdownMenuRadioItem value={ALL} closeOnClick>
+          <DropdownMenuRadioItem
+            value={ALL}
+            closeOnClick
+            indicatorPosition="end"
+          >
             <AllClientsOption />
           </DropdownMenuRadioItem>
           <DropdownMenuSeparator />
           {clients.map((entry) => (
-            <DropdownMenuRadioItem key={entry.id} value={entry.id} closeOnClick>
+            <DropdownMenuRadioItem
+              key={entry.id}
+              value={entry.id}
+              closeOnClick
+              indicatorPosition="end"
+            >
               <ClientOption client={entry} />
             </DropdownMenuRadioItem>
           ))}

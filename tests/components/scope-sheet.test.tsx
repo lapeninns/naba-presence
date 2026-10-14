@@ -351,6 +351,34 @@ describe("agency mode: a client's locations", () => {
     ).toBeInTheDocument()
   })
 
+  it("goes back one level on Escape in the pushed view, and closes from the top", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "clientId=c1"
+    renderScope({ directory: DIRECTORY })
+    const sheet = await openSheet("Client: Old Crown")
+    await userEvent.click(
+      within(sheet).getByRole("button", { name: "Locations of Old Crown" })
+    )
+    await waitFor(() =>
+      expect(
+        within(sheet).getByRole("heading", { name: "Old Crown" })
+      ).toHaveFocus()
+    )
+
+    await userEvent.keyboard("{Escape}")
+    // Still open, back on the client list, focus on the chevron that pushed.
+    expect(screen.getByRole("dialog")).toBe(sheet)
+    expect(sheet).toHaveAccessibleName("Working on")
+    await waitFor(() =>
+      expect(
+        within(sheet).getByRole("button", { name: "Locations of Old Crown" })
+      ).toHaveFocus()
+    )
+
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  })
+
   it("ticks the location the Inbox is narrowed to", async () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c1&locationId=l2"
