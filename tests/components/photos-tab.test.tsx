@@ -211,8 +211,9 @@ describe("PhotosTab", () => {
     expect(screen.queryByText(/on Google$/)).toBeNull()
     expect(screen.queryByText(/There is no draft step/)).toBeNull()
     await user.click(screen.getByRole("button", { name: "Add photos" }))
+    // The dialog loads the first time it opens.
     expect(
-      screen.getByRole("heading", { name: "Add media" })
+      await screen.findByRole("heading", { name: "Add media" })
     ).toBeInTheDocument()
     // Two explicit ways in on a phone: the camera and the library.
     expect(
@@ -316,7 +317,7 @@ describe("PhotosTab", () => {
     })
     renderTab()
     await user.click(screen.getByRole("button", { name: "Add photos" }))
-    const input = screen.getByLabelText("Direct file upload")
+    const input = await screen.findByLabelText("Direct file upload")
     expect(input).toHaveAttribute("accept", "image/jpeg,image/png")
     expect(input.getAttribute("accept")).not.toMatch(/video/)
   })
