@@ -11,6 +11,7 @@ import {
   SheetBack,
   SheetBody,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
@@ -262,5 +263,46 @@ describe("Sheet variant=inset", () => {
     const sheet = await screen.findByRole("dialog", { name: "Tags" })
     expect(sheet).toHaveAttribute("data-presentation", "sheet")
     expect(sheet).toHaveClass("h-dvh")
+  })
+})
+
+// FINAL-QA #4: in a centred header a long description took the whole row
+// and the empty side columns collapsed to nothing, so Close drew over the
+// words. The side tracks now keep a floor and Close sits in its own cell.
+describe("Sheet centred header reserves the trailing close (FINAL-QA #4)", () => {
+  it("keeps the close in its own track beside a long title and description", async () => {
+    asPhone(true)
+    render(
+      <Sheet open>
+        <SheetContent variant="inset">
+          <SheetHeader>
+            <SheetTitle>Choose a client</SheetTitle>
+            <SheetDescription>
+              Every review, listing and report on this screen will show this
+              client. You can change it again as you make them.
+            </SheetDescription>
+          </SheetHeader>
+        </SheetContent>
+      </Sheet>
+    )
+    const sheet = await screen.findByRole("dialog", { name: "Choose a client" })
+    const bar = sheet.querySelector('[data-slot="sheet-header-bar"]')!
+    expect(bar).toHaveClass("grid")
+    // Neither side track may shrink to zero under the centred words.
+    expect(bar.className).toContain(
+      "grid-cols-[minmax(var(--np-touch),1fr)_minmax(0,auto)_minmax(max-content,1fr)]"
+    )
+    expect(bar.className).not.toContain("grid-cols-[1fr_auto_1fr]")
+    const trailing = sheet.querySelector('[data-slot="sheet-header-trailing"]')!
+    // The trailing cell keeps its control's width (no min-w-0 collapse).
+    expect(trailing).not.toHaveClass("min-w-0")
+    const close = within(sheet).getByRole("button", { name: "Close" })
+    expect(trailing).toContainElement(close)
+    // The words live in the middle cell only, never in the close's cell.
+    const title = sheet.querySelector('[data-slot="sheet-header-title"]')!
+    expect(title).toContainElement(
+      sheet.querySelector('[data-slot="sheet-description"]') as HTMLElement
+    )
+    expect(title).not.toContainElement(close)
   })
 })

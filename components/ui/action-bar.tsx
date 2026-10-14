@@ -79,8 +79,8 @@ export type ActionBarAction = {
  * keyboard (`--np-keyboard-inset`). Layout is all CSS (`max-md:`), so the
  * server's HTML is right for both widths and nothing flashes on hydration.
  *
- * In the dark theme charcoal is near-white with dark ink — always read the
- * role utilities, never assume the bar is black.
+ * In the dark theme charcoal is a raised grey above the canvas, still with
+ * light ink — always read the role utilities, never assume the bar's colour.
  */
 function ActionBar({
   status,

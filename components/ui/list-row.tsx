@@ -537,7 +537,10 @@ function ListRow({
         // The control's own target, outside the row's hit element. On touch
         // an `after:` overhang takes the wrapper to 44px, and a press on
         // the wrapper (not on the control) is passed to the control, so the
-        // overhang over the row selects rather than opening the row.
+        // overhang over the row selects rather than opening the row. The
+        // overhang sits under the control (`after:z-under`, inside the
+        // wrapper's own stacking context): drawn last it would cover the
+        // control, so a tap on the box itself hit the wrapper (FINAL-QA #1).
         <span
           data-slot="list-row-control"
           onClick={(event) => {
@@ -549,7 +552,7 @@ function ListRow({
           className={cn(
             "absolute top-(--np-row-mail-py) z-raised grid size-(--np-avatar-list) place-items-center",
             flush ? "start-0" : "start-(--np-page-pad-x)",
-            "after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden"
+            "after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:z-under after:content-[''] desk:after:hidden"
           )}
         >
           {leadingControl}

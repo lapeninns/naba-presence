@@ -66,7 +66,8 @@ type PositionProps = Pick<
 /**
  * A small, calm charcoal label (the counter-surface, like toasts): caption
  * text in the on-charcoal ink, control radius, flat (no shadow), on the
- * tooltip layer above every overlay. In the dark theme charcoal is near-white with dark text. Never
+ * tooltip layer above every overlay. In the dark theme charcoal is a raised
+ * grey above the canvas, with light text. Never
  * the only home of information a touch user needs; a tooltip does not open
  * on touch (see TooltipTrigger).
  */

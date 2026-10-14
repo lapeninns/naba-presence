@@ -168,3 +168,89 @@ test.describe("rebuild foundation", () => {
     })
   }
 })
+
+// RC3 (FINAL-QA #4, #19, #21): checks that need a real layout engine.
+test.describe("foundation layout and theme (RC3)", () => {
+  // The built CSS is minified, which may write `oklch(0.18 …)` as
+  // `oklch(18% …)`: read both as a 0–1 lightness.
+  const lightness = (value: string) => {
+    const match = /oklch\(\s*([\d.]+)(%?)/.exec(value)
+    if (!match) throw new Error(`not oklch: ${value}`)
+    return Number(match[1]) / (match[2] ? 100 : 1)
+  }
+
+  for (const width of [390, 320]) {
+    test(`/design-system never scrolls sideways at ${width}px (#21)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto("/design-system")
+      await page.waitForLoadState("networkidle")
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }))
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
+    })
+
+    test(`a centred sheet header keeps Close clear of its words at ${width}px (#4)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto("/design-system")
+      await page.getByRole("button", { name: "Choose a client" }).click()
+      const sheet = page.getByRole("dialog", { name: "Choose a client" })
+      await expect(sheet).toBeVisible()
+      const close = await sheet.getByRole("button", { name: "Close" }).boundingBox()
+      const words = await sheet.locator('[data-slot="sheet-header-title"]').boundingBox()
+      expect(close && words).toBeTruthy()
+      // Side by side, never on top of each other.
+      expect(words!.x + words!.width).toBeLessThanOrEqual(close!.x)
+    })
+  }
+
+  test("without script, a system-dark visitor still gets the dark theme and charcoal (#19, #3)", async ({ browser }) => {
+    const baseURL = test.info().project.use.baseURL
+    for (const colorScheme of ["dark", "light"] as const) {
+      const context = await browser.newContext({ baseURL, javaScriptEnabled: false, colorScheme })
+      const page = await context.newPage()
+      await page.goto("/sign-in")
+      const tokens = await page.evaluate(() => {
+        const style = getComputedStyle(document.documentElement)
+        return {
+          theme: document.documentElement.classList.contains("dark") || document.documentElement.classList.contains("light"),
+          canvas: style.getPropertyValue("--np-surface-canvas"),
+          charcoal: style.getPropertyValue("--np-charcoal"),
+          inkOnCharcoal: style.getPropertyValue("--np-ink-on-charcoal"),
+        }
+      })
+      // No script ran, so no theme class: the system scheme decides.
+      expect(tokens.theme).toBe(false)
+      if (colorScheme === "dark") expect(lightness(tokens.canvas)).toBeLessThan(0.3)
+      else expect(lightness(tokens.canvas)).toBeGreaterThan(0.9)
+      // Charcoal is the dark counter-surface in both schemes, never a light slab.
+      expect(lightness(tokens.charcoal)).toBeLessThan(0.4)
+      expect(lightness(tokens.inkOnCharcoal)).toBeGreaterThan(0.9)
+      await context.close()
+    }
+  })
+
+  test("with script, dark is a class on <html> before hydration, and charcoal stays dark (#19, #3)", async ({ browser }) => {
+    const baseURL = test.info().project.use.baseURL
+    const context = await browser.newContext({ baseURL, colorScheme: "dark" })
+    const page = await context.newPage()
+    // Recorded the moment the document is parsed, ahead of React.
+    await page.addInitScript(() => {
+      document.addEventListener("DOMContentLoaded", () => {
+        ;(window as unknown as { __themeAtParse: string }).__themeAtParse =
+          document.documentElement.className
+      })
+    })
+    await page.goto("/design-system")
+    const atParse = await page.evaluate(
+      () => (window as unknown as { __themeAtParse: string }).__themeAtParse
+    )
+    expect(atParse.split(/\s+/)).toContain("dark")
+    const charcoal = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--np-charcoal")
+    )
+    expect(lightness(charcoal)).toBeLessThan(0.4)
+    await context.close()
+  })
+})

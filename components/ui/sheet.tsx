@@ -359,9 +359,16 @@ const SheetHeader = markOverlayHeader(function SheetHeader({
     >
       {grabber}
       <div
+        data-slot="sheet-header-bar"
         className={cn(
           "grid min-h-(--np-touch) items-center gap-2",
-          hasBack ? "grid-cols-[auto_1fr_auto]" : "grid-cols-[1fr_auto_1fr]"
+          // Centred: the side columns never collapse under a long title or
+          // description, so the trailing close or action keeps its own room
+          // instead of drawing over the words (FINAL-QA #4). The leading
+          // column reserves one touch target; the trailing one its control.
+          hasBack
+            ? "grid-cols-[auto_1fr_auto]"
+            : "grid-cols-[minmax(var(--np-touch),1fr)_minmax(0,auto)_minmax(max-content,1fr)]"
         )}
       >
         <div className="flex min-w-0 justify-start">
@@ -383,7 +390,9 @@ const SheetHeader = markOverlayHeader(function SheetHeader({
         >
           {children}
         </div>
-        <div className="flex min-w-0 justify-end">{trailing}</div>
+        <div data-slot="sheet-header-trailing" className="flex justify-end">
+          {trailing}
+        </div>
       </div>
     </div>
   )

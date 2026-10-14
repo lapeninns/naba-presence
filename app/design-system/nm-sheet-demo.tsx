@@ -38,6 +38,7 @@ import {
   SheetBack,
   SheetBody,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -293,6 +294,46 @@ function SettingsDemo() {
 }
 
 /**
+ * A centred header with a description long enough to wrap: the close keeps
+ * its own column instead of drawing over the words (FINAL-QA #4).
+ */
+function ScopeSheetDemo() {
+  const [client, setClient] = React.useState("all")
+  return (
+    <Sheet>
+      <SheetTrigger render={<Button variant="secondary" />}>
+        Choose a client
+      </SheetTrigger>
+      <SheetContent variant="inset">
+        <SheetHeader>
+          <SheetTitle>Choose a client</SheetTitle>
+          <SheetDescription>
+            Reviews, listings and reports on this screen show this client. You
+            can change it again as you make them.
+          </SheetDescription>
+        </SheetHeader>
+        <SheetBody>
+          <OptionRowGroup label="Client">
+            {[
+              { id: "all", label: "All clients" },
+              { id: "harbour", label: "Harbour Collective" },
+            ].map((option) => (
+              <OptionRow
+                key={option.id}
+                indicator="radio"
+                label={option.label}
+                selected={client === option.id}
+                onClick={() => setClient(option.id)}
+              />
+            ))}
+          </OptionRowGroup>
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+/**
  * The Notion Mail sheet and settings primitives: an inset sheet of option
  * rows with an in-sheet push, settings groups and rows, and neutral
  * avatars at every size.
@@ -305,8 +346,9 @@ export function NmSheetDemo() {
           Inset sheet: presets resolve in venue time; choices apply at once, the
           pushed page confirms with its one header action.
         </p>
-        <div>
+        <div className="flex flex-wrap gap-2">
           <ReminderSheet />
+          <ScopeSheetDemo />
         </div>
       </div>
       <SettingsDemo />

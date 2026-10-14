@@ -326,6 +326,9 @@ describe("ListRow details, flush and wrapperProps (F6, FOUNDATION-B)", () => {
       "after:inset-[calc((100%-var(--np-touch))/2)]"
     )
     expect(wrapper).toHaveClass("desk:after:hidden")
+    // The overhang is painted under the control, never over it (FINAL-QA
+    // #1: a tap on the box itself hit the wrapper's ::after).
+    expect(wrapper).toHaveClass("after:z-under", "z-raised")
     // A press on the wrapper's overhang (the wrapper itself) selects.
     await user.click(wrapper)
     expect(onCheck).toHaveBeenCalledTimes(1)

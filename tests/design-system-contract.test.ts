@@ -476,3 +476,80 @@ describe("user tags never look like status (R2b P1-S1, D3)", () => {
     expect(globals).not.toMatch(/--np-ramp-tag-(orange|green)-/)
   })
 })
+
+describe("charcoal stays the dark counter-surface in both themes (D4, FINAL-QA #3/#19)", () => {
+  const lightnessOf = (theme: "light" | "dark", name: string) => {
+    const value = resolveToken(
+      { ...tokens.light, ...tokens[theme] },
+      name,
+      theme
+    )
+    const match = /oklch\(\s*([\d.]+)/.exec(value)
+    if (!match) throw new Error(`${name} (${theme}) is not oklch: ${value}`)
+    return Number(match[1])
+  }
+
+  it.each(["light", "dark"] as const)(
+    "%s: charcoal is dark and its ink is light, never an inverse slab",
+    (theme) => {
+      expect(lightnessOf(theme, "--np-charcoal")).toBeLessThan(0.4)
+      expect(lightnessOf(theme, "--np-ink-on-charcoal")).toBeGreaterThan(0.9)
+      expect(lightnessOf(theme, "--np-ink-muted-on-charcoal")).toBeGreaterThan(
+        0.7
+      )
+    }
+  )
+
+  it("dark: charcoal sits above the canvas and cards, so the bar reads as raised", () => {
+    const charcoal = lightnessOf("dark", "--np-charcoal")
+    for (const surface of [
+      "--np-surface-canvas",
+      "--np-surface",
+      "--np-surface-raised",
+    ]) {
+      expect(charcoal).toBeGreaterThan(lightnessOf("dark", surface))
+    }
+  })
+})
+
+describe("dark theme without script (FINAL-QA #19)", () => {
+  const plain = globals.replace(/\/\*[\s\S]*?\*\//g, "")
+  const declarations = (body: string) =>
+    [...body.matchAll(/(--[\w-]+|color-scheme)\s*:\s*([^;]+);/g)].map(
+      ([, name, value]) => `${name}: ${value.trim()}`
+    )
+  const bodyAfter = (opener: RegExp) => {
+    const match = opener.exec(plain)
+    if (!match) throw new Error(`no block for ${opener}`)
+    const start = match.index + match[0].length
+    let depth = 1
+    let end = start
+    while (depth > 0 && end < plain.length) {
+      if (plain[end] === "{") depth += 1
+      else if (plain[end] === "}") depth -= 1
+      end += 1
+    }
+    return plain.slice(start, end - 1)
+  }
+
+  it("mirrors every .dark declaration, in order, for a system-dark page with no theme class", () => {
+    const dark = declarations(bodyAfter(/(^|\})\s*\.dark\s*\{/m))
+    const twin = declarations(
+      bodyAfter(
+        /@media \(prefers-color-scheme: dark\)\s*\{\s*:root:where\(:not\(\.light\)\)\s*\{/
+      )
+    )
+    expect(dark.length).toBeGreaterThan(50)
+    expect(dark).toContain("color-scheme: dark")
+    expect(twin).toEqual(dark)
+  })
+
+  it("lets dark: utilities follow the system until next-themes sets a class", () => {
+    expect(plain).toMatch(
+      /@custom-variant dark\s*\{\s*&:is\(\.dark \*\)\s*\{\s*@slot;/
+    )
+    expect(plain).toMatch(
+      /@media \(prefers-color-scheme: dark\)\s*\{\s*&:is\(:root:where\(:not\(\.light\)\) \*\)\s*\{\s*@slot;/
+    )
+  })
+})
