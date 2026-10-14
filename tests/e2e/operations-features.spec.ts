@@ -280,7 +280,13 @@ for (const width of [375, 768, 1280])
             .first()
         ).toBeVisible()
         if (await page.getByText("Fixture Inn 1").first().isVisible()) break
+        // The period heading changes in the same render that swaps the old
+        // period's answer for the loading state; wait for it so the next
+        // check never reads the previous period's stale answer.
+        const periodHeading = page.locator("h2[aria-live]").first()
+        const before = (await periodHeading.textContent()) ?? ""
         await page.getByRole("button", { name: "Next period" }).click()
+        await expect(periodHeading).not.toHaveText(before)
       }
       await expect(
         page.getByRole("list", { name: "Scheduled publications" })
