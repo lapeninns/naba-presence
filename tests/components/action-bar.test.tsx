@@ -104,11 +104,9 @@ function stubHooks(
   approval = mutation(),
   del = mutation(),
   verify = mutation(
-    vi
-      .fn()
-      .mockResolvedValue({
-        verification: { id: "v9", verdict: "pass", reasons: [] },
-      })
+    vi.fn().mockResolvedValue({
+      verification: { id: "v9", verdict: "pass", reasons: [] },
+    })
   ),
   refetched: ReviewDetail = detail
 ) {
@@ -155,11 +153,9 @@ describe("ActionBar", () => {
         .mockResolvedValueOnce({ status: "published" })
     )
     const verify = mutation(
-      vi
-        .fn()
-        .mockResolvedValue({
-          verification: { id: "v9", verdict: "pass", reasons: [] },
-        })
+      vi.fn().mockResolvedValue({
+        verification: { id: "v9", verdict: "pass", reasons: [] },
+      })
     )
     const fresh = detailWith({ updateTime: "2026-08-01T09:00:00.000Z" })
     stubHooks(detailWith({}), publish, mutation(), mutation(), verify, fresh)
@@ -181,11 +177,9 @@ describe("ActionBar", () => {
         .mockRejectedValue(new ApiClientError(409, "stale_draft_evidence", "x"))
     )
     const verify = mutation(
-      vi
-        .fn()
-        .mockResolvedValue({
-          verification: { id: "v9", verdict: "fail", reasons: [] },
-        })
+      vi.fn().mockResolvedValue({
+        verification: { id: "v9", verdict: "fail", reasons: [] },
+      })
     )
     stubHooks(detailWith({}), publish, mutation(), mutation(), verify)
     renderActionBar()
@@ -615,6 +609,54 @@ describe("ActionBar", () => {
     await waitFor(() =>
       expect(
         screen.getByText("A different authorised user must approve this reply.")
+      ).toBeInTheDocument()
+    )
+  })
+
+  // W1-F1: an approval names what the approver read — the draft the composer
+  // shows (the newest) and the review's update time — like bulk approve.
+  it("approves the draft on screen against the review as read", async () => {
+    const user = userEvent.setup()
+    const approval = mutation()
+    stubHooks(
+      detailWith({
+        workflowStatus: "awaiting_approval",
+        updateTime: "2026-07-31T09:00:00.000Z",
+      }),
+      mutation(),
+      approval
+    )
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await waitFor(() => expect(approval.mutateAsync).toHaveBeenCalledTimes(1))
+    expect(approval.mutateAsync).toHaveBeenCalledWith({
+      decision: "approve",
+      draftId: "d1",
+      expectedReviewUpdateTime: "2026-07-31T09:00:00.000Z",
+    })
+  })
+
+  it("tells the approver when the draft changed under them", async () => {
+    const user = userEvent.setup()
+    const approval = mutation(
+      vi
+        .fn()
+        .mockRejectedValue(
+          new ApiClientError(409, "approval_draft_changed", "x")
+        )
+    )
+    stubHooks(
+      detailWith({ workflowStatus: "awaiting_approval" }),
+      mutation(),
+      approval
+    )
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This reply changed after you opened it. Read the current draft before approving or rejecting it."
+        )
       ).toBeInTheDocument()
     )
   })

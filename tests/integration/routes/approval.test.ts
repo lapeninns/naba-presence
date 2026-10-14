@@ -142,6 +142,7 @@ describeDatabase("reply approval", () => {
     input: {
       decision: "approve" | "reject"
       draftId?: string
+      expectedReviewUpdateTime?: string
       note?: string
     }
   ) {
@@ -259,6 +260,112 @@ describeDatabase("reply approval", () => {
       select 1 from approval_decision where review_id = ${fixture.review.reviewId}
     `
     expect(decisions).toHaveLength(0)
+  })
+
+  // What the inbox pane binds an approval to (components/inbox/action-bar.tsx):
+  // the draft the composer shows — the newest — and the review's update time.
+  async function readPane(
+    fixture: Awaited<ReturnType<typeof createFixture>>,
+    cookie: string
+  ) {
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+      { headers: { cookie } }
+    )
+    expect(response.status).toBe(200)
+    const { review } = (await response.json()) as {
+      review: { updateTime: string; drafts: { id: string }[] }
+    }
+    return {
+      draftId: review.drafts[0].id,
+      expectedReviewUpdateTime: review.updateTime,
+    }
+  }
+
+  async function expectNothingDecided(
+    fixture: Awaited<ReturnType<typeof createFixture>>
+  ) {
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const decisions = await admin`
+      select 1 from approval_decision where review_id = ${fixture.review.reviewId}
+    `
+    expect(decisions).toHaveLength(0)
+  }
+
+  it("approves what the pane shows when nothing changed", async () => {
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+
+    const pane = await readPane(fixture, fixture.owner.cookie)
+    expect(pane.draftId).toBe(fixture.draft.draftId)
+    const approved = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+      ...pane,
+    })
+    expect(approved.status).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
+  })
+
+  // W1-F1: the pane shows the newest draft. When that is not the parked one
+  // the approver never read what would publish, so the approval is refused.
+  it("refuses an approval from a pane showing a draft that is not the parked one", async () => {
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+    // A draft saved after the request was parked: the pane now shows it.
+    await admin`
+      insert into draft (
+        organisation_id, review_id, source, tone, body, body_bytes,
+        evidence_hash, verification_status, created_at
+      )
+      select organisation_id, review_id, 'human', tone,
+        'A newer draft the approver is now reading.',
+        octet_length('A newer draft the approver is now reading.'),
+        evidence_hash, verification_status, created_at + interval '1 minute'
+      from draft
+      where id = ${fixture.draft.draftId}
+    `
+
+    const pane = await readPane(fixture, fixture.owner.cookie)
+    expect(pane.draftId).not.toBe(fixture.draft.draftId)
+    const stale = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+      ...pane,
+    })
+    expect(stale.status).toBe(409)
+    expect((await stale.json()).error).toBe("approval_draft_changed")
+    await expectNothingDecided(fixture)
+  })
+
+  it("refuses an approval when the review changed after the pane loaded", async () => {
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+    const pane = await readPane(fixture, fixture.owner.cookie)
+    await admin`
+      update review
+      set update_time = update_time + interval '1 minute',
+        review_text = 'Edited on Google after the pane loaded.'
+      where id = ${fixture.review.reviewId}
+    `
+
+    const stale = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+      ...pane,
+    })
+    expect(stale.status).toBe(409)
+    expect((await stale.json()).error).toBe("review_changed")
+    await expectNothingDecided(fixture)
   })
 
   // The harness runs without OpenAI credentials, which is a supported install:
