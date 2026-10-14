@@ -8,6 +8,7 @@ import {
   type MockInstance,
   vi,
 } from "vitest"
+import { readFileSync } from "node:fs"
 import { z, ZodError } from "zod"
 
 /**
@@ -36,6 +37,7 @@ import {
   parseUpstream,
   UpstreamResponseError,
 } from "@/lib/server/http"
+import { projectPlaceActionAttempt } from "@/lib/server/place-action-attempts"
 import { route, type RouteHandler } from "@/lib/server/route"
 
 beforeAll(() => {
@@ -214,4 +216,70 @@ describe("route() error taxonomy", () => {
     })
     expect(warnings).not.toHaveBeenCalled()
   })
+})
+
+describe("stored-data parse sites", () => {
+  it("answers an unreadable stored attempt with 500 and one invariant line", () => {
+    // A row whose stored request lost its shape: before WP-05 this ZodError
+    // reached the client as a 400 telling it to fix its input.
+    const row = {
+      requested: { request: { operation: "unknown" } },
+      observedAt: null,
+    } as never
+    let thrown: unknown
+    try {
+      projectPlaceActionAttempt(row)
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(InvariantError)
+    expect(thrown).toMatchObject({ status: 500, code: "internal_error" })
+    const lines = errors.mock.calls
+      .map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+      .filter((line) => line.event === "api.invariant_violation")
+    expect(lines).toEqual([
+      expect.objectContaining({ subject: "place_action_attempt" }),
+    ])
+  })
+
+  // The WP-05 remainder: every schema parse of a stored row or a
+  // server-built projection in these modules goes through parseStored, so a
+  // bare `.parse(row.…)` creeping back is caught here.
+  const storedParseModules = [
+    "publication-schedules",
+    "publication-schedule-runner",
+    "business-information",
+    "industry-management",
+    "bulk-listing-runner",
+    "bulk-listings",
+    "notifications/inbox",
+    "location-activity",
+    "google-onboarding-reviews",
+    "google-onboarding-match-link-reviews",
+    "google-administration-reviews",
+    "google-administration-attempts",
+    "google-administration-workflows",
+    "google-lifecycle-reviews",
+    "google-lifecycle-attempts",
+    "google-lifecycle-workflows",
+    "google-verification-workflows",
+    "place-action-attempts",
+    "place-action-workflows",
+    "lodging-workflows",
+    "service-workflows",
+  ]
+
+  it.each(storedParseModules)(
+    "lib/server/%s.ts parses stored values with parseStored",
+    (module) => {
+      const source = readFileSync(
+        new URL(`../../lib/server/${module}.ts`, import.meta.url),
+        "utf8"
+      )
+      expect(source).toMatch(/\bparseStored\(/)
+      expect(source).not.toMatch(
+        /\.parse\((row|schedule|attempt|child|changeSet|review\.changeSet)\./
+      )
+    }
+  )
 })
