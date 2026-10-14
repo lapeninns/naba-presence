@@ -112,7 +112,11 @@ export function NotificationPreferences() {
       <QueryStates
         status={queryStatus(query)}
         pendingLabel="Loading your notification settings"
-        error="Notification settings could not be loaded"
+        error={{
+          title: "Notification settings could not be loaded",
+          description:
+            "We couldn't load your notification settings. Try again.",
+        }}
         onRetry={() => void query.refetch()}
       >
         <section
