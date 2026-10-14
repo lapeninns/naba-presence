@@ -140,7 +140,9 @@ export function NotificationsView() {
     onSettled: () => setConfirming(null),
   })
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
-  const unread = query.data?.pages[0]?.unreadCount ?? 0
+  // Unknown until the first page arrives: a failed or pending load shows no
+  // count at all rather than "0 open and unread" as if it were a fact.
+  const unread = query.data ? (query.data.pages[0]?.unreadCount ?? 0) : null
   const unreadShown = items
     .filter((item) => !item.readAt)
     .map((item) => item.id)
@@ -164,14 +166,14 @@ export function NotificationsView() {
     <>
       {/* The phone app bar echoes the count after the title; the status
           line below keeps it for assistive technology. */}
-      <PageChrome count={unread} countLabel="open and unread" />
+      <PageChrome count={unread ?? undefined} countLabel="open and unread" />
       <div className="flex flex-col gap-1">
         {/* Notion Mail's "Inbox 99+": the count follows the title, regular
             weight, muted, and reads as "(open and unread)". */}
         <ViewHeader
           title="Notifications"
           titleAs="h1"
-          count={unread > 0 ? unread : undefined}
+          count={unread ? unread : undefined}
           // The header's screen-reader words replace the figure, so they
           // carry the number (PageChrome's label above is a suffix).
           countLabel={`${unread} open and unread`}
@@ -209,18 +211,23 @@ export function NotificationsView() {
             ))}
           </TabsList>
         </Tabs>
-        <div className="flex w-full items-center justify-between gap-3 sm:w-auto">
-          <p className="text-caption text-ink-muted tabular-nums" role="status">
-            {unread} open and unread
-          </p>
-          <Button
-            variant="secondary"
-            disabled={!unreadShown.length || read.isPending}
-            onClick={() => read.mutate({ ids: unreadShown, read: true })}
-          >
-            Mark shown as read
-          </Button>
-        </div>
+        {unread !== null ? (
+          <div className="flex w-full items-center justify-between gap-3 sm:w-auto">
+            <p
+              className="text-caption text-ink-muted tabular-nums"
+              role="status"
+            >
+              {unread} open and unread
+            </p>
+            <Button
+              variant="secondary"
+              disabled={!unreadShown.length || read.isPending}
+              onClick={() => read.mutate({ ids: unreadShown, read: true })}
+            >
+              Mark shown as read
+            </Button>
+          </div>
+        ) : null}
       </div>
       {failure ? (
         <p role="alert" className="text-ui text-danger-ink">
