@@ -77,9 +77,16 @@ test.describe("inbox", () => {
   // R3 F2-S2: at 320px the venue line keeps the client · location readable.
   // Beside the stars, a status pill used to squeeze it to an ellipsis; under
   // 2xs (18rem) the pill drops below the line instead.
-  test("keeps the venue readable on a 320px phone", async ({ page }) => {
+  test("keeps the venue readable on a 320px phone", async ({
+    baseURL,
+    page,
+  }) => {
+    // The seeded tenant, in the queue that shows every status pill (no tab
+    // to repeat it), so the pill-beside-venue case is really drawn.
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
     await page.setViewportSize({ width: 320, height: 700 })
-    await page.goto("/inbox")
+    await page.goto("/inbox?queue=all")
     const rows = page.locator('[data-slot="review-row-venue"]')
     await expect(rows.first()).toBeVisible()
     const count = await rows.count()
