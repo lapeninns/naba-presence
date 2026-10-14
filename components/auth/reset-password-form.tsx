@@ -22,7 +22,7 @@ import {
 } from "@/lib/api/auth-errors"
 import { ApiClientError } from "@/lib/api/client"
 import { hardNavigate } from "@/lib/client/hard-navigate"
-import { passwordSchema, resetPasswordSchema } from "@/lib/domain/auth"
+import { RESET_TOKEN_HASH_LENGTH } from "@/lib/domain/auth-limits"
 import { cn } from "@/lib/utils"
 
 const FIELD_ORDER = ["password", "confirmPassword"] as const
@@ -47,11 +47,20 @@ function focusField(name: string) {
 // rejects it with a generic `invalid_request` that isn't in DEAD_TOKEN_CODES,
 // so the doomed form would otherwise stay on screen with no highlighted
 // field and no recovery route out. Treating it as missing instead routes
-// through the existing missing-token recovery branch. Reuses the domain
-// schema's own constraint rather than hardcoding the 20/512 bounds.
+// through the existing missing-token recovery branch. Uses the bounds the
+// domain schema itself is built from, without loading zod to render.
 function isUsableToken(value: string | undefined): value is string {
-  return resetPasswordSchema.shape.tokenHash.safeParse(value).success
+  return (
+    typeof value === "string" &&
+    value.length >= RESET_TOKEN_HASH_LENGTH.min &&
+    value.length <= RESET_TOKEN_HASH_LENGTH.max
+  )
 }
+
+// zod is ~20 KB gz the page would otherwise download before it can render
+// (same as sign-in-form.tsx). It loads on the first focus inside the form
+// and a submit awaits it.
+const loadAuthSchemas = () => import("@/lib/domain/auth")
 
 function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   const [password, setPassword] = useState("")
@@ -72,10 +81,24 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
     }
   }, [message, fieldErrors])
 
+  const validating = useRef(false)
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending || !isUsableToken(tokenHash)) return
+    if (pending || validating.current || !isUsableToken(tokenHash)) return
+    const token = tokenHash
+    validating.current = true
+    void loadAuthSchemas()
+      .then((schemas) => submitWith(schemas, token))
+      .finally(() => {
+        validating.current = false
+      })
+  }
 
+  function submitWith(
+    { passwordSchema }: Awaited<ReturnType<typeof loadAuthSchemas>>,
+    tokenHash: string
+  ) {
     const parsedPassword = passwordSchema.safeParse(password)
     if (!parsedPassword.success) {
       // No invented fallback copy - zod always supplies a message for every
@@ -156,7 +179,12 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+    <form
+      onSubmit={handleSubmit}
+      onFocusCapture={() => void loadAuthSchemas()}
+      noValidate
+      className="flex flex-col gap-5"
+    >
       {message ? (
         <div ref={alertRef} tabIndex={-1} className="outline-none">
           <AuthErrorAlert message={message} />
