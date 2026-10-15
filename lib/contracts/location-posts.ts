@@ -185,6 +185,15 @@ export type LocalPostInput = z.infer<typeof localPostInputSchema>
 export type LocalPostInputValues = z.input<typeof localPostInputSchema>
 
 /**
+ * POST `/posts/[postId]/publish` body (optional). `expectedRevision` is the
+ * `contentRevision` the person saved or had on screen when they consented;
+ * a post that has changed since is refused (409 `post_changed_since_saved`).
+ */
+export const postPublishBodySchema = z.object({
+  expectedRevision: z.number().int().positive().optional(),
+})
+
+/**
  * POST `/posts/[postId]/approval` body.
  *
  * `expectedRevision` is the `contentRevision` of the post the approver read.
@@ -342,7 +351,11 @@ export type PostsListResponse = z.infer<typeof postsListResponseSchema>
 
 /** POST `/posts` (201). */
 export const postCreateResponseSchema = z.object({
-  post: z.object({ id: z.string() }),
+  post: z.object({
+    id: z.string(),
+    /** The saved content's revision, for a publish bound to it. */
+    contentRevision: z.number().int().positive().optional(),
+  }),
 })
 export type PostCreateResponse = z.infer<typeof postCreateResponseSchema>
 
@@ -368,7 +381,13 @@ export type PostPublishOutcome = z.infer<typeof postPublishOutcomeSchema>
 
 /** PATCH `/posts/[postId]`: a draft edit returns `{ post }`, a live edit republishes. */
 export const postUpdateResponseSchema = z.union([
-  z.object({ post: z.object({ id: z.string(), status: z.string() }) }),
+  z.object({
+    post: z.object({
+      id: z.string(),
+      status: z.string(),
+      contentRevision: z.number().int().positive().optional(),
+    }),
+  }),
   postPublishOutcomeSchema,
 ])
 export type PostUpdateResponse = z.infer<typeof postUpdateResponseSchema>

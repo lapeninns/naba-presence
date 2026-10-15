@@ -5,7 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { BookingTab } from "@/components/locations/booking-tab"
 import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import type { PlaceActionsState } from "@/lib/api/location-booking"
+
+const previewReview = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/place-action-reviews", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/place-action-reviews")>()),
+  previewPlaceActionReview: previewReview,
+}))
 
 const useBookingMock = vi.fn()
 const useCapsMock = vi.fn()
@@ -39,7 +46,10 @@ function renderTab() {
   )
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  sessionStorage.clear()
+})
 
 describe("BookingTab", () => {
   it("says when Google was last checked and checks it again on request", async () => {
@@ -55,16 +65,16 @@ describe("BookingTab", () => {
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
     expect(screen.getByRole("heading", { name: "Manage these action types in Google" })).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Manage action links in Google" })).toHaveAttribute("href", "https://business.google.com/")
-    expect(screen.queryByRole("button", { name: "Review action link" })).not.toBeInTheDocument()
-    expect(screen.queryByText("Google doesn’t offer action links for this listing")).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Manage booking links in Google" })).toHaveAttribute("href", "https://business.google.com/")
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Google doesn’t offer booking links for this listing")).not.toBeInTheDocument()
   })
   it("shows an observed empty location-specific action set without inventing enum-wide editors", () => {
     useBookingMock.mockReturnValue({ data: makeState({ supportedTypes: [], unsupportedTypes: [], links: [] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
-    expect(screen.getByRole("heading", { name: "Google doesn’t offer action links for this listing" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Review action link" })).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Google doesn’t offer booking links for this listing" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
   })
   it("lists links, marks a non-editable provider link read-only, and shows no gate reason for a publisher", () => {
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
@@ -72,9 +82,9 @@ describe("BookingTab", () => {
     renderTab()
     expect(screen.getByText("https://book.test")).toBeInTheDocument()
     expect(screen.getByText("Managed by Google")).toBeInTheDocument()
-    // The add button exists; it is only disabled until a link is typed (dirty),
-    // and a publisher sees no permission gate note.
-    expect(screen.getByRole("button", { name: "Review action link" })).toBeInTheDocument()
+    // The review action is docked once a link is typed, so none is on screen
+    // yet, and a publisher sees no permission gate note.
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
     expect(screen.queryByText("You do not have permission to publish this location to Google.")).not.toBeInTheDocument()
   })
 
@@ -82,9 +92,56 @@ describe("BookingTab", () => {
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: false, canPublish: false } })
     renderTab()
-    expect(screen.getByRole("button", { name: "Review action link" })).toBeDisabled()
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /^Type/ })).toBeDisabled()
     expect(screen.getByText("You do not have permission to publish this location to Google.")).toBeInTheDocument()
+  })
+
+  it("docks the review action once a link is typed", async () => {
+    const user = userEvent.setup()
+    useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
+    await user.type(screen.getByRole("textbox", { name: "Link" }), "https://book.example")
+    const bar = screen.getByRole("region", { name: "Booking link actions" })
+    expect(within(bar).getByRole("button", { name: "Review booking link" })).toBeEnabled()
+  })
+
+  // The focused button used to unmount while the review was prepared, so
+  // focus fell to the page and a failed review left it there.
+  it("keeps the review action mounted, and focused, while the review is prepared and after it fails", async () => {
+    const user = userEvent.setup()
+    let fail!: (error: Error) => void
+    previewReview.mockReturnValue(new Promise((_, reject) => { fail = reject }))
+    useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    await user.type(screen.getByRole("textbox", { name: "Link" }), "https://book.example")
+    const bar = screen.getByRole("region", { name: "Booking link actions" })
+    const review = within(bar).getByRole("button", { name: "Review booking link" })
+    review.focus()
+    await user.keyboard("{Enter}")
+
+    // Pending: the same button is still there, still focused, and says so.
+    await waitFor(() => expect(previewReview).toHaveBeenCalledOnce())
+    const pending = within(screen.getByRole("region", { name: "Booking link actions" })).getByRole("button", { name: /Preparing review/ })
+    expect(pending).toBe(review)
+    expect(document.activeElement).toBe(review)
+
+    fail(new ApiClientError(502, "google_unavailable", "Google could not be reached."))
+    expect(await screen.findByText("Google could not be reached.")).toBeInTheDocument()
+    const again = within(screen.getByRole("region", { name: "Booking link actions" })).getByRole("button", { name: "Review booking link" })
+    expect(again).toBe(review)
+    expect(document.activeElement).toBe(review)
+  })
+
+  it("shows the type as plain text when Google supports only one", () => {
+    useBookingMock.mockReturnValue({ data: makeState({ supportedTypes: ["DINING_RESERVATION"] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.queryByRole("button", { name: /^Type/ })).not.toBeInTheDocument()
+    expect(screen.getAllByText("Reserve a table").length).toBeGreaterThan(0)
   })
 
   it("chooses the new link's type from a short option list", async () => {
@@ -167,12 +224,12 @@ describe("BookingTab", () => {
     items = await screen.findAllByRole("menuitem")
     expect(items.map((item) => item.textContent)).toEqual(["Make preferred", "Remove link"])
     await user.click(screen.getByRole("menuitem", { name: "Remove link" }))
-    const confirm = await screen.findByRole("alertdialog", { name: "Review removing this action link?" })
+    const confirm = await screen.findByRole("alertdialog", { name: "Review removing this booking link?" })
     expect(within(confirm).getByText("https://book.test/other")).toBeInTheDocument()
     expect(within(confirm).getByRole("button", { name: "Prepare removal review" })).toBeEnabled()
   })
 
-  it("asks before an in-app link leaves a typed new action link behind", async () => {
+  it("asks before an in-app link leaves a typed new booking link behind", async () => {
     const user = userEvent.setup()
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })

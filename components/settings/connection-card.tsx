@@ -1,9 +1,17 @@
 "use client"
 
-import { CircleCheck, ExternalLink, Globe, Info, Link2 } from "lucide-react"
+import {
+  CircleCheck,
+  Ellipsis,
+  ExternalLink,
+  Globe,
+  Info,
+  Link2,
+  Unplug,
+} from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -26,6 +34,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
 import { QueryError } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -232,6 +246,7 @@ function DisconnectDialog({
   served,
   open,
   pending,
+  finalFocus,
   onOpenChange,
   onConfirm,
 }: {
@@ -239,6 +254,8 @@ function DisconnectDialog({
   served: ServedClient[] | undefined
   open: boolean
   pending: boolean
+  /** Where focus returns on close: the ⋯ trigger the dialog was opened from. */
+  finalFocus: RefObject<HTMLElement | null>
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
 }) {
@@ -256,7 +273,10 @@ function DisconnectDialog({
         if (!next) setTyped("")
       }}
     >
-      <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
+      <AlertDialogContent
+        className="grid-cols-[minmax(0,1fr)]"
+        finalFocus={finalFocus}
+      >
         <AlertDialogTitle className="[overflow-wrap:anywhere]">
           Disconnect {email}?
         </AlertDialogTitle>
@@ -315,7 +335,7 @@ function DisconnectDialog({
  * The Google logins this agency holds (reference `logins-table`): who it
  * is, whether it still works, which clients depend on it, when it last
  * refreshed and whether Google notifications are on — with Reconnect on a
- * broken row and Disconnect behind a confirmation.
+ * broken row and Disconnect last in the row's ⋯ menu, behind a confirmation.
  *
  * `?reconnect=<connection id>` marks that row and opens the reconnect
  * dialog once, for links from a client's "Google needs reconnecting" banner.
@@ -343,6 +363,12 @@ export function ConnectionCard({
     useState<ConnectionSummary | null>(null)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const openedFor = useRef<string | null>(null)
+  // Every account's ⋯ trigger, by connection id, and the one the Disconnect
+  // dialog was opened from: closing it (Keep it connected) puts focus back
+  // on that account's ⋯, however its menu was opened (a click, or a key such
+  // as ArrowDown, which fires no click on the trigger).
+  const menuTriggers = useRef(new Map<string, HTMLElement>())
+  const menuTrigger = useRef<HTMLElement | null>(null)
 
   const connections = query.data?.connections
   const focused = focusId
@@ -450,7 +476,7 @@ export function ConnectionCard({
                 key={connection.id}
                 data-selected={isFocused || undefined}
               >
-                <TableCell label="Google login">
+                <TableCell label="Google login" priority="primary">
                   <span className="flex min-w-0 items-center gap-2.5">
                     <Avatar aria-hidden>
                       <AvatarFallback>
@@ -458,11 +484,11 @@ export function ConnectionCard({
                       </AvatarFallback>
                     </Avatar>
                     <span className="min-w-0 font-semibold [overflow-wrap:anywhere] text-ink">
-                      {name}
+                      <EmailWithBreak value={name} />
                     </span>
                   </span>
                 </TableCell>
-                <TableCell label="Status">
+                <TableCell label="Status" priority="trailing">
                   <StatusPill tone={status.tone}>{status.label}</StatusPill>
                 </TableCell>
                 {clientsByConnection ? (
@@ -518,19 +544,47 @@ export function ConnectionCard({
                       </Button>
                     ) : null}
                     {connection.status !== "disconnected" ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-danger-ink"
-                        disabled={disconnect.isPending}
-                        aria-label={`Disconnect ${name}`}
-                        onClick={() => {
-                          setDisconnectTarget(connection)
-                          setDisconnectOpen(true)
-                        }}
-                      >
-                        Disconnect
-                      </Button>
+                      // Last and quiet: a destructive step belongs behind a
+                      // menu, never beside the account's name (SET-28).
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Actions for ${name}`}
+                              disabled={disconnect.isPending}
+                              ref={(element: HTMLButtonElement | null) => {
+                                if (element)
+                                  menuTriggers.current.set(
+                                    connection.id,
+                                    element
+                                  )
+                                else menuTriggers.current.delete(connection.id)
+                              }}
+                            />
+                          }
+                        >
+                          <Ellipsis aria-hidden />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          title={name}
+                          className="data-[presentation=popover]:max-w-80"
+                        >
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => {
+                              menuTrigger.current =
+                                menuTriggers.current.get(connection.id) ?? null
+                              setDisconnectTarget(connection)
+                              setDisconnectOpen(true)
+                            }}
+                          >
+                            <Unplug aria-hidden />
+                            Disconnect…
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     ) : null}
                   </span>
                 </TableCell>
@@ -560,6 +614,7 @@ export function ConnectionCard({
         }
         open={disconnectOpen}
         pending={disconnect.isPending}
+        finalFocus={menuTrigger}
         onOpenChange={setDisconnectOpen}
         onConfirm={() => {
           if (disconnectTarget) {
@@ -575,6 +630,23 @@ export function ConnectionCard({
           }
         }}
       />
+    </>
+  )
+}
+
+/**
+ * An address that may wrap before its "@" first ("stub" / "@example.test"),
+ * so a narrow title line beside the status breaks it there rather than
+ * mid-word; a part longer than the line still breaks anywhere.
+ */
+function EmailWithBreak({ value }: { value: string }) {
+  const at = value.indexOf("@")
+  if (at <= 0) return value
+  return (
+    <>
+      {value.slice(0, at)}
+      <wbr />
+      {value.slice(at)}
     </>
   )
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  adoptingDestination,
   currentHref,
   DESTINATIONS,
   destinationForPath,
@@ -8,6 +9,7 @@ import {
   isActivePath,
   isTopLevelPath,
   moreDestinations,
+  navigationPath,
   shortBackLabel,
   sidebarDestinations,
   tabDestinations,
@@ -262,16 +264,29 @@ describe("paths", () => {
       expect(isTopLevelPath(destination.href)).toBe(true)
     }
     expect(isTopLevelPath(null)).toBe(true)
-    expect(isTopLevelPath("/setup")).toBe(true)
     for (const deep of [
       "/listings/l1",
       "/listings/bulk",
       "/clients/c1",
       "/settings/billing",
+      // Setup lives under Clients (or Listings), so it has a back control
+      // (SET-11), not the workspace name.
+      "/setup",
       "/setup/connect",
     ]) {
       expect(isTopLevelPath(deep)).toBe(false)
     }
+  })
+
+  it("files Setup under Clients for an agency and Listings for a business", () => {
+    expect(adoptingDestination("/setup", "agency")?.id).toBe("clients")
+    expect(adoptingDestination("/setup", "business")?.id).toBe("listings")
+    expect(adoptingDestination("/setupx", "agency")).toBeNull()
+    expect(adoptingDestination("/inbox", "agency")).toBeNull()
+    expect(navigationPath("/setup", "agency")).toBe("/clients")
+    expect(navigationPath("/setup", "business")).toBe("/listings")
+    expect(navigationPath("/listings/l1", "agency")).toBe("/listings/l1")
+    expect(navigationPath(null, "agency")).toBeNull()
   })
 
   it("marks only the Inbox as having its own search", () => {

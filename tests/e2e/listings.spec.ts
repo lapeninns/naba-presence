@@ -502,22 +502,22 @@ test.describe("listings", () => {
       .fill("https://book.e2e/reserve")
     // A link change is reviewed, approved, then sent as a separate step.
     await page
-      .getByRole("button", { name: "Review action link", exact: true })
+      .getByRole("button", { name: "Review booking link", exact: true })
       .click()
     const sheet = page.getByRole("dialog", {
-      name: /^(Review action link change|Saved action link outcome)$/,
+      name: /^(Review booking link change|Saved booking link outcome)$/,
     })
     await sheet
-      .getByRole("button", { name: "Approve action link change", exact: true })
+      .getByRole("button", { name: "Approve booking link change", exact: true })
       .click()
     const send = sheet.getByRole("button", {
-      name: "Send approved action link change",
+      name: "Send approved booking link change",
       exact: true,
     })
     await expect(send).toBeDisabled()
     await sheet
       .getByRole("checkbox", {
-        name: "Send this exact approved action link change to Google.",
+        name: "Send this exact approved booking link change to Google.",
       })
       .check()
     const sent = page.waitForResponse(

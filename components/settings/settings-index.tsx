@@ -1,5 +1,6 @@
 "use client"
 
+import { AppearanceRow } from "@/components/settings/appearance"
 import {
   useVisibleSettingsAreas,
   WithPrivacyAccess,
@@ -18,7 +19,8 @@ import {
 } from "@/lib/settings/gating"
 
 // "You" is reserved for the signed-in person's own settings
-// (settings-setup-auth-24): today Notifications and Sign-in security. A
+// (settings-setup-auth-24): today Notifications, Sign-in security and
+// Appearance (the theme, also in More; SET-26). A
 // signed-in account area (name, change password) belongs here once the API
 // has one; nothing is offered before it exists.
 const GROUPS: { id: SettingsArea["group"]; header: string; footer: string }[] =
@@ -77,6 +79,9 @@ function SettingsIndexGroups({
                   className={ROW_FOCUS_CLASS}
                 />
               ))}
+              {group.id === "personal" ? (
+                <AppearanceRow className={ROW_FOCUS_CLASS} />
+              ) : null}
             </SettingsGroup>
             <p id={footerId} className="text-caption text-ink-muted">
               {group.footer}
