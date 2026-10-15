@@ -389,3 +389,181 @@ describe("MembersTable", () => {
     expect(memberItem).not.toHaveAttribute("aria-disabled", "true")
   })
 })
+
+// The viewport, as the shell's matchMedia answers it.
+function stubWidth(wide: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: wide,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })
+  )
+}
+
+const team = () => [
+  member({
+    userId: "owner-1",
+    displayName: "Ana Owner",
+    email: "ana-with-a-long-address@nabapresence.test",
+    role: "owner",
+    canPublish: true,
+  }),
+  member({
+    userId: "m-1",
+    displayName: "Ben Member",
+    email: "ben@test",
+    role: "member",
+    canPublish: true,
+  }),
+]
+
+// SET-02, SET-10: below md each member is one ListRow, not a record card.
+describe("MembersTable on a phone", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("lists members as rows with the full email and one summary line", () => {
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    expect(screen.queryByRole("table")).not.toBeInTheDocument()
+    const list = screen.getByRole("list", { name: "Members" })
+    const rows = within(list).getAllByRole("listitem")
+    expect(rows).toHaveLength(2)
+    // The whole address, never cut off.
+    expect(
+      within(rows[0]).getByText("ana-with-a-long-address@nabapresence.test")
+    ).not.toHaveClass("truncate")
+    expect(
+      within(rows[1]).getByText("All clients · Can publish")
+    ).toBeInTheDocument()
+  })
+
+  it("opens Change role straight from the role chip", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    await user.click(
+      screen.getByRole("button", { name: "Member: change Ben Member’s role" })
+    )
+    expect(
+      await screen.findByRole("dialog", { name: "Change role" })
+    ).toBeInTheDocument()
+  })
+
+  it("shows a plain chip where the role can't change", () => {
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    // The last owner: the chip is not a button, the sheet says why.
+    expect(
+      screen.queryByRole("button", { name: /change Ana Owner’s role/ })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("Owner")).toBeInTheDocument()
+  })
+
+  it("opens a member sheet from the row, which hands over to Change role", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    await user.click(
+      screen.getByRole("button", { name: "Ben Member, ben@test" })
+    )
+    const sheet = within(
+      await screen.findByRole("dialog", { name: "Ben Member" })
+    )
+    expect(sheet.getByRole("switch", { name: /Can publish/ })).toBeChecked()
+    expect(
+      sheet.getByRole("button", { name: /Remove from team/ })
+    ).toBeEnabled()
+    await user.click(sheet.getByRole("button", { name: /^Role/ }))
+    expect(
+      await screen.findByRole("dialog", { name: "Change role" })
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Ben Member" })
+      ).not.toBeInTheDocument()
+    )
+  })
+
+  it("puts focus back on the member's row after a dialog the sheet opened", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    const row = screen.getByRole("button", { name: "Ben Member, ben@test" })
+    await user.click(row)
+    const sheet = within(
+      await screen.findByRole("dialog", { name: "Ben Member" })
+    )
+    await user.click(sheet.getByRole("button", { name: /^Role/ }))
+    await screen.findByRole("dialog", { name: "Change role" })
+    await user.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Change role" })
+      ).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(row).toHaveFocus())
+  })
+
+  it("keeps every unavailable control in the sheet with its reason", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ana Owner (you), ana-with-a-long-address@nabapresence.test",
+      })
+    )
+    const sheet = within(
+      await screen.findByRole("dialog", { name: "Ana Owner" })
+    )
+    expect(
+      sheet.getByText(
+        "Make someone else an owner before changing the last owner’s role."
+      )
+    ).toBeInTheDocument()
+    expect(
+      sheet.getByRole("button", { name: /Remove from team/ })
+    ).toBeDisabled()
+    expect(
+      sheet.getByText("You can’t remove your own access.")
+    ).toBeInTheDocument()
+  })
+
+  it("keeps Client access and Remove behind the row's ⋯", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    // The current owner has neither, so no ⋯ at all.
+    expect(
+      screen.queryByRole("button", { name: "Actions for Ana Owner" })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Actions for Ben Member" })
+    )
+    expect(
+      (await screen.findAllByRole("menuitem")).map((item) => item.textContent)
+    ).toEqual(["Client access", "Remove"])
+  })
+})
+
+describe("MembersTable from md", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("keeps the table and makes its role chip open Change role", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    renderTable("owner", "owner-1", team())
+    expect(screen.getByRole("table", { name: "Members" })).toBeInTheDocument()
+    expect(
+      screen.queryByRole("list", { name: "Members" })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Member: change Ben Member’s role" })
+    )
+    expect(
+      await screen.findByRole("dialog", { name: "Change role" })
+    ).toBeInTheDocument()
+  })
+})
