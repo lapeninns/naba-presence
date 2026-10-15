@@ -33,7 +33,12 @@ import { useOutcomeToast, useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
 import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
-import { derivePrimaryAction, publishableDraft } from "@/lib/inbox/reply-state"
+import {
+  derivePrimaryAction,
+  publishableDraft,
+  resolveApprovalScope,
+  type ReplyStateInput,
+} from "@/lib/inbox/reply-state"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useApprovalDecision } from "@/lib/queries/use-approval-decision"
 import { useDeleteReply } from "@/lib/queries/use-delete-reply"
@@ -127,7 +132,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // ONE derivation, shared with the status line above the reply, so the two
   // can never contradict each other (requirement: status and action
   // eligibility stay consistent).
-  const primary = derivePrimaryAction({
+  //
+  // Who a parked reply waits on comes from the server
+  // (`capabilities.approvalScope`, plan D1) and wins inside the ladder; the
+  // `canPublish` reading is only the fallback for an older server.
+  const stateInput: ReplyStateInput = {
     workflowStatus: review.workflowStatus,
     capabilities: review.capabilities,
     reply: review.reply
@@ -137,7 +146,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     verification: review.latestVerification,
     isDirty,
     approvalScope: review.capabilities.canPublish ? "me" : "others",
-  })
+  }
+  const primary = derivePrimaryAction(stateInput)
   const deleteState = evaluateDelete({
     // Status, not body: a live reply is deletable even in the (anomalous) case
     // where its text did not come back with the detail payload.
@@ -204,6 +214,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         describeOutcomeToast(result.status, {
           googleReplyUrl: review.googleReplyUrl,
           googleReplyState: result.googleReplyState,
+          requireTwoPersonApproval:
+            review.capabilities.requireTwoPersonApproval,
         })
       )
       // `pending` moves on too: Google has the reply, nothing more can be
@@ -268,11 +280,20 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   }
 
   const awaitingApproval = primary.kind === "approve"
+  // A parked reply this person may not decide (the server says it waits on
+  // someone else: under two-person approval, the person who asked). The
+  // status line says "Waiting for another approver"; there is no Approve or
+  // Reject to offer, because the approval route would refuse either.
+  const waitingOnOthers =
+    awaitingApproval &&
+    review.capabilities.approvalScope != null &&
+    resolveApprovalScope(stateInput) === "others"
   // D2: a non-publisher in an approval-required org sees "Submit for
-  // approval" in place of the (otherwise disabled-for-them) Publish button.
-  // It reuses the same publish mutation -- the server routes a
-  // non-publisher's publish to `awaiting_approval` (lib/server/publishing.ts)
-  // -- so onPublish/describeOutcomeToast are shared unchanged.
+  // approval" in place of the (otherwise disabled-for-them) Publish button,
+  // and so does a publisher under the two-person rule (plan D1). It reuses
+  // the same publish mutation -- the server parks either press as
+  // `awaiting_approval` (lib/server/publishing/approval.ts) -- so
+  // onPublish/describeOutcomeToast are shared unchanged.
   const offerRequestApproval = primary.kind === "submit"
   // A publish already with Google: nothing to press until it answers.
   const inFlight = review.workflowStatus === "publish_requested"
@@ -284,7 +305,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // is on screen; one-step Publish saves them, so only the permission and
   // the composer's own reasons (empty, too long) still apply.
   const permitted = offerRequestApproval
-    ? review.capabilities.canRequestApproval
+    ? review.capabilities.canRequestApproval ||
+      review.capabilities.canPublish
     : review.capabilities.canPublish
   const sendEnabled = oneStep
     ? permitted && composerSave.blockedReason === null
@@ -303,7 +325,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     (primary.kind === "publish" || primary.kind === "update")
 
   // Reject is offered with Approve: inline from md up, in the ⋯ menu below.
-  const offerReject = awaitingApproval && !inFlight
+  const offerReject = awaitingApproval && !inFlight && !waitingOnOthers
 
   // The parked reply is read-only (it is under review); editing it sends it
   // back to Needs reply, so it is asked for here rather than one tap away.
@@ -324,7 +346,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           <Button variant="ghost-dark" pending pendingLabel="Publishing…">
             Publishing…
           </Button>
-        ) : awaitingApproval ? (
+        ) : waitingOnOthers ? null : awaitingApproval ? (
           <>
             <Button
               variant="ghost-dark"

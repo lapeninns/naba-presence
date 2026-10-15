@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { reviewDetailSchema } from "@/lib/contracts/reviews"
 import { sha256 } from "@/lib/server/crypto"
 
 import { startAppServer } from "../helpers/app-server"
@@ -603,6 +604,60 @@ describeDatabase("reply approval", () => {
     })
     expect(approved.status, await approved.clone().text()).toBe(200)
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
+  })
+
+  // Plan D1 (R01b): the detail says what a press will do. The flag and the
+  // scope are read-only; the approval route above still decides.
+  it("tells each person on the detail who a two-person approval waits on", async () => {
+    const fixture = await createFixture()
+    async function capabilities(cookie: string) {
+      const response = await fetch(
+        `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+        { headers: { cookie } }
+      )
+      expect(response.status).toBe(200)
+      const { review } = reviewDetailSchema.parse(await response.json())
+      return review.capabilities
+    }
+
+    expect(await capabilities(fixture.owner.cookie)).toMatchObject({
+      requireTwoPersonApproval: false,
+      approvalScope: null,
+    })
+
+    await admin`
+      update organisation
+      set require_two_person_approval = true
+      where id = ${fixture.owner.organisationId}
+    `
+    expect(await capabilities(fixture.owner.cookie)).toMatchObject({
+      canPublish: true,
+      requireTwoPersonApproval: true,
+      approvalScope: null,
+    })
+
+    // The owner publishes; two-person mode parks it, as before.
+    expect((await publish(fixture, fixture.owner.cookie)).status).toBe(202)
+    expect(await capabilities(fixture.owner.cookie)).toMatchObject({
+      requireTwoPersonApproval: true,
+      approvalScope: "others",
+    })
+
+    const secondAdmin = await createActor(fixture.owner.organisationId, {
+      role: "admin",
+      canPublish: true,
+    })
+    expect(await capabilities(secondAdmin.cookie)).toMatchObject({
+      approvalScope: "me",
+    })
+
+    const viewer = await createActor(fixture.owner.organisationId, {
+      role: "viewer",
+      canPublish: false,
+    })
+    expect(await capabilities(viewer.cookie)).toMatchObject({
+      approvalScope: "others",
+    })
   })
 
   it("returns 404 for a cross-tenant approval", async () => {

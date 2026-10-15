@@ -5,7 +5,9 @@ import type { TransactionSql } from "postgres"
 import {
   DEFAULT_REVIEW_SORT,
   encodeReviewsCursor,
+  type ReviewApprovalScope,
   type ReviewCapabilities,
+  type ReviewDetailCapabilities,
   type ReviewsCursor,
   type ReviewsQuery,
 } from "@/lib/contracts/reviews"
@@ -16,6 +18,7 @@ import {
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { visibilityPredicate } from "@/lib/server/permissions"
+import { queuePredicate } from "@/lib/server/review-queues"
 import {
   boundedSearchMatches,
   buildInboxQuery,
@@ -249,16 +252,61 @@ export async function readReviewDetail(
     throw new ApiError(404, "review_not_found", "Review not found.")
   }
   const timeline = await reviewTimelineQuery(sql, id)
-  const capabilities = await reviewCapabilities(
+  const capabilities = await reviewDetailCapabilities(
     sql,
     session,
-    row.locationId as string
+    id,
+    row.locationId as string,
+    row.workflowStatus as string
   )
   return {
     ...row,
     timeline,
     capabilities,
   }
+}
+
+/**
+ * The detail's capabilities with the approval policy applied (plan D1), so
+ * the pane says what a press will actually do rather than guessing from
+ * `canPublish`:
+ *
+ * - `requireTwoPersonApproval`: the organisation's flag. With it on, a
+ *   publisher's publish parks for a second person (publishing/approval.ts,
+ *   `requiresApproval`), so the action reads "Submit for approval".
+ * - `approvalScope`: while the reply is parked, whether it waits on this
+ *   person. This is the Inbox's own `awaiting_my_approval` predicate, so the
+ *   pane and the queue a row sits in can never disagree.
+ *
+ * Read-only, and nothing here decides anything: the approval route and
+ * `executePublish` still enforce the rules on every press.
+ */
+async function reviewDetailCapabilities(
+  sql: TransactionSql,
+  session: Session,
+  reviewId: string,
+  locationId: string,
+  workflowStatus: string
+): Promise<ReviewDetailCapabilities> {
+  const capabilities = await reviewCapabilities(sql, session, locationId)
+  const [settings] = await sql<{ requireTwoPersonApproval: boolean }[]>`
+    select require_two_person_approval as "requireTwoPersonApproval"
+    from organisation
+    where id = ${session.organisationId}
+  `
+  const requireTwoPersonApproval = settings?.requireTwoPersonApproval ?? false
+  let approvalScope: ReviewApprovalScope | null = null
+  if (workflowStatus === "awaiting_approval") {
+    const [scope] = await sql<{ mine: boolean }[]>`
+      select ${queuePredicate(sql, session, "awaiting_my_approval", {
+        requireTwoPersonApproval,
+      })} as mine
+      from review r
+      where r.id = ${reviewId}
+    `
+    approvalScope = scope?.mine ? "me" : "others"
+  }
+  return { ...capabilities, requireTwoPersonApproval, approvalScope }
 }
 
 /**

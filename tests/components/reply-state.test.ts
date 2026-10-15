@@ -829,3 +829,102 @@ describe("deriveReplyStatus — the ladder names what actually blocks the action
     expect(action.reason).toBe("Save your draft before publishing.")
   })
 })
+
+// Plan D1 (R01b): the review detail carries the organisation's two-person flag
+// and the server's `approvalScope`, so the pane says what a press will do.
+describe("two-person approval wording (R01b)", () => {
+  const twoPerson = {
+    canPublish: true,
+    canEdit: true,
+    canRequestApproval: false,
+    requireTwoPersonApproval: true,
+  }
+
+  it("offers a publisher 'Submit for approval' when two people must agree", () => {
+    const state = input({ ...readyToPublish(), capabilities: twoPerson })
+    const action = derivePrimaryAction(state)
+    expect(action.kind).toBe("submit")
+    expect(action.label).toBe("Submit for approval")
+    expect(action.enabled).toBe(true)
+    expect(deriveReplyStatus(state).text).toBe(
+      "Draft checked · Approval required"
+    )
+  })
+
+  it("also submits a revision of a live reply rather than updating it", () => {
+    const state = input({ ...readyToUpdate(), capabilities: twoPerson })
+    expect(derivePrimaryAction(state).kind).toBe("submit")
+  })
+
+  it("keeps 'Publish reply' for a publisher without the two-person rule", () => {
+    for (const requireTwoPersonApproval of [false, undefined]) {
+      const state = input({
+        ...readyToPublish(),
+        capabilities: {
+          canPublish: true,
+          canEdit: true,
+          canRequestApproval: false,
+          requireTwoPersonApproval,
+        },
+      })
+      expect(derivePrimaryAction(state).label).toBe("Publish reply")
+    }
+  })
+
+  it("still gates the submit on a checked, saved draft", () => {
+    const state = input({
+      ...readyToPublish(),
+      capabilities: twoPerson,
+      isDirty: true,
+    })
+    const action = derivePrimaryAction(state)
+    expect(action.kind).toBe("submit")
+    expect(action.enabled).toBe(false)
+    expect(action.reason).toBe(
+      "Save your draft before submitting it for approval."
+    )
+  })
+
+  const parked = {
+    workflowStatus: "awaiting_approval",
+    drafts: [draft("Thanks for staying with us!", "pass")],
+    verification: { verdict: "pass" as const, reasons: [] },
+  }
+
+  it("tells the person who asked that it waits on another approver", () => {
+    // The caller's guess from `canPublish` says "me"; the server says
+    // "others", and the server wins.
+    const state = input({
+      ...parked,
+      capabilities: { ...twoPerson, approvalScope: "others" },
+      approvalScope: "me",
+    })
+    expect(deriveReplyStatus(state).text).toBe("Waiting for another approver")
+    const action = derivePrimaryAction(state)
+    expect(action.kind).toBe("approve")
+    expect(action.enabled).toBe(false)
+    expect(action.reason).toBe(
+      "Someone else with publishing rights needs to approve this reply."
+    )
+  })
+
+  it("offers Approve to a second publisher the server names", () => {
+    const state = input({
+      ...parked,
+      capabilities: { ...twoPerson, approvalScope: "me" },
+      approvalScope: "others",
+    })
+    expect(deriveReplyStatus(state).text).toBe("Approval required")
+    expect(derivePrimaryAction(state).enabled).toBe(true)
+  })
+
+  it("falls back to the caller's reading when the server sent no scope", () => {
+    const state = input({
+      ...parked,
+      capabilities: { ...twoPerson, approvalScope: null },
+      approvalScope: "me",
+    })
+    expect(deriveReplyStatus(state).text).toBe("Approval required")
+    expect(derivePrimaryAction(state).enabled).toBe(true)
+  })
+})

@@ -165,3 +165,51 @@ describe("describeException: connection actions by role", () => {
     }
   })
 })
+
+// Plan D1 (R01b): the server's approval scope and two-person flag decide the
+// approval wording; `canPublish` alone cannot tell the requester apart.
+describe("describeException: two-person approval (R01b)", () => {
+  const publisher = {
+    canPublish: true,
+    canEdit: true,
+    canRequestApproval: false,
+    requireTwoPersonApproval: true,
+  }
+  const approve = { kind: "approve" } as unknown as PrimaryAction
+
+  it("tells the requester the reply waits on a second person", () => {
+    const exception = describeException(
+      review({
+        workflowStatus: "awaiting_approval",
+        capabilities: { ...publisher, approvalScope: "others" },
+      }),
+      approve,
+      "connected"
+    )
+    expect(exception?.title).toBe("Waiting for another approver")
+    expect(exception?.description).toContain("second person")
+  })
+
+  it("tells the second publisher the approval is theirs", () => {
+    const exception = describeException(
+      review({
+        workflowStatus: "awaiting_approval",
+        capabilities: { ...publisher, approvalScope: "me" },
+      }),
+      approve,
+      "connected"
+    )
+    expect(exception?.title).toBe("Approval required")
+    expect(exception?.description).toContain("waiting for your approval")
+  })
+
+  it("explains a publisher's submit under the two-person rule", () => {
+    const exception = describeException(
+      review({ capabilities: { ...publisher, approvalScope: null } }),
+      submit,
+      "connected"
+    )
+    expect(exception?.title).toBe("Approval required")
+    expect(exception?.description).toContain("second person")
+  })
+})
