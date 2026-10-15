@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-import { reviewDetailSchema } from "@/lib/contracts/reviews"
+import { reviewDetailSchema, reviewsPageSchema } from "@/lib/contracts/reviews"
 import { sha256 } from "@/lib/server/crypto"
 
 import { startAppServer } from "../helpers/app-server"
@@ -721,6 +721,117 @@ describeDatabase("reply approval", () => {
     expect(rejected.status, await rejected.clone().text()).toBe(200)
     expect(await rejected.json()).toMatchObject({ status: "returned_to_draft" })
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+  })
+
+  // The inbox's bulk bar reads `canApprove` off the list row, which
+  // lib/server/reviews-query.ts computes in SQL; the approval route
+  // (lib/server/review-approval.ts) decides in TypeScript. Two copies of one
+  // rule: this pins the row to what the route does for each kind of person,
+  // so they cannot drift apart silently.
+  it("agrees between the list row's canApprove and the approval route", async () => {
+    const fixture = await createFixture()
+    async function rowCanApprove(cookie: string) {
+      const response = await fetch(
+        `${server.baseUrl}/api/reviews?page_size=100`,
+        { headers: { cookie } }
+      )
+      expect(response.status).toBe(200)
+      const page = reviewsPageSchema.parse(await response.json())
+      const row = page.items.find((item) => item.id === fixture.review.reviewId)
+      expect(row).toBeDefined()
+      return row!.canApprove
+    }
+    // The route says no with `second_approver_required`; anything else (the
+    // decision is recorded, or a different refusal) is not that rule.
+    async function routeRefusesAsSecondApprover(
+      cookie: string,
+      decision: "approve" | "reject"
+    ) {
+      const response = await decide(fixture, cookie, {
+        decision,
+        ...(decision === "reject" ? { note: "Needs a warmer opening." } : {}),
+      })
+      const body = (await response.json()) as { error?: string }
+      return (
+        response.status === 403 && body.error === "second_approver_required"
+      )
+    }
+
+    // Not parked: nothing to approve, so the row says nothing.
+    expect(await rowCanApprove(fixture.owner.cookie)).toBeNull()
+
+    await admin`
+      update organisation
+      set require_two_person_approval = true
+      where id = ${fixture.owner.organisationId}
+    `
+    // The owner wrote the draft (createFixture); a second publisher asks.
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "admin",
+      canPublish: true,
+    })
+    const independent = await createActor(fixture.owner.organisationId, {
+      role: "admin",
+      canPublish: true,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+
+    // Row first, then the route, for each person; the approving press is
+    // last because it publishes.
+    const people = [
+      { who: "the requester", cookie: requester.cookie, canApprove: false },
+      {
+        who: "the draft's author",
+        cookie: fixture.owner.cookie,
+        canApprove: false,
+      },
+      {
+        who: "an independent approver",
+        cookie: independent.cookie,
+        canApprove: true,
+      },
+    ]
+    for (const person of people) {
+      expect(await rowCanApprove(person.cookie), person.who).toBe(
+        person.canApprove
+      )
+    }
+    for (const person of people.filter((p) => !p.canApprove)) {
+      expect(
+        await routeRefusesAsSecondApprover(person.cookie, "approve"),
+        person.who
+      ).toBe(true)
+    }
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+    const approved = await decide(fixture, independent.cookie, {
+      decision: "approve",
+    })
+    expect(approved.status, await approved.clone().text()).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
+  })
+
+  it("says every publisher may approve when the two-person rule is off", async () => {
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+    for (const cookie of [fixture.owner.cookie]) {
+      const response = await fetch(
+        `${server.baseUrl}/api/reviews?page_size=100`,
+        { headers: { cookie } }
+      )
+      const page = reviewsPageSchema.parse(await response.json())
+      expect(
+        page.items.find((item) => item.id === fixture.review.reviewId)
+          ?.canApprove
+      ).toBe(true)
+    }
+    const approved = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+    })
+    expect(approved.status, await approved.clone().text()).toBe(200)
   })
 
   // Only the two-person rule takes Approve from the author: with it off, the
