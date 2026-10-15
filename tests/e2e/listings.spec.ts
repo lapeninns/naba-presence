@@ -169,7 +169,7 @@ test.describe("listings", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.goto(`/listings/${state.primaryLocationId}/photos`)
     await page.getByRole("button", { name: "Add photos" }).click()
-    await expect(page.getByRole("heading", { name: "Add media" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Add photos" })).toBeVisible()
     await expect(
       page.getByRole("button", { name: "Choose from library" })
     ).toBeVisible()
@@ -178,7 +178,7 @@ test.describe("listings", () => {
       "image/jpeg,image/png"
     )
     await expect(
-      page.getByRole("button", { name: "Review file upload" })
+      page.getByRole("button", { name: "Upload photos" })
     ).toBeDisabled()
   })
 
