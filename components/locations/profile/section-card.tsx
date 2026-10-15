@@ -36,13 +36,13 @@ export function LabelRow({
 }
 
 /**
- * Where a section's edits go, said on the section itself, because the
- * profile mixes two models: the name, description, phone and website are
- * saved in NabaPresence first ("Save here" keeps them without touching
- * Google), while categories, address, opening state and attributes have no
- * NabaPresence draft: each change is reviewed and approved as an exact
- * request, then sent to Google directly. Nothing reaches Google unreviewed,
- * so the tag must not say "straight to Google".
+ * Where an edit goes, as a tag. The business profile no longer tags its
+ * sections or fields: every profile edit goes through the editor bar, and
+ * the one "Review changes" sheet says in one plain line which changes save
+ * here first and which go to Google when you publish
+ * (components/reviewed-write/combined-review.tsx `combinedReviewNote`).
+ * The tag stays for any surface that still needs to name its model. Nothing
+ * reaches Google unreviewed, so it must not say "straight to Google".
  */
 export type SaveModel = "here" | "google"
 
@@ -102,10 +102,10 @@ export function SaveModelTag({
 
 /**
  * One profile section, drawn as a settings group (Notion Mail settings,
- * `SettingsGroup`): a quiet group label, a caption saying where its edits go
- * (SaveModelTag) and what it is for, then the fields. On a phone the group
- * sits flat on the page, with only the space between groups setting them
- * apart; on a desk the rows sit in the group's quiet bordered card. `id` is
+ * `SettingsGroup`): a quiet group label, a caption saying what it is for,
+ * then the fields. Where its edits go is said once, in the review sheet,
+ * not on each section. On a phone the group sits flat on the page, with
+ * only the space between groups setting them apart; on a desk the rows sit in the group's quiet bordered card. `id` is
  * the jump target for the section nav, and `${id}-heading` the heading it
  * focuses (SettingsGroup's script-focusable heading); the scroll margin
  * keeps the section clear of the phone's sticky section tabs.
@@ -119,7 +119,6 @@ export function SectionCard({
   title,
   description,
   changed,
-  model,
   children,
   bare = false,
   info = false,
@@ -129,8 +128,6 @@ export function SectionCard({
   title: string
   description?: React.ReactNode
   changed?: boolean
-  /** Where this section's edits go; omit when the fields inside differ. */
-  model?: SaveModel
   children: React.ReactNode
   /** No card chrome, for a section made of its own cards (attributes). */
   bare?: boolean
@@ -138,16 +135,12 @@ export function SectionCard({
   info?: boolean
   className?: string
 }) {
-  // An info card says its piece inside the card; a settings group says
-  // where its edits go and what it is for in the caption under its label.
+  // An info card says its piece inside the card; a settings group says what
+  // it is for in the caption under its label.
   const lead = info ? null : description
-  const caption =
-    model || lead ? (
-      <span className="flex min-w-0 flex-col gap-1">
-        {model ? <SaveModelTag model={model} variant="caption" /> : null}
-        {lead ? <span className="text-pretty">{lead}</span> : null}
-      </span>
-    ) : undefined
+  const caption = lead ? (
+    <span className="min-w-0 text-pretty">{lead}</span>
+  ) : undefined
   return (
     <SettingsGroup
       id={id}
