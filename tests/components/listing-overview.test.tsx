@@ -209,11 +209,10 @@ describe("ListingOverview", () => {
       }),
     })
     render(<ListingOverview locationId="l1" role="owner" />)
-    const sync = document.querySelector('[data-tile="sync"]') as HTMLElement
-    expect(
-      within(sync).getByText("Unknown — can’t reach Google")
-    ).toBeInTheDocument()
-    expect(within(sync).queryByText("In sync")).toBeNull()
+    // The connection row says so; sync is each area card's own status.
+    const google = screen.getByRole("region", { name: "Google" })
+    expect(within(google).getByText("Access lost")).toBeInTheDocument()
+    expect(within(google).queryByText("In sync")).toBeNull()
     const areas = screen.getByRole("region", { name: "Areas" })
     const profile = within(areas)
       .getByRole("heading", { level: 3, name: "Business profile" })
@@ -268,10 +267,95 @@ describe("ListingOverview", () => {
     })
     render(<ListingOverview locationId="l1" role="owner" />)
     const areas = screen.getByRole("region", { name: "Areas" })
-    const health = screen.getByRole("region", { name: "Health" })
+    const google = screen.getByRole("region", { name: "Google" })
     expect(
-      areas.compareDocumentPosition(health) & Node.DOCUMENT_POSITION_FOLLOWING
+      areas.compareDocumentPosition(google) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+
+  it("keeps only the connection and last published under the areas, without repeating verification or sync", () => {
+    stub({
+      summary: summary({
+        lastPublish: {
+          at: new Date().toISOString(),
+          status: "succeeded",
+          area: "hours",
+        },
+      }),
+    })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    const google = screen.getByRole("region", { name: "Google" })
+    const rows = within(google).getAllByRole("listitem")
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent("Google connection")
+    expect(rows[0]).toHaveTextContent("Up to date")
+    expect(rows[0]).toHaveTextContent("owner@example.com")
+    expect(rows[1]).toHaveTextContent("Last published")
+    expect(rows[1]).toHaveTextContent("Last change: hours")
+    expect(within(google).queryByText("Verification")).toBeNull()
+    expect(within(google).queryByText("Sync with Google")).toBeNull()
+    expect(screen.queryByRole("region", { name: "Health" })).toBeNull()
+  })
+
+  it("shows the verification state to a viewer who has no Verification card while disconnected", () => {
+    const disconnected = {
+      connection: {
+        status: "revoked" as const,
+        reconnectRequired: true,
+        googleEmail: "owner@example.com",
+      },
+      verified: false,
+    }
+    stub({ summary: summary(disconnected) })
+    const { unmount } = render(
+      <ListingOverview locationId="l1" role="viewer" />
+    )
+    const google = screen.getByRole("region", { name: "Google" })
+    const rows = within(google).getAllByRole("listitem")
+    expect(rows).toHaveLength(3)
+    expect(rows[2]).toHaveTextContent("Verification")
+    expect(rows[2]).toHaveTextContent("Not verified")
+    unmount()
+
+    // An owner has the Verification card, and a connected listing has the
+    // alert: neither repeats it as a row.
+    stub({ summary: summary(disconnected) })
+    const owner = render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      within(screen.getByRole("region", { name: "Google" })).getAllByRole(
+        "listitem"
+      )
+    ).toHaveLength(2)
+    owner.unmount()
+    stub({ summary: summary({ verified: false }) })
+    render(<ListingOverview locationId="l1" role="viewer" />)
+    expect(
+      within(screen.getByRole("region", { name: "Google" })).getAllByRole(
+        "listitem"
+      )
+    ).toHaveLength(2)
+    expect(
+      screen.getByText("Google hasn’t verified this listing")
+    ).toBeVisible()
+  })
+
+  it("offers Reconnect Google on the connection row to owners and admins only", () => {
+    stub({
+      summary: summary({
+        connection: {
+          status: "revoked",
+          reconnectRequired: true,
+          googleEmail: "owner@example.com",
+        },
+      }),
+    })
+    const { unmount } = render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.getByRole("link", { name: "Reconnect Google" })
+    ).toHaveAttribute("href", "/setup?client=c1&step=connect")
+    unmount()
+    render(<ListingOverview locationId="l1" role="member" />)
+    expect(screen.queryByRole("link", { name: "Reconnect Google" })).toBeNull()
   })
 
   it("asks for a fresh comparison after a failed publish without denying partial success", () => {
