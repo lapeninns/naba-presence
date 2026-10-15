@@ -545,9 +545,15 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                     loading="lazy"
                     // A server-rendered page can fail the request before React
                     // attaches `onError` (and React does not replay it), so a
-                    // finished load with no pixels is read as failed here.
+                    // finished load with no pixels is read as failed here. A
+                    // lazy image that has not been asked for yet is not
+                    // `complete` and has no `currentSrc`, so it is left alone.
                     ref={(image) => {
-                      if (image?.complete && image.naturalWidth === 0) {
+                      if (
+                        image?.complete &&
+                        image.naturalWidth === 0 &&
+                        image.currentSrc
+                      ) {
                         markFailed(item.id)
                       }
                     }}
@@ -1045,6 +1051,25 @@ function ReviewDetail({
   const review = query.data?.review
   const pending = query.isPending
   const failed = !pending && (query.isError || !review)
+
+  // The steps row is drawn while loading, failed and loaded, but not as the
+  // same element: when the review lands the loading row is replaced and the
+  // button the operator pressed unmounts, dropping focus to <body>. So the
+  // step last focused is remembered, and handed back to its twin when the
+  // pane changes state. (A real blur — the operator moved on — forgets it;
+  // an unmount does not blur.)
+  const stepFocusRef = useRef<string | null>(null)
+  const phase = review ? "loaded" : failed ? "failed" : "loading"
+  useEffect(() => {
+    const nav = stepFocusRef.current
+    if (!nav) return
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    const button = paneRef.current?.querySelector<HTMLButtonElement>(
+      `[data-slot="review-steps"] [data-nav="${nav}"]`
+    )
+    if (button && !button.disabled) button.focus({ preventScroll: true })
+  }, [phase, reviewId])
   // Someone who can neither edit, publish nor ask for approval has nothing
   // to press: no publish bar (so no docked bar either; the tab bar stays).
   const caps = review?.capabilities
@@ -1057,6 +1082,17 @@ function ReviewDetail({
     <div
       ref={paneRef}
       aria-busy={pending || undefined}
+      onFocus={(event) => {
+        const target = event.target as HTMLElement
+        stepFocusRef.current = target.closest('[data-slot="review-steps"]')
+          ? (target.dataset.nav ?? null)
+          : null
+      }}
+      onBlur={(event) => {
+        if ((event.target as HTMLElement).isConnected) {
+          stepFocusRef.current = null
+        }
+      }}
       // Below lg the review is the whole screen, at least as tall as the
       // window under the app bar, so the publish bar is pinned to the foot
       // of the screen from the first paint — loading, short review or long —

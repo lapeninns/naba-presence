@@ -1095,6 +1095,10 @@ describe("ReviewDetail — photos that failed before hydration", () => {
     const complete = vi
       .spyOn(HTMLImageElement.prototype, "complete", "get")
       .mockReturnValue(true)
+    // jsdom never selects a source; a browser has one by the time it fails.
+    const currentSrc = vi
+      .spyOn(HTMLImageElement.prototype, "currentSrc", "get")
+      .mockReturnValue("https://lh3.googleusercontent.com/gone.jpg")
     try {
       fakeDetail({
         isPending: false,
@@ -1118,6 +1122,7 @@ describe("ReviewDetail — photos that failed before hydration", () => {
       ).toHaveAttribute("title", "Photo unavailable")
     } finally {
       complete.mockRestore()
+      currentSrc.mockRestore()
     }
   })
 })

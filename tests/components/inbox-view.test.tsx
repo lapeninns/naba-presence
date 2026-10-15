@@ -592,15 +592,17 @@ describe("InboxView — next and previous review", () => {
       fetchNextPage: vi.fn(),
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
     // Only the first review is cached; the next one is still on its way.
-    vi.spyOn(detailHook, "useReviewDetail").mockImplementation(
-      (id) =>
-        (id === "rev-1"
-          ? { data: reviewDetail() }
-          : {
-              isPending: true,
-              isError: false,
-            }) as UseQueryResult<ReviewDetailData>
-    )
+    const detailSpy = vi
+      .spyOn(detailHook, "useReviewDetail")
+      .mockImplementation(
+        (id) =>
+          (id === "rev-1"
+            ? { data: reviewDetail() }
+            : {
+                isPending: true,
+                isError: false,
+              }) as UseQueryResult<ReviewDetailData>
+      )
     const view = renderInbox()
     await user.click(screen.getByRole("button", { name: "Next review" }))
     currentParams = new URLSearchParams(
@@ -616,6 +618,17 @@ describe("InboxView — next and previous review", () => {
     expect(
       view.container.querySelector('[data-slot="review-position"]')
     ).toHaveTextContent("Review 2 of 3")
+
+    // The review lands: the loading steps give way to the thread's own, and
+    // focus stays on Next rather than falling to <body>.
+    detailSpy.mockImplementation(
+      () => ({ data: reviewDetail() }) as UseQueryResult<ReviewDetailData>
+    )
+    view.rerender(inboxUi())
+    expect(view.container.querySelector("[aria-busy=true]")).toBeNull()
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next review" })).toHaveFocus()
+    )
   })
 
   it("keeps Next on at the last loaded review while another page follows", () => {
