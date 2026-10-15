@@ -1208,10 +1208,40 @@ describe("ActionBar", () => {
       // The `a` shortcut approves; there is nothing for it to press.
       window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
       expect(approval.mutateAsync).not.toHaveBeenCalled()
+      // ⋯ holds Edit only: no second Reject row (or its rule) for the author.
+      await user.click(screen.getByRole("button", { name: "Review actions" }))
+      expect(
+        await screen.findByRole("menuitem", { name: "Edit reply" })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: "Reject reply" })
+      ).not.toBeInTheDocument()
+      await user.keyboard("{Escape}")
       await user.click(reject)
       expect(
         await screen.findByRole("alertdialog", { name: "Reject this reply?" })
       ).toBeInTheDocument()
+    })
+
+    it("draws no ⋯ for the author when Reject is the only other action", () => {
+      stubHooks(
+        detailWith({
+          workflowStatus: "awaiting_approval",
+          capabilities: {
+            ...twoPersonPublisher,
+            canEdit: false,
+            approvalScope: "me",
+            canApprove: false,
+          },
+        })
+      )
+      renderActionBar()
+      expect(
+        screen.getByRole("button", { name: "Reject reply" })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Review actions" })
+      ).not.toBeInTheDocument()
     })
   })
 })

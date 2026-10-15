@@ -723,6 +723,32 @@ describeDatabase("reply approval", () => {
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
   })
 
+  // Only the two-person rule takes Approve from the author: with it off, the
+  // author who may publish approves a request as before.
+  it("keeps Approve for the draft's author when the two-person rule is off", async () => {
+    // createFixture's draft is written by the owner.
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+      { headers: { cookie: fixture.owner.cookie } }
+    )
+    const { review } = reviewDetailSchema.parse(await response.json())
+    expect(review.capabilities).toMatchObject({
+      requireTwoPersonApproval: false,
+      approvalScope: "me",
+      canApprove: true,
+    })
+    const approved = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+    })
+    expect(approved.status, await approved.clone().text()).toBe(200)
+  })
+
   it("returns 404 for a cross-tenant approval", async () => {
     const fixture = await createFixture()
     const requester = await createActor(fixture.owner.organisationId, {
