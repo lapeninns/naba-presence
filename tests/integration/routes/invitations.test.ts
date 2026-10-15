@@ -221,6 +221,8 @@ describeDatabase("organisation invitations", () => {
     for (const key of ["organisationName", "email", "role", "expiresAt"]) {
       expect(finished).not.toHaveProperty(key)
     }
+    expect(JSON.stringify(finished)).not.toContain(email)
+    expect(JSON.stringify(finished)).not.toContain("Harness tenant")
     await expect(
       provisionAuthenticatedMember(
         acceptorIdentity(email),
@@ -296,6 +298,8 @@ describeDatabase("organisation invitations", () => {
     for (const key of ["organisationName", "email", "role", "expiresAt"]) {
       expect(expired).not.toHaveProperty(key)
     }
+    expect(JSON.stringify(expired)).not.toContain(email)
+    expect(JSON.stringify(expired)).not.toContain("Harness tenant")
     const { provisionAuthenticatedMember } =
       await import("@/lib/server/provisioning")
     await expect(

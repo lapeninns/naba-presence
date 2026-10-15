@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import {
   PASSWORD_LENGTH,
+  PASSWORD_MAX_CODE_UNITS,
   RESET_TOKEN_HASH_LENGTH,
   passwordLength,
 } from "@/lib/domain/auth-limits"
@@ -24,8 +25,11 @@ export const emailSchema = z
 export const passwordSchema = z
   .string()
   // A cheap bound first: 128 code points are at most 256 UTF-16 code units,
-  // so anything longer fails without being split into code points.
-  .max(PASSWORD_LENGTH.max * 2, "Use no more than 128 characters.")
+  // so anything longer fails here and `abort` skips the code-point count.
+  .max(PASSWORD_MAX_CODE_UNITS, {
+    message: "Use no more than 128 characters.",
+    abort: true,
+  })
   .refine((value) => passwordLength(value) >= PASSWORD_LENGTH.min, {
     message: "Use at least 12 characters.",
   })
@@ -35,7 +39,9 @@ export const passwordSchema = z
 
 export const loginSchema = z.object({
   email: emailSchema,
-  password: z.string().min(1).max(128),
+  // Up to what passwordSchema can accept (128 code points), so a password
+  // someone could set can always be signed in with.
+  password: z.string().min(1).max(PASSWORD_MAX_CODE_UNITS),
   inviteToken: z.string().min(1).optional(),
 })
 

@@ -7,6 +7,7 @@ import {
   registerSchema,
   resetPasswordSchema,
 } from "@/lib/domain/auth"
+import { mfaEnrollSchema, mfaStepUpSchema } from "@/lib/contracts/auth"
 import { passwordLength } from "@/lib/domain/auth-limits"
 
 describe("email and password input policy", () => {
@@ -51,6 +52,31 @@ describe("email and password input policy", () => {
     expect(
       passwordSchema.safeParse(rocket.repeat(129)).error?.issues[0]?.message
     ).toBe("Use no more than 128 characters.")
+  })
+
+  it("lets every password it accepts be signed in with, and used for MFA", () => {
+    for (const password of [
+      "🚀".repeat(128),
+      "a".repeat(128),
+      "🚀".repeat(65),
+    ]) {
+      expect(passwordSchema.safeParse(password).success, password).toBe(true)
+      expect(
+        loginSchema.safeParse({ email: "ada@example.com", password }).success
+      ).toBe(true)
+      expect(mfaEnrollSchema.safeParse({ password }).success).toBe(true)
+      expect(
+        mfaStepUpSchema.safeParse({ password, code: "123456" }).success
+      ).toBe(true)
+    }
+  })
+
+  it("stops at the code-unit bound without counting code points", () => {
+    const result = passwordSchema.safeParse("a".repeat(5000))
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map((issue) => issue.message)).toEqual([
+      "Use no more than 128 characters.",
+    ])
   })
 
   it("applies the code-point minimum to registration and reset", () => {
