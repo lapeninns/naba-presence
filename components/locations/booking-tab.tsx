@@ -889,7 +889,10 @@ function AddLinkForm({
         sticky={false}
         safeArea={false}
         label="Booking link actions"
-        visible={uri.trim() !== "" && !disabled}
+        // Kept on screen while the review is being prepared (its button then
+        // reads "Preparing review…"): unmounting the focused button dropped
+        // focus to the page, and a failed review left it there.
+        visible={uri.trim() !== "" && (!disabled || workflow.busy)}
         status="Ready to review. Nothing is sent to Google yet."
         actions={
           <Button

@@ -5,7 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { BookingTab } from "@/components/locations/booking-tab"
 import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import type { PlaceActionsState } from "@/lib/api/location-booking"
+
+const previewReview = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/place-action-reviews", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/place-action-reviews")>()),
+  previewPlaceActionReview: previewReview,
+}))
 
 const useBookingMock = vi.fn()
 const useCapsMock = vi.fn()
@@ -99,6 +106,34 @@ describe("BookingTab", () => {
     await user.type(screen.getByRole("textbox", { name: "Link" }), "https://book.example")
     const bar = screen.getByRole("region", { name: "Booking link actions" })
     expect(within(bar).getByRole("button", { name: "Review booking link" })).toBeEnabled()
+  })
+
+  // The focused button used to unmount while the review was prepared, so
+  // focus fell to the page and a failed review left it there.
+  it("keeps the review action mounted, and focused, while the review is prepared and after it fails", async () => {
+    const user = userEvent.setup()
+    let fail!: (error: Error) => void
+    previewReview.mockReturnValue(new Promise((_, reject) => { fail = reject }))
+    useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    await user.type(screen.getByRole("textbox", { name: "Link" }), "https://book.example")
+    const bar = screen.getByRole("region", { name: "Booking link actions" })
+    const review = within(bar).getByRole("button", { name: "Review booking link" })
+    review.focus()
+    await user.keyboard("{Enter}")
+
+    // Pending: the same button is still there, still focused, and says so.
+    await waitFor(() => expect(previewReview).toHaveBeenCalledOnce())
+    const pending = within(screen.getByRole("region", { name: "Booking link actions" })).getByRole("button", { name: /Preparing review/ })
+    expect(pending).toBe(review)
+    expect(document.activeElement).toBe(review)
+
+    fail(new ApiClientError(502, "google_unavailable", "Google could not be reached."))
+    expect(await screen.findByText("Google could not be reached.")).toBeInTheDocument()
+    const again = within(screen.getByRole("region", { name: "Booking link actions" })).getByRole("button", { name: "Review booking link" })
+    expect(again).toBe(review)
+    expect(document.activeElement).toBe(review)
   })
 
   it("shows the type as plain text when Google supports only one", () => {
