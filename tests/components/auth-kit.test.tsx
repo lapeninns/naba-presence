@@ -161,13 +161,34 @@ describe("password requirements", () => {
   it("evaluates every rule", () => {
     expect(checkPasswordRules("short")).toEqual([
       { id: "length", label: "Between 12 and 128 characters", met: false },
-      { id: "letter", label: "A letter", met: true },
-      { id: "number", label: "A number", met: false },
-      { id: "symbol", label: "A symbol", met: false },
     ])
     expect(
       checkPasswordRules("correct-horse-9").every((rule) => rule.met)
     ).toBe(true)
+  })
+
+  it("counts code points, as the schema does", () => {
+    const met = (value: string) =>
+      checkPasswordRules(value).every((rule) => rule.met)
+    expect(met("🚀".repeat(6))).toBe(false)
+    expect(met("🚀".repeat(11))).toBe(false)
+    expect(met("🚀".repeat(12))).toBe(true)
+    expect(met("🚀".repeat(128))).toBe(true)
+    expect(met("🚀".repeat(129))).toBe(false)
+  })
+
+  it("has length as the only rule, with no letter, number or symbol rules", () => {
+    expect(checkPasswordRules("short").map((rule) => rule.id)).toEqual([
+      "length",
+    ])
+    // Letters only, spaces only and digits only all meet it at 12 characters.
+    for (const value of [
+      "onlyletterslong",
+      "correct horse battery",
+      "123456789012",
+    ]) {
+      expect(checkPasswordRules(value).every((rule) => rule.met)).toBe(true)
+    }
   })
 
   it("rejects a password past the server's upper bound", () => {
@@ -190,7 +211,9 @@ describe("password requirements", () => {
     ).toBeInTheDocument()
     render(<PasswordRequirements value="short" />)
     expect(
-      screen.getByRole("listitem", { name: "Not yet met: A number" })
+      screen.getByRole("listitem", {
+        name: "Not yet met: Between 12 and 128 characters",
+      })
     ).toBeInTheDocument()
   })
 })
