@@ -181,7 +181,10 @@ test.describe("team roles", () => {
     await expect(
       dialog.getByRole("radio", { name: ROLE_NAMES }).first()
     ).toBeChecked()
-    await expect(dialog.getByText("Usual choice")).toHaveCount(1)
+    // The visible pill, once (the screen-reader hint says it in a sentence).
+    await expect(
+      dialog.getByText("Usual choice", { exact: true })
+    ).toHaveCount(1)
     // The pill is a hint, not part of the radio's name.
     await expect(
       dialog.getByRole("radio", { name: "Member", exact: true })
