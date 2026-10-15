@@ -806,9 +806,7 @@ function ReviewPublish({
               />
             </div>
           ) : (
-            // A phone's publish bar is docked to the bottom edge, outside
-            // the flow; this keeps the last section clear of it.
-            <div className="flex flex-col gap-4 max-md:pb-[calc(var(--np-actionbar-h)+var(--np-control-h)+var(--np-dock-bottom))]">
+            <div className="flex flex-col gap-4">
               {paused ? (
                 <Alert variant="destructive" icon={<UnplugIcon aria-hidden />}>
                   <AlertTitle>Publishing is paused for {entry.name}</AlertTitle>
@@ -970,15 +968,19 @@ function ReviewPublish({
                 </Alert>
               ) : null}
 
-              {/* The same bar policy as an editor's footer: docked to the
-                  bottom edge on a phone (the tab bar steps aside), sticky on
-                  a desk only where the window is tall enough for it to leave
-                  the content room, inline on short screens. */}
+              {/* Docked to the bottom edge on a phone (the tab bar steps
+                  aside, and the spacer, scroll padding and toasts follow its
+                  measured height); `statusRow` gives the status its own row
+                  there, since "Publish N areas to Google" leaves it no room
+                  beside it. On a desk it sticks above the bottom edge only
+                  where the window is tall enough to leave the content room
+                  (the `controls` variant), and is inline on short screens. */}
               <ActionBar
-                data-docked="bottom"
+                dock
+                statusRow
                 sticky={false}
                 safeArea={false}
-                className="max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:rounded-none max-md:px-3 max-md:pb-[calc(--spacing(3)+var(--np-dock-bottom))] controls:sticky controls:bottom-3"
+                className="controls:sticky controls:bottom-3"
                 label="Publish to Google"
                 status={
                   <>
@@ -1007,7 +1009,7 @@ function ReviewPublish({
                     </span>
                   </>
                 }
-                actions={
+                primary={
                   <Button
                     onClick={publish}
                     pending={flow.isPublishing}

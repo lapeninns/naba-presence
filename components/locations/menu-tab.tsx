@@ -307,11 +307,6 @@ function MenuForm({
             saving={save.isPending}
             saveDisabledReason={editReason}
             disabledReason={publishReason}
-            hint={
-              state.status === "in_sync"
-                ? "This menu matches Google."
-                : "Google holds a different menu. Review to see what differs."
-            }
           />
         )
       }

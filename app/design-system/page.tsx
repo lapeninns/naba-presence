@@ -27,6 +27,7 @@ import { NmListDemo } from "@/app/design-system/nm-list-demo"
 import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
+import { UxP02Demo } from "@/app/design-system/ux-p02-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
@@ -1624,6 +1625,7 @@ export default function Page() {
             shows here beside the page’s own primary only because this is a
             gallery.
           </p>
+          <UxP02Demo />
         </Section>
       </main>
     </TooltipProvider>

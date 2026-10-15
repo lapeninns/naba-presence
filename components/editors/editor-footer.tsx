@@ -1,12 +1,17 @@
 "use client"
 
-import { useId } from "react"
+import { useId, useRef } from "react"
 
 import { CircleAlert, CircleCheck, Clock, Eye, Save } from "lucide-react"
 
 import { useReportEditorStatus } from "@/components/editors/editor-status"
-import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
+import {
+  ActionBar,
+  ActionBarMuted,
+  type ActionBarAction,
+} from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
+import { useReturnFocus } from "@/lib/editors/use-return-focus"
 import { cn } from "@/lib/utils"
 
 export type EditorStatus =
@@ -23,6 +28,8 @@ const STATUS_WORDS: Record<EditorStatus, string> = {
   conflict: "Conflict with Google",
 }
 
+const DEFAULT_REVIEW_LABEL = "Review changes"
+
 function countWords(count: number) {
   return `${count} ${count === 1 ? "change" : "changes"} not on Google`
 }
@@ -32,21 +39,32 @@ function countWords(count: number) {
  * (reference `.actionbar.editor-foot`), the single charcoal surface on the
  * screen, holding the action that reaches Google.
  *
- * Saving and publishing are different buttons with different words. "Save
- * here" (only where the resource keeps a NabaPresence copy) writes that copy
- * and nothing else; "Review changes" opens the sheet with the diff, and only
- * the sheet's "Publish to Google" sends anything. The status line says which
- * of the two has happened: "unsaved edits" or "saved here".
+ * A clean editor draws NO bar, at any width (the area header's pill already
+ * says where the area stands); the bar arrives with the first change.
+ *
+ * Saving and publishing are different actions with different words. "Review
+ * changes" is the one primary: it opens the sheet with the diff, and only
+ * the sheet's "Publish to Google" sends anything. "Save here" (only where
+ * the resource keeps a NabaPresence copy) writes that copy and nothing else;
+ * "Discard edits" throws the local edits away. Both are secondaries of the
+ * ActionBar, so a phone folds them into the "More actions" menu and the bar
+ * stays one row (status, primary, overflow); from `md` they sit inline beside
+ * the primary. A secondary with nothing to act on, or that can't run (its
+ * reason is the bar's note), is left out, not greyed. When the edits leave
+ * nothing to publish (they match Google), there is no "Review changes" and
+ * "Save here" is the primary. The status line says which of the two has
+ * happened: "unsaved edits" or "saved here"; while a save runs it leads with
+ * "Saving…", since the phone's button is in a closed menu. After a save,
+ * focus returns to the bar (or the editor) rather than falling to the page.
  *
  * A viewer gets the same bar with no buttons and the reason in words, so the
  * page never shows controls that can't be used without saying why.
  *
- * Phones (under 48rem): a clean editor shows no bar; with the first change
- * it docks edge to edge at the bottom of the screen (the ActionBar's `dock`:
- * the tab bar steps aside and scroll padding follows it), riding the
- * keyboard.
- * Desk: `EditorFrame` pins it to the bottom of the scrolling pane. The
- * view-only bar is never docked: it sits inline and says why.
+ * Phones (under 48rem): the bar docks edge to edge at the bottom of the
+ * screen (the ActionBar's `dock`: the tab bar steps aside and scroll padding
+ * follows its measured height), riding the keyboard.
+ * Desk: the bar sits inline at the end of the form, where the fields it
+ * saves end. The view-only bar is never docked: it sits inline and says why.
  */
 function EditorFooter({
   status,
@@ -55,7 +73,6 @@ function EditorFooter({
   onReview,
   onDiscard,
   disabledReason,
-  hint,
   className,
   changeCount,
   onSave,
@@ -63,7 +80,7 @@ function EditorFooter({
   saveDisabledReason,
   saveDescription,
   readOnlyReason,
-  reviewLabel = "Review changes",
+  reviewLabel = DEFAULT_REVIEW_LABEL,
   rail = false,
 }: {
   status: EditorStatus
@@ -75,8 +92,6 @@ function EditorFooter({
   onDiscard: () => void
   /** Why the operator cannot publish, in their words. Never a raw code. */
   disabledReason?: string | null
-  /** Context shown when there is nothing to publish. */
-  hint?: React.ReactNode
   className?: string
   /** How many fields differ from Google; words the status line. */
   changeCount?: number
@@ -108,6 +123,10 @@ function EditorFooter({
     ? "desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]"
     : undefined
   const localEdits = canDiscard ?? isDirty
+  const regionRef = useRef<HTMLDivElement>(null)
+  // Save here leaves the bar once it has done its work: focus goes back to
+  // the bar (or the editor), not the page.
+  const returnFocus = useReturnFocus(regionRef)
 
   // Tell the area header (AreaFrame) what this footer says, so its pill
   // never reads "In sync" over unsaved edits. A view-only bar reports nothing.
@@ -144,12 +163,19 @@ function EditorFooter({
     )
   }
 
+  // Nothing to save, publish or resolve: no bar, at any width.
+  if (!isDirty && !localEdits && status !== "conflict") return null
+
+  // Nothing differs from Google (local edits only): say so, not "changes not
+  // on Google", and offer no Review (there is nothing to publish).
   const headline =
     status === "conflict"
       ? STATUS_WORDS.conflict
-      : typeof changeCount === "number" && changeCount > 0
-        ? countWords(changeCount)
-        : STATUS_WORDS[status === "in_sync" ? "edited" : status]
+      : !isDirty
+        ? "No changes to publish"
+        : typeof changeCount === "number" && changeCount > 0
+          ? countWords(changeCount)
+          : STATUS_WORDS[status === "in_sync" ? "edited" : status]
   const where = localEdits
     ? "unsaved edits"
     : status === "unpublished" || (onSave && isDirty)
@@ -157,105 +183,117 @@ function EditorFooter({
       : null
   const StatusIcon =
     status === "conflict" ? CircleAlert : isDirty ? Clock : CircleCheck
-  // Nothing to save, publish or resolve. A phone then shows no bar at all
-  // (the header's pill already says where the area stands); it appears,
-  // docked to the bottom edge, with the first change. The desk keeps the
-  // clean bar inline, its buttons disabled, so the bar is drawn (`visible`
-  // stays on) and only a phone hides it.
-  const idle = !isDirty && !localEdits && status !== "conflict"
+  const reason =
+    (isDirty && disabledReason) || (localEdits && saveDisabledReason)
+  // A save that can't run is left out, not greyed: the note row says why.
+  const canSave = Boolean(onSave && localEdits && !saveDisabledReason)
+  const saveAction: ActionBarAction = {
+    label: "Save here",
+    icon: <Save aria-hidden />,
+    onClick: () => {
+      returnFocus()
+      onSave?.()
+    },
+    pending: saving,
+    pendingLabel: "Saving…",
+    describedBy: saveDescription ? saveDescriptionId : undefined,
+  }
+
+  // Secondaries are data: the ActionBar draws them inline from `md` and in
+  // its overflow menu on a phone, with the same handlers and busy state.
+  // With nothing to throw away or save they are left out, not greyed. With
+  // nothing to publish, "Save here" is the primary instead.
+  const secondaryActions: ActionBarAction[] = []
+  if (canSave && isDirty) secondaryActions.push(saveAction)
+  if (localEdits) {
+    secondaryActions.push({
+      label: "Discard edits",
+      onClick: onDiscard,
+      destructive: true,
+    })
+  }
+  const primary = isDirty ? (
+    <Button onClick={onReview} disabled={Boolean(disabledReason)}>
+      {reviewLabel}
+    </Button>
+  ) : canSave ? (
+    <Button
+      onClick={saveAction.onClick}
+      pending={saving}
+      pendingLabel="Saving…"
+      aria-describedby={saveAction.describedBy}
+    >
+      <Save aria-hidden />
+      Save here
+    </Button>
+  ) : undefined
 
   return (
     <ActionBar
       data-slot="editor-footer"
-      // Docked on a phone once there is something to do: fixed to the
-      // bottom edge, riding the keyboard, the tab bar stepping aside (the
-      // primitive's docking contract). Three buttons don't fit beside the
-      // status on a phone, so the docked bar keeps two rows here, status
-      // over a full-width row of buttons; the ActionBar's spacer and the
-      // document's scroll padding follow its measured height, and
+      // Docked on a phone: fixed to the bottom edge, riding the keyboard,
+      // the tab bar stepping aside (the primitive's docking contract). One
+      // row: status, "Review changes", the overflow. The ActionBar's spacer
+      // and the document's scroll padding follow its measured height, and
       // useKeepFocusClear measures the bar itself, so neither the last field
-      // nor a focused one is left under it.
-      dock={!idle}
+      // nor a focused one is left under it. Inline from `md`.
+      dock
       sticky={false}
       safeArea={false}
       label="Editor actions"
+      ref={regionRef}
+      tabIndex={-1}
+      // A long primary label ("Review lodging draft") would leave the status
+      // no room beside it: it takes its own row then.
+      statusRow={reviewLabel.length > DEFAULT_REVIEW_LABEL.length}
+      // A reason the primary or Save here is blocked takes its own row under
+      // the buttons, so a phone's bar is two rows only while it has one.
       className={cn(
-        idle
-          ? "max-md:hidden"
-          : "max-md:flex-wrap max-md:gap-2 max-md:[&>[data-slot=action-bar-actions]]:w-full max-md:[&>[data-slot=action-bar-actions]]:flex-nowrap",
+        reason && "max-md:flex-wrap",
+        "focus-visible:outline-none",
         railClass,
         className
       )}
       status={
         <>
           <StatusIcon aria-hidden />
-          <span className="min-w-0 max-md:truncate">
-            {isDirty ? (
+          <span className="min-w-0">
+            {/* Saving goes first so a clamped status can never cut it. */}
+            {saving ? (
+              <>
+                <strong className="font-medium">Saving…</strong>
+                <ActionBarMuted> · {headline}</ActionBarMuted>
+              </>
+            ) : (
               <>
                 <strong className="font-medium">{headline}</strong>
                 {where ? <ActionBarMuted> · {where}</ActionBarMuted> : null}
               </>
-            ) : (
-              (hint ?? "No unpublished changes.")
             )}
-            {isDirty ? (
-              <span className="sr-only">
-                {" "}
-                Nothing changes on Google until you publish.
-              </span>
-            ) : null}
+            <span className="sr-only">
+              {" "}
+              Nothing changes on Google until you publish.
+            </span>
           </span>
         </>
       }
-      actions={
-        <>
-          <Button
-            variant="ghost-dark"
-            onClick={onDiscard}
-            disabled={!localEdits}
-            className="max-md:grow max-md:px-2.5"
-          >
-            Discard
-          </Button>
-          {onSave ? (
-            <Button
-              variant="ghost-dark"
-              onClick={onSave}
-              aria-describedby={saveDescription ? saveDescriptionId : undefined}
-              pending={saving}
-              pendingLabel="Saving…"
-              disabled={!localEdits || Boolean(saveDisabledReason)}
-              className="max-md:grow max-md:px-2.5"
-            >
-              <Save aria-hidden className="max-md:hidden" />
-              Save here
-            </Button>
-          ) : null}
-          <Button
-            onClick={onReview}
-            disabled={!isDirty || Boolean(disabledReason)}
-            className="max-md:grow max-md:px-2.5"
-          >
-            {reviewLabel}
-          </Button>
-        </>
-      }
+      secondaryActions={secondaryActions}
+      primary={primary}
     >
       {/* What a partial save covers. The area header already says it as its
           model note, so here it only describes the button. */}
-      {onSave && saveDescription ? (
+      {canSave && saveDescription ? (
         <span id={saveDescriptionId} className="sr-only">
           {saveDescription}
         </span>
       ) : null}
-      {/* The reason only matters when there is something it is blocking;
-          with nothing to publish the status line already says so. */}
-      {(isDirty && disabledReason) || (localEdits && saveDisabledReason) ? (
+      {/* The reason only matters when there is something it is blocking. */}
+      {reason ? (
         <p
           role="note"
           className="order-last w-full text-caption text-ink-muted-on-charcoal"
         >
-          {(isDirty && disabledReason) || saveDisabledReason}
+          {reason}
         </p>
       ) : null}
     </ActionBar>
