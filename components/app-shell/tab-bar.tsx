@@ -8,6 +8,7 @@ import {
   destinationHref,
   isActivePath,
   moreDestinations,
+  navigationPath,
   tabDestinations,
   type Destination,
   type NavigationContext,
@@ -68,7 +69,9 @@ function TabBar({
   onOpenMore: () => void
   moreTriggerRef?: React.Ref<HTMLButtonElement>
 }) {
-  const pathname = usePathname()
+  // Setup reads as the destination it lives under (Clients, or Listings
+  // in a business), so a tab is current there too.
+  const pathname = navigationPath(usePathname(), context.mode)
   const needsReply = useNeedsReplyCount(sessionReady)
   const unread = useUnreadNotificationCount(sessionReady)
   const tabs = tabDestinations(context)

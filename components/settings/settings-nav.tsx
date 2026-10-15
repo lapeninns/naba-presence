@@ -1,7 +1,5 @@
 "use client"
 
-import { ChevronLeft } from "lucide-react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
@@ -59,23 +57,12 @@ function SettingsNavTabs({
     }))
 
   return (
-    <div ref={ref} className={cn("flex min-w-0 flex-col gap-2", className)}>
-      {/* Below md the settings home is an index of areas
-          (settings-index.tsx), so an area page leads back to it instead of
-          carrying a tab row that can't fit. From md the tab row is the way
-          round, on every settings page. */}
-      <Link
-        href="/settings"
-        className="-ml-1 inline-flex min-h-(--np-touch) items-center gap-1 self-start rounded-(--np-radius-control) pr-2 text-ui font-medium text-ink-secondary no-underline focus-halo hover-fine:text-ink md:hidden"
-      >
-        <ChevronLeft aria-hidden className="size-4" strokeWidth={1.75} />
-        All settings
-      </Link>
-      <TabNav
-        aria-label="Settings sections"
-        items={items}
-        className="max-md:hidden"
-      />
+    // Below md the settings home is an index of areas (settings-index.tsx)
+    // and the app bar's "‹ Settings" leads back to it, so there is no tab
+    // row (it can't fit) and no second back link. From md the tab row is
+    // the way round, on every settings page.
+    <div ref={ref} className={cn("min-w-0 max-md:hidden", className)}>
+      <TabNav aria-label="Settings sections" items={items} />
     </div>
   )
 }
@@ -83,7 +70,8 @@ function SettingsNavTabs({
 /**
  * The settings sub-navigation (reference `settings-subnav`): from md, link
  * tabs under each settings page's header, the current one underlined in ink
- * and kept in view; below md, a way back to the settings index. A member or viewer sees Reply policy and Notifications; Google
+ * and kept in view; below md, nothing (the app bar's back control returns to
+ * the settings index). A member or viewer sees Reply policy and Notifications; Google
  * connections and Operations are for owners and admins, and Data and privacy
  * for owners and admins of an organisation with the area switched on. The
  * areas and their rules live in settings-areas.tsx, shared with the phone's

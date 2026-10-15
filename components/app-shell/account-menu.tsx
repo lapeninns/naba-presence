@@ -8,12 +8,8 @@ import {
 import {
   Building2,
   LogOut,
-  Monitor,
-  Moon,
   MoreHorizontal,
-  Sun,
 } from "lucide-react"
-import { useTheme } from "next-themes"
 import * as React from "react"
 
 import {
@@ -35,9 +31,13 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { THEME_CHOICES, useThemeChoice } from "@/components/settings/appearance"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import {
   SettingsDestructiveAction,
   SettingsGroup,
@@ -49,7 +49,6 @@ import { ApiClientError, apiFetch } from "@/lib/api/client"
 import { fetchOrganisations } from "@/lib/api/session"
 import { abandonAllDrafts, clearAllStashedDrafts } from "@/lib/api/draft-stash"
 import { hardNavigate } from "@/lib/client/hard-navigate"
-import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -85,12 +84,6 @@ function roleExplanation(
   }
   return explanations[role]
 }
-
-const THEMES = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "Match system", icon: Monitor },
-] as const
 
 function initialsFor(name: string) {
   const letters = name
@@ -129,9 +122,7 @@ function useAccount(session: ShellSession | null) {
   const roleLabel = role ? ROLE_LABEL[role] : null
   const mode = useWorkspaceMode()
   const explanation = role ? roleExplanation(role, mode) : undefined
-  const { theme, setTheme } = useTheme()
-  const hydrated = useHydrated()
-  const currentTheme = hydrated && theme ? theme : "system"
+  const { theme: currentTheme, setTheme } = useThemeChoice()
 
   const organisations = useQuery({
     queryKey: ["organisations"],
@@ -389,7 +380,7 @@ function AccountMenu({
               value={currentTheme}
               onValueChange={(value) => setTheme(String(value))}
             >
-              {THEMES.map((option) => (
+              {THEME_CHOICES.map((option) => (
                 <DropdownMenuRadioItem
                   key={option.value}
                   value={option.value}
@@ -518,22 +509,26 @@ function AccountPanel({
         <p id={themeLabelId} className={PANEL_LABEL_CLASS}>
           Theme
         </p>
-        <RadioGroup
+        {/* One segmented track (SET-26): three equal segments with the short
+            names fit a 390px sheet on one line, where the radio cards
+            wrapped "Match system". */}
+        <SegmentedControl
+          semantics="radio"
           aria-labelledby={themeLabelId}
           value={account.currentTheme}
-          onValueChange={(value) => account.setTheme(String(value))}
-          className="grid grid-cols-3 gap-2"
+          onValueChange={account.setTheme}
+          trackClassName="w-full"
         >
-          {THEMES.map((option) => (
-            <RadioGroupItem
+          {THEME_CHOICES.map((option) => (
+            <SegmentedControlItem
               key={option.value}
               value={option.value}
-              labelClassName="min-h-11 items-center rounded-(--np-radius-control) bg-fill-secondary px-3 text-ui has-[[data-checked]]:bg-accent-tint has-[[data-checked]]:font-semibold [&>[data-slot=radio]]:mt-0"
+              className="flex-1"
             >
-              {option.label}
-            </RadioGroupItem>
+              {option.short}
+            </SegmentedControlItem>
           ))}
-        </RadioGroup>
+        </SegmentedControl>
       </div>
 
       {account.others.length > 0 ? (

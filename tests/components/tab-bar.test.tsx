@@ -129,6 +129,21 @@ describe("TabBar", () => {
     expect(current[0]).toHaveTextContent("Listings")
   })
 
+  it("marks the tab Setup lives under", () => {
+    pathname.current = "/setup"
+    const agency = renderTabBar()
+    expect(
+      agency.tabs.getByRole("link", { name: "Clients" })
+    ).toHaveAttribute("aria-current", "page")
+    agency.unmount()
+    const business = renderTabBar({
+      context: { role: "owner", mode: "business" },
+    }).tabs
+    expect(
+      business.getByRole("link", { name: "Listings" })
+    ).toHaveAttribute("aria-current", "page")
+  })
+
   it("puts the needs-reply count in the Inbox tab's name", () => {
     const { tabs } = renderTabBar({ needsReply: 2 })
     const inbox = tabs.getByRole("link", { name: "Inbox, 2 need a reply" })

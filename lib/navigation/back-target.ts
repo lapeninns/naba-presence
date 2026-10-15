@@ -1,6 +1,11 @@
 import type { Crumb } from "@/components/ui/breadcrumb"
+import type { WorkspaceMode } from "@/lib/workspace/terms"
 
-import { destinationForPath, isTopLevelPath } from "./destinations"
+import {
+  adoptingDestination,
+  destinationForPath,
+  isTopLevelPath,
+} from "./destinations"
 
 export type BackTarget = { href: string; label: string }
 
@@ -14,6 +19,8 @@ export type BackTarget = { href: string; label: string }
  * the page this one belongs to.
  *
  * - A top-level destination (Inbox, Listings, Settings, ...) has no back.
+ * - An adopted page goes up to the destination it lives under: Setup to
+ *   Clients, or to Listings in a business.
  * - A listing's overview goes up to Listings, not to its client: Listings is
  *   the tab it lives under, and the client crumb is context, not a parent
  *   the operator walked through.
@@ -25,9 +32,13 @@ export type BackTarget = { href: string; label: string }
  */
 export function backTarget(
   pathname: string | null,
-  trail: readonly Crumb[]
+  trail: readonly Crumb[],
+  mode: WorkspaceMode = "agency"
 ): BackTarget | null {
-  if (!pathname || isTopLevelPath(pathname)) return null
+  if (!pathname) return null
+  const adopting = adoptingDestination(pathname, mode)
+  if (adopting) return { href: adopting.href, label: adopting.label }
+  if (isTopLevelPath(pathname)) return null
 
   const segments = pathname.split("/").filter(Boolean)
   const destination = destinationForPath(pathname)

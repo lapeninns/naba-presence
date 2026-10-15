@@ -110,7 +110,7 @@ test.describe("rebuild foundation", () => {
     // Destinations already on a tab are not repeated in the sheet.
     await expect(rest.getByRole("link", { name: "Listings", exact: true })).toHaveCount(0)
     const account = sheet.getByRole("region", { name: "Account" })
-    await expect(account.getByRole("radio", { name: "Match system" })).toBeVisible()
+    await expect(account.getByRole("radio", { name: "System" })).toBeVisible()
     await expect(account.getByRole("button", { name: "Sign out", exact: true })).toBeVisible()
     await expect(account.getByRole("button", { name: "Sign out everywhere…", exact: true })).toBeVisible()
 

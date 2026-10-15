@@ -1,7 +1,8 @@
 // Settings: moving between areas, and a viewer told plainly when a route is
 // closed (tests/e2e/settings.spec.ts). From md (768px) /settings is Reply
 // policy under a "Settings sections" tab row; below md it is an index of
-// areas titled "Settings", and each area page leads back with "All settings".
+// areas titled "Settings", and each area page leads back with the app bar's
+// "Settings" back link.
 import { describe, test } from "@e2e-dev/web"
 import { expect } from "e2e"
 
@@ -64,7 +65,7 @@ describe("settings", { tags: ["settings"] }, () => {
       ).toBeVisible()
 
       await agent.act(
-        'Go back to the settings list with "All settings" (or the Back to Settings link)'
+        'Go back to the settings list with the "Settings" back link at the top'
       )
       await expect(browser).toHaveURL(pathPattern("/settings"))
       await expect(
@@ -78,7 +79,7 @@ describe("settings", { tags: ["settings"] }, () => {
       ).toBeVisible()
 
       await agent.act(
-        'Go back to the settings list with "All settings" (or the Back to Settings link)'
+        'Go back to the settings list with the "Settings" back link at the top'
       )
       await expect(browser).toHaveURL(pathPattern("/settings"))
 
