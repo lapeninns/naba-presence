@@ -36,7 +36,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogBody,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -1033,9 +1032,6 @@ function EditLinkDialog({
             {failure ? <FailureNote message={failure} /> : null}
           </DialogBody>
           <DialogFooter>
-            <DialogClose render={<Button type="button" variant="ghost" />}>
-              Cancel
-            </DialogClose>
             <Button
               type="submit"
               pending={workflow.busy}

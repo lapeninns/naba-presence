@@ -356,7 +356,7 @@ describe("Posts tab scheduling (P08-R5)", () => {
     // The old time is offered as the starting point, not silently used.
     expect(within(sheet).getByLabelText("Date")).toHaveValue(wall.date)
     expect(within(sheet).getByLabelText("Local time")).toHaveValue(wall.time)
-    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    await user.click(within(sheet).getByRole("button", { name: "Close" }))
 
     await user.click(
       within(section).getByRole("button", {

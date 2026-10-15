@@ -47,7 +47,7 @@ export function OnboardingServices({ draft, rows, setRows, contextSaved, error }
         if (choice && ready) setRows((currentRows) => [...currentRows, { item: { structuredServiceItem: { serviceTypeId: choice.serviceTypeId } }, priceEdit: { mode: "keep" } }])
       }}>
         <SelectTrigger id="onboarding-add-structured-service"><SelectValue>Choose a suggested service</SelectValue></SelectTrigger>
-        <SelectContent>
+        <SelectContent title="Add a suggested service">
           <SelectItem value="choose">Choose a suggested service</SelectItem>
           {choices.map((item) => <SelectItem key={item.serviceTypeId} value={item.serviceTypeId} disabled={rows.some((row) => "structuredServiceItem" in row.item && row.item.structuredServiceItem.serviceTypeId === item.serviceTypeId)}>{item.displayName ?? item.serviceTypeId}</SelectItem>)}
         </SelectContent>
@@ -61,7 +61,7 @@ export function OnboardingServices({ draft, rows, setRows, contextSaved, error }
         if (category && ready) setRows((currentRows) => [...currentRows, { item: { freeFormServiceItem: { category: category.name, label: { displayName: "", languageCode: metadata.data?.languageCode ?? draft.payload.languageCode } } }, priceEdit: { mode: "keep" } }])
       }}>
         <SelectTrigger id="onboarding-add-custom-service"><SelectValue>Choose a category for the custom service</SelectValue></SelectTrigger>
-        <SelectContent>
+        <SelectContent title="Add a custom service for category">
           <SelectItem value="choose">Choose a category for the custom service</SelectItem>
           {categories.map((category) => <SelectItem key={category.name} value={category.name}>{category.displayName ?? category.name}</SelectItem>)}
         </SelectContent>

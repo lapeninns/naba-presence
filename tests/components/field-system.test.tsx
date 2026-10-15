@@ -94,7 +94,7 @@ describe("Field wiring for a pop-up trigger", () => {
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Open status">
             <SelectItem value="OPEN">Open</SelectItem>
           </SelectContent>
         </Select>
@@ -114,7 +114,7 @@ describe("Field wiring for a pop-up trigger", () => {
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Open status">
             <SelectItem value="OPEN">Open</SelectItem>
           </SelectContent>
         </Select>
@@ -131,7 +131,7 @@ describe("Field wiring for a pop-up trigger", () => {
           <SelectTrigger aria-label="Booking link type">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Type">
             <SelectItem value="DINING_RESERVATION">Reserve</SelectItem>
           </SelectContent>
         </Select>

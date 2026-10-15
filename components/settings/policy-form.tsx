@@ -652,7 +652,7 @@ export function PolicyForm({ role }: { role: string | null }) {
                 {(value: string) => languageLabel(value)}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent title="Default language">
               {languageOptionsFor(current.defaultLanguageCode).map((option) => (
                 <SelectItem key={option.code} value={option.code}>
                   {option.label}

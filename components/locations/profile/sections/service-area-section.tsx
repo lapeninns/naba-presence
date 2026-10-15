@@ -48,7 +48,7 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
         setDraft((current) => ({ ...current, serviceArea: { ...current.serviceArea, businessType: value }, clearStorefrontAddress: value === "CUSTOMER_LOCATION_ONLY" ? current.clearStorefrontAddress : false }))
       }}>
         <SelectTrigger id="profile-service-area"><SelectValue>{area?.businessType === "CUSTOMER_LOCATION_ONLY" ? "Customer locations only" : area ? "Business and customer locations" : "No service area configured"}</SelectValue></SelectTrigger>
-        <SelectContent>
+        <SelectContent title="Where do you serve customers?">
           {!area && <SelectItem value="unchanged">No service area configured</SelectItem>}
           <SelectItem value="CUSTOMER_AND_BUSINESS_LOCATION">Business and customer locations</SelectItem>
           <SelectItem value="CUSTOMER_LOCATION_ONLY">Customer locations only</SelectItem>

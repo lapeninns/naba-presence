@@ -28,6 +28,7 @@ import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
 import { UxP02Demo } from "@/app/design-system/ux-p02-demo"
+import { UxP03Demo } from "@/app/design-system/ux-p03-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
@@ -738,7 +739,7 @@ export default function Page() {
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent title="Time range">
                         <SelectItem value="28">Last 28 days</SelectItem>
                         <SelectItem value="90">Last 90 days</SelectItem>
                       </SelectContent>
@@ -1408,9 +1409,6 @@ export default function Page() {
                       <Input defaultValue="The Bell" />
                     </Field>
                     <DialogFooter>
-                      <DialogClose render={<Button variant="ghost" />}>
-                        Cancel
-                      </DialogClose>
                       <DialogClose render={<Button />}>Save</DialogClose>
                     </DialogFooter>
                   </DialogContent>
@@ -1434,9 +1432,6 @@ export default function Page() {
                       </Field>
                     </SheetBody>
                     <SheetFooter>
-                      <SheetClose render={<Button variant="ghost" />}>
-                        Cancel
-                      </SheetClose>
                       <SheetClose render={<Button />}>Save</SheetClose>
                     </SheetFooter>
                   </SheetContent>
@@ -1562,6 +1557,7 @@ export default function Page() {
           <NmLists1bDemo />
           <NmFormsDemo />
           <NmOverlaysDemo />
+          <UxP03Demo />
           <NmDrop3Demo />
         </Section>
 

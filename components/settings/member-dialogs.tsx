@@ -17,7 +17,6 @@ import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
   DialogBody,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -202,7 +201,6 @@ function ChangeRoleBody({
         ) : null}
       </DialogBody>
       <DialogFooter>
-        <DialogClose render={<Button variant="ghost">Cancel</Button>} />
         <Button
           disabled={unchanged}
           pending={pending}

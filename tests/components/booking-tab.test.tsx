@@ -111,8 +111,9 @@ describe("BookingTab", () => {
     renderTab()
     await user.click(screen.getByRole("button", { name: "Edit the Reserve a table link" }))
     let dialog = await screen.findByRole("dialog")
-    // Clean: Cancel closes at once.
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    // Clean: the ✕ closes at once, and there is no footer Cancel beside it.
+    expect(within(dialog).queryByRole("button", { name: "Cancel" })).toBeNull()
+    await user.click(within(dialog).getByRole("button", { name: "Close" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
     expect(screen.queryByRole("alertdialog")).toBeNull()
 
@@ -136,12 +137,14 @@ describe("BookingTab", () => {
     await user.keyboard("{Escape}")
     await user.click(within(await screen.findByRole("alertdialog", { name: "Close without saving?" })).getByRole("button", { name: "Close and discard" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.queryByRole("alertdialog")).toBeNull()
 
-    // Cancel in the footer is a deliberate discard: it closes without asking.
+    // The ✕ with edits asks too: it is chrome, not a decision about them.
     await user.click(screen.getByRole("button", { name: "Edit the Reserve a table link" }))
     dialog = await screen.findByRole("dialog")
     await user.type(within(dialog).getByRole("textbox", { name: "Link" }), "/again")
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await user.click(within(dialog).getByRole("button", { name: "Close" }))
+    await user.click(within(await screen.findByRole("alertdialog", { name: "Close without saving?" })).getByRole("button", { name: "Close and discard" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
     expect(screen.queryByRole("alertdialog")).toBeNull()
   })

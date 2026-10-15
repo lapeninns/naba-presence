@@ -33,7 +33,6 @@ import {
 import {
   Sheet,
   SheetBody,
-  SheetClose,
   SheetContent,
   SheetDescription,
   SheetFooter,
@@ -647,7 +646,7 @@ export function PostComposerSheet({
                                 }
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent title="Repeats">
                               {REPEATS.map((entry) => (
                                 <SelectItem
                                   key={entry.value}
@@ -733,7 +732,7 @@ export function PostComposerSheet({
                                   }
                                 </SelectValue>
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent title="Each month">
                                 {monthly.map((entry) => (
                                   <SelectItem
                                     key={entry.value}
@@ -906,7 +905,7 @@ export function PostComposerSheet({
                           }
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent title="Button">
                         <SelectItem value="NONE">No button</SelectItem>
                         {LOCAL_POST_ACTION_TYPES.map((action) => (
                           <SelectItem key={action} value={action}>
@@ -1019,12 +1018,6 @@ export function PostComposerSheet({
               from the list.
             </p>
           </div>
-          {/* Marked as the overlay's close control so a dirty composer
-                asks before Cancel throws a half-written post away, as a
-                swipe or Escape does. */}
-          <SheetClose data-overlay-close="" render={<Button variant="ghost" />}>
-            Cancel
-          </SheetClose>
           <Button
             onClick={submit}
             disabled={disabled || !isDirty}

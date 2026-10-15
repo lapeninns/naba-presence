@@ -11,7 +11,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogBody,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -175,7 +174,7 @@ function CreateRequestDialog({
                     {(value: string | null) => requestTypeLabel(value ?? "")}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent title="Request type">
                   {REQUEST_TYPE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -218,7 +217,6 @@ function CreateRequestDialog({
             ) : null}
           </DialogBody>
           <DialogFooter>
-            <DialogClose render={<Button variant="ghost">Cancel</Button>} />
             <Button
               type="submit"
               pending={create.isPending}
@@ -464,7 +462,6 @@ function ResolveDialog({
             ) : null}
           </DialogBody>
           <DialogFooter>
-            <DialogClose render={<Button variant="ghost">Cancel</Button>} />
             <Button
               type="submit"
               variant={fulfil && !erasure ? "default" : "danger"}

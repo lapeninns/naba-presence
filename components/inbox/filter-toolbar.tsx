@@ -91,7 +91,7 @@ function AgeSelect({
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false}>
+      <SelectContent title="Review age" alignItemWithTrigger={false}>
         {Object.entries(AGE_ITEMS).map(([value, label]) => (
           <SelectItem key={value || "any"} value={value}>
             {label}
@@ -137,7 +137,7 @@ function OwnerSelect({
         <span className="text-ink-muted">Waiting on:</span>
         <SelectValue />
       </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false}>
+      <SelectContent title="Approval waiting on" alignItemWithTrigger={false}>
         {Object.entries(OWNER_ITEMS).map(([value, label]) => (
           <SelectItem key={value} value={value}>
             {label}

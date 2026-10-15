@@ -105,7 +105,7 @@ export function PhotosToolbar({
               }
             </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Filter by category">
             <SelectItem value="all">All categories</SelectItem>
             {categories.map((c) => (
               <SelectItem key={c} value={c}>

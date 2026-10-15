@@ -1293,7 +1293,7 @@ test("Access tab humanises admin roles and gates delete behind a separate review
   const dialog = page.getByRole("dialog", { name: "Review managed-location deletion" })
   await expect(dialog.getByText(/No deletion is sent at this step/)).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Prepare deletion review" })).toBeEnabled()
-  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await dialog.getByRole("button", { name: "Close" }).click()
   await expect(dialog).toHaveCount(0)
   expect(lifecycleWrites).toBe(0)
 })

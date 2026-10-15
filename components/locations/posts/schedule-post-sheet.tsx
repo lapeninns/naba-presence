@@ -511,7 +511,7 @@ export function SchedulePostSheet({
                         }
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent title="Timezone">
                       {zones.map((option) => (
                         <SelectItem key={option} value={option}>
                           {timezoneLabel(option)}
@@ -732,13 +732,6 @@ export function SchedulePostSheet({
             ) : null}
           </SheetBody>
           <SheetFooter>
-            {offerPresets ? null : (
-              // The inset sheet has its own close in the header; its one
-              // control down here is the submit.
-              <Button variant="ghost" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-            )}
             <Button
               block={offerPresets}
               disabled={Boolean(problem)}

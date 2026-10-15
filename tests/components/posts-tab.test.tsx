@@ -267,7 +267,7 @@ describe("PostsTab", () => {
       "Late opening"
     )
 
-    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    await user.click(within(sheet).getByRole("button", { name: "Close" }))
     const prompt = await screen.findByRole("alertdialog", {
       name: "Close without saving?",
     })
@@ -322,7 +322,7 @@ describe("PostsTab", () => {
     }
     await edit()
     let sheet = await screen.findByRole("dialog")
-    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    await user.click(within(sheet).getByRole("button", { name: "Close" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
     expect(screen.queryByRole("alertdialog")).toBeNull()
 
@@ -331,7 +331,7 @@ describe("PostsTab", () => {
     const summary = within(sheet).getByRole("textbox", { name: "Post summary" })
     await user.clear(summary)
     await user.type(summary, "Closed for refit")
-    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    await user.click(within(sheet).getByRole("button", { name: "Close" }))
     const prompt = await screen.findByRole("alertdialog", {
       name: "Close without saving?",
     })

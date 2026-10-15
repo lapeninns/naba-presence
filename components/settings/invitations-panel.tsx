@@ -667,10 +667,7 @@ function InviteForm({
     return (
       <form noValidate onSubmit={onSubmit} className="contents">
         <DialogBody>{fields}</DialogBody>
-        <DialogFooter>
-          <DialogClose render={<Button variant="ghost">Cancel</Button>} />
-          {submit}
-        </DialogFooter>
+        <DialogFooter>{submit}</DialogFooter>
       </form>
     )
   }

@@ -127,7 +127,7 @@ export function NotificationsCard() {
                   }
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent title="Google login">
                 {connections.map((connection) => (
                   <SelectItem key={connection.id} value={connection.id}>
                     {connection.googleEmail ?? "Google login"}
@@ -156,7 +156,7 @@ export function NotificationsCard() {
                   }
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent title="Account">
                 {activeAccounts.map((account) => (
                   <SelectItem
                     key={account.googleAccountName}

@@ -6,8 +6,8 @@ import { CheckIcon, ChevronRightIcon } from "lucide-react"
 
 import {
   MenuCloseProvider,
-  MenuSheetCancel,
-  MenuSheetTitle,
+  MenuSheetClose,
+  MenuSheetHeader,
   menuGroupLabelClassName,
   menuRowClassName,
   menuSeparatorClassName,
@@ -22,8 +22,8 @@ import { cn } from "@/lib/utils"
 
 /**
  * An action menu. A floating panel by its trigger on the desk; a bottom
- * action sheet on a phone, with an optional `title` on the content and a
- * Cancel under the rows (see menu-surface).
+ * action sheet on a phone, with an optional `title` on the content under
+ * the overlay header: grabber, title, ✕ (see menu-surface).
  */
 function DropdownMenu({ actionsRef, ...props }: MenuPrimitive.Root.Props) {
   const { actions, close } = useMenuActions(actionsRef)
@@ -70,7 +70,7 @@ function DropdownMenuContent({
   }) {
   const sheet = useMenuSheet()
   if (sheet) {
-    // `Menu.List` takes the menu role, leaving the title and Cancel outside
+    // `Menu.List` takes the menu role, leaving the header outside
     // the menu's rows. The desk placement props have nothing to place.
     return (
       <MenuPrimitive.Portal>
@@ -82,13 +82,13 @@ function DropdownMenuContent({
             className={cn(menuSheetPopupClassName, className)}
             {...props}
           >
-            {title ? <MenuSheetTitle>{title}</MenuSheetTitle> : null}
+            <MenuSheetHeader title={title} />
             <MenuPrimitive.List
               className={cn(menuSheetListClassName, "flex flex-col gap-px")}
             >
               {children}
             </MenuPrimitive.List>
-            <MenuSheetCancel />
+            <MenuSheetClose />
           </MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
@@ -123,7 +123,7 @@ function DropdownMenuContent({
  */
 const itemClassName = cn(
   menuRowClassName,
-  "data-disabled:cursor-not-allowed [&_svg]:text-ink-muted [&_svg]:[stroke-width:1.75]"
+  "data-disabled:cursor-not-allowed [&_svg]:[stroke-width:1.75] [&_svg]:text-ink-muted"
 )
 
 const destructiveItemClassName =
@@ -241,7 +241,12 @@ function DropdownMenuCheckboxItem({
 }
 
 function DropdownMenuRadioGroup(props: MenuPrimitive.RadioGroup.Props) {
-  return <MenuPrimitive.RadioGroup data-slot="dropdown-menu-radio-group" {...props} />
+  return (
+    <MenuPrimitive.RadioGroup
+      data-slot="dropdown-menu-radio-group"
+      {...props}
+    />
+  )
 }
 
 function DropdownMenuRadioItem({
