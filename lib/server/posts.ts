@@ -1724,11 +1724,12 @@ export async function requestOrPublishLocalPost(input: {
         }
       }
 
-      // Only on the first pass: a reconcile settles the row from Google's
-      // own copy, which can move the revision without anyone editing, and the
-      // content that was bound has by then been checked once already.
+      // On both passes. The reconcile between them runs outside this
+      // transaction, so an edit can land there, and the second pass must not
+      // publish what the person did not see. Settling from Google's own copy
+      // can also move the revision, and then the 409 is a recoverable false
+      // positive: the client re-reads the list and publishes again.
       if (
-        reconciled === false &&
         input.expectedRevision !== undefined &&
         input.expectedRevision !== post.contentRevision
       ) {
