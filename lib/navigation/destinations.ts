@@ -396,6 +396,34 @@ const ENTITY_BACK_LABELS: readonly { pattern: RegExp; label: string }[] = [
 ]
 
 /**
+ * The listing a listing-area path belongs to (`/listings/<id>/hours`,
+ * `/photos`, `/posts`, ... gives `/listings/<id>`), or null: the listing's
+ * own page (`/listings/<id>`), the board (`/listings`) and bulk operations
+ * (`/listings/bulk/...`) are not areas. A listing area's page header
+ * already names the listing, so the phone app bar's back control says what
+ * it is ("‹ Listing") from the start rather than repeating the name above
+ * it.
+ */
+export function listingAreaParent(pathname: string | null): string | null {
+  if (!pathname) return null
+  const path = pathname.split(/[?#]/)[0] ?? ""
+  const match = /^\/listings\/([^/]+)\/[^/]+(?:\/|$)/.exec(path)
+  return match && match[1] !== "bulk" ? `/listings/${match[1]}` : null
+}
+
+/**
+ * What a back target is, when it is a named entity ("Listing" for
+ * `/listings/<id>`, "Client" for `/clients/<id>`), whatever its name's
+ * length; null for anything else.
+ */
+export function entityBackLabel(target: { href: string }): string | null {
+  const path = target.href.split(/[?#]/)[0] ?? ""
+  return (
+    ENTITY_BACK_LABELS.find(({ pattern }) => pattern.test(path))?.label ?? null
+  )
+}
+
+/**
  * The back control's short label, for the phone app bar once the page title
  * is echoed beside it ("‹ Listing", not "‹ Old Crown Girton Kitchen"): a
  * name is replaced by what it is, a destination keeps its own label. A
@@ -407,9 +435,9 @@ export function shortBackLabel(target: {
   label: string
 }): string {
   if (target.label.length <= SHORT_BACK_LABEL_MAX) return target.label
+  const entity = entityBackLabel(target)
+  if (entity) return entity
   const path = target.href.split(/[?#]/)[0] ?? ""
-  const entity = ENTITY_BACK_LABELS.find(({ pattern }) => pattern.test(path))
-  if (entity) return entity.label
   // Only a destination's own page may take the destination's name: a deeper
   // target keeps its label (the bar truncates it, with `title` in full)
   // rather than announcing a page it isn't.
