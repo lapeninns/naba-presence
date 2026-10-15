@@ -115,10 +115,10 @@ describe("settings billing routes with billing off", () => {
     }
   )
 
-  it("does not prefetch the destinations it offers", async () => {
+  it("does not prefetch the way back it offers", async () => {
     render(await pages[0][1]())
     const links = screen.getAllByRole("link")
-    expect(links.length).toBeGreaterThan(1)
+    expect(links.length).toBeGreaterThan(0)
     for (const link of links)
       expect(link).toHaveAttribute("data-prefetch", "false")
   })

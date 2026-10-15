@@ -652,7 +652,7 @@ export function PolicyForm({ role }: { role: string | null }) {
                 }
               </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent title="How long we keep review text">
               {retentionOptions(
                 initial?.rawContentRetentionDays ?? "",
                 current.rawContentRetentionDays
