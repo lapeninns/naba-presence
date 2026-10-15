@@ -62,14 +62,17 @@ const EVENT_STATUS_LABEL: Record<string, string> = {
   dead: "Stopped retrying",
 }
 
-/** `timeZone`: the organisation's zone, for the exact time on hover. */
+/**
+ * `timeZone`: the organisation's zone, for the exact time on hover; no hover
+ * time until it is known.
+ */
 function ago(
   iso: string | null | undefined,
   prefix?: string,
   timeZone?: string
 ) {
   return iso ? (
-    <RelativeTime iso={iso} prefix={prefix} timeZone={timeZone} />
+    <RelativeTime iso={iso} prefix={prefix} timeZone={timeZone ?? null} />
   ) : (
     "None"
   )

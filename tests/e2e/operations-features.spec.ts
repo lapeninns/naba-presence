@@ -167,9 +167,43 @@ for (const width of [375, 768, 1280])
       // what to do, in words rather than a row of pills.
       const summary = page.locator('[data-slot="alert"][data-state]')
       await expect(summary).toBeVisible()
-      await expect(summary).toHaveText(
-        /Background jobs are running on schedule\.|background jobs? (hasn't|haven't) run recently|Background work isn't running/
+      // The state and its sentence are the ones the health API implies for
+      // this fixture: paused jobs are not overdue, and an overdue job is one
+      // the server flags or that has never completed.
+      const health = (await (
+        await page.request.get("/api/operations/health")
+      ).json()) as {
+        schedulerHeartbeatStale: boolean
+        schedulerTicks: Array<{
+          stale: boolean
+          paused: boolean
+          lastCompletedAt: string | null
+        }>
+      }
+      const running = health.schedulerTicks.filter((tick) => !tick.paused)
+      const overdue = running.filter(
+        (tick) => tick.stale || !tick.lastCompletedAt
       )
+      const expected =
+        health.schedulerHeartbeatStale ||
+        (running.length > 0 && overdue.length === running.length)
+          ? {
+              state: "failing",
+              text: "Background work isn't running.",
+            }
+          : overdue.length > 0
+            ? {
+                state: "some-stale",
+                text: /background jobs? (hasn't|haven't) run recently/,
+              }
+            : health.schedulerTicks.length > running.length
+              ? { state: "paused", text: /^Paused: / }
+              : {
+                  state: "ok",
+                  text: "Background jobs are running on schedule.",
+                }
+      await expect(summary).toHaveAttribute("data-state", expected.state)
+      await expect(summary).toContainText(expected.text)
       // Scheduler rows carry readable names and the schedule each is judged
       // against; the internal tick keys are only under "Details for support".
       const details = page.locator('details[data-slot="scheduled-jobs"]')

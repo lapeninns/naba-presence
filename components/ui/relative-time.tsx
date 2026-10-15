@@ -51,8 +51,12 @@ function RelativeTime({
   casing?: "as-is" | "sentence" | "mid-sentence"
   /** Relative only while the age is in [0, `ms`); `otherwise` past it. */
   within?: { ms: number; otherwise: string }
-  /** The zone the absolute time in `title` is written in. */
-  timeZone?: string
+  /**
+   * The zone the absolute time in `title` is written in. `null` says the
+   * zone is not known yet: no `title`, rather than a time in a zone nobody
+   * chose.
+   */
+  timeZone?: string | null
   as?: "time" | "span"
 }) {
   const now = React.useSyncExternalStore(subscribeClock, readClock, readClock)
@@ -74,7 +78,7 @@ function RelativeTime({
       data-slot="relative-time"
       dateTime={as === "time" ? iso : undefined}
       title={
-        as === "time" && Number.isFinite(at)
+        as === "time" && timeZone !== null && Number.isFinite(at)
           ? formatDateTime(iso, timeZone)
           : undefined
       }

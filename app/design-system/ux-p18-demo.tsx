@@ -14,13 +14,15 @@ const minutesAgo = (minutes: number) =>
 const tick = (
   name: string,
   minutes: number | null,
-  staleAfterSeconds: number
+  staleAfterSeconds: number,
+  paused = false
 ) =>
   schedulerTickSchema.parse({
     name,
     lastCompletedAt: minutes === null ? null : minutesAgo(minutes),
     staleAfterSeconds,
     stale: false,
+    paused,
   })
 
 const CASES = [
@@ -36,6 +38,11 @@ const CASES = [
       tick("reconcile", 100, 2_700),
       tick("presence-resources", 100, 2_700),
     ],
+    heartbeatStale: false,
+  },
+  {
+    title: "Paused on purpose: neutral note, never overdue",
+    ticks: [tick("jobs", 1, 300), tick("billing-reconcile", null, 7_200, true)],
     heartbeatStale: false,
   },
   {
@@ -57,7 +64,7 @@ export function UxP18Demo() {
       <h3 className="text-ui font-semibold text-ink-muted">
         Operations summary and job details
       </h3>
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-4">
         {CASES.map(({ title, ticks, heartbeatStale }) => {
           const summary = summariseScheduler(ticks, heartbeatStale, NOW)
           return (

@@ -19,6 +19,7 @@ import { formatZonedTime, usableZone } from "@/lib/operations/zoned-time"
 
 const ALERT_VARIANT = {
   ok: "success",
+  paused: "info",
   "some-stale": "warning",
   failing: "destructive",
 } as const
@@ -65,14 +66,20 @@ export function ScheduledJobsDisclosure({
   now: Date
 }) {
   const [chosen, setChosen] = useState<boolean | null>(null)
-  const open = chosen ?? summary.state !== "ok"
+  const open =
+    chosen ?? (summary.state === "some-stale" || summary.state === "failing")
   const zone = usableZone(timeZone)
   return (
     <details
       data-slot="scheduled-jobs"
       className="group/jobs rounded-(--np-radius-control) border border-line"
       open={open}
-      onToggle={(event) => setChosen(event.currentTarget.open)}
+      onToggle={(event) => {
+        // Setting `open` from the state above fires `toggle` too; only a
+        // change that differs from what is drawn is the person's choice.
+        const next = event.currentTarget.open
+        if (next !== open) setChosen(next)
+      }}
     >
       <summary className="flex min-h-(--np-touch) cursor-pointer list-none items-center gap-1.5 px-3 text-ui font-semibold text-ink focus-halo focus-visible:outline-none desk:min-h-9 [&::-webkit-details-marker]:hidden">
         <ChevronRight
@@ -83,13 +90,15 @@ export function ScheduledJobsDisclosure({
         Details for each job
         <span className="font-normal text-ink-muted">
           ({ticks.length}
-          {summary.overdue > 0 ? `, ${summary.overdue} overdue` : ""})
+          {summary.overdue > 0 ? `, ${summary.overdue} overdue` : ""}
+          {summary.paused > 0 ? `, ${summary.paused} paused` : ""})
         </span>
       </summary>
       <ListRows aria-label="Scheduled jobs" className="px-3">
         {ticks.map((tick) => {
           const info = scheduledJobInfo(tick.name)
-          const overdue = isTickStale(tick, now)
+          const paused = tick.paused
+          const overdue = !paused && isTickStale(tick, now)
           return (
             <ListRow
               key={tick.name}
@@ -101,8 +110,8 @@ export function ScheduledJobsDisclosure({
               title={info.label}
               subtitle={info.purpose}
               trailing={
-                <StatusPill tone={overdue ? "bad" : "ok"}>
-                  {overdue ? "Overdue" : "On schedule"}
+                <StatusPill tone={paused ? "info" : overdue ? "bad" : "ok"}>
+                  {paused ? "Paused" : overdue ? "Overdue" : "On schedule"}
                 </StatusPill>
               }
               footerLayout="stack"
@@ -114,7 +123,7 @@ export function ScheduledJobsDisclosure({
                         <RelativeTime
                           iso={tick.lastCompletedAt}
                           prefix="Last run "
-                          timeZone={zone}
+                          timeZone={zone ?? null}
                         />
                         {zone
                           ? ` · ${formatZonedTime(tick.lastCompletedAt, zone, now)}`

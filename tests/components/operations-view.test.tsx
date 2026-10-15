@@ -1,8 +1,10 @@
-import { screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { OperationsView } from "@/components/settings/operations-view"
+import { ScheduledJobsDisclosure } from "@/components/settings/scheduled-jobs-panel"
 import {
   operationsHealthSchema,
   schedulerTickSchema,
@@ -49,7 +51,8 @@ const tick = (
   name: string,
   minutes: number | null,
   staleAfterSeconds: number,
-  stale = false
+  stale = false,
+  paused = false
 ): SchedulerTick =>
   // The run ledger fields (0089) take their defaults.
   schedulerTickSchema.parse({
@@ -57,6 +60,7 @@ const tick = (
     lastCompletedAt: minutes === null ? null : minutesAgo(minutes),
     staleAfterSeconds,
     stale,
+    paused,
   })
 
 function health(schedulerTicks: SchedulerTick[]) {
@@ -247,7 +251,7 @@ describe("OperationsView summary", () => {
     ])
     expect(alert).toHaveAttribute("data-state", "some-stale")
     expect(alert).toHaveTextContent(
-      "2 background jobs haven't run recently. New and changed reviews and listing details from Google may be out of date; they should catch up on the next run. Contact support if this lasts more than a day."
+      "2 background jobs haven't run recently. This may delay review updates and listing updates from Google; they should catch up on the next run. Contact support if this lasts more than a day."
     )
     expect(
       document.querySelector("details[data-slot=scheduled-jobs]")
@@ -264,12 +268,61 @@ describe("OperationsView summary", () => {
     expect(screen.getByText("Not reporting")).toBeInTheDocument()
   })
 
+  it("shows a paused job as Paused, not Overdue, with a neutral note", async () => {
+    const alert = await load([
+      tick("jobs", 1, 300),
+      tick("billing-reconcile", null, 7_200, true, true),
+    ])
+    expect(alert).toHaveAttribute("data-state", "paused")
+    expect(alert).toHaveTextContent("Paused: Billing check.")
+    const row = screen.getByText("Billing check").closest("li") as HTMLElement
+    expect(within(row).getByText("Paused")).toBeInTheDocument()
+    expect(within(row).queryByText("Overdue")).toBeNull()
+    expect(
+      document.querySelector("details[data-slot=scheduled-jobs]")
+    ).not.toHaveAttribute("open")
+  })
+
   it("treats every job overdue as failing", async () => {
     const alert = await load([
       tick("jobs", null, 300, true),
       tick("health", null, 2_700, true),
     ])
     expect(alert).toHaveAttribute("data-state", "failing")
+  })
+})
+
+describe("ScheduledJobsDisclosure", () => {
+  const now = new Date()
+  const detailsOf = () =>
+    document.querySelector(
+      "details[data-slot=scheduled-jobs]"
+    ) as HTMLDetailsElement
+
+  it("follows the state until the person chooses, and then keeps their choice", async () => {
+    const user = userEvent.setup()
+    const overdue = [tick("jobs", 99, 300, true)]
+    const fine = [tick("jobs", 1, 300)]
+    const view = (ticks: SchedulerTick[]) => (
+      <ScheduledJobsDisclosure
+        ticks={ticks}
+        summary={summariseScheduler(ticks, false, now)}
+        timeZone="Pacific/Auckland"
+        now={now}
+      />
+    )
+    const { rerender } = render(view(overdue))
+    // Opened by the state, not by anyone: that must not count as a choice,
+    // so it closes again when the jobs recover.
+    await waitFor(() => expect(detailsOf().open).toBe(true))
+    rerender(view(fine))
+    await waitFor(() => expect(detailsOf().open).toBe(false))
+    // A press is a choice and survives the next refresh.
+    await user.click(screen.getByText("Details for each job"))
+    await waitFor(() => expect(detailsOf().open).toBe(true))
+    rerender(view(overdue))
+    rerender(view(fine))
+    expect(detailsOf().open).toBe(true)
   })
 })
 
@@ -306,7 +359,7 @@ describe("summariseScheduler", () => {
     )
     expect(summary.state).toBe("some-stale")
     expect(summary.message).toContain(
-      "Queued syncs and reply publishing, new and changed reviews, listing details from Google and 1 more may be out of date"
+      "This may delay queued syncs and reply publishing, review updates, listing updates from Google and 1 more;"
     )
   })
 
@@ -317,8 +370,56 @@ describe("summariseScheduler", () => {
       now
     )
     expect(summary.message).toBe(
-      "1 background job hasn't run recently. Some information may be out of date; it should catch up on the next run. Contact support if this lasts more than a day."
+      "1 background job hasn't run recently. This may delay some updates; it should catch up on the next run. Contact support if this lasts more than a day."
     )
+  })
+
+  it("leaves paused jobs out of overdue and failing, and names them", () => {
+    const paused = (name: string, minutes: number | null, after: number) => ({
+      ...t(name, minutes, after),
+      paused: true,
+    })
+    // Some paused, the rest on schedule: neutral, never overdue.
+    const some = summariseScheduler(
+      [t("jobs", 1, 300), paused("billing-reconcile", null, 7_200)],
+      false,
+      now
+    )
+    expect(some).toMatchObject({ state: "paused", overdue: 0, paused: 1 })
+    expect(some.message).toBe(
+      "Paused: Billing check. It was paused deliberately and resumes automatically when switched back on."
+    )
+    // All paused: not failing, even though none has run.
+    const all = summariseScheduler(
+      [paused("jobs", null, 300), paused("health", 999, 2_700)],
+      false,
+      now
+    )
+    expect(all).toMatchObject({ state: "paused", overdue: 0, paused: 2 })
+    expect(all.message).toBe(
+      "Paused: Work queue and Health checks. They were paused deliberately and resume automatically when switched back on."
+    )
+    // Paused plus overdue: the overdue jobs are the problem; the pause is a note.
+    const mix = summariseScheduler(
+      [
+        t("jobs", 1, 300),
+        t("reconcile", 99),
+        paused("billing-reconcile", null, 7_200),
+      ],
+      false,
+      now
+    )
+    expect(mix).toMatchObject({ state: "some-stale", overdue: 1, paused: 1 })
+    expect(mix.message).toContain("1 background job hasn't run recently.")
+    expect(mix.message).toContain("Paused: Billing check.")
+    // Every running job overdue is failing, with the paused one as a note.
+    const failing = summariseScheduler(
+      [t("jobs", 99, 300), paused("health", null, 2_700)],
+      false,
+      now
+    )
+    expect(failing.state).toBe("failing")
+    expect(failing.message).toContain("Paused: Health checks.")
   })
 
   it("is failing when the heartbeat is stale or every job is overdue", () => {
@@ -380,6 +481,11 @@ describe("time zone", () => {
       screen.getByText(/New reviews · Failed · received/)
     ).toBeInTheDocument()
     expect(screen.queryByText(/NEW_REVIEW ·/)).toBeNull()
+    expect(
+      screen.getByText(
+        "The update from Google could not be processed. Replaying it queues it for the next sync run."
+      )
+    ).toBeInTheDocument()
   })
 })
 
