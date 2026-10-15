@@ -32,7 +32,8 @@ import type { BackTarget } from "@/lib/navigation/back-target"
  * ones. A deep page's back label shortens at the same moment ("‹ Listing"
  * for a listing's name; lib/navigation/destinations.ts `shortBackLabel`),
  * so a page's `back.label` may be the full name: the bar keeps it in
- * `title`.
+ * `title`. A listing area's (`/listings/<id>/<area>`) is short from the
+ * start, since its header row already names the listing.
  * `count` puts a muted view count after that title ("Inbox 12", the Notion
  * Mail header); `countLabel` says what it counts ("need a reply"). The
  * echo is visual only, so keep the count in the page's own h1 or region

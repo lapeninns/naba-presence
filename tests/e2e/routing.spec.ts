@@ -360,13 +360,20 @@ test("old location routes land on the listing, owned by Listings in the nav", as
       .getByRole("link", { name: "Listings", exact: true })
   ).toHaveAttribute("aria-current", "page")
 
-  // On a phone the app bar carries it, visible text the listing's name.
+  // On a phone the app bar carries it, saying what it is ("Listing"): the
+  // page's own header row right below names the listing. The full name
+  // stays in the link's title.
   await page.setViewportSize(PHONE)
   const barBack = page
     .locator('header[data-slot="app-bar"]')
-    .getByRole("link", { name: `Back to ${state.directReview.locationName}` })
+    .getByRole("link", { name: "Back to Listing", exact: true })
   await expect(barBack).toBeVisible()
-  await expect(barBack).toContainText(state.directReview.locationName)
+  await expect(barBack).toHaveText(/Listing$/)
+  await expect(barBack).not.toContainText(state.directReview.locationName)
+  await expect(barBack).toHaveAttribute(
+    "title",
+    state.directReview.locationName
+  )
   await expect(
     page
       .getByRole("navigation", { name: "Primary" })

@@ -7,6 +7,8 @@ import {
   destinationForPath,
   destinationHref,
   isActivePath,
+  entityBackLabel,
+  isListingAreaPath,
   isTopLevelPath,
   moreDestinations,
   navigationPath,
@@ -319,6 +321,55 @@ describe("scoped", () => {
         destination.href
       )
     }
+  })
+})
+
+describe("isListingAreaPath", () => {
+  it("is true for a listing's areas", () => {
+    for (const path of [
+      "/listings/l1/hours",
+      "/listings/l1/profile",
+      "/listings/l1/photos",
+      "/listings/l1/posts",
+      "/listings/l1/posts/",
+      "/listings/l1/posts/p1",
+      "/listings/l1/hours?tab=special#top",
+    ]) {
+      expect(isListingAreaPath(path), path).toBe(true)
+    }
+  })
+
+  it("is false for the board, a listing's own page and other routes", () => {
+    for (const path of [
+      "/listings",
+      "/listings/",
+      "/listings/l1",
+      "/listings/l1/",
+      "/listings/l1?tab=hours",
+      "/listings//hours",
+      "/clients/c1/listings",
+      "/clients/c1/listings/l1/hours",
+      "/settings/connections",
+      "/inbox",
+      "/",
+    ]) {
+      expect(isListingAreaPath(path), path).toBe(false)
+    }
+    expect(isListingAreaPath(null)).toBe(false)
+  })
+})
+
+describe("entityBackLabel", () => {
+  it("names a listing or a client by what it is, whatever its length", () => {
+    expect(entityBackLabel({ href: "/listings/l1" })).toBe("Listing")
+    expect(entityBackLabel({ href: "/listings/l1?tab=x" })).toBe("Listing")
+    expect(entityBackLabel({ href: "/clients/c1" })).toBe("Client")
+  })
+
+  it("has nothing to say for any other target", () => {
+    expect(entityBackLabel({ href: "/listings" })).toBeNull()
+    expect(entityBackLabel({ href: "/listings/l1/hours" })).toBeNull()
+    expect(entityBackLabel({ href: "/settings" })).toBeNull()
   })
 })
 

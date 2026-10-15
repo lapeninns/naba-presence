@@ -146,12 +146,15 @@ describe("AppBar leading control", () => {
     expect(bar.queryByText("Lapen Inns Agency")).not.toBeInTheDocument()
   })
 
-  it("names a listing area's parent listing", async () => {
+  it("names a listing area's parent listing by what it is, not its name", async () => {
+    // The area's header row already carries the listing's name.
     pathname.current = "/listings/l1/hours"
     const { within: bar } = renderBar()
-    expect(
-      await bar.findByRole("link", { name: "Back to Old Crown Girton" })
-    ).toHaveAttribute("href", "/listings/l1")
+    const back = await bar.findByRole("link", { name: "Back to Listing" })
+    expect(back).toHaveAttribute("href", "/listings/l1")
+    expect(back).toHaveTextContent("Listing")
+    expect(back).not.toHaveTextContent("Old Crown Girton")
+    expect(back).toHaveAttribute("title", "Old Crown Girton")
   })
 
   it("names the workspace on a top-level page with nothing to switch", () => {
@@ -692,7 +695,7 @@ describe("AppBar one title at a time", () => {
   it("has no workspace name beside a deep page's back control", async () => {
     pathname.current = "/listings/l1/hours"
     const { bar, within: inBar } = renderBar()
-    await inBar.findByRole("link", { name: "Back to Old Crown Girton" })
+    await inBar.findByRole("link", { name: "Back to Listing" })
     expect(bar.querySelector('[data-slot="workspace-name"]')).toBeNull()
   })
 })
@@ -872,16 +875,10 @@ describe("AppBar page action", () => {
 })
 
 describe("AppBar short back label", () => {
-  it("keeps the full label until the title echo shows, then shortens it", async () => {
+  it("shortens a listing area's back label from the start", async () => {
     pathname.current = "/listings/l1/hours"
     const heading = stubScrolledHeading()
     const { within: bar } = renderBar()
-    const full = await bar.findByRole("link", {
-      name: "Back to Old Crown Girton",
-    })
-    expect(full).toHaveTextContent("Old Crown Girton")
-
-    heading.scrollAway()
 
     // The visible word is the name's tail ("Back to Listing"), the full
     // label stays one hover or long-press away.
@@ -890,6 +887,52 @@ describe("AppBar short back label", () => {
     expect(short).not.toHaveTextContent("Old Crown Girton")
     expect(short).toHaveAttribute("title", "Old Crown Girton")
     expect(short).toHaveAttribute("href", "/listings/l1")
+
+    // Scrolling the title under the bar changes nothing for it.
+    heading.scrollAway()
+    expect(
+      await bar.findByRole("link", { name: "Back to Listing" })
+    ).toHaveTextContent("Listing")
+  })
+
+  it("says Listing on a listing area even when the name is short", async () => {
+    vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+      data: [
+        { id: "l1", name: "The Bell", clientId: "c1", clientName: "Bell" },
+      ],
+    } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+    pathname.current = "/listings/l1/photos"
+    const { within: bar } = renderBar()
+    const back = await bar.findByRole("link", { name: "Back to Listing" })
+    expect(back).not.toHaveTextContent("The Bell")
+    expect(back).toHaveAttribute("title", "The Bell")
+  })
+
+  it("keeps the full label until the title echo shows on other deep pages", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const { within: bar } = renderBar({
+      page: (
+        <PageChrome
+          title="Connections"
+          back={{
+            href: "/settings?tab=notifications",
+            label: "Notification settings",
+          }}
+        />
+      ),
+    })
+    const full = await bar.findByRole("link", {
+      name: "Back to Notification settings",
+    })
+    expect(full).toHaveTextContent("Notification settings")
+
+    heading.scrollAway()
+
+    const short = await bar.findByRole("link", { name: "Back to Settings" })
+    expect(short).toHaveTextContent("Settings")
+    expect(short).not.toHaveTextContent("Notification")
+    expect(short).toHaveAttribute("title", "Notification settings")
   })
 
   it("leaves a label that already fits", async () => {

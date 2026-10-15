@@ -8,6 +8,8 @@ import type { BackTarget } from "@/lib/navigation/back-target"
 import { clientPageKind } from "@/lib/clients/scope"
 import {
   destinationForPath,
+  entityBackLabel,
+  isListingAreaPath,
   shortBackLabel,
 } from "@/lib/navigation/destinations"
 import { useClients } from "@/lib/queries/use-clients"
@@ -538,17 +540,24 @@ function AppBarLeading({
   count: number | undefined
 }) {
   const back = useShellBack()
+  const pathname = usePathname()
   const name = organisationName ?? "NabaPresence"
+  // A listing area's header row already names the listing, so its back
+  // control says what it goes back to ("‹ Listing") from the start, even
+  // for a short name; elsewhere the full label stays until the title echo
+  // takes its place.
+  const shortLabel = !back
+    ? undefined
+    : isListingAreaPath(pathname)
+      ? (entityBackLabel(back) ?? shortBackLabel(back))
+      : title.visible
+        ? shortBackLabel(back)
+        : undefined
   const fade =
     "transition-[opacity,visibility] duration-(--np-duration-fast) motion-reduce:transition-none"
   return (
     <>
-      {back ? (
-        <ShellBackLink
-          target={back}
-          shortLabel={title.visible ? shortBackLabel(back) : undefined}
-        />
-      ) : null}
+      {back ? <ShellBackLink target={back} shortLabel={shortLabel} /> : null}
       <div className="grid min-w-0 flex-1 items-center">
         {back ? null : (
           <span
