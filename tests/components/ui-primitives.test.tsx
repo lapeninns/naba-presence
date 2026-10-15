@@ -109,6 +109,20 @@ describe("Stepper", () => {
     expect(items[2]).toHaveTextContent("Done")
     expect(items[2]).not.toHaveTextContent(/\d/)
   })
+
+  it("hides the other steps' words on a phone unless showLabels keeps them", () => {
+    const words = (container: HTMLElement) =>
+      Array.from(
+        container.querySelectorAll("li > span:first-child > span:nth-child(2)")
+      ).map((node) => node.className.includes("max-md:sr-only"))
+    const plain = render(<Stepper steps={steps} />)
+    expect(words(plain.container)).toEqual([true, false, true])
+    plain.unmount()
+    const kept = render(<Stepper steps={steps} showLabels />)
+    expect(words(kept.container)).toEqual([false, false, false])
+    // Every step's label is in the DOM either way.
+    expect(screen.getByText("Agency")).toBeInTheDocument()
+  })
 })
 
 describe("Timeline", () => {

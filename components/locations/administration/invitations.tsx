@@ -97,8 +97,8 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
     invalidate: [queryKeys.locationAdministration(locationId)],
     successToast: (_data, operation) =>
       operation === "accept_invitation"
-        ? "Invitation acceptance review saved"
-        : "Invitation decline review saved",
+        ? "Acceptance ready to approve"
+        : "Decline ready to approve",
   })
   // Both buttons share one mutation, keyed by `operation` — so only the
   // clicked button's label/pending state should change, not both. `variables`
@@ -200,7 +200,7 @@ export function CreateAdminDialog() {
       )
     },
     invalidate: [queryKeys.locationAdministration(locationId)],
-    successToast: "Administrator invitation review saved",
+    successToast: "Invitation ready to approve",
     onSuccess: () => {
       setOpen(false)
       setEmail("")
@@ -233,11 +233,11 @@ export function CreateAdminDialog() {
         }
       >
         <UserPlusIcon aria-hidden data-icon="inline-start" />
-        Add administrator
+        Invite someone
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add an administrator</DialogTitle>
+          <DialogTitle>Invite someone</DialogTitle>
           <DialogDescription>
             Google emails them an invitation. They get access once they accept
             it on Google. Reviewing sends nothing yet.

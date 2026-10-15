@@ -38,7 +38,7 @@ for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}
     await captureVerificationSection(page, info, { name: "location-admins", section: "people-location" })
     await captureVerificationSection(page, info, { name: "account-admins", section: "people-account" })
     await captureVerificationSection(page, info, { name: "lifecycle-consequences", section: "danger-zone-heading" })
-    await page.getByRole("button", { name: "Add administrator" }).click()
+    await page.getByRole("button", { name: "Invite someone" }).click()
     await captureAccessDialog(page, info, "invitation-empty")
     if (scope === "account") { await page.getByRole("combobox", { name: "Scope", exact: true }).click(); await page.getByRole("option", { name: "The whole Google account", exact: true }).click() }
     await page.getByLabel("Email address", { exact: true }).fill("invitee@example.test")

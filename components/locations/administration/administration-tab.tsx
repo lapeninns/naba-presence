@@ -475,7 +475,7 @@ export function AccessTab({
                 </section>
 
                 {/* The rules that explain the roster, after it: the roster and
-                "Add administrator" come first on a phone. */}
+                "Invite someone" come first on a phone. */}
                 <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
                   <AlertTitle>Primary owner rules</AlertTitle>
                   <AlertDescription>
