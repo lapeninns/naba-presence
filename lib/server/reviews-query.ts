@@ -202,8 +202,8 @@ export function buildInboxQuery(
         then not (
           ${filters.requireTwoPersonApproval}::boolean
           and (
-            rr.approval_requested_by = ${filters.userId}
-            or pend.created_by = ${filters.userId}
+            coalesce(rr.approval_requested_by = ${filters.userId}, false)
+            or coalesce(pend.created_by = ${filters.userId}, false)
           )
         )
       end as "canApprove",
