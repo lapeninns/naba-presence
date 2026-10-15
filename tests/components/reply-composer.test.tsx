@@ -468,6 +468,45 @@ describe("ReplyComposer — the editor", () => {
     ).toHaveTextContent("sends this reply back to Needs reply")
   })
 
+  it("parks the reply read-only again after it has left approval and come back", () => {
+    let current: ReviewDetail = reviewWith(PARKED)
+    vi.spyOn(creditsHook, "useAiCredits").mockReturnValue({
+      data: undefined,
+    } as UseQueryResult<AiCredits>)
+    vi.spyOn(detailHook, "useReviewDetail").mockImplementation(
+      () => ({ data: current }) as UseQueryResult<ReviewDetail>
+    )
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation()
+    )
+    // A fresh element each time: React skips re-rendering an identical one.
+    const tree = () => (
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+        <SaveProbe />
+      </Host>
+    )
+    const view = render(tree())
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent<ReplyEditDetail>(REPLY_EDIT_EVENT, {
+          detail: { reviewId: "rev-1" },
+        })
+      )
+    })
+    expect(textbox()).not.toHaveAttribute("readonly")
+    // Saved back to a draft: the composer is the editor, as ever.
+    current = reviewWith(EXISTING)
+    view.rerender(tree())
+    expect(textbox()).not.toHaveAttribute("readonly")
+    // Submitted for approval a second time: parked, read-only, again.
+    current = reviewWith(PARKED)
+    view.rerender(tree())
+    expect(
+      screen.queryByRole("textbox", { name: "Your reply" })
+    ).not.toBeInTheDocument()
+  })
+
   it("ignores an Edit reply meant for another review", () => {
     mount(PARKED)
     act(() => {

@@ -208,6 +208,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // read-only until "Edit reply" (the action bar's ⋯ menu) asks to open it.
   const [editingParkedFor, setEditingParkedFor] = useState<string | null>(null)
   const awaitingApproval = review?.workflowStatus === "awaiting_approval"
+  // Once the reply leaves approval (saved back to a draft, say) the opening is
+  // spent: a second approval request parks it read-only again.
+  if (!awaitingApproval && editingParkedFor !== null) {
+    setEditingParkedFor(null)
+  }
   const parkedReadOnly = awaitingApproval && editingParkedFor !== reviewId
   const editableNow =
     Boolean(review?.capabilities.canEdit) &&
@@ -487,7 +492,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             className="m-0 text-caption text-ink-muted"
           >
             Waiting for approval. To change this reply, choose Edit reply from
-            the ⋯ menu. It then goes back to Needs reply.
+            the Review actions menu (⋯). It then goes back to Needs reply.
           </p>
         ) : null}
       </div>
