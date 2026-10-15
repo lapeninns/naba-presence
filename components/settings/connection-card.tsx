@@ -363,8 +363,11 @@ export function ConnectionCard({
     useState<ConnectionSummary | null>(null)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const openedFor = useRef<string | null>(null)
-  // The ⋯ trigger the open menu belongs to, so closing the Disconnect dialog
-  // (Keep it connected) puts focus back there rather than on the page.
+  // Every account's ⋯ trigger, by connection id, and the one the Disconnect
+  // dialog was opened from: closing it (Keep it connected) puts focus back
+  // on that account's ⋯, however its menu was opened (a click, or a key such
+  // as ArrowDown, which fires no click on the trigger).
+  const menuTriggers = useRef(new Map<string, HTMLElement>())
   const menuTrigger = useRef<HTMLElement | null>(null)
 
   const connections = query.data?.connections
@@ -551,8 +554,13 @@ export function ConnectionCard({
                               size="icon-sm"
                               aria-label={`Actions for ${name}`}
                               disabled={disconnect.isPending}
-                              onClick={(event) => {
-                                menuTrigger.current = event.currentTarget
+                              ref={(element: HTMLButtonElement | null) => {
+                                if (element)
+                                  menuTriggers.current.set(
+                                    connection.id,
+                                    element
+                                  )
+                                else menuTriggers.current.delete(connection.id)
                               }}
                             />
                           }
@@ -566,6 +574,8 @@ export function ConnectionCard({
                           <DropdownMenuItem
                             variant="destructive"
                             onClick={() => {
+                              menuTrigger.current =
+                                menuTriggers.current.get(connection.id) ?? null
                               setDisconnectTarget(connection)
                               setDisconnectOpen(true)
                             }}

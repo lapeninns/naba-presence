@@ -179,6 +179,41 @@ describe("ConnectionCard", () => {
     )
   })
 
+  it("returns focus to the account whose menu was opened from the keyboard", async () => {
+    const user = userEvent.setup()
+    renderCard([
+      connection({ id: "c1", googleEmail: "owner@riverside.test" }),
+      connection({ id: "c2", googleEmail: "ops@harbour.test" }),
+    ])
+    // A click opens and closes the first account's menu…
+    await user.click(
+      screen.getByRole("button", { name: "Actions for owner@riverside.test" })
+    )
+    await screen.findByRole("menuitem", { name: /^Disconnect/ })
+    await user.keyboard("{Escape}")
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("menuitem")).not.toBeInTheDocument()
+    )
+    // …then the second account's opens from the keyboard (no click).
+    const second = screen.getByRole("button", {
+      name: "Actions for ops@harbour.test",
+    })
+    second.focus()
+    await user.keyboard("{ArrowDown}")
+    const item = await screen.findByRole("menuitem", { name: /^Disconnect/ })
+    await vi.waitFor(() => expect(item).toHaveFocus())
+    await user.keyboard("{Enter}")
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent("ops@harbour.test")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keep it connected" })
+    )
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    await vi.waitFor(() => expect(second).toHaveFocus())
+  })
+
   it("asks for the word DISCONNECT when the login has no email on record", async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
