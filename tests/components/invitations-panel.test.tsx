@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -101,7 +101,7 @@ describe("InvitationsPanel", () => {
     ).toBeInTheDocument()
   })
 
-  it("shows the create form with role cards and an email field", () => {
+  it("shows the create form with role rows and an email field", () => {
     renderPanel([])
     expect(
       screen.getByRole("textbox", { name: "Email address" })
@@ -188,7 +188,10 @@ describe("InvitationsPanel", () => {
     const link = await screen.findByRole("textbox", { name: "Invite link" })
     expect(link).toHaveValue("https://app.test/invite/fresh")
     expect(link).toHaveAttribute("readonly")
-    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument()
+    // No share sheet here: Copy link is the one primary action.
+    expect(
+      screen.getByRole("button", { name: "Copy link" })
+    ).toBeInTheDocument()
     await user.click(
       screen.getByRole("button", { name: "Invite someone else" })
     )
@@ -252,6 +255,17 @@ describe("InvitationsPanel", () => {
       })
     renderPanel([])
 
+    // Closed by default, the row says what the default is.
+    const access = screen.getByRole("button", { name: "Client access" })
+    expect(access).toHaveAttribute("aria-expanded", "false")
+    expect(access).toHaveAccessibleDescription(
+      "All clients, including clients added later"
+    )
+    expect(
+      screen.queryByRole("radio", { name: /^All clients/ })
+    ).not.toBeInTheDocument()
+    await user.click(access)
+    expect(access).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("radio", { name: /^All clients/ })).toBeChecked()
     await user.type(
       screen.getByRole("textbox", { name: "Email address" }),
@@ -266,11 +280,20 @@ describe("InvitationsPanel", () => {
     expect(
       screen.getByText("Tick at least one client, or choose All clients.")
     ).toBeInTheDocument()
+    // The refusal moves focus to the open Client access section.
+    expect(screen.getByRole("group", { name: "Client access" })).toHaveFocus()
+    // Closed again, a second refusal opens it and returns there.
+    await user.click(access)
+    expect(access).toHaveAttribute("aria-expanded", "false")
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    expect(access).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("group", { name: "Client access" })).toHaveFocus()
 
     expect(
       screen.getByRole("checkbox", { name: "New Client" })
     ).toHaveAttribute("aria-disabled", "true")
     await user.click(screen.getByRole("checkbox", { name: "Old Crown" }))
+    expect(access).toHaveAccessibleDescription("1 client chosen")
     await user.click(screen.getByRole("button", { name: "Create invite link" }))
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith({
@@ -286,9 +309,12 @@ describe("InvitationsPanel", () => {
   it("hides the client choice for an admin invitation", async () => {
     const user = userEvent.setup()
     renderPanel([])
+    expect(
+      screen.getByRole("button", { name: "Client access" })
+    ).toBeInTheDocument()
     await user.click(screen.getByRole("radio", { name: /^Admin/ }))
     expect(
-      screen.queryByRole("radio", { name: /^Only these clients/ })
+      screen.queryByRole("button", { name: "Client access" })
     ).not.toBeInTheDocument()
   })
 
@@ -330,7 +356,7 @@ describe("InvitationsPanel", () => {
       "chef@test.com"
     )
     await user.click(screen.getByRole("button", { name: "Create invite link" }))
-    await user.click(await screen.findByRole("button", { name: "Share…" }))
+    await user.click(await screen.findByRole("button", { name: "Share" }))
     // Exactly the accept link and fixed wording: not the page URL, and not
     // the invitee's address.
     expect(share).toHaveBeenCalledTimes(1)
@@ -368,9 +394,11 @@ describe("InvitationsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Create invite link" }))
     await screen.findByRole("textbox", { name: "Invite link" })
     expect(
-      screen.queryByRole("button", { name: "Share…" })
+      screen.queryByRole("button", { name: "Share" })
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Copy link" })
+    ).toBeInTheDocument()
   })
 
   it("shares a pending invitation's link from the row menu", async () => {
@@ -500,9 +528,140 @@ describe("InvitationsPanel", () => {
   it("lists every client in the sheet's own scroll, with no inner scroll box", async () => {
     const user = userEvent.setup()
     renderPanel([])
+    await user.click(screen.getByRole("button", { name: "Client access" }))
     await user.click(screen.getByRole("radio", { name: /^Only these clients/ }))
     const list = screen.getByRole("list", { name: "Clients" })
     expect(list.className).not.toMatch(/overflow-y-auto|max-h-/)
+  })
+
+  describe("the invite sheet", () => {
+    function renderSheet() {
+      useInvitationsMock.mockReturnValue({
+        data: { items: [] },
+        isPending: false,
+        isError: false,
+        refetch: vi.fn(),
+      })
+      useClientsMock.mockReturnValue({
+        data: {
+          items: [clientItem(CROWN, "Old Crown", 3)],
+          unassignedLocationCount: 0,
+        },
+        isPending: false,
+        isError: false,
+        refetch: vi.fn(),
+      })
+      return render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Toaster>
+            <InviteDialog actorRole="owner" open onOpenChange={vi.fn()} />
+          </Toaster>
+        </QueryClientProvider>
+      )
+    }
+    const created = {
+      invitation: {
+        id: "i7",
+        email: "sheet@test.com",
+        role: "member" as const,
+        canPublish: false,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        acceptedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      inviteUrl: "https://app.test/invite/sheet",
+    }
+    const primaries = (dialog: HTMLElement) =>
+      within(dialog)
+        .getAllByRole("button")
+        .filter((button) => button.getAttribute("data-variant") === "default")
+
+    it("offers roles as rows, Member first, with Client access before the submit button", async () => {
+      renderSheet()
+      const dialog = await screen.findByRole("dialog", {
+        name: "Invite a teammate",
+      })
+      const rows = within(
+        within(dialog).getByRole("radiogroup", { name: "Role" })
+      ).getAllByRole("radio")
+      expect(
+        rows.map(
+          (row) => row.textContent?.match(/^(Member|Viewer|Admin|Owner)/)?.[0]
+        )
+      ).toEqual(["Member", "Viewer", "Admin", "Owner"])
+      expect(rows[0]).toBeChecked()
+      const access = within(dialog).getByRole("button", {
+        name: "Client access",
+      })
+      const submit = within(dialog).getByRole("button", {
+        name: "Create invite link",
+      })
+      expect(
+        access.compareDocumentPosition(submit) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      // Role first, then Client access, then Can publish.
+      const publish = within(dialog).getByRole("switch", {
+        name: "Can publish",
+      })
+      expect(
+        rows[3]!.compareDocumentPosition(access) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        access.compareDocumentPosition(publish) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    it("has one primary on success, Share, with Copy link as the secondary", async () => {
+      const user = userEvent.setup()
+      Object.assign(navigator, {
+        share: vi.fn().mockResolvedValue(undefined),
+        canShare: () => true,
+      })
+      vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue(created)
+      renderSheet()
+      const dialog = await screen.findByRole("dialog", {
+        name: "Invite a teammate",
+      })
+      await user.type(
+        within(dialog).getByRole("textbox", { name: "Email address" }),
+        "sheet@test.com"
+      )
+      await user.click(
+        within(dialog).getByRole("button", { name: "Create invite link" })
+      )
+      await within(dialog).findByTestId("invite-created")
+      expect(primaries(dialog).map((b) => b.textContent)).toEqual(["Share"])
+      expect(
+        within(dialog).getByRole("button", { name: "Copy link" })
+      ).toHaveAttribute("data-variant", "secondary")
+      expect(
+        within(dialog).getByRole("button", { name: "Done" })
+      ).toHaveAttribute("data-variant", "ghost")
+      expect(
+        within(dialog).getByRole("button", { name: "Invite someone else" })
+      ).toHaveAttribute("data-variant", "link")
+    })
+
+    it("has Copy link as the one primary where there is no share sheet", async () => {
+      const user = userEvent.setup()
+      vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue(created)
+      renderSheet()
+      const dialog = await screen.findByRole("dialog", {
+        name: "Invite a teammate",
+      })
+      await user.type(
+        within(dialog).getByRole("textbox", { name: "Email address" }),
+        "sheet@test.com"
+      )
+      await user.click(
+        within(dialog).getByRole("button", { name: "Create invite link" })
+      )
+      await within(dialog).findByTestId("invite-created")
+      expect(primaries(dialog).map((b) => b.textContent)).toEqual(["Copy link"])
+    })
   })
 
   describe("with invitation email on", () => {

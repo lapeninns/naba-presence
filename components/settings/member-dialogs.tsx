@@ -13,7 +13,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
   DialogBody,
@@ -23,22 +22,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { RadioGroup } from "@/components/ui/radio-group"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { Member } from "@/lib/api/members"
 import { roleOptionsFor } from "@/lib/settings/gating"
 import { roleLabel, type MemberRole } from "@/lib/settings/forms/invitation"
-import { roleDescriptions, roleWithArticle } from "@/lib/settings/roles"
+import {
+  roleDescriptions,
+  roleSummaries,
+  roleWithArticle,
+} from "@/lib/settings/roles"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms } from "@/lib/workspace/terms"
 
 /**
- * The four roles as selectable cards (reference `.role-cards`): the role in
- * words, what it allows, and "Usual choice" on Member. Two columns while the
- * container has room, one on a phone. Owner is left out for a non-owner
- * actor (server: assertRoleChangeAllowed).
+ * The roles as compact radio rows, in the order Member, Viewer, Admin, Owner
+ * (ROLE_CHOICE_ORDER): the role in words with a one-line sub-label, and
+ * "Usual choice" on Member. The selected row spells out in full what the
+ * role allows. Owner is left out for a non-owner actor (server:
+ * assertRoleChangeAllowed).
  */
-export function RoleCards({
+export function RolePicker({
   actorRole,
   value,
   onValueChange,
@@ -52,32 +56,56 @@ export function RoleCards({
   labelledBy?: string
 }) {
   const options = roleOptionsFor(actorRole)
-  const descriptions = roleDescriptions(useWorkspaceMode())
+  const mode = useWorkspaceMode()
+  const full = roleDescriptions(mode)
+  const summaries = roleSummaries(mode)
   return (
-    <div className="@container/roles">
-      <RadioGroup
-        value={value}
-        onValueChange={(next) => onValueChange(next as MemberRole)}
-        aria-labelledby={labelledBy}
-        disabled={disabled}
-        className="grid grid-cols-1 gap-2 @[30rem]/roles:grid-cols-2"
-      >
-        {options.map((option) => (
-          <ChoiceCard
+    <OptionRowGroup
+      aria-labelledby={labelledBy}
+      label={labelledBy ? undefined : "Role"}
+    >
+      {options.map((option) => {
+        const selected = option.value === value
+        return (
+          <OptionRow
             key={option.value}
-            value={option.value}
-            title={option.label}
-            description={descriptions[option.value]}
-          >
-            {option.value === "member" ? (
-              <StatusPill tone="accent" plain className="mt-1.5">
-                Usual choice
-              </StatusPill>
-            ) : null}
-          </ChoiceCard>
-        ))}
-      </RadioGroup>
-    </div>
+            indicator="radio"
+            selected={selected}
+            disabled={disabled}
+            label={
+              option.value === "member" ? (
+                <>
+                  {option.label}
+                  <StatusPill
+                    tone="accent"
+                    plain
+                    aria-hidden="true"
+                    className="ms-2"
+                  >
+                    Usual choice
+                  </StatusPill>
+                </>
+              ) : (
+                option.label
+              )
+            }
+            description={
+              <>
+                {option.value === "member"
+                  ? `${selected ? full.member : summaries.member} `
+                  : selected
+                    ? full[option.value]
+                    : summaries[option.value]}
+                {option.value === "member" ? (
+                  <span className="sr-only">This is the usual choice.</span>
+                ) : null}
+              </>
+            }
+            onClick={() => onValueChange(option.value)}
+          />
+        )
+      })}
+    </OptionRowGroup>
   )
 }
 
@@ -173,7 +201,7 @@ function ChangeRoleBody({
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
-        <RoleCards
+        <RolePicker
           actorRole={actorRole}
           value={pick}
           onValueChange={setPick}
