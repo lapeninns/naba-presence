@@ -86,3 +86,19 @@ describe("formatTimeZoneLabel", () => {
     expect(formatTimeZoneLabel("Not/AZone", "Europe/London")).toBeNull()
   })
 })
+
+describe("UK aliases and Google's sparse time objects", () => {
+  it("names every UK alias UK time and hides it for a UK viewer", () => {
+    for (const zone of ["GB", "Europe/Belfast", "Europe/Jersey"]) {
+      expect(formatTimeZoneLabel(zone)).toBe("UK time")
+      expect(formatTimeZoneLabel(zone, "Europe/London")).toBeNull()
+    }
+  })
+
+  it("treats missing fields as zero and rejects 24:00 with seconds", () => {
+    expect(formatTimeOfDay({ hours: 9 })).toBe("09:00")
+    expect(formatTimeOfDay({})).toBe("00:00")
+    expect(formatTimeOfDay("24:00:30")).toBe("24:00:30")
+    expect(formatTimeOfDay("24:00:00")).toBe("24:00")
+  })
+})

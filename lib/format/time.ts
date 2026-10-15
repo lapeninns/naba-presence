@@ -1,7 +1,7 @@
 const LOCALE = "en-GB" // Locale policy: en-GB pinned (spec §7).
 
 /** A time of day as the hours model stores it, or as a picker hands it back. */
-export type TimeOfDay = string | { hours: number; minutes: number }
+export type TimeOfDay = string | { hours?: number; minutes?: number }
 
 function pad(value: number): string {
   return String(value).padStart(2, "0")
@@ -21,13 +21,17 @@ export function formatTimeOfDay(value: TimeOfDay): string {
   let hours: number
   let minutes: number
   if (typeof value === "string") {
-    const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value.trim())
+    const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim())
     if (!match) return value
     hours = Number(match[1])
     minutes = Number(match[2])
+    // 24:00 is the end of the day; 24:00:30 is not a time.
+    if (hours === 24 && match[3] && Number(match[3]) !== 0) return value
   } else {
-    hours = value.hours
-    minutes = value.minutes
+    // Google's TimeOfDay leaves out zero fields: `{ hours: 9 }` is 09:00
+    // and `{}` is midnight.
+    hours = value.hours ?? 0
+    minutes = value.minutes ?? 0
   }
   const valid =
     Number.isInteger(hours) &&
@@ -40,10 +44,22 @@ export function formatTimeOfDay(value: TimeOfDay): string {
   return `${pad(hours)}:${pad(minutes)}`
 }
 
-/** What `longGeneric` gives en-GB for Europe/London is too formal for copy. */
-const NAMED_ZONES: Record<string, string> = {
-  "Europe/London": "UK time",
-}
+/**
+ * What `longGeneric` gives en-GB for these is too formal for copy. The UK's
+ * aliases and the Crown Dependencies keep UK clocks, so they read the same.
+ */
+const UK_ZONES = [
+  "Europe/London",
+  "GB",
+  "GB-Eire",
+  "Europe/Belfast",
+  "Europe/Jersey",
+  "Europe/Guernsey",
+  "Europe/Isle_of_Man",
+]
+const NAMED_ZONES: Record<string, string> = Object.fromEntries(
+  UK_ZONES.map((zone) => [zone, "UK time"])
+)
 
 function sameZone(a: string, b: string): boolean {
   if (a === b) return true
@@ -74,6 +90,12 @@ export function formatTimeZoneLabel(
 ): string | null {
   if (!timeZone) return null
   if (viewerZone && sameZone(timeZone, viewerZone)) return null
+  if (
+    viewerZone &&
+    UK_ZONES.includes(timeZone) &&
+    UK_ZONES.includes(viewerZone)
+  )
+    return null
   const named = NAMED_ZONES[timeZone]
   if (named) return named
   try {
