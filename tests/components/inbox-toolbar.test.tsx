@@ -154,7 +154,13 @@ describe("InboxToolbar", () => {
     expect(tabs.querySelector('[data-slot="tab-count"]')).not.toBeNull()
 
     rerender(<InboxToolbar {...props} state={{ ...state, ratings: [5] }} />)
-    expect(tabs.querySelector('[data-slot="tab-count"]')).toBeNull()
+    // Only the Failed count survives a filter: it is the exception.
+    const figures = tabs.querySelectorAll('[data-slot="tab-count"]')
+    expect(figures).toHaveLength(1)
+    expect(figures[0]).toHaveTextContent("2")
+    expect(
+      within(tabs).getByRole("button", { name: "Failed, 2 reviews" })
+    ).toBeInTheDocument()
   })
 
   it("follows the title with the needs-reply count, keeping the heading's name", () => {

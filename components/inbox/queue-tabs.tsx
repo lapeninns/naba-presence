@@ -55,8 +55,8 @@ function revealInStrip(strip: HTMLElement, item: HTMLElement) {
  * repeats it; the other queues show theirs, and a queue with nothing in it
  * shows no figure (`TabCount`'s zero rule, said aloud in its name). The
  * counts cover every review in the queue and know nothing of the filters, so
- * while `filtered` is on they are not drawn at all rather than disagreeing
- * with the rows beneath them.
+ * while `filtered` is on they are not drawn rather than disagreeing with the
+ * rows beneath them. The one exception is a non-zero Failed count, which stays.
  *
  * The strip is the primitive chip row (one row that scrolls sideways with
  * faded edges); the SEMANTICS are navigation, not `TextTabs`' links nor a
@@ -115,7 +115,12 @@ function QueueTabs({
           const count = counts?.byQueue?.[item] ?? 0
           const active = current === item
           const alert = item === "failed" && count > 0
-          const figure = !filtered && !active && item !== "needs_reply"
+          // A filter hides the figures, but not a non-zero Failed count: it is
+          // the exception (see above), and an operator should never lose sight
+          // of a failure behind a filter. The current queue and Needs reply
+          // still carry none.
+          const figure =
+            !active && item !== "needs_reply" && (!filtered || alert)
           return (
             <button
               key={item}

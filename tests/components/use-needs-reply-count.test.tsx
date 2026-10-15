@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ClientScopeRoot } from "@/components/app-shell/client-context"
 import {
@@ -9,6 +9,16 @@ import {
   useNeedsReplyCount,
 } from "@/components/app-shell/use-needs-reply-count"
 import { queryKeys } from "@/lib/queries/keys"
+
+const navigation = vi.hoisted(() => ({
+  pathname: "/team" as string | null,
+  search: "",
+}))
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => navigation.pathname,
+  useSearchParams: () => new URLSearchParams(navigation.search),
+}))
 
 function counts(needsReply: number) {
   return {
@@ -50,6 +60,11 @@ function newClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
 }
 
+beforeEach(() => {
+  navigation.pathname = "/team"
+  navigation.search = ""
+})
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -86,6 +101,39 @@ describe("useNeedsReplyCount", () => {
     expect(
       client.getQueryData(queryKeys.reviewCountsFor({ clientId: "client-1" }))
     ).toEqual(counts(2))
+  })
+
+  it("takes the scope from the address on the Inbox, whatever is remembered", async () => {
+    // /inbox?clientId=client-2 counts client-2 in the title, so the badge
+    // must too, even with client-1 remembered.
+    navigation.pathname = "/inbox"
+    navigation.search = "clientId=client-2"
+    const client = newClient()
+    client.setQueryData(queryKeys.reviewCountsFor(), counts(9))
+    const fetchMock = vi.fn(async () => jsonResponse(counts(3)))
+    vi.stubGlobal("fetch", fetchMock)
+    const { result } = renderHook(() => useNeedsReplyCount(), {
+      wrapper: wrapperWith(client, "client-1"),
+    })
+    await waitFor(() => expect(result.current).toBe(3))
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/reviews/counts?client_id=client-2",
+      expect.anything()
+    )
+  })
+
+  it("reads the organisation-wide count on the Inbox with no client in the address, even with one remembered", async () => {
+    navigation.pathname = "/inbox"
+    navigation.search = "selected=review-1"
+    const client = newClient()
+    client.setQueryData(queryKeys.reviewCountsFor(), counts(9))
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const { result } = renderHook(() => useNeedsReplyCount(), {
+      wrapper: wrapperWith(client, "client-1"),
+    })
+    await waitFor(() => expect(result.current).toBe(9))
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("ignores a remembered client in a business, which has no client scope", async () => {

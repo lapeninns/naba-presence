@@ -97,9 +97,6 @@ describe("QueueTabs", () => {
     expect(
       within(nav()).getByRole("button", { name: "Approval, 5 reviews" })
     ).toBeInTheDocument()
-    expect(
-      within(nav()).getByRole("button", { name: "Approval, 5 reviews" })
-    ).toBeInTheDocument()
     // Singular, because "1 reviews" reads as a bug in the product.
     expect(
       within(nav()).getByRole("button", { name: "Publishing, 1 review" })
@@ -124,12 +121,23 @@ describe("QueueTabs", () => {
     // The counts cover whole queues and know nothing of the filters, so a
     // "5" beside a list of two rows would disagree with it. The list header
     // carries the number that matches the rows.
-    renderTabs({ filtered: true })
+    renderTabs({ filtered: true, counts: counts({ failed: 0 }) })
     for (const queue of VISIBLE_QUEUES) {
       expect(tab(queue).querySelector('[data-slot="tab-count"]')).toBeNull()
       expect(tab(queue)).toHaveAccessibleName(REVIEW_QUEUE_LABELS[queue])
     }
     expect(nav()).not.toHaveAttribute("aria-describedby")
+  })
+
+  it("keeps a non-zero Failed count while a filter is on, in the danger ink", () => {
+    // Failed is the exception the component's own header names: a failure is
+    // not something to hide behind a filter.
+    renderTabs({ filtered: true, counts: counts({ failed: 4 }) })
+    expect(tab("failed")).toHaveAccessibleName("Failed, 4 reviews")
+    expect(within(tab("failed")).getByText("4")).toHaveClass("text-danger-ink")
+    for (const queue of VISIBLE_QUEUES.filter((item) => item !== "failed")) {
+      expect(tab(queue).querySelector('[data-slot="tab-count"]')).toBeNull()
+    }
   })
 
   it("shows a skeleton rather than a zero while the counts are in flight", () => {
