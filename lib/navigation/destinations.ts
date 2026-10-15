@@ -49,7 +49,7 @@ export type Destination = {
   description: { agency: string; business: string }
   /**
    * Where the desk sidebar puts it: `primary` is the daily work, `more` the
-   * organisation admin behind the sidebar's More disclosure (visited to
+   * organisation admin under the sidebar's "Workspace" label (visited to
    * change who may do what rather than to do it).
    */
   group: "primary" | "more"
@@ -296,6 +296,24 @@ export function destinationHref(
 export function isActivePath(pathname: string | null, href: string): boolean {
   if (!pathname) return false
   return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+/**
+ * The one href a list of navigation rows marks as the current page: the
+ * longest of them that is the path or an ancestor of it, so a nested row
+ * (a pinned client under Clients) wins over its parent and only one row is
+ * ever `aria-current`.
+ */
+export function currentHref(
+  pathname: string | null,
+  hrefs: readonly string[]
+): string | null {
+  let best: string | null = null
+  for (const href of hrefs) {
+    if (!isActivePath(pathname, href)) continue
+    if (best === null || href.length > best.length) best = href
+  }
+  return best
 }
 
 /**

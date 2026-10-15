@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  currentHref,
   DESTINATIONS,
   destinationForPath,
   destinationHref,
@@ -235,6 +236,17 @@ describe("paths", () => {
     expect(isActivePath("/listings/l1/hours", "/listings")).toBe(true)
     expect(isActivePath("/listingsx", "/listings")).toBe(false)
     expect(isActivePath(null, "/listings")).toBe(false)
+  })
+
+  it("picks the longest matching href as the one current row", () => {
+    const rows = ["/settings", "/clients", "/clients/c1", "/listings"]
+    expect(currentHref("/settings/notifications", rows)).toBe("/settings")
+    expect(currentHref("/listings/l1/hours", rows)).toBe("/listings")
+    expect(currentHref("/clients/c1", rows)).toBe("/clients/c1")
+    expect(currentHref("/clients/c1/settings", rows)).toBe("/clients/c1")
+    expect(currentHref("/clients/c2", rows)).toBe("/clients")
+    expect(currentHref("/clientsx", rows)).toBeNull()
+    expect(currentHref(null, rows)).toBeNull()
   })
 
   it("files a path under its destination", () => {

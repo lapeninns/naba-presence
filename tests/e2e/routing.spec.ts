@@ -36,7 +36,7 @@ const dashboardRoutes = [
 ]
 
 // The shell draws the Primary nav three ways (components/app-shell): the
-// desk sidebar from 1180px (Team and Settings behind its More disclosure),
+// desk sidebar from 1180px (Team and Settings under its "Workspace" label),
 // the labelled rail from 768 to 1180 (every destination, no disclosure) and
 // the phone tab bar below 768 (four tabs and a More sheet).
 const DESK = { width: 1280, height: 800 }
@@ -225,14 +225,19 @@ test("sidebar links update browser history", async ({ page }) => {
   await primaryNav.getByRole("link", { name: first.label, exact: true }).click()
   await expect(page).toHaveURL(first.path)
 
-  // Settings sits behind the sidebar's More disclosure; the disclosure is a
-  // button that says whether it is open, the row a link.
-  const more = primaryNav.getByRole("button", { name: "More", exact: true })
-  await expect(more).toHaveAttribute("aria-expanded", "false")
-  await more.click()
-  await expect(more).toHaveAttribute("aria-expanded", "true")
+  // Settings is always listed, under the sidebar's "Workspace" label: no
+  // disclosure to open first.
+  await expect(primaryNav.getByRole("button", { name: "More" })).toHaveCount(0)
+  await expect(primaryNav.getByRole("list", { name: "Workspace" })).toBeVisible()
   await primaryNav.getByRole("link", { name: "Settings", exact: true }).click()
   await expect(page).toHaveURL("/settings")
+  // One row is the current page, and the trail names the tab the desk shows.
+  await expect(primaryNav.locator('[aria-current="page"]')).toHaveCount(1)
+  await expect(
+    page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByText("Reply policy")
+  ).toHaveAttribute("aria-current", "page")
 
   await page.goBack()
   await expect(page).toHaveURL(first.path)

@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ShellBreadcrumbs } from "@/components/app-shell/breadcrumbs-context"
 import {
@@ -7,9 +7,8 @@ import {
   PageChromeProvider,
 } from "@/components/app-shell/page-chrome"
 
-vi.mock("next/navigation", () => ({
-  usePathname: () => "/listings/l2/people",
-}))
+const pathname = vi.hoisted(() => ({ current: "/listings/l2/people" }))
+vi.mock("next/navigation", () => ({ usePathname: () => pathname.current }))
 vi.mock("@/lib/queries/use-clients", () => ({
   useClients: () => ({ data: { items: [] } }),
 }))
@@ -36,6 +35,10 @@ vi.mock("@/lib/queries/use-locations", () => ({
  * ellipsis while its full text stays available.
  */
 describe("ShellBreadcrumbs", () => {
+  beforeEach(() => {
+    pathname.current = "/listings/l2/people"
+  })
+
   it("lets every crumb shrink so the trail never runs under the toolbar pill", () => {
     render(<ShellBreadcrumbs className="min-w-0 flex-1" />)
 
@@ -96,5 +99,48 @@ describe("ShellBreadcrumbs", () => {
       </PageChromeProvider>
     )
     expect(document.querySelector('[data-slot="breadcrumb-count"]')).toBeNull()
+  })
+
+  it.each(["/inbox", "/listings", "/reports", "/team", "/notifications"])(
+    "draws no trail on %s, where one crumb would repeat the h1",
+    (path) => {
+      pathname.current = path
+      render(<ShellBreadcrumbs />)
+      expect(
+        screen.queryByRole("navigation", { name: "Breadcrumb" })
+      ).toBeNull()
+    }
+  )
+
+  it("reads Settings / Reply policy on /settings, as every settings tab does", () => {
+    pathname.current = "/settings"
+    render(<ShellBreadcrumbs />)
+    const items = screen
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .querySelectorAll("li")
+    expect([...items].map((item) => item.textContent)).toEqual([
+      "Settings",
+      "/Reply policy",
+    ])
+    expect(screen.getByText("Reply policy")).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+  })
+
+  it.each([
+    ["/settings/policy", "Reply policy"],
+    ["/settings/notifications", "Notifications"],
+    ["/settings/connections", "Google connections"],
+  ])("reads Settings / <page> on %s", (path, label) => {
+    pathname.current = path
+    render(<ShellBreadcrumbs />)
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" })
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/settings"
+    )
+    expect(screen.getByText(label)).toHaveAttribute("aria-current", "page")
+    expect(nav.querySelectorAll("li")).toHaveLength(2)
   })
 })

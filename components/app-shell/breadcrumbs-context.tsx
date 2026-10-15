@@ -3,6 +3,8 @@
 import { usePathname } from "next/navigation"
 
 import { backTarget, type BackTarget } from "@/lib/navigation/back-target"
+import { SETTINGS_SECTION_LABELS } from "@/lib/settings/areas"
+import type { Crumb } from "@/components/ui/breadcrumb"
 import { breadcrumbTrail } from "@/lib/ui/breadcrumb-trail"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
@@ -49,6 +51,17 @@ function useShellBack(): BackTarget | null {
 }
 
 /**
+ * The trail the desk toolbar draws. On a desk /settings is Reply policy under
+ * the settings tabs (app/(dashboard)/settings/page.tsx), so it reads
+ * "Settings / Reply policy" like every other tab; the shared trail stays
+ * "Settings" because on a phone /settings is the index of areas.
+ */
+function deskTrail(pathname: string | null, trail: Crumb[]): Crumb[] {
+  if (pathname !== "/settings" || !SETTINGS_SECTION_LABELS.policy) return trail
+  return [...trail, { label: SETTINGS_SECTION_LABELS.policy }]
+}
+
+/**
  * The desk toolbar's trail, from 1180px (`wide`). Narrower screens show the
  * labelled back control instead: at 768 every crumb truncated to a few
  * letters and repeated the eyebrow and the h1 below it.
@@ -59,16 +72,22 @@ function useShellBack(): BackTarget | null {
  * muted figures ("Inbox 12"); visual only, as the page's own h1 or region
  * carries it for assistive technology.
  *
+ * No trail at all for a route with one crumb: it would only repeat the
+ * page's h1. (The page's count then has no trail to follow; it shows in the
+ * page itself.)
+ *
  * A `nav > ol > li` with no heading of any kind: the axe suite pins
  * `heading-order` and `page-has-heading-one`, and a heading here would land
  * above the page's own `h1`.
  */
 function ShellBreadcrumbs({ className }: { className?: string }) {
-  const crumbs = useShellTrail()
+  const pathname = usePathname()
+  const crumbs = deskTrail(pathname, useShellTrail())
   const { count, countLabel } = usePageChromeOverride()
   const shownCount = count && count > 0 ? count : undefined
 
-  if (crumbs.length === 0) return <div className={className} />
+  // A one-crumb trail only repeats the h1 beneath it ("Inbox" over "Inbox").
+  if (crumbs.length <= 1) return <div className={className} />
 
   return (
     <nav aria-label="Breadcrumb" className={cn("min-w-0", className)}>
