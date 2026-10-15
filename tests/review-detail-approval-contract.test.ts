@@ -55,10 +55,18 @@ describe("review detail approval fields (R01b)", () => {
     }
   )
 
-  it("still parses a payload from a server that sends neither field", () => {
+  it.each([true, false])("carries canApprove %s", (canApprove) => {
+    const { review } = reviewDetailSchema.parse(
+      payload({ approvalScope: "me", canApprove })
+    )
+    expect(review.capabilities.canApprove).toBe(canApprove)
+  })
+
+  it("still parses a payload from a server that sends none of the fields", () => {
     const { review } = reviewDetailSchema.parse(payload({}))
     expect(review.capabilities.requireTwoPersonApproval).toBeUndefined()
     expect(review.capabilities.approvalScope).toBeUndefined()
+    expect(review.capabilities.canApprove).toBeUndefined()
   })
 
   it("refuses a scope the server never sends", () => {
@@ -67,9 +75,11 @@ describe("review detail approval fields (R01b)", () => {
         .success
     ).toBe(false)
     expect(
-      reviewDetailSchema.safeParse(
-        payload({ requireTwoPersonApproval: "yes" })
-      ).success
+      reviewDetailSchema.safeParse(payload({ requireTwoPersonApproval: "yes" }))
+        .success
+    ).toBe(false)
+    expect(
+      reviewDetailSchema.safeParse(payload({ canApprove: "yes" })).success
     ).toBe(false)
   })
 })

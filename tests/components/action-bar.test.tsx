@@ -1166,7 +1166,11 @@ describe("ActionBar", () => {
       stubHooks(
         detailWith({
           workflowStatus: "awaiting_approval",
-          capabilities: { ...twoPersonPublisher, approvalScope: "me" },
+          capabilities: {
+            ...twoPersonPublisher,
+            approvalScope: "me",
+            canApprove: true,
+          },
         })
       )
       renderActionBar()
@@ -1175,6 +1179,38 @@ describe("ActionBar", () => {
       ).toBeEnabled()
       expect(
         screen.getByRole("button", { name: "Reject reply" })
+      ).toBeInTheDocument()
+    })
+
+    it("lets the draft's author reject but not approve", async () => {
+      const user = userEvent.setup()
+      const approval = mutation()
+      stubHooks(
+        detailWith({
+          workflowStatus: "awaiting_approval",
+          capabilities: {
+            ...twoPersonPublisher,
+            approvalScope: "me",
+            canApprove: false,
+          },
+        }),
+        mutation(),
+        approval
+      )
+      renderActionBar()
+      expect(
+        screen.queryByRole("button", { name: "Approve reply" })
+      ).not.toBeInTheDocument()
+      // Alone, Reject is the bar's own button at every width, not a ⋯ row.
+      const reject = screen.getByRole("button", { name: "Reject reply" })
+      expect(reject).toBeEnabled()
+      expect(reject).not.toHaveClass("max-md:hidden")
+      // The `a` shortcut approves; there is nothing for it to press.
+      window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
+      expect(approval.mutateAsync).not.toHaveBeenCalled()
+      await user.click(reject)
+      expect(
+        await screen.findByRole("alertdialog", { name: "Reject this reply?" })
       ).toBeInTheDocument()
     })
   })

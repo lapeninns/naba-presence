@@ -275,13 +275,14 @@ export async function readReviewDetail(
  *   publisher's publish parks for a second person (publishing/approval.ts,
  *   `requiresApproval`), so the action reads "Submit for approval".
  * - `approvalScope`: while the reply is parked, whether it waits on this
- *   person. It starts from the Inbox's own `awaiting_my_approval` predicate
- *   and narrows it by two things the approval route also refuses, so the
- *   pane never says "your approval" to someone whose Approve would fail:
- *   a session that may not change anything now (`canPublish` false, e.g.
- *   read-only billing), and, under two-person approval, the author of the
- *   parked draft (lib/server/review-approval.ts). The queue keeps the plain
- *   predicate; the author may still reject there.
+ *   person. It is the Inbox's own `awaiting_my_approval` predicate, so the
+ *   detail and the queue agree, narrowed only by `canPublish` (a session
+ *   that may not change anything now, e.g. read-only billing, can decide
+ *   nothing). "me" means this person may decide it: Reject is theirs.
+ * - `canApprove`: whether Approve is theirs too. Under two-person approval
+ *   the parked draft's author may reject but not approve
+ *   (lib/server/review-approval.ts), so it is false for them while the
+ *   scope is still "me". False whenever the reply is not parked.
  *
  * Read-only, and nothing here decides anything: the approval route and
  * `executePublish` still enforce the rules on every press.
@@ -301,6 +302,7 @@ async function reviewDetailCapabilities(
   `
   const requireTwoPersonApproval = settings?.requireTwoPersonApproval ?? false
   let approvalScope: ReviewApprovalScope | null = null
+  let canApprove = false
   if (workflowStatus === "awaiting_approval") {
     // The parked draft is resolved as recordApprovalDecision resolves it:
     // `pending_draft_id`, else the newest verified draft.
@@ -331,13 +333,16 @@ async function reviewDetailCapabilities(
       from review r
       where r.id = ${reviewId}
     `
-    const mine =
-      Boolean(scope?.mine) &&
-      capabilities.canPublish &&
-      !(requireTwoPersonApproval && scope?.authoredParked)
+    const mine = Boolean(scope?.mine) && capabilities.canPublish
     approvalScope = mine ? "me" : "others"
+    canApprove = mine && !(requireTwoPersonApproval && scope?.authoredParked)
   }
-  return { ...capabilities, requireTwoPersonApproval, approvalScope }
+  return {
+    ...capabilities,
+    requireTwoPersonApproval,
+    approvalScope,
+    canApprove,
+  }
 }
 
 /**

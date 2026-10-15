@@ -203,6 +203,20 @@ describe("describeException: two-person approval (R01b)", () => {
     expect(exception?.description).toContain("waiting for your approval")
   })
 
+  it("tells the draft's author someone else approves, and they may reject", () => {
+    const exception = describeException(
+      review({
+        workflowStatus: "awaiting_approval",
+        capabilities: { ...publisher, approvalScope: "me", canApprove: false },
+      }),
+      approve,
+      "connected"
+    )
+    expect(exception?.title).toBe("Waiting for another approver")
+    expect(exception?.description).toContain("You wrote this reply")
+    expect(exception?.description).toContain("reject")
+  })
+
   it("explains a publisher's submit under the two-person rule", () => {
     const exception = describeException(
       review({ capabilities: { ...publisher, approvalScope: null } }),

@@ -918,6 +918,19 @@ describe("two-person approval wording (R01b)", () => {
     expect(derivePrimaryAction(state).enabled).toBe(true)
   })
 
+  it("tells the draft's author it waits on another approver, Reject still theirs", () => {
+    const state = input({
+      ...parked,
+      capabilities: { ...twoPerson, approvalScope: "me", canApprove: false },
+    })
+    expect(deriveReplyStatus(state).text).toBe("Waiting for another approver")
+    // The ladder's approve step stays enabled: it also stands for Reject,
+    // which the action bar draws on its own when Approve is not theirs.
+    const action = derivePrimaryAction(state)
+    expect(action.kind).toBe("approve")
+    expect(action.enabled).toBe(true)
+  })
+
   it("falls back to the caller's reading when the server sent no scope", () => {
     const state = input({
       ...parked,

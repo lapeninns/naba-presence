@@ -623,6 +623,7 @@ describeDatabase("reply approval", () => {
     expect(await capabilities(fixture.owner.cookie)).toMatchObject({
       requireTwoPersonApproval: false,
       approvalScope: null,
+      canApprove: false,
     })
 
     await admin`
@@ -641,6 +642,7 @@ describeDatabase("reply approval", () => {
     expect(await capabilities(fixture.owner.cookie)).toMatchObject({
       requireTwoPersonApproval: true,
       approvalScope: "others",
+      canApprove: false,
     })
 
     const secondAdmin = await createActor(fixture.owner.organisationId, {
@@ -649,6 +651,7 @@ describeDatabase("reply approval", () => {
     })
     expect(await capabilities(secondAdmin.cookie)).toMatchObject({
       approvalScope: "me",
+      canApprove: true,
     })
 
     const viewer = await createActor(fixture.owner.organisationId, {
@@ -657,12 +660,14 @@ describeDatabase("reply approval", () => {
     })
     expect(await capabilities(viewer.cookie)).toMatchObject({
       approvalScope: "others",
+      canApprove: false,
     })
   })
 
   // The draft's author may not approve under two-person approval, whoever
-  // asked (see above), so the detail must not tell them it is theirs.
-  it("tells the draft's author a two-person approval waits on someone else", async () => {
+  // asked (see above), but may still reject: the scope is the Inbox's
+  // `awaiting_my_approval` predicate, and `canApprove` is the narrower rule.
+  it("lets the draft's author reject but not approve under two-person approval", async () => {
     // createFixture's draft is written by the owner.
     const fixture = await createFixture()
     await admin`
@@ -682,15 +687,40 @@ describeDatabase("reply approval", () => {
         { headers: { cookie } }
       )
       const { review } = reviewDetailSchema.parse(await response.json())
-      return review.capabilities.approvalScope
+      const { approvalScope, canApprove } = review.capabilities
+      return { approvalScope, canApprove }
     }
-    expect(await scope(fixture.owner.cookie)).toBe("others")
-    expect(await scope(requester.cookie)).toBe("others")
+    expect(await scope(fixture.owner.cookie)).toEqual({
+      approvalScope: "me",
+      canApprove: false,
+    })
+    expect(await scope(requester.cookie)).toEqual({
+      approvalScope: "others",
+      canApprove: false,
+    })
     const secondAdmin = await createActor(fixture.owner.organisationId, {
       role: "admin",
       canPublish: true,
     })
-    expect(await scope(secondAdmin.cookie)).toBe("me")
+    expect(await scope(secondAdmin.cookie)).toEqual({
+      approvalScope: "me",
+      canApprove: true,
+    })
+
+    // What the detail says is what the route does: the author's approve is
+    // refused, their reject is accepted.
+    const approved = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+    })
+    expect(approved.status).toBe(403)
+    expect((await approved.json()).error).toBe("second_approver_required")
+    const rejected = await decide(fixture, fixture.owner.cookie, {
+      decision: "reject",
+      note: "Needs a warmer opening.",
+    })
+    expect(rejected.status, await rejected.clone().text()).toBe(200)
+    expect(await rejected.json()).toMatchObject({ status: "returned_to_draft" })
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
   })
 
   it("returns 404 for a cross-tenant approval", async () => {

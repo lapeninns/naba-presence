@@ -150,6 +150,13 @@ export const reviewDetailCapabilitiesSchema = reviewCapabilitiesSchema.extend({
   requireTwoPersonApproval: z.boolean().optional(),
   /** While the review is `awaiting_approval`; null otherwise. */
   approvalScope: z.enum(REVIEW_APPROVAL_SCOPES).nullable().optional(),
+  /**
+   * Whether this person may approve the parked reply. Under two-person
+   * approval the draft's author may reject it (scope "me") but not approve
+   * it. False when nothing is parked; absent from an older server, where the
+   * client falls back to the scope.
+   */
+  canApprove: z.boolean().optional(),
 })
 export type ReviewDetailCapabilities = z.infer<
   typeof reviewDetailCapabilitiesSchema

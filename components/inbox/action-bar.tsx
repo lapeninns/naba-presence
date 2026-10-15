@@ -288,6 +288,12 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     awaitingApproval &&
     review.capabilities.approvalScope != null &&
     resolveApprovalScope(stateInput) === "others"
+  // Reject follows the scope ("me": this person may decide it); Approve also
+  // needs `canApprove`, which the server sets false for the parked draft's
+  // author under two-person approval: they may send it back, not approve it.
+  // An older server sends no `canApprove`, and Approve follows the scope.
+  const offerApprove =
+    awaitingApproval && review.capabilities.canApprove !== false
   // D2: a non-publisher in an approval-required org sees "Submit for
   // approval" in place of the (otherwise disabled-for-them) Publish button,
   // and so does a publisher under the two-person rule (plan D1). It reuses
@@ -305,8 +311,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // is on screen; one-step Publish saves them, so only the permission and
   // the composer's own reasons (empty, too long) still apply.
   const permitted = offerRequestApproval
-    ? review.capabilities.canRequestApproval ||
-      review.capabilities.canPublish
+    ? review.capabilities.canRequestApproval || review.capabilities.canPublish
     : review.capabilities.canPublish
   const sendEnabled = oneStep
     ? permitted && composerSave.blockedReason === null
@@ -348,27 +353,32 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </Button>
         ) : waitingOnOthers ? null : awaitingApproval ? (
           <>
+            {/* Beside Approve, Reject sits in ⋯ on a phone; alone (the
+                draft's author), it is the bar's one action at every width.
+                It is not the `a` shortcut's target: that key approves. */}
             <Button
               variant="ghost-dark"
-              className="max-md:hidden"
+              className={offerApprove ? "max-md:hidden" : undefined}
               disabled={!primary.enabled || approval.isPending}
               onClick={() => setRejectOpen(true)}
             >
               <XIcon aria-hidden strokeWidth={1.75} data-icon="inline-start" />
               Reject reply
             </Button>
-            <Button
-              ref={primaryRef}
-              disabled={!primary.enabled || approval.isPending}
-              onClick={() => void onDecision("approve")}
-            >
-              <CheckIcon
-                aria-hidden
-                strokeWidth={1.75}
-                data-icon="inline-start"
-              />
-              {approval.isPending ? "Approving…" : "Approve reply"}
-            </Button>
+            {offerApprove ? (
+              <Button
+                ref={primaryRef}
+                disabled={!primary.enabled || approval.isPending}
+                onClick={() => void onDecision("approve")}
+              >
+                <CheckIcon
+                  aria-hidden
+                  strokeWidth={1.75}
+                  data-icon="inline-start"
+                />
+                {approval.isPending ? "Approving…" : "Approve reply"}
+              </Button>
+            ) : null}
           </>
         ) : offerRequestApproval ? (
           <Button
@@ -412,7 +422,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </Button>
         )}
 
-        {offerReject || offerEdit || deleteState.enabled ? (
+        {(offerReject && offerApprove) || offerEdit || deleteState.enabled ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -449,7 +459,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   Edit reply
                 </DropdownMenuItem>
               ) : null}
-              {offerReject ? (
+              {offerReject && offerApprove ? (
                 <DropdownMenuItem
                   className="md:hidden"
                   disabled={!primary.enabled || approval.isPending}
@@ -463,7 +473,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                 <>
                   {/* The destructive row comes last, after a rule (phone
                       only: from md the Reject row above it is hidden). */}
-                  {offerReject ? (
+                  {offerReject && offerApprove ? (
                     <DropdownMenuSeparator className="md:hidden" />
                   ) : null}
                   <DropdownMenuItem

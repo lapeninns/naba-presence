@@ -135,6 +135,14 @@ function describeException(
     // Inbox's "awaiting my approval" queue, so it knows what `canPublish`
     // cannot — whether the two-person rule accepts a decision from this person.
     const serverScope = review.capabilities.approvalScope
+    if (serverScope === "me" && review.capabilities.canApprove === false) {
+      return {
+        title: "Waiting for another approver",
+        description:
+          "You wrote this reply, so another person with publishing rights must approve it. You can still reject it and send it back for changes.",
+        tone: "caution",
+      }
+    }
     if (serverScope === "me") {
       return {
         title: "Approval required",

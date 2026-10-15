@@ -51,6 +51,12 @@ export type ReplyStateInput = {
      * `approvalScope` below, which can only guess. Absent on list rows.
      */
     approvalScope?: "me" | "others" | null
+    /**
+     * Whether Approve is this person's, from the review detail (plan D1).
+     * False for the parked draft's author under two-person approval, who may
+     * still reject (scope "me"). Absent on list rows and from older servers.
+     */
+    canApprove?: boolean
   }
   reply: {
     body: string | null
@@ -355,7 +361,9 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
         "clock"
       )
     }
-    return scope === "me"
+    // The draft's author under two-person approval may send it back but
+    // not approve it, so it still waits for another approver.
+    return scope === "me" && input.capabilities.canApprove !== false
       ? status("Approval required", "For approval", "caution", "check-circle")
       : status(
           "Waiting for another approver",
