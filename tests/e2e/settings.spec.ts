@@ -348,8 +348,11 @@ test.describe("team roles", () => {
     })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/team")
-    await page.getByRole("button", { name: "Actions for Ben Member" }).click()
-    await page.getByRole("menuitem", { name: /Change role/ }).click()
+    // SET-10: the role chip opens Change role in one tap (chip, role,
+    // confirm: 3 taps, where ⋯, Change role…, role, confirm took 4).
+    await page
+      .getByRole("button", { name: "Member: change Ben Member’s role" })
+      .click()
     const dialog = page.getByRole("dialog", { name: "Change role" })
     await expect(dialog).toBeVisible()
 
@@ -375,5 +378,66 @@ test.describe("team roles", () => {
     await dialog.getByRole("button", { name: "Make Ben a viewer" }).click()
     await expect(dialog).toBeHidden()
     expect(patched).toEqual({ userId: BEN, role: "viewer", canPublish: false })
+  })
+
+  test("a member is one row on a phone, and the row opens their sheet", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    const BEN = "00000000-0000-4000-8000-0000000000b2"
+    let patched: unknown
+    let ben = {
+      userId: BEN,
+      email: "ben.member.with.a.long.address@example.test",
+      displayName: "Ben Member",
+      role: "member",
+      canPublish: false,
+      locationScope: "all",
+      createdAt: "2026-07-01T09:00:00.000Z",
+      locations: [],
+    }
+    await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
+      const request = route.request()
+      if (request.method() === "GET") {
+        return route.fulfill({ json: { members: [ben] } })
+      }
+      if (request.method() === "PATCH") {
+        patched = request.postDataJSON()
+        ben = { ...ben, ...(patched as object) }
+        return route.fulfill({ json: { member: ben } })
+      }
+      return route.fallback()
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto("/team")
+    const list = page.getByRole("list", { name: "Members" })
+    const row = list.getByRole("button", {
+      name: "Ben Member, ben.member.with.a.long.address@example.test",
+    })
+    await expect(row).toBeVisible()
+    // SET-02: one row of three short lines, the full email, no record card.
+    const box = await row.boundingBox()
+    expect(box!.height).toBeLessThan(110)
+    await expect(list.getByText("All clients · Drafts only")).toBeVisible()
+    await expect(page.getByRole("table", { name: "Members" })).toHaveCount(0)
+
+    await row.click()
+    const sheet = page.getByRole("dialog", { name: "Ben Member" })
+    await expect(sheet).toBeVisible()
+    await expect(sheet.getByRole("button", { name: /^Role/ })).toContainText(
+      "Member"
+    )
+    await sheet.getByRole("switch", { name: /Can publish/ }).click()
+    await expect.poll(() => patched).toEqual({
+      userId: BEN,
+      role: "member",
+      canPublish: true,
+    })
+    await expect(sheet.getByText("Saved: publishing on")).toBeVisible()
+    await expect(
+      sheet.getByRole("button", { name: /Remove from team/ })
+    ).toBeEnabled()
   })
 })

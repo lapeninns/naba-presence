@@ -1582,17 +1582,36 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Team", level: 1 })
         ).toBeVisible()
-        // Role changes moved into the row's actions menu (a dialog with
-        // role cards), so the row carries one menu button per member.
-        await expect(
-          page.getByRole("button", { name: "Actions for Alex Morgan" })
-        ).toBeVisible()
+        // From md the table's row menu holds every action. On a phone each
+        // member is a row that opens the member sheet (SET-02); the only
+        // owner here has no quick actions, so no ⋯.
+        if (viewport.name === "mobile") {
+          await expect(
+            page.getByRole("button", {
+              name: "Alex Morgan (you), alex@example.com",
+            })
+          ).toBeVisible()
+        } else {
+          await expect(
+            page.getByRole("button", { name: "Actions for Alex Morgan" })
+          ).toBeVisible()
+        }
         await expect(
           page.getByRole("button", {
             name: "Copy invite link for invitee@example.com",
           })
         ).toBeVisible()
         await expectAccessible(page, `${viewport.name} ${theme} team`)
+        if (viewport.name === "mobile") {
+          await page
+            .getByRole("button", { name: "Alex Morgan (you), alex@example.com" })
+            .click()
+          await expect(
+            page.getByRole("dialog", { name: "Alex Morgan" })
+          ).toBeVisible()
+          await expectAccessible(page, `${viewport.name} ${theme} member sheet`)
+          await page.keyboard.press("Escape")
+        }
       })
     })
   }
