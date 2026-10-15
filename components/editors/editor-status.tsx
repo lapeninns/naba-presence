@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { syncStatusLabel } from "@/lib/listings/health"
 import type { StatusTone } from "@/lib/ui/status-tone"
 
 /**
@@ -150,7 +151,7 @@ function editorStatusPill(
   if (report.status === "in_sync" && report.emptyOnGoogle)
     return { tone: "attention", label: report.emptyOnGoogle }
   if (report.status === "in_sync")
-    return { tone: "healthy", label: "In sync" }
+    return { tone: "healthy", label: syncStatusLabel("in_sync") }
   return null
 }
 
