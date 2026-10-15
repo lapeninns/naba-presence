@@ -30,9 +30,6 @@ export function useReplyPending(reviewId: string): ReplyMutationKind | null {
   const publish = useIsMutating({
     mutationKey: replyMutationKey(reviewId, "publish"),
   })
-  const approval = useIsMutating({
-    mutationKey: replyMutationKey(reviewId, "approval"),
-  })
   // Approve and Reject share one mutation (and its key); the input says which
   // is running, so the status line does not call a rejection an approval.
   const decisions = useMutationState({
@@ -49,7 +46,7 @@ export function useReplyPending(reviewId: string): ReplyMutationKind | null {
     mutationKey: replyMutationKey(reviewId, "delete"),
   })
   if (publish > 0) return "publish"
-  if (approval > 0) {
+  if (decisions.length > 0) {
     return decisions.includes("rejection") ? "rejection" : "approval"
   }
   if (draft > 0) return "draft"

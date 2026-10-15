@@ -3,7 +3,11 @@ import { randomBytes, randomUUID } from "node:crypto"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-import { reviewDetailSchema, reviewsPageSchema } from "@/lib/contracts/reviews"
+import {
+  reviewDetailSchema,
+  reviewRowSchema,
+  reviewsPageSchema,
+} from "@/lib/contracts/reviews"
 import { sha256 } from "@/lib/server/crypto"
 
 import { startAppServer } from "../helpers/app-server"
@@ -774,7 +778,14 @@ describeDatabase("reply approval", () => {
       role: "admin",
       canPublish: true,
     })
-    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+    const requested = await publish(fixture, requester.cookie)
+    expect(requested.status).toBe(202)
+    // The row a write hands back is the one the client patches into every
+    // loaded list, so it must carry the same answer as the list itself.
+    const handedBack = reviewRowSchema.parse(
+      ((await requested.json()) as { row?: unknown }).row
+    )
+    expect(handedBack.canApprove).toBe(false)
 
     // Row first, then the route, for each person; the approving press is
     // last because it publishes.
@@ -810,24 +821,23 @@ describeDatabase("reply approval", () => {
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
   })
 
-  it("says every publisher may approve when the two-person rule is off", async () => {
+  it("says the owner may approve when the two-person rule is off", async () => {
     const fixture = await createFixture()
     const requester = await createActor(fixture.owner.organisationId, {
       role: "member",
       canPublish: false,
     })
     expect((await publish(fixture, requester.cookie)).status).toBe(202)
-    for (const cookie of [fixture.owner.cookie]) {
-      const response = await fetch(
-        `${server.baseUrl}/api/reviews?page_size=100`,
-        { headers: { cookie } }
-      )
-      const page = reviewsPageSchema.parse(await response.json())
-      expect(
-        page.items.find((item) => item.id === fixture.review.reviewId)
-          ?.canApprove
-      ).toBe(true)
-    }
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews?page_size=100`,
+      {
+        headers: { cookie: fixture.owner.cookie },
+      }
+    )
+    const page = reviewsPageSchema.parse(await response.json())
+    expect(
+      page.items.find((item) => item.id === fixture.review.reviewId)?.canApprove
+    ).toBe(true)
     const approved = await decide(fixture, fixture.owner.cookie, {
       decision: "approve",
     })
