@@ -183,7 +183,7 @@ function AreaTitleSwitcher({
     <DropdownMenu>
       <DropdownMenuTrigger
         data-slot="listing-area-selector"
-        className="-mx-1 inline-flex min-h-(--np-touch) max-w-full min-w-0 items-center gap-1 rounded-(--np-radius-tag) px-1 text-left focus-halo hover-fine:underline hover-fine:underline-offset-4 desk:min-h-(--np-control-h)"
+        className="-mx-1 inline-flex min-h-(--np-touch) min-w-0 items-center gap-1 rounded-(--np-radius-tag) px-1 text-left focus-halo hover-fine:underline hover-fine:underline-offset-4 desk:min-h-(--np-control-h)"
       >
         <span className="min-w-0 text-balance break-words">{title}</span>
         <ChevronDownIcon
