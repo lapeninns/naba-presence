@@ -232,7 +232,7 @@ describe("SetupWizard", () => {
     expect(
       screen.getByRole("button", { name: "Continue" })
     ).toHaveAccessibleDescription(
-      "Pick an account above, or connect another Google account, to continue."
+      "Pick an account from the list, or connect another Google account, to continue."
     )
   })
 

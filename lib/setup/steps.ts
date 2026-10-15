@@ -274,7 +274,7 @@ export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
     case "connect":
       if (connected(facts)) return null
       return facts.usableLogin
-        ? "Pick an account above, or connect another Google account, to continue."
+        ? "Pick an account from the list, or connect another Google account, to continue."
         : "Connect a Google account to continue."
     case "account":
       return facts.accountsActive > 0
