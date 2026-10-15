@@ -46,13 +46,31 @@ describe("ReportToolbar", () => {
     const toolbar = screen.getByRole("region", { name: "Report scope" })
     expect(toolbar).toHaveClass("hidden", "md:block")
     expect(screen.getByText("the fields")).toBeInTheDocument()
-    expect(
-      screen.getByText("3 locations · 4 Aug – 31 Aug")
-    ).toBeInTheDocument()
+    expect(screen.getByText("3 locations · 4 Aug – 31 Aug")).toBeInTheDocument()
     // The scope pill and its sheet of selects are gone: the app bar's chip is
     // the scope control, and the period is the strip under the tabs.
     expect(screen.queryByRole("button")).not.toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("draws the fields on a phone too when the app bar has no scope chip", () => {
+    render(
+      <ReportToolbar
+        phone
+        summary={["Old Crown Group", "Last 28 days"]}
+        fields={() => <p>the fields</p>}
+        meta="4 Aug – 31 Aug"
+        extras={<a href="/x">Open listing</a>}
+      />
+    )
+    const toolbar = screen.getByRole("region", { name: "Report scope" })
+    expect(toolbar).toHaveClass("block")
+    expect(toolbar).not.toHaveClass("hidden")
+    // The caption and the links stay desk-only (the links are in the menu).
+    expect(screen.getByText("4 Aug – 31 Aug")).toHaveClass("max-md:hidden")
+    expect(
+      screen.getByRole("link", { name: "Open listing" }).parentElement
+    ).toHaveClass("max-md:hidden")
   })
 
   it("keeps a printed report saying what it covers", () => {
@@ -110,7 +128,9 @@ describe("ReportPeriodStrip", () => {
   })
 
   it("draws no note when nothing was carried over", () => {
-    render(<ReportPeriodStrip value="28d" options={OPTIONS} onChange={() => {}} />)
+    render(
+      <ReportPeriodStrip value="28d" options={OPTIONS} onChange={() => {}} />
+    )
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
   })
 })
@@ -195,7 +215,12 @@ describe("PerformanceView toolbar", () => {
       within(group)
         .getAllByRole("button")
         .map((chip) => chip.textContent)
-    ).toEqual(["Last month", "Last 6 months", "Last 12 months", "Last 18 months"])
+    ).toEqual([
+      "Last month",
+      "Last 6 months",
+      "Last 12 months",
+      "Last 18 months",
+    ])
     // The old second scope control (a pill opening a sheet of selects).
     expect(
       screen.queryByRole("button", { name: /^All clients.*Last 6 months$/ })
@@ -271,8 +296,10 @@ describe("LocationReport period", () => {
   it.each([
     ["locationId=l1&range=90d", "90d"],
     ["locationId=l1", "28d"],
-    // Keywords' months are not a location period: the default, not a guess.
-    ["locationId=l1&range=6m", "28d"],
+    // The location report shows what the Reply tab would: Keywords' months
+    // carry to the nearest days, with the note.
+    ["locationId=l1&range=6m", "90d"],
+    ["locationId=l1&range_kw=6m", "90d"],
   ])("reads %s as %s", async (query, rangeId) => {
     stubDirectory()
     search = query

@@ -9,7 +9,11 @@ import { LocationReport } from "@/components/performance/location-report"
 import { LocationSelect } from "@/components/performance/location-select"
 import { RangeSelect } from "@/components/performance/range-select"
 import { NotInDirectory } from "@/components/performance/report-scope"
-import type { ReportShareTarget } from "@/components/reporting/report-actions-menu"
+import { useScopeLabel } from "@/components/app-shell/client-switcher"
+import {
+  ReportActionsMenu,
+  type ReportShareTarget,
+} from "@/components/reporting/report-actions-menu"
 import {
   ReportPeriodStrip,
   ReportToolbar,
@@ -29,7 +33,6 @@ import { useSessionRole } from "@/lib/queries/use-session"
 import {
   formatPeriod,
   KEYWORD_RANGES,
-  parseRange,
   PRESENCE_RANGES,
   REPLY_RANGES,
   resolvedPeriod,
@@ -77,25 +80,42 @@ function locationsPhrase(count: number) {
   return `${formatNumber(count)} ${count === 1 ? "location" : "locations"}`
 }
 
-/** A client with nothing filed under it: every report would be empty. */
-function NoLocationsPanel({ client }: { client: ClientSummary }) {
+/**
+ * A client with nothing filed under it: every report would be empty. Share
+ * stays reachable (it was in the toolbar whatever the tab showed): the
+ * tabs carry it in their own actions menu, which this panel replaces.
+ */
+function NoLocationsPanel({
+  client,
+  share,
+}: {
+  client: ClientSummary
+  share: ReportShareTarget | null
+}) {
   return (
-    <ReportingPanel
-      framed
-      titleAs="h2"
-      variant="empty"
-      icon={<Link2OffIcon />}
-      title="No linked location"
-      description={`${client.name} has no Google location yet. Add one to see how it is performing.`}
-      action={
-        <Link
-          href={`/clients/${client.id}`}
-          className={cn(buttonVariants({ variant: "secondary" }))}
-        >
-          Open {client.name}
-        </Link>
-      }
-    />
+    <div className="flex flex-col gap-3">
+      {share ? (
+        <div className="flex justify-end">
+          <ReportActionsMenu share={share} />
+        </div>
+      ) : null}
+      <ReportingPanel
+        framed
+        titleAs="h2"
+        variant="empty"
+        icon={<Link2OffIcon />}
+        title="No linked location"
+        description={`${client.name} has no Google location yet. Add one to see how it is performing.`}
+        action={
+          <Link
+            href={`/clients/${client.id}`}
+            className={cn(buttonVariants({ variant: "secondary" }))}
+          >
+            Open {client.name}
+          </Link>
+        }
+      />
+    </div>
   )
 }
 
@@ -121,7 +141,9 @@ export function PerformanceView() {
   const searchParams = useSearchParams()
   const param = searchParams.get("tab")
   const active: TabValue = isTab(param) ? param : "reply"
-  const business = useWorkspaceMode() === "business"
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  const scope = useScopeLabel(mode)
   // A business has no client scope: a stale `?clientId=` is ignored, and the
   // figures are the whole business (its one home client).
   const clientId = business
@@ -176,19 +198,15 @@ export function PerformanceView() {
   }
 
   /**
-   * A tab's period is written to its own parameter, and left out only when
-   * leaving it out would show the same period with nothing to say.
+   * A tab's period is always written to its own parameter, the default
+   * included: leaving the default out would make another tab fall back to
+   * its own period with no word ("28 days" chosen again after 90 days must
+   * still carry to Keywords as one month, with its note).
    */
   function setRange(tab: ReportTab) {
     return (next: string) =>
       replaceParams((params) => {
-        const key = tab === "keywords" ? "range_kw" : "range"
-        params.delete(key)
-        const kept = resolveTabRange(tab, {
-          range: params.get("range"),
-          rangeKw: params.get("range_kw"),
-        })
-        if (kept.id !== next || kept.note) params.set(key, next)
+        params.set(tab === "keywords" ? "range_kw" : "range", next)
       })
   }
 
@@ -200,15 +218,23 @@ export function PerformanceView() {
     PERIOD_ZONE[active]
   )
 
+  // The app bar's scope chip is the phone's scope control, but it hides
+  // itself when there is only one client to switch between. Then the report
+  // keeps its own fields on a phone, or a client (and a location under it)
+  // could not be chosen at all.
+  const phoneScope = !business && scope.ready && !scope.visible
+
   // One location is a different report — its own figures, no client tabs —
   // reached from the workspace, the hub, or the Location field below.
   if (locationId)
     return (
       <LocationReport
         locationId={locationId}
-        // One period for the whole location report, from `?range=` like the
-        // tabs.
-        rangeId={parseRange("reply", rawRange)}
+        // One period for the whole location report: the Reply tab's, from the
+        // same address, so it never shows a different window to the tab it
+        // sits beside.
+        rangeId={resolveTabRange("reply", rangeParams).id}
+        rangeNote={resolveTabRange("reply", rangeParams).note}
         onRangeChange={setRange("reply")}
       />
     )
@@ -254,6 +280,7 @@ export function PerformanceView() {
           them disagree about whose numbers are shown. On a phone the scope
           is the app bar's chip and the period is the strip under the tabs. */}
       <ReportToolbar
+        phone={phoneScope}
         summary={
           business
             ? [locationsPart, periodLabel]
@@ -296,7 +323,7 @@ export function PerformanceView() {
               ) : null}
               <RangeSelect
                 {...field}
-                className="w-44"
+                className="w-44 max-md:hidden"
                 value={activePeriod.id}
                 onChange={setRange(active)}
                 options={RANGE_OPTIONS[active]}
@@ -348,7 +375,7 @@ export function PerformanceView() {
         />
         <TabsPanel value="reply" className="pt-3 md:pt-5">
           {empty ? (
-            <NoLocationsPanel client={client} />
+            <NoLocationsPanel client={client} share={shareTarget} />
           ) : (
             <ReplyPerformanceTab
               clientId={clientId}
@@ -360,7 +387,7 @@ export function PerformanceView() {
         </TabsPanel>
         <TabsPanel value="google" className="pt-3 md:pt-5">
           {empty ? (
-            <NoLocationsPanel client={client} />
+            <NoLocationsPanel client={client} share={shareTarget} />
           ) : (
             <GooglePerformanceTab
               clientId={clientId}
@@ -372,7 +399,7 @@ export function PerformanceView() {
         </TabsPanel>
         <TabsPanel value="keywords" className="pt-3 md:pt-5">
           {empty ? (
-            <NoLocationsPanel client={client} />
+            <NoLocationsPanel client={client} share={shareTarget} />
           ) : (
             <KeywordsTab
               clientId={clientId}

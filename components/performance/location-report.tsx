@@ -4,6 +4,7 @@ import { BarChart3Icon, ExternalLinkIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
+import { useScopeLabel } from "@/components/app-shell/client-switcher"
 import { LocationPerformance } from "@/components/performance/location-performance"
 import { LocationSelect } from "@/components/performance/location-select"
 import { RangeSelect } from "@/components/performance/range-select"
@@ -45,18 +46,23 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 function LocationReport({
   locationId,
   rangeId = DEFAULT_RANGES.reply,
+  rangeNote,
   onRangeChange,
 }: {
   locationId: string
   /** The period, from `?range=`; the reply and Google presets share ids. */
   rangeId?: ReplyRangeId
+  /** Says when the period was carried over from the Keywords tab's. */
+  rangeNote?: string | null
   onRangeChange?: (range: ReplyRangeId) => void
 }) {
   const directory = useLocationDirectory(useSessionRole())
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const business = useWorkspaceMode() === "business"
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  const scope = useScopeLabel(mode)
   const location = directory.data?.find((entry) => entry.id === locationId)
   const periodDates = formatPeriod(
     resolvedPeriod("reply", rangeId),
@@ -143,6 +149,11 @@ function LocationReport({
           {whose ? <span className="text-ink-muted"> · {whose}</span> : null}
         </p>
         <ReportToolbar
+          // No scope chip in the app bar (one client to switch between):
+          // the sibling locations stay choosable on a phone, here.
+          phone={
+            !business && scope.ready && !scope.visible && siblings.length > 1
+          }
           summary={[location.name, periodLabel]}
           meta={periodDates}
           fields={() => {
@@ -169,7 +180,7 @@ function LocationReport({
                 {onRangeChange ? (
                   <RangeSelect
                     {...field}
-                    className="w-44"
+                    className="w-44 max-md:hidden"
                     value={rangeId}
                     onChange={onRangeChange}
                     options={REPLY_RANGES}
@@ -203,6 +214,7 @@ function LocationReport({
               value={rangeId}
               options={REPLY_RANGES}
               onChange={(next) => onRangeChange(next as ReplyRangeId)}
+              note={rangeNote}
             />
           ) : (
             <span className="flex-1" />

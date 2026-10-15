@@ -102,10 +102,12 @@ test.describe("reports", () => {
     test("choosing a client and a period takes three taps", async ({ page }) => {
       const state = await readJourneyState()
       await page.goto("/reports?tab=google")
-      // Tap 1: the app bar's scope chip. Tap 2: the client. Tap 3: the period.
-      await page.locator('header[data-slot="app-bar"]').getByRole("button", { name: /^Client:/ }).tap()
-      const scope = page.getByRole("dialog", { name: "Working on" })
-      await scope.getByRole("option", { name: new RegExp(`^${state.clientName}`) }).tap()
+      // The journey org has one client, so the app bar shows no scope chip
+      // (there is nothing to switch between) and the report keeps its own
+      // Client field on a phone. Tap 1: the field. Tap 2: the client. Tap 3: the period.
+      await expect(page.locator('header[data-slot="app-bar"]').getByRole("button", { name: /^Client:/ })).toHaveCount(0)
+      await page.getByRole("combobox", { name: /Client/ }).tap()
+      await page.getByRole("option", { name: new RegExp(`^${state.clientName}`) }).tap()
       await expect(page).toHaveURL(new RegExp(`[?&]clientId=${state.clientId}`))
       await page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 12 months" }).tap()
       await expect(page).toHaveURL(/[?&]range=12m/)
@@ -125,6 +127,12 @@ test.describe("reports", () => {
       // Back on Google, the period chosen there is still there.
       await page.getByRole("tab", { name: "Google performance" }).tap()
       await expect(page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 90 days" })).toHaveAttribute("aria-pressed", "true")
+    })
+
+    test("keywords says so when Google is on its default period", async ({ page }) => {
+      await page.goto("/reports?tab=google")
+      await page.getByRole("tab", { name: "Keywords" }).tap()
+      await expect(page.getByText("Keywords count whole months: showing the last 6 months.")).toBeVisible()
     })
 
     test("the first figure is on the first screen of the Google tab", async ({ page }) => {

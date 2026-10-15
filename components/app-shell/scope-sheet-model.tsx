@@ -342,6 +342,11 @@ export type ScopeLabel = {
   mode: WorkspaceMode
   /** Whether there is anything to switch between. */
   visible: boolean
+  /**
+   * Whether the list that decides `visible` is known yet. Until it is,
+   * `visible` is false, which is "unknown" rather than "nothing to switch".
+   */
+  ready: boolean
   /** The scope's name: a client, a location, or All clients / All locations. */
   label: string
   /** The scope's status in words (a client's health), never a colour alone. */
@@ -358,6 +363,7 @@ function useAgencyScopeLabel(enabled: boolean) {
   const client = clients?.find((entry) => entry.id === current) ?? null
   return {
     visible,
+    ready: Boolean(clients),
     client,
     label: client ? client.name : "All clients",
     healthWords: client ? healthLabel(client.health) : null,
@@ -388,6 +394,7 @@ export function useScopeLabel(mode: WorkspaceMode): ScopeLabel {
     return {
       mode,
       visible: Boolean(directory && directory.length > 1),
+      ready: Boolean(directory),
       label: location ? location.name : "All locations",
       healthWords: location ? locationStatusWords(location) : null,
       client: null,

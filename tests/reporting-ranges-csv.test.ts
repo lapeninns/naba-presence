@@ -107,11 +107,29 @@ describe("a tab's period (resolveTabRange)", () => {
     })
   })
 
-  it("falls back to each tab's default, unannounced", () => {
+  it("falls back to Reply and Google's default, unannounced", () => {
     expect(resolveTabRange("reply", {})).toEqual({ id: "28d", note: null })
+    expect(resolveTabRange("google", {})).toEqual({ id: "28d", note: null })
+  })
+
+  // The reader on Google's default 28 days (no ?range= at all) who taps
+  // Keywords sees a different window, so the caption says so.
+  it("says so when Keywords opens on its own default beside Google's", () => {
+    const note = "Keywords count whole months: showing the last 6 months."
+    expect(resolveTabRange("keywords", {})).toEqual({ id: "6m", note })
     expect(resolveTabRange("keywords", { range: "nonsense" })).toEqual({
       id: "6m",
-      note: null,
+      note,
+    })
+  })
+
+  // Picking 90 days and then 28 days again writes ?range=28d (the default
+  // is no longer left out), so Keywords maps it and says so rather than
+  // reverting to its own default in silence.
+  it("carries a default period that was picked again", () => {
+    expect(resolveTabRange("keywords", { range: "28d" })).toEqual({
+      id: "1m",
+      note: "Keywords count whole months: showing the last month.",
     })
   })
 })

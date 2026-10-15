@@ -236,7 +236,10 @@ describe("PerformanceView", () => {
   })
 })
 
-function stubAgency(role: "owner" | "member") {
+function stubAgency(
+  role: "owner" | "member",
+  { onlyOneClient = false, locationCount = 2 } = {}
+) {
   const client = (id: string, name: string) => ({
     id,
     name,
@@ -246,9 +249,9 @@ function stubAgency(role: "owner" | "member") {
     notes: null,
     archivedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
-    locationCount: 2,
-    linkedCount: 2,
-    verifiedCount: 2,
+    locationCount,
+    linkedCount: locationCount,
+    verifiedCount: locationCount,
     health: "healthy",
     connections: [],
     openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
@@ -278,11 +281,19 @@ function stubAgency(role: "owner" | "member") {
             ? {
                 items: [
                   client("00000000-0000-4000-8000-000000000001", "Old Crown"),
-                  client("00000000-0000-4000-8000-000000000002", "Harbour Kitchen"),
+                  ...(onlyOneClient
+                    ? []
+                    : [
+                        client(
+                          "00000000-0000-4000-8000-000000000002",
+                          "Harbour Kitchen"
+                        ),
+                      ]),
                 ],
                 unassignedLocationCount: 0,
               }
-            : url.includes("/api/report-shares") || url.includes("/report-shares")
+            : url.includes("/api/report-shares") ||
+                url.includes("/report-shares")
               ? { shares: [] }
               : {}
       return new Response(JSON.stringify(body), {
@@ -338,6 +349,91 @@ describe("PerformanceView share from All clients (CLR-10)", () => {
       expect(
         screen.queryByRole("button", { name: "More actions" })
       ).not.toBeInTheDocument()
+    )
+  })
+})
+
+describe("PerformanceView scope on a phone (one client)", () => {
+  // The app bar's scope chip hides itself with one client to switch between,
+  // so the report keeps its own Client field (and Location) on a phone.
+  it("draws the report's own scope fields on a phone when the app bar has no chip", async () => {
+    stubAgency("owner", { onlyOneClient: true })
+    renderAgencyView()
+    const toolbar = screen.getByRole("region", { name: "Report scope" })
+    await waitFor(() => expect(toolbar).toHaveClass("block"))
+    expect(toolbar).not.toHaveClass("hidden")
+    expect(
+      within(toolbar).getByRole("combobox", { name: /Client/ })
+    ).toBeInTheDocument()
+    // The period is the strip's on a phone: the toolbar's own is desk-only.
+    expect(toolbar.querySelector(".max-md\\:hidden")).not.toBeNull()
+  })
+
+  it("leaves the app bar's chip as the only phone scope control with several clients", async () => {
+    stubAgency("owner")
+    renderAgencyView()
+    await screen.findByRole("tab", { name: "Reply performance" })
+    const toolbar = screen.getByRole("region", { name: "Report scope" })
+    // Wait for the client list; the chip would be visible by then.
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("combobox", { name: /Client/ })
+      ).not.toHaveLength(0)
+    )
+    expect(toolbar).toHaveClass("hidden", "md:block")
+  })
+})
+
+describe("PerformanceView share beside the no-location panel", () => {
+  it("keeps Share reachable when a client has no location", async () => {
+    stubAgency("owner", { onlyOneClient: true, locationCount: 0 })
+    search = "clientId=00000000-0000-4000-8000-000000000001"
+    renderAgencyView()
+    expect(await screen.findByText("No linked location")).toBeInTheDocument()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" })
+    )
+    expect(
+      await screen.findByRole("menuitem", { name: "Share report" })
+    ).toBeInTheDocument()
+  })
+
+  it("offers no Share there to someone who cannot share", async () => {
+    stubAgency("member", { onlyOneClient: true, locationCount: 0 })
+    search = "clientId=00000000-0000-4000-8000-000000000001"
+    renderAgencyView()
+    expect(await screen.findByText("No linked location")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "More actions" })
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe("PerformanceView period note", () => {
+  it("says so when Keywords opens on its own period beside Google's default", () => {
+    stubAgency("owner")
+    search = "tab=keywords"
+    renderAgencyView()
+    expect(
+      screen.getByText(
+        "Keywords count whole months: showing the last 6 months."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("writes the default period too, so another tab can carry it", async () => {
+    stubAgency("owner")
+    search = "tab=google&range=90d"
+    renderAgencyView()
+    await userEvent.click(
+      within(screen.getByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: "Last 28 days" }
+      )
+    )
+    expect(replace).toHaveBeenCalledExactlyOnceWith(
+      "/reports?tab=google&range=28d",
+      { scroll: false }
     )
   })
 })

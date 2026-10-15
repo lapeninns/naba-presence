@@ -17,6 +17,13 @@ import { cn } from "@/lib/utils"
  * and a sheet of selects. `summary` is read by nobody on screen: it is the
  * printed or saved-PDF report's one line saying what it covers.
  *
+ * The exception is `phone`: the app bar hides its chip when there is only
+ * one client (or location) to switch between, and the report would then
+ * have no way left to choose a client or narrow to a location. The caller
+ * sets `phone` in that case and the fields stack full width on a phone. It
+ * marks a field that stays desk-only (the period, which the strip already
+ * covers) with `max-md:hidden`; the caption and `extras` are desk-only too.
+ *
  * Layout is CSS only, so the server HTML is the same at every width.
  */
 export function ReportToolbar({
@@ -24,6 +31,7 @@ export function ReportToolbar({
   fields,
   extras,
   meta,
+  phone = false,
   label = "Report scope",
   className,
 }: {
@@ -33,6 +41,8 @@ export function ReportToolbar({
   extras?: React.ReactNode
   /** A caption beside the inline fields (e.g. "12 locations"). */
   meta?: React.ReactNode
+  /** Also draw the fields on a phone: the app bar has no scope chip to use. */
+  phone?: boolean
   label?: string
   className?: string
 }) {
@@ -41,7 +51,7 @@ export function ReportToolbar({
     <section
       aria-label={label}
       data-slot="report-toolbar"
-      className={cn("hidden md:block print:block", className)}
+      className={cn(phone ? "block" : "hidden md:block print:block", className)}
     >
       {/* What the scope is, for a printed or saved PDF report. */}
       <p className="hidden text-caption text-ink-muted print:block">
@@ -50,9 +60,11 @@ export function ReportToolbar({
       <div className="flex min-w-0 flex-wrap items-end gap-3 print:hidden">
         {fields()}
         {meta ? (
-          <p className="pb-2.5 text-caption text-ink-muted">{meta}</p>
+          <p className="pb-2.5 text-caption text-ink-muted max-md:hidden">
+            {meta}
+          </p>
         ) : null}
-        {extras}
+        {extras ? <div className="contents max-md:hidden">{extras}</div> : null}
       </div>
     </section>
   )
@@ -113,5 +125,5 @@ export function ReportPeriodStrip({
 
 /** Field and trigger classes for a field drawn in the toolbar. */
 export function reportToolbarFieldProps() {
-  return { className: "w-56", triggerClassName: "w-full" }
+  return { className: "w-full md:w-56", triggerClassName: "w-full" }
 }

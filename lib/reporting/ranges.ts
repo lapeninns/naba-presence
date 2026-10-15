@@ -160,7 +160,9 @@ function inSentence(label: string) {
  * `range` is the period for Reply and Google (they share it) and `rangeKw`
  * is Keywords' own, so each remembers its last choice while the other is
  * used. A tab with no choice of its own takes the nearest equivalent of the
- * other's and says so in `note` (null when nothing was carried over). An
+ * other's and says so in `note` (null when nothing was carried over). With
+ * no period in the address at all, Reply and Google are on their default,
+ * so Keywords says it is showing its own. An
  * older link that put a month period in `range` still opens on it.
  */
 export function resolveTabRange<T extends ReportTab>(
@@ -183,7 +185,14 @@ export function resolveTabRange<T extends ReportTab>(
         note: `Keywords count whole months: showing ${inSentence(label)}.`,
       }
     }
-    return { id: DEFAULT_RANGES.keywords as RangeFor<T>, note: null }
+    // Nothing chosen anywhere: Reply and Google are on their default (28
+    // days) and Keywords opens on its own, a different window, so say so.
+    const id = DEFAULT_RANGES.keywords
+    const label = KEYWORD_RANGES.find((option) => option.id === id)!.label
+    return {
+      id: id as RangeFor<T>,
+      note: `Keywords count whole months: showing ${inSentence(label)}.`,
+    }
   }
   if (isReplyRange(range)) return { id: range as RangeFor<T>, note: null }
   const source = isKeywordRange(rangeKw)
