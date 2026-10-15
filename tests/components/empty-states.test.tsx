@@ -43,7 +43,7 @@ describe("EmptyState", () => {
     // and the link to the shell's ReconnectBanner, but that banner is
     // client-scoped and the inbox is organisation-wide, so on this screen
     // there is nothing else to defer to.
-    rerender(<EmptyState reason="disconnected" />)
+    rerender(<EmptyState reason="disconnected" canManageClients />)
     expect(screen.getByText("Google is not connected.")).toBeInTheDocument()
     expect(
       screen.getByText("Reconnect Google to sync and reply to your reviews.")
@@ -181,10 +181,40 @@ describe("EmptyState", () => {
       "import_failed",
       "never_imported",
     ] as const) {
-      const { unmount } = render(<EmptyState reason={reason} />)
+      const { unmount } = render(
+        <EmptyState reason={reason} canManageClients />
+      )
       expect(
         screen.getByRole("link", { name: "Manage connection" })
       ).toHaveAttribute("href", "/settings/connections")
+      unmount()
+    }
+  })
+
+  // /settings/connections is owners and admins only, so a member or viewer
+  // keeps the explanation, is told who to ask and gets no button (INB-06).
+  it("sends members and viewers to an owner or admin, not to Access denied", () => {
+    for (const reason of [
+      "disconnected",
+      "not_connected",
+      "import_failed",
+      "never_imported",
+    ] as const) {
+      const { container, unmount } = render(
+        <EmptyState
+          reason={reason}
+          counts={{
+            running: 0,
+            failed: 1,
+            succeeded: 0,
+            notStarted: 1,
+            lastSyncAt: null,
+          }}
+        />
+      )
+      expect(screen.queryByRole("link")).not.toBeInTheDocument()
+      expect(screen.queryByRole("button")).not.toBeInTheDocument()
+      expect(container).toHaveTextContent(/Ask an owner or admin/)
       unmount()
     }
   })

@@ -10,6 +10,7 @@ import { ReviewDetail } from "@/components/inbox/review-detail"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as connHealthHook from "@/lib/queries/use-connection-health"
+import * as sessionHook from "@/lib/queries/use-session"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
 function fakeDetail(value: Partial<UseQueryResult<ReviewDetailData>>) {
@@ -106,6 +107,8 @@ beforeEach(() => {
     status: "connected",
     label: "Live data",
   })
+  // The connection link is for owners and admins only (INB-06).
+  vi.spyOn(sessionHook, "useSessionRole").mockReturnValue("owner")
 })
 
 afterEach(() => vi.restoreAllMocks())
@@ -700,6 +703,38 @@ describe("ReviewDetail", () => {
       }
     }
   )
+
+  it("shows a member the connection failure without a link to Access denied", () => {
+    vi.spyOn(sessionHook, "useSessionRole").mockReturnValue("member")
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        workflowStatus: "failed",
+        reply: {
+          id: "reply-1",
+          body: "We are sorry to hear that.",
+          publishStatus: "failed",
+          googleReplyState: null,
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: null,
+          lastErrorCode: "google_reconnect_required",
+        },
+      }),
+    })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const exception = container.querySelector<HTMLElement>(
+      '[data-slot="reply-exception"]'
+    )!
+    expect(exception).toHaveTextContent(
+      "Ask an owner or admin to reconnect Google"
+    )
+    expect(
+      within(exception).queryByRole("link", {
+        name: "Check Google connections",
+      })
+    ).not.toBeInTheDocument()
+  })
 
   it("does not draw a lifecycle on a review with no draft", () => {
     fakeDetail({
