@@ -132,16 +132,18 @@ describe("TabBar", () => {
   it("marks the tab Setup lives under", () => {
     pathname.current = "/setup"
     const agency = renderTabBar()
-    expect(
-      agency.tabs.getByRole("link", { name: "Clients" })
-    ).toHaveAttribute("aria-current", "page")
+    expect(agency.tabs.getByRole("link", { name: "Clients" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
     agency.unmount()
     const business = renderTabBar({
       context: { role: "owner", mode: "business" },
     }).tabs
-    expect(
-      business.getByRole("link", { name: "Listings" })
-    ).toHaveAttribute("aria-current", "page")
+    expect(business.getByRole("link", { name: "Listings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
   })
 
   it("puts the needs-reply count in the Inbox tab's name", () => {

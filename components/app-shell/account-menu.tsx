@@ -5,11 +5,7 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query"
-import {
-  Building2,
-  LogOut,
-  MoreHorizontal,
-} from "lucide-react"
+import { Building2, LogOut, MoreHorizontal } from "lucide-react"
 import * as React from "react"
 
 import {
@@ -31,7 +27,6 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { THEME_CHOICES, useThemeChoice } from "@/components/settings/appearance"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -51,6 +46,7 @@ import { abandonAllDrafts, clearAllStashedDrafts } from "@/lib/api/draft-stash"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
+import { THEME_CHOICES, useThemeChoice } from "@/lib/ui/theme-choice"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms, type WorkspaceMode } from "@/lib/workspace/terms"
 
