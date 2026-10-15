@@ -626,6 +626,12 @@ describe("ReplyComposer — the editor", () => {
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(mutateAsync).not.toHaveBeenCalled()
     expect(textbox()).toHaveValue("Existing draft body!")
+    // Declining does not change the tone either: the next save keeps it.
+    await user.click(screen.getByRole("button", { name: "Probe save" }))
+    expect(mutateAsync).toHaveBeenCalledWith({
+      body: "Existing draft body!",
+      tone: "warm_professional",
+    })
   })
 
   it("offers Undo after regenerating over a saved draft, restoring it as an edit", async () => {

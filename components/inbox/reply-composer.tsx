@@ -413,11 +413,12 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // spends a credit). Over unsaved edits it first asks, as ever.
   function onGenerateIn(next: Tone) {
     if (generateOrSave.isPending) return
-    setTone(next)
     if (isDirty && body.trim() !== "") {
+      // The tone is kept only once the discard is confirmed.
       setConfirmTone(next)
       return
     }
+    setTone(next)
     void runGenerate(next)
   }
 
@@ -539,6 +540,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             onClick={() => {
               const next = confirmTone ?? tone
               setConfirmTone(null)
+              setTone(next)
               void runGenerate(next)
             }}
           >

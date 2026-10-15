@@ -126,7 +126,7 @@ describe("ReviewDetail", () => {
     expect(screen.getByText("Slow service at breakfast.")).toBeInTheDocument()
     // The reply is written as the listing, and says so at its head.
     expect(
-      screen.getByRole("heading", { name: "Reply as Riverside", level: 3 })
+      screen.getByRole("heading", { name: "Reply as Riverside", level: 2 })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("region", { name: "Your reply" })
@@ -1024,6 +1024,31 @@ describe("ReviewDetail — below lg", () => {
     expect(screen.getByRole("button", { name: "Next review" })).toBeDisabled()
   })
 
+  it("keeps the steps and position while the review loads or fails", () => {
+    const nav = { position: 2, total: 7, more: false, onNext: vi.fn() }
+    fakeDetail({ isPending: true, isError: false })
+    const loading = renderPane(
+      <ReviewDetail reviewId="rev-2" heading="Sam T." nav={nav} />
+    )
+    expect(
+      loading.container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("Review 2 of 7")
+    expect(screen.getByRole("button", { name: "Next review" })).toBeEnabled()
+    loading.unmount()
+
+    fakeDetail({ isPending: false, isError: true, error: new Error("nope") })
+    const failed = renderPane(
+      <ReviewDetail reviewId="rev-2" heading="Sam T." nav={nav} />
+    )
+    expect(
+      failed.container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("Review 2 of 7")
+    expect(screen.getByRole("button", { name: "Next review" })).toBeEnabled()
+    expect(
+      screen.getByRole("button", { name: /Try again/ })
+    ).toBeInTheDocument()
+  })
+
   it("draws no steps or position without a place in the list", () => {
     fakeDetail({ isPending: false, isError: false, data: detail })
     const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
@@ -1061,6 +1086,39 @@ describe("ReviewDetail — photos that will not load", () => {
     expect(placeholder?.querySelector("svg")).not.toBeNull()
     // The tile is still there to open.
     expect(tile).toBeEnabled()
+  })
+})
+
+describe("ReviewDetail — photos that failed before hydration", () => {
+  it("shows the placeholder for an image that has already finished with no pixels", () => {
+    // A server-rendered image can fail before React attaches `onError`.
+    const complete = vi
+      .spyOn(HTMLImageElement.prototype, "complete", "get")
+      .mockReturnValue(true)
+    try {
+      fakeDetail({
+        isPending: false,
+        isError: false,
+        data: reviewWith({
+          media: [
+            {
+              id: "m1",
+              thumbnailUrl: "https://lh3.googleusercontent.com/gone.jpg",
+              videoUrl: null,
+              thumbnailLabel: null,
+            },
+          ],
+        }),
+      })
+      const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+      const tile = screen.getByRole("button", { name: "Open Review photo" })
+      expect(tile.querySelector("img")).toBeNull()
+      expect(
+        container.querySelector('[data-slot="media-unavailable"]')
+      ).toHaveAttribute("title", "Photo unavailable")
+    } finally {
+      complete.mockRestore()
+    }
   })
 })
 

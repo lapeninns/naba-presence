@@ -573,6 +573,51 @@ describe("InboxView — next and previous review", () => {
     expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
   })
 
+  it("keeps focus on the step pressed while the next review is still loading", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: {
+        pages: [
+          {
+            items: [row(), row({ id: "rev-2" }), row({ id: "rev-3" })],
+            nextCursor: null,
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+    // Only the first review is cached; the next one is still on its way.
+    vi.spyOn(detailHook, "useReviewDetail").mockImplementation(
+      (id) =>
+        (id === "rev-1"
+          ? { data: reviewDetail() }
+          : {
+              isPending: true,
+              isError: false,
+            }) as UseQueryResult<ReviewDetailData>
+    )
+    const view = renderInbox()
+    await user.click(screen.getByRole("button", { name: "Next review" }))
+    currentParams = new URLSearchParams(
+      (replace.mock.calls[0][0] as string).split("?")[1]
+    )
+    view.rerender(inboxUi())
+
+    // The pane is loading, yet it still draws the steps and the position,
+    // and the Next step it was reached from holds focus.
+    expect(view.container.querySelector("[aria-busy=true]")).not.toBeNull()
+    const next = screen.getByRole("button", { name: "Next review" })
+    await waitFor(() => expect(next).toHaveFocus())
+    expect(
+      view.container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("Review 2 of 3")
+  })
+
   it("keeps Next on at the last loaded review while another page follows", () => {
     vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
       data: { pages: [{ items: [row()], nextCursor: "c" }] },

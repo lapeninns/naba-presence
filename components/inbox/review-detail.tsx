@@ -252,18 +252,23 @@ function ReviewerIdentity({
         >
           {venueLabel(review, clientName)}
         </p>
-        {nav ? (
-          <p
-            data-slot="review-position"
-            className="shrink-0 text-caption whitespace-nowrap text-ink-muted tabular-nums lg:hidden"
-          >
-            <span className="sr-only">Review </span>
-            {nav.position} of {nav.total}
-            {nav.more ? "+" : ""}
-          </p>
-        ) : null}
+        {nav ? <ReviewPosition nav={nav} /> : null}
       </div>
     </div>
+  )
+}
+
+/** "2 of 5": where the review sits in the list. Not drawn from lg. */
+function ReviewPosition({ nav }: { nav: ReviewDetailNav }) {
+  return (
+    <p
+      data-slot="review-position"
+      className="shrink-0 text-caption whitespace-nowrap text-ink-muted tabular-nums lg:hidden"
+    >
+      <span className="sr-only">Review </span>
+      {nav.position} of {nav.total}
+      {nav.more ? "+" : ""}
+    </p>
   )
 }
 
@@ -485,6 +490,12 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set())
   if (items.length === 0) return null
 
+  function markFailed(id: string) {
+    setFailed((previous) =>
+      previous.has(id) ? previous : new Set(previous).add(id)
+    )
+  }
+
   const active = activeIndex !== null ? (items[activeIndex] ?? null) : null
   const activeLabel = active
     ? (active.thumbnailLabel ??
@@ -532,9 +543,15 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                     src={item.thumbnailUrl}
                     alt=""
                     loading="lazy"
-                    onError={() =>
-                      setFailed((previous) => new Set(previous).add(item.id))
-                    }
+                    // A server-rendered page can fail the request before React
+                    // attaches `onError` (and React does not replay it), so a
+                    // finished load with no pixels is read as failed here.
+                    ref={(image) => {
+                      if (image?.complete && image.naturalWidth === 0) {
+                        markFailed(item.id)
+                      }
+                    }}
+                    onError={() => markFailed(item.id)}
                     className="aspect-square w-full object-cover"
                   />
                 ) : (
@@ -615,9 +632,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
               <img
                 src={active.thumbnailUrl}
                 alt={activeLabel}
-                onError={() =>
-                  setFailed((previous) => new Set(previous).add(active.id))
-                }
+                onError={() => markFailed(active.id)}
                 className="max-h-[70svh] w-full rounded-(--np-radius-control) object-contain"
               />
             ) : active ? (
@@ -918,12 +933,12 @@ function ReviewThread({
         {/* The composer's header row: who the reply is written as, and
             where it will be seen. */}
         <div className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 @max-[480px]/detail:min-h-8">
-          <h3
+          <h2
             data-slot="reply-heading"
             className="min-w-0 text-ui font-semibold break-words text-ink"
           >
             Reply as {review.locationName}
-          </h3>
+          </h2>
           <p className="text-caption text-ink-muted">
             {replyVisibility(review)}
           </p>
@@ -1071,7 +1086,26 @@ function ReviewDetail({
           </div>
         ) : failed ? (
           <>
-            {titleIsHeading ? <h1 className="sr-only">{title}</h1> : null}
+            {nav ? (
+              // The steps stay while the review is out of reach, so the
+              // operator can move on and focus stays on the step pressed.
+              <div className="px-8 pt-8 max-md:px-(--np-page-pad-x) @max-[480px]/detail:pt-5">
+                <div className={COLUMN_CLASS}>
+                  <div className="flex min-w-0 items-start gap-1">
+                    <LoadingHeading
+                      titleIsHeading={titleIsHeading}
+                      className="flex-1"
+                    >
+                      {title}
+                    </LoadingHeading>
+                    <ReviewSteps nav={nav} />
+                  </div>
+                  <ReviewPosition nav={nav} />
+                </div>
+              </div>
+            ) : titleIsHeading ? (
+              <h1 className="sr-only">{title}</h1>
+            ) : null}
             <QueryError
               title="We could not load this review."
               cause={query.error}
@@ -1087,17 +1121,28 @@ function ReviewDetail({
               ) : null}
               <div className={THREAD_ITEM_CLASS}>
                 <Skeleton className="size-11 rounded-(--np-radius-pill) @max-[480px]/detail:size-8" />
-                <div className="flex flex-col gap-1.5 pt-1">
-                  {heading ? (
-                    // The name the list already knows, so the heading is
-                    // there from the first paint and does not jump.
-                    <LoadingHeading titleIsHeading={titleIsHeading}>
-                      {heading}
-                    </LoadingHeading>
-                  ) : (
-                    <Skeleton className="h-5 w-40" />
-                  )}
-                  <Skeleton className="h-3 w-56 max-w-full" />
+                <div className="flex min-w-0 flex-col gap-1.5 pt-1">
+                  <div className="flex min-w-0 items-start gap-1">
+                    {heading ? (
+                      // The name the list already knows, so the heading is
+                      // there from the first paint and does not jump.
+                      <LoadingHeading
+                        titleIsHeading={titleIsHeading}
+                        className="flex-1"
+                      >
+                        {heading}
+                      </LoadingHeading>
+                    ) : (
+                      <Skeleton className="h-5 w-40" />
+                    )}
+                    {/* The steps are there while the next review loads, so
+                        focus stays on the one pressed. */}
+                    {nav ? <ReviewSteps nav={nav} /> : null}
+                  </div>
+                  <div className="flex min-w-0 items-baseline justify-between gap-3">
+                    <Skeleton className="h-3 w-56 max-w-full" />
+                    {nav ? <ReviewPosition nav={nav} /> : null}
+                  </div>
                 </div>
               </div>
               <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
@@ -1157,14 +1202,21 @@ function ReviewDetail({
 /** The reviewer's name while the rest of the review loads. */
 function LoadingHeading({
   titleIsHeading,
+  className,
   children,
 }: {
   titleIsHeading: boolean
+  className?: string
   children: ReactNode
 }) {
   const Heading = titleIsHeading ? "h1" : "h2"
   return (
-    <Heading className="line-clamp-2 min-w-0 text-section font-medium break-words text-ink">
+    <Heading
+      className={cn(
+        "line-clamp-2 min-w-0 text-section font-medium break-words text-ink",
+        className
+      )}
+    >
       {children}
     </Heading>
   )
