@@ -86,10 +86,11 @@ function languageName(code: string | null): string | null {
 /**
  * The review as the status ladder sees it.
  *
- * `approvalScope` follows `canPublish` here and nowhere else: this pane offers
- * a specific action, `evaluateApproval` gates that action on `canPublish`, and
- * the status must describe the action actually on screen. A list row has no
- * action and therefore does not guess — see `replyStateFromRow`.
+ * Who a parked reply waits on comes from the server
+ * (`capabilities.approvalScope`) and wins inside `lib/inbox/reply-state.ts`;
+ * the `canPublish` reading below is only the fallback for an older server. The
+ * client does not re-derive the scope or `canApprove`. A list row has no action
+ * and therefore does not guess — see `replyStateFromRow`.
  */
 function replyStateFor(
   review: Review,
