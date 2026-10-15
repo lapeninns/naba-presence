@@ -10,6 +10,7 @@ import {
   HEALTH_FILTERS,
   healthFilterMatches,
   FRESHNESS_WINDOW_MS,
+  attentionDescription,
   freshnessSentence,
   healthBucket,
   healthDescription,
@@ -461,5 +462,31 @@ describe("compareClientsByNeed", () => {
     expect(healthSeverity("not_connected")).toBeGreaterThan(
       healthSeverity("unchecked")
     )
+  })
+})
+
+describe("attentionDescription", () => {
+  it("never says checks are up to date next to an attention state", () => {
+    const upToDate = {
+      state: "up_to_date" as const,
+      reason: null,
+      lastSuccessfulCheckAt: null,
+    }
+    expect(freshnessSentence(upToDate)).toMatch(/up to date/i)
+    for (const freshness of [upToDate, null, undefined]) {
+      const text = attentionDescription(freshness)
+      expect(text).toBe(healthDescription("attention"))
+      expect(text).not.toMatch(/up to date/i)
+    }
+  })
+
+  it("names the cause when the freshness has one", () => {
+    expect(
+      attentionDescription({
+        state: "action_needed",
+        reason: "listing_access_lost",
+        lastSuccessfulCheckAt: null,
+      })
+    ).toMatch(/lost manager access/)
   })
 })
