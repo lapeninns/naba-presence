@@ -146,12 +146,15 @@ describe("AppBar leading control", () => {
     expect(bar.queryByText("Lapen Inns Agency")).not.toBeInTheDocument()
   })
 
-  it("names a listing area's parent listing", async () => {
+  it("names a listing area's parent listing by what it is, not its name", async () => {
+    // The area's header row already carries the listing's name.
     pathname.current = "/listings/l1/hours"
     const { within: bar } = renderBar()
-    expect(
-      await bar.findByRole("link", { name: "Back to Old Crown Girton" })
-    ).toHaveAttribute("href", "/listings/l1")
+    const back = await bar.findByRole("link", { name: "Back to Listing" })
+    expect(back).toHaveAttribute("href", "/listings/l1")
+    expect(back).toHaveTextContent("Listing")
+    expect(back).not.toHaveTextContent("Old Crown Girton")
+    expect(back).toHaveAttribute("title", "Old Crown Girton")
   })
 
   it("names the workspace on a top-level page with nothing to switch", () => {
@@ -585,14 +588,21 @@ describe("AppBar trailing slot", () => {
 // bar watches it with an IntersectionObserver; jsdom has none, so these
 // stand one in and report the h1 as scrolled away.
 function stubScrolledHeading() {
-  const callbacks: IntersectionObserverCallback[] = []
+  const observers: {
+    callback: IntersectionObserverCallback
+    elements: Element[]
+  }[] = []
   vi.stubGlobal(
     "IntersectionObserver",
     class {
+      private entry: (typeof observers)[number]
       constructor(callback: IntersectionObserverCallback) {
-        callbacks.push(callback)
+        this.entry = { callback, elements: [] }
+        observers.push(this.entry)
       }
-      observe() {}
+      observe(element: Element) {
+        this.entry.elements.push(element)
+      }
       disconnect() {}
       unobserve() {}
       takeRecords() {
@@ -600,20 +610,28 @@ function stubScrolledHeading() {
       }
     }
   )
+  // Reports every watched element (or only those `only` accepts) as under
+  // the bar (`bottom: 0`) or still below it.
+  const report = (bottom: number, only?: (element: Element) => boolean) =>
+    act(() => {
+      for (const { callback, elements } of observers) {
+        if (only && !elements.some(only)) continue
+        callback(
+          [{ boundingClientRect: { bottom } } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        )
+      }
+    })
   return {
-    scrollAway: () =>
-      act(() => {
-        for (const callback of callbacks) {
-          callback(
-            [
-              {
-                boundingClientRect: { bottom: 0 },
-              } as IntersectionObserverEntry,
-            ],
-            {} as IntersectionObserver
-          )
-        }
-      }),
+    scrollAway: () => report(0),
+    /** Moves only the page header's actions under (or back below) the bar. */
+    scrollActions: (away: boolean) =>
+      report(
+        away ? 0 : 500,
+        (element) => element.getAttribute("data-slot") === "page-header-actions"
+      ),
+    /** Moves only the h1 under the bar. */
+    scrollHeading: () => report(0, (element) => element.tagName === "H1"),
   }
 }
 
@@ -677,22 +695,190 @@ describe("AppBar one title at a time", () => {
   it("has no workspace name beside a deep page's back control", async () => {
     pathname.current = "/listings/l1/hours"
     const { bar, within: inBar } = renderBar()
-    await inBar.findByRole("link", { name: "Back to Old Crown Girton" })
+    await inBar.findByRole("link", { name: "Back to Listing" })
     expect(bar.querySelector('[data-slot="workspace-name"]')).toBeNull()
   })
 })
 
+describe("AppBar page action", () => {
+  function Plus(props: { className?: string }) {
+    return <svg data-testid="plus-icon" className={props.className} />
+  }
+
+  it("shows the page's action only once the h1 has scrolled away", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const onSelect = vi.fn()
+    const { bar, within: inBar } = renderBar({
+      page: (
+        <PageChrome
+          action={{ label: "Connect another account", icon: Plus, onSelect }}
+        />
+      ),
+    })
+    // The header's own button is on screen: the bar does not double it.
+    expect(
+      inBar.queryByRole("button", { name: "Connect another account" })
+    ).toBeNull()
+
+    heading.scrollAway()
+
+    const action = await inBar.findByRole("button", {
+      name: "Connect another account",
+    })
+    expect(action).toHaveAttribute("data-slot", "app-bar-action")
+    // A 44px target, in front of search and the bell.
+    expect(action.className.split(" ")).toEqual(
+      expect.arrayContaining(["h-11", "w-11"])
+    )
+    const actions = bar.querySelector('[data-slot="app-bar-actions"]')!
+    expect(actions.firstElementChild).toBe(action)
+    expect(
+      inBar.getByRole("button", {
+        name: "Search clients, listings, pages and actions",
+      })
+    ).toBeInTheDocument()
+    expect(
+      inBar.getByRole("link", { name: "Notifications" })
+    ).toBeInTheDocument()
+
+    await userEvent.setup().click(action)
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it("waits for the header's own button to scroll away, not just the h1", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const { bar, within: inBar } = renderBar({
+      page: (
+        <>
+          <div data-slot="page-header-actions">
+            <button type="button">Connect another account</button>
+          </div>
+          <PageChrome
+            action={{
+              label: "Connect another account",
+              icon: Plus,
+              onSelect: vi.fn(),
+            }}
+          />
+        </>
+      ),
+    })
+    const inHeader = () => bar.querySelector('[data-slot="app-bar-action"]')
+
+    // The h1 is gone but the header button is still on screen: one control
+    // with that name, never two.
+    heading.scrollHeading()
+    await vi.waitFor(() =>
+      expect(bar.querySelector('[data-slot="app-bar-title"]')).toHaveAttribute(
+        "data-visible",
+        "true"
+      )
+    )
+    expect(inHeader()).toBeNull()
+    expect(
+      inBar.queryByRole("button", { name: "Connect another account" })
+    ).toBeNull()
+
+    // The header button scrolls under the bar too: the bar takes over.
+    heading.scrollActions(true)
+    expect(
+      await inBar.findByRole("button", { name: "Connect another account" })
+    ).toBeInTheDocument()
+
+    // And back: scrolling up hands it back to the header.
+    heading.scrollActions(false)
+    await vi.waitFor(() => expect(inHeader()).toBeNull())
+  })
+
+  it("stays focusable and is renamed while pending, and ignores presses", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const onSelect = vi.fn()
+    const { within: inBar } = renderBar({
+      page: (
+        <PageChrome
+          action={{
+            label: "Connect another account",
+            pendingLabel: "Opening Google…",
+            icon: Plus,
+            onSelect,
+            pending: true,
+          }}
+        />
+      ),
+    })
+    heading.scrollAway()
+    const action = await inBar.findByRole("button", {
+      name: "Opening Google…",
+    })
+    // aria-disabled, not disabled: focus is not dropped to the body.
+    expect(action).not.toBeDisabled()
+    expect(action).toHaveAttribute("aria-disabled", "true")
+    expect(action).toHaveAttribute("aria-busy", "true")
+    action.focus()
+    expect(action).toHaveFocus()
+    await userEvent.setup().click(action)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it("draws the label as text when the action has no icon", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const { within: inBar } = renderBar({
+      page: (
+        <PageChrome
+          action={{ label: "Connect another account", onSelect: vi.fn() }}
+        />
+      ),
+    })
+    heading.scrollAway()
+    const action = await inBar.findByRole("button", {
+      name: "Connect another account",
+    })
+    expect(action).toHaveTextContent("Connect another account")
+  })
+
+  it("makes the control a link when the action has an href", async () => {
+    pathname.current = "/team"
+    const heading = stubScrolledHeading()
+    const { within: inBar } = renderBar({
+      page: (
+        <PageChrome
+          action={{
+            label: "Invite a teammate",
+            icon: Plus,
+            href: "/team/invite",
+          }}
+        />
+      ),
+    })
+    heading.scrollAway()
+    const link = await inBar.findByRole("link", { name: "Invite a teammate" })
+    expect(link).toHaveAttribute("href", "/team/invite")
+  })
+
+  it("shows no action on a page that registered none", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const { bar } = renderBar()
+    heading.scrollAway()
+    await vi.waitFor(() =>
+      expect(bar.querySelector('[data-slot="app-bar-title"]')).toHaveAttribute(
+        "data-visible",
+        "true"
+      )
+    )
+    expect(bar.querySelector('[data-slot="app-bar-action"]')).toBeNull()
+  })
+})
+
 describe("AppBar short back label", () => {
-  it("keeps the full label until the title echo shows, then shortens it", async () => {
+  it("shortens a listing area's back label from the start", async () => {
     pathname.current = "/listings/l1/hours"
     const heading = stubScrolledHeading()
     const { within: bar } = renderBar()
-    const full = await bar.findByRole("link", {
-      name: "Back to Old Crown Girton",
-    })
-    expect(full).toHaveTextContent("Old Crown Girton")
-
-    heading.scrollAway()
 
     // The visible word is the name's tail ("Back to Listing"), the full
     // label stays one hover or long-press away.
@@ -701,6 +887,72 @@ describe("AppBar short back label", () => {
     expect(short).not.toHaveTextContent("Old Crown Girton")
     expect(short).toHaveAttribute("title", "Old Crown Girton")
     expect(short).toHaveAttribute("href", "/listings/l1")
+
+    // Scrolling the title under the bar changes nothing for it.
+    heading.scrollAway()
+    expect(
+      await bar.findByRole("link", { name: "Back to Listing" })
+    ).toHaveTextContent("Listing")
+  })
+
+  it("says Listing on a listing area even when the name is short", async () => {
+    vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+      data: [
+        { id: "l1", name: "The Bell", clientId: "c1", clientName: "Bell" },
+      ],
+    } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+    pathname.current = "/listings/l1/photos"
+    const { within: bar } = renderBar()
+    const back = await bar.findByRole("link", { name: "Back to Listing" })
+    expect(back).not.toHaveTextContent("The Bell")
+    expect(back).toHaveAttribute("title", "The Bell")
+  })
+
+  it("keeps the full label on a listing area whose back goes elsewhere", async () => {
+    pathname.current = "/listings/l1/hours"
+    const heading = stubScrolledHeading()
+    const { within: bar } = renderBar({
+      page: (
+        <PageChrome
+          title="Opening hours"
+          back={{ href: "/clients/c1", label: "Old Crown Group" }}
+        />
+      ),
+    })
+    expect(
+      await bar.findByRole("link", { name: "Back to Old Crown Group" })
+    ).toHaveTextContent("Old Crown Group")
+    heading.scrollAway()
+    expect(
+      await bar.findByRole("link", { name: "Back to Client" })
+    ).toHaveAttribute("title", "Old Crown Group")
+  })
+
+  it("keeps the full label until the title echo shows on other deep pages", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const { within: bar } = renderBar({
+      page: (
+        <PageChrome
+          title="Connections"
+          back={{
+            href: "/settings?tab=notifications",
+            label: "Notification settings",
+          }}
+        />
+      ),
+    })
+    const full = await bar.findByRole("link", {
+      name: "Back to Notification settings",
+    })
+    expect(full).toHaveTextContent("Notification settings")
+
+    heading.scrollAway()
+
+    const short = await bar.findByRole("link", { name: "Back to Settings" })
+    expect(short).toHaveTextContent("Settings")
+    expect(short).not.toHaveTextContent("Notification")
+    expect(short).toHaveAttribute("title", "Notification settings")
   })
 
   it("leaves a label that already fits", async () => {

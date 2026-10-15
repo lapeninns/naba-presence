@@ -503,7 +503,7 @@ describe("HoursEditor phone-first controls", () => {
     const change = vi.fn()
     render(<HoursEditor value={value} onChange={change} disabled={false} />)
     await user.click(
-      screen.getByRole("button", { name: "Copy Monday’s hours to other days" })
+      screen.getByRole("button", { name: "Copy to… (Monday’s hours)" })
     )
     const dialog = await screen.findByRole("dialog")
     expect(screen.getAllByRole("dialog")).toHaveLength(1)

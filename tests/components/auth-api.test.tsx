@@ -202,12 +202,12 @@ describe("confirmStatusMessage", () => {
 describe("fieldErrorsFrom", () => {
   it("maps zod issue paths to field messages", () => {
     const error = new ApiClientError(400, "invalid_request", "x", [
-      { path: ["password"], message: "Include at least one number." },
+      { path: ["password"], message: "Use at least 12 characters." },
       { path: ["password"], message: "later duplicate" },
       { path: ["email"], message: "Enter a valid email address." },
     ])
     expect(fieldErrorsFrom(error)).toEqual({
-      password: "Include at least one number.",
+      password: "Use at least 12 characters.",
       email: "Enter a valid email address.",
     })
   })

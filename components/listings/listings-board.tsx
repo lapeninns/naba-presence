@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  ChevronDownIcon,
   CircleAlertIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -12,16 +13,24 @@ import * as React from "react"
 
 import { ShellLink } from "@/components/app-shell/shell-link"
 import { ClientAvatar } from "@/components/clients/client-avatar"
+import { AddListingsLink } from "@/components/listings/add-listings-link"
 import { FileUnderClient } from "@/components/listings/file-under-client"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
-import { Empty, EmptyIllustration } from "@/components/ui/empty"
 import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@/components/ui/segmented-control"
+  FilterChip,
+  FilterChipStrip,
+  filterChipClassName,
+} from "@/components/ui/chip"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Empty, EmptyIllustration } from "@/components/ui/empty"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -75,6 +84,61 @@ function isHealthFilter(value: string | null): value is HealthFilter {
 
 /** Worst health first across every client, or grouped under each client. */
 type BoardOrder = "health" | "client"
+
+const BOARD_ORDERS: readonly { value: BoardOrder; label: string }[] = [
+  { value: "health", label: "Worst first" },
+  { value: "client", label: "By client" },
+]
+
+/**
+ * The order, folded into the health strip as one chip ("Worst first ⌄"):
+ * a menu of the two orders (a sheet on a phone) rather than a row of its
+ * own. Styled as a filter chip, but not pressed: it names the current
+ * choice instead of switching a filter on.
+ */
+function OrderChip({
+  value,
+  onChange,
+  className,
+}: {
+  value: BoardOrder
+  onChange: (next: BoardOrder) => void
+  className?: string
+}) {
+  const current = BOARD_ORDERS.find((order) => order.value === value)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        data-slot="order-chip"
+        // The name contains the visible words (WCAG 2.5.3).
+        aria-label={`Order listings: ${current?.label}`}
+        className={filterChipClassName({
+          className: cn("data-popup-open:bg-fill", className),
+        })}
+      >
+        {current?.label}
+        <ChevronDownIcon aria-hidden strokeWidth={1.75} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" title="Order listings">
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(next: string) => onChange(next as BoardOrder)}
+        >
+          {BOARD_ORDERS.map((order) => (
+            <DropdownMenuRadioItem
+              key={order.value}
+              value={order.value}
+              closeOnClick
+              indicatorPosition="end"
+            >
+              {order.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 const UNFILED = "__unfiled__"
 /** As the inbox's search (review-filters.tsx): the URL follows a pause. */
@@ -327,29 +391,25 @@ function BoardTable({
   )
 }
 
-function BoardSkeleton() {
+function BoardSkeleton({ canManage = false }: { canManage?: boolean }) {
   const business = useWorkspaceMode() === "business"
   return (
     <div className="flex flex-col gap-4" aria-busy="true">
       {/* The toolbar's shape: the search pill on its own row, then the
-          chip strip (and, agency only, the order control), then the
-          summary line. */}
+          chip strip (and, agency only, the order chip at its end). */}
       <div className="flex flex-col gap-3">
         <Skeleton className="h-(--np-touch) w-full rounded-(--np-radius-pill) desk:h-(--np-control-h)" />
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <div className="flex gap-1.5 overflow-hidden">
-            {[0, 1, 2, 3, 4].map((index) => (
-              <Skeleton
-                key={index}
-                className="h-(--np-chip-h) w-24 shrink-0 rounded-(--np-radius-pill)"
-              />
-            ))}
-          </div>
+        <div className="flex gap-1.5 overflow-hidden">
+          {[0, 1, 2, 3, 4].map((index) => (
+            <Skeleton
+              key={index}
+              className="h-(--np-chip-h) w-24 shrink-0 rounded-(--np-radius-pill)"
+            />
+          ))}
           {business ? null : (
-            <Skeleton className="h-(--np-control-h) w-48 rounded-(--np-radius-control) md:ml-auto" />
+            <Skeleton className="h-(--np-chip-h) w-28 shrink-0 rounded-(--np-radius-pill)" />
           )}
         </div>
-        <Skeleton className="h-3.5 w-72 max-w-full" />
       </div>
       <BoardTable busy>
         {[0, 1, 2, 3, 4].map((index) => (
@@ -380,6 +440,11 @@ function BoardSkeleton() {
           </TableRow>
         ))}
       </BoardTable>
+      {canManage ? (
+        <div>
+          <AddListingsLink />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -397,8 +462,11 @@ function BoardSkeleton() {
  * waiting on which listing" without a single Google call. Below 48rem of
  * width each row becomes a compact record (name; client · address with the
  * health pill; one waiting figure; chevron) that is one tap target, and the
- * filters are pressed buttons throughout (client chips, health chips,
- * order), so moving through them by keyboard never re-filters the board.
+ * filters are pressed buttons (client chips, health chips), so moving
+ * through them by keyboard never re-filters the board. The order is one
+ * chip at the end of the health strip that opens a menu of the two orders,
+ * and "Add listings from Google" closes the list (it is not a header row
+ * above the first listing).
  */
 function ListingsBoard({
   role,
@@ -462,9 +530,7 @@ function ListingsBoard({
   )
   const order: BoardOrder = business ? "health" : orderState
 
-  const pendingSearch = React.useRef<{ q: string; timer: number } | null>(
-    null
-  )
+  const pendingSearch = React.useRef<{ q: string; timer: number } | null>(null)
   React.useEffect(
     () => () => window.clearTimeout(pendingSearch.current?.timer),
     []
@@ -527,23 +593,35 @@ function ListingsBoard({
     writeUrl({ order: value })
   }
 
-  if (directory.isPending) return <BoardSkeleton />
+  if (directory.isPending) return <BoardSkeleton canManage={canManage} />
   // A failed background refetch keeps the board it already has.
   if (directory.isError && !directory.data) {
     return (
-      <Empty
-        framed
-        variant="error"
-        titleAs="h2"
-        title="We couldn’t load your listings"
-        description="The listings service didn’t answer, so nothing is shown rather than a partial board. Nothing was changed."
-        action={
-          <Button variant="secondary" onClick={() => void directory.refetch()}>
-            <RefreshCwIcon aria-hidden />
-            Try again
-          </Button>
-        }
-      />
+      <div className="flex flex-col gap-4">
+        <Empty
+          framed
+          variant="error"
+          titleAs="h2"
+          title="We couldn’t load your listings"
+          description="The listings service didn’t answer, so nothing is shown rather than a partial board. Nothing was changed."
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => void directory.refetch()}
+            >
+              <RefreshCwIcon aria-hidden />
+              Try again
+            </Button>
+          }
+        />
+        {/* Setup does not depend on the directory, so owners and admins
+            can still add listings while it is down. */}
+        {canManage ? (
+          <div>
+            <AddListingsLink />
+          </div>
+        ) : null}
+      </div>
     )
   }
 
@@ -758,7 +836,7 @@ function ListingsBoard({
         <TableCell priority="trailing" className="@max-3xl/table:self-end">
           <span className="flex flex-col items-start gap-1 @max-3xl/table:items-end">
             {/* While the summaries are still loading, "Not checked" would
-                contradict the "Checking each listing…" line above, so the
+                contradict the "Checking each listing…" announcement, so the
                 pill waits. A health known without a summary still shows. */}
             {summaries.isPending && row.health === "unchecked" ? null : (
               <StatusPill tone={listingHealthTone(row.health)}>
@@ -834,11 +912,13 @@ function ListingsBoard({
           searchValue={search}
           onSearchChange={setSearch}
         />
-        {/* Two chip strips (health, then clients) and the order control.
+        {/* Two chip strips (health with the order chip, then clients).
             Each strip is its own FilterChipStrip so each keeps ITS pressed
             chip in view: on a phone a strip scrolls sideways (edge fade)
             rather than truncating a label; from md it wraps, so a desk sees
-            every chip. Each chip is a 44px target on touch. */}
+            every chip. Each chip is a 44px target on touch. A health chip
+            with nothing in it is not drawn, unless it is the one chosen (so
+            it can be left) or "All". */}
         <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-x-3">
           <FilterChipStrip className="-mx-5 px-5 md:mx-0 md:flex-wrap md:px-0.5">
             <div
@@ -852,11 +932,21 @@ function ListingsBoard({
                   pressed={health === filter.value}
                   onClick={() => setHealth(filter.value)}
                   count={formatNumber(healthCount(filter.value))}
+                  hideWhenZero={filter.value !== "all"}
                 >
                   {filter.label}
                 </FilterChip>
               ))}
             </div>
+            {business ? null : (
+              // Its own menu, so choosing an order never re-filters the
+              // board or moves the pressed chip.
+              <OrderChip
+                value={order}
+                onChange={setOrder}
+                className="md:ml-auto"
+              />
+            )}
           </FilterChipStrip>
           {clientChips.length > 1 ? (
             <FilterChipStrip className="-mx-5 px-5 md:mx-0 md:flex-wrap md:border-l md:border-line md:px-0.5 md:pl-3">
@@ -891,28 +981,18 @@ function ListingsBoard({
               </div>
             </FilterChipStrip>
           ) : null}
-          {business ? null : (
-            // Pressed buttons, like the chips: arrows move focus and
-            // Enter/Space choose, so moving through the options never
-            // re-filters the board or rewrites the address. At the end of
-            // the chip line on a desk; its own row on a phone.
-            <SegmentedControl
-              semantics="toggle"
-              aria-label="Order listings"
-              className="w-auto max-w-full min-w-0 flex-none self-start md:ml-auto md:self-auto"
-              value={order}
-              onValueChange={(next) => setOrder(next as BoardOrder)}
-            >
-              <SegmentedControlItem value="health" className="flex-none">
-                Worst first
-              </SegmentedControlItem>
-              <SegmentedControlItem value="client" className="flex-none">
-                By client
-              </SegmentedControlItem>
-            </SegmentedControl>
-          )}
         </div>
-        <p className="text-caption text-ink-muted" aria-live="polite">
+        {/* The count line, spoken rather than drawn: a polite live region
+            that announces "Checking each listing…" while the summaries load,
+            then how many listings there are (all of them, not just those a
+            filter leaves) and how healthy. It is drawn only when the check
+            of what is waiting failed, so that is never silent on screen. */}
+        <p
+          className={
+            summaries.isError ? "text-caption text-ink-muted" : "sr-only"
+          }
+          aria-live="polite"
+        >
           {summaries.isPending ? (
             "Checking each listing…"
           ) : (
@@ -1013,6 +1093,13 @@ function ListingsBoard({
           </BoardTable>
         </div>
       )}
+      {/* Owners and admins only, as the header action it replaces was. At
+          the end of the list so the first listing is not pushed down by it. */}
+      {canManage ? (
+        <div>
+          <AddListingsLink />
+        </div>
+      ) : null}
       {/* Docked to the bottom of a phone (the tab bar steps aside for it,
           see the chrome contract in globals.css), riding the keyboard, with
           a spacer that keeps the last listing reachable above it; sticky

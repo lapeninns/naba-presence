@@ -7,6 +7,7 @@ import {
   Expiry,
   OutcomeSummary,
   ReviewedWritePanel,
+  ReviewedWriteSteps,
   reviewedWriteSteps,
   SummaryList,
 } from "@/components/reviewed-write"
@@ -37,6 +38,13 @@ describe("reviewedWriteSteps", () => {
   })
   it("says when another person must approve", () => {
     expect(reviewedWriteSteps("approve", { secondApprover: true })[1]?.meta).toBe("Another person")
+  })
+  it("keeps every step's words on a phone by wrapping, not scrolling", () => {
+    const { container } = render(<ReviewedWriteSteps stage="approve" />)
+    const list = container.querySelector("ol")!
+    expect(list.className).toContain("max-md:flex-wrap")
+    expect(list.className).toContain("max-md:overflow-visible")
+    for (const word of ["Review", "Approve", "Send", "Outcome"]) expect(screen.getByText(word)).not.toHaveClass("max-md:sr-only")
   })
 })
 

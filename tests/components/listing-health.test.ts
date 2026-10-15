@@ -6,9 +6,11 @@ import {
 } from "@/lib/contracts/location-summary"
 import {
   googleChangedCount,
+  listingAttentionReason,
   listingHealth,
   listingHealthLabel,
   listingHealthTone,
+  noHoursOnGoogle,
   summariseListingHealth,
   syncStatusLabel,
   unpublishedCount,
@@ -115,6 +117,106 @@ describe("listingHealth", () => {
         }),
       })
     ).toBe("attention")
+  })
+
+  describe("no hours on Google", () => {
+    const now = new Date().toISOString()
+    const empty = (hours: Partial<ListingSummary["hours"]> = {}) =>
+      summary({
+        hours: {
+          status: "in_sync",
+          dirtyCount: 0,
+          observedAt: now,
+          checkStatus: "checked",
+          googleEmpty: true,
+          ...hours,
+        },
+      })
+
+    it("needs attention when everything else is healthy", () => {
+      expect(listingHealth({ linked: true, summary: empty() })).toBe(
+        "attention"
+      )
+      expect(noHoursOnGoogle(empty())).toBe(true)
+      expect(listingAttentionReason(empty())).toBe(
+        "Google shows no opening hours for this listing."
+      )
+    })
+
+    it("outranks unpublished edits", () => {
+      const value = summary({
+        hours: {
+          status: "in_sync",
+          dirtyCount: 0,
+          observedAt: now,
+          googleEmpty: true,
+        },
+        profile: { status: "core_dirty", dirtyCount: 2, observedAt: null },
+      })
+      expect(listingHealth({ linked: true, summary: value })).toBe("attention")
+      const hoursEdited = empty({ status: "core_dirty", dirtyCount: 1 })
+      expect(listingHealth({ linked: true, summary: hoursEdited })).toBe(
+        "attention"
+      )
+    })
+
+    it("leaves a listing with false or absent googleEmpty unchanged", () => {
+      expect(
+        listingHealth({ linked: true, summary: empty({ googleEmpty: false }) })
+      ).toBe("healthy")
+      expect(
+        listingHealth({
+          linked: true,
+          summary: empty({ googleEmpty: undefined }),
+        })
+      ).toBe("healthy")
+      expect(noHoursOnGoogle(empty({ googleEmpty: false }))).toBe(false)
+      expect(listingAttentionReason(empty({ googleEmpty: false }))).toBeNull()
+      expect(noHoursOnGoogle(null)).toBe(false)
+    })
+
+    it("is not claimed when the hours check failed or never happened, and never counts twice", () => {
+      const failed = empty({ checkStatus: "failed" })
+      expect(noHoursOnGoogle(failed)).toBe(false)
+      // The failed check already gives attention: one state, one reason.
+      expect(listingHealth({ linked: true, summary: failed })).toBe("attention")
+      expect(listingAttentionReason(failed)).toBeNull()
+      const never = empty({ status: "unknown", observedAt: null })
+      expect(noHoursOnGoogle(never)).toBe(false)
+      expect(listingHealth({ linked: true, summary: never })).toBe(
+        "partially_checked"
+      )
+    })
+
+    it("keeps the general sentence when something else also needs attention", () => {
+      const value = summary({
+        hours: {
+          status: "in_sync",
+          dirtyCount: 0,
+          observedAt: now,
+          googleEmpty: true,
+        },
+        posts: { drafts: 0, awaitingApproval: 0, failed: 1, published: 0 },
+      })
+      expect(listingHealth({ linked: true, summary: value })).toBe("attention")
+      expect(listingAttentionReason(value)).toBeNull()
+    })
+
+    it("does not override a login or access problem", () => {
+      expect(
+        listingHealth({
+          linked: true,
+          summary: {
+            ...empty(),
+            connection: {
+              status: "expired",
+              reconnectRequired: true,
+              googleEmail: null,
+            },
+          },
+        })
+      ).toBe("disconnected")
+    })
   })
 
   it("has changes to publish when local edits are not on Google", () => {

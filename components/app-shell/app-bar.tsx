@@ -8,6 +8,8 @@ import type { BackTarget } from "@/lib/navigation/back-target"
 import { clientPageKind } from "@/lib/clients/scope"
 import {
   destinationForPath,
+  entityBackLabel,
+  listingAreaParent,
   shortBackLabel,
 } from "@/lib/navigation/destinations"
 import { useClients } from "@/lib/queries/use-clients"
@@ -20,7 +22,11 @@ import { useShellBack } from "./breadcrumbs-context"
 import { ClientScopeChip, useScopeLabel } from "./client-switcher"
 import { CommandPaletteButton } from "./command-palette"
 import { NotificationsLink } from "./notifications-link"
-import { type PageChromeOverride, usePageChromeOverride } from "./page-chrome"
+import {
+  type PageChromeOverride,
+  type ShellAction,
+  usePageChromeOverride,
+} from "./page-chrome"
 import { ShellLink } from "./shell-link"
 import { useNeedsReplyCount } from "./use-needs-reply-count"
 
@@ -95,6 +101,31 @@ function ShellBackLink({
 }
 
 /**
+ * Calls `onChange` with whether `element` has scrolled up under the app bar
+ * (its bottom edge above the bar's bottom edge). The bar covers the top of
+ * the viewport, so "scrolled away" means gone under the bar, not off the
+ * screen. Returns the disconnect, or null where there is no
+ * IntersectionObserver (the element then counts as on screen).
+ */
+function observeScrolledAway(
+  element: HTMLElement,
+  onChange: (away: boolean) => void
+): (() => void) | null {
+  if (typeof IntersectionObserver === "undefined") return null
+  const bar = document.querySelector<HTMLElement>('[data-slot="app-bar"]')
+  const top = bar?.getBoundingClientRect().height ?? 0
+  const intersection = new IntersectionObserver(
+    ([entry]) => {
+      if (!entry) return
+      onChange(entry.boundingClientRect.bottom <= top + 1)
+    },
+    { rootMargin: `-${Math.round(top)}px 0px 0px 0px`, threshold: 0 }
+  )
+  intersection.observe(element)
+  return () => intersection.disconnect()
+}
+
+/**
  * The page's h1 text, visible in the bar only once the h1 has scrolled up
  * under it (the large-title pattern). While the h1 is on screen the bar
  * shows the workspace name instead, so it never repeats the heading right
@@ -117,7 +148,7 @@ function useCompactTitle(override: string | undefined) {
     const main = document.getElementById("main")
     if (!main) return
     let observed: HTMLElement | null = null
-    let intersection: IntersectionObserver | null = null
+    let stop: (() => void) | null = null
 
     const watch = () => {
       const next = main.querySelector<HTMLElement>("h1")
@@ -128,31 +159,19 @@ function useCompactTitle(override: string | undefined) {
         )
         return
       }
-      intersection?.disconnect()
+      stop?.()
+      stop = null
       observed = next
       if (!next) {
         setHeading({ text: "", hidden: false })
         return
       }
       setHeading({ text, hidden: false })
-      if (typeof IntersectionObserver === "undefined") return
-      // The bar covers the top of the viewport, so "scrolled away" means
-      // gone under the bar, not off the screen.
-      const bar = document.querySelector<HTMLElement>('[data-slot="app-bar"]')
-      const top = bar?.getBoundingClientRect().height ?? 0
-      intersection = new IntersectionObserver(
-        ([entry]) => {
-          if (!entry) return
-          const above = entry.boundingClientRect.bottom <= top + 1
-          setHeading((previous) =>
-            previous.hidden === above
-              ? previous
-              : { ...previous, hidden: above }
-          )
-        },
-        { rootMargin: `-${Math.round(top)}px 0px 0px 0px`, threshold: 0 }
+      stop = observeScrolledAway(next, (above) =>
+        setHeading((previous) =>
+          previous.hidden === above ? previous : { ...previous, hidden: above }
+        )
       )
-      intersection.observe(next)
     }
 
     watch()
@@ -165,7 +184,7 @@ function useCompactTitle(override: string | undefined) {
     })
     return () => {
       mutations.disconnect()
-      intersection?.disconnect()
+      stop?.()
     }
   }, [pathname])
 
@@ -173,6 +192,47 @@ function useCompactTitle(override: string | undefined) {
     text: override ?? heading.text,
     visible: heading.hidden && Boolean(override ?? heading.text),
   }
+}
+
+/**
+ * Whether the page header's own actions (`PageHeader` `actions`, marked
+ * `data-slot="page-header-actions"`) have scrolled under the bar: the moment
+ * a page's `<PageChrome action>` takes over in the bar. Null while `enabled`
+ * is off or the page has no such element, so the caller falls back to the
+ * h1's signal.
+ */
+function useHeaderActionsAway(enabled: boolean): boolean | null {
+  const pathname = usePathname()
+  const [away, setAway] = React.useState<boolean | null>(null)
+
+  React.useEffect(() => {
+    const main = document.getElementById("main")
+    if (!enabled || !main) return
+    let observed: HTMLElement | null = null
+    let stop: (() => void) | null = null
+
+    const watch = () => {
+      const next = main.querySelector<HTMLElement>(
+        '[data-slot="page-header-actions"]'
+      )
+      if (next === observed) return
+      stop?.()
+      stop = null
+      observed = next
+      setAway(next ? false : null)
+      if (next) stop = observeScrolledAway(next, setAway)
+    }
+
+    watch()
+    const mutations = new MutationObserver(watch)
+    mutations.observe(main, { childList: true, subtree: true })
+    return () => {
+      mutations.disconnect()
+      stop?.()
+    }
+  }, [pathname, enabled])
+
+  return enabled ? away : null
 }
 
 /**
@@ -214,7 +274,8 @@ const INBOX_HREF = "/inbox"
  *   words (the name fades out as the title fades in, a plain swap under
  *   reduced motion), with the view's count after it in muted figures. On a
  *   deep page the back label shortens to "‹ Listing" beside the title.
- * - Trailing: at most two 44px controls. With a scope switcher to show:
+ * - Trailing: two 44px controls (a third, the page's own action, joins
+ *   them below). With a scope switcher to show:
  *   one action (search, or notifications where the page has its own
  *   search, the Inbox) then the scope trigger; the bell moves into More,
  *   whose tab carries its badge. Without one: search (left out on the
@@ -222,6 +283,12 @@ const INBOX_HREF = "/inbox"
  *   organisation-wide page (`scoped: false` in the destination registry:
  *   Team, Settings, Notifications) always gets search and notifications,
  *   never the scope trigger it would ignore.
+ *
+ * - A page's primary action (`<PageChrome action>`) joins the trailing
+ *   controls as a third, in front of them, once the page header's own
+ *   actions have scrolled under the bar (the h1, for a header with none):
+ *   the header button is gone from view, so the bar takes over and the two
+ *   are never on screen together (SET-25).
  *
  * Every label that can still truncate carries its full value in `title`
  * (the back control, the workspace name, the title, the scope's name).
@@ -245,6 +312,7 @@ function AppBar({
   const pathname = usePathname()
   const override = usePageChromeOverride()
   const title = useCompactTitle(override.title)
+  const actionsAway = useHeaderActionsAway(Boolean(override.action))
   const destination = destinationForPath(pathname)
   const ownSearch = destination?.ownSearch === true
   const orgWide = destination?.scoped === false
@@ -277,6 +345,12 @@ function AppBar({
             // row past a 320px screen; each control keeps its 44px.
             className="flex min-w-0 shrink items-center"
           >
+            {/* The page's primary action, only once the header's own actions
+                have scrolled away (the h1, for a header with none); see
+                PageChrome `action`. */}
+            {override.action && (actionsAway ?? title.visible) ? (
+              <AppBarAction action={override.action} />
+            ) : null}
             {orgWide ? (
               <>
                 <CommandPaletteButton onClick={onOpenPalette} />
@@ -310,6 +384,59 @@ function AppBar({
         ) : null}
       </div>
     </header>
+  )
+}
+
+/**
+ * The page's primary action as a trailing 44px control (`<PageChrome
+ * action>`): an icon button when the page gave an icon, otherwise its label
+ * as text. Either way its accessible name is the label, and it is the same
+ * name the page's header button carries.
+ */
+function AppBarAction({ action }: { action: ShellAction }) {
+  const Icon = action.icon
+  const pending = Boolean(action.pending) && !action.href
+  // Inert while pending but still focusable, like Button's pending state:
+  // focus stays put and the new name is announced.
+  const name =
+    pending && action.pendingLabel ? action.pendingLabel : action.label
+  const className = cn(
+    "grid h-11 min-w-11 shrink-0 place-items-center rounded-md text-accent-ink",
+    "transition-colors duration-(--np-duration-fast) hover:bg-fill",
+    "focus-halo focus-visible:outline-none aria-busy:cursor-progress aria-disabled:opacity-50",
+    Icon ? "w-11" : "px-2 text-ui font-medium whitespace-nowrap"
+  )
+  const content = Icon ? (
+    <Icon className="size-5" strokeWidth={2} aria-hidden />
+  ) : (
+    name
+  )
+  if (action.href) {
+    return (
+      <ShellLink
+        href={action.href}
+        data-slot="app-bar-action"
+        aria-label={Icon ? name : undefined}
+        title={Icon ? name : undefined}
+        className={className}
+      >
+        {content}
+      </ShellLink>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-slot="app-bar-action"
+      aria-label={Icon ? name : undefined}
+      title={Icon ? name : undefined}
+      aria-disabled={pending || undefined}
+      aria-busy={pending || undefined}
+      onClick={pending ? undefined : action.onSelect}
+      className={className}
+    >
+      {content}
+    </button>
   )
 }
 
@@ -413,17 +540,25 @@ function AppBarLeading({
   count: number | undefined
 }) {
   const back = useShellBack()
+  const pathname = usePathname()
   const name = organisationName ?? "NabaPresence"
+  // A listing area's header row already names the listing, so its back
+  // control says what it goes back to ("‹ Listing") from the start, even
+  // for a short name; elsewhere the full label stays until the title echo
+  // takes its place.
+  const areaParent = listingAreaParent(pathname)
+  const shortLabel = !back
+    ? undefined
+    : areaParent !== null && back.href.split(/[?#]/)[0] === areaParent
+      ? (entityBackLabel(back) ?? shortBackLabel(back))
+      : title.visible
+        ? shortBackLabel(back)
+        : undefined
   const fade =
     "transition-[opacity,visibility] duration-(--np-duration-fast) motion-reduce:transition-none"
   return (
     <>
-      {back ? (
-        <ShellBackLink
-          target={back}
-          shortLabel={title.visible ? shortBackLabel(back) : undefined}
-        />
-      ) : null}
+      {back ? <ShellBackLink target={back} shortLabel={shortLabel} /> : null}
       <div className="grid min-w-0 flex-1 items-center">
         {back ? null : (
           <span

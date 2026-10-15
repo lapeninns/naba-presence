@@ -12,7 +12,15 @@ import {
 describe("complete hours replacement preview", () => {
   it("ignores closed-day end dates in both the preview and comparison hash", () => {
     const google = emptyHours()
-    google.special = [{ effectiveDate: "2026-12-24", endDate: "2026-12-26", isClosed: true, opensAt: null, closesAt: null }]
+    google.special = [
+      {
+        effectiveDate: "2026-12-24",
+        endDate: "2026-12-26",
+        isClosed: true,
+        opensAt: null,
+        closesAt: null,
+      },
+    ]
     const draft = structuredClone(google)
     draft.special[0].endDate = "2026-12-25"
     expect(hoursChangeRows({ google, draft, canonical: google })).toEqual([])
@@ -39,8 +47,8 @@ describe("complete hours replacement preview", () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       field: "BAR · Sunday",
-      before: "6:00 pm – 2:00 am (Monday)",
-      after: "6:00 pm – 3:00 am (Monday)",
+      before: "18:00 – 02:00 (Monday)",
+      after: "18:00 – 03:00 (Monday)",
     })
   })
 
@@ -81,9 +89,9 @@ describe("complete hours replacement preview", () => {
     draft.special[1].closesAt = "03:00"
     const rows = hoursChangeRows({ google, draft, canonical: google })
     expect(rows).toHaveLength(1)
-    expect(rows[0].before).toContain("12:00 pm – 3:00 pm")
-    expect(rows[0].before).toContain("2:00 am (2027-01-01)")
-    expect(rows[0].after).toContain("3:00 am (2027-01-01)")
+    expect(rows[0].before).toContain("12:00 – 15:00")
+    expect(rows[0].before).toContain("02:00 (2027-01-01)")
+    expect(rows[0].after).toContain("03:00 (2027-01-01)")
   })
 
   it("compares equivalent legacy same-day boundaries equally", () => {

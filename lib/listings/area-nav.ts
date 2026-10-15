@@ -116,14 +116,24 @@ export function listingAreaNavItems({
         countNoun: "waiting",
       })
     ),
-    {
-      key: "changes",
-      href: listingHref(locationId, "changes"),
-      label: "Review & publish",
-      current: current === "changes",
-      unavailableReason: null,
-      count: toPublish,
-      countNoun: "to publish",
-    },
+    // A role that can neither edit nor publish has nothing to review or send,
+    // so the step is left out (a direct link still opens, and stays marked).
+    ...(current !== "changes" &&
+    caps &&
+    caps.canEditCanonical === false &&
+    caps.canPublish === false &&
+    !caps.canRequestApproval
+      ? []
+      : [
+          {
+            key: "changes",
+            href: listingHref(locationId, "changes"),
+            label: "Review & publish",
+            current: current === "changes",
+            unavailableReason: null,
+            count: toPublish,
+            countNoun: "to publish",
+          } satisfies ListingAreaNavItem,
+        ]),
   ]
 }

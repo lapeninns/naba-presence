@@ -44,9 +44,12 @@ test.describe("connections OAuth return", () => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/settings/connections")
-    const disconnect = page.getByRole("button", { name: /^Disconnect/ })
-    await expect(disconnect.first()).toBeVisible()
-    await disconnect.first().click()
+    // Disconnect is the last item in the account's ⋯ menu, not a button in
+    // the headline spot.
+    const actions = page.getByRole("button", { name: /^Actions for / })
+    await expect(actions.first()).toBeVisible()
+    await actions.first().click()
+    await page.getByRole("menuitem", { name: /^Disconnect/ }).click()
     const dialog = page.getByRole("alertdialog")
     await expect(dialog).toBeVisible()
     // The popup fades and scales in (components/ui/alert-dialog.tsx). Axe
@@ -58,5 +61,44 @@ test.describe("connections OAuth return", () => {
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
       .analyze()
     expect(wcag.violations).toEqual([])
+  })
+
+  test("on a phone the app bar takes over Connect another account once the header button has scrolled away", async ({ baseURL, page }) => {
+    const state = await readJourneyState()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/settings/connections")
+    const header = page.getByRole("main").getByRole("button", { name: "Connect another account" })
+    const barAction = page
+      .locator('header[data-slot="app-bar"]')
+      .getByRole("button", { name: "Connect another account" })
+    await expect(header).toBeVisible()
+    // Before scrolling the header owns it: never two on screen.
+    await expect(barAction).toHaveCount(0)
+
+    // Scroll until the header button is under the app bar.
+    await header.evaluate((element) => {
+      const top = document.querySelector('[data-slot="app-bar"]')?.getBoundingClientRect().height ?? 0
+      window.scrollBy(0, element.getBoundingClientRect().bottom - top + 8)
+    })
+    await expect(barAction).toBeVisible()
+    // The header button sits under the sticky bar now (still "in the
+    // viewport", but covered): its bottom edge is above the bar's.
+    const covered = await header.evaluate((element) => {
+      const bar = document.querySelector('[data-slot="app-bar"]')
+      return (
+        element.getBoundingClientRect().bottom <=
+        (bar?.getBoundingClientRect().bottom ?? 0)
+      )
+    })
+    expect(covered).toBe(true)
+    const box = await barAction.boundingBox()
+    expect(box!.width).toBeGreaterThanOrEqual(44)
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+
+    // And back at the top the header has it again.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await expect(barAction).toHaveCount(0)
+    await expect(header).toBeVisible()
   })
 })

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import type * as React from "react"
 import { useState } from "react"
 
 import {
@@ -62,11 +63,17 @@ export function ClientAccessDialog({
   open,
   member,
   onOpenChange,
+  finalFocus,
 }: {
   open: boolean
   /** Kept after close so the popup does not empty while it animates out. */
   member: Member | null
   onOpenChange: (open: boolean) => void
+  /**
+   * Where focus goes when it closes; by default, back to what opened it.
+   * Pass it when the opener is gone (a member sheet that handed over).
+   */
+  finalFocus?: React.RefObject<HTMLElement | null>
 }) {
   const terms = workspaceTerms(useWorkspaceMode())
   // Unsaved picks guard an accidental dismissal; cleared whenever it closes.
@@ -86,7 +93,11 @@ export function ClientAccessDialog({
           "These changes haven’t been saved. Their access stays as it was.",
       }}
     >
-      <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
+      <DialogContent
+        size="wide"
+        className="grid-cols-[minmax(0,1fr)]"
+        finalFocus={finalFocus}
+      >
         <DialogHeader>
           <DialogTitle>{terms.access}</DialogTitle>
           <DialogDescription>

@@ -29,6 +29,7 @@ import type {
   HoursSelectionInput,
   HoursState,
 } from "@/lib/contracts/location-hours"
+import { SERVICE_OPTIONS_WARNING } from "@/lib/editors/hours-notes"
 import { writeAudit } from "@/lib/server/audit"
 import {
   ensureCanonicalResource,
@@ -188,9 +189,7 @@ async function readLiveHours(
       )
         throw error
       googleLocation = { ...googleLocation, categories: undefined }
-      metadataWarnings.push(
-        "Google service-type metadata could not be loaded. Existing services are preserved; adding services is unavailable until the lookup succeeds."
-      )
+      metadataWarnings.push(SERVICE_OPTIONS_WARNING)
     }
   }
   const google = normalizeGoogleHours(googleLocation)

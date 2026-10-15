@@ -57,9 +57,7 @@ export function PostPreview({
     : ""
   return (
     <figure className="m-0 flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line-subtle bg-surface">
-      <figcaption className="border-b border-line-subtle bg-surface-alt px-3 py-2 text-caption font-medium text-ink-muted">
-        Preview
-      </figcaption>
+      <figcaption className="sr-only">Preview</figcaption>
       {imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- a remote Google/merchant URL shown as-is
         <img

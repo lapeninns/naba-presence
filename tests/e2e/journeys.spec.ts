@@ -36,13 +36,20 @@ async function replyBox(page: Page) {
  * Write the reply, then press Publish once: it saves and checks the text
  * (`POST …/drafts`), then publishes the draft that save returned.
  */
-async function writeAndPublish(page: Page, reviewId: string, body: string) {
+async function writeAndPublish(
+  page: Page,
+  reviewId: string,
+  body: string,
+  // Under the two-person rule a publisher's press is parked for a second
+  // person, so the same publish call is worded "Submit for approval" (D1).
+  { submit = false }: { submit?: boolean } = {}
+) {
   const box = await replyBox(page)
   await box.fill(body)
   // The pane's single status line (lib/inbox/reply-state.ts): written but not
   // yet checked is still ready, because the press runs the check.
   await expect(page.locator('[data-slot="reply-status-strip"]')).toContainText(
-    "Ready to publish"
+    submit ? "Ready to submit for approval" : "Ready to publish"
   )
   const saved = page.waitForResponse(
     (r) =>
@@ -54,7 +61,11 @@ async function writeAndPublish(page: Page, reviewId: string, body: string) {
       r.request().method() === "POST" &&
       new URL(r.url()).pathname === `/api/reviews/${reviewId}/publish`
   )
-  await page.getByRole("button", { name: /^Publish reply/ }).click()
+  await page
+    .getByRole("button", {
+      name: submit ? /^Submit for approval/ : /^Publish reply/,
+    })
+    .click()
   expect((await saved).status()).toBe(201)
   const response = await published
   // The publish must carry the draft the press just saved, not an older one.
@@ -119,9 +130,11 @@ test.describe("inbox critical journeys", () => {
     )
     expect(published.status()).toBe(200)
     // The toast, specifically, so the assertion does not depend on anything
-    // else on the page reading the same words.
+    // else on the page reading the same words. The Google stub answers the
+    // reply with no moderation state, which the server reads as PENDING, so
+    // the toast says it is sent and under Google's check, not live (R01a).
     await expect(
-      page.locator('[data-slot="toast-title"]', { hasText: "Reply published" })
+      page.locator('[data-slot="toast-title"]', { hasText: "Reply sent" })
     ).toBeVisible()
   })
 
@@ -141,12 +154,22 @@ test.describe("inbox critical journeys", () => {
     const requested = await writeAndPublish(
       page,
       state.approval.reviewId,
-      "Thank you for sharing your experience. Our team appreciates your kind feedback."
+      "Thank you for sharing your experience. Our team appreciates your kind feedback.",
+      { submit: true }
     )
     expect(requested.status()).toBe(202)
     await expect(
       page.getByText("Submitted for approval", { exact: true })
     ).toBeVisible()
+    // The person who asked cannot be the second approver: the pane says who
+    // it waits on and offers no Approve or Reject (D1, server approvalScope).
+    const selected = page.getByRole("region", { name: "Selected review" })
+    await expect(
+      selected.getByText("Waiting for another approver").first()
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Approve reply" })
+    ).toHaveCount(0)
 
     // Approver (owner) — a fresh context. Approval is one tab now: the
     // aggregate of everything parked at `awaiting_approval`, whoever it waits
@@ -196,9 +219,10 @@ test.describe("inbox critical journeys", () => {
     )
     await approver.getByRole("button", { name: "Approve reply" }).click()
     expect((await approved).status()).toBe(200)
+    // Sent, under Google's check (the stub sends no moderation state).
     await expect(
       approver.locator('[data-slot="toast-title"]', {
-        hasText: "Reply published",
+        hasText: "Reply sent",
       })
     ).toBeVisible()
     await approverContext.close()

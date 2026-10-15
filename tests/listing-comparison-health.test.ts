@@ -39,6 +39,34 @@ describe("evidence-based listing and client health", () => {
     summary.hours.observedAt = "2000-01-01T00:00:00Z"
     expect(listingHealth({ linked: true, summary })).toBe("partially_checked")
   })
+  it("counts a listing with no hours on Google under client attention", () => {
+    // lib/server/clients.ts maps each listing through `listingHealth` and
+    // counts "attention" under `canonicalChecks.attention`; clientHealth then
+    // reads that count. There is no pure seam around the SQL read itself.
+    const summary = checked()
+    summary.hours.googleEmpty = true
+    expect(listingHealth({ linked: true, summary })).toBe("attention")
+    expect(
+      clientHealth({
+        connections: [
+          {
+            status: "active" as const,
+            reconnectRequired: false,
+            lastRefreshAt: now,
+          },
+        ],
+        linkedLocationCount: 1,
+        backfill: { running: 0, failed: 0 },
+        canonicalChecks: {
+          total: 1,
+          checked: 0,
+          partial: 0,
+          attention: 1,
+          unpublished: 0,
+        },
+      })
+    ).toBe("attention")
+  })
   it("does not call review-only client freshness fully checked", () => {
     const input = {
       connections: [

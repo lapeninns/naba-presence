@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // A working address bar: router.replace rewrites what useSearchParams reads.
@@ -41,6 +42,7 @@ vi.mock("next/navigation", async () => {
 
 import { NotificationsView } from "@/components/notifications/notifications-view"
 import { NotificationPreferences } from "@/components/settings/notification-preferences"
+import { Toaster } from "@/components/ui/toast"
 
 const LOCATION = "11111111-1111-4111-8111-111111111111"
 const item = (overrides: Record<string, unknown>) => ({
@@ -445,43 +447,111 @@ describe("NotificationsView rows and empty states", () => {
   })
 })
 
-describe("NotificationPreferences", () => {
-  it("explains missing email configuration and saves one choice at a time", async () => {
-    const preferences = [
-      {
-        kind: "publication_failed",
-        channel: "in_app",
-        mode: "immediate",
-        explicit: false,
-      },
-      {
-        kind: "publication_failed",
-        channel: "email",
-        mode: "off",
-        explicit: false,
-      },
-    ]
-    const calls = stub((call) =>
-      call.method === "PUT"
-        ? {
-            emailConfigured: false,
-            preferences: preferences.map((row) =>
-              row.channel === "in_app"
-                ? { ...row, mode: "off", explicit: true }
-                : row
-            ),
-          }
-        : { emailConfigured: false, preferences }
-    )
-    renderWith(<NotificationPreferences />)
-    expect(await screen.findByText("Email is not set up")).toBeInTheDocument()
-    const toggle = screen.getByRole("switch", {
-      name: "In app: Publishing failed",
+type Preference = {
+  kind: string
+  channel: "in_app" | "email"
+  mode: "immediate" | "digest" | "off"
+  explicit: boolean
+}
+const pref = (
+  kind: string,
+  channel: Preference["channel"],
+  mode: Preference["mode"]
+): Preference => ({ kind, channel, mode, explicit: false })
+
+/**
+ * A server that keeps the preferences: a PUT applies its changes (or fails
+ * with 422 when `failPut`, or waits for `release()` when `hold`) and every
+ * GET returns what it holds.
+ */
+function preferenceServer({
+  emailConfigured,
+  preferences,
+  failPut = false,
+  hold = false,
+}: {
+  emailConfigured: boolean
+  preferences: Preference[]
+  failPut?: boolean
+  hold?: boolean
+}) {
+  let state = preferences
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  const calls: Call[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      const call = {
+        url: String(url),
+        method: init.method ?? "GET",
+        body: init.body ? JSON.parse(String(init.body)) : undefined,
+      }
+      calls.push(call)
+      if (call.method === "PUT") {
+        if (hold) await gate
+        if (failPut)
+          return new Response(
+            JSON.stringify({ error: "invalid_request", message: "Refused." }),
+            { status: 422, headers: { "content-type": "application/json" } }
+          )
+        const changes = (call.body as { changes: Preference[] }).changes
+        state = state.map((row) => {
+          const change = changes.find(
+            (c) => c.kind === row.kind && c.channel === row.channel
+          )
+          return change ? { ...row, mode: change.mode, explicit: true } : row
+        })
+      }
+      return new Response(
+        JSON.stringify({ emailConfigured, preferences: state }),
+        { headers: { "content-type": "application/json" } }
+      )
     })
+  )
+  return { calls, release: () => release() }
+}
+const renderPreferences = (role: string | null = "member") =>
+  renderWith(
+    <Toaster>
+      <NotificationPreferences role={role} />
+    </Toaster>
+  )
+const puts = (calls: Call[]) => calls.filter((call) => call.method === "PUT")
+
+describe("NotificationPreferences", () => {
+  const publishing = [
+    pref("publication_failed", "in_app", "immediate"),
+    pref("publication_failed", "email", "off"),
+  ]
+  const twoEvents = [
+    ...publishing,
+    pref("schedule_missed", "in_app", "immediate"),
+    pref("schedule_missed", "email", "off"),
+  ]
+
+  it("tells a member email is unavailable, offers no email rows and saves a switch", async () => {
+    const { calls } = preferenceServer({
+      emailConfigured: false,
+      preferences: publishing,
+    })
+    renderPreferences("member")
+    expect(
+      await screen.findByText(
+        "Email notifications aren’t available for this workspace yet. You’ll still see them in the app."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Operations" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: /^Email:/ })
+    ).not.toBeInTheDocument()
+    const toggle = screen.getByRole("switch", { name: "Publishing failed" })
     expect(toggle).toBeChecked()
     fireEvent.click(toggle)
     await waitFor(() =>
-      expect(calls.find((call) => call.method === "PUT")?.body).toEqual({
+      expect(puts(calls)[0]?.body).toEqual({
         changes: [
           { kind: "publication_failed", channel: "in_app", mode: "off" },
         ],
@@ -489,56 +559,162 @@ describe("NotificationPreferences", () => {
     )
     await waitFor(() =>
       expect(
-        screen.getByRole("switch", { name: "In app: Publishing failed" })
+        screen.getByRole("switch", { name: "Publishing failed" })
       ).not.toBeChecked()
     )
   })
 
-  it("turns every in-app choice on in one request from the group action", async () => {
-    const preferences = [
-      {
-        kind: "publication_failed",
-        channel: "in_app",
-        mode: "off",
-        explicit: true,
-      },
-      {
-        kind: "publication_failed",
-        channel: "email",
-        mode: "off",
-        explicit: false,
-      },
-      {
-        kind: "schedule_missed",
-        channel: "in_app",
-        mode: "immediate",
-        explicit: false,
-      },
-      {
-        kind: "schedule_missed",
-        channel: "email",
-        mode: "off",
-        explicit: false,
-      },
-    ]
-    const calls = stub((call) =>
-      call.method === "PUT"
-        ? {
-            emailConfigured: true,
-            preferences: preferences.map((row) =>
-              row.channel === "in_app"
-                ? { ...row, mode: "immediate", explicit: true }
-                : row
-            ),
-          }
-        : { emailConfigured: true, preferences }
+  it("points an owner or admin to Operations", async () => {
+    preferenceServer({ emailConfigured: false, preferences: publishing })
+    renderPreferences("admin")
+    expect(
+      await screen.findByRole("link", { name: "Operations" })
+    ).toHaveAttribute("href", "/settings/operations")
+  })
+
+  it("shows a switch change at once and disables only the row being saved", async () => {
+    const { calls, release } = preferenceServer({
+      emailConfigured: true,
+      preferences: twoEvents,
+      hold: true,
+    })
+    renderPreferences("owner")
+    const publishingSwitch = await screen.findByRole("switch", {
+      name: "Publishing failed",
+    })
+    fireEvent.click(publishingSwitch)
+    // The request has not returned, yet the screen already shows the choice.
+    await waitFor(() => expect(puts(calls)).toHaveLength(1))
+    expect(publishingSwitch).not.toBeChecked()
+    expect(publishingSwitch).toHaveAttribute("aria-disabled", "true")
+    // Every other control stays live.
+    expect(
+      screen.getByRole("switch", { name: "Scheduled post missed" })
+    ).not.toHaveAttribute("aria-disabled", "true")
+    expect(
+      screen.getByRole("combobox", { name: "Email: Publishing failed" })
+    ).toBeEnabled()
+    // The group action waits for it: a bulk change sent now could be
+    // overwritten by this earlier save.
+    expect(
+      screen.getByRole("button", { name: "Turn all on in app" })
+    ).toBeDisabled()
+    release()
+    await waitFor(() =>
+      expect(publishingSwitch).not.toHaveAttribute("aria-disabled", "true")
     )
-    renderWith(<NotificationPreferences />)
+    expect(publishingSwitch).not.toBeChecked()
+    expect(
+      screen.getByRole("button", { name: "Turn all on in app" })
+    ).toBeEnabled()
+  })
+
+  it("sends saves one at a time, in the order they were made", async () => {
+    const { calls, release } = preferenceServer({
+      emailConfigured: true,
+      preferences: twoEvents,
+      hold: true,
+    })
+    renderPreferences("owner")
+    const first = await screen.findByRole("switch", {
+      name: "Publishing failed",
+    })
+    const second = screen.getByRole("switch", {
+      name: "Scheduled post missed",
+    })
+    fireEvent.click(first)
+    fireEvent.click(second)
+    // Both show before any answer, but only the first request is out.
+    await waitFor(() => expect(first).not.toBeChecked())
+    await waitFor(() => expect(second).not.toBeChecked())
+    await waitFor(() => expect(puts(calls)).toHaveLength(1))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(puts(calls)).toHaveLength(1)
+    release()
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    expect(puts(calls).map((call) => call.body)).toEqual([
+      {
+        changes: [
+          { kind: "publication_failed", channel: "in_app", mode: "off" },
+        ],
+      },
+      {
+        changes: [{ kind: "schedule_missed", channel: "in_app", mode: "off" }],
+      },
+    ])
+  })
+
+  it("leaves a row changed after the bulk action alone on Undo", async () => {
+    const { calls } = preferenceServer({
+      emailConfigured: true,
+      preferences: twoEvents.map((row) =>
+        row.channel === "in_app" ? { ...row, mode: "off" as const } : row
+      ),
+    })
+    renderPreferences("owner")
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Turn all on in app" })
+    )
+    await screen.findByText("Turned on in-app notifications")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Publishing failed" })
+      ).not.toHaveAttribute("aria-disabled", "true")
+    )
+    // A newer choice on one row…
+    fireEvent.click(screen.getByRole("switch", { name: "Publishing failed" }))
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Publishing failed" })
+      ).not.toHaveAttribute("aria-disabled", "true")
+    )
+    // …survives Undo, which puts back only the row the bulk change left as
+    // it was.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+    await waitFor(() => expect(puts(calls)).toHaveLength(3))
+    expect(puts(calls)[2]?.body).toEqual({
+      changes: [{ kind: "schedule_missed", channel: "in_app", mode: "off" }],
+    })
+  })
+
+  it("puts a refused choice back and says why", async () => {
+    preferenceServer({
+      emailConfigured: true,
+      preferences: publishing,
+      failPut: true,
+    })
+    renderPreferences("owner")
+    fireEvent.click(
+      await screen.findByRole("switch", { name: "Publishing failed" })
+    )
+    expect(
+      await screen.findByText("Your notification choice wasn’t saved")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Refused.")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Publishing failed" })
+      ).toBeChecked()
+    )
+  })
+
+  it("turns every in-app choice on in one request and offers Undo", async () => {
+    const { calls } = preferenceServer({
+      emailConfigured: true,
+      preferences: [
+        pref("publication_failed", "in_app", "off"),
+        pref("publication_failed", "email", "off"),
+        pref("schedule_missed", "in_app", "immediate"),
+        pref("schedule_missed", "email", "off"),
+      ],
+    })
+    renderPreferences("owner")
     fireEvent.click(
       await screen.findByRole("button", { name: "Turn all on in app" })
     )
     await waitFor(() =>
-      expect(calls.find((call) => call.method === "PUT")?.body).toEqual({
+      expect(puts(calls)[0]?.body).toEqual({
         changes: [
           { kind: "publication_failed", channel: "in_app", mode: "immediate" },
           { kind: "schedule_missed", channel: "in_app", mode: "immediate" },
@@ -548,5 +724,86 @@ describe("NotificationPreferences", () => {
     expect(
       await screen.findByRole("button", { name: "Turn all off in app" })
     ).toBeInTheDocument()
+    // Undo restores what each row held before, in one request.
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }))
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    expect(puts(calls)[1]?.body).toEqual({
+      changes: [{ kind: "publication_failed", channel: "in_app", mode: "off" }],
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Publishing failed" })
+      ).not.toBeChecked()
+    )
+    expect(
+      screen.getByRole("switch", { name: "Scheduled post missed" })
+    ).toBeChecked()
+  })
+
+  it("still offers Undo when another save starts before the bulk action returns", async () => {
+    const { calls, release } = preferenceServer({
+      emailConfigured: true,
+      preferences: twoEvents.map((row) =>
+        row.channel === "in_app" ? { ...row, mode: "off" as const } : row
+      ),
+      hold: true,
+    })
+    renderPreferences("owner")
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Turn all on in app" })
+    )
+    await waitFor(() => expect(puts(calls)).toHaveLength(1))
+    // A second save starts while the bulk request is still out.
+    await userEvent.click(
+      screen.getByRole("combobox", { name: "Email: Publishing failed" })
+    )
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Daily summary" })
+    )
+    // Saves go out one at a time, so the second waits behind the first.
+    await waitFor(() => expect(puts(calls)).toHaveLength(1))
+    release()
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    expect(
+      await screen.findByText("Turned on in-app notifications")
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument()
+  })
+
+  it("draws no empty card for the email group without a provider", async () => {
+    preferenceServer({ emailConfigured: false, preferences: publishing })
+    renderPreferences("member")
+    await screen.findByRole("heading", { name: "By email" })
+    const group = document.getElementById("notification-email")!
+    expect(group).not.toHaveAttribute("data-card")
+    expect(group.querySelector("ul")).toBeNull()
+  })
+
+  it("sets the email cadence from a titled sheet row once email is available", async () => {
+    const { calls } = preferenceServer({
+      emailConfigured: true,
+      preferences: publishing,
+    })
+    renderPreferences("owner")
+    const row = await screen.findByRole("combobox", {
+      name: "Email: Publishing failed",
+    })
+    expect(row).toHaveTextContent("Off")
+    await userEvent.click(row)
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Daily summary" })
+    )
+    await waitFor(() =>
+      expect(puts(calls)[0]?.body).toEqual({
+        changes: [
+          { kind: "publication_failed", channel: "email", mode: "digest" },
+        ],
+      })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Email: Publishing failed" })
+      ).toHaveTextContent("Daily summary")
+    )
   })
 })

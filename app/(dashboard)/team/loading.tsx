@@ -1,9 +1,11 @@
-import { Skeleton } from "@/components/ui/skeleton"
+import { MembersSkeleton } from "@/components/settings/team-list"
 import { cardClassName } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 
 /**
  * The shape of Team while it loads: the title with its Invite action, the
- * members table, the invitations and the roles card. A plain `div`, not
+ * members (the same skeleton the list shows while it fetches), the
+ * invitations and the roles card. A plain `div`, not
  * `PageFrame`, for the reason `app/(dashboard)/loading.tsx` gives: the page
  * that streams in owns the one `<main>`. Same paddings so nothing shifts.
  */
@@ -22,30 +24,26 @@ export default function TeamLoading() {
         </div>
         <Skeleton className="h-(--np-control-h) w-40 rounded-(--np-radius-control)" />
       </div>
-      {[
-        { heading: "w-24", rows: 3 },
-        { heading: "w-28", rows: 1 },
-      ].map((section, index) => (
-        <div key={index} className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Skeleton className={`h-5 ${section.heading} rounded-sm`} />
-            <Skeleton className="h-3.5 w-64 max-w-full rounded-sm" />
-          </div>
-          <div
-            className={cardClassName({
-              className: "flex flex-col divide-y divide-line",
-            })}
-          >
-            {Array.from({ length: section.rows }, (_, row) => (
-              <div key={row} className="flex items-center gap-3 px-4 py-3">
-                <Skeleton className="size-7 shrink-0 rounded-full" />
-                <Skeleton className="h-4 w-48 max-w-full rounded-sm" />
-                <Skeleton className="ml-auto h-5 w-16 rounded-sm" />
-              </div>
-            ))}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Skeleton className="h-5 w-24 rounded-sm" />
+          <Skeleton className="h-3.5 w-64 max-w-full rounded-sm" />
+        </div>
+        <MembersSkeleton />
+      </div>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Skeleton className="h-5 w-28 rounded-sm" />
+          <Skeleton className="h-3.5 w-64 max-w-full rounded-sm" />
+        </div>
+        <div className={cardClassName({ className: "flex flex-col" })}>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <Skeleton className="size-7 shrink-0 rounded-full" />
+            <Skeleton className="h-4 w-48 max-w-full rounded-sm" />
+            <Skeleton className="ml-auto h-5 w-16 rounded-sm" />
           </div>
         </div>
-      ))}
+      </div>
       <Skeleton className="h-56 rounded-(--np-radius-card)" />
     </div>
   )

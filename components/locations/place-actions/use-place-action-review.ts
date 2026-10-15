@@ -32,7 +32,7 @@ export function usePlaceActionReview(locationId: string) {
     if (saved.confirmationState === "confirmed") void client.invalidateQueries({ queryKey: queryKeys.locationBooking(locationId) })
   }
   function preview(request: ReviewedPlaceActionRequest) {
-    if (unsafe.current) return Promise.resolve({ ok: false, error: "Read the saved action link outcome before another change." })
+    if (unsafe.current) return Promise.resolve({ ok: false, error: "Read the saved booking link outcome before another change." })
     return run(async () => { setReview(await previewPlaceActionReview(locationId, request)); setOutcome(null); setStale(false); setOpen(true) }, false)
   }
   function restore(changeSet: GbpChangeSet) {

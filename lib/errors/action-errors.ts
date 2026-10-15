@@ -227,6 +227,9 @@ const COPY: Record<string, string> = {
     "This post changed after you opened it. Read the current version before approving or rejecting it.",
   expected_revision_required:
     "Reload this post, then approve the version you can see.",
+  // Publishing from the composer names the revision it saved.
+  post_changed_since_saved:
+    "Someone else changed this post after you saved it, so nothing was sent to Google. Open it in the list to see the current version, then publish it again.",
   stale_draft_evidence:
     "The review changed after this reply was checked. Press Publish again to re-check it against the current review.",
   google_mutation_ambiguous:

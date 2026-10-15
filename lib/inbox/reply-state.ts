@@ -39,6 +39,24 @@ export type ReplyStateInput = {
     canPublish: boolean
     canEdit: boolean
     canRequestApproval: boolean
+    /**
+     * The organisation's two-person rule, from the review detail (plan D1).
+     * With it on, a publisher's publish is parked for a second person, so
+     * the action is "Submit for approval". Absent on list rows.
+     */
+    requireTwoPersonApproval?: boolean
+    /**
+     * Who a parked reply waits on, as the SERVER decided it for this person
+     * (the review detail, plan D1). When present it wins over the caller's
+     * `approvalScope` below, which can only guess. Absent on list rows.
+     */
+    approvalScope?: "me" | "others" | null
+    /**
+     * Whether Approve is this person's, from the review detail (plan D1).
+     * False for the parked draft's author under two-person approval, who may
+     * still reject (scope "me"). Absent on list rows and from older servers.
+     */
+    canApprove?: boolean
   }
   reply: {
     body: string | null
@@ -140,11 +158,14 @@ export function derivePrimaryAction(input: ReplyStateInput): PrimaryAction {
   const work = replyWork({ reply: input.reply, drafts: input.drafts })
   const verified = hasVerifiedDraft(input.drafts)
   const awaitingApproval = input.workflowStatus === "awaiting_approval"
-  // A non-publisher who may request approval submits rather than publishes;
-  // the server routes their publish to `awaiting_approval` either way, so the
+  const submitsAsPublisher = publishSubmitsForApproval(input)
+  // A non-publisher who may request approval submits rather than publishes,
+  // and so does a publisher under the two-person rule: the server parks
+  // either press as `awaiting_approval` (publishing/approval.ts), so the
   // wording is what changes, not the call.
   const offerRequestApproval =
-    !input.capabilities.canPublish && input.capabilities.canRequestApproval
+    (!input.capabilities.canPublish && input.capabilities.canRequestApproval) ||
+    submitsAsPublisher
 
   const kind: PrimaryActionKind = awaitingApproval
     ? "approve"
@@ -158,11 +179,13 @@ export function derivePrimaryAction(input: ReplyStateInput): PrimaryAction {
     ? evaluateApproval({
         status: input.workflowStatus,
         canPublish: input.capabilities.canPublish,
+        approvalScope: resolveApprovalScope(input),
       })
     : offerRequestApproval
       ? evaluateRequestApproval({
           status: input.workflowStatus,
-          canRequestApproval: input.capabilities.canRequestApproval,
+          canRequestApproval:
+            input.capabilities.canRequestApproval || submitsAsPublisher,
           hasVerifiedDraft: verified,
           isDirty: input.isDirty,
         })
@@ -194,6 +217,31 @@ export function derivePrimaryAction(input: ReplyStateInput): PrimaryAction {
             "This reply cannot be sent from its current status."),
     pendingLabel: pending ? PENDING_ACTION_LABELS[pending] : undefined,
   }
+}
+
+/**
+ * A publisher whose publish the server will park for a second person: the
+ * organisation's two-person rule is on. In practice every press from the
+ * composer parks, because an approval is bound to the exact draft it was
+ * given for and the approval route publishes that draft itself. (The rare
+ * exception, re-sending a draft that already holds a qualifying approval,
+ * is decided by the server either way.)
+ */
+export function publishSubmitsForApproval(input: ReplyStateInput): boolean {
+  return (
+    input.capabilities.canPublish &&
+    input.capabilities.requireTwoPersonApproval === true
+  )
+}
+
+/**
+ * Who a parked reply waits on. The server's answer on the review detail wins;
+ * without it (a list row, an older server) the caller's reading stands.
+ */
+export function resolveApprovalScope(
+  input: ReplyStateInput
+): "me" | "others" | "unknown" {
+  return input.capabilities.approvalScope ?? input.approvalScope ?? "unknown"
 }
 
 // --- The one compact status -------------------------------------------------
@@ -304,7 +352,7 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   // approver to save a draft while a live Approve button sits beneath them is
   // exactly the kind of disagreement this module exists to prevent.
   if (input.workflowStatus === "awaiting_approval") {
-    const scope = input.approvalScope ?? "unknown"
+    const scope = resolveApprovalScope(input)
     if (scope === "unknown") {
       return status(
         "Waiting for approval",
@@ -313,7 +361,9 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
         "clock"
       )
     }
-    return scope === "me"
+    // The draft's author under two-person approval may send it back but
+    // not approve it, so it still waits for another approver.
+    return scope === "me" && input.capabilities.canApprove !== false
       ? status("Approval required", "For approval", "caution", "check-circle")
       : status(
           "Waiting for another approver",

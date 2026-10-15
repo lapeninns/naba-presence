@@ -280,7 +280,8 @@ function AreaCards({
                   ["photos", "posts", "people", "verification"].includes(
                     area.key
                   )
-                ? "Check"
+                ? // "Check" belongs to the action that asks Google (DSK-15).
+                  "Open"
                 : "Edit"
           const action = (
             // The card's link. `static` so the stretched hit area reaches the
