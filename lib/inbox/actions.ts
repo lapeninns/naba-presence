@@ -96,6 +96,12 @@ export function evaluateRequestApproval(input: {
 export function evaluateApproval(input: {
   status: string
   canPublish: boolean
+  /**
+   * Who the parked reply waits on. `"others"` is the server saying this
+   * person may not decide it (under two-person approval, the person who
+   * asked), so Approve is not theirs to press.
+   */
+  approvalScope?: "me" | "others" | "unknown"
 }): ActionAvailability {
   if (input.status !== "awaiting_approval") {
     return { enabled: false, reason: "This reply is not awaiting approval." }
@@ -104,6 +110,12 @@ export function evaluateApproval(input: {
     return {
       enabled: false,
       reason: "You do not have permission to approve for this location.",
+    }
+  }
+  if (input.approvalScope === "others") {
+    return {
+      enabled: false,
+      reason: "Someone else with publishing rights needs to approve this reply.",
     }
   }
   return { enabled: true }
@@ -138,6 +150,11 @@ export type OutcomeToastContext = {
    * means Google has not approved it yet, so the toast must not say it is live.
    */
   googleReplyState?: string | null
+  /**
+   * The organisation's two-person rule: a submitted reply then goes live
+   * only once a different person approves it.
+   */
+  requireTwoPersonApproval?: boolean
 }
 
 // Maps a SERVER-CONFIRMED resolved status (never a thrown ApiClientError code
@@ -189,8 +206,9 @@ export function describeOutcomeToast(
       return {
         kind: "google",
         title: "Submitted for approval",
-        description:
-          "It goes live once someone with publishing rights approves it.",
+        description: context.requireTwoPersonApproval
+          ? "It goes live once another person with publishing rights approves it."
+          : "It goes live once someone with publishing rights approves it.",
         type: "info",
       }
     case "rejected":
