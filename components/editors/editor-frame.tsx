@@ -12,7 +12,7 @@ import type { StatusTone } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 /**
- * A read-only editor shows its values as plain text: the disabled controls
+ * A read-only editor (see `readView`) shows its values as plain text: the disabled controls
  * lose their box and the muted "unavailable" ink, so a member reads what is
  * set without a field that looks broken. The capability notice above says
  * why nothing can be changed.
@@ -22,9 +22,12 @@ const READ_VIEW = [
   "[&_:is(input,textarea,select):disabled]:bg-transparent!",
   "[&_:is(input,textarea,select):disabled]:text-ink!",
   "[&_:is(input,textarea,select):disabled]:opacity-100!",
-  "[&_[data-disabled]]:border-transparent!",
-  "[&_[data-disabled]]:bg-transparent!",
-  "[&_[data-disabled]]:text-ink!",
+  // An empty value shows nothing rather than a hint to type.
+  "[&_:is(input,textarea):disabled]:placeholder:text-transparent!",
+  // The input's own wrapper (search fields), never a button, switch or
+  // checkbox: those keep their fill so on and off still read.
+  "[&_[data-slot=input-search][data-disabled]]:border-transparent!",
+  "[&_[data-slot=input-search][data-disabled]]:bg-transparent!",
 ].join(" ")
 
 /**
@@ -66,6 +69,7 @@ function EditorFrame({
   children,
   footer,
   titleHidden = false,
+  readView = false,
   className,
 }: {
   title: string
@@ -87,13 +91,16 @@ function EditorFrame({
   footer?: React.ReactNode
   /** Keep the title for assistive tech only (the page header shows it). */
   titleHidden?: boolean
+  /**
+   * The person can look but not change (a role limit, never a pause or an
+   * unlinked listing): their disabled fields read as plain values instead of
+   * a greyed-out form. Opt in from the editor that knows why it is disabled.
+   */
+  readView?: boolean
   className?: string
 }) {
   const ref = useRef<HTMLElement>(null)
   useKeepFocusClear(ref)
-  // A role limit, not a pause: the person can look but not change, so the
-  // values read as text instead of a greyed-out form.
-  const readOnly = Boolean(gateReason) && gateTone === "read_only"
   // Inside an area the header carries the title and the one status pill.
   const pill = titleHidden ? null : statusLabel
   const showHead = !titleHidden || Boolean(description || actions)
@@ -101,13 +108,13 @@ function EditorFrame({
     <section
       ref={ref}
       data-slot="editor-frame"
-      data-read-only={readOnly ? "" : undefined}
+      data-read-only={readView ? "" : undefined}
       // Not a tab stop: a place for focus to land when the footer's button
       // has gone (see EditorFooter), so it never falls back to the body.
       tabIndex={-1}
       className={cn(
         "flex flex-col gap-5 outline-none",
-        readOnly && READ_VIEW,
+        readView && READ_VIEW,
         className
       )}
     >

@@ -434,6 +434,7 @@ function HoursForm({
     <EditorFrame
       title="Opening hours"
       titleHidden
+      readView={Boolean(editReason)}
       footer={
         <EditorFooter
           status={isDirty ? "edited" : STATUS[hours.status]}

@@ -14,6 +14,7 @@ import {
 import {
   describePublishStepError,
   errorOutcome,
+  isTimeoutError,
   isUnconfirmedFailure,
 } from "@/lib/errors/action-errors"
 import {
@@ -83,6 +84,11 @@ export type PublishStepResult = {
    * the other steps shows this instead, so the failure is said once.
    */
   reason?: string
+  /**
+   * A failed step that may have been applied anyway (Google's answer was
+   * lost, timed out or is still pending): check before sending it again.
+   */
+  unconfirmed?: boolean
   kind?: "local" | "google"
   /** The API's error code for a failed step, when it sent one. */
   code?: string
@@ -275,6 +281,11 @@ export function usePublishFlow({
           status: "failed",
           message: failure,
           reason,
+          unconfirmed:
+            isUnconfirmedFailure(cause) ||
+            isTimeoutError(cause) ||
+            (cause instanceof DOMException &&
+              (cause.name === "TimeoutError" || cause.name === "AbortError")),
           code: cause instanceof ApiClientError ? cause.code : undefined,
           outcome: errorOutcome(cause),
           intentId:

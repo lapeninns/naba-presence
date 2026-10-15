@@ -702,7 +702,15 @@ function ReviewPublish({
   // button.
   const failureRef = useRef<HTMLDivElement>(null)
   const failed = Boolean(flow.error) && !flow.isPublishing
-  const failedStep = flow.results.find((step) => step.status === "failed")
+  const failedAt = flow.results.findIndex((step) => step.status === "failed")
+  const failedStep = failedAt === -1 ? undefined : flow.results[failedAt]
+  // Sent but not confirmed, or not answered at all: it may have landed.
+  const mayHaveLanded = Boolean(failedStep?.unconfirmed)
+  const earlierSent = flow.results
+    .slice(0, Math.max(failedAt, 0))
+    .some(
+      (step) => step.status === "done" && !step.noop && step.kind !== "local"
+    )
   useEffect(() => {
     if (failed) failureRef.current?.focus()
   }, [failed])
@@ -782,7 +790,7 @@ function ReviewPublish({
                         ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
                         : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
                       : cannotEdit
-                        ? `There are no saved changes waiting for ${entry.name}. Nothing is waiting to go to Google.`
+                        ? `Nothing is waiting to go to Google for ${entry.name}.`
                         : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
                 }
                 action={
@@ -947,14 +955,23 @@ function ReviewPublish({
               ) : null}
 
               {flow.error && !flow.isPublishing ? (
-                <div ref={failureRef} tabIndex={-1} className="outline-none">
+                <div
+                  ref={failureRef}
+                  tabIndex={-1}
+                  className="rounded-(--np-radius-card) focus-halo"
+                >
                   <Alert variant="destructive">
                     <AlertTitle>
                       {`Publishing stopped at “${failedStep?.label ?? "a step"}”`}
                     </AlertTitle>
                     <AlertDescription>
-                      {failedStep && stepOutcome(failedStep) === "uncertain"
-                        ? "Check Google, then retry publishing. "
+                      {earlierSent
+                        ? "Earlier steps were sent to Google. "
+                        : null}
+                      {mayHaveLanded
+                        ? failedStep?.kind === "local"
+                          ? "Reload to check it saved, then retry publishing. "
+                          : "Check Google, then retry publishing. "
                         : "Retry publishing when you’re ready. "}
                       Steps after it weren’t sent, and your saved copy is
                       kept.

@@ -216,6 +216,20 @@ describe("publish failure and read-only views", () => {
     expect(within(steps).getByText("Details for support")).toBeVisible()
     expect(within(steps).getByText("NOT_FOUND")).not.toBeVisible()
   })
+  it("says to check Google first when the failed step was sent but not confirmed", async () => {
+    const user = userEvent.setup()
+    menus.value = state(["A"], ["B"])
+    vi.spyOn(menuApi, "publishFoodMenus").mockRejectedValue(
+      new DOMException("unconfirmed", "TimeoutError")
+    )
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    await user.click(
+      screen.getByRole("button", { name: "Publish 1 area to Google" })
+    )
+    expect(
+      await screen.findByText(/Check Google, then retry publishing/)
+    ).toBeVisible()
+  })
   it("tells a role that cannot edit that nothing is waiting, not to edit", () => {
     ctx.dirty = false
     ctx.caps = { canPublish: false, canEditCanonical: false }
