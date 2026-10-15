@@ -11,6 +11,9 @@ async function search(page: Page, value: string) {
   await editor(page).getByRole("searchbox", { name: "Find a lodging detail" }).fill(value)
 }
 
+/** Every writable lodging group the editor pins, in the order it shows them. */
+const PINNED_GROUPS = ["Property", "Policies", "Guest units", "Common living area", "Accessibility", "Parking", "Connectivity", "Food and drink", "Housekeeping", "Wellness", "Pools", "Activities", "Business", "Families", "Pets", "Services", "Health and safety", "Sustainability", "Transportation"]
+
 for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width}px`, () => {
   test.use({ viewport: { width, height: 1100 } })
   test("edits an unknown boolean without overwriting unknown siblings or conditional details", async ({ page }, info) => {
@@ -87,24 +90,24 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     expect(fixture.writes()).toHaveLength(0)
     await captureLodgingDialog(page, info, "collection-review")
   })
-  test("shows every pinned writable lodging group and nested guest-unit control", async ({ page }, info) => {
+  // One test per pinned group, each with its own fixture, axe scan and
+  // capture: walking all 19 in one test took 22-28 s of the 30 s budget on
+  // main and timed out whenever the shared machine was busy.
+  for (const group of PINNED_GROUPS) test(`shows the pinned writable lodging group ${group}${group === "Guest units" ? " and its nested guest-unit control" : ""}`, async ({ page }, info) => {
     const fixture = await backend.lodgingFixture(page); await fixture.open()
-    const groups = ["Property", "Policies", "Guest units", "Common living area", "Accessibility", "Parking", "Connectivity", "Food and drink", "Housekeeping", "Wellness", "Pools", "Activities", "Business", "Families", "Pets", "Services", "Health and safety", "Sustainability", "Transportation"]
-    for (const group of groups) {
-      await search(page, "")
-      const button = editor(page).getByRole("button", { name: group, exact: true })
-      await button.focus(); await page.keyboard.press("Enter")
-      await expect(button).toHaveAttribute("aria-expanded", "true")
-      if (group === "Guest units") {
-        await editor(page).getByRole("button", { name: "Add guest units item", exact: true }).click()
-        await expect(editor(page).getByRole("spinbutton", { name: "Beds count", exact: true })).toBeVisible()
-      }
-      const narrowControls = await editor(page).getByRole("combobox").evaluateAll((controls) => controls.filter((control) => control.getBoundingClientRect().width < 160).map((control) => ({ label: control.getAttribute("aria-labelledby"), width: control.getBoundingClientRect().width })))
-      expect(narrowControls, `${group} controls must keep readable values at ${width}px`).toEqual([])
-      await capture(page, info, `group-${group.toLowerCase().replaceAll(" ", "-")}`)
-      await button.click()
-      await expect(button).toHaveAttribute("aria-expanded", "false")
+    await search(page, "")
+    const button = editor(page).getByRole("button", { name: group, exact: true })
+    await button.focus(); await page.keyboard.press("Enter")
+    await expect(button).toHaveAttribute("aria-expanded", "true")
+    if (group === "Guest units") {
+      await editor(page).getByRole("button", { name: "Add guest units item", exact: true }).click()
+      await expect(editor(page).getByRole("spinbutton", { name: "Beds count", exact: true })).toBeVisible()
     }
+    const narrowControls = await editor(page).getByRole("combobox").evaluateAll((controls) => controls.filter((control) => control.getBoundingClientRect().width < 160).map((control) => ({ label: control.getAttribute("aria-labelledby"), width: control.getBoundingClientRect().width })))
+    expect(narrowControls, `${group} controls must keep readable values at ${width}px`).toEqual([])
+    await capture(page, info, `group-${group.toLowerCase().replaceAll(" ", "-")}`)
+    await button.click()
+    await expect(button).toHaveAttribute("aria-expanded", "false")
     expect(fixture.writes()).toHaveLength(0)
   })
   test("restores an expired confirmed request after disconnection without a provider resend", async ({ page }, info) => {

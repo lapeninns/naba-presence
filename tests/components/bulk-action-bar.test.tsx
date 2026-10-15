@@ -265,6 +265,42 @@ describe("BulkActionBar", () => {
     ).toBeInTheDocument()
   })
 
+  // Under two-person approval the route refuses a reply this person asked
+  // for or drafted, so the bar neither counts it in "Approve N" nor sends it.
+  it("leaves out replies the current user cannot approve", async () => {
+    const user = userEvent.setup()
+    renderBar(
+      [
+        row("a"),
+        row("own", { canApprove: false }),
+        row("b", { canApprove: true }),
+      ],
+      ["a", "own", "b"]
+    )
+    expect(
+      await screen.findByRole("button", { name: "Approve 2 of 3" })
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Approve 2 of 3" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "approve",
+      approvals: [
+        expect.objectContaining({ reviewId: "a" }),
+        expect.objectContaining({ reviewId: "b" }),
+      ],
+    })
+  })
+
+  it("offers no Approve when every selected reply is the user's own", async () => {
+    renderBar([row("own", { canApprove: false })], ["own"])
+    expect(await screen.findByText("1 selected")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Approve/ })
+    ).not.toBeInTheDocument()
+  })
+
   it("assigns to a named colleague", async () => {
     const user = userEvent.setup()
     renderBar([row("a")], ["a"])

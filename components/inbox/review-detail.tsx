@@ -777,9 +777,11 @@ function ReplyStatusStrip({
         : "publish"
       : mutating === "approval"
         ? "approve"
-        : mutating === "draft"
-          ? "save"
-          : null
+        : mutating === "rejection"
+          ? "reject"
+          : mutating === "draft"
+            ? "save"
+            : null
   const composerSave = useComposerSave()
   const derived = deriveReplyStatus(replyStateFor(review, isDirty, pending))
   // Text the composer cannot send as it stands (empty, too long) outranks
