@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation"
 import * as React from "react"
 
 import { ClientColourField } from "@/components/clients/client-colour-field"
+import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, CardFooter } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import {
   Field,
   FieldCounter,
@@ -19,7 +21,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { formatNumber } from "@/lib/format"
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
 
@@ -45,6 +49,17 @@ function NewClientForm({ listingId }: { listingId?: string }) {
   const [notes, setNotes] = React.useState("")
   const [nameError, setNameError] = React.useState<string | null>(null)
   const nameRef = React.useRef<HTMLInputElement>(null)
+
+  // Anything typed or picked is unsaved until the client is created: a
+  // reload warns, and Cancel, another link or the back button ask first.
+  // Nothing offers the draft back later, so it is not stashed.
+  const draftKey = useDraftKey({ resource: "client-new", schemaVersion: 1 })
+  const unsaved = useUnsavedChanges({
+    scope: draftKey,
+    isDirty:
+      !create.isSuccess &&
+      (name.trim() !== "" || colour !== null || notes.trim() !== ""),
+  })
 
   const serverError = create.error ? describeActionError(create.error) : null
 
@@ -79,7 +94,12 @@ function NewClientForm({ listingId }: { listingId?: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <form onSubmit={submit} noValidate aria-label="New client">
+      <form
+        onSubmit={submit}
+        noValidate
+        aria-label="New client"
+        className="flex flex-col gap-4"
+      >
         <Card flush>
           <div className="flex flex-col gap-5 p-(--np-card-pad)">
             {serverError ? (
@@ -119,7 +139,11 @@ function NewClientForm({ listingId }: { listingId?: string }) {
               <FieldError />
             </Field>
 
-            <ClientColourField value={colour} onChange={setColour} />
+            <ClientColourField
+              value={colour}
+              onChange={setColour}
+              name={name}
+            />
 
             <Field>
               <FieldLabel optional>Notes</FieldLabel>
@@ -136,13 +160,24 @@ function NewClientForm({ listingId }: { listingId?: string }) {
               </FieldCounter>
             </Field>
           </div>
-          <CardFooter bar>
-            <span role="status" className="text-caption text-ink-muted">
+        </Card>
+        {/* Docked to a phone's bottom edge (the tab bar steps aside and the
+            bar rides the keyboard, so Create client is never behind it);
+            stuck to the foot of the form on a desk. */}
+        <ActionBar
+          dock
+          tone="surface"
+          offset="md:bottom-3"
+          label="Create client"
+          status={
+            <span>
               {create.isPending
                 ? "Creating the client…"
                 : "Creating the client doesn’t touch Google."}
             </span>
-            <div className="flex flex-wrap gap-2">
+          }
+          actions={
+            <>
               <Link
                 href={returnPath ?? "/clients"}
                 className={cn(buttonVariants({ variant: "ghost" }))}
@@ -156,9 +191,16 @@ function NewClientForm({ listingId }: { listingId?: string }) {
               >
                 Create client
               </Button>
-            </div>
-          </CardFooter>
-        </Card>
+            </>
+          }
+        />
+        <DiscardDialog
+          {...unsaved.leavePrompt}
+          title="Leave without creating the client?"
+          confirmLabel="Leave and discard"
+          announce={false}
+          description="This client hasn’t been created yet. Leaving throws away what you’ve typed."
+        />
       </form>
 
       {returnPath ? (

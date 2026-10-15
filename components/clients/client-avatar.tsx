@@ -114,4 +114,4 @@ function ClientAvatar({
   )
 }
 
-export { ClientAvatar }
+export { ClientAvatar, colourFor }
