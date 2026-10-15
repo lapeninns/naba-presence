@@ -121,6 +121,9 @@ describeDatabase("review capabilities on inbox responses", () => {
       canPublish: true,
       canEdit: true,
       canRequestApproval: false,
+      requireTwoPersonApproval: false,
+      approvalScope: null,
+      canApprove: false,
     })
   })
 
@@ -227,6 +230,9 @@ describeDatabase("review capabilities on inbox responses", () => {
       canPublish: false,
       canEdit: true,
       canRequestApproval: true,
+      requireTwoPersonApproval: false,
+      approvalScope: null,
+      canApprove: false,
     })
   })
 
@@ -273,6 +279,9 @@ describeDatabase("review capabilities on inbox responses", () => {
       canPublish: false,
       canEdit: true,
       canRequestApproval: true,
+      requireTwoPersonApproval: false,
+      approvalScope: null,
+      canApprove: false,
     })
 
     await admin`
@@ -299,6 +308,9 @@ describeDatabase("review capabilities on inbox responses", () => {
       canPublish: false,
       canEdit: true,
       canRequestApproval: false,
+      requireTwoPersonApproval: false,
+      approvalScope: null,
+      canApprove: false,
     })
   })
 
@@ -393,15 +405,23 @@ describeDatabase("review capabilities on inbox responses", () => {
             canPublish: boolean
             canEdit: boolean
             canRequestApproval: boolean
+            requireTwoPersonApproval: boolean
+            approvalScope: string | null
+            canApprove: boolean
           }
         }
       }
       // organisation.approval_required defaults to true here, so
       // canRequestApproval mirrors !canPublish for this unassigned member.
+      // The approval-policy fields (plan D1) ride on the detail only; nothing
+      // is parked, and the two-person rule is off by default.
       expect(detailBody.review.capabilities).toEqual({
         canPublish,
         canEdit: true,
         canRequestApproval: !canPublish,
+        requireTwoPersonApproval: false,
+        approvalScope: null,
+        canApprove: false,
       })
     }
   )
