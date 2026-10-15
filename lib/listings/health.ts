@@ -117,6 +117,50 @@ export function googleUnreachable(
 export const UNREACHABLE_LABEL = "Unknown — can’t reach Google"
 
 /**
+ * Google's last observed hours are empty and that observation is sound: the
+ * hours comparison neither failed nor was never made. Customers see no
+ * opening hours, so the listing needs attention even though NabaPresence's
+ * copy and Google agree.
+ */
+export function noHoursOnGoogle(
+  summary: ListingSummary | null | undefined,
+  now?: number
+): boolean {
+  if (!summary || summary.hours.googleEmpty !== true) return false
+  const check = comparisonCheck(summary.hours, now)
+  return check !== "failed" && check !== "unchecked"
+}
+
+/** Failures and drift that make a listing need attention, other than empty hours. */
+function otherAttention(summary: ListingSummary, now?: number): boolean {
+  return (
+    summary.lastPublish?.status === "failed" ||
+    summary.lastPublish?.status === "ambiguous" ||
+    canonicalAreas(summary).some(
+      (area) => comparisonCheck(area, now) === "failed"
+    ) ||
+    summary.posts.failed > 0 ||
+    hasConflict(summary) ||
+    googleChangedCount(summary) > 0
+  )
+}
+
+/**
+ * The sentence for a listing whose only reason to need attention is that
+ * Google shows no opening hours; null when anything else is also wrong (the
+ * general sentence then fits) or when empty hours is not the cause.
+ */
+export function listingAttentionReason(
+  summary: ListingSummary | null | undefined,
+  now?: number
+): string | null {
+  if (!summary || !noHoursOnGoogle(summary, now)) return null
+  return otherAttention(summary, now)
+    ? null
+    : "Google shows no opening hours for this listing."
+}
+
+/**
  * Worst-first, like client health. A listing is `healthy` only when nothing
  * else applies. `unpublished` sits below `attention`: work waiting to go out
  * is a to-do, a failed publish or a conflict is a problem.
@@ -139,14 +183,8 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
   }
   if (!summary) return "unchecked"
   if (
-    summary.lastPublish?.status === "failed" ||
-    summary.lastPublish?.status === "ambiguous" ||
-    canonicalAreas(summary).some(
-      (area) => comparisonCheck(area, input.now) === "failed"
-    ) ||
-    summary.posts.failed > 0 ||
-    hasConflict(summary) ||
-    googleChangedCount(summary) > 0
+    otherAttention(summary, input.now) ||
+    noHoursOnGoogle(summary, input.now)
   ) {
     return "attention"
   }
@@ -210,7 +248,7 @@ export function listingHealthDescription(health: ListingHealth): string {
     case "unpublished":
       return "Edits are saved here but not yet on Google. Review and publish them."
     case "attention":
-      return "Review the failed check or publish, conflict, or change Google made."
+      return "Review the failed check or publish, conflict, change Google made, or missing opening hours."
     case "pending_verification":
       return "Google has not verified this listing yet, so some changes will not show."
     case "disconnected":
