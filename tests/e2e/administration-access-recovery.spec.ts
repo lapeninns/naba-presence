@@ -41,7 +41,7 @@ for (const width of [375, 768, 1280]) test.describe(`Administration recovery at 
     await send(page)
     await expect(panel(page).getByText("Independent confirmation unresolved", { exact: true })).toBeVisible()
     await expect(panel(page).getByRole("button", { name: "Back to access" })).toBeDisabled()
-    await expect(page.getByRole("button", { name: "Add administrator" })).toBeDisabled()
+    await expect(page.getByRole("button", { name: "Invite someone" })).toBeDisabled()
     await expect(page.getByRole("button", { name: "Transfer this location", exact: true })).toBeDisabled()
     await expect(page.getByRole("button", { name: "Delete this location", exact: true })).toBeDisabled()
     await capture(page, info, "unresolved")

@@ -304,6 +304,38 @@ describe("useOptimisticMutation", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: KEY })
   })
 
+  it("rolls back without a toast when errorToast is false", async () => {
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    })
+    client.setQueryData<Item[]>(KEY, [{ id: "a", read: false }])
+    const { result } = renderHook(
+      () =>
+        useOptimisticMutation<void, string, Item[]>({
+          mutationFn: () => Promise.reject(new Error("Nope")),
+          queryKey: KEY,
+          update: (current) =>
+            current?.map((item) => ({ ...item, read: true })),
+          errorTitle: "Could not mark as read",
+          errorToast: false,
+        }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>
+            <Toaster />
+            {children}
+          </QueryClientProvider>
+        ),
+      }
+    )
+    await act(async () => {
+      await result.current.mutateAsync("a").catch(() => {})
+    })
+    expect(client.getQueryData<Item[]>(KEY)).toEqual([{ id: "a", read: false }])
+    expect(screen.queryByText("Could not mark as read")).toBeNull()
+    expect(toastEls()).toHaveLength(0)
+  })
+
   it("a second failure replaces the error toast rather than stacking", async () => {
     const { result } = setup(() => Promise.reject(new Error("Nope")))
     for (const id of ["a", "b"]) {

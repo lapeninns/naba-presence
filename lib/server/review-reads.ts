@@ -5,7 +5,9 @@ import type { TransactionSql } from "postgres"
 import {
   DEFAULT_REVIEW_SORT,
   encodeReviewsCursor,
+  type ReviewApprovalScope,
   type ReviewCapabilities,
+  type ReviewDetailCapabilities,
   type ReviewsCursor,
   type ReviewsQuery,
 } from "@/lib/contracts/reviews"
@@ -16,6 +18,7 @@ import {
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { visibilityPredicate } from "@/lib/server/permissions"
+import { queuePredicate } from "@/lib/server/review-queues"
 import {
   boundedSearchMatches,
   buildInboxQuery,
@@ -40,26 +43,37 @@ const NO_CAPABILITIES = {
   canRequestApproval: false,
 } satisfies ReviewCapabilities
 
+/**
+ * The organisation's two-person setting. It decides whether the requester of
+ * an approval may also grant it, which separates "awaiting my approval" from
+ * "awaiting others", and whether a list row's `canApprove` is withheld from
+ * the requester and the draft's author. Read once per request, not per row.
+ */
+async function readTwoPersonApproval(
+  sql: TransactionSql,
+  session: Session
+): Promise<boolean> {
+  const [settings] = await sql<{ requireTwoPersonApproval: boolean }[]>`
+    select require_two_person_approval as "requireTwoPersonApproval"
+    from organisation
+    where id = ${session.organisationId}
+  `
+  return settings?.requireTwoPersonApproval ?? false
+}
+
 /** One page of the inbox list for a decoded `ReviewsQuery`. */
 export async function readReviewsPage(
   sql: TransactionSql,
   session: Session,
   query: ReviewsQuery
 ) {
-  // The two-person setting decides whether the requester of an approval
-  // may also grant it, which is what separates "awaiting my approval"
-  // from "awaiting others". Read once per request, not per row.
-  const [settings] = await sql<{ requireTwoPersonApproval: boolean }[]>`
-    select require_two_person_approval as "requireTwoPersonApproval"
-    from organisation
-    where id = ${session.organisationId}
-  `
+  const requireTwoPersonApproval = await readTwoPersonApproval(sql, session)
   const queried = await buildInboxQuery(sql, {
     ...query,
     role: session.role,
     userId: session.userId,
     canPublish: session.canPublish,
-    requireTwoPersonApproval: settings?.requireTwoPersonApproval ?? false,
+    requireTwoPersonApproval,
     searchReviewIds: query.search
       ? await boundedSearchMatches(sql, query.search)
       : undefined,
@@ -249,15 +263,96 @@ export async function readReviewDetail(
     throw new ApiError(404, "review_not_found", "Review not found.")
   }
   const timeline = await reviewTimelineQuery(sql, id)
-  const capabilities = await reviewCapabilities(
+  const capabilities = await reviewDetailCapabilities(
     sql,
     session,
-    row.locationId as string
+    id,
+    row.locationId as string,
+    row.workflowStatus as string
   )
   return {
     ...row,
     timeline,
     capabilities,
+  }
+}
+
+/**
+ * The detail's capabilities with the approval policy applied (plan D1), so
+ * the pane says what a press will actually do rather than guessing from
+ * `canPublish`:
+ *
+ * - `requireTwoPersonApproval`: the organisation's flag. With it on, a
+ *   publisher's publish parks for a second person (publishing/approval.ts,
+ *   `requiresApproval`), so the action reads "Submit for approval".
+ * - `approvalScope`: while the reply is parked, whether it waits on this
+ *   person. It is the Inbox's own `awaiting_my_approval` predicate, so the
+ *   detail and the queue agree, narrowed only by `canPublish` (a session
+ *   that may not change anything now, e.g. read-only billing, can decide
+ *   nothing). "me" means this person may decide it: Reject is theirs.
+ * - `canApprove`: whether Approve is theirs too. Under two-person approval
+ *   the parked draft's author may reject but not approve
+ *   (lib/server/review-approval.ts), so it is false for them while the
+ *   scope is still "me". False whenever the reply is not parked.
+ *
+ * Read-only, and nothing here decides anything: the approval route and
+ * `executePublish` still enforce the rules on every press.
+ */
+async function reviewDetailCapabilities(
+  sql: TransactionSql,
+  session: Session,
+  reviewId: string,
+  locationId: string,
+  workflowStatus: string
+): Promise<ReviewDetailCapabilities> {
+  const capabilities = await reviewCapabilities(sql, session, locationId)
+  const [settings] = await sql<{ requireTwoPersonApproval: boolean }[]>`
+    select require_two_person_approval as "requireTwoPersonApproval"
+    from organisation
+    where id = ${session.organisationId}
+  `
+  const requireTwoPersonApproval = settings?.requireTwoPersonApproval ?? false
+  let approvalScope: ReviewApprovalScope | null = null
+  let canApprove = false
+  if (workflowStatus === "awaiting_approval") {
+    // The parked draft is resolved as recordApprovalDecision resolves it:
+    // `pending_draft_id`, else the newest verified draft.
+    const [scope] = await sql<{ mine: boolean; authoredParked: boolean }[]>`
+      select
+        ${queuePredicate(sql, session, "awaiting_my_approval", {
+          requireTwoPersonApproval,
+        })} as mine,
+        coalesce(
+          (
+            select d.created_by = ${session.userId}
+            from review_reply rr
+            join draft d on d.id = coalesce(
+              rr.pending_draft_id,
+              (
+                select d2.id
+                from draft d2
+                where d2.review_id = r.id
+                  and d2.verification_status in ('pass', 'warn')
+                order by d2.created_at desc
+                limit 1
+              )
+            )
+            where rr.review_id = r.id
+          ),
+          false
+        ) as "authoredParked"
+      from review r
+      where r.id = ${reviewId}
+    `
+    const mine = Boolean(scope?.mine) && capabilities.canPublish
+    approvalScope = mine ? "me" : "others"
+    canApprove = mine && !(requireTwoPersonApproval && scope?.authoredParked)
+  }
+  return {
+    ...capabilities,
+    requireTwoPersonApproval,
+    approvalScope,
+    canApprove,
   }
 }
 
@@ -305,8 +400,9 @@ export async function readReviewRow(
     role: session.role,
     userId: session.userId,
     canPublish: session.canPublish,
-    // Decides queue membership only; no queue filter is applied here.
-    requireTwoPersonApproval: false,
+    // No queue filter is applied here, but the row's `canApprove` follows the
+    // setting, so a row a write hands back agrees with the one the list reads.
+    requireTwoPersonApproval: await readTwoPersonApproval(sql, session),
   })
   if (!row) return null
   const capabilities = await reviewCapabilitiesForLocations(sql, session, [

@@ -192,20 +192,21 @@ export function buildInboxQuery(
       -- resolved as recordApprovalDecision does (the parked draft, else the
       -- newest verified one), so bulk approve names what the server would
       -- approve. It need not be "draftId" (the newest draft).
+      pend.id::text as "pendingDraftId",
+      -- Whether Approve is this person's, by the approval route's own
+      -- two-person rule: not the person who asked, and not the parked
+      -- draft's author. Null unless the reply is parked. Read-only: the
+      -- route still refuses on every press.
       case
         when r.workflow_status = 'awaiting_approval' and rr.id is not null
-        then coalesce(
-          rr.pending_draft_id,
-          (
-            select pd.id
-            from draft pd
-            where pd.review_id = r.id
-              and pd.verification_status in ('pass', 'warn')
-            order by pd.created_at desc
-            limit 1
+        then not (
+          ${filters.requireTwoPersonApproval}::boolean
+          and (
+            coalesce(rr.approval_requested_by = ${filters.userId}, false)
+            or coalesce(pend.created_by = ${filters.userId}, false)
           )
-        )::text
-      end as "pendingDraftId",
+        )
+      end as "canApprove",
       rr.publish_status as "replyStatus",
       rr.google_reply_state as "googleReplyState",
       rr.google_policy_violation as "googlePolicyViolation",
@@ -222,6 +223,23 @@ export function buildInboxQuery(
       limit 1
     ) d on true
     left join review_reply rr on rr.review_id = r.id
+    left join lateral (
+      select pd.id, pd.created_by
+      from draft pd
+      where r.workflow_status = 'awaiting_approval'
+        and rr.id is not null
+        and pd.id = coalesce(
+          rr.pending_draft_id,
+          (
+            select vd.id
+            from draft vd
+            where vd.review_id = r.id
+              and vd.verification_status in ('pass', 'warn')
+            order by vd.created_at desc
+            limit 1
+          )
+        )
+    ) pend on true
     left join lateral (
       select status
       from sync_checkpoint

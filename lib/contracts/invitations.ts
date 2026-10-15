@@ -164,11 +164,20 @@ export type InvitationAcceptedResponse = z.infer<
   typeof invitationAcceptedResponseSchema
 >
 
-/** GET `/api/invitations/[token]` response (public invite lookup). */
+/**
+ * GET `/api/invitations/[token]` response (public invite lookup), for a
+ * live invitation only. Anyone holding the token can read it, so it carries
+ * only what the invitee needs to decide (D8): who invites them, to which
+ * address, the role they would join with and when the link stops working.
+ * Never the inviter, the scope, publishing access or any other invitation
+ * data. A finished invitation gets an error with no details instead: 410
+ * `invitation_expired` or 409 `invitation_already_used`.
+ */
 export const invitationLookupSchema = z.object({
   organisationName: z.string(),
   email: z.string(),
-  accepted: z.boolean(),
-  expired: z.boolean(),
+  role: memberRoleSchema,
+  /** ISO 8601. */
+  expiresAt: z.string(),
 })
 export type InvitationLookup = z.infer<typeof invitationLookupSchema>

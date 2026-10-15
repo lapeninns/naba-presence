@@ -749,8 +749,11 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(sheet).toBeVisible()
     await expect(sheet.getByText("Business name").first()).toBeVisible()
     await expect(sheet.getByText(`${original} Touch`).first()).toBeVisible()
-    // A tap on the sheet's words is not a dismissal or a swipe start.
-    await sheet.getByText(/will change on Google/).tap()
+    // A tap on the sheet's words is not a dismissal or a swipe start: the
+    // plain line saying where the edit goes (a name edit saves here first).
+    const routeLine = sheet.locator("[data-slot=review-route-note]")
+    await expect(routeLine).toContainText("here first")
+    await routeLine.tap()
     await expect(sheet).toBeVisible()
     // The sheet's own controls take a tap.
     await tap(sheet.getByRole("button", { name: "Keep editing", exact: true }))

@@ -13,13 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
@@ -64,6 +58,7 @@ import {
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { listingHref } from "@/lib/listings/areas"
+import { syncStatusLabel } from "@/lib/listings/health"
 import {
   hoursSelectionRequest,
   markHoursConflicts,
@@ -410,7 +405,9 @@ function AreaSection({
             review.blockedReason ? (
               <StatusPill tone="attention">Needs review</StatusPill>
             ) : review.rows.length === 0 ? (
-              <StatusPill tone="healthy">In sync with Google</StatusPill>
+              <StatusPill tone="healthy">
+                {syncStatusLabel("in_sync")}
+              </StatusPill>
             ) : conflict ? (
               <StatusPill tone="attention">Google changed too</StatusPill>
             ) : (
@@ -973,8 +970,7 @@ function ReviewPublish({
                           ? "Reload to check it saved, then retry publishing. "
                           : "Check Google, then retry publishing. "
                         : "Retry publishing when you’re ready. "}
-                      Steps after it weren’t sent, and your saved copy is
-                      kept.
+                      Steps after it weren’t sent, and your saved copy is kept.
                     </AlertDescription>
                   </Alert>
                 </div>

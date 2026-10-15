@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseQueryResult } from "@tanstack/react-query"
 import type { ComponentProps } from "react"
@@ -134,6 +134,15 @@ const entries: locationsHook.DirectoryEntry[] = [
   },
 ]
 
+/** Opens the order chip's menu and picks an order. */
+async function chooseOrder(
+  user: ReturnType<typeof userEvent.setup>,
+  name: "Worst first" | "By client"
+) {
+  await user.click(screen.getByRole("button", { name: /^Order listings:/ }))
+  await user.click(await screen.findByRole("menuitemradio", { name }))
+}
+
 describe("ListingsBoard", () => {
   it("puts unfiled listings first and offers to file them", () => {
     stub({
@@ -245,7 +254,7 @@ describe("ListingsBoard", () => {
     // Harbour View needs attention; Pier Cafe is unverified; Old Crown is fine.
     expect(names()).toEqual(["Harbour View", "Pier Cafe", "Old Crown Girton"])
 
-    await userEvent.click(screen.getByRole("button", { name: "By client" }))
+    await chooseOrder(userEvent.setup(), "By client")
     expect(names()).toEqual(["Pier Cafe", "Harbour View", "Old Crown Girton"])
     expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
   })
@@ -344,14 +353,14 @@ describe("ListingsBoard", () => {
       screen.getByRole("searchbox", { name: "Search listings" }),
       "crown"
     )
-    await user.click(screen.getByRole("button", { name: "By client" }))
+    await chooseOrder(user, "By client")
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace).toHaveBeenLastCalledWith("/listings?q=crown&order=client")
     vi.advanceTimersByTime(1_000)
     expect(replace).toHaveBeenCalledTimes(1)
   })
 
-  it("filters with pressed buttons, so arrowing through them never rewrites the URL", async () => {
+  it("folds the order into one menu chip in the health strip, which writes the URL only on a pick", async () => {
     stub({
       entries,
       summaries: entries.map((entry) => summary({ locationId: entry.id })),
@@ -359,28 +368,128 @@ describe("ListingsBoard", () => {
     const user = userEvent.setup()
     render(<ListingsBoard role="owner" />)
     expect(screen.queryByRole("tab")).not.toBeInTheDocument()
-    const order = screen.getByRole("group", { name: "Order listings" })
-    const worst = within(order).getByRole("button", { name: "Worst first" })
-    expect(worst).toHaveAttribute("aria-pressed", "true")
-    worst.focus()
-    await user.keyboard("{ArrowRight}")
+    // The order is one chip in the health strip, not a row of its own.
     expect(
-      within(order).getByRole("button", { name: "By client" })
-    ).toHaveFocus()
+      screen.queryByRole("group", { name: "Order listings" })
+    ).not.toBeInTheDocument()
+    const order = screen.getByRole("button", {
+      name: "Order listings: Worst first",
+    })
+    expect(order).not.toHaveAttribute("aria-pressed")
+    expect(order.closest('[data-slot="filter-chip-strip"]')).toBe(
+      screen
+        .getByRole("group", { name: "Filter by health" })
+        .closest('[data-slot="filter-chip-strip"]')
+    )
+    await user.click(order)
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Worst first" })
+    ).toBeChecked()
+    expect(replace).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("menuitemradio", { name: "By client" }))
+    expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
+    expect(
+      screen.getByRole("button", { name: "Order listings: By client" })
+    ).toBeInTheDocument()
+  })
+
+  it("opens the order menu from the keyboard, moves with arrows and writes the URL once on a pick", async () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const user = userEvent.setup()
+    render(<ListingsBoard role="owner" />)
+    const trigger = screen.getByRole("button", {
+      name: "Order listings: Worst first",
+    })
+    trigger.focus()
+    await user.keyboard("{Enter}")
+    const worst = await screen.findByRole("menuitemradio", {
+      name: "Worst first",
+    })
+    const byClient = screen.getByRole("menuitemradio", { name: "By client" })
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+    // Moving through the options never rewrites the address.
+    // The menu opens on the current order.
+    expect(worst).toHaveFocus()
+    await user.keyboard("{ArrowDown}")
+    expect(byClient).toHaveFocus()
+    await user.keyboard("{ArrowUp}")
+    expect(worst).toHaveFocus()
+    await user.keyboard("{ArrowDown}")
+    expect(byClient).toHaveFocus()
     expect(replace).not.toHaveBeenCalled()
     await user.keyboard("{Enter}")
+    expect(replace).toHaveBeenCalledTimes(1)
     expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument()
+    )
+    const after = screen.getByRole("button", {
+      name: "Order listings: By client",
+    })
+    await waitFor(() => expect(after).toHaveFocus())
+    expect(replace).toHaveBeenCalledTimes(1)
+  })
+
+  it("draws no health chip with nothing in it, except All and the one chosen", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const { unmount } = render(<ListingsBoard role="owner" />)
     const health = screen.getByRole("group", { name: "Filter by health" })
-    for (const label of [
-      "All",
-      "Needs attention",
-      "To publish",
-      "Not linked",
-      "In sync",
-    ])
+    // No summary says anything is wrong or waiting, and none is a confirmed
+    // "In sync" yet: only Pier Cafe (unverified) lands in a bucket, so the
+    // buckets with nothing in them are not drawn.
+    for (const label of ["All", "Not linked"])
       expect(
         within(health).getByRole("button", { name: new RegExp(`^${label}`) })
       ).toBeInTheDocument()
+    for (const label of ["Needs attention", "To publish", "In sync"])
+      expect(
+        within(health).queryByRole("button", {
+          name: new RegExp(`^${label}`),
+        })
+      ).not.toBeInTheDocument()
+    unmount()
+
+    // A chosen chip stays, so it can be left, even with nothing in it.
+    search = "health=attention"
+    render(<ListingsBoard role="owner" />)
+    const chosen = screen.getByRole("button", { name: "Needs attention, 0" })
+    expect(chosen).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("keeps Add listings from Google at the end of the list, for owners and admins only", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const { unmount } = render(<ListingsBoard role="admin" />)
+    const add = screen.getByRole("link", { name: "Add listings from Google" })
+    expect(add).toHaveAttribute("href", "/setup")
+    expect(
+      screen.getByRole("table").compareDocumentPosition(add) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    unmount()
+    render(<ListingsBoard role="member" />)
+    expect(
+      screen.queryByRole("link", { name: "Add listings from Google" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("announces the count in a live region instead of drawing it", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    const line = screen.getByText(/^3 listings/).closest("p")!
+    expect(line).toHaveAttribute("aria-live", "polite")
+    expect(line).toHaveClass("sr-only")
   })
 
   it("selects every listing shown from the table header's select-all bar, and docks the selection bar", async () => {
@@ -503,6 +612,44 @@ describe("ListingsBoard", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: /Try again/ }))
     expect(refetch).toHaveBeenCalled()
+  })
+
+  it("still offers Add listings from Google to owners and admins while loading or failed, and to no one else", () => {
+    const directory = (state: { isPending: boolean; isError: boolean }) => {
+      vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+        data: undefined,
+        refetch: vi.fn(),
+        ...state,
+      } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+      vi.spyOn(clientsHook, "useClients").mockReturnValue({
+        data: { items: [], unassignedLocationCount: 0 },
+        isPending: false,
+      } as unknown as ReturnType<typeof clientsHook.useClients>)
+      vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
+        data: undefined,
+        isPending: true,
+      } as unknown as UseQueryResult<ListingSummary[]>)
+    }
+    for (const state of [
+      { isPending: true, isError: false },
+      { isPending: false, isError: true },
+    ]) {
+      directory(state)
+      for (const role of ["owner", "admin"]) {
+        const { unmount } = render(<ListingsBoard role={role} />)
+        expect(
+          screen.getByRole("link", { name: "Add listings from Google" })
+        ).toHaveAttribute("href", "/setup")
+        unmount()
+      }
+      for (const role of ["member", "viewer", null]) {
+        const { unmount } = render(<ListingsBoard role={role} />)
+        expect(
+          screen.queryByRole("link", { name: "Add listings from Google" })
+        ).not.toBeInTheDocument()
+        unmount()
+      }
+    }
   })
 
   it("keeps known row problems and stays neutral while summaries are loading", () => {

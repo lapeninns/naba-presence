@@ -16,6 +16,7 @@ import {
   hoursPartHashes,
   classifyHoursDrift,
   classifyHoursPartDrift,
+  normalizeGoogleHours,
   type NormalizedHours,
 } from "@/lib/domain/hours"
 import {
@@ -105,8 +106,25 @@ function iso(value: Date | null | undefined): string | null {
   return value ? new Date(value).toISOString() : null
 }
 
+/**
+ * The hash of "Google shows no opening hours": what a Google location with no
+ * `regularHours`, `specialHours` or `moreHours` normalises to (seven closed
+ * days, nothing else), hashed as every observation hashes Google's side.
+ */
+export const EMPTY_HOURS_HASH = hashHours(normalizeGoogleHours({}))
+
 /** Uses persisted observation evidence; publication history never counts as a new check. */
 export function hoursArea(
+  row: CanonicalRow | undefined,
+  observation?: HoursObservation
+): SyncedArea & { googleEmpty?: boolean } {
+  const area = hoursAreaState(row, observation)
+  return observation?.googleHash
+    ? { ...area, googleEmpty: observation.googleHash === EMPTY_HOURS_HASH }
+    : area
+}
+
+function hoursAreaState(
   row: CanonicalRow | undefined,
   observation?: HoursObservation
 ): SyncedArea {

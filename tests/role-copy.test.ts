@@ -21,6 +21,7 @@ import {
   ROLE_DESCRIPTIONS,
   ROLE_MATRIX,
   ROLE_SUMMARIES,
+  invitationRoleSummary,
   roleDescriptions,
   roleSummaries,
 } from "@/lib/settings/roles"
@@ -302,5 +303,17 @@ describe("role order", () => {
         ROLE_DESCRIPTIONS[role].length
       )
     }
+  })
+
+  it("words the public invitation summary to be true in both workspace modes", () => {
+    for (const role of ["owner", "member", "viewer"] as const) {
+      expect(invitationRoleSummary(role)).toBe(ROLE_SUMMARIES[role])
+    }
+    // The invitation page doesn't know the mode, so the admin line names
+    // neither clients (business has none) nor locations.
+    const admin = invitationRoleSummary("admin")
+    expect(admin).toBe("Manages the team and every listing")
+    expect(admin).not.toMatch(/client/i)
+    expect(admin).not.toMatch(/location/i)
   })
 })

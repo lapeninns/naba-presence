@@ -39,6 +39,13 @@ describe("listing areas", () => {
     )
   })
 
+  it("gives the profile one path, with no internal model names", () => {
+    const area = listingArea("profile")
+    const note = modelNote(area.model, area.key)
+    expect(note).toMatch(/Review changes lists every edit/)
+    expect(note).not.toMatch(/No draft|canonical|reviewed, then sent/i)
+  })
+
   it("hides the consoles from members", () => {
     const keys = visibleListingAreas(false).map((area) => area.key)
     expect(keys).not.toContain("people")

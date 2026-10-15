@@ -58,7 +58,14 @@ export const listingSummarySchema = z.object({
     })
     .nullable(),
   profile: syncedAreaSchema,
-  hours: syncedAreaSchema,
+  hours: syncedAreaSchema.extend({
+    /**
+     * Google's last observed hours are empty: customers see no opening
+     * hours. Absent when Google was never observed. Optional so an older
+     * cached response still parses.
+     */
+    googleEmpty: z.boolean().optional(),
+  }),
   menu: syncedAreaSchema.extend({ eligible: z.boolean().nullable() }),
   booking: directAreaSchema,
   photos: directAreaSchema,
