@@ -18,8 +18,8 @@ import { THEME_CHOICES, useThemeChoice } from "@/lib/ui/theme-choice"
 /**
  * The settings index's Appearance row (SET-26): people look for the theme
  * in Settings, so it is there as well as in More. The row shows the current
- * choice and opens a titled sheet of the three; choosing one applies it and
- * closes the sheet. The theme is kept in this browser only, which the "You"
+ * choice and opens a titled sheet of the three; choosing one (Enter, Space
+ * or a tap; the arrows only move) applies it and closes the sheet. The theme is kept in this browser only, which the "You"
  * group's footer already says of everything in it.
  */
 export function AppearanceRow({ className }: { className?: string }) {
@@ -46,7 +46,9 @@ export function AppearanceRow({ className }: { className?: string }) {
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <OptionRowGroup label="Theme">
+            {/* Choosing applies the theme and closes the sheet, so the arrows
+                only move focus; Enter, Space or a tap chooses. */}
+            <OptionRowGroup label="Theme" applyOnChoose>
               {THEME_CHOICES.map((choice) => (
                 <OptionRow
                   key={choice.value}
