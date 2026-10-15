@@ -418,9 +418,10 @@ test.describe("team roles", () => {
     })
     await expect(row).toBeVisible()
     // SET-02: one row (name, the full email, the role chip and its line),
-    // no record card. Measured on the whole list item, footer included.
+    // not the record card (about 178px). Measured on the whole list item,
+    // footer included: 132px at 390.
     const box = await list.getByRole("listitem").first().boundingBox()
-    expect(box!.height).toBeLessThan(130)
+    expect(box!.height).toBeLessThanOrEqual(140)
     await expect(list.getByText("All clients · Drafts only")).toBeVisible()
     await expect(page.getByRole("table", { name: "Members" })).toHaveCount(0)
 

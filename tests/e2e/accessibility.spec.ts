@@ -1583,12 +1583,11 @@ for (const theme of themes) {
           page.getByRole("heading", { name: "Team", level: 1 })
         ).toBeVisible()
         // From md the table's row menu holds every action. On a phone each
-        // member is a row that opens the member sheet (SET-02); the only
-        // owner here has no quick actions, so no ⋯.
+        // member is a row that opens the member sheet (SET-02).
         if (viewport.name === "mobile") {
           await expect(
             page.getByRole("button", {
-              name: "Alex Morgan (you), alex@example.com",
+              name: "Alex Morgan, alex@example.com",
             })
           ).toBeVisible()
         } else {
@@ -1605,7 +1604,7 @@ for (const theme of themes) {
         if (viewport.name === "mobile") {
           await page
             .getByRole("button", {
-              name: "Alex Morgan (you), alex@example.com",
+              name: "Alex Morgan, alex@example.com",
             })
             .click()
           await expect(
