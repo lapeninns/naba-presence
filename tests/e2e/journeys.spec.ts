@@ -130,9 +130,11 @@ test.describe("inbox critical journeys", () => {
     )
     expect(published.status()).toBe(200)
     // The toast, specifically, so the assertion does not depend on anything
-    // else on the page reading the same words.
+    // else on the page reading the same words. The Google stub answers the
+    // reply with no moderation state, which the server reads as PENDING, so
+    // the toast says it is sent and under Google's check, not live (R01a).
     await expect(
-      page.locator('[data-slot="toast-title"]', { hasText: "Reply published" })
+      page.locator('[data-slot="toast-title"]', { hasText: "Reply sent" })
     ).toBeVisible()
   })
 
@@ -217,9 +219,10 @@ test.describe("inbox critical journeys", () => {
     )
     await approver.getByRole("button", { name: "Approve reply" }).click()
     expect((await approved).status()).toBe(200)
+    // Sent, under Google's check (the stub sends no moderation state).
     await expect(
       approver.locator('[data-slot="toast-title"]', {
-        hasText: "Reply published",
+        hasText: "Reply sent",
       })
     ).toBeVisible()
     await approverContext.close()
