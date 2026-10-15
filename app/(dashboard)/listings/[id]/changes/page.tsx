@@ -1,8 +1,5 @@
-import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
-
 import { ReviewPublish } from "@/components/listings/review-publish"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
-import { listingPagePrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
 /** The venue's name in the tab title, from one DB row; never Google. */
@@ -21,10 +18,5 @@ export default async function ListingChangesPage({
   params: Promise<{ id: string }>
 }) {
   const [{ id }, session] = await Promise.all([params, getSession()])
-  const state = await prefetch(session, listingPagePrefetch(id))
-  return (
-    <HydrationBoundary state={state}>
-      <ReviewPublish locationId={id} role={session?.role ?? null} />
-    </HydrationBoundary>
-  )
+  return <ReviewPublish locationId={id} role={session?.role ?? null} />
 }

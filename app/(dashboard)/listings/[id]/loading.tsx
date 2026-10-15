@@ -1,3 +1,6 @@
+"use client"
+
+import { useInAreaFrame } from "@/components/listings/area-frame-context"
 import { Skeleton } from "@/components/ui/skeleton"
 
 // The shape of a listing page while its segment loads, matching the compact
@@ -7,11 +10,17 @@ import { Skeleton } from "@/components/ui/skeleton"
 // Rendered inside the dashboard layout's <main>, so no landmark or h1 of its
 // own.
 //
-// Known gap: every area route renders its own AreaFrame, so the header
-// still remounts on an area switch. Moving it into a shared
-// `[id]/layout.tsx` needs the profile, people and verification routes to
-// move with it.
+// Between two areas the header stays (it lives in `[id]/layout.tsx`, LST-14)
+// and this draws only the editor's card inside it.
 export default function ListingLoading() {
+  const inFrame = useInAreaFrame()
+  if (inFrame)
+    return (
+      <Skeleton
+        aria-busy="true"
+        className="h-40 w-full rounded-(--np-radius-card)"
+      />
+    )
   return (
     <div
       className="flex flex-col gap-2 px-5 pt-6 md:gap-4 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)"

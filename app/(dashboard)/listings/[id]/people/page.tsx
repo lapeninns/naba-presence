@@ -1,9 +1,7 @@
-import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
-
-import { AreaFrame } from "@/components/listings/area-frame"
+import { StreamedTab } from "@/components/listings/streamed-tab"
 import { AccessTab } from "@/components/locations/administration"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
-import { listingPagePrefetch, prefetch } from "@/lib/server/prefetch"
+import { peopleTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
 /** The venue's name in the tab title, from one DB row; never Google. */
@@ -15,18 +13,23 @@ export function generateMetadata({
   return listingPageMetadata(params, "People with access")
 }
 
+// The header, capabilities and summary come from the listing's layout
+// (app/(dashboard)/listings/[id]/layout.tsx); the editor's own first read
+// reaches Google and is streamed behind the tab's pending state
+// (components/listings/streamed-tab.tsx).
 export default async function ListingPeoplePage({
   params,
 }: {
   params: Promise<{ id: string }>
 }) {
   const [{ id }, session] = await Promise.all([params, getSession()])
-  const state = await prefetch(session, listingPagePrefetch(id))
   return (
-    <HydrationBoundary state={state}>
-      <AreaFrame locationId={id} role={session?.role ?? null} area="people">
-        <AccessTab locationId={id} />
-      </AreaFrame>
-    </HydrationBoundary>
+    <StreamedTab
+      session={session}
+      entries={peopleTabPrefetch(id)}
+      loadingLabel="people with access"
+    >
+      <AccessTab locationId={id} />
+    </StreamedTab>
   )
 }

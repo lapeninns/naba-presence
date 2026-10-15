@@ -15,6 +15,7 @@ import {
   UploadIcon,
 } from "lucide-react"
 import Link from "next/link"
+import { useSelectedLayoutSegment } from "next/navigation"
 import * as React from "react"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
@@ -34,6 +35,7 @@ import {
   editorStatusPill,
   useEditorStatus,
 } from "@/components/editors/editor-status"
+import { InAreaFrameContext } from "@/components/listings/area-frame-context"
 import { ListingGate } from "@/components/listings/listing-gate"
 import { SiblingSwitcher } from "@/components/listings/sibling-switcher"
 import { Badge } from "@/components/ui/badge"
@@ -63,6 +65,7 @@ import {
 import { areaState } from "@/lib/listings/area-state"
 import { googleUnreachable, unpublishedCount } from "@/lib/listings/health"
 import {
+  areaForSegment,
   listingArea,
   listingHref,
   modelNote,
@@ -149,6 +152,9 @@ function ListingAreaTabs({ items }: { items: ListingAreaNavItem[] }) {
       aria-label="Listing areas"
       overflow="more"
       moreLabel="More areas"
+      // On every page of the listing: viewport prefetch fetched each area's
+      // route on each load (MEA-04). Intent only, as the shell's links do.
+      prefetch="intent"
       items={items
         .filter((item) => item.key !== "changes")
         .map((item) => ({
@@ -705,11 +711,13 @@ function AreaFrame(props: {
   children: React.ReactNode
 }) {
   return (
-    <EditorStatusProvider>
-      <GoogleFreshnessSlot>
-        <AreaFrameBody {...props} />
-      </GoogleFreshnessSlot>
-    </EditorStatusProvider>
+    <InAreaFrameContext.Provider value>
+      <EditorStatusProvider>
+        <GoogleFreshnessSlot>
+          <AreaFrameBody {...props} />
+        </GoogleFreshnessSlot>
+      </EditorStatusProvider>
+    </InAreaFrameContext.Provider>
   )
 }
 
@@ -762,6 +770,13 @@ function AreaFrameBody({
     })
   }, [editorSignature, locationId, queryClient])
 
+  // The frame lives in the listing's layout, so the pane outlives an area
+  // switch: start the new area at its top, as a fresh page would.
+  const paneRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    paneRef.current?.scrollTo?.({ top: 0 })
+  }, [areaKey])
+
   const pill =
     status !== undefined ? (
       status
@@ -801,6 +816,7 @@ function AreaFrameBody({
               phone) it is no Tab stop. The halo is drawn inside the box:
               PageFrame clips anything outside the full-bleed pane. */}
           <div
+            ref={paneRef}
             role="region"
             aria-label={listingArea(areaKey).label}
             tabIndex={paneScrolls ? 0 : undefined}
@@ -817,4 +833,35 @@ function AreaFrameBody({
   )
 }
 
-export { AreaFrame, AreaStatusPill, ListingAreaHeader, ReviewPublishLink }
+/**
+ * The listing layout's frame (`app/(dashboard)/listings/[id]/layout.tsx`):
+ * an area route renders inside one `AreaFrame` that survives switching to
+ * another area, so the header never remounts; the overview and Review &
+ * publish render their own header and pass through.
+ */
+function ListingAreaLayout({
+  locationId,
+  role,
+  children,
+}: {
+  locationId: string
+  role: string | null
+  children: React.ReactNode
+}) {
+  const segment = useSelectedLayoutSegment()
+  const area = segment ? areaForSegment(segment) : undefined
+  if (!area) return children
+  return (
+    <AreaFrame locationId={locationId} role={role} area={area.key}>
+      {children}
+    </AreaFrame>
+  )
+}
+
+export {
+  AreaFrame,
+  AreaStatusPill,
+  ListingAreaHeader,
+  ListingAreaLayout,
+  ReviewPublishLink,
+}
