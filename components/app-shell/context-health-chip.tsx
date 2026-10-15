@@ -82,6 +82,9 @@ function ContextHealthChip() {
   return (
     <ShellLink
       href={href}
+      // The words truncate when the toolbar is tight; the tooltip keeps
+      // them readable in full.
+      title={scopedName ? `${scopedName}: ${label}` : label}
       data-slot="health-chip"
       data-tone={tone}
       className={cn(
