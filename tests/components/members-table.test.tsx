@@ -320,6 +320,10 @@ describe("MembersTable", () => {
     await user.click(
       screen.getByRole("switch", { name: "Allow Cat Member to publish" })
     )
+    // Starting Cat's save leaves Ben's switch waiting on its own.
+    expect(
+      screen.getByRole("switch", { name: "Allow Ben Member to publish" })
+    ).toHaveAttribute("aria-disabled", "true")
     // Ben's save returns after Cat's was started.
     await act(async () => finishers["m-1"](true))
     await act(async () => finishers["m-2"](false))
@@ -554,6 +558,37 @@ describe("MembersTable on a phone", () => {
         screen.queryByRole("dialog", { name: "Ben Member" })
       ).not.toBeInTheDocument()
     )
+  })
+
+  it("saves publishing from the sheet and says so under its switch", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    let finish = () => {}
+    const update = vi.spyOn(membersApi, "updateMember").mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(undefined as never)
+      })
+    )
+    renderTable("owner", "owner-1", team())
+    await user.click(
+      screen.getByRole("button", { name: "Ben Member, ben@test" })
+    )
+    const sheet = within(
+      await screen.findByRole("dialog", { name: "Ben Member" })
+    )
+    await user.click(sheet.getByRole("switch", { name: /Can publish/ }))
+    expect(update).toHaveBeenCalledWith({
+      userId: "m-1",
+      role: "member",
+      canPublish: false,
+    })
+    expect(await sheet.findByText("Saving…")).toBeInTheDocument()
+    expect(sheet.getByRole("switch", { name: /Can publish/ })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
+    await act(async () => finish())
+    expect(await sheet.findByText("Saved: drafts only")).toBeInTheDocument()
   })
 
   it("puts focus back on the member's row after a dialog the sheet opened", async () => {
