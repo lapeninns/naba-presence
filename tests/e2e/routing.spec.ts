@@ -120,6 +120,50 @@ test("dashboard pages mark their tab, or More, as current on a phone", async ({
   }
 })
 
+test("Setup marks the tab it lives under and goes back to it on a phone", async ({
+  page,
+}) => {
+  // SET-11: /setup belongs to no destination's path, so it had no current
+  // tab and the app bar showed the workspace name instead of a way back.
+  await page.setViewportSize(PHONE)
+  const business = (await pageWorkspaceMode(page)) === "business"
+  const owner = business ? "Listings" : "Clients"
+  await page.goto("/setup")
+  await expect(
+    page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: owner, exact: true })
+  ).toHaveAttribute("aria-current", "page")
+  const barBack = page
+    .locator('header[data-slot="app-bar"]')
+    .getByRole("link", { name: `Back to ${owner}` })
+  await expect(barBack).toBeVisible()
+  await barBack.click()
+  await expect
+    .poll(() => new URL(page.url()).pathname)
+    .toBe(business ? "/listings" : "/clients")
+})
+
+test("a settings area has one way back on a phone", async ({ page }) => {
+  // SET-04: the app bar's "‹ Settings" is the only back control.
+  await page.setViewportSize(PHONE)
+  await page.goto("/settings/notifications")
+  await expect(
+    page.getByRole("heading", { name: "Notifications", level: 1 })
+  ).toBeVisible()
+  await expect(page.getByRole("link", { name: "All settings" })).toHaveCount(0)
+  const barBack = page
+    .locator('header[data-slot="app-bar"]')
+    .getByRole("link", { name: "Back to Settings" })
+  await expect(barBack).toBeVisible()
+  await barBack.click()
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/settings")
+  // The theme is in Settings too (SET-26).
+  await expect(
+    page.getByRole("button", { name: /^Appearance/ })
+  ).toBeVisible()
+})
+
 test("the tablet rail lists every destination with a visible label", async ({
   page,
 }) => {

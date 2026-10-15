@@ -70,6 +70,10 @@ describe("breadcrumbTrail", () => {
     expect(trail("/team")).toEqual(["Team"])
   })
 
+  it("files Setup under Clients", () => {
+    expect(trail("/setup")).toEqual(["Clients", "Setup"])
+  })
+
   it("names every real /settings/<section> route the way its tab does", () => {
     // Every page directory under app/(dashboard)/settings, with the label
     // its settings tab (lib/settings/areas.ts) gives it.
@@ -140,5 +144,9 @@ describe("breadcrumbTrail in business mode", () => {
   it("has no trail for the client layer", () => {
     expect(business("/clients/c1")).toEqual([])
     expect(business("/clients")).toEqual([])
+  })
+
+  it("files Setup under Listings", () => {
+    expect(business("/setup")).toEqual(["Listings", "Setup"])
   })
 })

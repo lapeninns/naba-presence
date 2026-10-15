@@ -45,9 +45,10 @@ function useShellTrail() {
 function useShellBack(): BackTarget | null {
   const pathname = usePathname()
   const trail = useShellTrail()
+  const mode = useWorkspaceMode()
   const override = usePageChromeOverride()
   if (override.back !== undefined) return override.back
-  return backTarget(pathname, trail)
+  return backTarget(pathname, trail, mode)
 }
 
 /**

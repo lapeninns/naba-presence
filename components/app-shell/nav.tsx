@@ -9,6 +9,7 @@ import { useBreakpoint } from "@/lib/hooks/use-media-query"
 import {
   currentHref,
   destinationHref,
+  navigationPath,
   sidebarDestinations,
   type Destination,
 } from "@/lib/navigation/destinations"
@@ -184,7 +185,9 @@ function Nav({
    */
   hideCalendar?: boolean
 }) {
-  const pathname = usePathname()
+  // Setup reads as the destination it lives under (Clients, or Listings
+  // in a business), so a tab is current there too.
+  const pathname = navigationPath(usePathname(), mode)
   const business = mode === "business"
   const pinned = business ? [] : clients.slice(0, MAX_PINNED_CLIENTS)
   const workspaceLabelId = React.useId()
