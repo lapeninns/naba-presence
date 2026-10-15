@@ -46,20 +46,6 @@ function revealInStrip(strip: HTMLElement, item: HTMLElement) {
 }
 
 /**
- * One queue: the primitive's text tab (Notion Mail's label tabs,
- * `textTabItemClassName`): `text-body` in the secondary ink, the current one
- * 600 in ink with a 2px ink underline, the cue that is not colour and not
- * the accent. The primitive keys that drawing on `aria-current="page"` (a
- * link); a queue is a button whose `aria-current` is "true", so the same
- * three rules are said for that value here. At least 44px wide on touch.
- */
-const TAB_CLASS = cn(
-  textTabItemClassName,
-  "min-w-(--np-touch) justify-center desk:min-w-0",
-  "aria-[current=true]:font-semibold aria-[current=true]:text-ink aria-[current=true]:after:bg-ink"
-)
-
-/**
  * The five queues as one strip of text tabs in the inbox toolbar, with a
  * non-zero Failed count in the danger ink, because that number is itself
  * the exception.
@@ -137,7 +123,11 @@ function QueueTabs({
               ]
                 .filter(Boolean)
                 .join(", ")}
-              className={TAB_CLASS}
+              // The primitive's text tab (Notion Mail's label tabs): 600 ink
+              // with a 2px underline when current, which it draws for a
+              // button's `aria-current="true"` as for a link's "page", and
+              // at least 44px wide on touch.
+              className={textTabItemClassName}
             >
               <span>{REVIEW_QUEUE_LABELS[item]}</span>
               {countsPending ? (
@@ -153,7 +143,7 @@ function QueueTabs({
                       : active && "text-ink-secondary"
                   )}
                 >
-                  {count > 0 ? formatNumber(count) : "–"}
+                  {formatNumber(count)}
                 </TabCount>
               )}
             </button>

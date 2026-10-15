@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { chipClassName } from "@/components/ui/chip"
+import { filterChipClassName } from "@/components/ui/chip"
 import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Field,
@@ -389,7 +389,7 @@ describe("touch overhangs measure from the padding box", () => {
   })
 
   it("gives a chip a 44px touch band", () => {
-    expect(chipClassName()).toContain(
+    expect(filterChipClassName()).toContain(
       "after:inset-y-[calc((100%-var(--np-touch))/2)]"
     )
   })

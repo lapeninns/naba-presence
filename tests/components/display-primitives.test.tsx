@@ -11,7 +11,7 @@ import {
   cardClassName,
 } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ChipCount, ChipRow, ToggleChip } from "@/components/ui/chip"
+import { ChipCount, ChipRow, FilterChip } from "@/components/ui/chip"
 import { DataTable } from "@/components/ui/data-table"
 import { KpiTile } from "@/components/ui/kpi-tile"
 import { Stars } from "@/components/ui/stars"
@@ -477,8 +477,8 @@ describe("Chip", () => {
     try {
       const { container, rerender } = render(
         <ChipRow>
-          <ToggleChip pressed>All</ToggleChip>
-          <ToggleChip>Failed</ToggleChip>
+          <FilterChip pressed>All</FilterChip>
+          <FilterChip>Failed</FilterChip>
         </ChipRow>
       )
       const row = container.querySelector<HTMLElement>(
@@ -488,8 +488,8 @@ describe("Chip", () => {
       expect(row.scrollLeft).toBe(0)
       rerender(
         <ChipRow>
-          <ToggleChip>All</ToggleChip>
-          <ToggleChip pressed>Failed</ToggleChip>
+          <FilterChip>All</FilterChip>
+          <FilterChip pressed>Failed</FilterChip>
         </ChipRow>
       )
       // 560 - 200 past the end, plus the chip-width margin (capped at 50).
@@ -497,8 +497,8 @@ describe("Chip", () => {
       row.scrollLeft = 0
       rerender(
         <ChipRow>
-          <ToggleChip>All</ToggleChip>
-          <ToggleChip pressed>Failed</ToggleChip>
+          <FilterChip>All</FilterChip>
+          <FilterChip pressed>Failed</FilterChip>
         </ChipRow>
       )
       // Same chip: the reader's own scroll is left alone.

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { ChipRow, ToggleChip } from "@/components/ui/chip"
+import { ChipRow, FilterChip } from "@/components/ui/chip"
 import {
   HEALTH_FILTERS,
   healthBucket,
@@ -106,7 +106,7 @@ export function HealthFilterStrip({
         const count = counts[filter.value]
         const pressed = value === filter.value
         return (
-          <ToggleChip
+          <FilterChip
             key={filter.value}
             pressed={pressed}
             count={formatNumber(count)}
@@ -125,7 +125,7 @@ export function HealthFilterStrip({
             }
           >
             {filter.label}
-          </ToggleChip>
+          </FilterChip>
         )
       })}
     </ChipRow>
