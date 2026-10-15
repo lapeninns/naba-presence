@@ -141,7 +141,7 @@ for (const width of [375, 768, 1280])
       // link to Operations for an owner) and offers no cadence to choose.
       await expect(
         page.getByText(
-          "Email notifications aren't available for this workspace yet. You'll still see them in the app."
+          "Email notifications aren’t available for this workspace yet. You’ll still see them in the app."
         )
       ).toBeVisible()
       await expect(
