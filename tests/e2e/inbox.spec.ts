@@ -163,6 +163,87 @@ test.describe("inbox", () => {
     })
   })
 
+  // INB-08: one review is triaged where the reader is, not through Select
+  // mode. These only open menus and cancel: the journey tenant's reviews are
+  // shared with other specs, so nothing is marked or assigned here (the touch
+  // spec runs the confirmed action on a tenant of its own).
+  test.describe("triage from the review", () => {
+    test("the review's ⋯ carries Assign… and No reply needed", async ({
+      baseURL,
+      page,
+    }) => {
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.cookie)
+      await page.goto("/inbox")
+      await page.locator('[data-slot="review-row"]').first().click()
+      const detail = page.getByRole("region", { name: "Selected review" })
+      await expect(detail).toBeVisible()
+
+      await detail.getByRole("button", { name: "More actions" }).click()
+      await expect(
+        page.getByRole("menuitem", { name: "No reply needed" })
+      ).toBeVisible()
+      await page.getByRole("menuitem", { name: "Assign…" }).hover()
+      await expect(
+        page.getByRole("menuitem", { name: "Unassign" })
+      ).toBeVisible()
+      // The listing, history and details are still there.
+      await expect(
+        page.getByRole("menuitem", { name: "History" })
+      ).toBeVisible()
+    })
+
+    test("a row's ⋯ asks before marking, and Cancel leaves the review alone", async ({
+      baseURL,
+      page,
+    }) => {
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.cookie)
+      await page.goto("/inbox")
+      const rows = page.locator('[data-slot="review-row"]')
+      await expect(rows.first()).toBeVisible()
+      const count = await rows.count()
+
+      await page
+        .getByRole("button", { name: "Actions for this review" })
+        .first()
+        .click()
+      await page.getByRole("menuitem", { name: "No reply needed" }).click()
+      const confirm = page.getByRole("alertdialog", {
+        name: "Mark 1 review as no reply needed?",
+      })
+      await expect(confirm).toBeVisible()
+      await confirm.getByRole("button", { name: "Cancel" }).click()
+      await expect(confirm).toBeHidden()
+      await expect(rows).toHaveCount(count)
+    })
+
+    test("a viewer is offered neither", async ({ baseURL, page }) => {
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.viewerCookie)
+      await page.goto("/inbox")
+      await expect(
+        page.locator('[data-slot="review-row"]').first()
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", { name: "Actions for this review" })
+      ).toHaveCount(0)
+
+      await page.locator('[data-slot="review-row"]').first().click()
+      const detail = page.getByRole("region", { name: "Selected review" })
+      await detail.getByRole("button", { name: "More actions" }).click()
+      await expect(
+        page.getByRole("menuitem", { name: "Open listing" })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("menuitem", { name: "No reply needed" })
+      ).toHaveCount(0)
+      await expect(page.getByRole("menuitem", { name: "Assign…" })).toHaveCount(
+        0
+      )
+    })
+  })
+
   test("offers a location filter only when the org has several locations", async ({
     baseURL,
     page,

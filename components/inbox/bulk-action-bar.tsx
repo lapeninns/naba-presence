@@ -10,6 +10,14 @@ import {
 import Link from "next/link"
 import * as React from "react"
 
+import {
+  AssigneeItems,
+  assignReviews,
+  markNoReplyNeeded,
+  NoReplyNeededDialog,
+  useAssignees,
+  useReviewTriage,
+} from "@/components/inbox/review-triage"
 import { useSelection } from "@/components/inbox/selection-context"
 import { TemplateReplyDialog } from "@/components/inbox/template-reply-dialog"
 import {
@@ -35,7 +43,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useMenuSheet } from "@/components/ui/menu-surface"
 import { SelectionBar, SelectionBarTile } from "@/components/ui/selection-bar"
-import { useToastManager } from "@/components/ui/toast"
 import type {
   BulkReviewActionInput,
   BulkReviewResult,
@@ -47,8 +54,6 @@ import {
   summariseBulkOutcome,
 } from "@/lib/inbox/bulk-outcome"
 import { isRatingOnly } from "@/lib/inbox/template-batch"
-import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
-import { useMembers } from "@/lib/queries/use-members"
 
 /**
  * Actions over a selection: the shared SelectionBar, docked to the bottom
@@ -74,8 +79,7 @@ function BulkActionBar({
   bulkEngine?: boolean
 }) {
   const { selected, clear, replace, setSelectMode } = useSelection()
-  const bulk = useBulkReviewAction()
-  const toast = useToastManager()
+  const bulk = useReviewTriage()
   // On a phone the overflow is a bottom action sheet, where a flyout
   // submenu has nowhere to fly to; the assignees are listed in the sheet.
   const menuIsSheet = useMenuSheet()
@@ -93,17 +97,9 @@ function BulkActionBar({
   const chosen = rows.filter((row) => selected.has(row.id))
   // The member list is only needed to assign, so it is fetched when a
   // selection exists rather than on every visit to the inbox.
-  const members = useMembers({ enabled: chosen.length > 0 })
-  // Offer only people the server would accept for at least one chosen row:
-  // never a viewer, and a member scoped to locations only when one of the
-  // chosen reviews is at one of them. The server still checks every row
-  // (`assignee_not_eligible`); this just keeps certain refusals off the menu.
-  const chosenLocations = new Set(chosen.map((row) => row.location.id))
-  const assignees = (members.data?.members ?? []).filter(
-    (member) =>
-      member.role !== "viewer" &&
-      (member.locations.length === 0 ||
-        member.locations.some((grant) => chosenLocations.has(grant.locationId)))
+  const assignees = useAssignees(
+    chosen.map((row) => row.location.id),
+    { enabled: chosen.length > 0 }
   )
 
   const templateDialog = templateRows ? (
@@ -145,6 +141,7 @@ function BulkActionBar({
     action: "approve" | "assign" | "mark_reviewed",
     assigneeId?: string | null
   ) => {
+    const ids = chosen.map((row) => row.id)
     const input: BulkReviewActionInput | null =
       action === "approve"
         ? approvable.length === 0
@@ -160,35 +157,16 @@ function BulkActionBar({
                 reviewUpdateTime: row.updateTime,
               })),
             }
-        : chosen.length === 0
-          ? null
-          : action === "assign"
-            ? {
-                action,
-                reviewIds: chosen.map((row) => row.id),
-                assigneeId: assigneeId ?? null,
-              }
-            : { action, reviewIds: chosen.map((row) => row.id) }
+        : action === "assign"
+          ? assignReviews(ids, assigneeId ?? null)
+          : markNoReplyNeeded(ids)
     if (!input) return
-    try {
-      const result = await bulk.mutateAsync(input)
-      setOutcome(result)
-      const summary = summariseBulkOutcome(result)
-      toast.add({
-        title: summary.title,
-        description: summary.description,
-        type: summary.tone,
-      })
-      // Every row done: the batch is over, so select mode ends with it
-      // (which also clears). Anything left over stays ticked to retry.
-      if (summary.allOk) setSelectMode(false)
-    } catch (error) {
-      toast.add({
-        title: "That batch did not run",
-        description: describeErrorCode(error),
-        type: "error",
-      })
-    }
+    const result = await bulk.run(input)
+    if (!result) return
+    setOutcome(result)
+    // Every row done: the batch is over, so select mode ends with it
+    // (which also clears). Anything left over stays ticked to retry.
+    if (summariseBulkOutcome(result).allOk) setSelectMode(false)
   }
 
   // Per-row results come back as ids; the operator knows reviews by who
@@ -219,22 +197,11 @@ function BulkActionBar({
         ? "template"
         : "mark_reviewed"
   const assigneeItems = (
-    <>
-      {assignees.map((member) => (
-        <DropdownMenuItem
-          key={member.userId}
-          onClick={() => void run("assign", member.userId)}
-        >
-          {member.displayName ?? member.email}
-        </DropdownMenuItem>
-      ))}
-      {assignees.length > 0 ? <DropdownMenuSeparator /> : null}
-      <DropdownMenuItem onClick={() => void run("assign", null)}>
-        Unassign
-      </DropdownMenuItem>
-    </>
+    <AssigneeItems
+      assignees={assignees}
+      onAssign={(assigneeId) => void run("assign", assigneeId)}
+    />
   )
-  const plural = (count: number) => (count === 1 ? "review" : "reviews")
 
   const primaryTile =
     primary === "approve" ? (
@@ -434,34 +401,13 @@ function BulkActionBar({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* There is no API to put a review back in Needs reply, so this asks
-          first rather than offering an Undo it could not keep. */}
-      <AlertDialog open={confirmReviewed} onOpenChange={setConfirmReviewed}>
-        <AlertDialogContent
-          aria-label={`Mark ${chosen.length} ${plural(chosen.length)} as no reply needed?`}
-        >
-          <AlertDialogTitle>
-            Mark {chosen.length} {plural(chosen.length)} as no reply needed?
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            They leave Needs reply. Nothing is posted to Google.
-          </AlertDialogDescription>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="secondary" />}>
-              Cancel
-            </AlertDialogClose>
-            <Button
-              disabled={bulk.isPending}
-              onClick={() => {
-                setConfirmReviewed(false)
-                void run("mark_reviewed")
-              }}
-            >
-              Mark {chosen.length} {plural(chosen.length)}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <NoReplyNeededDialog
+        count={chosen.length}
+        open={confirmReviewed}
+        onOpenChange={setConfirmReviewed}
+        pending={bulk.isPending}
+        onConfirm={() => void run("mark_reviewed")}
+      />
       {templateDialog}
     </>
   )

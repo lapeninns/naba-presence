@@ -1,9 +1,14 @@
 "use client"
 
-import { useEffect, useRef } from "react"
-import { GlobeIcon, ImageIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { CircleSlashIcon, GlobeIcon, ImageIcon } from "lucide-react"
 
 import { ReviewAvatar } from "@/components/inbox/review-avatar"
+import {
+  markNoReplyNeeded,
+  NoReplyNeededDialog,
+  useReviewTriage,
+} from "@/components/inbox/review-triage"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { RelativeTime } from "@/components/ui/relative-time"
@@ -146,6 +151,8 @@ function ReviewList({
   const business = useWorkspaceMode() === "business"
   const desk = useHydratedBreakpoint("desk")
   const containerRef = useRef<HTMLUListElement>(null)
+  // The row whose "No reply needed" is waiting on its confirmation.
+  const [noReplyFor, setNoReplyFor] = useState<ReviewRow | null>(null)
 
   function focusRow(index: number) {
     const buttons = containerRef.current?.querySelectorAll<HTMLButtonElement>(
@@ -335,6 +342,24 @@ function ReviewList({
                 void onSelect(review.id)
               }}
               onKeyDown={(event) => onKeyDown(event, index)}
+              // Triage from the row: a swipe on touch, the ⋯ button for
+              // everyone else. Offered where the tick boxes are (not to a
+              // viewer), and not while select mode is ticking rows.
+              swipeActions={
+                selection && !selection.selectMode
+                  ? [
+                      {
+                        label: "No reply needed",
+                        icon: <CircleSlashIcon aria-hidden />,
+                        onAction: () => setNoReplyFor(review),
+                      },
+                    ]
+                  : undefined
+              }
+              // Not named after the reviewer: the row's own button is, and a
+              // second button with the same name would be two matches for
+              // anyone finding the row by it.
+              actionsLabel="Actions for this review"
               emphasis={needsReply ? "unread" : "read"}
               unreadLabel={pillSpokenByTitle ? status.text : "Needs reply"}
               // The non-colour half of the selection cue beside the fill
@@ -524,6 +549,12 @@ function ReviewList({
           )
         })}
       </ListRows>
+      {noReplyFor ? (
+        <RowNoReplyNeeded
+          review={noReplyFor}
+          onClose={() => setNoReplyFor(null)}
+        />
+      ) : null}
       {onReachEnd ? (
         <div ref={sentinelRef} aria-hidden className="h-px shrink-0" />
       ) : null}
@@ -536,6 +567,32 @@ function ReviewList({
         </p>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * The confirmation behind a row's "No reply needed": the same dialog and
+ * action as the bulk bar and the review's ⋯ menu (review-triage.tsx), for
+ * this one row. Mounted only while a row is waiting on it.
+ */
+function RowNoReplyNeeded({
+  review,
+  onClose,
+}: {
+  review: ReviewRow
+  onClose: () => void
+}) {
+  const triage = useReviewTriage()
+  return (
+    <NoReplyNeededDialog
+      count={1}
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+      pending={triage.isPending}
+      onConfirm={() => void triage.run(markNoReplyNeeded([review.id]))}
+    />
   )
 }
 

@@ -635,6 +635,98 @@ test.describe("touch: critical journeys at 390x844", () => {
     }
   )
 
+  // INB-08: one review is triaged from its row, not through Select mode. The
+  // inbox tenant is a throwaway (destroyed after each test), so marking its
+  // one review as needing no reply leaves nothing behind for other specs.
+  touchTest(
+    "inbox: a left swipe on a row marks the review as needing no reply, after the confirmation",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto("/inbox")
+      const list = page.getByRole("region", { name: "Review list" })
+      const row = list.getByRole("button", {
+        name: new RegExp(inboxTenant.text + "(?: |$)"),
+      })
+      await row.scrollIntoViewIfNeeded()
+      await settle(page, row)
+
+      // The swipe alone neither opens the review nor sends anything.
+      await drag(page, row, -120, 0)
+      const openRow = list.locator("[data-slot=list-row-swipe][data-open]")
+      await expect(openRow).toHaveCount(1)
+      expect(new URL(page.url()).searchParams.get("selected")).toBeNull()
+      const action = openRow.getByRole("button", {
+        name: "No reply needed",
+        exact: true,
+      })
+      await expect(action).toBeVisible()
+      await tap(action)
+
+      // The confirmation stays until the undo work lands (R06b).
+      const confirm = page.getByRole("alertdialog", {
+        name: "Mark 1 review as no reply needed?",
+      })
+      await expect(confirm).toBeVisible()
+      await tap(confirm.getByRole("button", { name: "Mark 1 review" }))
+      await expect(page.getByText("1 review updated")).toBeVisible()
+      await expect(page.locator("[data-slot=review-row]")).toHaveCount(0)
+    }
+  )
+
+  touchTest(
+    "inbox: a row's visible actions button reaches the same action with no swipe",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto("/inbox")
+      const list = page.getByRole("region", { name: "Review list" })
+      await expect(
+        list.getByRole("button", {
+          name: new RegExp(inboxTenant.text + "(?: |$)"),
+        })
+      ).toBeVisible()
+
+      await tap(list.getByRole("button", { name: "Actions for this review" }))
+      await tap(page.getByRole("menuitem", { name: "No reply needed" }))
+      const confirm = page.getByRole("alertdialog", {
+        name: "Mark 1 review as no reply needed?",
+      })
+      await expect(confirm).toBeVisible()
+      await tap(confirm.getByRole("button", { name: "Mark 1 review" }))
+      await expect(page.getByText("1 review updated")).toBeVisible()
+      await expect(page.locator("[data-slot=review-row]")).toHaveCount(0)
+    }
+  )
+
+  touchTest(
+    "inbox: an open review's ⋯ carries No reply needed and Assign…",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto(`/inbox?selected=${inboxTenant.reviewId}`)
+      const detail = page.getByRole("region", { name: "Selected review" })
+      await expect(detail).toBeVisible()
+
+      // On a phone the menu is a sheet: the people are listed in it, and
+      // the triage action is one tap from the ⋯.
+      await tap(detail.getByRole("button", { name: "More actions" }))
+      await expect(
+        page.getByRole("menuitem", { name: "No reply needed" })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("menuitem", { name: "Unassign" })
+      ).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Assign…" })).toHaveCount(
+        0
+      )
+      await tap(page.getByRole("menuitem", { name: "No reply needed" }))
+      const confirm = page.getByRole("alertdialog", {
+        name: "Mark 1 review as no reply needed?",
+      })
+      await expect(confirm).toBeVisible()
+      await tap(confirm.getByRole("button", { name: "Mark 1 review" }))
+      await expect(page.getByText("1 review updated")).toBeVisible()
+    }
+  )
+
   touchTest(
     "inbox: the reply composer's docked bar keeps the focused reply clear, with the keyboard up",
     async ({ page, baseURL, inboxTenant }) => {

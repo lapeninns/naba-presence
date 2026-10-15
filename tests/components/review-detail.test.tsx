@@ -11,6 +11,9 @@ import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as connHealthHook from "@/lib/queries/use-connection-health"
 import * as sessionHook from "@/lib/queries/use-session"
+import * as bulkHook from "@/lib/queries/use-bulk-review-action"
+import * as membersHook from "@/lib/queries/use-members"
+import { PHONE_OVERLAY_QUERY } from "@/components/ui/overlay"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
 function fakeDetail(value: Partial<UseQueryResult<ReviewDetailData>>) {
@@ -604,6 +607,167 @@ describe("ReviewDetail", () => {
     await user.click(await screen.findByRole("menuitem", { name: "History" }))
     const dialog = await screen.findByRole("dialog", { name: "History" })
     expect(within(dialog).getByText("Draft generated")).toBeInTheDocument()
+  })
+
+  // INB-08: triaging one review no longer goes through Select mode. The
+  // review's own ⋯ carries "No reply needed" and "Assign…", so it takes the
+  // menu, the action and the confirmation (three taps), and an assignment
+  // takes the menu and the person.
+  describe("triage from ⋯", () => {
+    const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(
+      async () => ({ results: [{ reviewId: "rev-1", status: "ok" }] })
+    )
+
+    beforeEach(() => {
+      mutateAsync.mockClear()
+      vi.spyOn(bulkHook, "useBulkReviewAction").mockReturnValue({
+        mutateAsync,
+        isPending: false,
+      } as unknown as ReturnType<typeof bulkHook.useBulkReviewAction>)
+      vi.spyOn(membersHook, "useMembers").mockReturnValue({
+        data: {
+          members: [
+            {
+              userId: "u1",
+              displayName: "Priya",
+              email: "p@example.test",
+              role: "member",
+              locations: [],
+            },
+            {
+              userId: "u2",
+              displayName: "Vic",
+              email: "v@example.test",
+              role: "viewer",
+              locations: [],
+            },
+            {
+              userId: "u3",
+              displayName: "Sol",
+              email: "s@example.test",
+              role: "member",
+              locations: [{ locationId: "elsewhere", canPublish: true }],
+            },
+          ],
+        },
+      } as unknown as ReturnType<typeof membersHook.useMembers>)
+    })
+
+    afterEach(() => vi.unstubAllGlobals())
+
+    it("marks the review as needing no reply from ⋯, once confirmed", async () => {
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(
+        await screen.findByRole("menuitem", { name: "No reply needed" })
+      )
+      // The confirmation stays: nothing is sent until it is answered.
+      expect(
+        await screen.findByRole("alertdialog", {
+          name: "Mark 1 review as no reply needed?",
+        })
+      ).toHaveTextContent("It leaves Needs reply. Nothing is posted to Google.")
+      expect(mutateAsync).not.toHaveBeenCalled()
+      await user.click(screen.getByRole("button", { name: "Mark 1 review" }))
+      expect(mutateAsync).toHaveBeenCalledTimes(1)
+      expect(mutateAsync).toHaveBeenCalledWith({
+        action: "mark_reviewed",
+        reviewIds: ["rev-1"],
+      })
+    })
+
+    it("sends nothing when the confirmation is cancelled", async () => {
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(
+        await screen.findByRole("menuitem", { name: "No reply needed" })
+      )
+      await user.click(await screen.findByRole("button", { name: "Cancel" }))
+      expect(mutateAsync).not.toHaveBeenCalled()
+    })
+
+    it("assigns the review from ⋯ → Assign…, to people it could be offered to", async () => {
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(await screen.findByRole("menuitem", { name: "Assign…" }))
+      // Never a viewer, and never a member scoped away from this location.
+      expect(
+        await screen.findByRole("menuitem", { name: "Priya" })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: "Vic" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: "Sol" })
+      ).not.toBeInTheDocument()
+      // By keyboard: jsdom has no layout, so Base UI's submenu ignores a
+      // synthetic pointer that never "travelled" into it.
+      screen.getByRole("menuitem", { name: "Priya" }).focus()
+      await user.keyboard("{Enter}")
+      expect(mutateAsync).toHaveBeenCalledWith({
+        action: "assign",
+        reviewIds: ["rev-1"],
+        assigneeId: "u1",
+      })
+    })
+
+    it("lists the people in the sheet on a phone, where a submenu has nowhere to fly", async () => {
+      vi.stubGlobal("matchMedia", (query: string) => ({
+        matches: query === PHONE_OVERLAY_QUERY,
+        media: query,
+        onchange: null,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+        dispatchEvent: () => false,
+      }))
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      expect(
+        await screen.findByRole("menuitem", { name: "No reply needed" })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: "Assign…" })
+      ).not.toBeInTheDocument()
+      await user.click(
+        await screen.findByRole("menuitem", { name: "Unassign" })
+      )
+      expect(mutateAsync).toHaveBeenCalledWith({
+        action: "assign",
+        reviewIds: ["rev-1"],
+        assigneeId: null,
+      })
+    })
+
+    // The same gate as the bulk tools: a viewer cannot assign or mark.
+    it("offers a viewer neither", async () => {
+      vi.spyOn(sessionHook, "useSessionRole").mockReturnValue("viewer")
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await screen.findByRole("menuitem", { name: "Open listing" })
+      expect(
+        screen.queryByRole("menuitem", { name: "No reply needed" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: "Assign…" })
+      ).not.toBeInTheDocument()
+    })
   })
 
   it("links to the listing from ⋯", async () => {

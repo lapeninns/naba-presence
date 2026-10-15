@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -6,6 +7,7 @@ import { selectionHitAreaClassName } from "@/components/ui/checkbox"
 import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
+import * as bulkHook from "@/lib/queries/use-bulk-review-action"
 
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
@@ -718,6 +720,136 @@ describe("ReviewList", () => {
   })
 })
 
+// INB-08: one review is triaged from its row, not through Select mode. A left
+// swipe on touch reveals "No reply needed", and the visible ⋯ button reaches
+// the same action for a mouse, a keyboard or a finger that does not swipe.
+describe("ReviewList — triage from the row", () => {
+  const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(async () => ({
+    results: [{ reviewId: "a", status: "ok" }],
+  }))
+
+  beforeEach(() => {
+    mutateAsync.mockClear()
+    vi.spyOn(bulkHook, "useBulkReviewAction").mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    } as unknown as ReturnType<typeof bulkHook.useBulkReviewAction>)
+  })
+
+  function renderRows(selectMode = false, withSelection = true) {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ReviewList
+          reviews={[row({ id: "a" }), row({ id: "b" })]}
+          selectedId={undefined}
+          onSelect={() => true}
+          selection={
+            withSelection
+              ? {
+                  selected: new Set(),
+                  toggle: vi.fn(),
+                  extendTo: vi.fn(),
+                  selectMode,
+                }
+              : undefined
+          }
+        />
+      </QueryClientProvider>
+    )
+  }
+
+  it("marks a review as needing no reply from the row's ⋯, once confirmed", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    const buttons = screen.getAllByRole("button", {
+      name: "Actions for this review",
+    })
+    expect(buttons).toHaveLength(2)
+
+    await user.click(buttons[1])
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Mark 1 review as no reply needed?",
+      })
+    ).toBeInTheDocument()
+    expect(mutateAsync).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Mark 1 review" }))
+    expect(mutateAsync).toHaveBeenCalledTimes(1)
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "mark_reviewed",
+      reviewIds: ["b"],
+    })
+  })
+
+  it("reaches the same action by a left swipe, and still asks first", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    const slide = document.querySelector<HTMLElement>(
+      '[data-slot="list-row-swipe-slide"]'
+    )!
+    const init = { pointerType: "touch", pointerId: 1, isPrimary: true }
+    fireEvent.pointerDown(slide, { ...init, clientX: 300, clientY: 100 })
+    for (const step of [1, 2, 3]) {
+      fireEvent.pointerMove(slide, {
+        ...init,
+        clientX: 300 - 30 * step,
+        clientY: 100,
+      })
+    }
+    fireEvent.pointerUp(slide, { ...init, clientX: 210, clientY: 100 })
+
+    const open = document.querySelector(
+      '[data-slot="list-row-swipe"][data-open]'
+    )!
+    expect(open).not.toBeNull()
+    // The swipe alone neither opened the review nor sent anything.
+    await user.click(
+      open.querySelector<HTMLElement>('[data-slot="list-row-swipe-action"]')!
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Mark 1 review" })
+    )
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "mark_reviewed",
+      reviewIds: ["a"],
+    })
+  })
+
+  it("sends nothing when the row's confirmation is cancelled", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    await user.click(
+      screen.getAllByRole("button", { name: "Actions for this review" })[0]
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Cancel" }))
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  // The same gate as the tick boxes, which a viewer is not given.
+  it("offers a viewer no row actions", () => {
+    renderRows(false, false)
+    expect(
+      screen.queryByRole("button", { name: "Actions for this review" })
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector('[data-slot="list-row-swipe"]')
+    ).not.toBeInTheDocument()
+  })
+
+  it("leaves the rows to tapping while select mode is ticking them", () => {
+    renderRows(true)
+    expect(
+      screen.queryByRole("button", { name: "Actions for this review" })
+    ).not.toBeInTheDocument()
+  })
+})
+
 // Notion Mail's row (REFERENCE-BRIEF §2.1): three lines, avatar-led, with a
 // needs-reply "unread" emphasis that only reinforces the status words.
 describe("ReviewList row anatomy", () => {
@@ -1055,9 +1187,7 @@ describe("ReviewList — keeping the selection in view", () => {
       configurable: true,
       value: scrollBy,
     })
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
-      1000
-    )
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000)
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(100)
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {
