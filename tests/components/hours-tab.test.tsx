@@ -372,6 +372,8 @@ describe("HoursTab", () => {
         name: /Monday: Opening and closing times are the same/,
       })
     ).toHaveAttribute("href", "#hours-1-0-opens")
+    // Nothing is offered for publishing while the draft is invalid.
+    expect(screen.queryByRole("dialog", { name: /review/i })).toBeNull()
     // The row says what is wrong without opening the day.
     expect(
       screen.getByRole("button", { name: /^Monday/ })

@@ -210,6 +210,11 @@ function specialIndexOf(fieldId: string): number | null {
   return match ? Number(match[1]) : null
 }
 
+/** A field id as one schedule scopes it (a service's ids carry its type). */
+function scopedId(serviceId: string | undefined, id: string): string {
+  return serviceId ? `service-${encodeURIComponent(serviceId)}-${id}` : id
+}
+
 /** Which weekday a regular-hours field id belongs to, if any. */
 function dayIndexOf(fieldId: string, serviceId?: string): number | null {
   const prefix = serviceId ? `service-${encodeURIComponent(serviceId)}-` : ""
@@ -254,12 +259,12 @@ const rowBleedClassName = "-mx-2 w-auto px-2"
  * The weekly schedule and its special days (reference listing-hours).
  *
  * Laid out as settings groups (`SettingsGroup`, a bordered card on the
- * desk): regular hours are one group with a field row per day, Monday
- * first. Each row is the day's name (with a "Changed" word and a fill tint
- * when it differs from Google) over its controls: the open switch, then the
- * periods with their quiet text actions ("Add split period", "Copy to…")
- * under them. On a wide container (`@2xl`) the switch and the periods sit
- * side by side; narrower they stack, so nothing squeezes on a phone.
+ * desk): regular hours are one group with one compact row per day, Monday
+ * first: the day's name over its hours ("09:00 – 17:00", "Closed"), a
+ * "Changed" word and fill tint when it differs from Google, and the open
+ * switch beside the row. A row opens that day's sheet, which holds the
+ * times, closing day, split period and "Copy to…"; one "Copy Monday to…"
+ * action sits at the top of the group. A day's problem shows on its row.
  *
  * Special days are list rows in one group: the date and its hours as a
  * summary ("Thu 25 Dec 2026 · Closed", with "Changed" and "Past" words, and
@@ -330,6 +335,12 @@ export function HoursEditor({
   const specialRowPrefix = useId()
   const specialRowId = (key: number) => `${specialRowPrefix}special-row-${key}`
   const [copyFrom, setCopyFrom] = useState<number | null>(null)
+  // The nested editors of the service schedules, to reveal a field in one.
+  const serviceHandles = useRef(new Map<string, HoursEditorHandle>())
+  // "Copy to…" from a day's sheet: the copy sheet opens once that sheet has
+  // closed, and focus goes back to the day's row when the copy sheet does.
+  const [pendingCopy, setPendingCopy] = useState<number | null>(null)
+  const [lastCopyDay, setLastCopyDay] = useState<number | null>(null)
   // The periods a day had when it was switched off, so switching it back on
   // brings them back instead of resetting to 09:00–17:00.
   const [closedPeriods, setClosedPeriods] = useState<
@@ -427,11 +438,16 @@ export function HoursEditor({
     ref,
     () => ({
       reveal(target) {
+        // A service schedule is its own editor, with its own day sheets.
+        for (const [type, handle] of serviceHandles.current) {
+          if (target.startsWith(`service-${encodeURIComponent(type)}-`))
+            return handle.reveal(target)
+        }
         const day = dayIndexOf(target, serviceId)
         if (day !== null) {
           // The day's switch is on the row itself; every other field is in
           // the day's sheet.
-          if (target === baseHoursFieldId.dayOpen(day)) {
+          if (target === scopedId(serviceId, baseHoursFieldId.dayOpen(day))) {
             document.getElementById(target)?.focus()
             return Promise.resolve()
           }
@@ -489,7 +505,7 @@ export function HoursEditor({
         card
         className="mt-0"
         listProps={{
-          className: "@container/week divide-y divide-line-subtle",
+          className: "divide-y divide-line-subtle",
         }}
       >
         {!disabled ? (
@@ -504,7 +520,8 @@ export function HoursEditor({
                 onClick={() => setCopyFrom(WEEK_ORDER[0])}
               >
                 <Copy aria-hidden />
-                Copy {DAY_LABELS[WEEK_ORDER[0]]} to…
+                Copy {serviceId ? `${scheduleName} ` : ""}
+                {DAY_LABELS[WEEK_ORDER[0]]} to…
               </Button>
             </div>
           </li>
@@ -597,6 +614,11 @@ export function HoursEditor({
               return (
                 <div key={entry.hoursTypeId} className="flex flex-col gap-2">
                   <HoursEditor
+                    ref={(handle) => {
+                      if (handle)
+                        serviceHandles.current.set(entry.hoursTypeId, handle)
+                      else serviceHandles.current.delete(entry.hoursTypeId)
+                    }}
                     value={{
                       regular: serviceWeek(entry),
                       special: [],
@@ -879,6 +901,12 @@ export function HoursEditor({
         onOpenChange={(next) => {
           if (!next) closeDay()
         }}
+        onOpenChangeComplete={(open) => {
+          if (open || pendingCopy === null) return
+          setLastCopyDay(pendingCopy)
+          setCopyFrom(pendingCopy)
+          setPendingCopy(null)
+        }}
       >
         <SheetContent
           side="bottom"
@@ -912,8 +940,8 @@ export function HoursEditor({
               onToggle={(open) => toggleDay(dayOf(value, dayKey), open)}
               onCopy={() => {
                 // One sheet at a time: the copy sheet opens once this closes.
+                setPendingCopy(dayKey)
                 closeDay()
-                setCopyFrom(dayKey)
               }}
               onDone={closeDay}
             />
@@ -923,6 +951,8 @@ export function HoursEditor({
 
       <CopyDaysDialog
         from={copyFrom}
+        scope={serviceId ? scheduleName : undefined}
+        returnFocusId={lastCopyDay === null ? null : dayRowId(lastCopyDay)}
         value={value}
         onClose={() => setCopyFrom(null)}
         onApply={(targets) => {
@@ -1003,6 +1033,10 @@ function DaySheet({
             checked={!day.isClosed}
             disabled={disabled}
             aria-label={`${label} open in this sheet`}
+            aria-invalid={dayError ? true : undefined}
+            aria-describedby={
+              dayError ? `${ids.dayOpen(dayOfWeek)}-error-sheet` : undefined
+            }
             onCheckedChange={onToggle}
           />
           <span aria-hidden className="text-ui text-ink-muted">
@@ -1014,7 +1048,9 @@ function DaySheet({
           : day.periods.map((period, index) => {
               const opensId = ids.opens(dayOfWeek, index)
               const message =
-                errors[opensId] ?? errors[ids.ends(dayOfWeek, index)]
+                errors[opensId] ??
+                errors[ids.closes(dayOfWeek, index)] ??
+                errors[ids.ends(dayOfWeek, index)]
               const errorId = `${opensId}-error`
               return (
                 <div key={index} className="flex flex-wrap items-center gap-2">
@@ -1346,11 +1382,17 @@ const QUICK_PICKS: { label: string; days: readonly number[] }[] = [
  */
 function CopyDaysDialog({
   from,
+  scope,
+  returnFocusId,
   value,
   onClose,
   onApply,
 }: {
   from: number | null
+  /** The service schedule being copied within, when it is not the venue's. */
+  scope?: string
+  /** The element to return focus to when the sheet closes. */
+  returnFocusId?: string | null
   value: NormalizedHours
   onClose: () => void
   onApply: (targets: number[]) => void
@@ -1363,7 +1405,8 @@ function CopyDaysDialog({
     setPicked([])
   }
   const open = from !== null
-  const label = from !== null ? DAY_LABELS[from] : ""
+  const label =
+    from !== null ? `${scope ? `${scope} ` : ""}${DAY_LABELS[from]}` : ""
   const others = WEEK_ORDER.filter((day) => day !== from)
 
   return (
@@ -1380,7 +1423,14 @@ function CopyDaysDialog({
         cancelLabel: "Keep choosing",
       }}
     >
-      <SheetContent variant="inset" className="flex flex-col gap-0">
+      <SheetContent
+        variant="inset"
+        className="flex flex-col gap-0"
+        finalFocus={() =>
+          (returnFocusId ? document.getElementById(returnFocusId) : null) ??
+          true
+        }
+      >
         <SheetHeader>
           <SheetTitle>Copy {label}’s hours</SheetTitle>
           <SheetDescription>

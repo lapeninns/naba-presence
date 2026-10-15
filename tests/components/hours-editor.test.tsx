@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -6,10 +7,13 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { useState } from "react"
+import { createRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
-import { HoursEditor } from "@/components/locations/hours-editor"
+import {
+  HoursEditor,
+  type HoursEditorHandle,
+} from "@/components/locations/hours-editor"
 import {
   INVALID_TIME_MESSAGE,
   validateHours,
@@ -535,6 +539,50 @@ describe("HoursEditor phone-first controls", () => {
     expect(within(dialog).getByLabelText("Special date 1 closes")).toHaveValue(
       "17:00"
     )
+  })
+
+  it("reveals a field in a service schedule's day sheet from a validation link", async () => {
+    const value = emptyHours()
+    value.moreHours = [
+      {
+        hoursTypeId: "KITCHEN",
+        periods: [
+          {
+            dayOfWeek: 1,
+            closeDayOfWeek: 1,
+            opensAt: "12:00",
+            closesAt: "12:00",
+          },
+        ],
+      },
+    ]
+    const message = "Opening and closing times are the same."
+    const handle = createRef<HoursEditorHandle>()
+    render(
+      <HoursEditor
+        ref={handle}
+        value={value}
+        onChange={() => {}}
+        disabled={false}
+        supportedHoursTypes={[
+          { hoursTypeId: "KITCHEN", displayName: "Kitchen" },
+        ]}
+        errors={{ "service-KITCHEN-hours-1-0-opens": message }}
+      />
+    )
+    // The row says what is wrong before anything is opened.
+    expect(
+      screen.getByRole("button", { name: /^Kitchen Monday/ })
+    ).toHaveAccessibleDescription(message)
+    await act(async () => {
+      await handle.current!.reveal("service-KITCHEN-hours-1-0-opens")
+    })
+    const sheet = await screen.findByRole("dialog", {
+      name: "Kitchen Monday hours",
+    })
+    expect(
+      within(sheet).getByLabelText("Kitchen Monday period 1 opens")
+    ).toHaveAttribute("aria-invalid", "true")
   })
 
   it("copies from the day's own sheet by closing it first, never stacking sheets", async () => {
