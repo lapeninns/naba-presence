@@ -18,7 +18,7 @@ import {
 } from "./verification-method"
 
 const actionCopy = {
-  none: "Google reported no further merchant action.",
+  none: "Google needs nothing more from you.",
   wait: "Google asks you to wait for its review.",
   verify:
     "Google asks for verification. Check the current request before starting another.",
@@ -27,7 +27,7 @@ const actionCopy = {
   guidelines:
     "Google asks you to address its business guidelines. Follow the instructions in Google.",
   unknown:
-    "Google’s required merchant action is unknown. Check the listing in Google.",
+    "We couldn’t tell what Google needs next. Check the listing in Google.",
 } satisfies Record<ObservedMerchantState["action"], string>
 
 const phasePresentation = {
