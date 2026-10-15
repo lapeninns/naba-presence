@@ -4,7 +4,7 @@ import { CheckIcon } from "lucide-react"
 import * as React from "react"
 
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 export type ConfirmationMatch = "insensitive" | "exact" | "trimmed-insensitive"
@@ -58,6 +58,24 @@ export function confirmationMatches(
     }
   }
   return canon(value) === canon(expected)
+}
+
+/**
+ * Keyboard hints for typing `expected` exactly. An email gets the email
+ * keyboard (it has the "@" key); everything else keeps the plain text one.
+ * Both stop the phone capitalising or "correcting" what is typed. `type`
+ * stays `text`, so the browser never validates or trims a half-typed address.
+ */
+export function typedConfirmationHints(expected: string) {
+  return {
+    ...(expected.includes("@")
+      ? { inputMode: inputHints.email.inputMode }
+      : {}),
+    autoComplete: "off",
+    autoCapitalize: "none",
+    autoCorrect: "off",
+    spellCheck: false,
+  } as const
 }
 
 /**
@@ -166,10 +184,7 @@ function TypedConfirmation({
         )}
       </FieldLabel>
       <Input
-        autoComplete="off"
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
+        {...typedConfirmationHints(expected)}
         enterKeyHint="done"
         data-matched={matched || undefined}
         {...props}

@@ -511,7 +511,7 @@ export function PolicyForm({ role }: { role: string | null }) {
         description="The name your team and invited people see."
         variant="group"
       >
-        <Field error={nameError ?? nameProblem ?? undefined}>
+        <Field measure="short" error={nameError ?? nameProblem ?? undefined}>
           <FieldLabel>{terms.orgName}</FieldLabel>
           <Input
             value={nameValue}

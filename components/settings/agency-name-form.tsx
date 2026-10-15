@@ -122,7 +122,7 @@ export function AgencyNameForm() {
       noValidate
       aria-label={terms.orgName}
     >
-      <Field error={error ?? undefined}>
+      <Field measure="short" error={error ?? undefined}>
         <FieldLabel>{terms.orgName}</FieldLabel>
         <Input
           value={value}

@@ -107,3 +107,38 @@ describe("TypedConfirmation", () => {
     expect(onValueChange).toHaveBeenCalledWith("The Bell!")
   })
 })
+
+describe("TypedConfirmation keyboard hints", () => {
+  it("opens the email keyboard when the expected text is an email", () => {
+    render(<TypedConfirmation expected="owner@riverside.test" />)
+    const input = screen.getByRole("textbox")
+    expect(input).toHaveAttribute("inputmode", "email")
+    // Exact-match typing: no capitals, corrections or spellcheck; and still a
+    // text input, so the browser never validates a half-typed address.
+    expect(input).toHaveAttribute("type", "text")
+    expect(input).toHaveAttribute("autocapitalize", "none")
+    expect(input).toHaveAttribute("autocorrect", "off")
+    expect(input).toHaveAttribute("autocomplete", "off")
+    expect(input).toHaveAttribute("spellcheck", "false")
+  })
+
+  it("keeps the plain keyboard for a name, with the same no-correction hints", () => {
+    render(<TypedConfirmation expected="The Bell" />)
+    const input = screen.getByRole("textbox")
+    expect(input).not.toHaveAttribute("inputmode")
+    expect(input).toHaveAttribute("autocapitalize", "none")
+    expect(input).toHaveAttribute("autocorrect", "off")
+    expect(input).toHaveAttribute("spellcheck", "false")
+  })
+
+  it("uses the fallback to decide, and lets a caller override", () => {
+    const { rerender } = render(
+      <TypedConfirmation expected={null} fallbackExpected="DISCONNECT" />
+    )
+    expect(screen.getByRole("textbox")).not.toHaveAttribute("inputmode")
+    rerender(<TypedConfirmation expected={null} fallbackExpected="a@b.test" />)
+    expect(screen.getByRole("textbox")).toHaveAttribute("inputmode", "email")
+    rerender(<TypedConfirmation expected="a@b.test" inputMode="text" />)
+    expect(screen.getByRole("textbox")).toHaveAttribute("inputmode", "text")
+  })
+})
