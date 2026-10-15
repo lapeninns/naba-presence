@@ -12,7 +12,7 @@ vi.mock("next/link", () => ({
 }))
 
 import { Breadcrumbs } from "@/components/ui/breadcrumb"
-import { RemovableChip, ToggleChip } from "@/components/ui/chip"
+import { FilterChip, RemovableChip } from "@/components/ui/chip"
 import { DataTable } from "@/components/ui/data-table"
 import { DiffView } from "@/components/ui/diff-view"
 import { KpiTile } from "@/components/ui/kpi-tile"
@@ -125,9 +125,9 @@ describe("chips", () => {
     const user = userEvent.setup()
     const onClick = vi.fn()
     render(
-      <ToggleChip pressed onClick={onClick}>
+      <FilterChip pressed onClick={onClick}>
         Oldest first
-      </ToggleChip>
+      </FilterChip>
     )
     const chip = screen.getByRole("button", { name: "Oldest first" })
     expect(chip).toHaveAttribute("aria-pressed", "true")

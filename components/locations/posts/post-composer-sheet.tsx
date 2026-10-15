@@ -11,7 +11,7 @@ import {
   type PostFormValues as Values,
 } from "@/components/locations/posts/post-form-values"
 import { Button } from "@/components/ui/button"
-import { ToggleChip } from "@/components/ui/chip"
+import { FilterChip } from "@/components/ui/chip"
 import {
   Field,
   FieldCounter,
@@ -693,14 +693,14 @@ export function PostComposerSheet({
                             )}
                           >
                             {DAYS_OF_WEEK.map((day) => (
-                              <ToggleChip
+                              <FilterChip
                                 key={day}
                                 pressed={values.weekdays.includes(day)}
                                 onClick={() => toggleWeekday(day)}
                                 disabled={disabled}
                               >
                                 {WEEKDAY_SHORT[day]}
-                              </ToggleChip>
+                              </FilterChip>
                             ))}
                           </div>
                         </div>

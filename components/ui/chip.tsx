@@ -3,6 +3,7 @@
 import { X } from "lucide-react"
 import * as React from "react"
 
+import { isZeroCount } from "@/components/ui/count-text"
 import { cn } from "@/lib/utils"
 
 /**
@@ -16,58 +17,22 @@ const CHIP_COUNT_CLASS = "text-count leading-none tabular-nums"
 const ALERT_COUNT_CLASS = "font-semibold text-danger-ink"
 
 /**
- * Filter and queue chips (reference `.chip`): a CONTROL. A chip is pressed
- * (a filter, a queue) or removed (an applied filter). A state word belongs in
- * a `StatusPill`, a count or category in a `Badge`; the full rule is in
- * status-pill.tsx.
- *
- * A capsule `--np-control-h-sm` tall (36px on touch, 30px on a desk) on the
- * surface with a hairline edge. On touch an invisible extension takes the
- * hit area to the 44px floor without making a row of chips 44px tall; a desk
- * pointer does not need it. Pressed (or `aria-current="page"` on a link chip) fills with INK, not
- * the accent: the accent is reserved for the primary action and the current
- * nav item. Counts are sans with tabular figures; `countTone="alert"` draws
- * a count that needs attention in the danger ink.
- *
- * `ToggleChip` is a button reporting `aria-pressed`. `RemovableChip` shows a
- * filter that is applied and carries a labelled remove control. For a chip
- * that is a link (queue tabs), apply `chipClassName()` to the anchor and
- * put a `<ChipCount>` inside. `ChipRow` is the horizontally scrolling row.
+ * A count inside a chip, segment or tab (sans, tabular figures). A zero
+ * draws nothing (see `isZeroCount`): one rule for every strip.
  */
-function chipClassName({
-  pressed = false,
-  className,
-}: { pressed?: boolean; className?: string } = {}) {
-  return cn(
-    "group/chip relative inline-flex h-(--np-control-h-sm) shrink-0 items-center gap-1.5 rounded-(--np-radius-pill) border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,border-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none",
-    // The touch hit area: 36px drawn, 44px pressable. A percentage inset
-    // resolves against the padding box, so the 1px border can't shave it
-    // (a fixed -4px gave 34 + 8 = 42px).
-    "after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
-    "hover-fine:hover:border-line-strong hover-fine:hover:bg-surface-alt",
-    "disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
-    "aria-[current=page]:border-ink aria-[current=page]:bg-ink aria-[current=page]:text-canvas",
-    pressed &&
-      "border-ink bg-ink text-canvas hover-fine:hover:border-ink hover-fine:hover:bg-ink",
-    className
-  )
-}
-
-/** A count inside a chip, segment or tab (sans, tabular figures). */
 function ChipCount({
   tone = "default",
   className,
   ...props
 }: React.ComponentProps<"span"> & { tone?: "default" | "alert" }) {
+  if (isZeroCount(props.children)) return null
   return (
     <span
       data-slot="chip-count"
       data-tone={tone}
       className={cn(
         CHIP_COUNT_CLASS,
-        tone === "alert"
-          ? ALERT_COUNT_CLASS
-          : "text-ink-muted group-aria-pressed/chip:text-canvas/80 group-aria-[current=page]/chip:text-canvas/80",
+        tone === "alert" ? ALERT_COUNT_CLASS : "text-ink-muted",
         className
       )}
       {...props}
@@ -75,36 +40,11 @@ function ChipCount({
   )
 }
 
-function ToggleChip({
-  pressed,
-  count,
-  countTone,
-  className,
-  children,
-  ...props
-}: React.ComponentProps<"button"> & {
-  pressed?: boolean
-  /** A count after the label (sans, tabular figures). */
-  count?: React.ReactNode
-  countTone?: "default" | "alert"
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      data-slot="chip"
-      data-pressed={pressed || undefined}
-      className={chipClassName({ pressed, className })}
-      {...props}
-    >
-      {children}
-      {count !== undefined && count !== null ? (
-        <ChipCount tone={countTone}>{count}</ChipCount>
-      ) : null}
-    </button>
-  )
-}
-
+/**
+ * A tag the reader can take away (a category on a profile): the filter
+ * chip's capsule with its own labelled remove control. For an APPLIED
+ * FILTER use `FilterChip onRemove`, where the whole chip is the control.
+ */
 function RemovableChip({
   onRemove,
   removeLabel,
@@ -121,10 +61,10 @@ function RemovableChip({
     <span
       data-slot="chip"
       className={cn(
-        chipClassName(),
+        filterChipClassName(),
         // The remove button carries its own 44px target, so the chip's
-        // extension would only cover it.
-        "pr-1 after:hidden hover-fine:hover:border-line hover-fine:hover:bg-surface",
+        // extension would only cover it. The capsule itself is inert.
+        "pe-1 after:hidden hover-fine:hover:bg-fill-secondary",
         className
       )}
       {...props}
@@ -265,11 +205,11 @@ function labelText(node: React.ReactNode): string {
 }
 
 /**
- * The filter chip (Notion Mail, brief §4.3): a quieter capsule than
- * `ToggleChip`, `--np-chip-h` drawn (28px touch, 24px desk) on the
- * `fill-secondary` grey with no edge, `text-ui`. On touch an invisible
- * extension takes the hit area to the 44px floor, so a strip of chips stays
- * short.
+ * THE filter chip (Notion Mail, brief §4.3): one primitive and one pressed
+ * style for every strip of filters and queues (inbox, listings, clients).
+ * `--np-chip-h` drawn (28px touch, 24px desk) on the `fill-secondary` grey
+ * with no edge, `text-ui`. On touch an invisible extension takes the hit
+ * area to the 44px floor, so a strip of chips stays short.
  *
  * Two jobs, by props:
  * - a TOGGLE (`pressed`, `onClick`): a button reporting `aria-pressed`;
@@ -279,9 +219,17 @@ function labelText(node: React.ReactNode): string {
  *   and an applied chip has nothing else to do when pressed.
  *
  * Pressed and applied chips are `accent-tint` / `accent-ink` / 600: the
- * weight and the × (or the pressed state) are the non-colour cues.
+ * weight and the × (or the pressed state) are the non-colour cues. The
+ * accent marks the current choice; there is no second, ink-filled pressed
+ * style.
+ *
+ * A count follows the zero rule (`isZeroCount`): zero draws no figure. A
+ * strip of buckets can also pass `hideWhenZero` to drop an empty bucket
+ * altogether, unless it is the one selected, so a chosen filter never
+ * vanishes from under the reader.
+ *
  * Labels are never truncated: put chips in a `FilterChipStrip`, which
- * scrolls sideways instead.
+ * scrolls sideways (or wraps, with `md:flex-wrap`) instead.
  */
 function filterChipClassName({
   active = false,
@@ -289,7 +237,7 @@ function filterChipClassName({
 }: { active?: boolean; className?: string } = {}) {
   return cn(
     "group/chip relative inline-flex h-(--np-chip-h) shrink-0 items-center gap-1 rounded-(--np-radius-pill) bg-fill-secondary px-3 text-ui whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none",
-    // 28px drawn, 44px pressable on touch (see chipClassName).
+    // 28px drawn, 44px pressable on touch.
     "after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
     "hover-fine:hover:bg-fill",
     "disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
@@ -307,8 +255,13 @@ type FilterChipProps = Omit<React.ComponentProps<"button">, "children"> & {
   onRemove?: () => void
   /** The remove control's name. Defaults to "Remove filter: <label>". */
   removeLabel?: string
-  /** A count after the label (sans, tabular figures). */
+  /** A count after the label (sans, tabular figures). Zero draws no figure. */
   count?: React.ReactNode
+  /**
+   * Opt-in: draw nothing at all while `count` is zero, unless the chip is
+   * pressed or applied (a selected bucket never disappears).
+   */
+  hideWhenZero?: boolean
   /**
    * `alert` draws the count in the danger ink (a bucket that needs
    * attention). The label still says what it counts: colour only
@@ -323,6 +276,7 @@ function FilterChip({
   onRemove,
   removeLabel,
   count,
+  hideWhenZero = false,
   countTone = "default",
   className,
   onClick,
@@ -330,6 +284,9 @@ function FilterChip({
 }: FilterChipProps) {
   const removable = onRemove !== undefined
   const active = removable || Boolean(pressed)
+  const hasCount = count !== undefined && count !== null
+  const zero = hasCount && isZeroCount(count)
+  if (hideWhenZero && zero && !active) return null
   return (
     <button
       type="button"
@@ -352,7 +309,7 @@ function FilterChip({
       {...props}
     >
       {children}
-      {count !== undefined && count !== null ? (
+      {hasCount && !zero ? (
         <>
           {/* A real space, so the name reads "Needs attention 2"; the flex
               row drops it from the drawing and `gap` spaces it. */}{" "}
@@ -565,10 +522,8 @@ export {
   FilterChip,
   FilterChipStrip,
   RemovableChip,
-  ToggleChip,
   TokenChip,
   TokenChipList,
-  chipClassName,
   filterChipClassName,
 }
 export type { FilterChipProps }

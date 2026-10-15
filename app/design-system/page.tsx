@@ -28,6 +28,7 @@ import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
+import { UxP04Demo } from "@/app/design-system/ux-p04-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -58,7 +59,7 @@ import {
 } from "@/components/ui/card"
 import { ChartDataTable, ChartLegend } from "@/components/ui/chart"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ChipRow, ToggleChip } from "@/components/ui/chip"
+import { ChipRow, FilterChip } from "@/components/ui/chip"
 import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
@@ -811,7 +812,7 @@ export default function Page() {
 
             <Specimen
               title="Segmented and chips"
-              note="Segmented picks one view; chips filter and scope. Pressed chips fill with ink."
+              note="Segmented picks one view; chips filter and scope. A pressed chip takes the accent tint; a zero count draws no figure."
             >
               <Demo>
                 <SegmentedControl defaultValue="warm" aria-label="Tone">
@@ -823,13 +824,13 @@ export default function Page() {
                     Empathetic
                   </SegmentedControlItem>
                 </SegmentedControl>
-                <ToggleChip pressed count={5}>
+                <FilterChip pressed count={5}>
                   Needs reply
-                </ToggleChip>
-                <ToggleChip count={2}>Approval</ToggleChip>
-                <ToggleChip count={1} countTone="alert">
+                </FilterChip>
+                <FilterChip count={2}>Approval</FilterChip>
+                <FilterChip count={1} countTone="alert">
                   Failed
-                </ToggleChip>
+                </FilterChip>
                 <RemovableChipDemo />
               </Demo>
             </Specimen>
@@ -1063,6 +1064,8 @@ export default function Page() {
                 </TabsPanel>
               </Tabs>
             </Specimen>
+
+            <UxP04Demo />
 
             <Specimen title="Stat tiles">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

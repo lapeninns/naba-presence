@@ -175,14 +175,14 @@ describe("ClientsIndex", () => {
     const chips = within(strip).getAllByRole("button")
     // "All" plus every bucket; no bucket is left out of the counts.
     expect(chips.map((chip) => chip.textContent)).toEqual([
-      "All8",
-      "Action needed1",
-      "Needs attention1",
-      "In sync2",
-      "Not checked1",
-      "Partially checked1",
-      "Changes to publish1",
-      "Not set up1",
+      "All 8",
+      "Action needed 1",
+      "Needs attention 1",
+      "In sync 2",
+      "Not checked 1",
+      "Partially checked 1",
+      "Changes to publish 1",
+      "Not set up 1",
     ])
     expect(chips[0]).toHaveAttribute("aria-pressed", "true")
     fireEvent.click(chips[1])
@@ -202,7 +202,7 @@ describe("ClientsIndex", () => {
     renderIndex()
     const strip = await screen.findByRole("group", { name: "Filter by health" })
     const chosen = within(strip).getByRole("button", { pressed: true })
-    expect(chosen).toHaveTextContent("Partially checked2")
+    expect(chosen).toHaveTextContent("Partially checked 2")
     const table = screen.getByRole("table", {
       name: "Clients, with their Google health and open review work",
     })
