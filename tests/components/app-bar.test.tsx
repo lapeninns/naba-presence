@@ -908,6 +908,26 @@ describe("AppBar short back label", () => {
     expect(back).toHaveAttribute("title", "The Bell")
   })
 
+  it("keeps the full label on a listing area whose back goes elsewhere", async () => {
+    pathname.current = "/listings/l1/hours"
+    const heading = stubScrolledHeading()
+    const { within: bar } = renderBar({
+      page: (
+        <PageChrome
+          title="Opening hours"
+          back={{ href: "/clients/c1", label: "Old Crown Group" }}
+        />
+      ),
+    })
+    expect(
+      await bar.findByRole("link", { name: "Back to Old Crown Group" })
+    ).toHaveTextContent("Old Crown Group")
+    heading.scrollAway()
+    expect(
+      await bar.findByRole("link", { name: "Back to Client" })
+    ).toHaveAttribute("title", "Old Crown Group")
+  })
+
   it("keeps the full label until the title echo shows on other deep pages", async () => {
     pathname.current = "/settings/connections"
     const heading = stubScrolledHeading()

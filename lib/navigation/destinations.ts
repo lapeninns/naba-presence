@@ -396,17 +396,19 @@ const ENTITY_BACK_LABELS: readonly { pattern: RegExp; label: string }[] = [
 ]
 
 /**
- * Whether a path is one of a listing's areas (`/listings/<id>/hours`,
- * `/photos`, `/posts`, ...): three or more segments under `/listings`. The
- * listing's own page (`/listings/<id>`) and the board (`/listings`) are not.
- * A listing area's page header already names the listing, so the phone app
- * bar's back control says what it is ("‹ Listing") from the start rather
- * than repeating the name above it.
+ * The listing a listing-area path belongs to (`/listings/<id>/hours`,
+ * `/photos`, `/posts`, ... gives `/listings/<id>`), or null: the listing's
+ * own page (`/listings/<id>`), the board (`/listings`) and bulk operations
+ * (`/listings/bulk/...`) are not areas. A listing area's page header
+ * already names the listing, so the phone app bar's back control says what
+ * it is ("‹ Listing") from the start rather than repeating the name above
+ * it.
  */
-export function isListingAreaPath(pathname: string | null): boolean {
-  if (!pathname) return false
+export function listingAreaParent(pathname: string | null): string | null {
+  if (!pathname) return null
   const path = pathname.split(/[?#]/)[0] ?? ""
-  return /^\/listings\/[^/]+\/[^/]+(?:\/|$)/.test(path)
+  const match = /^\/listings\/([^/]+)\/[^/]+(?:\/|$)/.exec(path)
+  return match && match[1] !== "bulk" ? `/listings/${match[1]}` : null
 }
 
 /**

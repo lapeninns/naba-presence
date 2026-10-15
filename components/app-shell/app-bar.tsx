@@ -9,7 +9,7 @@ import { clientPageKind } from "@/lib/clients/scope"
 import {
   destinationForPath,
   entityBackLabel,
-  isListingAreaPath,
+  listingAreaParent,
   shortBackLabel,
 } from "@/lib/navigation/destinations"
 import { useClients } from "@/lib/queries/use-clients"
@@ -546,9 +546,10 @@ function AppBarLeading({
   // control says what it goes back to ("‹ Listing") from the start, even
   // for a short name; elsewhere the full label stays until the title echo
   // takes its place.
+  const areaParent = listingAreaParent(pathname)
   const shortLabel = !back
     ? undefined
-    : isListingAreaPath(pathname)
+    : areaParent !== null && back.href.split(/[?#]/)[0] === areaParent
       ? (entityBackLabel(back) ?? shortBackLabel(back))
       : title.visible
         ? shortBackLabel(back)

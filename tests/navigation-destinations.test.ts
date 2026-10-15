@@ -8,7 +8,7 @@ import {
   destinationHref,
   isActivePath,
   entityBackLabel,
-  isListingAreaPath,
+  listingAreaParent,
   isTopLevelPath,
   moreDestinations,
   navigationPath,
@@ -324,8 +324,8 @@ describe("scoped", () => {
   })
 })
 
-describe("isListingAreaPath", () => {
-  it("is true for a listing's areas", () => {
+describe("listingAreaParent", () => {
+  it("gives the listing a listing area belongs to", () => {
     for (const path of [
       "/listings/l1/hours",
       "/listings/l1/profile",
@@ -335,11 +335,11 @@ describe("isListingAreaPath", () => {
       "/listings/l1/posts/p1",
       "/listings/l1/hours?tab=special#top",
     ]) {
-      expect(isListingAreaPath(path), path).toBe(true)
+      expect(listingAreaParent(path), path).toBe("/listings/l1")
     }
   })
 
-  it("is false for the board, a listing's own page and other routes", () => {
+  it("is null for the board, a listing's own page, bulk and other routes", () => {
     for (const path of [
       "/listings",
       "/listings/",
@@ -349,13 +349,14 @@ describe("isListingAreaPath", () => {
       "/listings//hours",
       "/clients/c1/listings",
       "/clients/c1/listings/l1/hours",
+      "/listings/bulk/op1",
       "/settings/connections",
       "/inbox",
       "/",
     ]) {
-      expect(isListingAreaPath(path), path).toBe(false)
+      expect(listingAreaParent(path), path).toBeNull()
     }
-    expect(isListingAreaPath(null)).toBe(false)
+    expect(listingAreaParent(null)).toBeNull()
   })
 })
 
