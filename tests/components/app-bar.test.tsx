@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, within } from "@testing-library/react"
+import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -578,5 +578,248 @@ describe("AppBar trailing slot", () => {
       expect(controls(bar).length).toBeLessThanOrEqual(2)
       document.body.innerHTML = ""
     }
+  })
+})
+
+// The echoed title takes the h1's place once the h1 is under the bar. The
+// bar watches it with an IntersectionObserver; jsdom has none, so these
+// stand one in and report the h1 as scrolled away.
+function stubScrolledHeading() {
+  const callbacks: IntersectionObserverCallback[] = []
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(callback: IntersectionObserverCallback) {
+        callbacks.push(callback)
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords() {
+        return []
+      }
+    }
+  )
+  return {
+    scrollAway: () =>
+      act(() => {
+        for (const callback of callbacks) {
+          callback(
+            [
+              {
+                boundingClientRect: { bottom: 0 },
+              } as IntersectionObserverEntry,
+            ],
+            {} as IntersectionObserver
+          )
+        }
+      }),
+  }
+}
+
+describe("AppBar one title at a time", () => {
+  it("shows the workspace name until the h1 scrolls away, then the page title", async () => {
+    const heading = stubScrolledHeading()
+    const { bar } = renderBar()
+    const name = bar.querySelector('[data-slot="workspace-name"]')!
+    const title = bar.querySelector('[data-slot="app-bar-title"]')!
+    expect(name).toHaveAttribute("data-visible", "true")
+    expect(name.className.split(" ")).toContain("visible")
+    expect(title).toHaveAttribute("data-visible", "false")
+    expect(title.parentElement!.className.split(" ")).toContain("invisible")
+
+    heading.scrollAway()
+
+    // Never both: the name fades out (and leaves the accessibility tree) as
+    // the title fades in.
+    await vi.waitFor(() =>
+      expect(title).toHaveAttribute("data-visible", "true")
+    )
+    expect(title).toHaveTextContent("Page")
+    expect(title.parentElement!.className.split(" ")).toContain("visible")
+    expect(name).toHaveAttribute("data-visible", "false")
+    expect(name.className.split(" ")).toContain("invisible")
+  })
+
+  it("stacks the name and the title in one cell instead of side by side", () => {
+    const { bar } = renderBar()
+    const name = bar.querySelector('[data-slot="workspace-name"]')!
+    const heading = bar.querySelector('[data-slot="app-bar-heading"]')!
+    expect(name.parentElement).toBe(heading.parentElement)
+    for (const element of [name, heading]) {
+      expect(element.className.split(" ")).toEqual(
+        expect.arrayContaining(["col-start-1", "row-start-1"])
+      )
+    }
+  })
+
+  it("swaps without a transition under reduced motion", () => {
+    const { bar } = renderBar()
+    for (const slot of ["workspace-name", "app-bar-heading"]) {
+      expect(
+        bar.querySelector(`[data-slot="${slot}"]`)!.className.split(" ")
+      ).toContain("motion-reduce:transition-none")
+    }
+  })
+
+  it("keeps the full workspace name and title in title attributes", () => {
+    const { bar } = renderBar({ page: <PageChrome title="Short" /> })
+    expect(bar.querySelector('[data-slot="workspace-name"]')).toHaveAttribute(
+      "title",
+      "Lapen Inns Agency"
+    )
+    expect(bar.querySelector('[data-slot="app-bar-title"]')).toHaveAttribute(
+      "title",
+      "Short"
+    )
+  })
+
+  it("has no workspace name beside a deep page's back control", async () => {
+    pathname.current = "/listings/l1/hours"
+    const { bar, within: inBar } = renderBar()
+    await inBar.findByRole("link", { name: "Back to Old Crown Girton" })
+    expect(bar.querySelector('[data-slot="workspace-name"]')).toBeNull()
+  })
+})
+
+describe("AppBar short back label", () => {
+  it("keeps the full label until the title echo shows, then shortens it", async () => {
+    pathname.current = "/listings/l1/hours"
+    const heading = stubScrolledHeading()
+    const { within: bar } = renderBar()
+    const full = await bar.findByRole("link", {
+      name: "Back to Old Crown Girton",
+    })
+    expect(full).toHaveTextContent("Old Crown Girton")
+
+    heading.scrollAway()
+
+    // The visible word is the name's tail ("Back to Listing"), the full
+    // label stays one hover or long-press away.
+    const short = await bar.findByRole("link", { name: "Back to Listing" })
+    expect(short).toHaveTextContent("Listing")
+    expect(short).not.toHaveTextContent("Old Crown Girton")
+    expect(short).toHaveAttribute("title", "Old Crown Girton")
+    expect(short).toHaveAttribute("href", "/listings/l1")
+  })
+
+  it("leaves a label that already fits", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const { within: bar } = renderBar()
+    await bar.findByRole("link", { name: "Back to Settings" })
+    heading.scrollAway()
+    expect(
+      await bar.findByRole("link", { name: "Back to Settings" })
+    ).toHaveTextContent("Settings")
+  })
+})
+
+describe("AppBar organisation-wide pages", () => {
+  function controls(bar: HTMLElement) {
+    const actions = bar.querySelector('[data-slot="app-bar-actions"]')!
+    return Array.from(actions.querySelectorAll("a, button"))
+  }
+
+  it.each(["/team", "/settings", "/settings/connections", "/notifications"])(
+    "shows search and the bell, not the scope chip, on %s",
+    (path) => {
+      pathname.current = path
+      clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+      const { bar, within: inBar } = renderBar()
+      expect(inBar.queryByRole("button", { name: /^Client:/ })).toBeNull()
+      const items = controls(bar)
+      expect(items).toHaveLength(2)
+      expect(items[0]).toHaveAccessibleName(
+        "Search clients, listings, pages and actions"
+      )
+      expect(items[1]).toHaveAccessibleName("Notifications")
+      // The bell is in the bar, not held back for the docked case.
+      expect(items[1].className.split(" ")).not.toContain("hidden")
+    }
+  )
+
+  it("does not wait for the client list to decide where the bell is", () => {
+    pathname.current = "/team"
+    vi.spyOn(clientsHook, "useClients").mockImplementation(
+      () =>
+        ({ data: undefined, isPending: true }) as unknown as ReturnType<
+          typeof clientsHook.useClients
+        >
+    )
+    const { bar } = renderBar()
+    expect(bar.querySelector('[data-slot="app-bar-scope-pending"]')).toBeNull()
+    expect(controls(bar)).toHaveLength(2)
+  })
+
+  it("shows search and the bell to a business on Settings, too", () => {
+    pathname.current = "/settings"
+    const { bar, within: inBar } = renderBar({ mode: "business" })
+    expect(inBar.queryByRole("button", { name: /^Location:/ })).toBeNull()
+    expect(controls(bar)).toHaveLength(2)
+  })
+
+  it("still shows the chip on the pages that follow the scope", () => {
+    for (const path of ["/inbox", "/listings", "/reports", "/clients"]) {
+      pathname.current = path
+      clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+      const { within: inBar } = renderBar()
+      expect(
+        inBar.getByRole("button", { name: "Client: All clients" })
+      ).toBeInTheDocument()
+      document.body.innerHTML = ""
+    }
+  })
+})
+
+describe("AppBar scope chip on a client's own page", () => {
+  beforeEach(() => {
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+  })
+
+  it("shows only the client's mark, with the name in its accessible name", () => {
+    pathname.current = "/clients/c1"
+    const { within: bar } = renderBar()
+    const chip = bar.getByRole("button", { name: "Client: Old Crown Group" })
+    // The mark (the avatar's initials), no name beside it.
+    expect(chip).toHaveTextContent(/^OC$/)
+    expect(chip.querySelector("span[title]")).toBeNull()
+    expect(chip.className.split(" ")).toContain("px-1.5")
+  })
+
+  it("keeps the mark-only chip on the client's deeper pages", () => {
+    pathname.current = "/clients/c1/settings"
+    const { within: bar } = renderBar()
+    const chip = bar.getByRole("button", { name: "Client: Old Crown Group" })
+    expect(chip.querySelector("span[title]")).toBeNull()
+  })
+
+  it("shows the name on the pages that follow the scope, with the full value in title", () => {
+    pathname.current = "/listings"
+    const { within: bar } = renderBar()
+    const chip = bar.getByRole("button", { name: "Client: All clients" })
+    expect(chip).toHaveTextContent("All clients")
+    expect(chip.querySelector("span[title]")).toHaveAttribute(
+      "title",
+      "All clients"
+    )
+  })
+
+  it("drops the name on a deep page while its title is echoed", async () => {
+    pathname.current = "/listings/l1/hours"
+    const heading = stubScrolledHeading()
+    const { within: bar } = renderBar()
+    const chip = await bar.findByRole("button", { name: /^Client:/ })
+    expect(chip.querySelector("span[title]")).not.toBeNull()
+
+    heading.scrollAway()
+
+    await vi.waitFor(() =>
+      expect(
+        bar
+          .getByRole("button", { name: /^Client:/ })
+          .querySelector("span[title]")
+      ).toBeNull()
+    )
   })
 })

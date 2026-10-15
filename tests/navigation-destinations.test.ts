@@ -7,6 +7,7 @@ import {
   isActivePath,
   isTopLevelPath,
   moreDestinations,
+  shortBackLabel,
   sidebarDestinations,
   tabDestinations,
   TAB_COUNT,
@@ -265,5 +266,78 @@ describe("paths", () => {
     expect(DESTINATIONS.filter((d) => d.ownSearch).map((d) => d.id)).toEqual([
       "inbox",
     ])
+  })
+})
+
+describe("scoped", () => {
+  const scopedOf = (id: Destination["id"]) =>
+    DESTINATIONS.find((destination) => destination.id === id)?.scoped
+
+  it("marks the organisation-wide pages, which ignore the client scope", () => {
+    expect(scopedOf("team")).toBe(false)
+    expect(scopedOf("settings")).toBe(false)
+    expect(scopedOf("notifications")).toBe(false)
+  })
+
+  it("keeps Inbox, Listings and Reports following the scope", () => {
+    expect(scopedOf("inbox")).toBe(true)
+    expect(scopedOf("listings")).toBe(true)
+    expect(scopedOf("reports")).toBe(true)
+  })
+
+  it("never carries the client to an organisation-wide page", () => {
+    for (const id of ["team", "settings", "notifications"] as const) {
+      const destination = DESTINATIONS.find((entry) => entry.id === id)!
+      expect(destinationHref(destination, "agency", "c1")).toBe(
+        destination.href
+      )
+    }
+  })
+})
+
+describe("shortBackLabel", () => {
+  it("keeps a label that already fits", () => {
+    expect(shortBackLabel({ href: "/listings", label: "Listings" })).toBe(
+      "Listings"
+    )
+    expect(shortBackLabel({ href: "/inbox?queue=all", label: "Inbox" })).toBe(
+      "Inbox"
+    )
+  })
+
+  it("says what a named listing or client is", () => {
+    expect(
+      shortBackLabel({
+        href: "/listings/l1",
+        label: "Riverside Rooms & Kitchen",
+      })
+    ).toBe("Listing")
+    expect(
+      shortBackLabel({ href: "/clients/c1", label: "Journey Hospitality" })
+    ).toBe("Client")
+  })
+
+  it("uses the destination's own label when it is the shorter one", () => {
+    expect(
+      shortBackLabel({
+        href: "/settings?tab=x",
+        label: "Notification settings",
+      })
+    ).toBe("Settings")
+  })
+
+  it("never renames a deeper page after its destination", () => {
+    expect(
+      shortBackLabel({
+        href: "/clients/c1/listings",
+        label: "Journey Hospitality listings",
+      })
+    ).toBe("Journey Hospitality listings")
+  })
+
+  it("leaves a long label with nothing shorter to say", () => {
+    expect(
+      shortBackLabel({ href: "/setup/connect", label: "Connect your account" })
+    ).toBe("Connect your account")
   })
 })
