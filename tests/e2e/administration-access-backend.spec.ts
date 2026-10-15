@@ -15,7 +15,7 @@ async function technicalReference(page: Page, pattern: RegExp) {
 }
 /** An invitation reads and sends on its own sheet; every other access change in the page panel. */
 async function approveAndSend(page: Page, info: TestInfo, typedName?: string, surface: "panel" | "sheet" = "panel") {
-  const review = surface === "sheet" ? page.getByRole("dialog") : panel(page)
+  const review = surface === "sheet" ? page.locator('[data-slot="sheet-content"]') : panel(page)
   const shot = (name: string) => surface === "sheet" ? captureAccessSheet(page, info, name) : captureVerificationSection(page, info, { name, section: "access-review-workspace" })
   await expect(review.getByRole("button", { name: "Approve access request" })).toBeEnabled()
   await shot("review")
@@ -51,7 +51,7 @@ for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}
     expect(fixture.writes()).toHaveLength(1)
     expect(fixture.writes()[0]).toMatchObject({ body: { admin: "invitee@example.test", role: "MANAGER" } })
     expect(fixture.writes()[0].path).toContain(`${scope === "account" ? fixture.connection.googleAccountName : fixture.linked.googleLocationName}/admins`)
-    const sheet = page.getByRole("dialog")
+    const sheet = page.locator('[data-slot="sheet-content"]')
     await expect(sheet.getByText("Administrator invitation listed; access awaits acceptance", { exact: true })).toBeVisible()
     await page.reload(); await page.getByRole("button", { name: "Open outcome", exact: true }).click()
     await expect(sheet.getByText("Independently confirmed", { exact: true })).toBeVisible()
