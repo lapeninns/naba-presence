@@ -77,14 +77,16 @@ describe("SettingsNav", () => {
       .scrollIntoView
   })
 
-  it("leads a phone back to the settings index instead of a tab row", () => {
-    render(<SettingsNav role="owner" />)
-    expect(screen.getByRole("link", { name: "All settings" })).toHaveAttribute(
-      "href",
-      "/settings"
-    )
+  it("leaves a phone's way back to the app bar, with no second link", () => {
+    // SET-04: the app bar already shows "‹ Settings"; a page link that did
+    // the same cost a row above the fold.
+    const { container } = render(<SettingsNav role="owner" />)
+    expect(
+      screen.queryByRole("link", { name: "All settings" })
+    ).not.toBeInTheDocument()
     // Below md the tab row is hidden in CSS; the index is the way round.
-    expect(tabs()).toHaveClass("max-md:hidden")
+    expect(container.firstElementChild).toHaveClass("max-md:hidden")
+    expect(container.firstElementChild).toContainElement(tabs())
   })
 
   it("no longer hides Team and Listing inside Settings", () => {

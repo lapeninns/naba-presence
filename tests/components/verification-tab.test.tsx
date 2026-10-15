@@ -68,8 +68,24 @@ describe("independent verification workspace", () => {
     vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, phase: "completed", providerState: "COMPLETED" }] })
     fixture()
     await screen.findByText("Request completed")
-    const pinSection = screen.getByRole("region", { name: "PIN completion and saved outcomes" })
+    const pinSection = screen.getByRole("region", { name: "PINs and saved reviews" })
     expect(precedes(screen.getByRole("region", { name: "How Google sees this listing" }), pinSection)).toBe(true)
+  })
+  it("answers in one line when the listing is verified and nothing is pending", async () => {
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, phase: "completed", providerState: "COMPLETED" }], merchant: { hasVoiceOfMerchant: true, hasBusinessAuthority: true, action: "none", hasPendingVerification: false } })
+    fixture()
+    expect(await screen.findByText("Verified. Google confirms you manage this listing.")).toBeInTheDocument()
+    const tools = screen.getByText("Verification tools").closest("details")
+    expect(tools).not.toBeNull()
+    expect(tools).not.toHaveAttribute("open")
+    expect(tools).toContainElement(screen.getByRole("region", { name: "Start a new verification" }))
+    expect(tools).toContainElement(screen.getByRole("region", { name: "History" }))
+  })
+  it("keeps the verification tools open on the page while a request is pending", async () => {
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, merchant: { hasVoiceOfMerchant: true, hasBusinessAuthority: true, action: "none", hasPendingVerification: true } })
+    fixture()
+    await screen.findByLabelText("PIN from Google")
+    expect(screen.queryByText("Verification tools")).not.toBeInTheDocument()
   })
   it("retains both saved reviews with one active Google action bar", async () => {
     const startReview: VerificationReview = { changeSet: { ...pinReview.changeSet, id: "00000000-0000-4000-8000-000000000003", approvedBy: locationId }, payload: { method: "EMAIL", languageCode: "en-GB", emailAddress: "owner@example.test" }, choice: { id: pinReview.changeSet.payloadHash, kind: "email", method: "EMAIL", user: "owner", domain: "example.test", userNameEditable: true } }
@@ -153,7 +169,7 @@ describe("independent verification workspace", () => {
   it("shows completed requests without turning unknown standing into success", async () => {
     vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, phase: "completed", providerState: "COMPLETED" }], merchant: null, merchantError: "verification_merchant_state_unavailable" })
     fixture()
-    await screen.findByText("Merchant standing is unknown")
+    await screen.findByText("Verification status is unknown")
     expect(screen.getByText("Request completed")).toBeInTheDocument()
     expect(screen.queryByText(/Google has verified/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText("PIN from Google")).not.toBeInTheDocument()
@@ -172,7 +188,7 @@ describe("independent verification workspace", () => {
     const checked = formatInstant(state.checkedAt)
     expect(await screen.findByText(new RegExp(`Google returned no verification requests when this list was checked at ${checked}`))).toBeInTheDocument()
     expect(screen.getByText(/A saved outcome above may have been observed after that check/)).toBeInTheDocument()
-    expect(screen.getByText(`Requests Google returned when checked at ${checked}. Saved outcomes above can be newer than this check; completion does not establish current merchant standing.`)).toBeInTheDocument()
+    expect(screen.getByText(`Requests Google returned when checked at ${checked}. Saved results above can be newer than this check. Finishing a request does not by itself mean the listing is verified.`)).toBeInTheDocument()
     expect(screen.queryByText(/at the last successful check/)).not.toBeInTheDocument()
   })
   it("labels each saved list's reload control once, with no duplicate generic control", async () => {

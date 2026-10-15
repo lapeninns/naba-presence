@@ -131,6 +131,37 @@ function describeException(
   }
 
   if (review.workflowStatus === "awaiting_approval") {
+    // The server's answer when it sent one (plan D1): the same rule as the
+    // Inbox's "awaiting my approval" queue, so it knows what `canPublish`
+    // cannot — whether the two-person rule accepts a decision from this person.
+    const serverScope = review.capabilities.approvalScope
+    if (serverScope === "me" && review.capabilities.canApprove === false) {
+      return {
+        title: "Waiting for another approver",
+        description:
+          "You wrote this reply, so another person with publishing rights must approve it. You can still reject it and send it back for changes.",
+        tone: "caution",
+      }
+    }
+    if (serverScope === "me") {
+      return {
+        title: "Approval required",
+        description:
+          "This reply is waiting for your approval. Approve it to send it to Google, or send it back for changes.",
+        tone: "caution",
+      }
+    }
+    if (serverScope === "others") {
+      return {
+        title: "Waiting for another approver",
+        description:
+          review.capabilities.requireTwoPersonApproval &&
+          review.capabilities.canPublish
+            ? "Your organisation needs a second person to approve each reply, so someone else with publishing rights must approve this one. Editing and saving a new version returns it to Needs reply."
+            : "Someone with publishing rights needs to approve this reply. Editing and saving a new version returns it to Needs reply.",
+        tone: "caution",
+      }
+    }
     return review.capabilities.canPublish
       ? {
           title: "Approval required",
@@ -171,8 +202,10 @@ function describeException(
   if (action.kind === "submit") {
     return {
       title: "Approval required",
-      description:
-        "Your role can write and submit this reply. Someone with publishing rights handles the approval and the publish.",
+      description: review.capabilities.canPublish
+        ? // A publisher submits only under the two-person rule.
+          "Your organisation needs a second person to approve each reply. Submit it, and another person with publishing rights approves it before it goes to Google."
+        : "Your role can write and submit this reply. Someone with publishing rights handles the approval and the publish.",
       tone: "caution",
     }
   }

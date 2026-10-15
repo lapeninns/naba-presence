@@ -2,8 +2,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 /**
  * The shape of a settings page while it loads: the title and its line of
- * description, the way round (the "All settings" link below md, the
- * settings tab row from md), then two cards. It claims nothing about what is inside — only
+ * description, the settings tab row (from md; a phone goes back through the
+ * app bar), then two cards. It claims nothing about what is inside — only
  * that a page is on its way — and is as tall as the real header, so nothing
  * jumps when the page arrives.
  */
@@ -21,13 +21,10 @@ export default function SettingsLoading() {
           <Skeleton className="h-5 w-full max-w-xl" />
           <Skeleton className="h-5 w-2/3 max-w-md" />
         </div>
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-(--np-touch) w-28 md:hidden" />
-          <div className="flex h-11 items-end gap-4 overflow-hidden border-b border-line px-3 pb-3 max-md:hidden desk:h-10">
-            {["w-24", "w-24", "w-32", "w-20", "w-16"].map((width, index) => (
-              <Skeleton key={index} className={`h-4 shrink-0 ${width}`} />
-            ))}
-          </div>
+        <div className="flex h-11 items-end gap-4 overflow-hidden border-b border-line px-3 pb-3 max-md:hidden desk:h-10">
+          {["w-24", "w-24", "w-32", "w-20", "w-16"].map((width, index) => (
+            <Skeleton key={index} className={`h-4 shrink-0 ${width}`} />
+          ))}
         </div>
       </div>
       {[3, 2].map((rows, index) => (

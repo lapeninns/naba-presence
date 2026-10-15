@@ -32,7 +32,8 @@ import type { BackTarget } from "@/lib/navigation/back-target"
  * ones. A deep page's back label shortens at the same moment ("‹ Listing"
  * for a listing's name; lib/navigation/destinations.ts `shortBackLabel`),
  * so a page's `back.label` may be the full name: the bar keeps it in
- * `title`.
+ * `title`. A listing area's (`/listings/<id>/<area>`) is short from the
+ * start, since its header row already names the listing.
  * `count` puts a muted view count after that title ("Inbox 12", the Notion
  * Mail header); `countLabel` says what it counts ("need a reply"). The
  * echo is visual only, so keep the count in the page's own h1 or region
@@ -44,10 +45,32 @@ import type { BackTarget } from "@/lib/navigation/back-target"
 export type PageChromeOverride = {
   back?: ShellBackTarget | null
   title?: string
+  /** The page's primary action, shown in the phone app bar once the h1 has scrolled away. */
+  action?: ShellAction
   /** A view count shown, muted, after the title in the phone app bar. */
   count?: number
   /** What `count` counts, e.g. "need a reply". */
   countLabel?: string
+}
+
+/** A page's primary action, as the phone app bar draws it. */
+export type ShellAction = {
+  /** The accessible name, and the visible text when there is no icon. */
+  label: string
+  /** An icon drawn instead of the label (the name stays on the control). */
+  icon?: React.ComponentType<{
+    className?: string
+    strokeWidth?: number
+    "aria-hidden"?: boolean
+  }>
+  /** Runs on activation. Ignored when `href` is set. */
+  onSelect?: () => void
+  /** Makes the control a link. */
+  href?: string
+  /** Makes the control inert, but still focusable, while the action runs. */
+  pending?: boolean
+  /** The name (and visible text) while `pending`: "Opening Google…". */
+  pendingLabel?: string
 }
 
 /** A back target, with the page's own handler when it declared one. */
@@ -98,6 +121,7 @@ function PageChrome({
   count,
   countLabel,
   onBack,
+  action,
 }: {
   back?: BackTarget | null
   title?: string
@@ -107,6 +131,8 @@ function PageChrome({
   countLabel?: string
   /** Runs instead of following `back.href` on a plain activation. */
   onBack?: () => void
+  /** The page's primary action, in the phone app bar once the h1 has scrolled away. */
+  action?: ShellAction
 }) {
   const set = React.useContext(PageChromeContext)?.set
   const [owner] = React.useState(() => Symbol("page-chrome"))
@@ -120,6 +146,18 @@ function PageChrome({
     onBackRef.current = onBack
   })
   const hasHandler = onBack !== undefined
+  // The action's handler is read at click time too, so a fresh closure each
+  // render doesn't re-register the override.
+  const onSelectRef = React.useRef(action?.onSelect)
+  React.useEffect(() => {
+    onSelectRef.current = action?.onSelect
+  })
+  const hasAction = action !== undefined
+  const actionLabel = action?.label
+  const actionIcon = action?.icon
+  const actionHref = action?.href
+  const actionPending = action?.pending
+  const actionPendingLabel = action?.pendingLabel
 
   React.useEffect(() => {
     if (!set) return
@@ -139,6 +177,16 @@ function PageChrome({
     if (title !== undefined) value.title = title
     if (count !== undefined) value.count = count
     if (countLabel !== undefined) value.countLabel = countLabel
+    if (hasAction && actionLabel) {
+      value.action = {
+        label: actionLabel,
+        icon: actionIcon,
+        href: actionHref,
+        pending: actionPending,
+        pendingLabel: actionPendingLabel,
+        onSelect: () => onSelectRef.current?.(),
+      }
+    }
     set(owner, value)
   }, [
     set,
@@ -150,6 +198,12 @@ function PageChrome({
     title,
     count,
     countLabel,
+    hasAction,
+    actionLabel,
+    actionIcon,
+    actionHref,
+    actionPending,
+    actionPendingLabel,
   ])
 
   React.useEffect(() => () => set?.(owner, null), [set, owner])

@@ -249,7 +249,7 @@ describe("invitations", () => {
       operation: "decline_invitation",
       payload: { name: "accounts/1/invitations/pending-1" },
     })
-    expect(await screen.findByText("Invitation decline review saved")).toBeInTheDocument()
+    expect(await screen.findByText("Decline ready to approve")).toBeInTheDocument()
   })
 
   it("says what each invitation grants: the role and the place it is for", () => {
@@ -280,7 +280,7 @@ describe("invitations", () => {
     const patch = stubPatch()
     renderSection(<CreateAdminDialog />)
     await userEvent.click(
-      screen.getByRole("button", { name: "Add administrator" })
+      screen.getByRole("button", { name: "Invite someone" })
     )
     const send = screen.getByRole("button", { name: "Review invitation" })
     expect(send).toBeDisabled()
@@ -299,16 +299,16 @@ describe("invitations", () => {
       operation: "create_admin",
       payload: { scope: "location", admin: "new@camden.test", role: "MANAGER" },
     })
-    expect(await screen.findByText("Administrator invitation review saved")).toBeInTheDocument()
+    expect(await screen.findByText("Invitation ready to approve")).toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("heading", { name: "Invite someone" })).not.toBeInTheDocument()
     )
   })
 
   it("reviews the invitation when Enter is pressed in the email field", async () => {
     const patch = stubPatch()
     renderSection(<CreateAdminDialog />)
-    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    await userEvent.click(screen.getByRole("button", { name: "Invite someone" }))
     expect(screen.getByRole("button", { name: "Review invitation" })).toHaveAttribute("type", "submit")
     const email = screen.getByLabelText("Email address")
     await userEvent.type(email, "not-an-email{Enter}")
@@ -320,15 +320,15 @@ describe("invitations", () => {
       operation: "create_admin",
       payload: { scope: "location", admin: "new@camden.test", role: "MANAGER" },
     })
-    await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
-    )
+    // The saved review takes the form's place on the same sheet.
+    expect(await screen.findByRole("heading", { name: "Review invitation" })).toBeInTheDocument()
+    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument()
   })
 
   it("labels the role and scope pickers by their visible labels and gives the email field identifier keyboard hints", async () => {
     stubPatch()
     renderSection(<CreateAdminDialog />)
-    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    await userEvent.click(screen.getByRole("button", { name: "Invite someone" }))
     expect(screen.getByRole("combobox", { name: "Role" })).toHaveTextContent("Manager")
     expect(screen.getByRole("combobox", { name: "Scope" })).toHaveTextContent("This location")
     const email = screen.getByLabelText("Email address")
@@ -342,7 +342,7 @@ describe("invitations", () => {
   it("asks before a stray Escape throws a typed invitee away, and clears it on discard", async () => {
     stubPatch()
     renderSection(<CreateAdminDialog />)
-    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    await userEvent.click(screen.getByRole("button", { name: "Invite someone" }))
     await userEvent.type(screen.getByLabelText("Email address"), "new@camden.test")
     await userEvent.keyboard("{Escape}")
     const prompt = await screen.findByRole("alertdialog", { name: "Discard your changes?" })
@@ -354,9 +354,9 @@ describe("invitations", () => {
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" })
     )
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("heading", { name: "Invite someone" })).not.toBeInTheDocument()
     )
-    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    await userEvent.click(screen.getByRole("button", { name: "Invite someone" }))
     expect(screen.getByLabelText("Email address")).toHaveValue("")
   })
 
@@ -366,13 +366,13 @@ describe("invitations", () => {
       publishReason: "Only owners and admins can edit this location.",
     })
     expect(
-      screen.getByRole("button", { name: "Add administrator" })
+      screen.getByRole("button", { name: "Invite someone" })
     ).toBeDisabled()
   })
   it("blocks the invitation trigger behind a shared unresolved Google-write gate", () => {
     const patch = stubPatch()
     renderSection(<CreateAdminDialog />, { disabled: false, publishReason: "Resolve the saved lifecycle outcome before another Google change." })
-    expect(screen.getByRole("button", { name: "Add administrator" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Invite someone" })).toBeDisabled()
     expect(patch.bodies).toHaveLength(0)
   })
 })

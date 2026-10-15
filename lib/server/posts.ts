@@ -981,7 +981,7 @@ export async function insertLocalPostDraft(
   }
 ) {
   const { input } = draft
-  const [post] = await sql<{ id: string }[]>`
+  const [post] = await sql<{ id: string; contentRevision: number }[]>`
     insert into gbp_local_post (
       organisation_id, location_id, external_location_id,
       topic_type, language_code, summary, call_to_action, event, offer,
@@ -994,7 +994,7 @@ export async function insertLocalPostDraft(
       ${jsonColumnOrNull(sql, input.offer)},
       ${jsonColumn(sql, input.media)}, ${draft.authorUserId}
     )
-    returning id::text as id
+    returning id::text as id, content_revision::integer as "contentRevision"
   `
   await writeAudit(sql, {
     organisationId: draft.organisationId,
@@ -1069,7 +1069,9 @@ export async function updateLocalPostDraft(
     // Schedules made from this draft are locked before the draft, the order
     // the schedule runner takes them in (P08-R4).
     await lockSourceSchedules(sql, postId)
-    const [post] = await sql<{ id: string; status: string }[]>`
+    const [post] = await sql<
+      { id: string; status: string; contentRevision: number }[]
+    >`
       update gbp_local_post
       set
         topic_type = ${input.topicType},
@@ -1100,7 +1102,8 @@ export async function updateLocalPostDraft(
         and location_id = ${locationId}
         and status not in ('deleted', 'publishing')
         and not (status = 'ambiguous' and google_post_name is null)
-      returning id::text as id, status
+      returning id::text as id, status,
+        content_revision::integer as "contentRevision"
     `
     if (!post) {
       // 'publishing' is excluded above rather than reset to 'draft': the edit
@@ -1629,7 +1632,12 @@ export async function requestOrPublishLocalPost(input: {
   postId: string
   requestId: string
   approval?: boolean
-  /** Approve only: the `contentRevision` the approver read. */
+  /**
+   * Approve: the `contentRevision` the approver read. Publish or request
+   * approval: the revision the person saved and consented to; a post that
+   * has moved on since is refused (409 `post_changed_since_saved`) so
+   * nothing is sent that they did not see.
+   */
   expectedRevision?: number
 }) {
   // One transaction, with the row locked, decides whether this request parks
@@ -1716,6 +1724,16 @@ export async function requestOrPublishLocalPost(input: {
         }
       }
 
+      if (
+        input.expectedRevision !== undefined &&
+        input.expectedRevision !== post.contentRevision
+      ) {
+        throw new ApiError(
+          409,
+          "post_changed_since_saved",
+          "This post was changed by someone else after you saved it. Nothing was sent to Google. Open it again to see the current version."
+        )
+      }
       if (post.status === "publishing") throw postPublishInProgress()
       // An earlier publish whose outcome Google never confirmed. It may have
       // created the post already, so sending it again -- a create, when the row

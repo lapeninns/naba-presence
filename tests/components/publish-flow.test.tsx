@@ -12,6 +12,7 @@ import { renderWithProviders } from "../helpers/render"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import {
   NOTHING_TO_SEND,
+  PUBLISH_FAILURE_TOAST,
   publishOutcome,
   stepOutcome,
   usePublishFlow,
@@ -476,9 +477,11 @@ describe("publication error scope", () => {
         status: "failed",
         message: result.current.error,
       })
-      expect(
-        await screen.findByText(result.current.error ?? "missing error")
-      ).toBeVisible()
+      // The toast only says it stopped; the reason sits on the step, once.
+      expect(await screen.findByText(PUBLISH_FAILURE_TOAST)).toBeVisible()
+      expect(result.current.results[1]?.reason).toBe(
+        "Google refused this change: the connected login doesn’t have permission for it."
+      )
       if (noop)
         expect(result.current.error).not.toContain("Earlier steps were sent")
     }

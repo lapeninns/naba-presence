@@ -284,28 +284,14 @@ function ListingOverview({
               />
             </section>
 
-            <section
-              aria-labelledby="listing-health"
-              className="flex flex-col gap-2"
-            >
-              <SectionLabel
-                id="listing-health"
-                title="Health"
-                description={
-                  disconnected
-                    ? "The connection is broken, so the rest is as of the last sync."
-                    : "Connection, comparison and publication details."
-                }
-              />
-              <HealthStrip
-                locationId={locationId}
-                linked={entry.linked}
-                clientId={entry.clientId ?? null}
-                summary={summary.data}
-                summaryFailed={summaryFailed}
-                canManageConsoles={canManageConsoles}
-              />
-            </section>
+            <HealthStrip
+              linked={entry.linked}
+              clientId={entry.clientId ?? null}
+              summary={summary.data}
+              summaryFailed={summaryFailed}
+              disconnected={disconnected}
+              canManageConsoles={canManageConsoles}
+            />
           </PageFrame>
         )
       }}

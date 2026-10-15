@@ -988,7 +988,7 @@ describe("ProfileTab while Google's half is still loading", () => {
       await screen.findByRole("textbox", { name: "Business name" })
     ).toBeInTheDocument()
 
-    expect(screen.queryByText("In sync with Google")).toBeNull()
+    expect(screen.queryByText("In sync")).toBeNull()
     expect(
       screen.queryByText("Everything on this page matches Google.")
     ).toBeNull()
@@ -1082,7 +1082,7 @@ describe("ProfileTab save and review boundaries", () => {
     expect(progress).toHaveTextContent("Rejected by Google")
     expect(review).toHaveTextContent("Earlier steps were sent to Google.")
     expect(review).not.toHaveTextContent("Nothing was changed")
-    expect(await within(screen.getByRole("region", { name: "Notifications" })).findByText(/Earlier steps were sent to Google/)).toBeVisible()
+    expect(await within(screen.getByRole("region", { name: "Notifications" })).findByText("Publishing stopped. See the steps.")).toBeVisible()
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(2)
   })
 })

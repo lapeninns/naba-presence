@@ -15,6 +15,7 @@ import {
 import {
   isActivePath,
   moreDestinations,
+  navigationPath,
   type Destination,
   type NavigationContext,
 } from "@/lib/navigation/destinations"
@@ -133,7 +134,7 @@ function MoreSheetContent({
   onOpenPalette: () => void
   onOpenClientScope: () => void
 }) {
-  const pathname = usePathname()
+  const pathname = navigationPath(usePathname(), context.mode)
   const unread = useUnreadNotificationCount()
   const health = useContextHealth()
   const scope = useClientScopeLabel()

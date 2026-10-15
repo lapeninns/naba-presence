@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  adoptingDestination,
   currentHref,
   DESTINATIONS,
   destinationForPath,
   destinationHref,
   isActivePath,
+  entityBackLabel,
+  listingAreaParent,
   isTopLevelPath,
   moreDestinations,
+  navigationPath,
   shortBackLabel,
   sidebarDestinations,
   tabDestinations,
@@ -262,16 +266,29 @@ describe("paths", () => {
       expect(isTopLevelPath(destination.href)).toBe(true)
     }
     expect(isTopLevelPath(null)).toBe(true)
-    expect(isTopLevelPath("/setup")).toBe(true)
     for (const deep of [
       "/listings/l1",
       "/listings/bulk",
       "/clients/c1",
       "/settings/billing",
+      // Setup lives under Clients (or Listings), so it has a back control
+      // (SET-11), not the workspace name.
+      "/setup",
       "/setup/connect",
     ]) {
       expect(isTopLevelPath(deep)).toBe(false)
     }
+  })
+
+  it("files Setup under Clients for an agency and Listings for a business", () => {
+    expect(adoptingDestination("/setup", "agency")?.id).toBe("clients")
+    expect(adoptingDestination("/setup", "business")?.id).toBe("listings")
+    expect(adoptingDestination("/setupx", "agency")).toBeNull()
+    expect(adoptingDestination("/inbox", "agency")).toBeNull()
+    expect(navigationPath("/setup", "agency")).toBe("/clients")
+    expect(navigationPath("/setup", "business")).toBe("/listings")
+    expect(navigationPath("/listings/l1", "agency")).toBe("/listings/l1")
+    expect(navigationPath(null, "agency")).toBeNull()
   })
 
   it("marks only the Inbox as having its own search", () => {
@@ -304,6 +321,56 @@ describe("scoped", () => {
         destination.href
       )
     }
+  })
+})
+
+describe("listingAreaParent", () => {
+  it("gives the listing a listing area belongs to", () => {
+    for (const path of [
+      "/listings/l1/hours",
+      "/listings/l1/profile",
+      "/listings/l1/photos",
+      "/listings/l1/posts",
+      "/listings/l1/posts/",
+      "/listings/l1/posts/p1",
+      "/listings/l1/hours?tab=special#top",
+    ]) {
+      expect(listingAreaParent(path), path).toBe("/listings/l1")
+    }
+  })
+
+  it("is null for the board, a listing's own page, bulk and other routes", () => {
+    for (const path of [
+      "/listings",
+      "/listings/",
+      "/listings/l1",
+      "/listings/l1/",
+      "/listings/l1?tab=hours",
+      "/listings//hours",
+      "/clients/c1/listings",
+      "/clients/c1/listings/l1/hours",
+      "/listings/bulk/op1",
+      "/settings/connections",
+      "/inbox",
+      "/",
+    ]) {
+      expect(listingAreaParent(path), path).toBeNull()
+    }
+    expect(listingAreaParent(null)).toBeNull()
+  })
+})
+
+describe("entityBackLabel", () => {
+  it("names a listing or a client by what it is, whatever its length", () => {
+    expect(entityBackLabel({ href: "/listings/l1" })).toBe("Listing")
+    expect(entityBackLabel({ href: "/listings/l1?tab=x" })).toBe("Listing")
+    expect(entityBackLabel({ href: "/clients/c1" })).toBe("Client")
+  })
+
+  it("has nothing to say for any other target", () => {
+    expect(entityBackLabel({ href: "/listings" })).toBeNull()
+    expect(entityBackLabel({ href: "/listings/l1/hours" })).toBeNull()
+    expect(entityBackLabel({ href: "/settings" })).toBeNull()
   })
 })
 

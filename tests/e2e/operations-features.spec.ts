@@ -132,14 +132,26 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "notifications-resolved")
       await f.goto("/settings/notifications")
       const toggle = page.getByRole("switch", {
-        name: "In app: Scheduled post missed",
+        name: "Scheduled post missed",
       })
       await expect(toggle).toBeChecked()
       await toggle.click()
       await expect(toggle).not.toBeChecked()
+      // The fixture has no email provider: the email group says so (with a
+      // link to Operations for an owner) and offers no cadence to choose.
       await expect(
-        page.getByText("Email is not set up", { exact: true })
+        page.getByText(
+          "Email notifications aren’t available for this workspace yet. You’ll still see them in the app."
+        )
       ).toBeVisible()
+      await expect(
+        page
+          .locator("#notification-email")
+          .getByRole("link", { name: "Operations", exact: true })
+      ).toHaveAttribute("href", "/settings/operations")
+      await expect(page.getByRole("combobox", { name: /^Email:/ })).toHaveCount(
+        0
+      )
       await capture(page, info, "notification-preferences")
       const [saved] =
         await backend.admin`select mode from notification_preference where organisation_id = ${f.owner.organisationId} and event_kind = 'schedule_missed' and channel = 'in_app'`

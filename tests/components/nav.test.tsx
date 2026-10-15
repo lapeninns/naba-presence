@@ -150,6 +150,23 @@ describe("primary navigation", () => {
     expect(currentLinks()).toHaveLength(1)
   })
 
+  it("marks the destination Setup lives under", () => {
+    pathname.current = "/setup"
+    const agency = render(<Nav />)
+    expect(screen.getByRole("link", { name: "Clients" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    expect(currentLinks()).toHaveLength(1)
+    agency.unmount()
+    render(<Nav mode="business" />)
+    expect(screen.getByRole("link", { name: "Listings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    expect(currentLinks()).toHaveLength(1)
+  })
+
   it("introduces no heading", () => {
     // `heading-order` and `page-has-heading-one` are pinned axe rules, and a
     // heading in the sidebar would sit above the page's own h1.

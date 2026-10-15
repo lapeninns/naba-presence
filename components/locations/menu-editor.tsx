@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { countNoun } from "@/components/ui/count-text"
 import { Empty } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import {
@@ -69,6 +70,9 @@ const DRAFT_KEYS = [PRICE_TEXT_KEY, CURRENCY_KEY] as const
 
 /** Google accepts at most this many menus in one replacement. */
 const MAX_MENUS = 100
+/** Search, jump and collapse tools appear above this many sections or items. */
+const FIND_TOOLS_MIN_SECTIONS = 2
+const FIND_TOOLS_MIN_ITEMS = 12
 
 /**
  * One group of the editor (the menu switcher, the menu's details, the find
@@ -510,6 +514,12 @@ export function MenuEditor({
     (sum, section) => sum + itemsOf(section).length,
     0
   )
+  // Find tools earn their rows only on a menu long enough to need them. A
+  // filter already in force keeps them, so it can always be cleared.
+  const showFindTools =
+    filtering ||
+    sections.length > FIND_TOOLS_MIN_SECTIONS ||
+    totalItems > FIND_TOOLS_MIN_ITEMS
   function itemMatches(
     section: Json,
     sectionIndex: number,
@@ -833,7 +843,7 @@ export function MenuEditor({
 
       <div data-slot="menu-toolbar" className={GROUP_CLASS}>
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-sm">
+          <div className="flex min-w-0 basis-full flex-col gap-1 sm:max-w-sm sm:min-w-56 sm:flex-1 sm:basis-auto">
             <span
               id="menu-select-label"
               className="text-caption font-semibold text-ink-muted"
@@ -870,7 +880,7 @@ export function MenuEditor({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <SegmentedControl
               aria-label="Menu view"
               value={showPreview ? "preview" : "edit"}
@@ -1001,92 +1011,95 @@ export function MenuEditor({
           </SettingsGroup>
 
           {sections.length > 0 ? (
-            <div
-              className={GROUP_CLASS}
-              role="search"
-              aria-label="Find menu items"
-            >
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Input
-                  id={MENU_SEARCH_ID}
-                  type="search"
-                  aria-label="Search menu"
-                  placeholder="Search items, descriptions or sections"
-                  value={search}
-                  onChange={(event) => {
-                    setActiveSection(null)
-                    setSearch(event.target.value)
-                  }}
-                  className="min-w-0 shrink-0 sm:flex-1"
-                />
-                <Select
-                  value={null}
-                  onValueChange={(value) => {
-                    if (typeof value === "string") revealSection(Number(value))
-                  }}
-                >
-                  <SelectTrigger
-                    aria-label="Jump to section"
-                    className="sm:w-64"
+            showFindTools ? (
+              <div
+                className={GROUP_CLASS}
+                role="search"
+                aria-label="Find menu items"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    id={MENU_SEARCH_ID}
+                    type="search"
+                    aria-label="Search menu"
+                    placeholder="Search items, descriptions or sections"
+                    value={search}
+                    onChange={(event) => {
+                      setActiveSection(null)
+                      setSearch(event.target.value)
+                    }}
+                    className="min-w-0 shrink-0 sm:flex-1"
+                  />
+                  <Select
+                    value={null}
+                    onValueChange={(value) => {
+                      if (typeof value === "string")
+                        revealSection(Number(value))
+                    }}
                   >
-                    <SelectValue placeholder="Jump to section" />
-                  </SelectTrigger>
-                  <SelectContent title="Jump to section">
-                    {sections.map((section, index) => (
-                      <SelectItem key={keyOf(section)} value={String(index)}>
-                        {readLabel(section).displayName ||
-                          `Section ${index + 1}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Checkbox
-                  checked={changedOnly}
-                  onCheckedChange={(checked) =>
-                    setChangedOnly(Boolean(checked))
-                  }
-                  label="Changed items only"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCollapsed(new Set(sections.map(keyOf)))}
-                >
-                  Collapse all sections
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCollapsed(new Set())}
-                >
-                  Expand all sections
-                </Button>
-                {filtering ? (
+                    <SelectTrigger
+                      aria-label="Jump to section"
+                      className="sm:w-64"
+                    >
+                      <SelectValue placeholder="Jump to section" />
+                    </SelectTrigger>
+                    <SelectContent title="Jump to section">
+                      {sections.map((section, index) => (
+                        <SelectItem key={keyOf(section)} value={String(index)}>
+                          {readLabel(section).displayName ||
+                            `Section ${index + 1}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Checkbox
+                    checked={changedOnly}
+                    onCheckedChange={(checked) =>
+                      setChangedOnly(Boolean(checked))
+                    }
+                    label="Changed items only"
+                  />
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      setSearch("")
-                      setChangedOnly(false)
-                    }}
+                    onClick={() => setCollapsed(new Set(sections.map(keyOf)))}
                   >
-                    Clear filters
+                    Collapse all sections
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCollapsed(new Set())}
+                  >
+                    Expand all sections
+                  </Button>
+                  {filtering ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSearch("")
+                        setChangedOnly(false)
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  ) : null}
+                </div>
+                <p role="status" className="text-caption text-ink-muted">
+                  {shownItems} of {countNoun(totalItems, "item")} shown ·{" "}
+                  {countNoun(sections.length, "section")} total
+                </p>
+                {filtering && shownItems === 0 ? (
+                  <p className="text-body text-ink-muted">
+                    No items match these filters. Saving and reviewing still
+                    includes your full menu.
+                  </p>
                 ) : null}
               </div>
-              <p role="status" className="text-caption text-ink-muted">
-                {shownItems} of {totalItems} items shown · {sections.length}{" "}
-                sections total
-              </p>
-              {filtering && shownItems === 0 ? (
-                <p className="text-body text-ink-muted">
-                  No items match these filters. Saving and reviewing still
-                  includes your full menu.
-                </p>
-              ) : null}
-            </div>
+            ) : null
           ) : (
             <Empty
               size="sm"

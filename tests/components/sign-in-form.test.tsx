@@ -210,7 +210,6 @@ describe("create-account mode", () => {
     await user.type(screen.getByLabelText("Your name"), "Sam Patel")
     await user.type(screen.getByLabelText("Email address"), "sam@example.test")
     await user.type(screen.getByLabelText("Password"), "tooshort")
-    await user.type(screen.getByLabelText("Confirm password"), "tooshort")
     await user.click(screen.getByRole("button", { name: "Create account" }))
     expect(registerSpy).not.toHaveBeenCalled()
     expect(screen.getByLabelText("Password")).toHaveAttribute(
@@ -220,22 +219,35 @@ describe("create-account mode", () => {
     expect(screen.getByLabelText("Password")).toHaveFocus()
   })
 
-  it("reports mismatched confirmation without contacting the server", async () => {
+  it("has exactly one new-password field with a show toggle and no confirmation", () => {
+    render(<SignInForm initialMode="create-account" />)
+    expect(screen.queryByLabelText(/confirm/i)).not.toBeInTheDocument()
+    expect(
+      document.querySelectorAll('input[autocomplete="new-password"]')
+    ).toHaveLength(1)
+    expect(screen.getByLabelText("Password")).toHaveAttribute(
+      "autocomplete",
+      "new-password"
+    )
+    expect(
+      screen.getByRole("button", { name: "Show password" })
+    ).toBeInTheDocument()
+  })
+
+  it("registers a 12+ character password with no digit or symbol", async () => {
     const user = userEvent.setup()
-    const registerSpy = vi.spyOn(authApi, "register")
+    const registerSpy = vi
+      .spyOn(authApi, "register")
+      .mockResolvedValue({ authenticated: false, confirmationRequired: true })
     render(<SignInForm initialMode="create-account" />)
     await user.type(screen.getByLabelText("Your name"), "Sam Patel")
     await user.type(screen.getByLabelText("Email address"), "sam@example.test")
-    await user.type(screen.getByLabelText("Password"), "correct-horse-9")
-    await user.type(
-      screen.getByLabelText("Confirm password"),
-      "correct-horse-8"
-    )
+    await user.type(screen.getByLabelText("Password"), "correct horse battery")
     await user.click(screen.getByRole("button", { name: "Create account" }))
-    expect(registerSpy).not.toHaveBeenCalled()
-    expect(
-      screen.getByLabelText("Confirm password")
-    ).toHaveAccessibleDescription("Both passwords must match.")
+    await waitFor(() => expect(registerSpy).toHaveBeenCalledTimes(1))
+    expect(registerSpy.mock.calls[0]?.[0]).toMatchObject({
+      password: "correct horse battery",
+    })
   })
 
   it("shows the check-your-email state when confirmation is required", async () => {
@@ -248,10 +260,6 @@ describe("create-account mode", () => {
     await user.type(screen.getByLabelText("Your name"), "Sam Patel")
     await user.type(screen.getByLabelText("Email address"), "sam@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
-    await user.type(
-      screen.getByLabelText("Confirm password"),
-      "correct-horse-9"
-    )
     await user.click(screen.getByRole("button", { name: "Create account" }))
     expect(
       await screen.findByRole("heading", { name: "Check your email" })
@@ -266,10 +274,6 @@ describe("create-account mode", () => {
     await user.type(screen.getByLabelText("Your name"), "Sam Patel")
     await user.type(screen.getByLabelText("Email address"), "sam@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9!")
-    await user.type(
-      screen.getByLabelText("Confirm password"),
-      "correct-horse-9!"
-    )
   }
 
   it("offers a business or agency workspace and defaults to business", async () => {

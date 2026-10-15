@@ -118,7 +118,7 @@ describe("AccessTab (read + non-destructive)", () => {
   it("create-admin saves the exact review without sending an access mutation", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
-    await userEvent.click(await screen.findByRole("button", { name: /add administrator/i }))
+    await userEvent.click(await screen.findByRole("button", { name: /invite someone/i }))
     await userEvent.type(screen.getByLabelText(/email/i), "new@camden.test")
     await userEvent.click(screen.getByRole("button", { name: /review invitation/i }))
     await waitFor(() => {
@@ -214,11 +214,11 @@ describe("AccessTab (danger zone)", () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 
-  it("puts the People roster and Add administrator before the explainers, and saved work after the danger zone", async () => {
+  it("puts the People roster and Invite someone before the explainers, and saved work after the danger zone", async () => {
     stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     const roster = await screen.findByRole("heading", { name: "People with access on Google" })
-    const add = screen.getByRole("button", { name: /add administrator/i })
+    const add = screen.getByRole("button", { name: /invite someone/i })
     const rules = screen.getByText("Primary owner rules")
     const danger = screen.getByRole("heading", { name: /danger zone/i })
     const savedAccess = await screen.findByRole("heading", { name: "Saved access work" })
@@ -346,7 +346,7 @@ describe("AccessTab (roster truthfulness)", () => {
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     expect(await screen.findByText("This location was deleted from Google")).toBeInTheDocument()
     expect(screen.getByText(/may no longer apply/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
+    expect(screen.getByRole("button", { name: /invite someone/i })).toBeDisabled()
     expect(screen.getByRole("button", { name: /remove manager@camden\.test/i })).toBeDisabled()
     expect(screen.getByRole("combobox", { name: /role for manager@camden\.test/i })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Transfer this location" })).toBeDisabled()
@@ -408,13 +408,13 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.queryByText("Manager")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /remove manager@camden\.test/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("combobox", { name: /role for manager@camden\.test/i })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
+    expect(screen.getByRole("button", { name: /invite someone/i })).toBeDisabled()
     expect(reads).toBe(2)
     release?.()
     expect(await screen.findByText(/1 person · 0 invitations · Read from Google at/)).toBeInTheDocument()
     expect(screen.queryByText(/Updating from Google/)).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /remove manager@camden\.test/i })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /invite someone/i })).toBeEnabled()
   })
 
   it("keeps the roster hidden and offers a retry when Google's list after a confirmed change cannot be read", async () => {
@@ -436,10 +436,10 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(await screen.findByText(/Counts unavailable · Google’s list after the confirmed change could not be read/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByText("manager@camden.test")).not.toBeInTheDocument()
     expect(screen.queryByText("Has access")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /add administrator/i })).toBeDisabled()
+    expect(screen.getByRole("button", { name: /invite someone/i })).toBeDisabled()
     await userEvent.click(screen.getAllByRole("button", { name: "Read Google’s list again" })[0])
     expect(await screen.findByText(/1 person · 0 invitations · Read from Google at/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /invite someone/i })).toBeEnabled()
   })
 
   it("saves a role-change review on choosing a different role and puts the select back on Google's listed role", async () => {

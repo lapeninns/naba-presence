@@ -88,8 +88,10 @@ const PROBES = {
     '[aria-label="Back to reviews"]',
   ],
   listings: ['[data-slot="segmented-control-item"] >> nth=1'],
+  // The H1 is the area switcher on every area (L03); the overview's title
+  // is the sibling switcher only with two or more listings.
   listing: [
-    '[data-slot="dropdown-menu-trigger"][aria-label^="Listing area"]',
+    '[data-slot="listing-area-selector"]',
     'nav[aria-label="Listing areas"] a >> nth=1',
   ],
   reports: ['[data-slot="tabs-tab"] >> nth=1'],

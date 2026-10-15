@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
  * One post in the list, laid out as a mail-style row: a media thumb at the
  * start, then the type tag and headline, the status word with its time, the
  * post text clamped to two lines, the details, an optional problem, the
- * row's actions, and the lifecycle behind a disclosure.
+ * row's actions, and the history behind a disclosure.
  *
  * The row is an article, not a button: the visible next action and the
  * "More actions" menu sit inside it, so nothing interactive is nested in
@@ -37,9 +37,9 @@ export function PostCard({
 }: {
   /** Stable id, used to name the card by its heading. */
   id: string
-  /** The headline: an event or offer title, or the type of an update. */
+  /** The headline: an event or offer title, or the first line of an update. */
   title: string
-  /** "Event" or "Offer", drawn as a tag when the headline is a title. */
+  /** The post's type ("Update", "Event" or "Offer"), drawn as a tag. */
   topic?: string
   summary: string
   /** The status word shown in the pill, e.g. "Draft". */
@@ -109,13 +109,15 @@ export function PostCard({
           ) : null}
         </div>
 
-        <p
-          className="text-ui break-words whitespace-pre-wrap text-ink-secondary"
-          lang={lang}
-          dir="auto"
-        >
-          {summary || "—"}
-        </p>
+        {summary ? (
+          <p
+            className="text-ui break-words whitespace-pre-wrap text-ink-secondary"
+            lang={lang}
+            dir="auto"
+          >
+            {summary}
+          </p>
+        ) : null}
 
         {details ? (
           <p className="text-caption break-words text-ink-muted tabular-nums">
@@ -141,11 +143,11 @@ export function PostCard({
                 aria-hidden
                 className="size-3.5 transition-transform group-open/lc:rotate-90 motion-reduce:transition-none"
               />
-              Lifecycle
+              History
             </summary>
             <Lifecycle
               className="mt-2"
-              aria-label="Post lifecycle"
+              aria-label="Post history"
               stages={lifecycle}
             />
           </details>

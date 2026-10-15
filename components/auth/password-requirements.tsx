@@ -1,26 +1,28 @@
 import { CircleCheck } from "lucide-react"
 
+import { PASSWORD_LENGTH, passwordLength } from "@/lib/domain/auth-limits"
 import { cn } from "@/lib/utils"
 
 type PasswordRule = { id: string; label: string; met: boolean }
 
 // Mirrors passwordSchema in lib/domain/auth.ts. Both must change together;
-// the server remains the authority and re-validates every submission.
+// the server remains the authority and re-validates every submission. Length
+// is the only rule (D9, NIST SP 800-63B): no letter, number or symbol rules,
+// and it counts code points, exactly as the schema does.
 function checkPasswordRules(value: string): PasswordRule[] {
   return [
     {
       id: "length",
       label: "Between 12 and 128 characters",
-      met: value.length >= 12 && value.length <= 128,
+      met:
+        passwordLength(value) >= PASSWORD_LENGTH.min &&
+        passwordLength(value) <= PASSWORD_LENGTH.max,
     },
-    { id: "letter", label: "A letter", met: /[A-Za-z]/.test(value) },
-    { id: "number", label: "A number", met: /[0-9]/.test(value) },
-    { id: "symbol", label: "A symbol", met: /[^A-Za-z0-9]/.test(value) },
   ]
 }
 
 /**
- * The rules as a small checklist that ticks itself as the password grows.
+ * The rule as a small checklist that ticks itself as the password grows.
  * Each row's state is in its accessible name, so the success glyph and the
  * ink change are never the only signal.
  */
@@ -29,7 +31,7 @@ function PasswordRequirements({ value }: { value: string }) {
     <ul
       // No aria-label: "Password requirements" would match getByLabel
       // ("Password") beside the input itself. The rows name themselves.
-      className="grid grid-cols-1 gap-x-3 gap-y-1 pt-0.5 sm:grid-cols-2"
+      className="grid grid-cols-1 gap-y-1 pt-0.5"
     >
       {checkPasswordRules(value).map((rule) => (
         <li

@@ -31,3 +31,15 @@ export function isZeroCount(count: ReactNode): boolean {
   if (typeof count === "string") return count.trim() === "0"
   return false
 }
+
+/**
+ * A count with its noun, pluralised: "1 item", "3 items", "0 items". Pass the
+ * plural form for nouns that do not take a plain "s".
+ */
+export function countNoun(
+  count: number,
+  singular: string,
+  plural = `${singular}s`
+): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
