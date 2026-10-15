@@ -286,10 +286,14 @@ export type ListRowProps = Omit<
   /**
    * One or two quick actions: revealed by a left swipe on touch and always
    * reachable from a visible "⋯" menu button at the end of the row. Not
-   * available inside `ListRows listbox` (an option owns no controls).
+   * available inside `ListRows listbox` (an option owns no controls). The whole row slides, leading control, footer and details included.
    */
   swipeActions?: ListRowSwipeActions
-  /** Names the "⋯" button; default "More actions". Say which row it is. */
+  /**
+   * Names the "⋯" button. Pass a row-specific label ("Actions for Amelia
+   * Hart"): the default, "More actions", would repeat on every row of the
+   * list for a screen reader.
+   */
   actionsLabel?: string
 }
 
@@ -536,6 +540,87 @@ function ListRow({
   const label =
     typeof detailsLabel === "function" ? detailsLabel(open) : detailsLabel
 
+  const controlNode =
+    leadingControl != null ? (
+      // The control's own target, outside the row's hit element. On touch
+      // an `after:` overhang takes the wrapper to 44px, and a press on
+      // the wrapper (not on the control) is passed to the control, so the
+      // overhang over the row selects rather than opening the row. The
+      // overhang sits under the control (`after:z-under`, inside the
+      // wrapper's own stacking context): drawn last it would cover the
+      // control, so a tap on the box itself hit the wrapper (FINAL-QA #1).
+      <span
+        data-slot="list-row-control"
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) return
+          event.currentTarget
+            .querySelector<HTMLElement>(LEADING_CONTROL_SELECTOR)
+            ?.click()
+        }}
+        className={cn(
+          "absolute top-(--np-row-mail-py) z-raised grid size-(--np-avatar-list) place-items-center",
+          flush ? "start-0" : "start-(--np-page-pad-x)",
+          "after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:z-under after:content-[''] desk:after:hidden"
+        )}
+      >
+        {leadingControl}
+      </span>
+    ) : null
+  const footerNode = hasFooter ? (
+    <div
+      data-slot="list-row-footer"
+      data-layout={footerLayout}
+      className={cn(
+        "-mt-1 flex min-w-0 gap-2 pb-(--np-row-mail-py)",
+        footerLayout === "stack"
+          ? "flex-col items-stretch"
+          : "flex-wrap items-center",
+        textStart,
+        textEnd
+      )}
+    >
+      {footer}
+    </div>
+  ) : null
+  const detailsNode = hasDetails ? (
+    <>
+      <div
+        data-slot="list-row-disclosure"
+        className={cn(
+          "flex min-w-0",
+          textStart,
+          textEnd,
+          hasFooter ? "-mt-1" : "-mt-2",
+          !open && "pb-1"
+        )}
+      >
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={detailsId}
+          data-slot="list-row-details-toggle"
+          onClick={() => setOpen(!open)}
+          className="group/disclosure -ms-2 inline-flex min-h-(--np-touch) items-center gap-1 rounded-(--np-radius-control) px-2 text-start text-ui font-medium text-accent-ink focus-halo hover-fine:hover:bg-fill desk:min-h-8"
+        >
+          {label}
+          <ChevronDownIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="size-4 shrink-0 transition-transform duration-(--np-duration-fast) ease-standard group-aria-expanded/disclosure:rotate-180 motion-reduce:transition-none"
+          />
+        </button>
+      </div>
+      <div
+        id={detailsId}
+        data-slot="list-row-details"
+        hidden={!open}
+        className={cn("min-w-0 pb-(--np-row-mail-py)", textStart, textEnd)}
+      >
+        {details}
+      </div>
+    </>
+  ) : null
+
   return (
     <Wrapper
       {...wrapperProps}
@@ -564,97 +649,29 @@ function ListRow({
         wrapperProps?.className
       )}
     >
-      {leadingControl != null ? (
-        // The control's own target, outside the row's hit element. On touch
-        // an `after:` overhang takes the wrapper to 44px, and a press on
-        // the wrapper (not on the control) is passed to the control, so the
-        // overhang over the row selects rather than opening the row. The
-        // overhang sits under the control (`after:z-under`, inside the
-        // wrapper's own stacking context): drawn last it would cover the
-        // control, so a tap on the box itself hit the wrapper (FINAL-QA #1).
-        <span
-          data-slot="list-row-control"
-          onClick={(event) => {
-            if (event.target !== event.currentTarget) return
-            event.currentTarget
-              .querySelector<HTMLElement>(LEADING_CONTROL_SELECTOR)
-              ?.click()
-          }}
-          className={cn(
-            "absolute top-(--np-row-mail-py) z-raised grid size-(--np-avatar-list) place-items-center",
-            flush ? "start-0" : "start-(--np-page-pad-x)",
-            "after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:z-under after:content-[''] desk:after:hidden"
-          )}
-        >
-          {leadingControl}
-        </span>
-      ) : null}
       {hasSwipe ? (
         <ListRowSwipe
           actions={swipeActions!}
           actionsLabel={actionsLabel}
           selected={selected}
           flush={flush}
-        >
-          {hit}
-        </ListRowSwipe>
+          control={controlNode}
+          hit={hit}
+          below={
+            <>
+              {footerNode}
+              {detailsNode}
+            </>
+          }
+        />
       ) : (
-        hit
-      )}
-      {hasFooter ? (
-        <div
-          data-slot="list-row-footer"
-          data-layout={footerLayout}
-          className={cn(
-            "-mt-1 flex min-w-0 gap-2 pb-(--np-row-mail-py)",
-            footerLayout === "stack"
-              ? "flex-col items-stretch"
-              : "flex-wrap items-center",
-            textStart,
-            textEnd
-          )}
-        >
-          {footer}
-        </div>
-      ) : null}
-      {hasDetails ? (
         <>
-          <div
-            data-slot="list-row-disclosure"
-            className={cn(
-              "flex min-w-0",
-              textStart,
-              textEnd,
-              hasFooter ? "-mt-1" : "-mt-2",
-              !open && "pb-1"
-            )}
-          >
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-controls={detailsId}
-              data-slot="list-row-details-toggle"
-              onClick={() => setOpen(!open)}
-              className="group/disclosure -ms-2 inline-flex min-h-(--np-touch) items-center gap-1 rounded-(--np-radius-control) px-2 text-start text-ui font-medium text-accent-ink focus-halo hover-fine:hover:bg-fill desk:min-h-8"
-            >
-              {label}
-              <ChevronDownIcon
-                aria-hidden
-                strokeWidth={1.75}
-                className="size-4 shrink-0 transition-transform duration-(--np-duration-fast) ease-standard group-aria-expanded/disclosure:rotate-180 motion-reduce:transition-none"
-              />
-            </button>
-          </div>
-          <div
-            id={detailsId}
-            data-slot="list-row-details"
-            hidden={!open}
-            className={cn("min-w-0 pb-(--np-row-mail-py)", textStart, textEnd)}
-          >
-            {details}
-          </div>
+          {controlNode}
+          {hit}
+          {footerNode}
+          {detailsNode}
         </>
-      ) : null}
+      )}
     </Wrapper>
   )
 }

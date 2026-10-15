@@ -50,6 +50,7 @@ function UxP10Demo() {
             title={row.title}
             preview={row.preview}
             emphasis="neutral"
+            // Row-specific, so a screen reader can tell the buttons apart.
             actionsLabel={`Actions for ${row.title}`}
             onClick={() => setLog(`Opened ${row.title}.`)}
             swipeActions={

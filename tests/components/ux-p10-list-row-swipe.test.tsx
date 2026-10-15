@@ -294,6 +294,91 @@ describe("ListRow swipeActions", () => {
     })
   })
 
+  it("slides the whole row: leading control, hit, button, footer and details", () => {
+    render(
+      <ListRow
+        title="Amelia Hart"
+        leadingControl={<input type="checkbox" aria-label="Select Amelia" />}
+        footer={<button type="button">Reply</button>}
+        details={<p>Receipt</p>}
+        detailsLabel="Show receipt"
+        swipeActions={actions()}
+      />
+    )
+    const row = screen.getByRole("button", { name: "Amelia Hart" })
+    const slide = slideOf(row)
+    for (const slot of [
+      "list-row-control",
+      "list-row-hit",
+      "list-row-actions-trigger",
+      "list-row-footer",
+      "list-row-details-toggle",
+      "list-row-details",
+    ])
+      expect(slide.querySelector(`[data-slot="${slot}"]`)).not.toBeNull()
+  })
+
+  it("keeps focus order the same as the visual order when open", async () => {
+    const user = userEvent.setup()
+    render(
+      <ListRow
+        title="Amelia Hart"
+        actionsLabel="Actions for Amelia Hart"
+        swipeActions={actions()}
+      />
+    )
+    const row = screen.getByRole("button", { name: "Amelia Hart" })
+    swipe(slideOf(row), -150)
+    await user.tab()
+    expect(row).toHaveFocus()
+    await user.tab()
+    expect(
+      screen.getByRole("button", { name: "Actions for Amelia Hart" })
+    ).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole("button", { name: "Archive" })).toHaveFocus()
+  })
+
+  it("keeps the button's 44px overhang inside the surface on a flush row", () => {
+    render(<ListRow title="Amelia Hart" flush swipeActions={actions()} />)
+    const row = screen.getByRole("button", { name: "Amelia Hart" })
+    const main = row.closest('[data-slot="list-row-swipe-main"]')!
+    expect(main.className).toContain("pe-1")
+    expect(main.className).not.toContain("pe-0")
+  })
+
+  it("lets no post-drag click through until the next press or key", async () => {
+    const user = userEvent.setup()
+    const onClick = vi.fn()
+    render(
+      <ListRow title="Amelia Hart" onClick={onClick} swipeActions={actions()} />
+    )
+    const row = screen.getByRole("button", { name: "Amelia Hart" })
+    swipe(slideOf(row), -150)
+    // No timer clears the guard: a late click is still swallowed.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    fireEvent.click(row)
+    expect(onClick).not.toHaveBeenCalled()
+    // A key press clears the guard, so a keyboard activation is never
+    // eaten: Escape closes the row, then Enter opens it.
+    row.focus()
+    await user.keyboard("{Escape}{Enter}")
+    expect(onClick).toHaveBeenCalledOnce()
+  })
+
+  it("takes two actions with the same label", () => {
+    render(
+      <ListRow
+        title="Amelia Hart"
+        swipeActions={[
+          { label: "Move", onAction: () => {} },
+          { label: "Move", onAction: () => {} },
+        ]}
+      />
+    )
+    expect(screen.getAllByRole("button", { name: "Move" })).toHaveLength(2)
+  })
+
   it("is dropped inside a listbox, which owns only options", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     render(

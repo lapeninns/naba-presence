@@ -25,6 +25,8 @@ import { cn } from "@/lib/utils"
  * - A row settles open past half the actions' width, else closed. Tapping
  *   the open row, tapping elsewhere, scrolling or pressing Escape closes it,
  *   and only one row is open at a time.
+ * - The whole row slides: leading control, hit element, "⋯" button, footer
+ *   and details move together over the revealed actions.
  * - The slide is a transition that `prefers-reduced-motion` turns off: the
  *   row snaps.
  * - Closed, the revealed actions are `inert` (and out of the tab order),
@@ -77,15 +79,21 @@ function ListRowSwipe({
   actionsLabel,
   selected,
   flush,
-  children,
+  control,
+  hit,
+  below,
 }: {
   actions: ListRowSwipeActions
   /** Names the "⋯" button and titles the phone's action sheet. */
   actionsLabel: string
   selected: boolean
   flush: boolean
-  /** The row's hit element. */
-  children: React.ReactNode
+  /** The leading selection control (absolutely placed in the row). */
+  control: React.ReactNode
+  /** The row's hit element; the "⋯" button sits beside it. */
+  hit: React.ReactNode
+  /** The footer and details under the hit element. */
+  below: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
   /** The live offset while a finger drags; `null` when settled. */
@@ -142,10 +150,8 @@ function ListRowSwipe({
     setDrag(null)
     if (g?.axis !== "x") return
     // The click that follows a drag must not open the row.
+    // Cleared by the click itself, the next press or the next key.
     suppressClick.current = true
-    window.setTimeout(() => {
-      suppressClick.current = false
-    }, 0)
     if (lastOffset.current < -fullWidth / 2) reveal()
     else dismiss()
   }
@@ -214,6 +220,65 @@ function ListRowSwipe({
       className="relative flex min-w-0 overflow-hidden"
     >
       <div
+        data-slot="list-row-swipe-slide"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onClickCapture={onClickCapture}
+        onKeyDownCapture={() => {
+          suppressClick.current = false
+        }}
+        className={cn(
+          "relative flex min-w-0 flex-1 translate-x-(--swipe-x) touch-pan-y flex-col",
+          animates &&
+            "transition-transform duration-(--np-duration-fast) ease-spring-snappy motion-reduce:transition-none"
+        )}
+      >
+        {control}
+        <div
+          data-slot="list-row-swipe-main"
+          className={cn(
+            "flex min-w-0 items-center",
+            // Room for the button's 44px overhang (it is 36px drawn): the
+            // surface clips whatever passes the end edge.
+            flush ? "pe-1" : "pe-[calc(var(--np-page-pad-x)-(--spacing(3)))]",
+            selected && "bg-fill"
+          )}
+        >
+          {hit}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={actionsLabel}
+                  data-slot="list-row-actions-trigger"
+                  className="shrink-0 text-ink-muted"
+                />
+              }
+            >
+              <EllipsisIcon aria-hidden strokeWidth={1.75} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent title={actionsLabel}>
+              {actions.map((action, index) => (
+                <DropdownMenuItem
+                  key={`${index}-${action.label}`}
+                  variant={action.tone === "danger" ? "destructive" : "default"}
+                  disabled={action.disabled}
+                  onClick={action.onAction}
+                >
+                  {action.icon}
+                  {action.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {below}
+      </div>
+      <div
         data-slot="list-row-swipe-actions"
         inert={offset === 0 ? true : undefined}
         className={cn(
@@ -223,9 +288,9 @@ function ListRowSwipe({
         )}
       >
         <div ref={actionsRef} className="flex shrink-0">
-          {actions.map((action) => (
+          {actions.map((action, index) => (
             <button
-              key={action.label}
+              key={`${index}-${action.label}`}
               type="button"
               disabled={action.disabled}
               tabIndex={offset === 0 ? -1 : undefined}
@@ -245,51 +310,6 @@ function ListRowSwipe({
             </button>
           ))}
         </div>
-      </div>
-      <div
-        data-slot="list-row-swipe-slide"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerEnd}
-        onPointerCancel={onPointerEnd}
-        onClickCapture={onClickCapture}
-        className={cn(
-          "relative flex min-w-0 flex-1 translate-x-(--swipe-x) touch-pan-y items-center",
-          flush ? "pe-0" : "pe-[calc(var(--np-page-pad-x)-(--spacing(3)))]",
-          selected && "bg-fill",
-          animates &&
-            "transition-transform duration-(--np-duration-fast) ease-spring-snappy motion-reduce:transition-none"
-        )}
-      >
-        {children}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={actionsLabel}
-                data-slot="list-row-actions-trigger"
-                className="shrink-0 text-ink-muted"
-              />
-            }
-          >
-            <EllipsisIcon aria-hidden strokeWidth={1.75} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent title={actionsLabel}>
-            {actions.map((action) => (
-              <DropdownMenuItem
-                key={action.label}
-                variant={action.tone === "danger" ? "destructive" : "default"}
-                disabled={action.disabled}
-                onClick={action.onAction}
-              >
-                {action.icon}
-                {action.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </div>
   )

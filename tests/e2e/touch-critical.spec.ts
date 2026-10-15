@@ -536,18 +536,28 @@ test.describe("touch: critical journeys at 390x844", () => {
       demo.locator("[data-slot=list-row-swipe][data-open]")
     ).toHaveCount(0)
 
-    // A left swipe reveals the action, and tapping it runs it.
+    // A left swipe reveals the action; the swipe alone does not open the
+    // review. Only the open row's action is looked up: every row has its
+    // own (inert, zero-width) Archive button in the page.
     await amelia.scrollIntoViewIfNeeded()
     await settle(page, amelia)
-    await drag(page, amelia, -200, 0)
-    const archive = demo.getByRole("button", { name: "Archive", exact: true })
+    await drag(page, amelia, -120, 0)
+    const openRow = demo.locator("[data-slot=list-row-swipe][data-open]")
+    await expect(openRow).toHaveCount(1)
+    await expect(log).toHaveText("No action yet.")
+    const archive = openRow.getByRole("button", {
+      name: "Archive",
+      exact: true,
+    })
     await expect(archive).toBeVisible()
     await settle(page, archive)
     await tap(archive)
     await expect(log).toHaveText("Archived Amelia Hart.")
-    await expect(archive).toBeHidden()
-    // The swipe that opened the row did not also open the review.
-    await expect(log).not.toHaveText("Opened Amelia Hart.")
+    // Running the action closes the row and puts its actions out of reach.
+    await expect(openRow).toHaveCount(0)
+    await expect(
+      demo.locator("[data-slot=list-row-swipe-actions]:not([inert])")
+    ).toHaveCount(0)
 
     // The visible button reaches the same actions with no swipe at all.
     await tap(demo.getByRole("button", { name: "Actions for Tom Reeve" }))
