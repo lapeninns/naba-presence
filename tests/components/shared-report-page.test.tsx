@@ -18,8 +18,7 @@ import {
 import { loadSharedClientReport } from "@/lib/server/shared-report"
 
 vi.mock("next/headers", () => ({
-  headers: async () =>
-    new Headers({ "x-vercel-forwarded-for": "203.0.113.7" }),
+  headers: async () => new Headers({ "x-vercel-forwarded-for": "203.0.113.7" }),
 }))
 vi.mock("@/lib/server/abuse-limits", () => ({
   checkAbuseBudget: vi.fn(async () => ({
@@ -268,14 +267,63 @@ describe("SharedClientReportView", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       // The skip link stays on the page.
       "#main",
-      "?period=28d",
-      "?period=90d",
-      "?period=12m",
+      // Each ends #main so switching period lands on the figures, not the top.
+      "?period=28d#main",
+      "?period=90d#main",
+      "?period=12m#main",
     ])
     const nav = screen.getByRole("navigation", { name: "Report period" })
     expect(
       within(nav).getByRole("link", { name: "Last 28 days" })
     ).toHaveAttribute("aria-current", "page")
+  })
+
+  it("opens on the name and period, with the metadata in the footer", () => {
+    render(<SharedClientReportView report={REPORT} />)
+    const banner = screen.getByRole("banner")
+    expect(
+      within(banner).getByRole("heading", { level: 1, name: "Old Crown Group" })
+    ).toBeInTheDocument()
+    // The period is stated once, beside the name, then the period links.
+    expect(
+      within(banner).getByText(/Last 28 days/, { selector: "p" })
+    ).toBeInTheDocument()
+    expect(
+      within(banner).getByRole("navigation", { name: "Report period" })
+    ).toBeInTheDocument()
+    // No metadata table up there any more.
+    expect(banner.querySelector("dl")).toBeNull()
+    expect(within(banner).queryByText("Prepared by")).not.toBeInTheDocument()
+    expect(within(banner).queryByText("Venues")).not.toBeInTheDocument()
+    expect(within(banner).queryByText("Generated")).not.toBeInTheDocument()
+
+    const footer = screen.getByRole("contentinfo")
+    expect(within(footer).getByText("Venues")).toBeInTheDocument()
+    expect(
+      within(footer).getByText("Old Crown, Sutton, Old Crown, Cheam")
+    ).toBeInTheDocument()
+    expect(within(footer).getByText("Prepared by")).toBeInTheDocument()
+    expect(within(footer).getByText("Harbour Agency")).toBeInTheDocument()
+    expect(within(footer).getByText("Generated")).toBeInTheDocument()
+    expect(footer.querySelector("time")).not.toBeNull()
+  })
+
+  it("names a single venue in the singular", () => {
+    render(
+      <SharedClientReportView
+        report={{ ...REPORT, venues: ["Old Crown, Sutton"] }}
+      />
+    )
+    const footer = screen.getByRole("contentinfo")
+    expect(within(footer).getByText("Venue")).toBeInTheDocument()
+    expect(within(footer).queryByText("Venues")).not.toBeInTheDocument()
+  })
+
+  it("says so in the footer when there are no venues yet", () => {
+    render(<SharedClientReportView report={{ ...REPORT, venues: [] }} />)
+    expect(
+      within(screen.getByRole("contentinfo")).getByText("None yet")
+    ).toBeInTheDocument()
   })
 
   it("leaves out the Google section when there are no Google figures", () => {
@@ -311,7 +359,9 @@ describe("SharedClientReportView", () => {
     const banner = container.querySelector(
       "[data-slot=partial-coverage]"
     ) as HTMLElement
-    expect(within(banner).getByText("Showing 2 of 3 venues")).toBeInTheDocument()
+    expect(
+      within(banner).getByText("Showing 2 of 3 venues")
+    ).toBeInTheDocument()
     expect(
       within(banner).getByText(/Could not be refreshed: Old Crown, Cheam/)
     ).toBeInTheDocument()
@@ -343,9 +393,7 @@ describe("SharedClientReportView", () => {
         }}
       />
     )
-    expect(
-      container.querySelector("[data-slot=partial-coverage]")
-    ).toBeNull()
+    expect(container.querySelector("[data-slot=partial-coverage]")).toBeNull()
   })
 
   it("says so when there were no reviews in either window", () => {
@@ -402,9 +450,9 @@ describe("SharedClientReportView", () => {
     )
     // A static warning on the shared page: read in place, not an alert.
     expect(
-      screen.getByText("These figures may be incomplete").closest(
-        '[data-slot="alert"]'
-      )
+      screen
+        .getByText("These figures may be incomplete")
+        .closest('[data-slot="alert"]')
     ).toHaveTextContent(/may not be counted yet/)
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(screen.getAllByText("These figures may be incomplete")).toHaveLength(

@@ -31,11 +31,13 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { ListRow, ListRows } from "@/components/ui/list-row"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -265,6 +267,15 @@ export function ShareReportDialog({
 
   const expiryLabelId = `${ids}-expiry`
   const urlId = `${ids}-url`
+  const shareData: ShareData | null = created
+    ? { title: `${clientName} review report`, url: created.url }
+    : null
+  const native = shareData ? canShareNatively(shareData) : false
+  const copyIcon = copied ? (
+    <CheckIcon aria-hidden strokeWidth={1.75} />
+  ) : (
+    <CopyIcon aria-hidden strokeWidth={1.75} />
+  )
 
   return (
     <Dialog open={open} onOpenChange={close.onOpenChange}>
@@ -287,10 +298,7 @@ export function ShareReportDialog({
               urlField={urlField}
               clientName={clientName}
               created={created}
-              copied={copied}
               handedOff={handedOff}
-              onCopy={() => void copyLink(created.url)}
-              onShare={(data) => void shareLink(data)}
             />
           ) : (
             <div className="flex flex-col gap-3">
@@ -300,27 +308,18 @@ export function ShareReportDialog({
               >
                 Link works for
               </span>
-              <RadioGroup
-                aria-labelledby={expiryLabelId}
-                value={days}
-                onValueChange={(value) =>
-                  setDays(value as ReportShareExpiryDays)
-                }
-                // Option rows: the length, the date it resolves to under it,
-                // and the radio at the trailing edge, each a touch-height row.
-                className="gap-0 divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
-              >
+              <OptionRowGroup aria-labelledby={expiryLabelId}>
                 {REPORT_SHARE_EXPIRY_OPTIONS.map((option) => (
-                  <RadioGroupItem
+                  <OptionRow
                     key={option.days}
-                    value={option.days}
+                    indicator="radio"
+                    selected={days === option.days}
+                    label={option.label}
                     description={`Until ${formatDay(inDays(option.days))}`}
-                    labelClassName="flex-row-reverse justify-between gap-3 px-(--np-card-pad) desk:min-h-(--np-touch) desk:py-2.5"
-                  >
-                    {option.label}
-                  </RadioGroupItem>
+                    onClick={() => setDays(option.days)}
+                  />
                 ))}
-              </RadioGroup>
+              </OptionRowGroup>
               <p className="text-ui text-ink">
                 {shareWarning(clientName, inDays(days))}
               </p>
@@ -330,15 +329,6 @@ export function ShareReportDialog({
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               ) : null}
-              <div className="flex justify-end">
-                <Button
-                  pending={create.isPending}
-                  pendingLabel="Creating…"
-                  onClick={() => create.mutate()}
-                >
-                  Create link
-                </Button>
-              </div>
             </div>
           )}
 
@@ -348,6 +338,53 @@ export function ShareReportDialog({
             enabled={open}
           />
         </DialogBody>
+        {/* The sheet's actions, pinned to its foot: Create link before the
+            link exists; after, Copy link and (where the browser has one)
+            Share link as the primary. */}
+        <DialogFooter>
+          {created && shareData ? (
+            native ? (
+              <>
+                <Button
+                  variant="secondary"
+                  block
+                  className="sm:w-auto"
+                  onClick={() => void copyLink(created.url)}
+                >
+                  {copyIcon}
+                  {copied ? "Copied" : "Copy link"}
+                </Button>
+                <Button
+                  block
+                  className="sm:w-auto"
+                  onClick={() => void shareLink(shareData)}
+                >
+                  <ShareIcon aria-hidden strokeWidth={1.75} />
+                  Share link
+                </Button>
+              </>
+            ) : (
+              <Button
+                block
+                className="sm:w-auto"
+                onClick={() => void copyLink(created.url)}
+              >
+                {copyIcon}
+                {copied ? "Copied" : "Copy link"}
+              </Button>
+            )
+          ) : (
+            <Button
+              block
+              className="sm:w-auto"
+              pending={create.isPending}
+              pendingLabel="Creating…"
+              onClick={() => create.mutate()}
+            >
+              Create link
+            </Button>
+          )}
+        </DialogFooter>
         {/* Nested in the dialog, so its own Escape and clicks never count
             as dismissing the dialog underneath. */}
         <DiscardLinkDialog {...close.prompt} />
@@ -363,26 +400,15 @@ function CreatedLink({
   urlField,
   clientName,
   created,
-  copied,
   handedOff,
-  onCopy,
-  onShare,
 }: {
   headingId: string
   urlId: string
   urlField: React.RefObject<HTMLInputElement | null>
   clientName: string
   created: { url: string; share: ReportShare }
-  copied: boolean
   handedOff: "copied" | "shared" | null
-  onCopy: () => void
-  onShare: (data: ShareData) => void
 }) {
-  const data: ShareData = {
-    title: `${clientName} review report`,
-    url: created.url,
-  }
-  const native = canShareNatively(data)
   return (
     <section aria-labelledby={headingId}>
       <Card size="sm" className="bg-surface-alt">
@@ -406,33 +432,6 @@ function CreatedLink({
             className="font-mono"
             onFocus={(event) => event.currentTarget.select()}
           />
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            {native ? (
-              <>
-                <Button variant="secondary" onClick={onCopy}>
-                  {copied ? (
-                    <CheckIcon aria-hidden strokeWidth={1.75} />
-                  ) : (
-                    <CopyIcon aria-hidden strokeWidth={1.75} />
-                  )}
-                  {copied ? "Copied" : "Copy link"}
-                </Button>
-                <Button onClick={() => onShare(data)}>
-                  <ShareIcon aria-hidden strokeWidth={1.75} />
-                  Share link
-                </Button>
-              </>
-            ) : (
-              <Button onClick={onCopy}>
-                {copied ? (
-                  <CheckIcon aria-hidden strokeWidth={1.75} />
-                ) : (
-                  <CopyIcon aria-hidden strokeWidth={1.75} />
-                )}
-                {copied ? "Copied" : "Copy link"}
-              </Button>
-            )}
-          </div>
           <p role="status" className="text-caption text-ink-muted">
             {handedOff === "shared"
               ? "Link shared. You can close this now."
@@ -539,38 +538,36 @@ function ExistingLinks({
     )
   } else {
     body = (
-      <Card flush>
-        <ul className="flex flex-col divide-y divide-line">
-          {query.data.items.map((share) => (
-            <li
-              key={share.id}
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-(--np-card-pad) py-2.5"
-            >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="flex flex-wrap items-center gap-2 text-ui text-ink">
-                  {statusPill(share)}
-                  <span>
-                    {share.status === "revoked" && share.revokedAt
-                      ? `Revoked ${formatDay(share.revokedAt)}`
-                      : `${share.status === "expired" ? "Expired" : "Expires"} ${formatDay(share.expiresAt)}`}
-                  </span>
-                </span>
-                <span className="text-caption text-ink-muted">
-                  Created by {share.createdByName ?? "a former teammate"}{" "}
-                  {formatDay(share.createdAt)} ·{" "}
-                  {share.viewCount === 0 ? (
-                    "Not opened yet"
-                  ) : (
-                    <>
-                      {`${formatNumber(share.viewCount)} ${share.viewCount === 1 ? "view" : "views"}, last `}
-                      <RelativeTime
-                        iso={share.lastViewedAt ?? share.createdAt}
-                      />
-                    </>
-                  )}
-                </span>
-              </div>
-              {share.status === "active" ? (
+      <ListRows>
+        {query.data.items.map((share) => (
+          <ListRow
+            key={share.id}
+            interactive={false}
+            flush
+            wrap
+            emphasis="neutral"
+            title={
+              share.status === "revoked" && share.revokedAt
+                ? `Revoked ${formatDay(share.revokedAt)}`
+                : `${share.status === "expired" ? "Expired" : "Expires"} ${formatDay(share.expiresAt)}`
+            }
+            meta={statusPill(share)}
+            subtitle={
+              <>
+                Created by {share.createdByName ?? "a former teammate"}{" "}
+                {formatDay(share.createdAt)} ·{" "}
+                {share.viewCount === 0 ? (
+                  "Not opened yet"
+                ) : (
+                  <>
+                    {`${formatNumber(share.viewCount)} ${share.viewCount === 1 ? "view" : "views"}, last `}
+                    <RelativeTime iso={share.lastViewedAt ?? share.createdAt} />
+                  </>
+                )}
+              </>
+            }
+            trailing={
+              share.status === "active" ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -580,11 +577,11 @@ function ExistingLinks({
                 >
                   Revoke
                 </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </Card>
+              ) : null
+            }
+          />
+        ))}
+      </ListRows>
     )
   }
 

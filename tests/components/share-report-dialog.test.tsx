@@ -95,6 +95,77 @@ describe("Share report dialog", () => {
     expect(within(dialog).getByRole("radio", { name: "90 days" })).toBeChecked()
   })
 
+  it("offers the lengths as one radio group of option rows, with the date under each", async () => {
+    const user = userEvent.setup()
+    renderButton()
+    await user.click(screen.getByRole("button", { name: "Share report" }))
+    const dialog = await screen.findByRole("dialog")
+    const group = within(dialog).getByRole("radiogroup", {
+      name: "Link works for",
+    })
+    expect(group).toHaveAttribute("data-slot", "option-row-group")
+    const radios = within(group).getAllByRole("radio")
+    expect(radios.map((radio) => radio.textContent)).toEqual([
+      expect.stringMatching(/^30 days\s*Until /),
+      expect.stringMatching(/^90 days\s*Until /),
+      expect.stringMatching(/^1 year\s*Until /),
+    ])
+    expect(
+      within(group).getByRole("radio", {
+        name: "30 days",
+        description: `Until ${formatDay(
+          new Date(NOW.getTime() + 30 * 86_400_000).toISOString()
+        )}`,
+      })
+    ).toHaveAttribute("aria-checked", "false")
+
+    // The arrow keys move the choice, as in a native radio group.
+    within(group).getByRole("radio", { name: "90 days" }).focus()
+    await user.keyboard("{ArrowDown}")
+    expect(within(group).getByRole("radio", { name: "1 year" })).toBeChecked()
+    expect(
+      within(group).getByRole("radio", { name: "90 days" })
+    ).not.toBeChecked()
+  })
+
+  it("keeps Create link in the footer, not in the body", async () => {
+    const user = userEvent.setup()
+    renderButton()
+    await user.click(screen.getByRole("button", { name: "Share report" }))
+    const dialog = await screen.findByRole("dialog")
+    const footer = dialog.querySelector('[data-slot="dialog-footer"]')
+    expect(footer).not.toBeNull()
+    const create = within(dialog).getByRole("button", { name: "Create link" })
+    expect(footer).toContainElement(create)
+    expect(
+      dialog.querySelector('[data-slot="dialog-body"]')
+    ).not.toContainElement(create)
+  })
+
+  it("moves Copy link into the footer once the link exists, and Create link goes", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(reportSharesApi, "createReportShare").mockResolvedValue({
+      url: "https://app.example.test/share/report/secret-token",
+      share: share({}),
+    })
+    renderButton()
+    await user.click(screen.getByRole("button", { name: "Share report" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Create link" })
+    )
+    await within(dialog).findByRole("textbox", { name: "Report link" })
+    const footer = dialog.querySelector(
+      '[data-slot="dialog-footer"]'
+    ) as HTMLElement
+    expect(
+      within(footer).getByRole("button", { name: "Copy link" })
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole("button", { name: "Create link" })
+    ).not.toBeInTheDocument()
+  })
+
   it("creates a link for the chosen expiry and shows it once with Copy", async () => {
     const user = userEvent.setup()
     const create = vi
@@ -241,10 +312,16 @@ describe("Share report dialog", () => {
         within(dialog).getByRole("button", { name: "Create link" })
       )
       await within(dialog).findByRole("textbox", { name: "Report link" })
-      // Copy stays as the fallback beside it.
+      // Copy stays as the fallback beside it, Share link last as the primary:
+      // both pinned in the footer.
+      const footer = dialog.querySelector(
+        '[data-slot="dialog-footer"]'
+      ) as HTMLElement
       expect(
-        within(dialog).getByRole("button", { name: "Copy link" })
-      ).toBeInTheDocument()
+        within(footer)
+          .getAllByRole("button")
+          .map((button) => button.textContent)
+      ).toEqual(["Copy link", "Share link"])
       await user.click(
         within(dialog).getByRole("button", { name: "Share link" })
       )
@@ -304,6 +381,18 @@ describe("Share report dialog", () => {
     const dialog = await screen.findByRole("dialog")
     const list = within(dialog).getAllByRole("listitem")
     expect(list).toHaveLength(3)
+    // Plain rows (they carry their own Revoke), not a hand-built list.
+    for (const item of list) {
+      expect(item).toHaveAttribute("data-slot", "list-row")
+      expect(item.querySelector('[data-slot="list-row-hit"]')?.tagName).toBe(
+        "DIV"
+      )
+    }
+    expect(within(list[0]).getByText(/^Expires /)).toBeInTheDocument()
+    expect(
+      within(list[1]).getByText(/^Revoked 10 Sept? 2026/)
+    ).toBeInTheDocument()
+    expect(within(list[2]).getByText(/^Expired /)).toBeInTheDocument()
     expect(within(list[0]).getByText("Active")).toBeInTheDocument()
     expect(
       within(list[0]).getByText(/Created by Priya Owner 1 Sept? 2026/)
