@@ -488,6 +488,55 @@ describe("deriveReplyStatus — what counts as published", () => {
     expect(status.text).not.toMatch(/published/i)
   })
 
+  // Google holds a published reply for moderation: it is not public yet, and
+  // the status must not claim it is (INB-01).
+  it("says it is waiting for Google's check while googleReplyState is PENDING", () => {
+    const state = settledReview("published")
+    const status = deriveReplyStatus({
+      ...state,
+      reply: { ...state.reply!, googleReplyState: "PENDING" },
+    })
+    expect(status).toMatchObject({
+      text: "Sent · waiting for Google\u2019s check",
+      short: "Sent",
+      outcome: "sent",
+    })
+    expect(status.text).not.toMatch(/live/i)
+  })
+
+  it("says Live on Google once Google has approved the reply", () => {
+    const state = settledReview("published")
+    for (const googleReplyState of ["APPROVED", null]) {
+      expect(
+        deriveReplyStatus({
+          ...state,
+          reply: { ...state.reply!, googleReplyState },
+        }).text
+      ).toBe("Live on Google")
+    }
+  })
+
+  it("reads the Google check from a list row too", () => {
+    const row = {
+      workflowStatus: "published",
+      draftBody: "Thanks!",
+      replyBody: "Thanks!",
+      replyStatus: "published",
+      googleReplyState: "PENDING",
+      verificationStatus: "pass",
+      capabilities: {
+        canPublish: true,
+        canEdit: true,
+        canRequestApproval: false,
+      },
+    }
+    expect(deriveReplyStatus(replyStateFromRow(row)).short).toBe("Sent")
+    expect(
+      deriveReplyStatus(replyStateFromRow({ ...row, googleReplyState: null }))
+        .short
+    ).toBe("Replied")
+  })
+
   // Rule (b): nothing is ever inferred from the availability of an action.
   // Being ABLE to publish is "Ready to publish"; it is never "Published" —
   // which is exactly what the old five-stage tracker got wrong.

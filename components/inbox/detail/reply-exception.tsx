@@ -128,10 +128,11 @@ function describeException(
           // location grant, and it stays true for the very person who
           // submitted the reply — only the server knows whether an
           // organisation's two-person rule will accept a decision from them.
-          // The pane offers the action its capabilities permit and says what
-          // the rule is, rather than asserting an ownership it cannot verify.
+          // The pane offers the action its capabilities permit and keeps to
+          // "waiting for approval", rather than asserting an ownership it
+          // cannot verify.
           description:
-            "This reply is parked for approval. Read it, then approve it or send it back with Reject reply — an organisation that asks for two approvers will not take the decision from whoever submitted it.",
+            "This reply is waiting for approval. Approve it, or send it back with a note.",
           tone: "caution",
         }
       : {

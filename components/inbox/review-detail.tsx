@@ -49,6 +49,8 @@ import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
   derivePrimaryAction,
   deriveReplyStatus,
+  isAwaitingGoogleCheck,
+  WAITING_FOR_GOOGLE_CHECK,
   type ReplyPendingKind,
   type ReplyStateInput,
   type ReplyStatus,
@@ -97,7 +99,11 @@ function replyStateFor(
     workflowStatus: review.workflowStatus,
     capabilities: review.capabilities,
     reply: review.reply
-      ? { body: review.reply.body, publishStatus: review.reply.publishStatus }
+      ? {
+          body: review.reply.body,
+          publishStatus: review.reply.publishStatus,
+          googleReplyState: review.reply.googleReplyState,
+        }
       : null,
     drafts: review.drafts,
     verification: review.latestVerification,
@@ -832,6 +838,9 @@ function replyVisibility(review: Review): string {
   const status = review.reply?.publishStatus ?? null
   if (!review.reply || !status || status === "not_published") {
     return "Private until you publish"
+  }
+  if (isAwaitingGoogleCheck(status, review.reply.googleReplyState)) {
+    return WAITING_FOR_GOOGLE_CHECK
   }
   const label = describeReplyState(status).label
   return isLiveOnGoogle(status) && replyWork(review).hasUnpublishedChanges

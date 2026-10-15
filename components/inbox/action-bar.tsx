@@ -200,6 +200,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       outcomeToast.show(
         describeOutcomeToast(result.status, {
           googleReplyUrl: review.googleReplyUrl,
+          googleReplyState: result.googleReplyState,
         })
       )
       // `pending` moves on too: Google has the reply, nothing more can be
@@ -238,6 +239,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       outcomeToast.show(
         describeOutcomeToast(result.status, {
           googleReplyUrl: review.googleReplyUrl,
+          googleReplyState: result.googleReplyState,
         })
       )
       if (decision === "approve" && isAdvancingOutcome(result.status)) {
