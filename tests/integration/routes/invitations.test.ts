@@ -155,9 +155,7 @@ describeDatabase("organisation invitations", () => {
     // Exactly the public keys (D8), the stored role and the stored expiry as
     // ISO: nothing else about the invitation is readable by token alone.
     expect(Object.keys(answer).sort()).toEqual([
-      "accepted",
       "email",
-      "expired",
       "expiresAt",
       "organisationName",
       "role",
@@ -167,8 +165,6 @@ describeDatabase("organisation invitations", () => {
       email,
       role: "member",
       expiresAt: new Date(stored.expiresAt).toISOString(),
-      accepted: false,
-      expired: false,
     })
     expect(new Date(answer.expiresAt).getTime()).toBeGreaterThan(Date.now())
     expect(stored.role).toBe(answer.role)
@@ -216,6 +212,15 @@ describeDatabase("organisation invitations", () => {
       defaultOrganisationId: owner.organisationId,
     })
     expect(membership.acceptedAt).toBeInstanceOf(Date)
+    // Once accepted, the public lookup says so and nothing more (D8).
+    const token = new URL(body.inviteUrl).pathname.split("/").at(-1)
+    const lookup = await fetch(`${server.baseUrl}/api/invitations/${token}`)
+    expect(lookup.status, await lookup.clone().text()).toBe(409)
+    const finished = await lookup.json()
+    expect(finished.error).toBe("invitation_already_used")
+    for (const key of ["organisationName", "email", "role", "expiresAt"]) {
+      expect(finished).not.toHaveProperty(key)
+    }
     await expect(
       provisionAuthenticatedMember(
         acceptorIdentity(email),
@@ -283,12 +288,14 @@ describeDatabase("organisation invitations", () => {
       where id = ${invitation.id}
     `
 
+    // Expired: the state only, never the invitation's details (D8).
     const lookup = await fetch(`${server.baseUrl}/api/invitations/${token}`)
-    expect(lookup.status, await lookup.clone().text()).toBe(200)
-    expect(await lookup.json()).toMatchObject({
-      accepted: false,
-      expired: true,
-    })
+    expect(lookup.status, await lookup.clone().text()).toBe(410)
+    const expired = await lookup.json()
+    expect(expired.error).toBe("invitation_expired")
+    for (const key of ["organisationName", "email", "role", "expiresAt"]) {
+      expect(expired).not.toHaveProperty(key)
+    }
     const { provisionAuthenticatedMember } =
       await import("@/lib/server/provisioning")
     await expect(

@@ -1,6 +1,10 @@
 import { z } from "zod"
 
-import { RESET_TOKEN_HASH_LENGTH } from "@/lib/domain/auth-limits"
+import {
+  PASSWORD_LENGTH,
+  RESET_TOKEN_HASH_LENGTH,
+  passwordLength,
+} from "@/lib/domain/auth-limits"
 import { workspaceModeSchema } from "@/lib/contracts/session"
 
 export const emailSchema = z
@@ -10,7 +14,8 @@ export const emailSchema = z
   .transform((value) => value.toLowerCase())
 
 /**
- * Length only, 12 to 128 characters, with no letter, number or symbol rules
+ * Length only, 12 to 128 characters counted in code points (so six emoji
+ * are six characters, not twelve), with no letter, number or symbol rules
  * (D9, following NIST SP 800-63B: composition rules push people to
  * predictable patterns without adding strength). Any character counts,
  * spaces included, so a passphrase works. There is no breached-password
@@ -18,8 +23,15 @@ export const emailSchema = z
  */
 export const passwordSchema = z
   .string()
-  .min(12, "Use at least 12 characters.")
-  .max(128, "Use no more than 128 characters.")
+  // A cheap bound first: 128 code points are at most 256 UTF-16 code units,
+  // so anything longer fails without being split into code points.
+  .max(PASSWORD_LENGTH.max * 2, "Use no more than 128 characters.")
+  .refine((value) => passwordLength(value) >= PASSWORD_LENGTH.min, {
+    message: "Use at least 12 characters.",
+  })
+  .refine((value) => passwordLength(value) <= PASSWORD_LENGTH.max, {
+    message: "Use no more than 128 characters.",
+  })
 
 export const loginSchema = z.object({
   email: emailSchema,

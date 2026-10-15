@@ -19,7 +19,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
 import * as authApi from "@/lib/api/auth"
-import { authErrorMessage, confirmStatusMessage } from "@/lib/api/auth-errors"
+import { authErrorMessage } from "@/lib/api/auth-errors"
 import { ApiClientError } from "@/lib/api/client"
 import type { MemberRole } from "@/lib/contracts/members"
 import { formatDateTime } from "@/lib/format"
@@ -168,16 +168,29 @@ function InvitationView({
   }
 
   if (query.isError) {
-    // A missing invitation is a dead end with one way out (sign in on your
-    // own). Every other failure (network trouble, a 500, ...) is transient,
-    // so it gets a retry instead of being routed away.
-    const notFound =
-      query.error instanceof ApiClientError &&
-      query.error.code === "invitation_not_found"
+    // A missing, expired or already-accepted invitation is a dead end with
+    // one way out (sign in on your own). The lookup answers those with an
+    // error and no details (D8), so the title can't name the organisation.
+    // Every other failure (network trouble, a 500, ...) is transient, so it
+    // gets a retry instead of being routed away.
+    const code =
+      query.error instanceof ApiClientError ? query.error.code : undefined
+    if (code === "invitation_already_used") {
+      return (
+        <AuthCard aside="invite" eyebrow="Invitation" title="Accept invitation">
+          <Alert variant="info">
+            <AlertTitle>You have already accepted this invitation.</AlertTitle>
+          </Alert>
+          <GoToSignInLink />
+        </AuthCard>
+      )
+    }
+    const deadEnd =
+      code === "invitation_not_found" || code === "invitation_expired"
     return (
       <AuthCard aside="invite" eyebrow="Invitation" title="Accept invitation">
         <AuthErrorAlert message={authErrorMessage(query.error, "invitation")} />
-        {notFound ? (
+        {deadEnd ? (
           <GoToSignInLink />
         ) : (
           <Button type="button" size="lg" block onClick={() => query.refetch()}>
@@ -189,36 +202,6 @@ function InvitationView({
   }
 
   const { data } = query
-
-  if (data.accepted) {
-    return (
-      <AuthCard
-        aside="invite"
-        eyebrow="Invitation"
-        title={`Join ${data.organisationName}`}
-      >
-        <Alert variant="info">
-          <AlertTitle>You have already accepted this invitation.</AlertTitle>
-        </Alert>
-        <GoToSignInLink />
-      </AuthCard>
-    )
-  }
-
-  if (data.expired) {
-    return (
-      <AuthCard
-        aside="invite"
-        eyebrow="Invitation"
-        title={`Join ${data.organisationName}`}
-      >
-        <AuthErrorAlert
-          message={confirmStatusMessage("invitation_expired", "invitation")}
-        />
-        <GoToSignInLink />
-      </AuthCard>
-    )
-  }
 
   if (viewer === null) {
     return (

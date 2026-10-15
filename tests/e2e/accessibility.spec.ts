@@ -538,8 +538,6 @@ for (const theme of themes) {
                 email: "invitee@example.com",
                 role: "admin",
                 expiresAt: "2099-10-22T14:05:00.000Z",
-                accepted: false,
-                expired: false,
               },
             })
           }

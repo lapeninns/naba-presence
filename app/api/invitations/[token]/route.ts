@@ -44,7 +44,25 @@ export const GET = route({
     if (!invitation) {
       throw new ApiError(404, "invitation_not_found", "Invitation not found.")
     }
-    const accepted = invitation.acceptedAt !== null
+    // A finished invitation answers with its state only, never its details:
+    // the role and expiry (D8), like the organisation and address, are for
+    // someone who can still accept. Expiry is checked first, so an old link
+    // that was also accepted still reads as expired. Same codes and statuses
+    // as registration (lib/server/registration.ts).
+    if (invitation.expiresAt.getTime() <= Date.now()) {
+      throw new ApiError(
+        410,
+        "invitation_expired",
+        "This invitation is invalid or expired."
+      )
+    }
+    if (invitation.acceptedAt !== null) {
+      throw new ApiError(
+        409,
+        "invitation_already_used",
+        "This invitation has already been accepted."
+      )
+    }
     // Field by field, never a spread of the row: this answer is public to
     // anyone holding the token (D8), so nothing else may leak into it.
     return {
@@ -52,8 +70,6 @@ export const GET = route({
       email: invitation.email,
       role: invitation.role,
       expiresAt: invitation.expiresAt.toISOString(),
-      accepted,
-      expired: !accepted && invitation.expiresAt.getTime() <= Date.now(),
     } satisfies InvitationLookup
   },
 })
@@ -69,7 +85,10 @@ export const GET = route({
 export const POST = route({
   entitlement: "exempt",
   params: invitationLookupParamsSchema,
-  limits: ({ session }) => ({ scope: "invitation_accept", user: session.userId }),
+  limits: ({ session }) => ({
+    scope: "invitation_accept",
+    user: session.userId,
+  }),
   handler: async ({ session, params, requestId }) => {
     const accepted = await acceptInvitationForSessionUser(
       session,

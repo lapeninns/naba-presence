@@ -28,14 +28,7 @@ const TOKEN = "invite-token-value"
 const FUTURE = new Date("2099-10-22T14:05:00.000Z")
 const PAST = new Date("2020-01-02T03:04:05.000Z")
 
-const KEYS = [
-  "accepted",
-  "email",
-  "expired",
-  "expiresAt",
-  "organisationName",
-  "role",
-]
+const KEYS = ["email", "expiresAt", "organisationName", "role"]
 
 /**
  * What lookup_invitation() could hand back if it ever widened, plus the
@@ -103,7 +96,7 @@ beforeEach(() => {
 })
 
 describe("GET /api/invitations/[token]", () => {
-  it("answers a live invitation with exactly the six public keys", async () => {
+  it("answers a live invitation with exactly the four public keys", async () => {
     fakeDatabase([{ ...EXTRA_COLUMNS, ...row({ role: "admin" }) }])
     const response = await lookup()
     expect(response.status).toBe(200)
@@ -114,8 +107,6 @@ describe("GET /api/invitations/[token]", () => {
       email: "invited@example.test",
       role: "admin",
       expiresAt: "2099-10-22T14:05:00.000Z",
-      accepted: false,
-      expired: false,
     })
     for (const leaked of Object.keys(EXTRA_COLUMNS)) {
       expect(body).not.toHaveProperty(leaked)
@@ -141,31 +132,64 @@ describe("GET /api/invitations/[token]", () => {
     }
   )
 
-  it("marks an invitation past its expiry as expired, not accepted", async () => {
-    fakeDatabase([row({ expiresAt: PAST })])
-    const response = await lookup()
-    expect(response.status).toBe(200)
+  /** A finished invitation's answer: its state, and nothing about it. */
+  async function expectDetailFree(response: Response) {
     const body = await response.json()
-    expect(body).toMatchObject({
-      expired: true,
-      accepted: false,
-      expiresAt: PAST.toISOString(),
-    })
-    expect(invitationLookupSchema.safeParse(body).success).toBe(true)
+    for (const key of [...KEYS, "accepted", "expired"]) {
+      expect(body).not.toHaveProperty(key)
+    }
+    const text = JSON.stringify(body)
+    for (const detail of [
+      "Lapen Inns",
+      "invited@example.test",
+      "member",
+      "admin",
+      PAST.toISOString(),
+      FUTURE.toISOString(),
+    ]) {
+      expect(text).not.toContain(detail)
+    }
+    return body
+  }
+
+  it("answers an expired invitation with 410 invitation_expired and no details", async () => {
+    fakeDatabase([{ ...EXTRA_COLUMNS, ...row({ expiresAt: PAST }) }])
+    const response = await lookup()
+    expect(response.status).toBe(410)
+    const body = await expectDetailFree(response)
+    expect(body.error).toBe("invitation_expired")
   })
 
-  it("marks an accepted invitation as accepted, and never as expired", async () => {
-    // Even past its expiry: an accepted invitation is finished, not lapsed.
-    fakeDatabase([row({ acceptedAt: new Date("2026-10-01T00:00:00Z") })])
-    const live = await (await lookup()).json()
-    expect(live).toMatchObject({ accepted: true, expired: false })
+  it("treats the exact expiry instant as expired", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(FUTURE)
+      fakeDatabase([row({ expiresAt: FUTURE })])
+      const response = await lookup()
+      expect(response.status).toBe(410)
+      await expectDetailFree(response)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
+  it("answers an accepted invitation with 409 invitation_already_used and no details", async () => {
+    fakeDatabase([
+      row({ acceptedAt: new Date("2026-10-01T00:00:00Z"), role: "admin" }),
+    ])
+    const response = await lookup()
+    expect(response.status).toBe(409)
+    const body = await expectDetailFree(response)
+    expect(body.error).toBe("invitation_already_used")
+  })
+
+  it("checks expiry first: an accepted invitation past its expiry reads as expired", async () => {
     fakeDatabase([
       row({ acceptedAt: new Date("2026-10-01T00:00:00Z"), expiresAt: PAST }),
     ])
-    const lapsed = await (await lookup()).json()
-    expect(lapsed).toMatchObject({ accepted: true, expired: false })
-    expect(Object.keys(lapsed).sort()).toEqual(KEYS)
+    const response = await lookup()
+    expect(response.status).toBe(410)
+    expect((await expectDetailFree(response)).error).toBe("invitation_expired")
   })
 
   it("answers 404 invitation_not_found for an unknown token", async () => {

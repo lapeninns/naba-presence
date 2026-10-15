@@ -1,18 +1,22 @@
 import { CircleCheck } from "lucide-react"
 
+import { PASSWORD_LENGTH, passwordLength } from "@/lib/domain/auth-limits"
 import { cn } from "@/lib/utils"
 
 type PasswordRule = { id: string; label: string; met: boolean }
 
 // Mirrors passwordSchema in lib/domain/auth.ts. Both must change together;
 // the server remains the authority and re-validates every submission. Length
-// is the only rule (D9, NIST SP 800-63B): no letter, number or symbol rules.
+// is the only rule (D9, NIST SP 800-63B): no letter, number or symbol rules,
+// and it counts code points, exactly as the schema does.
 function checkPasswordRules(value: string): PasswordRule[] {
   return [
     {
       id: "length",
       label: "Between 12 and 128 characters",
-      met: value.length >= 12 && value.length <= 128,
+      met:
+        passwordLength(value) >= PASSWORD_LENGTH.min &&
+        passwordLength(value) <= PASSWORD_LENGTH.max,
     },
   ]
 }

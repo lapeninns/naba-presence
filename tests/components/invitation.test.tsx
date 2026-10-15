@@ -44,8 +44,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "member",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     renderView()
     expect(
@@ -62,8 +60,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "member",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     renderView()
     await screen.findByRole("heading", { level: 1, name: "Join Lapen Inns" })
@@ -89,8 +85,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "admin",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     renderView()
     await screen.findByRole("heading", { level: 1, name: "Join Lapen Inns" })
@@ -105,8 +99,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "viewer",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     renderView({ displayName: "Aman Shrestha", email: "invited@example.test" })
     await screen.findByRole("button", { name: "Accept invitation" })
@@ -118,14 +110,10 @@ describe("InvitationView", () => {
   })
 
   it("distinguishes an already-accepted invitation from an expired one", async () => {
-    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
-      organisationName: "Lapen Inns",
-      email: "invited@example.test",
-      role: "member",
-      expiresAt: EXPIRES_AT,
-      accepted: true,
-      expired: false,
-    })
+    // A finished invitation answers with a code and no details (D8).
+    vi.spyOn(authApi, "lookupInvitation").mockRejectedValue(
+      new ApiClientError(409, "invitation_already_used", "x")
+    )
     renderView()
     expect(
       await screen.findByText("You have already accepted this invitation.")
@@ -134,17 +122,16 @@ describe("InvitationView", () => {
       "href",
       "/sign-in"
     )
+    expect(screen.queryByText("Role")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Try again" })
+    ).not.toBeInTheDocument()
   })
 
   it("explains an expired invitation and offers a way out", async () => {
-    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
-      organisationName: "Lapen Inns",
-      email: "invited@example.test",
-      role: "member",
-      expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: true,
-    })
+    vi.spyOn(authApi, "lookupInvitation").mockRejectedValue(
+      new ApiClientError(410, "invitation_expired", "x")
+    )
     renderView()
     expect(
       await screen.findByText("That invitation has expired.")
@@ -152,6 +139,11 @@ describe("InvitationView", () => {
     expect(
       screen.getByRole("link", { name: "Go to sign in" })
     ).toBeInTheDocument()
+    expect(screen.queryByText("Role")).not.toBeInTheDocument()
+    expect(screen.queryByText("Link expires")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Try again" })
+    ).not.toBeInTheDocument()
   })
 
   it("separates a missing invitation from a network failure", async () => {
@@ -181,8 +173,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "member",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     const signOutSpy = vi.spyOn(authApi, "signOut").mockResolvedValue(undefined)
     renderView({ displayName: "Aman Shrestha", email: "other@example.test" })
@@ -209,8 +199,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "member",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     render(
       <QueryProvider>
@@ -232,8 +220,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "member",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     const signOutSpy = vi.spyOn(authApi, "signOut").mockResolvedValue(undefined)
     const acceptSpy = vi
@@ -256,8 +242,6 @@ describe("InvitationView", () => {
       email: "invited@example.test",
       role: "member",
       expiresAt: EXPIRES_AT,
-      accepted: false,
-      expired: false,
     })
     vi.spyOn(authApi, "acceptInvitation").mockRejectedValue(
       new ApiClientError(410, "invitation_expired", "x")
