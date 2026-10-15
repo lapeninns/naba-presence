@@ -41,7 +41,7 @@ export async function ReplyPolicyContent({
     <>
       <PageHeader
         title="Reply policy"
-        description={`Your ${terms.orgLower}’s name, how replies are approved, how long raw review content is kept, and the defaults new work starts from.`}
+        description={`Your ${terms.orgLower}’s name, how replies are approved, how long review text is kept, and the defaults new work starts from.`}
         tabs={<SettingsNav role={role} />}
       />
       <div className="flex flex-col gap-(--np-gap-section)">
