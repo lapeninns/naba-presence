@@ -39,7 +39,7 @@ export function setupShareUrl(href: string): string {
  * Resolves to what happened, so the caller can say it in words:
  *   "shared"    the share sheet completed;
  *   "cancelled" the person closed the share sheet (not an error);
- *   "copied"    the link is on the clipboard;
+ *   "copied"    the link (or `copyText`) is on the clipboard;
  *   "failed"    neither was possible; show the link to copy by hand.
  */
 export type ShareOutcome = "shared" | "cancelled" | "copied" | "failed"
@@ -48,10 +48,13 @@ export async function shareLink({
   url,
   title,
   text,
+  copyText,
 }: {
   url: string
   title: string
   text?: string
+  /** What the clipboard gets instead of `url` (a message that carries the link). */
+  copyText?: string
 }): Promise<ShareOutcome> {
   const nav: Partial<Navigator> | undefined =
     typeof navigator === "undefined" ? undefined : navigator
@@ -72,7 +75,7 @@ export async function shareLink({
   }
   try {
     if (!nav?.clipboard?.writeText) return "failed"
-    await nav.clipboard.writeText(url)
+    await nav.clipboard.writeText(copyText ?? url)
     return "copied"
   } catch {
     return "failed"

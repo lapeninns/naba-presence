@@ -7,7 +7,11 @@ const { push, session } = vi.hoisted(() => ({
   push: vi.fn(),
   session: { role: "owner" },
 }))
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
+// The access-denied page reads the path for the shell's back target.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+  usePathname: () => "/clients/new",
+}))
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: ComponentProps<"a">) => (
     <a href={href} {...rest}>

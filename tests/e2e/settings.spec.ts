@@ -88,7 +88,13 @@ test.describe("settings", () => {
         await expect(
           page.getByRole("heading", { name: /You don.t have access to this page/, level: 1 })
         ).toBeVisible()
-        await expect(page.getByRole("link", { name: "Back to Inbox" })).toBeVisible()
+        // "Ask for access" leads; the way back is the shell's own back target
+        // (here Settings, as the app bar says), scoped to the page body because
+        // the phone app bar draws a link of the same name.
+        const body = page.getByRole("main")
+        await expect(body.getByRole("button", { name: "Ask for access" })).toBeVisible()
+        await expect(body.getByRole("link", { name: "Back to Settings" })).toBeVisible()
+        await expect(body.getByText("403")).toHaveCount(0)
       }
       await context.close()
     }

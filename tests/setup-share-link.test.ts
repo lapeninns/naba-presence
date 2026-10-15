@@ -56,6 +56,15 @@ describe("shareLink", () => {
     expect(share).toHaveBeenCalledWith({ url: data.url, title: "T" })
   })
 
+  it("copies copyText instead of the bare link when there is no share sheet", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
+    await expect(
+      shareLink({ ...data, copyText: `Please open this\n${data.url}` })
+    ).resolves.toBe("copied")
+    expect(writeText).toHaveBeenCalledWith(`Please open this\n${data.url}`)
+  })
+
   it("reports a closed share sheet as cancelled, not copied", async () => {
     const writeText = vi.fn()
     vi.stubGlobal("navigator", {
@@ -69,7 +78,9 @@ describe("shareLink", () => {
   it("falls back to the clipboard when sharing is refused or missing", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal("navigator", {
-      share: vi.fn().mockRejectedValue(new DOMException("x", "NotAllowedError")),
+      share: vi
+        .fn()
+        .mockRejectedValue(new DOMException("x", "NotAllowedError")),
       clipboard: { writeText },
     })
     await expect(shareLink(data)).resolves.toBe("copied")
