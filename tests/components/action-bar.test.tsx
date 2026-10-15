@@ -18,7 +18,12 @@ import * as publishHook from "@/lib/queries/use-publish-review"
 import * as approvalHook from "@/lib/queries/use-approval-decision"
 import * as deleteHook from "@/lib/queries/use-delete-reply"
 import * as draftHook from "@/lib/queries/use-draft-mutations"
-import { PRIMARY_ACTION_EVENT, PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
+import {
+  PRIMARY_ACTION_EVENT,
+  PUBLISH_PULSE_EVENT,
+  REPLY_EDIT_EVENT,
+  type ReplyEditDetail,
+} from "@/lib/inbox/events"
 
 function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
   return {
@@ -779,8 +784,10 @@ describe("ActionBar", () => {
     renderActionBar()
     const inline = screen.getByRole("button", { name: "Reject reply" })
     expect(inline).toHaveClass("max-md:hidden")
+    // "Edit reply" is in the menu at every width, so the trigger shows on
+    // desk too; the Reject row is the one that is phone-only.
     const more = screen.getByRole("button", { name: "Review actions" })
-    expect(more).toHaveClass("md:hidden")
+    expect(more).not.toHaveClass("md:hidden")
     await user.click(more)
     await user.click(
       await screen.findByRole("menuitem", { name: "Reject reply" })
@@ -795,6 +802,38 @@ describe("ActionBar", () => {
         expect.objectContaining({ decision: "reject" })
       )
     )
+  })
+
+  // INB-04: the parked reply is read-only in the composer, so editing it (which
+  // sends it back to Needs reply) is asked for from the ⋯ menu.
+  it("offers Edit reply on a parked reply and asks the composer to open it", async () => {
+    const user = userEvent.setup()
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
+    renderActionBar()
+    const heard: ReplyEditDetail[] = []
+    const listener = (event: Event) =>
+      heard.push((event as CustomEvent<ReplyEditDetail>).detail)
+    window.addEventListener(REPLY_EDIT_EVENT, listener)
+    try {
+      await user.click(screen.getByRole("button", { name: "Review actions" }))
+      await user.click(
+        await screen.findByRole("menuitem", { name: "Edit reply" })
+      )
+    } finally {
+      window.removeEventListener(REPLY_EDIT_EVENT, listener)
+    }
+    expect(heard).toEqual([{ reviewId: "rev-1" }])
+  })
+
+  it("offers no Edit reply once the reply is not parked", () => {
+    stubHooks(detailWith({ workflowStatus: "verified" }))
+    renderActionBar()
+    expect(
+      screen.queryByRole("button", { name: "Review actions" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Edit reply" })
+    ).not.toBeInTheDocument()
   })
 
   // D4: these controls sit on the charcoal bar. One filled primary (the
@@ -964,11 +1003,12 @@ describe("ActionBar", () => {
       ).toHaveTextContent("Review actions")
       const items = within(sheet).getAllByRole("menuitem")
       expect(items.map((item) => item.textContent)).toEqual([
+        "Edit reply",
         "Reject reply",
         "Delete published reply",
       ])
       expect(within(sheet).getByRole("separator")).toBeInTheDocument()
-      expect(items[1]).toHaveClass("text-danger-ink")
+      expect(items[2]).toHaveClass("text-danger-ink")
     } finally {
       vi.unstubAllGlobals()
     }
