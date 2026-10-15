@@ -60,8 +60,8 @@ function sameZone(a: string, b: string): boolean {
 }
 
 /**
- * A friendly name for an IANA zone: "UK time", "New Zealand Time", "Eastern
- * Time", never "Europe/London".
+ * A friendly name for an IANA zone in sentence case: "UK time", "New Zealand
+ * time", "Eastern time", never "Europe/London".
  *
  * Returns null when the zone is the viewer's own (a label that says nothing
  * new is noise) or when it cannot be named, so callers render it only when it
@@ -83,7 +83,8 @@ export function formatTimeZoneLabel(
     })
       .formatToParts(new Date())
       .find((p) => p.type === "timeZoneName")
-    return part?.value || null
+    // Sentence case, to match "UK time": "Eastern Time" -> "Eastern time".
+    return part?.value ? part.value.replace(/ Time$/, " time") : null
   } catch {
     return null
   }

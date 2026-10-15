@@ -52,10 +52,10 @@ describe("formatTimeZoneLabel", () => {
 
   it("falls back to the generic zone name for other zones", () => {
     expect(formatTimeZoneLabel("Pacific/Auckland", "Europe/London")).toBe(
-      "New Zealand Time"
+      "New Zealand time"
     )
     expect(formatTimeZoneLabel("America/New_York", "Europe/London")).toBe(
-      "Eastern Time"
+      "Eastern time"
     )
   })
 
