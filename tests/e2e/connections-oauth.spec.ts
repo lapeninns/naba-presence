@@ -44,9 +44,12 @@ test.describe("connections OAuth return", () => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/settings/connections")
-    const disconnect = page.getByRole("button", { name: /^Disconnect/ })
-    await expect(disconnect.first()).toBeVisible()
-    await disconnect.first().click()
+    // Disconnect is the last item in the account's ⋯ menu, not a button in
+    // the headline spot.
+    const actions = page.getByRole("button", { name: /^Actions for / })
+    await expect(actions.first()).toBeVisible()
+    await actions.first().click()
+    await page.getByRole("menuitem", { name: /^Disconnect/ }).click()
     const dialog = page.getByRole("alertdialog")
     await expect(dialog).toBeVisible()
     // The popup fades and scales in (components/ui/alert-dialog.tsx). Axe

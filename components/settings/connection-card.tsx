@@ -1,6 +1,14 @@
 "use client"
 
-import { CircleCheck, ExternalLink, Globe, Info, Link2 } from "lucide-react"
+import {
+  CircleCheck,
+  Ellipsis,
+  ExternalLink,
+  Globe,
+  Info,
+  Link2,
+  Unplug,
+} from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
@@ -26,6 +34,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
 import { QueryError } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -315,7 +329,7 @@ function DisconnectDialog({
  * The Google logins this agency holds (reference `logins-table`): who it
  * is, whether it still works, which clients depend on it, when it last
  * refreshed and whether Google notifications are on — with Reconnect on a
- * broken row and Disconnect behind a confirmation.
+ * broken row and Disconnect last in the row's ⋯ menu, behind a confirmation.
  *
  * `?reconnect=<connection id>` marks that row and opens the reconnect
  * dialog once, for links from a client's "Google needs reconnecting" banner.
@@ -450,7 +464,7 @@ export function ConnectionCard({
                 key={connection.id}
                 data-selected={isFocused || undefined}
               >
-                <TableCell label="Google login">
+                <TableCell label="Google login" priority="primary">
                   <span className="flex min-w-0 items-center gap-2.5">
                     <Avatar aria-hidden>
                       <AvatarFallback>
@@ -462,7 +476,7 @@ export function ConnectionCard({
                     </span>
                   </span>
                 </TableCell>
-                <TableCell label="Status">
+                <TableCell label="Status" priority="trailing">
                   <StatusPill tone={status.tone}>{status.label}</StatusPill>
                 </TableCell>
                 {clientsByConnection ? (
@@ -518,19 +532,37 @@ export function ConnectionCard({
                       </Button>
                     ) : null}
                     {connection.status !== "disconnected" ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-danger-ink"
-                        disabled={disconnect.isPending}
-                        aria-label={`Disconnect ${name}`}
-                        onClick={() => {
-                          setDisconnectTarget(connection)
-                          setDisconnectOpen(true)
-                        }}
-                      >
-                        Disconnect
-                      </Button>
+                      // Last and quiet: a destructive step belongs behind a
+                      // menu, never beside the account's name (SET-28).
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Actions for ${name}`}
+                              disabled={disconnect.isPending}
+                            />
+                          }
+                        >
+                          <Ellipsis aria-hidden />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          title={name}
+                          className="data-[presentation=popover]:max-w-80"
+                        >
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => {
+                              setDisconnectTarget(connection)
+                              setDisconnectOpen(true)
+                            }}
+                          >
+                            <Unplug aria-hidden />
+                            Disconnect…
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     ) : null}
                   </span>
                 </TableCell>

@@ -20,7 +20,11 @@ import { useShellBack } from "./breadcrumbs-context"
 import { ClientScopeChip, useScopeLabel } from "./client-switcher"
 import { CommandPaletteButton } from "./command-palette"
 import { NotificationsLink } from "./notifications-link"
-import { type PageChromeOverride, usePageChromeOverride } from "./page-chrome"
+import {
+  type PageChromeOverride,
+  type ShellAction,
+  usePageChromeOverride,
+} from "./page-chrome"
 import { ShellLink } from "./shell-link"
 import { useNeedsReplyCount } from "./use-needs-reply-count"
 
@@ -223,6 +227,11 @@ const INBOX_HREF = "/inbox"
  *   Team, Settings, Notifications) always gets search and notifications,
  *   never the scope trigger it would ignore.
  *
+ * - A page's primary action (`<PageChrome action>`) joins the trailing
+ *   controls as a third, in front of them, once the h1 has scrolled under
+ *   the bar: its header button is gone from view, so the bar takes over
+ *   (SET-25).
+ *
  * Every label that can still truncate carries its full value in `title`
  * (the back control, the workspace name, the title, the scope's name).
  *
@@ -277,6 +286,11 @@ function AppBar({
             // row past a 320px screen; each control keeps its 44px.
             className="flex min-w-0 shrink items-center"
           >
+            {/* The page's primary action, only once its own button has
+                scrolled away with the h1 (see PageChrome `action`). */}
+            {title.visible && override.action ? (
+              <AppBarAction action={override.action} />
+            ) : null}
             {orgWide ? (
               <>
                 <CommandPaletteButton onClick={onOpenPalette} />
@@ -310,6 +324,54 @@ function AppBar({
         ) : null}
       </div>
     </header>
+  )
+}
+
+/**
+ * The page's primary action as a trailing 44px control (`<PageChrome
+ * action>`): an icon button when the page gave an icon, otherwise its label
+ * as text. Either way its accessible name is the label, and it is the same
+ * name the page's header button carries.
+ */
+function AppBarAction({ action }: { action: ShellAction }) {
+  const Icon = action.icon
+  const className = cn(
+    "grid h-11 min-w-11 shrink-0 place-items-center rounded-md text-accent-ink",
+    "transition-colors duration-(--np-duration-fast) hover:bg-fill",
+    "focus-halo focus-visible:outline-none disabled:opacity-50",
+    Icon ? "w-11" : "px-2 text-ui font-medium whitespace-nowrap"
+  )
+  const content = Icon ? (
+    <Icon className="size-5" strokeWidth={2} aria-hidden />
+  ) : (
+    action.label
+  )
+  if (action.href) {
+    return (
+      <ShellLink
+        href={action.href}
+        data-slot="app-bar-action"
+        aria-label={Icon ? action.label : undefined}
+        title={Icon ? action.label : undefined}
+        className={className}
+      >
+        {content}
+      </ShellLink>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-slot="app-bar-action"
+      aria-label={Icon ? action.label : undefined}
+      title={Icon ? action.label : undefined}
+      disabled={action.pending}
+      aria-busy={action.pending || undefined}
+      onClick={action.onSelect}
+      className={className}
+    >
+      {content}
+    </button>
   )
 }
 
