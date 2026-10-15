@@ -128,7 +128,7 @@ function InvitationView({
       query.error.code === "invitation_not_found"
     return (
       <AuthCard aside="invite" eyebrow="Invitation" title="Accept invitation">
-        <AuthErrorAlert message={authErrorMessage(query.error)} />
+        <AuthErrorAlert message={authErrorMessage(query.error, "invitation")} />
         {notFound ? (
           <GoToSignInLink />
         ) : (
@@ -164,7 +164,9 @@ function InvitationView({
         eyebrow="Invitation"
         title={`Join ${data.organisationName}`}
       >
-        <AuthErrorAlert message={confirmStatusMessage("invitation_expired")} />
+        <AuthErrorAlert
+          message={confirmStatusMessage("invitation_expired", "invitation")}
+        />
         <GoToSignInLink />
       </AuthCard>
     )

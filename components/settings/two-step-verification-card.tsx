@@ -240,7 +240,7 @@ export function TwoStepVerificationCard({
           setErrors({ password: "That password is incorrect." })
           return
         }
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "mfa"))
       }
     })
   }
@@ -285,7 +285,7 @@ export function TwoStepVerificationCard({
           })
           return
         }
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "mfa"))
       }
     })
   }

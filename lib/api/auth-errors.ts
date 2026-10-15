@@ -6,6 +6,34 @@ export type AuthMessage = {
   action?: "resend-confirmation" | "request-reset-link"
 }
 
+/**
+ * Where the message appears. Auth pages are pre-session, so the workspace
+ * mode (business or agency) is not known here and the copy stays neutral.
+ */
+export type AuthSurface =
+  | "sign-in"
+  | "create-account"
+  | "forgot-password"
+  | "reset-password"
+  | "invitation"
+  | "mfa"
+
+// The outage codes name the thing the person was trying to do, so the title
+// follows the surface. The explanation is the same everywhere.
+const UNAVAILABLE_TITLE: Record<AuthSurface, string> = {
+  "sign-in": "Sign-in is temporarily unavailable.",
+  "create-account": "Account creation is temporarily unavailable.",
+  "forgot-password": "Password reset is temporarily unavailable.",
+  "reset-password": "Password reset is temporarily unavailable.",
+  invitation: "Accepting invitations is temporarily unavailable.",
+  mfa: "Two-step verification is temporarily unavailable.",
+}
+
+const SURFACE_AWARE_CODES = new Set([
+  "password_auth_disabled",
+  "auth_provider_unavailable",
+])
+
 const GENERIC: AuthMessage = {
   title: "Something went wrong.",
   description: "Try again in a moment.",
@@ -63,7 +91,7 @@ const BY_CODE: Record<string, AuthMessage> = {
   },
   invitation_already_used: {
     title: "This invitation has already been accepted.",
-    description: "Sign in to reach the agency.",
+    description: "Sign in to continue.",
   },
   invitation_changed: {
     title: "This invitation changed while you were looking at it.",
@@ -133,15 +161,32 @@ const BY_CODE: Record<string, AuthMessage> = {
   },
 }
 
-export function authErrorMessage(error: unknown): AuthMessage {
+function messageForCode(
+  code: string,
+  surface: AuthSurface
+): AuthMessage | undefined {
+  const message = BY_CODE[code]
+  if (message && SURFACE_AWARE_CODES.has(code)) {
+    return { ...message, title: UNAVAILABLE_TITLE[surface] }
+  }
+  return message
+}
+
+export function authErrorMessage(
+  error: unknown,
+  surface: AuthSurface
+): AuthMessage {
   if (error instanceof ApiClientError) {
-    return BY_CODE[error.code] ?? GENERIC
+    return messageForCode(error.code, surface) ?? GENERIC
   }
   return GENERIC
 }
 
-export function confirmStatusMessage(status: string): AuthMessage {
-  return BY_CODE[status] ?? BY_CODE.invalid_email_link
+export function confirmStatusMessage(
+  status: string,
+  surface: AuthSurface = "sign-in"
+): AuthMessage {
+  return messageForCode(status, surface) ?? BY_CODE.invalid_email_link
 }
 
 export function fieldErrorsFrom(error: unknown): Record<string, string> {
