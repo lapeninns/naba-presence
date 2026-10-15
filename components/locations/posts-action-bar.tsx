@@ -28,6 +28,11 @@ import {
   OperationReceiptNotice,
   unconfirmedReceiptId,
 } from "@/components/locations/operation-outcome"
+import {
+  postPublishGate,
+  publishOutcome,
+  publishToast,
+} from "@/components/locations/posts/post-publish"
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -51,9 +56,7 @@ import {
   decideApprovalDisabledReason,
   resourceDisabledReason,
 } from "@/lib/locations/gating"
-import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import { useOutcomeToast } from "@/components/ui/toast"
-import { successToastFields, type OutcomeMessage } from "@/lib/editors/outcome"
 import { errorOutcome } from "@/lib/errors/action-errors"
 import { POST_ACTION_LABEL, postImageUrl } from "@/lib/locations/post-display"
 import {
@@ -86,49 +89,7 @@ const SchedulePostSheet = dynamic(
   { ssr: false }
 )
 
-/**
- * The toast for a publish answer. The route's `operation.outcome` says what
- * Google's own state for the post shows (lib/domain/post-outcome.ts): live,
- * still being reviewed, or rejected. Without one the post was only sent.
- */
-export function publishOutcome(result: {
-  status: string
-  operation?: { outcome: OperationOutcome }
-}): OutcomeMessage {
-  // Waiting for an approver: nothing has gone to Google yet.
-  if (result.status === "awaiting_approval")
-    return { outcome: "saved_locally", title: "Post submitted for approval." }
-  const outcome = result.operation?.outcome
-  // A rejected post is on Google and invisible to everyone, so the toast
-  // must not say it was published.
-  if (result.status === "rejected" || outcome === "rejected")
-    return { outcome: "rejected", title: "Google rejected this post." }
-  if (outcome === "confirmed_applied")
-    return { outcome, title: "Post live on Google" }
-  if (outcome === "awaiting_confirmation")
-    return {
-      outcome,
-      title: "Post sent to Google",
-      description: "Google is still reviewing it, so it may not show yet.",
-    }
-  if (outcome === "uncertain") return { outcome }
-  // "published" with no outcome: Google took the post and did not reject
-  // it; it may still be processing, so this is "sent", not "live".
-  return { outcome: "sent", title: "Post sent to Google" }
-}
-
-/**
- * The outcome toast for a publish or an approve-and-publish. Whatever went
- * to Google is a Google write: never Undo (D5). The answer carries no
- * Google link, so none is offered. A request for approval sent nothing to
- * Google, so it stays a plain (local) toast.
- */
-function publishToast(result: Parameters<typeof publishOutcome>[0]) {
-  const fields = successToastFields(publishOutcome(result))
-  return result.status === "awaiting_approval"
-    ? fields
-    : { ...fields, kind: "google" as const }
-}
+export { publishOutcome }
 
 // What the Check Google round-trip found. `reconciliationError` is the only
 // honest answer when Google could not be reached: the post's state is exactly
@@ -262,26 +223,13 @@ export function PostsActionBar({
 
   // Posts publish/approve/delete 503 when PUBLISH_ENABLED is off, so
   // gate every control on writesEnabled; live actions additionally need canPublish.
-  const pausedReason = writesEnabled
-    ? null
-    : "Publishing to Google is currently unavailable."
-  const publishReason =
-    pausedReason ?? resourceDisabledReason(caps, "posts", writesEnabled)
-  // The server routes a non-publisher's publish to `awaiting_approval`
-  // (lib/server/posts.ts), so the same mutation submits for approval — the
-  // reviews inbox does exactly this. Its disabled state must NOT come from
-  // resourceDisabledReason: for precisely these users that resolves to
-  // `publish_not_allowed` (lib/server/capabilities.ts), the gate the approval
-  // flow exists to route around, which is why nothing in the product could
-  // ever reach the approval half of the lifecycle.
-  // A viewer may neither request approval nor edit (requireLocationAction
-  // "request_approval" / "edit"), so the same button stays visible but
-  // disabled with the reason.
-  const offerRequestApproval = caps ? !caps.canPublish : false
+  // A non-publisher's publish is a request for approval (see postPublishGate).
+  const {
+    pausedReason,
+    requestApproval: offerRequestApproval,
+    reason: primaryReason,
+  } = postPublishGate(caps, writesEnabled)
   const editReason = contentEditDisabledReason(caps)
-  const primaryReason = offerRequestApproval
-    ? (pausedReason ?? editReason)
-    : publishReason
   // Approve publishes, so it needs the posts resource to be writable as well
   // as the decide_approval authority; reject is local-only but is the same
   // decision, so it needs that authority too (never mere visibility).
@@ -468,6 +416,8 @@ export function PostsActionBar({
           post={post}
           timezone={timezone}
           openRef={composer.openRef}
+          caps={caps}
+          writesEnabled={writesEnabled}
         />
       ) : null}
       {canSchedule && scheduler.mounted ? (
