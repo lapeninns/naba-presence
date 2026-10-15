@@ -24,7 +24,6 @@ function renderToolbar(
     counts: undefined,
     countsPending: true,
     locations: [],
-    clients: [],
     showLocationFilter: false,
     resultLabel,
     onFilterChange: vi.fn(),

@@ -64,6 +64,37 @@ describe("ActiveFilterChips", () => {
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
 
+  it("draws no chip and no Clear all for the client scope alone", () => {
+    const { container } = render(
+      <ActiveFilterChips
+        state={{
+          ...state,
+          clientId: "c1",
+          locationIds: [],
+          ratings: [],
+          search: "",
+        }}
+        locations={[]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it("draws no client chip beside the filters that are on", () => {
+    render(
+      <ActiveFilterChips
+        state={{ ...state, clientId: "c1" }}
+        locations={[{ id: "loc-1", name: "Riverside" }]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
+    expect(screen.queryByText(/Client/)).not.toBeInTheDocument()
+  })
+
   it("humanizes a multi-value rating chip", () => {
     const { rerender } = render(
       <ActiveFilterChips

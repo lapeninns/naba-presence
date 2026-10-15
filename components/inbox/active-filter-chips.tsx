@@ -23,19 +23,8 @@ export type LocationOption = { id: string; name: string }
 
 type Chip = { key: string; label: string; clear: Partial<InboxState> }
 
-function buildChips(
-  state: InboxState,
-  locations: LocationOption[],
-  clientName?: string
-): Chip[] {
+function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
   const chips: Chip[] = []
-  if (state.clientId) {
-    chips.push({
-      key: "client",
-      label: `${FILTER_NAMES.client}: ${clientName ?? "selected"}`,
-      clear: { clientId: undefined },
-    })
-  }
   if (state.locationIds.length === 1) {
     const name =
       locations.find((location) => location.id === state.locationIds[0])
@@ -128,19 +117,18 @@ function buildChips(
 function ActiveFilterChips({
   state,
   locations,
-  clientName,
   onChange,
   onClear,
 }: {
   state: InboxState
   locations: LocationOption[]
-  /** Resolved by the caller, which already holds the client list. */
-  clientName?: string
   onChange: (partial: Partial<InboxState>) => void
   onClear: () => void
 }) {
-  if (!hasActiveFilters(state)) return null
-  const chips = buildChips(state, locations, clientName)
+  // The client scope lives in the app bar, so it is not a filter here: a
+  // scoped inbox with nothing narrowed shows no chip row and no "Clear all".
+  if (!hasActiveFilters({ ...state, clientId: undefined })) return null
+  const chips = buildChips(state, locations)
   return (
     <FilterChipStrip data-slot="active-filter-chips" className="items-center">
       {chips.map((chip) => (

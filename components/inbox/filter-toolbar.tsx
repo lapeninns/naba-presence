@@ -51,7 +51,6 @@ export function activeFilterCount(state: InboxState): number {
     (state.locationIds.length > 0 ? 1 : 0) +
     (state.assignee ? 1 : 0) +
     (state.age ? 1 : 0) +
-    (state.clientId ? 1 : 0) +
     (state.replyState ? 1 : 0) +
     (state.dateFrom || state.dateTo ? 1 : 0)
   )
@@ -166,7 +165,6 @@ function OwnerSelect({
 function FilterToolbar({
   state,
   locations,
-  clients,
   showLocationFilter,
   onChange,
   onQueueChange,
@@ -178,7 +176,6 @@ function FilterToolbar({
   /** The list's count label, for the sheet's "Show 12 reviews". */
   resultLabel: string
   locations: LocationOption[]
-  clients: { id: string; name: string }[]
   showLocationFilter: boolean
   onChange: (partial: Partial<InboxState>) => void
   onQueueChange: (queue: InboxState["queue"]) => void
@@ -234,7 +231,6 @@ function FilterToolbar({
         resultLabel={resultLabel}
         state={state}
         locations={locations}
-        clients={clients}
         showLocationFilter={showLocationFilter}
         onChange={onChange}
         onClear={onClear}

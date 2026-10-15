@@ -72,7 +72,6 @@ function InboxToolbar({
   counts,
   countsPending,
   locations,
-  clients,
   showLocationFilter,
   actions,
   resultLabel,
@@ -85,7 +84,6 @@ function InboxToolbar({
   counts: ReviewCounts | undefined
   countsPending: boolean
   locations: LocationOption[]
-  clients: { id: string; name: string }[]
   showLocationFilter: boolean
   /** Page actions from the route: shortcuts and sync. */
   actions?: ReactNode
@@ -210,7 +208,6 @@ function InboxToolbar({
             state={state}
             resultLabel={resultLabel}
             locations={locations}
-            clients={clients}
             showLocationFilter={showLocationFilter}
             onChange={onFilterChange}
             onQueueChange={onQueueChange}

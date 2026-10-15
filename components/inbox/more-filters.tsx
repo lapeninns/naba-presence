@@ -108,7 +108,6 @@ function FiltersSheet({
   resultLabel,
   state,
   locations,
-  clients,
   showLocationFilter,
   onChange,
   onClear,
@@ -121,8 +120,6 @@ function FiltersSheet({
   resultLabel: string
   state: InboxState
   locations: LocationOption[]
-  /** The agency's clients, for the scope select. Empty for a single-client org. */
-  clients: { id: string; name: string }[]
   /** False for a single-location org, which has no venue to choose. */
   showLocationFilter: boolean
   onChange: (partial: Partial<InboxState>) => void
@@ -132,16 +129,11 @@ function FiltersSheet({
   /** "Waiting on", inside Approval only. */
   ownerControl?: (id: string) => React.ReactNode
 }) {
-  const clientId = useId()
   const venueId = useId()
   const assigneeId = useId()
   const ageId = useId()
   const ownerId = useId()
   const phone = usePhoneOverlay()
-  const clientItems: Record<string, string> = {
-    "": "All clients",
-    ...Object.fromEntries(clients.map((client) => [client.id, client.name])),
-  }
   const selectedLocation =
     locations.find((location) => location.id === state.locationIds[0]) ?? null
 
@@ -218,33 +210,6 @@ function FiltersSheet({
                   ))}
                 </ComboboxContent>
               </Combobox>
-            </Group>
-          ) : null}
-
-          {clients.length > 1 ? (
-            <Group title={FILTER_NAMES.client}>
-              <Select
-                value={state.clientId ?? ""}
-                items={clientItems}
-                onValueChange={(value: string | null) =>
-                  onChange({ clientId: value ? value : undefined })
-                }
-              >
-                <SelectTrigger
-                  id={clientId}
-                  aria-label="Filter by client"
-                  className="w-full"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent title="Client">
-                  {Object.entries(clientItems).map(([value, label]) => (
-                    <SelectItem key={value || "all"} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </Group>
           ) : null}
 

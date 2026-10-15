@@ -25,7 +25,6 @@ function renderToolbar(
     onQueueChange?: (queue: InboxState["queue"]) => void
     onClear?: () => void
     showLocationFilter?: boolean
-    clients?: { id: string; name: string }[]
     resultLabel?: string
   } = {}
 ) {
@@ -34,7 +33,6 @@ function renderToolbar(
       state={{ ...baseState, ...overrides }}
       resultLabel={handlers.resultLabel ?? "12 reviews"}
       locations={LOCATIONS}
-      clients={handlers.clients ?? []}
       showLocationFilter={handlers.showLocationFilter ?? true}
       onChange={handlers.onChange ?? (() => {})}
       onQueueChange={handlers.onQueueChange ?? (() => {})}
@@ -153,13 +151,20 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
   it("counts each kind of narrowing that is on", () => {
     renderToolbar({
       ratings: [1, 2],
-      clientId: "c1",
+      assignee: "me",
       replyState: "unreplied",
       dateFrom: "2026-07-01T00:00:00.000Z",
     })
     expect(
       screen.getByRole("button", { name: "Filters, 4 active" })
     ).toBeInTheDocument()
+  })
+
+  it("does not count the client scope, which lives in the app bar", () => {
+    renderToolbar({ clientId: "c1" })
+    const button = screen.getByRole("button", { name: /^Filters/ })
+    expect(button).toHaveAccessibleName("Filters")
+    expect(button).not.toHaveAttribute("data-active")
   })
 
   it("draws Filters as a circle whose icon takes the accent ink while any filter is on", () => {
@@ -401,29 +406,14 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     }
   })
 
-  it("scopes by client only for an agency with more than one", async () => {
-    await openPanel()
+  it("has no client select: the scope lives only in the app bar", async () => {
+    await openPanel({ clientId: "c1" })
     expect(
       screen.queryByRole("combobox", { name: "Filter by client" })
     ).not.toBeInTheDocument()
-
-    const onChange = vi.fn()
-    const user = await openPanel(
-      {},
-      {
-        onChange,
-        clients: [
-          { id: "c1", name: "Lapen Inns" },
-          { id: "c2", name: "Harbour Group" },
-        ],
-      }
-    )
-    const scope = screen.getByRole("combobox", { name: "Filter by client" })
-    await user.click(scope)
-    await user.click(
-      await screen.findByRole("option", { name: "Harbour Group" })
-    )
-    expect(onChange).toHaveBeenCalledWith({ clientId: "c2" })
+    expect(
+      screen.queryByRole("heading", { name: "Client" })
+    ).not.toBeInTheDocument()
   })
 
   it("reflects an already-active date range from the URL in the inputs", async () => {
@@ -474,7 +464,6 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
         state={baseState}
         resultLabel="50 reviews so far"
         locations={LOCATIONS}
-        clients={[]}
         showLocationFilter
         onChange={() => {}}
         onQueueChange={() => {}}

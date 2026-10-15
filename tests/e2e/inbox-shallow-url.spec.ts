@@ -84,4 +84,29 @@ test.describe("inbox URL state", () => {
     await page.waitForLoadState("networkidle")
     expect(await rows.count()).toBe(loaded)
   })
+
+  // INB-07 / R05: the client scope belongs to the app bar, so it is neither a
+  // filter chip nor something "Clear all filters" takes away.
+  test("Clear all filters keeps the client scope", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    const [name, value] = state.cookie.split("=", 2)
+    await page.context().addCookies([{ name, value, url: baseURL! }])
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/inbox?queue=all&clientId=${state.clientId}&rating=5`)
+
+    // The rating is a filter chip; the scope is not.
+    const chips = page.locator('[data-slot="active-filter-chips"]')
+    await expect(chips.getByText("Rating: 5 stars")).toBeVisible()
+    await expect(chips.getByText(/^Client:/)).toHaveCount(0)
+
+    await chips.getByRole("button", { name: "Clear all filters" }).click()
+
+    await expect(page).not.toHaveURL(/rating=/)
+    await expect(page).toHaveURL(new RegExp(`clientId=${state.clientId}(&|$)`))
+    // Nothing narrows the list any more, so the chip row is gone.
+    await expect(chips).toHaveCount(0)
+  })
 })
