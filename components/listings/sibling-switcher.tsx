@@ -40,6 +40,7 @@ function SiblingSwitcher({
   role,
   children,
   fallback = null,
+  wrap = false,
   className,
 }: {
   current: DirectoryEntry
@@ -48,6 +49,8 @@ function SiblingSwitcher({
   children?: React.ReactNode
   /** What to render when there is no sibling to switch to. */
   fallback?: React.ReactNode
+  /** Wrap long words onto more lines (a title) instead of truncating. */
+  wrap?: boolean
   className?: string
 }) {
   const pathname = usePathname()
@@ -72,7 +75,14 @@ function SiblingSwitcher({
           className
         )}
       >
-        <span className="min-w-0 truncate">{children ?? current.name}</span>
+        <span
+          className={cn(
+            "min-w-0",
+            wrap ? "text-balance break-words" : "truncate"
+          )}
+        >
+          {children ?? current.name}
+        </span>
         <span className="sr-only">, {purpose}</span>
         <ChevronDownIcon
           aria-hidden

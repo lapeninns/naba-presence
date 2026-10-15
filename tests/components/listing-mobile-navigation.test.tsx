@@ -332,6 +332,31 @@ describe("mobile listing area navigation", () => {
     await userEvent.click(checks[1]!)
     expect(refresh).toHaveBeenCalledTimes(1)
   })
+  it("shows a failed Google check in the header, and drops the line when the editor leaves", () => {
+    const view = render(
+      <GoogleFreshnessSlot>
+        <Header current="hours" />
+        <GoogleFreshness
+          observedAt={new Date().toISOString()}
+          refreshing={false}
+          failed
+          onRefresh={() => {}}
+        />
+      </GoogleFreshnessSlot>
+    )
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Google couldn’t be checked just now. Try again."
+    )
+    view.rerender(
+      <GoogleFreshnessSlot>
+        <Header current="hours" />
+      </GoogleFreshnessSlot>
+    )
+    expect(screen.queryByRole("status")).toBeNull()
+    expect(
+      document.querySelector('[data-slot="listing-area-meta"]')
+    ).not.toHaveTextContent(/Checked with Google/)
+  })
   it("makes the listing's name the switcher on the overview, under the client in plain words", () => {
     render(<Header current="overview" />)
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(

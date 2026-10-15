@@ -591,16 +591,22 @@ function ListingAreaHeader({
                   role={role}
                   className="text-page-title font-semibold"
                   fallback={entry.name}
+                  wrap
                 />
               )}
             </h1>
-            {area && status !== undefined ? (
-              <AreaInfo
-                area={area}
-                pill={pill}
-                freshness={freshness}
-                className={pill ? undefined : "md:hidden"}
-              />
+            {area ? (
+              <>
+                {/* While the summary loads, the info button keeps the note
+                    and "Check Google now" reachable on a phone. */}
+                {status === undefined ? pill : null}
+                <AreaInfo
+                  area={area}
+                  pill={status ?? null}
+                  freshness={freshness}
+                  className={status ? undefined : "md:hidden"}
+                />
+              </>
             ) : (
               pill
             )}
