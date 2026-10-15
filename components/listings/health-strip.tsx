@@ -21,7 +21,8 @@ const ACTION = cn(
  * The listing's two facts the area cards cannot carry: whether Google is
  * reachable, and when anything last went out. Verification and sync are
  * already each area card's own status (and the header pill), so they are
- * not repeated here. Each row's one fix, when it has one, sits under it.
+ * not repeated here, except for a reader who has no Verification card and
+ * no alert (see `showVerification`). Each row's one fix, when it has one, sits under it.
  * Everything is read from the DB-only summary; nothing here asks Google.
  */
 function HealthStrip({
@@ -100,6 +101,15 @@ function HealthStrip({
     connection.reconnectRequired
   const accessLost = summary.freshness?.reason === "listing_access_lost"
   const last = summary.lastPublish
+  // The Verification area card is for owners and admins, and the overview's
+  // "Google hasn't verified" alert is hidden while the connection is broken.
+  // Anyone left without either still gets to read the state, here.
+  const alertHidden = Boolean(
+    connection &&
+    (connection.status !== "active" || connection.reconnectRequired)
+  )
+  const showVerification =
+    linked && !summary.verified && !canManageConsoles && alertHidden
 
   return group(
     <>
@@ -194,6 +204,13 @@ function HealthStrip({
             : "Nothing has been published from here yet"
         }
       />
+      {showVerification ? (
+        <SettingsRow
+          label="Verification"
+          value={<StatusPill tone="attention">Not verified</StatusPill>}
+          description="Some changes won’t show until Google verifies it"
+        />
+      ) : null}
     </>
   )
 }

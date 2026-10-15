@@ -391,7 +391,7 @@ function BoardTable({
   )
 }
 
-function BoardSkeleton() {
+function BoardSkeleton({ canManage = false }: { canManage?: boolean }) {
   const business = useWorkspaceMode() === "business"
   return (
     <div className="flex flex-col gap-4" aria-busy="true">
@@ -440,6 +440,11 @@ function BoardSkeleton() {
           </TableRow>
         ))}
       </BoardTable>
+      {canManage ? (
+        <div>
+          <AddListingsLink />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -588,23 +593,35 @@ function ListingsBoard({
     writeUrl({ order: value })
   }
 
-  if (directory.isPending) return <BoardSkeleton />
+  if (directory.isPending) return <BoardSkeleton canManage={canManage} />
   // A failed background refetch keeps the board it already has.
   if (directory.isError && !directory.data) {
     return (
-      <Empty
-        framed
-        variant="error"
-        titleAs="h2"
-        title="We couldn’t load your listings"
-        description="The listings service didn’t answer, so nothing is shown rather than a partial board. Nothing was changed."
-        action={
-          <Button variant="secondary" onClick={() => void directory.refetch()}>
-            <RefreshCwIcon aria-hidden />
-            Try again
-          </Button>
-        }
-      />
+      <div className="flex flex-col gap-4">
+        <Empty
+          framed
+          variant="error"
+          titleAs="h2"
+          title="We couldn’t load your listings"
+          description="The listings service didn’t answer, so nothing is shown rather than a partial board. Nothing was changed."
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => void directory.refetch()}
+            >
+              <RefreshCwIcon aria-hidden />
+              Try again
+            </Button>
+          }
+        />
+        {/* Setup does not depend on the directory, so owners and admins
+            can still add listings while it is down. */}
+        {canManage ? (
+          <div>
+            <AddListingsLink />
+          </div>
+        ) : null}
+      </div>
     )
   }
 
@@ -965,10 +982,11 @@ function ListingsBoard({
             </FilterChipStrip>
           ) : null}
         </div>
-        {/* The count line, spoken rather than drawn: the strip's live
-            region announces how many listings and how healthy as the board
-            loads or a filter changes. It is drawn only when the check of
-            what is waiting failed, so that is never silent on screen. */}
+        {/* The count line, spoken rather than drawn: a polite live region
+            that announces "Checking each listing…" while the summaries load,
+            then how many listings there are (all of them, not just those a
+            filter leaves) and how healthy. It is drawn only when the check
+            of what is waiting failed, so that is never silent on screen. */}
         <p
           className={
             summaries.isError ? "text-caption text-ink-muted" : "sr-only"

@@ -7,16 +7,14 @@ import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /**
- * The "Add listings from Google" action, at the end of the listings board
- * (owners and admins only; the board decides who sees it).
+ * The "Add listings from Google" action, shown to owners and admins at the
+ * end of the listings board (loading, loaded and error states; the board
+ * decides who sees it).
  *
- * A client module on purpose. Next merges a parent route's client reference
- * manifest into every child route's (`/listings` into `/listings/[id]/*` and
- * `/listings/bulk/*`). When the listings page server component referenced
- * `next/link`, lucide's `Icon` and Base UI's `Button` directly, those shared
- * references resolved to the `/listings` page chunks on every child route, so
- * each listing page downloaded the listings board. Wrapping them here keeps
- * the page's only client references to modules no child route renders.
+ * A client module so the listings page's server component never references
+ * `next/link`, lucide or the button directly: Next merges a parent route's
+ * client reference manifest into every child route's, which once made each
+ * listing page download the board.
  *
  * Prefetched on intent only: /setup is a heavy page.
  */

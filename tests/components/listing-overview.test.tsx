@@ -296,6 +296,48 @@ describe("ListingOverview", () => {
     expect(screen.queryByRole("region", { name: "Health" })).toBeNull()
   })
 
+  it("shows the verification state to a viewer who has no Verification card while disconnected", () => {
+    const disconnected = {
+      connection: {
+        status: "revoked" as const,
+        reconnectRequired: true,
+        googleEmail: "owner@example.com",
+      },
+      verified: false,
+    }
+    stub({ summary: summary(disconnected) })
+    const { unmount } = render(
+      <ListingOverview locationId="l1" role="viewer" />
+    )
+    const google = screen.getByRole("region", { name: "Google" })
+    const rows = within(google).getAllByRole("listitem")
+    expect(rows).toHaveLength(3)
+    expect(rows[2]).toHaveTextContent("Verification")
+    expect(rows[2]).toHaveTextContent("Not verified")
+    unmount()
+
+    // An owner has the Verification card, and a connected listing has the
+    // alert: neither repeats it as a row.
+    stub({ summary: summary(disconnected) })
+    const owner = render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      within(screen.getByRole("region", { name: "Google" })).getAllByRole(
+        "listitem"
+      )
+    ).toHaveLength(2)
+    owner.unmount()
+    stub({ summary: summary({ verified: false }) })
+    render(<ListingOverview locationId="l1" role="viewer" />)
+    expect(
+      within(screen.getByRole("region", { name: "Google" })).getAllByRole(
+        "listitem"
+      )
+    ).toHaveLength(2)
+    expect(
+      screen.getByText("Google hasn’t verified this listing")
+    ).toBeVisible()
+  })
+
   it("offers Reconnect Google on the connection row to owners and admins only", () => {
     stub({
       summary: summary({

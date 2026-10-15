@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseQueryResult } from "@tanstack/react-query"
 import type { ComponentProps } from "react"
@@ -360,7 +360,7 @@ describe("ListingsBoard", () => {
     expect(replace).toHaveBeenCalledTimes(1)
   })
 
-  it("filters with pressed buttons, so arrowing through them never rewrites the URL", async () => {
+  it("folds the order into one menu chip in the health strip, which writes the URL only on a pick", async () => {
     stub({
       entries,
       summaries: entries.map((entry) => summary({ locationId: entry.id })),
@@ -391,6 +391,46 @@ describe("ListingsBoard", () => {
     expect(
       screen.getByRole("button", { name: "Order listings: By client" })
     ).toBeInTheDocument()
+  })
+
+  it("opens the order menu from the keyboard, moves with arrows and writes the URL once on a pick", async () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const user = userEvent.setup()
+    render(<ListingsBoard role="owner" />)
+    const trigger = screen.getByRole("button", {
+      name: "Order listings: Worst first",
+    })
+    trigger.focus()
+    await user.keyboard("{Enter}")
+    const worst = await screen.findByRole("menuitemradio", {
+      name: "Worst first",
+    })
+    const byClient = screen.getByRole("menuitemradio", { name: "By client" })
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+    // Moving through the options never rewrites the address.
+    // The menu opens on the current order.
+    expect(worst).toHaveFocus()
+    await user.keyboard("{ArrowDown}")
+    expect(byClient).toHaveFocus()
+    await user.keyboard("{ArrowUp}")
+    expect(worst).toHaveFocus()
+    await user.keyboard("{ArrowDown}")
+    expect(byClient).toHaveFocus()
+    expect(replace).not.toHaveBeenCalled()
+    await user.keyboard("{Enter}")
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument()
+    )
+    const after = screen.getByRole("button", {
+      name: "Order listings: By client",
+    })
+    await waitFor(() => expect(after).toHaveFocus())
+    expect(replace).toHaveBeenCalledTimes(1)
   })
 
   it("draws no health chip with nothing in it, except All and the one chosen", () => {
@@ -572,6 +612,44 @@ describe("ListingsBoard", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: /Try again/ }))
     expect(refetch).toHaveBeenCalled()
+  })
+
+  it("still offers Add listings from Google to owners and admins while loading or failed, and to no one else", () => {
+    const directory = (state: { isPending: boolean; isError: boolean }) => {
+      vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+        data: undefined,
+        refetch: vi.fn(),
+        ...state,
+      } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+      vi.spyOn(clientsHook, "useClients").mockReturnValue({
+        data: { items: [], unassignedLocationCount: 0 },
+        isPending: false,
+      } as unknown as ReturnType<typeof clientsHook.useClients>)
+      vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
+        data: undefined,
+        isPending: true,
+      } as unknown as UseQueryResult<ListingSummary[]>)
+    }
+    for (const state of [
+      { isPending: true, isError: false },
+      { isPending: false, isError: true },
+    ]) {
+      directory(state)
+      for (const role of ["owner", "admin"]) {
+        const { unmount } = render(<ListingsBoard role={role} />)
+        expect(
+          screen.getByRole("link", { name: "Add listings from Google" })
+        ).toHaveAttribute("href", "/setup")
+        unmount()
+      }
+      for (const role of ["member", "viewer", null]) {
+        const { unmount } = render(<ListingsBoard role={role} />)
+        expect(
+          screen.queryByRole("link", { name: "Add listings from Google" })
+        ).not.toBeInTheDocument()
+        unmount()
+      }
+    }
   })
 
   it("keeps known row problems and stays neutral while summaries are loading", () => {
