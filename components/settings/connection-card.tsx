@@ -481,7 +481,7 @@ export function ConnectionCard({
                       </AvatarFallback>
                     </Avatar>
                     <span className="min-w-0 font-semibold [overflow-wrap:anywhere] text-ink">
-                      {name}
+                      <EmailWithBreak value={name} />
                     </span>
                   </span>
                 </TableCell>
@@ -620,6 +620,23 @@ export function ConnectionCard({
           }
         }}
       />
+    </>
+  )
+}
+
+/**
+ * An address that may wrap before its "@" first ("stub" / "@example.test"),
+ * so a narrow title line beside the status breaks it there rather than
+ * mid-word; a part longer than the line still breaks anywhere.
+ */
+function EmailWithBreak({ value }: { value: string }) {
+  const at = value.indexOf("@")
+  if (at <= 0) return value
+  return (
+    <>
+      {value.slice(0, at)}
+      <wbr />
+      {value.slice(at)}
     </>
   )
 }

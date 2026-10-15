@@ -82,7 +82,16 @@ test.describe("connections OAuth return", () => {
       window.scrollBy(0, element.getBoundingClientRect().bottom - top + 8)
     })
     await expect(barAction).toBeVisible()
-    await expect(header).not.toBeInViewport()
+    // The header button sits under the sticky bar now (still "in the
+    // viewport", but covered): its bottom edge is above the bar's.
+    const covered = await header.evaluate((element) => {
+      const bar = document.querySelector('[data-slot="app-bar"]')
+      return (
+        element.getBoundingClientRect().bottom <=
+        (bar?.getBoundingClientRect().bottom ?? 0)
+      )
+    })
+    expect(covered).toBe(true)
     const box = await barAction.boundingBox()
     expect(box!.width).toBeGreaterThanOrEqual(44)
     expect(box!.height).toBeGreaterThanOrEqual(44)
