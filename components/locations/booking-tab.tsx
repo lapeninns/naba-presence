@@ -754,13 +754,15 @@ function AddLinkForm({
   const uriRef = useRef<HTMLInputElement>(null)
   // A typed link survives a refetch, asks before the page is left, and is
   // offered back after a forced sign-out or an unmount.
+  // A table reservation is the button most listings here want first.
+  const defaultType: PlaceActionType = state.supportedTypes.includes(
+    "DINING_RESERVATION"
+  )
+    ? "DINING_RESERVATION"
+    : ((state.supportedTypes[0] as PlaceActionType) ?? "DINING_RESERVATION")
   const editor = useEditorDraft<NewLink>({
     initial: {
-      // A table reservation is the button most listings here want first.
-      type: state.supportedTypes.includes("DINING_RESERVATION")
-        ? "DINING_RESERVATION"
-        : ((state.supportedTypes[0] as PlaceActionType) ??
-          "DINING_RESERVATION"),
+      type: defaultType,
       uri: "",
       preferred: false,
     },
@@ -773,7 +775,11 @@ function AddLinkForm({
     parseStashed: parseNewLink,
     isEqual: sameNewLink,
   })
-  const { type, uri, preferred } = editor.draft
+  const { uri, preferred } = editor.draft
+  // A draft offered back may carry a type Google no longer supports here.
+  const type = state.supportedTypes.includes(editor.draft.type)
+    ? editor.draft.type
+    : defaultType
   const setType = (next: PlaceActionType) =>
     editor.setDraft((current) => ({ ...current, type: next }))
   const setUri = (next: string) =>

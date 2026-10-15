@@ -15,7 +15,7 @@ import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { placeActionBaselineSchema } from "@/lib/contracts/place-action-observation"
 import { reviewedPlaceActionPayloadSchema } from "@/lib/contracts/place-action-review"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
-import { useDeadline } from "@/lib/editors/use-deadline"
+import { useDeadlineWithin } from "@/lib/editors/use-deadline"
 import type { usePlaceActionReview } from "./use-place-action-review"
 import { PlaceActionApprovalSheet } from "./place-action-approval-sheet"
 /**
@@ -49,9 +49,7 @@ export function placeActionWorkLabel(
 
 /** The approval deadline, but only once it is close (within the hour) or past. */
 function ExpiryNearby({ expiresAt }: { readonly expiresAt: string }) {
-  const soon = useDeadline(
-    new Date(new Date(expiresAt).getTime() - 60 * 60_000).toISOString()
-  )
+  const soon = useDeadlineWithin(expiresAt, 60 * 60_000)
   if (!soon) return null
   return (
     <>

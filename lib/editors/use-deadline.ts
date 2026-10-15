@@ -12,7 +12,9 @@ import { useCallback, useSyncExternalStore } from "react"
  * so nothing renders an armed send button before the client has checked.
  */
 export function useDeadline(deadlineAt: string | null | undefined): boolean {
-  const deadline = deadlineAt ? new Date(deadlineAt).getTime() : Number.POSITIVE_INFINITY
+  const deadline = deadlineAt
+    ? new Date(deadlineAt).getTime()
+    : Number.POSITIVE_INFINITY
   const subscribe = useCallback(
     (notify: () => void) => {
       if (!Number.isFinite(deadline)) return () => {}
@@ -29,4 +31,20 @@ export function useDeadline(deadlineAt: string | null | undefined): boolean {
     () => deadline <= Date.now(),
     () => Number.isFinite(deadline)
   )
+}
+
+/**
+ * Whether a deadline is within `windowMs` of passing, or already past, so a
+ * line about it appears only once it matters. An unreadable deadline is never
+ * close.
+ */
+export function useDeadlineWithin(
+  deadlineAt: string | null | undefined,
+  windowMs: number
+): boolean {
+  const deadline = deadlineAt ? new Date(deadlineAt).getTime() : Number.NaN
+  const opens = Number.isFinite(deadline)
+    ? new Date(deadline - windowMs).toISOString()
+    : null
+  return useDeadline(opens)
 }

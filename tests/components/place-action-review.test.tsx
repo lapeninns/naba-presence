@@ -105,6 +105,31 @@ describe("saved booking link work", () => {
     expect(placeActionWorkLabel(removal)).toEqual({ title: "Remove Shop online link", uri: "https://shop.example.test/old" })
   })
 
+  async function renderSaved(expiresAt: string) {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (url) => String(url).includes("capabilities")
+      ? response({ capabilities: { canEditCanonical: true, canPublish: false } })
+      : response({ items: [{ changeSet: { ...removal, expiresAt }, attemptId: null }], nextCursor: null })))
+    function Saved() { return <SavedPlaceActionWork locationId="fixture" workflow={usePlaceActionReview("fixture")} /> }
+    renderWithProviders(<Saved />)
+    return within(await screen.findByRole("region", { name: "Saved booking link work" }))
+  }
+
+  it("keeps a distant approval deadline out of the list", async () => {
+    const region = await renderSaved(new Date(Date.now() + 7 * 24 * 3_600_000).toISOString())
+    expect(await region.findByText("Approved request")).toBeInTheDocument()
+    expect(region.queryByText(/Approval expires/)).not.toBeInTheDocument()
+  })
+
+  it("says when an approval expires once it is within the hour", async () => {
+    const region = await renderSaved(new Date(Date.now() + 20 * 60_000).toISOString())
+    expect(await region.findByText(/Approval expires/)).toBeInTheDocument()
+  })
+
+  it("tolerates an unreadable approval deadline", async () => {
+    const region = await renderSaved("not a date")
+    expect(await region.findByText("Approved request")).toBeInTheDocument()
+  })
+
   it("titles cards by link, keeps the resource secondary, and says an approval expired in local time", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (url) => String(url).includes("capabilities")
       ? response({ capabilities: { canEditCanonical: true, canPublish: false } })

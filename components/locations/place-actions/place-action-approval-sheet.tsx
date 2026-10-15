@@ -15,7 +15,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { placeActionBaselineSchema } from "@/lib/contracts/place-action-observation"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
-import { useDeadline } from "@/lib/editors/use-deadline"
+import { useDeadline, useDeadlineWithin } from "@/lib/editors/use-deadline"
 
 import type { usePlaceActionReview } from "./use-place-action-review"
 
@@ -39,9 +39,7 @@ export function PlaceActionApprovalSheet({
   const expiresAt = review?.changeSet.expiresAt ?? "1970-01-01T00:00:00Z"
   const expired = useDeadline(expiresAt)
   // The deadline is only worth a line once it is close: within the hour.
-  const expiresSoon = useDeadline(
-    new Date(new Date(expiresAt).getTime() - 60 * 60_000).toISOString()
-  )
+  const expiresSoon = useDeadlineWithin(expiresAt, 60 * 60_000)
   // Consent and the running action reset whenever the sheet, the review,
   // its approval, the workflow revision or the gate changes.
   const token = `${workflow.open}:${review?.changeSet.id}:${review?.changeSet.approvedBy}:${workflow.revision}:${disabled}`
