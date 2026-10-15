@@ -326,6 +326,15 @@ describe("shortBackLabel", () => {
     ).toBe("Settings")
   })
 
+  it("never renames a deeper page after its destination", () => {
+    expect(
+      shortBackLabel({
+        href: "/clients/c1/listings",
+        label: "Journey Hospitality listings",
+      })
+    ).toBe("Journey Hospitality listings")
+  })
+
   it("leaves a long label with nothing shorter to say", () => {
     expect(
       shortBackLabel({ href: "/setup/connect", label: "Connect your account" })

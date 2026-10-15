@@ -320,8 +320,9 @@ export function destinationForPath(
 
 /**
  * A top-level page is a destination's own page: the phone app bar shows the
- * client switcher there. Anything beneath one is a deep page and shows a
- * labelled back control instead.
+ * client switcher there (search and the bell on `scoped: false` pages).
+ * Anything beneath one is a deep page and shows a labelled back control
+ * instead.
  */
 export function isTopLevelPath(pathname: string | null): boolean {
   if (!pathname) return true
@@ -353,8 +354,13 @@ export function shortBackLabel(target: {
   const path = target.href.split(/[?#]/)[0] ?? ""
   const entity = ENTITY_BACK_LABELS.find(({ pattern }) => pattern.test(path))
   if (entity) return entity.label
+  // Only a destination's own page may take the destination's name: a deeper
+  // target keeps its label (the bar truncates it, with `title` in full)
+  // rather than announcing a page it isn't.
   const destination = destinationForPath(path)
-  return destination && destination.label.length < target.label.length
+  return destination &&
+    destination.href === path &&
+    destination.label.length < target.label.length
     ? destination.label
     : target.label
 }

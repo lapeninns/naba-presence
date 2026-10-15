@@ -97,8 +97,9 @@ function ShellBackLink({
 /**
  * The page's h1 text, visible in the bar only once the h1 has scrolled up
  * under it (the large-title pattern). While the h1 is on screen the bar
- * shows no title, so it never repeats the heading right below it; once the
- * heading is gone the bar says where you are, in the h1's own words. A
+ * shows the workspace name instead, so it never repeats the heading right
+ * below it; once the heading is gone the two cross-fade and the bar says
+ * where you are, in the h1's own words. A
  * page's `<PageChrome title>` may shorten them.
  *
  * Read from the DOM rather than pushed by pages: every page already has
