@@ -161,6 +161,54 @@ test.describe("inbox", () => {
       await boxes.first().tap()
       await expect(boxes.first()).toHaveAttribute("aria-checked", "false")
     })
+
+    // R08 (INB-13, INB-16): a pushed review leads with the app bar and then
+    // the review itself. There is no second head band, the name is written
+    // once (as the page's h1), the steps sit on its row, and the text box is
+    // the first control (touch-critical.spec.ts holds its top above half the
+    // screen, on a review with no photo).
+    test("a review opens with no head band, the text box first and its tones inside Generate", async ({
+      baseURL,
+      page,
+    }) => {
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.cookie)
+      await page.goto(`/inbox?selected=${state.directReview.id}`)
+      const detail = page.getByRole("region", { name: "Selected review" })
+      await expect(detail).toBeVisible()
+      await expect(page.locator('[data-slot="review-head"]')).toHaveCount(0)
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1)
+      const name = detail.locator('h1[data-slot="review-heading"]')
+      await expect(name).toBeVisible()
+      const steps = detail.locator('[data-slot="review-steps"]')
+      await expect(
+        steps.getByRole("button", { name: "Previous review" })
+      ).toBeVisible()
+      await expect(
+        steps.getByRole("button", { name: "Next review" })
+      ).toBeVisible()
+      // The steps share the name's row with the ⋯ menu.
+      const nameBox = (await name.boundingBox())!
+      const stepsBox = (await steps.boundingBox())!
+      expect(Math.abs(stepsBox.y - nameBox.y)).toBeLessThan(nameBox.height)
+      // Generate and its tones are one control, under the box.
+      const reply = detail.getByRole("textbox", { name: "Your reply" })
+      await expect(reply).toBeVisible()
+      await expect(
+        detail.getByRole("radiogroup", { name: "Reply tone" })
+      ).toHaveCount(0)
+      await expect(
+        detail.getByRole("button", { name: "Generate reply" })
+      ).toBeVisible()
+      // Guidance waits for text, and its marks are not radio-like circles.
+      await expect(
+        detail.getByRole("list", { name: "Reply guidance" })
+      ).toHaveCount(0)
+      await reply.fill("Thank you for visiting.")
+      const guidance = detail.getByRole("list", { name: "Reply guidance" })
+      await expect(guidance).toBeVisible()
+      await expect(guidance.locator("svg.lucide-circle")).toHaveCount(0)
+    })
   })
 
   test("offers a location filter only when the org has several locations", async ({
@@ -309,5 +357,27 @@ test.describe("inbox", () => {
       .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth))
       .toBeGreaterThan(0)
     expect(cspViolations).toEqual([])
+  })
+
+  // R08 (DSK-22): a thumbnail that will not load (an expired Google CDN link,
+  // here an aborted request) swaps to the tile's placeholder instead of the
+  // browser's broken-image glyph, and the tile still opens.
+  test("a review photo that fails to load shows a placeholder, not a broken image", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.route(`${state.directReview.media.thumbnailUrl}*`, (route) =>
+      route.abort()
+    )
+    await page.goto(`/inbox?selected=${state.directReview.id}`)
+    const tile = page.getByRole("button", {
+      name: `Open ${state.directReview.media.thumbnailLabel}`,
+    })
+    const placeholder = tile.locator('[data-slot="media-unavailable"]')
+    await expect(placeholder).toBeVisible()
+    await expect(placeholder).toHaveAttribute("title", "Photo unavailable")
+    await expect(tile.locator("img")).toHaveCount(0)
   })
 })

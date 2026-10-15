@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
+  CheckIcon,
   CircleAlertIcon,
-  CircleCheckIcon,
-  CircleIcon,
+  ChevronDownIcon,
   InfoIcon,
   PenLineIcon,
   RotateCcwIcon,
@@ -19,11 +19,14 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@/components/ui/segmented-control"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import {
@@ -51,6 +54,7 @@ import {
   describeCreditsLeft,
 } from "@/lib/contracts/ai-credits"
 import { isAiCreditsExhausted } from "@/lib/api/ai-credits"
+import { ApiClientError } from "@/lib/api/client"
 import { useAiCredits } from "@/lib/queries/use-ai-credits"
 import { useGenerateOrSaveDraft } from "@/lib/queries/use-draft-mutations"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
@@ -88,6 +92,15 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
+/**
+ * The 5xx the draft route answers while the workspace has no AI set up.
+ * Permanent until someone sets it up, so, like spent credits, there is
+ * nothing to retry.
+ */
+function isAiNotConfigured(error: unknown): boolean {
+  return error instanceof ApiClientError && error.code === "ai_not_configured"
+}
+
 function ReplyComposer({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
   const review = detail.data?.review
@@ -113,16 +126,20 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const fieldId = useId()
   const [body, setBody] = useState("")
   const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  // A tone chosen over a reply already in the box: Generate then says which
-  // tone the next reply will be written in.
-  const [toneChanged, setToneChanged] = useState(false)
+  // The tone a regenerate over unsaved edits is waiting to be confirmed in;
+  // null while no confirmation is open.
+  const [confirmTone, setConfirmTone] = useState<Tone | null>(null)
   // A failed generation, said where it happened, with the two ways on.
   const [generateError, setGenerateError] = useState<{
     message: string
     tone: Tone
     creditsOut?: boolean
+    unavailable?: boolean
   } | null>(null)
+  // AI is not set up for this workspace: learned from the first answer, and
+  // kept for the review on screen, so Generate stays away rather than
+  // offering the same dead end again.
+  const [aiUnavailable, setAiUnavailable] = useState(false)
   // Verification produced by THIS session's latest save or generate; until
   // then the persisted review.latestVerification stands.
   const [mutationVerification, setMutationVerification] =
@@ -168,7 +185,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     setDiscardedBody(null)
     setMutationVerification(null)
     setVerdictStale(false)
-    setToneChanged(false)
   } else if (
     // A newer draft for the review already on screen: someone else saved
     // one, or an approval request re-parked a different reply. Leaving the
@@ -315,7 +331,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     }
     generateRef.current = () => {
       if (!editableNow || generateOrSave.isPending || !review) return
-      if (creditsExhausted) return
+      if (creditsExhausted || aiUnavailable) return
       if (review.drafts.length > 0 || liveBody !== null || body !== "") return
       void runGenerate(tone)
     }
@@ -341,14 +357,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     setGenerateError(null)
     // A stale balance can still allow the click; the server's 402 is the
     // authority, and the refetch keeps the guard current afterwards.
-    if (creditsExhausted) return
+    if (creditsExhausted || aiUnavailable) return
     try {
       // No body → server runs AI (or rating-only template). Manual only.
       const result = await generateOrSave.mutateAsync({ tone: withTone })
       setBody(result.body)
       setMutationVerification(result.verification)
       setVerdictStale(false)
-      setToneChanged(false)
       const restorable =
         previous.trim() !== "" && previous !== result.body ? previous : null
       toasts.add({
@@ -380,28 +395,30 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         setGenerateError({ message: "", tone: withTone, creditsOut: true })
         return
       }
+      if (isAiNotConfigured(error)) {
+        setAiUnavailable(true)
+        setGenerateError({
+          message: describeActionError(error),
+          tone: withTone,
+          unavailable: true,
+        })
+        return
+      }
       setGenerateError({ message: describeActionError(error), tone: withTone })
     }
   }
 
-  function onGenerateClick() {
+  // The tone is chosen inside Generate: opening its menu is the look at the
+  // options, and picking a tone is the deliberate act that writes (and
+  // spends a credit). Over unsaved edits it first asks, as ever.
+  function onGenerateIn(next: Tone) {
+    if (generateOrSave.isPending) return
+    setTone(next)
     if (isDirty && body.trim() !== "") {
-      setConfirmOpen(true)
+      setConfirmTone(next)
       return
     }
-    void runGenerate()
-  }
-
-  // Choosing a tone only sets the tone; Generate is what writes. A tone
-  // that regenerated the moment it was tapped spent an AI credit, and
-  // replaced the reply in the box, on what is usually a look at the
-  // options (and on a phone, a stray tap). Over a reply already in the box
-  // Generate then reads "Regenerate in <tone>", and goes through the same
-  // discard confirm as ever when there are unsaved edits.
-  function onToneChoose(next: Tone) {
-    if (next === tone || generateOrSave.isPending) return
-    setTone(next)
-    if (body.trim() !== "") setToneChanged(true)
+    void runGenerate(next)
   }
 
   function writeOwn() {
@@ -454,13 +471,15 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       : []
   const showFail = verification?.verdict === "fail"
   const empty = body.trim() === ""
-  const showCredits = Boolean(aiCredits.data) && editable
+  // Credits are for Generate: with no AI to spend them on, they are noise.
+  const showCredits = Boolean(aiCredits.data) && editable && !aiUnavailable
   const reviewerGreeting = greetingName(
     review.reviewerDisplayName,
     review.reviewerIsAnonymous
   )
-  // Advice, ticked off as they type; never a gate — the verification above
-  // is the only check that can stop a publish.
+  // Advice, ticked off as they type, and only once there is something to
+  // tick; never a gate — the verification above is the only check that can
+  // stop a publish.
   const guidance = editable
     ? replyGuidance({
         body,
@@ -500,7 +519,12 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   }
 
   const discardDialog = (
-    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+    <AlertDialog
+      open={confirmTone !== null}
+      onOpenChange={(open) => {
+        if (!open) setConfirmTone(null)
+      }}
+    >
       <AlertDialogContent aria-label="Discard your edits?">
         <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
         <AlertDialogDescription>
@@ -513,8 +537,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           </AlertDialogClose>
           <Button
             onClick={() => {
-              setConfirmOpen(false)
-              void runGenerate(tone)
+              const next = confirmTone ?? tone
+              setConfirmTone(null)
+              void runGenerate(next)
             }}
           >
             Discard and regenerate
@@ -524,27 +549,20 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     </AlertDialog>
   )
 
+  // Said where it happened. Spent credits and a workspace with no AI have
+  // nothing to retry, so only "Write my own" is offered for them.
   const generateErrorNote = generateError ? (
-    <div
-      role="alert"
-      data-slot="generate-error"
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--np-radius-control) bg-danger-tint px-3 py-2 text-caption text-ink"
-    >
-      <CircleAlertIcon
-        aria-hidden
-        strokeWidth={1.75}
-        className="size-4 shrink-0 text-danger-ink"
-      />
-      <span className="min-w-0 flex-1 basis-50">
+    <Alert variant="destructive" data-slot="generate-error">
+      <AlertDescription>
         <strong className="font-semibold">No reply was generated.</strong>{" "}
         {generateError.creditsOut
           ? aiCredits.data && creditsExhausted
             ? describeCreditsLeft(aiCredits.data)
             : "Out of AI credits for this period. You can still write a reply yourself."
           : generateError.message}
-      </span>
-      <span className="flex items-center gap-2">
-        {generateError.creditsOut ? null : (
+      </AlertDescription>
+      <AlertActions>
+        {generateError.creditsOut || generateError.unavailable ? null : (
           <Button
             variant="secondary"
             disabled={generateOrSave.isPending}
@@ -557,55 +575,56 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           <PenLineIcon aria-hidden data-icon="inline-start" />
           Write my own
         </Button>
-      </span>
-    </div>
+      </AlertActions>
+    </Alert>
   ) : null
 
-  // Tone applies to Generate, so it sits beside it, on the bar above the
-  // words: these are the prompt's controls, not part of the text. The
-  // segmented control as a radio group: one tab stop, arrow keys move and
-  // select, and the track scrolls inside itself (focusable, snapping, with an
-  // edge fade) rather than cutting a label when the pane is narrow.
-  const toneControl = (
-    <>
-      <SegmentedControl
-        semantics="radio"
-        aria-label="Reply tone"
-        value={tone}
-        onValueChange={(next) => onToneChoose(next as Tone)}
-        disabled={!editable || generateOrSave.isPending}
-        className="min-w-0 @max-[480px]/detail:flex-[1_1_100%]"
+  // Tone belongs to Generate, so it is chosen inside it: the menu (the
+  // action sheet on a phone) lists the tones, and picking one writes the
+  // reply in it. Each is named by its label and described by its hint.
+  const generateLabel = empty ? "Generate reply" : "Regenerate"
+  const generateControl = aiUnavailable ? (
+    <p
+      data-slot="ai-unavailable"
+      className="m-0 min-w-0 flex-1 text-caption text-ink-muted"
+    >
+      AI replies are not available for this workspace yet. You can still write
+      one yourself.
+    </p>
+  ) : (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="secondary"
+            disabled={!canGenerate}
+            pending={generateOrSave.isPending && !saving}
+            pendingLabel="Writing…"
+          />
+        }
       >
+        <SparklesIcon aria-hidden data-icon="inline-start" />
+        {generateLabel}
+        <ChevronDownIcon aria-hidden data-icon="inline-end" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" title="Write it in a tone">
         {TONES.map((option) => (
-          <SegmentedControlItem
+          <DropdownMenuItem
             key={option.value}
-            value={option.value}
-            // Named by its label, described by its hint: no hover-only title.
-            aria-describedby={`${fieldId}-${option.value}-hint`}
+            className="items-start"
+            onClick={() => onGenerateIn(option.value)}
           >
-            {option.label}
-          </SegmentedControlItem>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span>{option.label}</span>
+              <span className="text-caption font-normal text-ink-muted">
+                {option.hint}
+              </span>
+            </span>
+          </DropdownMenuItem>
         ))}
-      </SegmentedControl>
-      {/* Outside the track, so each radio is named by its label alone and
-          the track holds only its segments. */}
-      {TONES.map((option) => (
-        <span
-          key={option.value}
-          id={`${fieldId}-${option.value}-hint`}
-          className="sr-only"
-        >
-          {option.hint}
-        </span>
-      ))}
-    </>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
-  const toneLabel = TONES.find((option) => option.value === tone)?.label
-  const generateLabel = empty
-    ? "Generate reply"
-    : toneChanged
-      ? `Regenerate in ${toneLabel}`
-      : "Regenerate"
 
   return (
     <div data-slot="reply-composer" className="flex min-w-0 flex-col gap-2">
@@ -626,56 +645,14 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
       {/* The editor surface under the "Reply as …" header row: a quiet
           hairline edge at rest (where the field ends must stay visible),
-          a stronger edge and halo while the words are focused. The
-          insert bar sits over one hairline above the words; the guidance
-          and the length beneath them. */}
+          a stronger edge and halo while the words are focused. The words
+          come first, so on a phone the box is where the eye lands; what
+          acts on them (Generate, the count) and what advises (guidance,
+          credits) sit beneath. */}
       <div
         data-slot="reply-editor"
         className="flex min-w-0 flex-col rounded-(--np-radius-control) border border-transparent transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink motion-reduce:transition-none"
       >
-        {/* The insert bar: plain text in, never rich text. AI rewrite (the
-            tone and Generate) and the count. */}
-        <div
-          data-slot="composer-prompt-bar"
-          className="flex flex-wrap items-center gap-x-1.5 gap-y-2 px-1 py-1"
-        >
-          {toneControl}
-          <span aria-hidden className="flex-1" />
-          <span
-            data-slot="char-count"
-            // Neutral on purpose: Google's limit is in bytes, which the
-            // foot's length note states; a red character count would claim a
-            // limit in a unit it does not show.
-            className="px-1 text-count whitespace-nowrap text-ink-muted tabular-nums"
-          >
-            {body.length.toLocaleString("en-GB")}{" "}
-            {body.length === 1 ? "character" : "characters"}
-          </span>
-          {editable && isDirty && seededBody !== "" ? (
-            <Button
-              variant="ghost"
-              disabled={generateOrSave.isPending}
-              onClick={() => {
-                setBody(seededBody)
-                setVerdictStale(false)
-              }}
-            >
-              <RotateCcwIcon aria-hidden data-icon="inline-start" />
-              Revert
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            disabled={!canGenerate}
-            pending={generateOrSave.isPending && !saving}
-            pendingLabel="Writing…"
-            onClick={onGenerateClick}
-          >
-            <SparklesIcon aria-hidden data-icon="inline-start" />
-            {generateLabel}
-          </Button>
-        </div>
-
         {/* Grows with the reply from six lines, then scrolls inside itself:
             the publish bar and the keyboard below it stay where they are. */}
         <Textarea
@@ -711,15 +688,50 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
               window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
             }
           }}
-          placeholder="Write a reply, or generate one in the chosen tone."
+          placeholder="Write a reply, or generate one."
           className={cn(
             // text-body is 16px on touch, so iOS does not zoom into the box.
-            "rounded-none border-0 bg-transparent px-1 pt-5 pb-4 text-reading shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+            "rounded-none border-0 bg-transparent px-1 pt-3 pb-4 text-reading shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
             generateOrSave.isPending &&
               !saving &&
               "animate-pulse motion-reduce:animate-none"
           )}
         />
+
+        {/* AI rewrite (Generate, with the tone inside it), putting the text
+            back, and the count. */}
+        <div
+          data-slot="composer-prompt-bar"
+          className="flex flex-wrap items-center gap-x-1.5 gap-y-2 border-t border-line-subtle px-1 py-2"
+        >
+          {generateControl}
+          {editable && isDirty && seededBody !== "" ? (
+            <Button
+              variant="ghost"
+              disabled={generateOrSave.isPending}
+              onClick={() => {
+                setBody(seededBody)
+                setVerdictStale(false)
+              }}
+            >
+              <RotateCcwIcon aria-hidden data-icon="inline-start" />
+              Revert
+            </Button>
+          ) : null}
+          <span aria-hidden className="flex-1" />
+          {empty ? null : (
+            <span
+              data-slot="char-count"
+              // Neutral on purpose: Google's limit is in bytes, which the
+              // foot's length note states; a red character count would claim a
+              // limit in a unit it does not show.
+              className="px-1 text-count whitespace-nowrap text-ink-muted tabular-nums"
+            >
+              {body.length.toLocaleString("en-GB")}{" "}
+              {body.length === 1 ? "character" : "characters"}
+            </span>
+          )}
+        </div>
 
         {guidance.length > 0 || nearLimit || overLimit || showCredits ? (
           <div
@@ -727,41 +739,52 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line-subtle px-1 py-3"
           >
             {guidance.length > 0 ? (
-              <ul
-                id={`${fieldId}-guidance`}
-                aria-label="Reply guidance"
-                data-slot="reply-guidance"
-                className="m-0 flex min-w-0 flex-[1_1_auto] list-none flex-wrap items-center gap-x-3.5 gap-y-1 p-0 text-caption"
+              <div
+                data-slot="reply-guidance-block"
+                className="flex min-w-0 flex-[1_1_auto] flex-wrap items-baseline gap-x-3 gap-y-1 text-caption"
               >
-                {guidance.map((item) => (
-                  <li
-                    key={item.id}
-                    data-met={item.met}
-                    className={cn(
-                      "inline-flex items-center gap-1.5",
-                      item.met ? "text-ink" : "text-ink-muted"
-                    )}
-                  >
-                    {item.met ? (
-                      <CircleCheckIcon
-                        aria-hidden
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-success-ink"
-                      />
-                    ) : (
-                      <CircleIcon
-                        aria-hidden
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-ink-faint"
-                      />
-                    )}
-                    {item.label}
-                    <span className="sr-only">
-                      {item.met ? ": done" : ": not yet"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                <span className="font-medium text-ink-secondary">
+                  Good replies
+                </span>
+                <ul
+                  id={`${fieldId}-guidance`}
+                  aria-label="Reply guidance"
+                  data-slot="reply-guidance"
+                  className="m-0 flex min-w-0 list-none flex-wrap items-center gap-x-3.5 gap-y-1 p-0"
+                >
+                  {guidance.map((item) => (
+                    <li
+                      key={item.id}
+                      data-met={item.met}
+                      className={cn(
+                        "inline-flex items-center gap-1.5",
+                        item.met ? "text-ink" : "text-ink-muted"
+                      )}
+                    >
+                      {/* A tick when it holds, a small dot when it does not
+                          yet: neither can read as a control. */}
+                      {item.met ? (
+                        <CheckIcon
+                          aria-hidden
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-success-ink"
+                        />
+                      ) : (
+                        <span
+                          aria-hidden
+                          className="flex size-3.5 shrink-0 items-center justify-center"
+                        >
+                          <span className="size-1 rounded-(--np-radius-pill) bg-ink-faint" />
+                        </span>
+                      )}
+                      {item.label}
+                      <span className="sr-only">
+                        {item.met ? ": done" : ": not yet"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
             {nearLimit || overLimit ? (
               <span
@@ -779,8 +802,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                   : `Nearly at Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`}
               </span>
             ) : null}
-            {/* Under the words rather than on its own row above them: on a
-                phone every row above the box pushes the box down. */}
             {showCredits && aiCredits.data ? (
               <p
                 data-slot="ai-credits"

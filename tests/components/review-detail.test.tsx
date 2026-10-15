@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { UseQueryResult } from "@tanstack/react-query"
-import { createRef, type ReactElement } from "react"
+import type { ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
@@ -882,110 +882,110 @@ describe("ReviewDetail", () => {
   })
 })
 
-// Below lg the review has replaced the list, so its head is the screen's app
-// bar: the way back, whose review it is, where it sits and a step either way.
-describe("ReviewDetail — phone head", () => {
-  function head(
-    overrides: {
-      nav?: Parameters<typeof ReviewDetail>[0]["nav"]
-      onBack?: () => void
-    } = {}
-  ) {
-    return {
-      back: {
-        label: "Inbox",
-        onBack: overrides.onBack ?? vi.fn(),
-        ref: createRef<HTMLButtonElement>(),
-      },
-      nav: overrides.nav,
-    }
-  }
-
-  it("names the reviewer in the h1 and labels the way back", () => {
+// Below lg the review has replaced the list. The way back is the shell's app
+// bar, so the review has no head band of its own: the reviewer's name is the
+// page's h1, with the steps and the ⋯ menu on its row and the position beside
+// the venue.
+describe("ReviewDetail — below lg", () => {
+  it("names the reviewer once, in the h1, with no head band", () => {
     fakeDetail({ isPending: false, isError: false, data: detail })
-    const onBack = vi.fn()
     const { container } = renderPane(
-      <ReviewDetail reviewId="rev-1" {...head({ onBack })} />
+      <ReviewDetail reviewId="rev-1" titleIsHeading />
     )
     expect(
       screen.getByRole("heading", { level: 1, name: "Sam Traveller" })
-    ).toHaveAttribute("data-slot", "review-title")
-    const back = screen.getByRole("button", { name: "Back to Inbox" })
-    expect(back).toHaveTextContent("Inbox")
-    back.click()
-    expect(onBack).toHaveBeenCalledTimes(1)
-    expect(container.querySelector('[data-slot="review-head"]')).not.toBeNull()
-  })
-
-  it("leaves the way back to the app bar when it draws one, keeping the head", () => {
-    fakeDetail({ isPending: false, isError: false, data: detail })
-    const props = head({
-      nav: { position: 2, total: 5, more: false, onPrevious: vi.fn() },
-    })
-    const { container } = renderPane(
-      <ReviewDetail
-        reviewId="rev-1"
-        {...props}
-        back={{ ...props.back, inAppBar: true }}
-      />
-    )
-    // One back control on the screen: the shell's "‹ Inbox", not this one.
+    ).toHaveAttribute("data-slot", "review-heading")
+    expect(screen.getAllByText("Sam Traveller")).toHaveLength(1)
+    expect(container.querySelector('[data-slot="review-head"]')).toBeNull()
     expect(
       screen.queryByRole("button", { name: "Back to Inbox" })
     ).not.toBeInTheDocument()
-    const headRow = container.querySelector<HTMLElement>(
-      '[data-slot="review-head"]'
-    )
-    expect(headRow).not.toBeNull()
-    expect(
-      within(headRow!).getByRole("heading", { level: 1, name: "Sam Traveller" })
-    ).toBeInTheDocument()
-    expect(headRow).toHaveTextContent("2 of 5")
-    expect(
-      within(headRow!).getByRole("button", { name: "Previous review" })
-    ).toBeEnabled()
-    expect(
-      within(headRow!).getByRole("button", { name: "Next review" })
-    ).toBeDisabled()
   })
 
-  it("keeps the same back control from loading to loaded", () => {
+  it("keeps the name an h2 where the list is beside the review", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Sam Traveller" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument()
+  })
+
+  it("puts the steps beside the ⋯ menu on the name's row", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        titleIsHeading
+        nav={{ position: 2, total: 5, more: false, onPrevious: vi.fn() }}
+      />
+    )
+    const name = container.querySelector('[data-slot="review-heading"]')
+    const steps = container.querySelector<HTMLElement>(
+      '[data-slot="review-steps"]'
+    )
+    expect(steps).not.toBeNull()
+    expect(steps!.parentElement).toBe(name!.parentElement)
+    expect(
+      within(steps!).getByRole("button", { name: "Previous review" })
+    ).toBeEnabled()
+    expect(
+      within(steps!).getByRole("button", { name: "Next review" })
+    ).toBeDisabled()
+    expect(
+      within(name!.parentElement as HTMLElement).getByRole("button", {
+        name: "More actions",
+      })
+    ).toBeInTheDocument()
+    expect(
+      container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("Review 2 of 5")
+  })
+
+  it("keeps the same heading from loading to loaded", () => {
     fakeDetail({ isPending: true, isError: false })
-    const props = head()
     const client = new QueryClient()
     const view = render(
       <QueryClientProvider client={client}>
-        <ReviewDetail reviewId="rev-1" heading="Sam T." {...props} />
+        <ReviewDetail reviewId="rev-1" heading="Sam T." titleIsHeading />
       </QueryClientProvider>
     )
-    const before = screen.getByRole("button", { name: "Back to Inbox" })
     expect(
       screen.getByRole("heading", { level: 1, name: "Sam T." })
     ).toBeInTheDocument()
     fakeDetail({ isPending: false, isError: false, data: detail })
     view.rerender(
       <QueryClientProvider client={client}>
-        <ReviewDetail reviewId="rev-1" heading="Sam T." {...props} />
+        <ReviewDetail reviewId="rev-1" heading="Sam T." titleIsHeading />
       </QueryClientProvider>
     )
-    // The same node, so focus placed on it when the review opened survives
-    // the review arriving.
-    expect(screen.getByRole("button", { name: "Back to Inbox" })).toBe(before)
     expect(
       screen.getByRole("heading", { level: 1, name: "Sam Traveller" })
     ).toBeInTheDocument()
+    expect(document.querySelectorAll("h1")).toHaveLength(1)
   })
 
-  it("keeps the way back when the review fails to load", () => {
+  it("still has an h1 while loading a review the list did not name", () => {
+    fakeDetail({ isPending: true, isError: false })
+    renderPane(<ReviewDetail reviewId="rev-1" titleIsHeading />)
+    expect(document.querySelectorAll("h1")).toHaveLength(1)
+  })
+
+  it("keeps an h1 and a retry when the review fails to load", () => {
     fakeDetail({
       isPending: false,
       isError: true,
       error: new Error("boom"),
       refetch: vi.fn(),
     } as Partial<UseQueryResult<ReviewDetailData>>)
-    renderPane(<ReviewDetail reviewId="rev-1" {...head()} />)
+    renderPane(
+      <ReviewDetail reviewId="rev-1" heading="Sam T." titleIsHeading />
+    )
     expect(
-      screen.getByRole("button", { name: "Back to Inbox" })
+      screen.getByRole("heading", { level: 1, name: "Sam T." })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Try again/ })
     ).toBeInTheDocument()
   })
 
@@ -996,9 +996,7 @@ describe("ReviewDetail — phone head", () => {
     const { container } = renderPane(
       <ReviewDetail
         reviewId="rev-1"
-        {...head({
-          nav: { position: 2, total: 7, more: false, onPrevious, onNext },
-        })}
+        nav={{ position: 2, total: 7, more: false, onPrevious, onNext }}
       />
     )
     const position = container.querySelector('[data-slot="review-position"]')
@@ -1014,7 +1012,7 @@ describe("ReviewDetail — phone head", () => {
     const { container } = renderPane(
       <ReviewDetail
         reviewId="rev-1"
-        {...head({ nav: { position: 1, total: 50, more: true } })}
+        nav={{ position: 1, total: 50, more: true }}
       />
     )
     expect(
@@ -1026,10 +1024,43 @@ describe("ReviewDetail — phone head", () => {
     expect(screen.getByRole("button", { name: "Next review" })).toBeDisabled()
   })
 
-  it("draws no head without a back control (the desk)", () => {
+  it("draws no steps or position without a place in the list", () => {
     fakeDetail({ isPending: false, isError: false, data: detail })
-    renderPane(<ReviewDetail reviewId="rev-1" />)
-    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument()
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    expect(container.querySelector('[data-slot="review-steps"]')).toBeNull()
+    expect(container.querySelector('[data-slot="review-position"]')).toBeNull()
+  })
+})
+
+describe("ReviewDetail — photos that will not load", () => {
+  const photos = reviewWith({
+    media: [
+      {
+        id: "m1",
+        thumbnailUrl: "https://lh3.googleusercontent.com/gone.jpg",
+        videoUrl: null,
+        thumbnailLabel: null,
+      },
+    ],
+  })
+
+  it("swaps a failed thumbnail for a placeholder instead of the broken glyph", () => {
+    fakeDetail({ isPending: false, isError: false, data: photos })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const tile = screen.getByRole("button", { name: "Open Review photo" })
+    const image = tile.querySelector("img")
+    expect(image).not.toBeNull()
+    act(() => {
+      image!.dispatchEvent(new Event("error"))
+    })
+    expect(tile.querySelector("img")).toBeNull()
+    const placeholder = container.querySelector(
+      '[data-slot="media-unavailable"]'
+    )
+    expect(placeholder).toHaveAttribute("title", "Photo unavailable")
+    expect(placeholder?.querySelector("svg")).not.toBeNull()
+    // The tile is still there to open.
+    expect(tile).toBeEnabled()
   })
 })
 

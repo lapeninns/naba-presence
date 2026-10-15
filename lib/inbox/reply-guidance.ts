@@ -1,6 +1,8 @@
 /**
  * Advice for the reply as it is being written: a few things a good reply to
- * this review usually does, ticked off live under the editor.
+ * this review usually does, ticked off live under the editor once there is
+ * a reply to tick them against. An empty box has no guidance at all, so
+ * nothing reads as already failed before they have typed a word.
  *
  * It is guidance, not a gate. Nothing here blocks publishing — the server's
  * verification (`LatestVerification`) is the only check that can. Each item
@@ -68,6 +70,7 @@ export function replyGuidance({
   rating: number | null
 }): ReplyGuidanceItem[] {
   const text = body.trim()
+  if (text === "") return []
   const items: ReplyGuidanceItem[] = []
 
   if (reviewerName) {
@@ -87,7 +90,7 @@ export function replyGuidance({
   items.push({
     id: "length",
     label: `Under ${GUIDANCE_MAX_CHARS.toLocaleString("en-GB")} characters`,
-    met: text.length > 0 && text.length <= GUIDANCE_MAX_CHARS,
+    met: text.length <= GUIDANCE_MAX_CHARS,
   })
 
   return items
