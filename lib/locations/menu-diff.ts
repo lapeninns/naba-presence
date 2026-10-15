@@ -56,10 +56,98 @@ function label(node: MenuNode): string {
     : ""
 }
 
+function count(total: number, singular: string, plural: string): string {
+  return `${total} ${total === 1 ? singular : plural}`
+}
+
+function firstDescription(node: MenuNode): string {
+  const first = Array.isArray(node.labels) ? node.labels[0] : undefined
+  return isNode(first) && typeof first.description === "string"
+    ? first.description
+    : ""
+}
+
+function priceOf(value: unknown): string {
+  if (!isNode(value)) return ""
+  return formatMenuPrice({
+    currencyCode:
+      typeof value.currencyCode === "string" ? value.currencyCode : null,
+    units: String(value.units ?? "0"),
+    nanos: typeof value.nanos === "number" ? value.nanos : 0,
+  })
+}
+
+function isPriceShaped(value: MenuNode): boolean {
+  const keys = Object.keys(value)
+  return (
+    keys.length > 0 &&
+    keys.every((key) => ["currencyCode", "units", "nanos"].includes(key)) &&
+    ("units" in value || "nanos" in value)
+  )
+}
+
+/**
+ * A menu, section or item in one line a guest-facing operator can read:
+ * "Lunch — 2 sections · 9 items", "Soup — Fresh soup — £6.00".
+ */
+function describeNode(node: MenuNode): string {
+  const sections = Array.isArray(node.sections) ? node.sections : null
+  const items = Array.isArray(node.items) ? node.items : null
+  const attributes = isNode(node.attributes) ? node.attributes : {}
+  const options = Array.isArray(node.options) ? node.options.length : 0
+  let detail = ""
+  if (sections) {
+    const itemTotal = sections.reduce(
+      (total: number, section) =>
+        total +
+        (isNode(section) && Array.isArray(section.items)
+          ? section.items.length
+          : 0),
+      0
+    )
+    detail = `${count(sections.length, "section", "sections")} · ${count(itemTotal, "item", "items")}`
+  } else if (items) {
+    detail = count(items.length, "item", "items")
+  }
+  return [
+    label(node) || "Unnamed entry",
+    firstDescription(node),
+    detail,
+    priceOf(attributes.price),
+    options > 0 ? count(options, "option", "options") : "",
+  ]
+    .filter(Boolean)
+    .join(" — ")
+}
+
+/** Plain words for any menu value. Never JSON, braces or brackets. */
+function describeValue(value: unknown): string {
+  if (value === undefined || value === null || value === "") return ""
+  if (typeof value === "string") return value
+  if (typeof value === "boolean") return value ? "Yes" : "No"
+  if (typeof value === "number" || typeof value === "bigint")
+    return String(value)
+  if (Array.isArray(value)) {
+    const parts = value.map(describeValue).filter(Boolean)
+    return parts.join(value.some(isNode) ? "; " : ", ")
+  }
+  if (!isNode(value)) return String(value)
+  if (isPriceShaped(value)) return priceOf(value)
+  if ("labels" in value || "sections" in value || "items" in value)
+    return describeNode(value)
+  const parts = Object.entries(value)
+    .map(([key, entry]) => [key, describeValue(entry)] as const)
+    .filter(([, text]) => text !== "")
+    .map(([key, text]) => `${fieldLabel(key)}: ${text}`)
+  return parts.join(", ")
+}
+
 function display(value: unknown, empty: string): string {
   if (value === undefined || value === null || value === "") return empty
   if (Array.isArray(value) && value.length === 0) return empty
-  return typeof value === "string" ? value : (signature(value) ?? empty)
+  // An empty object carries no information, but it is a real change to the
+  // replacement, so say so rather than show nothing.
+  return describeValue(value) || (isNode(value) ? "Empty" : empty)
 }
 
 type NodeOccurrence = {
@@ -136,12 +224,15 @@ function fieldLabel(property: string): string {
     description: "Description",
     currencyCode: "Currency",
     units: "Amount",
-    nanos: "Fractional amount",
+    price: "Price",
+    dietaryRestriction: "Dietary restrictions",
     options: "Options",
     languageCode: "Language",
     order: "Order",
   }
-  return names[property] ?? property.replace(/([a-z])([A-Z])/g, "$1 $2")
+  if (names[property]) return names[property]
+  const words = property.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 function fieldRow(context: ComparisonContext): MenuChangeRow {
@@ -178,6 +269,12 @@ function valueRows(context: ComparisonContext): MenuChangeRow[] {
         before: left[property],
         after: right[property],
       }
+      // A price is one value to a person: "£6.00" to "€7.00", not three rows
+      // for currency, units and nanos.
+      if (property === "price")
+        return signature(child.before) === signature(child.after)
+          ? []
+          : [fieldRow(child)]
       if (property === "sections" || property === "items") {
         const a = left[property]
         const b = right[property]
@@ -217,24 +314,59 @@ function valueRows(context: ComparisonContext): MenuChangeRow[] {
 
 function describeOccurrences(entries: NodeOccurrence[]): string {
   const summaries = entries.map(({ node }, index) => {
-    const first = Array.isArray(node.labels) ? node.labels[0] : undefined
-    const description =
-      isNode(first) && typeof first.description === "string"
-        ? first.description
-        : ""
     const attributes = isNode(node.attributes) ? node.attributes : {}
-    const price = isNode(attributes.price) ? attributes.price : null
-    const amount = price
-      ? formatMenuPrice({
-          currencyCode:
-            typeof price.currencyCode === "string" ? price.currencyCode : null,
-          units: String(price.units ?? "0"),
-          nanos: typeof price.nanos === "number" ? price.nanos : 0,
-        })
-      : ""
+    const description = firstDescription(node)
+    const amount = priceOf(attributes.price)
     return `${index + 1}. ${[label(node) || "Unnamed entry", description, amount].filter(Boolean).join(" — ")}`
   })
   return `${entries.length} ${entries.length === 1 ? "entry" : "entries"}: ${summaries.join("; ")}`
+}
+
+/**
+ * What sits inside a menu or section that is added or removed whole: one row
+ * per section and item, so the person consenting sees every dish and price,
+ * not just a count.
+ */
+function containedRows(
+  node: MenuNode,
+  field: string,
+  key: readonly (string | number)[],
+  side: "added" | "removed"
+): MenuChangeRow[] {
+  const children = (value: unknown) =>
+    Array.isArray(value) ? value.filter(isNode) : []
+  const row = (
+    child: MenuNode,
+    path: readonly number[],
+    parentField: string
+  ): MenuChangeRow[] => {
+    const childField = `${parentField} · ${label(child) || `entry ${(path.at(-1) ?? 0) + 1}`}`
+    const summary = describeNode(child)
+    const own: MenuChangeRow =
+      side === "added"
+        ? {
+            key: JSON.stringify([...key, side, "inside", ...path]),
+            field: childField,
+            before: "Not on Google",
+            after: summary,
+          }
+        : {
+            key: JSON.stringify([...key, side, "inside", ...path]),
+            field: childField,
+            before: summary,
+            after: "Removed from Google",
+          }
+    const inner = [
+      ...children(child.sections),
+      ...children(child.items),
+    ].flatMap((grandchild, index) =>
+      row(grandchild, [...path, index], childField)
+    )
+    return [own, ...inner]
+  }
+  return [...children(node.sections), ...children(node.items)].flatMap(
+    (child, index) => row(child, [index], field)
+  )
 }
 
 function collectionRows(
@@ -285,6 +417,14 @@ function collectionRows(
         before: display(entry.node, "Not set"),
         after: "Removed from Google",
       })
+      rows.push(
+        ...containedRows(
+          entry.node,
+          `${field} · ${label(entry.node) || `entry ${entry.index + 1}`}`,
+          [...key, entry.index],
+          "removed"
+        )
+      )
     }
     for (const entry of matches.after) {
       rows.push({
@@ -294,6 +434,14 @@ function collectionRows(
         before: "Not on Google",
         after: display(entry.node, "Removed"),
       })
+      rows.push(
+        ...containedRows(
+          entry.node,
+          `${field} · ${label(entry.node) || `entry ${entry.index + 1}`}`,
+          [...key, entry.index],
+          "added"
+        )
+      )
     }
   }
   return rows
