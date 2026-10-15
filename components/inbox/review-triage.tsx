@@ -32,6 +32,9 @@ import { useMembers } from "@/lib/queries/use-members"
  * where the reviews come from; what happens to them is said here once.
  */
 
+const reviewCount = (input: BulkReviewActionInput) =>
+  input.action === "approve" ? input.approvals.length : input.reviewIds.length
+
 /**
  * Runs a bulk action and says how it went. Resolves with the per-row
  * result, or `null` when the batch did not run at all (the error toast has
@@ -55,7 +58,10 @@ export function useReviewTriage() {
       return result
     } catch (error) {
       toast.add({
-        title: "That batch did not run",
+        title:
+          reviewCount(input) === 1
+            ? "That review was not updated"
+            : "That batch did not run",
         description: describeErrorCode(error),
         type: "error",
       })
@@ -139,16 +145,27 @@ export function NoReplyNeededDialog({
   onOpenChange,
   pending,
   onConfirm,
+  onOpenChangeComplete,
+  finalFocus,
 }: {
   count: number
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** After the exit animation: a surface that mounts it only while needed unmounts here. */
+  onOpenChangeComplete?: (open: boolean) => void
+  /** Where focus returns on close; the opener's button, as the other overlays do. */
+  finalFocus?: React.ComponentProps<typeof AlertDialogContent>["finalFocus"]
   pending: boolean
   onConfirm: () => void
 }) {
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      onOpenChangeComplete={onOpenChangeComplete}
+    >
       <AlertDialogContent
+        finalFocus={finalFocus}
         aria-label={`Mark ${count} ${plural(count)} as no reply needed?`}
       >
         <AlertDialogTitle>

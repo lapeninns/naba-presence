@@ -153,6 +153,25 @@ function ReviewList({
   const containerRef = useRef<HTMLUListElement>(null)
   // The row whose "No reply needed" is waiting on its confirmation.
   const [noReplyFor, setNoReplyFor] = useState<ReviewRow | null>(null)
+  // Closing is separate from unmounting: the dialog stays mounted until its
+  // exit animation has finished (`onOpenChangeComplete`).
+  const [noReplyOpen, setNoReplyOpen] = useState(false)
+
+  // Where focus goes back to when the row's confirmation closes: that row's
+  // "⋯" button, or nothing (the default) once the row has left the list.
+  function rowActionsTrigger(id: string) {
+    const index = reviews.findIndex((review) => review.id === id)
+    const row = containerRef.current?.querySelectorAll<HTMLElement>(
+      '[data-slot="review-row"]'
+    )[index]
+    return (
+      row
+        ?.closest<HTMLElement>('[data-slot="list-row-swipe"]')
+        ?.querySelector<HTMLElement>(
+          '[data-slot="list-row-actions-trigger"]'
+        ) ?? null
+    )
+  }
 
   function focusRow(index: number) {
     const buttons = containerRef.current?.querySelectorAll<HTMLButtonElement>(
@@ -351,15 +370,19 @@ function ReviewList({
                       {
                         label: "No reply needed",
                         icon: <CircleSlashIcon aria-hidden />,
-                        onAction: () => setNoReplyFor(review),
+                        onAction: () => {
+                          setNoReplyFor(review)
+                          setNoReplyOpen(true)
+                        },
                       },
                     ]
                   : undefined
               }
-              // Not named after the reviewer: the row's own button is, and a
-              // second button with the same name would be two matches for
-              // anyone finding the row by it.
-              actionsLabel="Actions for this review"
+              // Named per row, so a screen reader's list of buttons does not
+              // repeat one name. It starts "Actions for", unlike the row's own
+              // button, so the two never match the same lookup. It stays a tab
+              // stop: the keyboard has no other way to this menu.
+              actionsLabel={`Actions for ${displayName}`}
               emphasis={needsReply ? "unread" : "read"}
               unreadLabel={pillSpokenByTitle ? status.text : "Needs reply"}
               // The non-colour half of the selection cue beside the fill
@@ -552,7 +575,10 @@ function ReviewList({
       {noReplyFor ? (
         <RowNoReplyNeeded
           review={noReplyFor}
-          onClose={() => setNoReplyFor(null)}
+          open={noReplyOpen}
+          onOpenChange={setNoReplyOpen}
+          onClosed={() => setNoReplyFor(null)}
+          finalFocus={() => rowActionsTrigger(noReplyFor.id)}
         />
       ) : null}
       {onReachEnd ? (
@@ -577,19 +603,28 @@ function ReviewList({
  */
 function RowNoReplyNeeded({
   review,
-  onClose,
+  open,
+  onOpenChange,
+  onClosed,
+  finalFocus,
 }: {
   review: ReviewRow
-  onClose: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** The exit animation has finished: safe to unmount. */
+  onClosed: () => void
+  finalFocus: () => HTMLElement | null
 }) {
   const triage = useReviewTriage()
   return (
     <NoReplyNeededDialog
       count={1}
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose()
+      open={open}
+      onOpenChange={onOpenChange}
+      onOpenChangeComplete={(isOpen) => {
+        if (!isOpen) onClosed()
       }}
+      finalFocus={finalFocus}
       pending={triage.isPending}
       onConfirm={() => void triage.run(markNoReplyNeeded([review.id]))}
     />

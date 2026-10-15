@@ -685,7 +685,7 @@ test.describe("touch: critical journeys at 390x844", () => {
         })
       ).toBeVisible()
 
-      await tap(list.getByRole("button", { name: "Actions for this review" }))
+      await tap(list.getByRole("button", { name: /^Actions for / }))
       await tap(page.getByRole("menuitem", { name: "No reply needed" }))
       const confirm = page.getByRole("alertdialog", {
         name: "Mark 1 review as no reply needed?",

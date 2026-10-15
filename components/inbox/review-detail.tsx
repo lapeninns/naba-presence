@@ -388,6 +388,7 @@ function ReviewMenu({ review }: { review: Review }) {
         count={1}
         open={confirmReviewed}
         onOpenChange={setConfirmReviewed}
+        finalFocus={moreRef}
         pending={triage.isPending}
         onConfirm={() => void triage.run(markNoReplyNeeded([review.id]))}
       />

@@ -141,6 +141,8 @@ function BulkActionBar({
     action: "approve" | "assign" | "mark_reviewed",
     assigneeId?: string | null
   ) => {
+    // Never send an empty batch (a stale tick, a list that moved on).
+    if (chosen.length === 0) return
     const ids = chosen.map((row) => row.id)
     const input: BulkReviewActionInput | null =
       action === "approve"

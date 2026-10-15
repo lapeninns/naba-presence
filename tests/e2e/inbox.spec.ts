@@ -205,7 +205,7 @@ test.describe("inbox", () => {
       const count = await rows.count()
 
       await page
-        .getByRole("button", { name: "Actions for this review" })
+        .getByRole("button", { name: /^Actions for / })
         .first()
         .click()
       await page.getByRole("menuitem", { name: "No reply needed" }).click()
@@ -226,7 +226,7 @@ test.describe("inbox", () => {
         page.locator('[data-slot="review-row"]').first()
       ).toBeVisible()
       await expect(
-        page.getByRole("button", { name: "Actions for this review" })
+        page.getByRole("button", { name: /^Actions for / })
       ).toHaveCount(0)
 
       await page.locator('[data-slot="review-row"]').first().click()

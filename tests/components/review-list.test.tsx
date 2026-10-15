@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -106,7 +106,7 @@ describe("ReviewList", () => {
       />
     )
 
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     expect(button).toHaveTextContent("Sam Traveller")
     // Client first: "Riverside" alone does not say whose voice to reply in.
     expect(button).toHaveTextContent("Old Crown Group · Riverside")
@@ -135,7 +135,7 @@ describe("ReviewList", () => {
       />
     )
     const name =
-      screen.getByRole("button", { name: /Sam Traveller/ }).textContent ?? ""
+      screen.getByRole("button", { name: /^Sam Traveller/ }).textContent ?? ""
     expect(name).toContain("Sam Traveller")
     expect(name).toContain("Great stay, would return.")
   })
@@ -652,7 +652,7 @@ describe("ReviewList", () => {
       stubPointer(true, false)
       const user = userEvent.setup()
       const { toggle, onSelect } = renderSelectable(true)
-      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      await user.click(screen.getByRole("button", { name: /^Sam Traveller/ }))
       expect(toggle).toHaveBeenCalledWith("a")
       expect(onSelect).not.toHaveBeenCalled()
     })
@@ -696,7 +696,7 @@ describe("ReviewList", () => {
       stubPointer(false, true)
       const user = userEvent.setup()
       const { toggle, onSelect } = renderSelectable(true)
-      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      await user.click(screen.getByRole("button", { name: /^Sam Traveller/ }))
       expect(onSelect).toHaveBeenCalledWith("a")
       expect(toggle).not.toHaveBeenCalled()
     })
@@ -713,7 +713,7 @@ describe("ReviewList", () => {
         document.querySelector('[data-slot="list-row-control"]')
       ).toBeNull()
       expect(document.querySelector("[data-reviewer-avatar]")).not.toBeNull()
-      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      await user.click(screen.getByRole("button", { name: /^Sam Traveller/ }))
       expect(onSelect).toHaveBeenCalledWith("a")
       expect(toggle).not.toHaveBeenCalled()
     })
@@ -762,7 +762,7 @@ describe("ReviewList — triage from the row", () => {
     const user = userEvent.setup()
     renderRows()
     const buttons = screen.getAllByRole("button", {
-      name: "Actions for this review",
+      name: /^Actions for /,
     })
     expect(buttons).toHaveLength(2)
 
@@ -782,6 +782,21 @@ describe("ReviewList — triage from the row", () => {
       action: "mark_reviewed",
       reviewIds: ["b"],
     })
+  })
+
+  it("names each row's ⋯ after its reviewer and returns focus to it after Cancel", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    const [first] = screen.getAllByRole("button", { name: /^Actions for / })
+    expect(first).toHaveAccessibleName(/^Actions for \S/)
+    expect(first).not.toHaveAccessibleName("Actions for this review")
+
+    await user.click(first)
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(first).toHaveFocus())
   })
 
   it("reaches the same action by a left swipe, and still asks first", async () => {
@@ -822,7 +837,7 @@ describe("ReviewList — triage from the row", () => {
     const user = userEvent.setup()
     renderRows()
     await user.click(
-      screen.getAllByRole("button", { name: "Actions for this review" })[0]
+      screen.getAllByRole("button", { name: /^Actions for / })[0]
     )
     await user.click(
       await screen.findByRole("menuitem", { name: "No reply needed" })
@@ -835,7 +850,7 @@ describe("ReviewList — triage from the row", () => {
   it("offers a viewer no row actions", () => {
     renderRows(false, false)
     expect(
-      screen.queryByRole("button", { name: "Actions for this review" })
+      screen.queryByRole("button", { name: /^Actions for / })
     ).not.toBeInTheDocument()
     expect(
       document.querySelector('[data-slot="list-row-swipe"]')
@@ -845,7 +860,7 @@ describe("ReviewList — triage from the row", () => {
   it("leaves the rows to tapping while select mode is ticking them", () => {
     renderRows(true)
     expect(
-      screen.queryByRole("button", { name: "Actions for this review" })
+      screen.queryByRole("button", { name: /^Actions for / })
     ).not.toBeInTheDocument()
   })
 })
@@ -884,7 +899,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const fresh = screen.getByRole("button", { name: /Sam Traveller/ })
+    const fresh = screen.getByRole("button", { name: /^Sam Traveller/ })
     const handled = screen.getByRole("button", { name: /Ben Handled/ })
 
     expect(nameOf(fresh, "Sam Traveller")).toHaveClass(
@@ -933,7 +948,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     // In the Needs reply queue the pill would repeat the tab, so it is
     // dropped, and the dot is not words: a sr-only word carries it.
     expect(button.querySelector('[data-slot="reply-status"]')).toBeNull()
@@ -975,7 +990,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     const venue = button.querySelector('[data-slot="review-row-venue"]')!
     const pill = button.querySelector('[data-slot="reply-status"]')!
     // The venue is the row's subtitle and the pill rides its line, last and
@@ -1035,7 +1050,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     const avatar = button.querySelector("[data-reviewer-avatar]")!
     expect(avatar).not.toHaveAttribute("data-avatar-tone")
     // The ListRow leading column's size (`--np-avatar-list`).
@@ -1094,7 +1109,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = () => screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = () => screen.getByRole("button", { name: /^Sam Traveller/ })
     const avatar = () =>
       button().querySelector<HTMLElement>("[data-reviewer-avatar]")
     const select = () =>
