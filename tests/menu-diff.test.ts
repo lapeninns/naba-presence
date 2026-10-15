@@ -290,28 +290,32 @@ describe("readable rows at consent", () => {
     },
   }
 
-  it("shows an added menu as one row with its name and counts", () => {
+  it("shows an added menu with its counts, then every section and dish", () => {
     const rows = menuChangeRows({
       google: [],
       draft: [whole("Lunch", [section("Mains", [priced, item()])])],
     })
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      before: "Not on Google",
-      after: "Lunch — 1 section · 2 items",
-    })
+    expect(rows.map((row) => row.after)).toEqual([
+      "Lunch — 1 section · 2 items",
+      "Mains — 2 items",
+      "Burger — Beef, cheese — £16.50",
+      "Soup — Fresh soup — £6.00",
+    ])
+    expect(rows.every((row) => row.before === "Not on Google")).toBe(true)
+    expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length)
     expectNoJson(rows)
   })
-  it("shows a removed menu in words", () => {
+  it("shows a removed menu and everything in it in words", () => {
     const rows = menuChangeRows({
       google: [whole("Lunch", [section("Mains", [priced])])],
       draft: [],
     })
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      before: "Lunch — 1 section · 1 item",
-      after: "Removed from Google",
-    })
+    expect(rows.map((row) => row.before)).toEqual([
+      "Lunch — 1 section · 1 item",
+      "Mains — 1 item",
+      "Burger — Beef, cheese — £16.50",
+    ])
+    expect(rows.every((row) => row.after === "Removed from Google")).toBe(true)
     expectNoJson(rows)
   })
   it("shows an added item with its description and £16.50 price", () => {
@@ -323,13 +327,16 @@ describe("readable rows at consent", () => {
     expect(rows[0]?.after).toBe("Burger — Beef, cheese — £16.50")
     expectNoJson(rows)
   })
-  it("shows a removed section in words", () => {
+  it("shows a removed section and its dishes in words", () => {
     const rows = menuChangeRows({
       google: [whole("Menu", [section("Mains", [priced, item()])])],
       draft: [whole("Menu", [])],
     })
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.before).toBe("Mains — 2 items")
+    expect(rows.map((row) => row.before)).toEqual([
+      "Mains — 2 items",
+      "Burger — Beef, cheese — £16.50",
+      "Soup — Fresh soup — £6.00",
+    ])
     expectNoJson(rows)
   })
   it("shows a changed price as pounds, not currency, units and nanos", () => {

@@ -322,6 +322,53 @@ function describeOccurrences(entries: NodeOccurrence[]): string {
   return `${entries.length} ${entries.length === 1 ? "entry" : "entries"}: ${summaries.join("; ")}`
 }
 
+/**
+ * What sits inside a menu or section that is added or removed whole: one row
+ * per section and item, so the person consenting sees every dish and price,
+ * not just a count.
+ */
+function containedRows(
+  node: MenuNode,
+  field: string,
+  key: readonly (string | number)[],
+  side: "added" | "removed"
+): MenuChangeRow[] {
+  const children = (value: unknown) =>
+    Array.isArray(value) ? value.filter(isNode) : []
+  const row = (
+    child: MenuNode,
+    path: readonly number[],
+    parentField: string
+  ): MenuChangeRow[] => {
+    const childField = `${parentField} · ${label(child) || `entry ${(path.at(-1) ?? 0) + 1}`}`
+    const summary = describeNode(child)
+    const own: MenuChangeRow =
+      side === "added"
+        ? {
+            key: JSON.stringify([...key, side, "inside", ...path]),
+            field: childField,
+            before: "Not on Google",
+            after: summary,
+          }
+        : {
+            key: JSON.stringify([...key, side, "inside", ...path]),
+            field: childField,
+            before: summary,
+            after: "Removed from Google",
+          }
+    const inner = [
+      ...children(child.sections),
+      ...children(child.items),
+    ].flatMap((grandchild, index) =>
+      row(grandchild, [...path, index], childField)
+    )
+    return [own, ...inner]
+  }
+  return [...children(node.sections), ...children(node.items)].flatMap(
+    (child, index) => row(child, [index], field)
+  )
+}
+
 function collectionRows(
   context: ComparisonContext & {
     readonly before: MenuNode[]
@@ -370,6 +417,14 @@ function collectionRows(
         before: display(entry.node, "Not set"),
         after: "Removed from Google",
       })
+      rows.push(
+        ...containedRows(
+          entry.node,
+          `${field} · ${label(entry.node) || `entry ${entry.index + 1}`}`,
+          [...key, entry.index],
+          "removed"
+        )
+      )
     }
     for (const entry of matches.after) {
       rows.push({
@@ -379,6 +434,14 @@ function collectionRows(
         before: "Not on Google",
         after: display(entry.node, "Removed"),
       })
+      rows.push(
+        ...containedRows(
+          entry.node,
+          `${field} · ${label(entry.node) || `entry ${entry.index + 1}`}`,
+          [...key, entry.index],
+          "added"
+        )
+      )
     }
   }
   return rows
