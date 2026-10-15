@@ -56,6 +56,25 @@ function makeMenus(overrides: Partial<FoodMenusState> = {}): FoodMenusState {
   }
 }
 
+/** The default menu with extra empty sections, enough to earn the find tools. */
+function makeLongMenus(): FoodMenusState {
+  const base = makeMenus()
+  const menu = base.canonicalMenus[0] as { sections: unknown[] }
+  return {
+    ...base,
+    canonicalMenus: [
+      {
+        ...menu,
+        sections: [
+          ...menu.sections,
+          { labels: [{ displayName: "Mains" }], items: [] },
+          { labels: [{ displayName: "Desserts" }], items: [] },
+        ],
+      },
+    ],
+  }
+}
+
 function renderTab() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -315,10 +334,84 @@ describe("menu draft preservation across revisions", () => {
       screen.getByRole("button", { name: "Edit Soup", hidden: true })
     ).toHaveAccessibleDescription("£7")
   })
+  it("keeps the find tools off a short menu", () => {
+    useMenuMock.mockReturnValue({
+      data: makeMenus(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    expect(screen.queryByRole("searchbox", { name: "Search menu" })).toBeNull()
+    expect(screen.queryByText(/items shown/)).toBeNull()
+  })
+  it("offers the find tools once a single section holds more than twelve items", () => {
+    const base = makeMenus()
+    const menu = base.canonicalMenus[0] as {
+      sections: { items: unknown[] }[]
+    }
+    const item = menu.sections[0]!.items[0]
+    useMenuMock.mockReturnValue({
+      data: {
+        ...base,
+        canonicalMenus: [
+          {
+            ...menu,
+            sections: [
+              {
+                ...menu.sections[0],
+                items: Array.from({ length: 13 }, (_, index) => ({
+                  ...(item as object),
+                  labels: [{ displayName: `Dish ${index + 1}` }],
+                })),
+              },
+            ],
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    expect(
+      screen.getByRole("searchbox", { name: "Search menu" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("13 of 13 items shown · 1 section total")
+    ).toBeInTheDocument()
+  })
+  it("offers the find tools once the menu has three sections", () => {
+    useMenuMock.mockReturnValue({
+      data: makeLongMenus(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    expect(
+      screen.getByRole("searchbox", { name: "Search menu" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("1 of 1 item shown · 3 sections total")
+    ).toBeInTheDocument()
+  })
   it("keeps typing focus after review and focuses errors only on another attempt", async () => {
     const user = userEvent.setup()
     useMenuMock.mockReturnValue({
-      data: makeMenus(),
+      data: makeLongMenus(),
       isPending: false,
       isError: false,
       error: null,

@@ -90,7 +90,7 @@ describe("NotificationPreferences error state", () => {
 })
 
 // RC3 #8: the email truncates with its full value kept; the date is sans.
-describe("MembersTable phone row", () => {
+describe("MembersTable narrow table row", () => {
   it("keeps the full email in a title and sets the joined date in sans", () => {
     const email = "harness-1b5bdf13@nabapresence.test"
     const member: Member = {

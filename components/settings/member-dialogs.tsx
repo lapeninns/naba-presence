@@ -1,5 +1,6 @@
 "use client"
 
+import type * as React from "react"
 import { useState } from "react"
 
 import { firstName } from "@/components/settings/access-scope-form"
@@ -122,6 +123,7 @@ export function ChangeRoleDialog({
   error,
   onOpenChange,
   onConfirm,
+  finalFocus,
 }: {
   open: boolean
   /** Kept after close so the popup does not empty while it animates out. */
@@ -131,6 +133,11 @@ export function ChangeRoleDialog({
   error: string | null
   onOpenChange: (open: boolean) => void
   onConfirm: (role: MemberRole) => void
+  /**
+   * Where focus goes when it closes; by default, back to what opened it.
+   * Pass it when the opener is gone (a member sheet that handed over).
+   */
+  finalFocus?: React.RefObject<HTMLElement | null>
 }) {
   // A role picked but not saved: an accidental dismissal asks first.
   // Cleared whenever the dialog closes, however it closed (a saved change
@@ -151,7 +158,10 @@ export function ChangeRoleDialog({
           "The new role hasn’t been saved. Their role stays as it was.",
       }}
     >
-      <DialogContent className="grid-cols-[minmax(0,1fr)]">
+      <DialogContent
+        className="grid-cols-[minmax(0,1fr)]"
+        finalFocus={finalFocus}
+      >
         {member ? (
           <ChangeRoleBody
             key={member.userId}

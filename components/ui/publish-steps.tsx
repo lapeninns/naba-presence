@@ -1,6 +1,7 @@
 import { CircleDashed, Minus } from "lucide-react"
 import * as React from "react"
 
+import { SupportDetails } from "@/components/editors/support-details"
 import { OUTCOME_VISUAL } from "@/components/ui/operation-outcome"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
 import {
@@ -22,7 +23,8 @@ import { cn } from "@/lib/utils"
  *   words: `saved_locally` "Saved here", `sent` "Sent to Google" (never
  *   shown as success), `awaiting_confirmation`, `confirmed_applied` "Live on
  *   Google" (only with readback or verification evidence), `rejected`,
- *   `failed` (with the provider's error code) and `uncertain`.
+ *   `failed` and `uncertain`. A failed step's error code is folded behind
+ *   "Details for support", not shown beside the state.
  *
  * The component renders exactly the states the CALLER gives it. Only pass
  * `sent` or later when the app holds operation or verification evidence for
@@ -45,7 +47,7 @@ export type PublishStep = {
   state: PublishStepState
   /** One line of context: when, or why it failed, in words. */
   detail?: React.ReactNode
-  /** A safe, copyable error code for a failed step. */
+  /** A safe, copyable error code for a failed step, shown under "Details for support". */
   errorCode?: string
   /** The retry slot, e.g. a small secondary "Retry" button. */
   action?: React.ReactNode
@@ -137,11 +139,7 @@ function PublishSteps({
                   {step.detail}
                 </span>
               ) : null}
-              {step.errorCode ? (
-                <code className="inline-block w-fit max-w-full rounded-(--np-radius-tag) border border-line bg-surface-alt px-1.5 font-mono text-caption break-all text-ink-secondary">
-                  {step.errorCode}
-                </code>
-              ) : null}
+              <SupportDetails items={[step.errorCode]} />
             </div>
             {step.action ? (
               <div className="col-start-2 flex gap-2 sm:col-start-3 sm:row-start-1">
