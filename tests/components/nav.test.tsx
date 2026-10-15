@@ -113,6 +113,8 @@ describe("primary navigation", () => {
     expect(screen.queryByRole("button", { name: "More" })).toBeNull()
     const group = screen.getByRole("list", { name: "Workspace" })
     expect(screen.getByText("Workspace")).toHaveClass("max-wide:hidden")
+    // Named by the visible label, which is not also read as content.
+    expect(screen.getByText("Workspace")).toHaveAttribute("aria-hidden")
     for (const [label, href] of [
       ["Team", "/team"],
       ["Settings", "/settings"],

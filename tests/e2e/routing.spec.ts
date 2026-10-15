@@ -228,7 +228,9 @@ test("sidebar links update browser history", async ({ page }) => {
   // Settings is always listed, under the sidebar's "Workspace" label: no
   // disclosure to open first.
   await expect(primaryNav.getByRole("button", { name: "More" })).toHaveCount(0)
-  await expect(primaryNav.getByRole("list", { name: "Workspace" })).toBeVisible()
+  await expect(
+    primaryNav.getByRole("list", { name: "Workspace" })
+  ).toBeVisible()
   await primaryNav.getByRole("link", { name: "Settings", exact: true }).click()
   await expect(page).toHaveURL("/settings")
   // One row is the current page, and the trail names the tab the desk shows.

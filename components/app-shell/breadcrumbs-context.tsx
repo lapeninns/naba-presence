@@ -86,8 +86,13 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
   const { count, countLabel } = usePageChromeOverride()
   const shownCount = count && count > 0 ? count : undefined
 
-  // A one-crumb trail only repeats the h1 beneath it ("Inbox" over "Inbox").
-  if (crumbs.length <= 1) return <div className={className} />
+  // A lone crumb with no link only repeats the h1 beneath it ("Inbox" over
+  // "Inbox"). One that links to a parent (a listing whose name has not
+  // loaded yet) is still the way up, so it stays.
+  if (crumbs.length === 0 || (crumbs.length === 1 && !crumbs[0].href))
+    return <div className={className} />
+  // That lone crumb is a link, not the current page.
+  const loneLink = crumbs.length === 1
 
   return (
     <nav aria-label="Breadcrumb" className={cn("min-w-0", className)}>
@@ -115,7 +120,7 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
                   /
                 </span>
               ) : null}
-              {isLast || !crumb.href ? (
+              {(isLast && !loneLink) || !crumb.href ? (
                 <span
                   aria-current={isLast ? "page" : undefined}
                   title={crumb.label}

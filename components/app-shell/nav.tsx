@@ -276,6 +276,9 @@ function Nav({
                 axe suite pins `heading-order`. */}
             <span
               id={workspaceLabelId}
+              // The list is named from this text, so it is hidden from
+              // browse mode rather than read a second time.
+              aria-hidden
               className="px-2.5 pt-4 pb-1 text-caption font-medium text-ink-muted max-wide:hidden"
             >
               Workspace

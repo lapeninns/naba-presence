@@ -112,6 +112,19 @@ describe("ShellBreadcrumbs", () => {
     }
   )
 
+  it("keeps a lone crumb that links to a parent, so there is still a way up", () => {
+    // /listings/<id> before the location list has loaded (or for a listing
+    // not in it) is just "Listings", linking to the board.
+    pathname.current = "/listings/unknown"
+    render(<ShellBreadcrumbs />)
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" })
+    expect(nav.querySelectorAll("li")).toHaveLength(1)
+    expect(screen.getByRole("link", { name: "Listings" })).toHaveAttribute(
+      "href",
+      "/listings"
+    )
+  })
+
   it("reads Settings / Reply policy on /settings, as every settings tab does", () => {
     pathname.current = "/settings"
     render(<ShellBreadcrumbs />)
