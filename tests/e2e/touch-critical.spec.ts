@@ -403,8 +403,8 @@ async function expectNotCovered(control: Locator, what: string) {
   ).toBe(true)
 }
 
-/** A finger dragging down from a point, as raw touch events. */
-async function swipeDown(page: Page, from: Locator, distance = 400) {
+/** A finger dragging from a point by (dx, dy), as raw touch events. */
+async function drag(page: Page, from: Locator, dx: number, dy: number) {
   const box = (await from.boundingBox())!
   const x = box.x + box.width / 2
   const y = box.y + box.height / 2
@@ -416,7 +416,9 @@ async function swipeDown(page: Page, from: Locator, distance = 400) {
   for (let step = 1; step <= 10; step++) {
     await cdp.send("Input.dispatchTouchEvent", {
       type: "touchMove",
-      touchPoints: [{ x, y: y + (distance * step) / 10, id: 1 }],
+      touchPoints: [
+        { x: x + (dx * step) / 10, y: y + (dy * step) / 10, id: 1 },
+      ],
     })
     await page.waitForTimeout(16)
   }
@@ -426,6 +428,10 @@ async function swipeDown(page: Page, from: Locator, distance = 400) {
   })
   await cdp.detach()
 }
+
+/** A finger dragging down from a point, as raw touch events. */
+const swipeDown = (page: Page, from: Locator, distance = 400) =>
+  drag(page, from, 0, distance)
 
 const tabBar = (page: Page) => page.getByRole("navigation", { name: "Primary" })
 
@@ -507,6 +513,59 @@ test.describe("touch: critical journeys at 390x844", () => {
     await swipeDown(page, sheet.getByRole("heading", { name: "More" }))
     await expect(sheet).toBeHidden()
     await expect(more).toBeFocused()
+  })
+
+  // The row-actions demo on /design-system (app/design-system/ux-p10-demo.tsx;
+  // the route is on here because playwright.config.ts sets
+  // DESIGN_SYSTEM_EVIDENCE_ENABLED).
+  test("rows: a left swipe reveals the trailing actions and the button reaches the same ones", async ({
+    page,
+  }) => {
+    await page.goto("/design-system")
+    const demo = page.locator("#ux-p10-row-actions")
+    const log = demo.getByTestId("ux-p10-log")
+    // A row's name is its title followed by its preview line.
+    const hit = (name: string) =>
+      demo.getByRole("button", { name: new RegExp(`^${name}\\b`) })
+    const amelia = hit("Amelia Hart")
+    await amelia.scrollIntoViewIfNeeded()
+    await settle(page, amelia)
+
+    // A vertical drag on a row scrolls the page: it never opens the row.
+    await drag(page, amelia, 0, -120)
+    await expect(
+      demo.locator("[data-slot=list-row-swipe][data-open]")
+    ).toHaveCount(0)
+
+    // A left swipe reveals the action; the swipe alone does not open the
+    // review. Only the open row's action is looked up: every row has its
+    // own (inert, zero-width) Archive button in the page.
+    await amelia.scrollIntoViewIfNeeded()
+    await settle(page, amelia)
+    await drag(page, amelia, -120, 0)
+    const openRow = demo.locator("[data-slot=list-row-swipe][data-open]")
+    await expect(openRow).toHaveCount(1)
+    await expect(log).toHaveText("No action yet.")
+    const archive = openRow.getByRole("button", {
+      name: "Archive",
+      exact: true,
+    })
+    await expect(archive).toBeVisible()
+    await settle(page, archive)
+    await tap(archive)
+    await expect(log).toHaveText("Archived Amelia Hart.")
+    // Running the action closes the row and puts its actions out of reach.
+    await expect(openRow).toHaveCount(0)
+    await expect(
+      demo.locator("[data-slot=list-row-swipe-actions]:not([inert])")
+    ).toHaveCount(0)
+
+    // The visible button reaches the same actions with no swipe at all.
+    await tap(demo.getByRole("button", { name: "Actions for Tom Reeve" }))
+    const menuItem = page.getByRole("menuitem", { name: "Archive" })
+    await expect(menuItem).toBeVisible()
+    await tap(menuItem)
+    await expect(log).toHaveText("Archived Tom Reeve.")
   })
 
   test("shell: a More destination, a pushed page and its Back", async ({

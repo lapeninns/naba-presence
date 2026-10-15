@@ -34,6 +34,7 @@ import { ToastDemo } from "@/app/design-system/toast-demo"
 import { UxP04Demo } from "@/app/design-system/ux-p04-demo"
 import { UxP07Demo } from "@/app/design-system/ux-p07-demo"
 import { UxP09Demo } from "@/app/design-system/ux-p09-demo"
+import { UxP10Demo } from "@/app/design-system/ux-p10-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -1559,6 +1560,7 @@ export default function Page() {
           <NmSheetDemo />
           <NmFeedbackDemo />
           <NmLists1bDemo />
+          <UxP10Demo />
           <NmFormsDemo />
           <UxP09Demo />
           <NmOverlaysDemo />

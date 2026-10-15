@@ -5,6 +5,10 @@ import { ChevronDownIcon } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
+import {
+  ListRowSwipe,
+  type ListRowSwipeActions,
+} from "@/components/ui/list-row-swipe"
 import { cn } from "@/lib/utils"
 
 /**
@@ -66,6 +70,12 @@ import { cn } from "@/lib/utils"
  * - `wrap`: the title and subtitle wrap (breaking long words such as email
  *   addresses anywhere) instead of truncating, so two long values never
  *   look identical.
+ * - `swipeActions` (one or two, `{ label, icon, onAction, tone }`): a quick
+ *   action on the row. A left swipe on a touch screen reveals them, and a
+ *   visible "⋯" button at the end of the row opens the same actions as a
+ *   menu: that button is the alternative to dragging (WCAG 2.5.7) and the
+ *   only path for a keyboard or a mouse. Name it with `actionsLabel`
+ *   ("Actions for Amelia Hart"). See list-row-swipe.tsx.
  * - `ListRows listbox`: a selectable list. The `ul` is a `listbox`, each
  *   `li` is `presentation` and each row an `option` with `aria-selected`
  *   (rows default to `selectedAs="selected"`). Name it with `aria-label`.
@@ -273,6 +283,18 @@ export type ListRowProps = Omit<
   titleId?: string
   /** Title and subtitle wrap instead of truncating. */
   wrap?: boolean
+  /**
+   * One or two quick actions: revealed by a left swipe on touch and always
+   * reachable from a visible "⋯" menu button at the end of the row. Not
+   * available inside `ListRows listbox` (an option owns no controls). The whole row slides, leading control, footer and details included.
+   */
+  swipeActions?: ListRowSwipeActions
+  /**
+   * Names the "⋯" button. Pass a row-specific label ("Actions for Amelia
+   * Hart"): the default, "More actions", would repeat on every row of the
+   * list for a screen reader.
+   */
+  actionsLabel?: string
 }
 
 export type ListRowWrapperProps = Omit<
@@ -313,6 +335,8 @@ function ListRow({
   titleAs = "span",
   titleId,
   wrap = false,
+  swipeActions,
+  actionsLabel = "More actions",
   className,
   render,
   ...props
@@ -332,6 +356,15 @@ function ListRow({
     }
     footer = details = leadingControl = undefined
   }
+  if (inListbox && swipeActions != null) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "ListRow: swipeActions are not rendered inside ListRows listbox."
+      )
+    }
+    swipeActions = undefined
+  }
+  const hasSwipe = swipeActions != null && swipeActions.length > 0
   // A heading may only sit in a non-interactive row or a plain link row:
   // never inside a <button> (or an unknown `render` element) or an option.
   const headingAllowed =
@@ -480,6 +513,8 @@ function ListRow({
   const hitClassName = cn(
     "flex min-h-(--np-touch) w-full min-w-0 items-start gap-3 py-(--np-row-mail-py) text-left text-ink no-underline",
     flush ? "px-0" : "px-(--np-page-pad-x)",
+    // The "⋯" button takes the row's end padding.
+    hasSwipe && "pe-1",
     interactive &&
       "cursor-pointer transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 hover-fine:hover:bg-surface-alt",
     selected && "bg-fill hover-fine:hover:bg-fill",
@@ -504,6 +539,87 @@ function ListRow({
 
   const label =
     typeof detailsLabel === "function" ? detailsLabel(open) : detailsLabel
+
+  const controlNode =
+    leadingControl != null ? (
+      // The control's own target, outside the row's hit element. On touch
+      // an `after:` overhang takes the wrapper to 44px, and a press on
+      // the wrapper (not on the control) is passed to the control, so the
+      // overhang over the row selects rather than opening the row. The
+      // overhang sits under the control (`after:z-under`, inside the
+      // wrapper's own stacking context): drawn last it would cover the
+      // control, so a tap on the box itself hit the wrapper (FINAL-QA #1).
+      <span
+        data-slot="list-row-control"
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) return
+          event.currentTarget
+            .querySelector<HTMLElement>(LEADING_CONTROL_SELECTOR)
+            ?.click()
+        }}
+        className={cn(
+          "absolute top-(--np-row-mail-py) z-raised grid size-(--np-avatar-list) place-items-center",
+          flush ? "start-0" : "start-(--np-page-pad-x)",
+          "after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:z-under after:content-[''] desk:after:hidden"
+        )}
+      >
+        {leadingControl}
+      </span>
+    ) : null
+  const footerNode = hasFooter ? (
+    <div
+      data-slot="list-row-footer"
+      data-layout={footerLayout}
+      className={cn(
+        "-mt-1 flex min-w-0 gap-2 pb-(--np-row-mail-py)",
+        footerLayout === "stack"
+          ? "flex-col items-stretch"
+          : "flex-wrap items-center",
+        textStart,
+        textEnd
+      )}
+    >
+      {footer}
+    </div>
+  ) : null
+  const detailsNode = hasDetails ? (
+    <>
+      <div
+        data-slot="list-row-disclosure"
+        className={cn(
+          "flex min-w-0",
+          textStart,
+          textEnd,
+          hasFooter ? "-mt-1" : "-mt-2",
+          !open && "pb-1"
+        )}
+      >
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={detailsId}
+          data-slot="list-row-details-toggle"
+          onClick={() => setOpen(!open)}
+          className="group/disclosure -ms-2 inline-flex min-h-(--np-touch) items-center gap-1 rounded-(--np-radius-control) px-2 text-start text-ui font-medium text-accent-ink focus-halo hover-fine:hover:bg-fill desk:min-h-8"
+        >
+          {label}
+          <ChevronDownIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="size-4 shrink-0 transition-transform duration-(--np-duration-fast) ease-standard group-aria-expanded/disclosure:rotate-180 motion-reduce:transition-none"
+          />
+        </button>
+      </div>
+      <div
+        id={detailsId}
+        data-slot="list-row-details"
+        hidden={!open}
+        className={cn("min-w-0 pb-(--np-row-mail-py)", textStart, textEnd)}
+      >
+        {details}
+      </div>
+    </>
+  ) : null
 
   return (
     <Wrapper
@@ -533,86 +649,29 @@ function ListRow({
         wrapperProps?.className
       )}
     >
-      {leadingControl != null ? (
-        // The control's own target, outside the row's hit element. On touch
-        // an `after:` overhang takes the wrapper to 44px, and a press on
-        // the wrapper (not on the control) is passed to the control, so the
-        // overhang over the row selects rather than opening the row. The
-        // overhang sits under the control (`after:z-under`, inside the
-        // wrapper's own stacking context): drawn last it would cover the
-        // control, so a tap on the box itself hit the wrapper (FINAL-QA #1).
-        <span
-          data-slot="list-row-control"
-          onClick={(event) => {
-            if (event.target !== event.currentTarget) return
-            event.currentTarget
-              .querySelector<HTMLElement>(LEADING_CONTROL_SELECTOR)
-              ?.click()
-          }}
-          className={cn(
-            "absolute top-(--np-row-mail-py) z-raised grid size-(--np-avatar-list) place-items-center",
-            flush ? "start-0" : "start-(--np-page-pad-x)",
-            "after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:z-under after:content-[''] desk:after:hidden"
-          )}
-        >
-          {leadingControl}
-        </span>
-      ) : null}
-      {hit}
-      {hasFooter ? (
-        <div
-          data-slot="list-row-footer"
-          data-layout={footerLayout}
-          className={cn(
-            "-mt-1 flex min-w-0 gap-2 pb-(--np-row-mail-py)",
-            footerLayout === "stack"
-              ? "flex-col items-stretch"
-              : "flex-wrap items-center",
-            textStart,
-            textEnd
-          )}
-        >
-          {footer}
-        </div>
-      ) : null}
-      {hasDetails ? (
+      {hasSwipe ? (
+        <ListRowSwipe
+          actions={swipeActions!}
+          actionsLabel={actionsLabel}
+          selected={selected}
+          flush={flush}
+          control={controlNode}
+          hit={hit}
+          below={
+            <>
+              {footerNode}
+              {detailsNode}
+            </>
+          }
+        />
+      ) : (
         <>
-          <div
-            data-slot="list-row-disclosure"
-            className={cn(
-              "flex min-w-0",
-              textStart,
-              textEnd,
-              hasFooter ? "-mt-1" : "-mt-2",
-              !open && "pb-1"
-            )}
-          >
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-controls={detailsId}
-              data-slot="list-row-details-toggle"
-              onClick={() => setOpen(!open)}
-              className="group/disclosure -ms-2 inline-flex min-h-(--np-touch) items-center gap-1 rounded-(--np-radius-control) px-2 text-start text-ui font-medium text-accent-ink focus-halo hover-fine:hover:bg-fill desk:min-h-8"
-            >
-              {label}
-              <ChevronDownIcon
-                aria-hidden
-                strokeWidth={1.75}
-                className="size-4 shrink-0 transition-transform duration-(--np-duration-fast) ease-standard group-aria-expanded/disclosure:rotate-180 motion-reduce:transition-none"
-              />
-            </button>
-          </div>
-          <div
-            id={detailsId}
-            data-slot="list-row-details"
-            hidden={!open}
-            className={cn("min-w-0 pb-(--np-row-mail-py)", textStart, textEnd)}
-          >
-            {details}
-          </div>
+          {controlNode}
+          {hit}
+          {footerNode}
+          {detailsNode}
         </>
-      ) : null}
+      )}
     </Wrapper>
   )
 }
@@ -681,4 +740,8 @@ function ListRowTag({
   )
 }
 
+export type {
+  ListRowSwipeAction,
+  ListRowSwipeActions,
+} from "@/components/ui/list-row-swipe"
 export { LIST_BLEED_CLASS, ListRow, ListRowTag, ListRows }
