@@ -91,6 +91,24 @@ describe("Stepper", () => {
     render(<Stepper steps={steps} />)
     expect(screen.getByText("In progress")).toBeInTheDocument()
   })
+
+  it("numbers the steps in order and draws an unnumbered step without one", () => {
+    render(
+      <Stepper
+        steps={[
+          { id: "a", label: "Connect", state: "current" },
+          { id: "b", label: "Team", state: "todo" },
+          { id: "c", label: "Done", state: "todo", unnumbered: true },
+        ]}
+      />
+    )
+    const items = screen.getAllByRole("listitem")
+    expect(items[0]).toHaveTextContent("1")
+    expect(items[1]).toHaveTextContent("2")
+    // The closing step keeps its words but takes no number.
+    expect(items[2]).toHaveTextContent("Done")
+    expect(items[2]).not.toHaveTextContent(/\d/)
+  })
 })
 
 describe("Timeline", () => {

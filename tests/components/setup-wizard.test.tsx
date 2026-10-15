@@ -91,7 +91,10 @@ beforeEach(() => {
   search = new URLSearchParams("client=c1")
   replace.mockReset()
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 const renderWizard = () =>
   render(
@@ -116,6 +119,13 @@ describe("SetupWizard", () => {
     expect(rail.querySelector("[aria-current='step']")).toHaveTextContent(
       "Connect"
     )
+    // Done closes the list without a number, so the rail never counts past
+    // the "of 6" in the header.
+    const numbers = Array.from(rail.querySelectorAll("li")).map(
+      (item) => item.textContent?.match(/\d+/)?.[0]
+    )
+    expect(numbers).toEqual(["1", "2", "3", "4", "5", "6", undefined])
+    expect(rail.querySelector("li:last-child")).toHaveTextContent("Done")
   })
 
   it("docks the step's actions to the bottom edge as a surface ActionBar", async () => {
@@ -186,6 +196,76 @@ describe("SetupWizard", () => {
       summary.querySelector('a[href="#setup-connect-google"]')
     ).toBeTruthy()
     expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("leads with a connected login, then offers a new sign-in", async () => {
+    stub(fresh, [
+      {
+        id: "g1",
+        googleEmail: "ops@example.test",
+        status: "active",
+        notificationsEnabled: false,
+        lastRefreshAt: null,
+        lastErrorCode: null,
+        reconnectRequired: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ])
+    renderWizard()
+    await screen.findByRole("heading", { name: "Connect Google", level: 2 })
+    const option = await screen.findByRole("button", {
+      name: "Use this account ops@example.test",
+    })
+    expect(option).toHaveAttribute("data-slot", "option-row")
+    expect(option).toHaveAttribute("id", "setup-connect-use-first")
+    const signIn = screen.getByRole("button", { name: "Sign in with Google" })
+    // The reuse path comes first in the page, then the new sign-in.
+    expect(
+      option.compareDocumentPosition(signIn) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      screen.getByRole("heading", {
+        name: "Or sign in with another Google account",
+      })
+    ).toBeInTheDocument()
+    // The blocked reason names what is on screen.
+    expect(
+      screen.getByRole("button", { name: "Continue" })
+    ).toHaveAccessibleDescription(
+      "Pick an account above, or connect another Google account, to continue."
+    )
+  })
+
+  it("scrolls to the first connected login when Continue is blocked", async () => {
+    const scroll = vi.fn()
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(scroll)
+    stub(fresh, [
+      {
+        id: "g1",
+        googleEmail: "ops@example.test",
+        status: "active",
+        notificationsEnabled: false,
+        lastRefreshAt: null,
+        lastErrorCode: null,
+        reconnectRequired: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ])
+    renderWizard()
+    await screen.findByRole("button", {
+      name: "Use this account ops@example.test",
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    const summary = await screen.findByRole("alert", {
+      name: "Not ready to continue",
+    })
+    expect(
+      summary.querySelector('a[href="#setup-connect-use-first"]')
+    ).toBeTruthy()
+    await waitFor(() => expect(scroll).toHaveBeenCalled())
+    expect(scroll.mock.contexts.at(-1)).toBe(
+      document.getElementById("setup-connect-use-first")
+    )
   })
 
   it("moves on once the data allows it, keeping the step in the address", async () => {

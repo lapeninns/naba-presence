@@ -27,6 +27,12 @@ export type SetupStepDefinition = {
   preamble?: boolean
 }
 
+/**
+ * The id of the first "Use this account" option on the Connect step: where a
+ * blocked Continue sends the operator when a working login is on file.
+ */
+export const CONNECT_FIRST_LOGIN_ID = "setup-connect-use-first"
+
 export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
   {
     id: "agency",
@@ -268,7 +274,7 @@ export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
     case "connect":
       if (connected(facts)) return null
       return facts.usableLogin
-        ? "Choose “Use this account”, or connect another Google account, to continue."
+        ? "Pick an account above, or connect another Google account, to continue."
         : "Connect a Google account to continue."
     case "account":
       return facts.accountsActive > 0
