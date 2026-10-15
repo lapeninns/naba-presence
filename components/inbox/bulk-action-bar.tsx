@@ -134,6 +134,10 @@ function BulkActionBar({
     (row) =>
       row.workflowStatus === "awaiting_approval" &&
       row.capabilities.canPublish &&
+      // Under two-person approval the approval route refuses a reply this
+      // person asked for or drafted (`second_approver_required`). An older
+      // server sends no `canApprove`; it is then approvable as before.
+      row.canApprove !== false &&
       approvalDraftId(row) !== null
   )
 
