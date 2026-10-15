@@ -1,21 +1,11 @@
 "use client"
 
-import {
-  CircleCheck,
-  ExternalLink,
-  Globe,
-  Info,
-  Link2,
-} from "lucide-react"
+import { CircleCheck, ExternalLink, Globe, Info, Link2 } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -278,9 +268,7 @@ function DisconnectDialog({
             as its longest label and the words line up. */}
         <ol className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-2 text-ui text-ink">
           <li className="col-span-2 grid grid-cols-subgrid">
-            <span className="text-caption font-medium text-ink-muted">
-              Now
-            </span>
+            <span className="text-caption font-medium text-ink-muted">Now</span>
             <span>
               Its listings are unlinked and Google notifications turn off.
               Nothing can sync or publish through this login.
@@ -291,10 +279,9 @@ function DisconnectDialog({
               After 7 days
             </span>
             <span>
-              Their reviews and the Google data we hold for them are
-              permanently deleted, unless this login is reconnected first.
-              Reviews under a legal hold are kept. The listings stay in
-              NabaPresence, unlinked.
+              Their reviews and the Google data we hold for them are permanently
+              deleted, unless this login is reconnected first. Reviews under a
+              legal hold are kept. The listings stay in NabaPresence, unlinked.
             </span>
           </li>
         </ol>
@@ -304,7 +291,6 @@ function DisconnectDialog({
           onValueChange={setTyped}
           onMatchChange={setArmed}
           fieldClassName="[overflow-wrap:anywhere]"
-          description="This unlinks its listings now. They stay in NabaPresence; their reviews and Google data are deleted after 7 days."
         />
         <AlertDialogFooter>
           <AlertDialogClose

@@ -33,6 +33,7 @@ import { SystemStatesDemo } from "@/app/design-system/system-states-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { UxP04Demo } from "@/app/design-system/ux-p04-demo"
 import { UxP07Demo } from "@/app/design-system/ux-p07-demo"
+import { UxP09Demo } from "@/app/design-system/ux-p09-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -1559,6 +1560,7 @@ export default function Page() {
           <NmFeedbackDemo />
           <NmLists1bDemo />
           <NmFormsDemo />
+          <UxP09Demo />
           <NmOverlaysDemo />
           <UxP03Demo />
           <NmDrop3Demo />

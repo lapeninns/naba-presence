@@ -88,11 +88,10 @@ describe("ConnectionCard", () => {
         "Their reviews and the Google data we hold for them are permanently deleted, unless this login is reconnected first. Reviews under a legal hold are kept. The listings stay in NabaPresence, unlinked."
       )
     ).toBeInTheDocument()
+    // The consequences are said once, in the list: no helper line repeats them.
     expect(
-      within(dialog).getByText(
-        "This unlinks its listings now. They stay in NabaPresence; their reviews and Google data are deleted after 7 days."
-      )
-    ).toBeInTheDocument()
+      within(dialog).queryByText(/This unlinks its listings now/)
+    ).toBeNull()
     expect(
       within(dialog).queryByText(/Its listings and their reviews/)
     ).toBeNull()
@@ -104,6 +103,8 @@ describe("ConnectionCard", () => {
     const field = within(dialog).getByRole("textbox", {
       name: /Type owner@riverside\.test to confirm/,
     })
+    // Typing an email: the keyboard has an "@".
+    expect(field).toHaveAttribute("inputmode", "email")
     await user.type(field, "owner@riverside")
     expect(confirm).toBeDisabled()
     await user.click(confirm)
