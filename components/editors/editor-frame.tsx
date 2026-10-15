@@ -12,6 +12,22 @@ import type { StatusTone } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 /**
+ * A read-only editor shows its values as plain text: the disabled controls
+ * lose their box and the muted "unavailable" ink, so a member reads what is
+ * set without a field that looks broken. The capability notice above says
+ * why nothing can be changed.
+ */
+const READ_VIEW = [
+  "[&_:is(input,textarea,select):disabled]:border-transparent!",
+  "[&_:is(input,textarea,select):disabled]:bg-transparent!",
+  "[&_:is(input,textarea,select):disabled]:text-ink!",
+  "[&_:is(input,textarea,select):disabled]:opacity-100!",
+  "[&_[data-disabled]]:border-transparent!",
+  "[&_[data-disabled]]:bg-transparent!",
+  "[&_[data-disabled]]:text-ink!",
+].join(" ")
+
+/**
  * The shared skeleton for every editor: heading, what it changes, a status
  * pill, one capability notice, a hairline, the fields, then the footer. The
  * head is quiet (no box): a medium-weight title, the description in muted
@@ -75,6 +91,9 @@ function EditorFrame({
 }) {
   const ref = useRef<HTMLElement>(null)
   useKeepFocusClear(ref)
+  // A role limit, not a pause: the person can look but not change, so the
+  // values read as text instead of a greyed-out form.
+  const readOnly = Boolean(gateReason) && gateTone === "read_only"
   // Inside an area the header carries the title and the one status pill.
   const pill = titleHidden ? null : statusLabel
   const showHead = !titleHidden || Boolean(description || actions)
@@ -82,10 +101,15 @@ function EditorFrame({
     <section
       ref={ref}
       data-slot="editor-frame"
+      data-read-only={readOnly ? "" : undefined}
       // Not a tab stop: a place for focus to land when the footer's button
       // has gone (see EditorFooter), so it never falls back to the body.
       tabIndex={-1}
-      className={cn("flex flex-col gap-5 outline-none", className)}
+      className={cn(
+        "flex flex-col gap-5 outline-none",
+        readOnly && READ_VIEW,
+        className
+      )}
     >
       {titleHidden ? <h2 className="sr-only">{title}</h2> : null}
       {showHead || gateReason ? (

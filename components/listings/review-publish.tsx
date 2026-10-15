@@ -19,7 +19,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type Ref,
 } from "react"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
@@ -490,11 +489,7 @@ function AreaSection({
  * Google accepted and read back; the first failure stops the rest, which are
  * shown as not sent.
  */
-function toStepRows(
-  results: PublishStepResult[],
-  onRetry: (() => void) | null,
-  retryRef?: Ref<HTMLButtonElement>
-): PublishStepRow[] {
+function toStepRows(results: PublishStepResult[]): PublishStepRow[] {
   const failedAt = results.findIndex((step) => step.status === "failed")
   return results.map((step, index) => {
     if (step.status === "running")
@@ -536,18 +531,10 @@ function toStepRows(
         // landed: retrying then resends the same intent.
         state: stepOutcome(step) ?? "failed",
         errorCode: step.code,
-        detail: `${step.message ?? "Google didn’t accept this change."} This step did not finish with a confirmed result. Check Google before retrying; the saved copy is kept.`,
-        action: onRetry ? (
-          <Button
-            ref={retryRef}
-            variant="secondary"
-            size="sm"
-            onClick={onRetry}
-          >
-            <RefreshCwIcon aria-hidden />
-            Retry
-          </Button>
-        ) : undefined,
+        // The reason alone, once: the banner below says what happened to the
+        // rest and what to do next.
+        detail:
+          step.reason ?? step.message ?? "Google didn’t accept this change.",
       }
     if (failedAt !== -1 && index > failedAt)
       return {
@@ -677,6 +664,9 @@ function ReviewPublish({
   const business = useWorkspaceMode() === "business"
   const canManage = role === "owner" || role === "admin"
   const cannotPublish = caps.data ? !caps.data.canPublish : false
+  // A role that can't edit has nothing to edit and come back with, so the
+  // empty state doesn't send it off to edit.
+  const cannotEdit = caps.data ? !caps.data.canEditCanonical : false
 
   const disabledReason = paused
     ? canManage
@@ -707,12 +697,14 @@ function ReviewPublish({
   const retry = flow.error && !flow.isPublishing ? publish : null
   const nothingSent = done && flow.results.every((step) => step.noop === true)
 
-  // A failure moves focus to its Retry, so a keyboard or screen-reader user
-  // lands on the step that stopped rather than on a now-idle button.
-  const retryRef = useRef<HTMLButtonElement>(null)
+  // A failure moves focus to its banner, so a keyboard or screen-reader user
+  // lands on what stopped and what to do next rather than on a now-idle
+  // button.
+  const failureRef = useRef<HTMLDivElement>(null)
   const failed = Boolean(flow.error) && !flow.isPublishing
+  const failedStep = flow.results.find((step) => step.status === "failed")
   useEffect(() => {
-    if (failed) retryRef.current?.focus()
+    if (failed) failureRef.current?.focus()
   }, [failed])
 
   return (
@@ -766,7 +758,7 @@ function ReviewPublish({
               {done ? (
                 <PublishSteps
                   aria-label="Publish results"
-                  steps={toStepRows(flow.results, null)}
+                  steps={toStepRows(flow.results)}
                 />
               ) : null}
               <Empty
@@ -789,7 +781,9 @@ function ReviewPublish({
                       ? publishOutcome(flow.results) === "confirmed_applied"
                         ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
                         : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
-                      : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
+                      : cannotEdit
+                        ? `There are no saved changes waiting for ${entry.name}. Nothing is waiting to go to Google.`
+                        : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
                 }
                 action={
                   <Link
@@ -947,25 +941,26 @@ function ReviewPublish({
                   />
                   <PublishSteps
                     aria-label="Publish results"
-                    steps={toStepRows(flow.results, retry, retryRef)}
+                    steps={toStepRows(flow.results)}
                   />
                 </section>
               ) : null}
 
               {flow.error && !flow.isPublishing ? (
-                <Alert variant="destructive">
-                  <AlertTitle>
-                    {`Publishing stopped at “${
-                      flow.results.find((step) => step.status === "failed")
-                        ?.label ?? "a step"
-                    }”`}
-                  </AlertTitle>
-                  <AlertDescription>
-                    This step did not finish with a confirmed result. The steps
-                    after it were not sent, and your saved copy is kept. Check
-                    Google and review again before retrying.
-                  </AlertDescription>
-                </Alert>
+                <div ref={failureRef} tabIndex={-1} className="outline-none">
+                  <Alert variant="destructive">
+                    <AlertTitle>
+                      {`Publishing stopped at “${failedStep?.label ?? "a step"}”`}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {failedStep && stepOutcome(failedStep) === "uncertain"
+                        ? "Check Google, then retry publishing. "
+                        : "Retry publishing when you’re ready. "}
+                      Steps after it weren’t sent, and your saved copy is
+                      kept.
+                    </AlertDescription>
+                  </Alert>
+                </div>
               ) : null}
 
               {/* Docked to the bottom edge on a phone (the tab bar steps

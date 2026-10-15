@@ -27,6 +27,9 @@ import { queryKeys } from "@/lib/queries/keys"
 import { gbpMutationResultSchema } from "@/lib/contracts/gbp-management"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 
+/** The failure toast: six words or fewer, the reason is on the step. */
+export const PUBLISH_FAILURE_TOAST = "Publishing stopped. See the steps."
+
 /**
  * What a step's `run` resolves to when it found nothing to send (the saved
  * copy already matches Google). The results list then says so instead of
@@ -74,6 +77,12 @@ export type PublishStepResult = {
   label: string
   status: PublishStepStatus
   message?: string
+  /**
+   * A failed step's one-line reason, without the note about earlier steps
+   * that `message` carries. A surface that already states what happened to
+   * the other steps shows this instead, so the failure is said once.
+   */
+  reason?: string
   kind?: "local" | "google"
   /** The API's error code for a failed step, when it sent one. */
   code?: string
@@ -259,12 +268,13 @@ export function usePublishFlow({
           : completed.some((result) => result.kind === "local")
             ? " Completed local saves are kept. No Google step completed successfully."
             : ""
-        failure =
-          describePublishStepError(cause, step.kind ?? "google") + progress
+        const reason = describePublishStepError(cause, step.kind ?? "google")
+        failure = reason + progress
         running[index] = {
           ...running[index],
           status: "failed",
           message: failure,
+          reason,
           code: cause instanceof ApiClientError ? cause.code : undefined,
           outcome: errorOutcome(cause),
           intentId:
@@ -287,7 +297,9 @@ export function usePublishFlow({
 
     if (failure) {
       setError(failure)
-      toasts.add({ title: failure, type: "error" })
+      // The step and the surface's banner carry the reason; the toast only
+      // says it stopped.
+      toasts.add({ title: PUBLISH_FAILURE_TOAST, type: "error" })
       return false
     }
     // A parked step is the news: the surface's own "sent to Google" or
