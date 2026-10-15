@@ -513,7 +513,9 @@ describe("ActionBar", () => {
     await waitFor(() => {
       expect(screen.getByText("Submitted for approval")).toBeInTheDocument()
       expect(
-        screen.getByText("It goes live on Google once a manager approves it.")
+        screen.getByText(
+          "It goes live once someone with publishing rights approves it."
+        )
       ).toBeInTheDocument()
     })
   })
