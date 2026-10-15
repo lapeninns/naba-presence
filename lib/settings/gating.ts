@@ -1,4 +1,4 @@
-import { MEMBER_ROLES, type MemberRole, roleLabel } from "@/lib/settings/member-roles"
+import { type MemberRole, roleLabel } from "@/lib/settings/member-roles"
 
 export type SettingsCapabilities = {
   canManageTeam: boolean
@@ -6,7 +6,9 @@ export type SettingsCapabilities = {
   canEditSettings: boolean
 }
 
-export function settingsGatingFromRole(role: string | null): SettingsCapabilities {
+export function settingsGatingFromRole(
+  role: string | null
+): SettingsCapabilities {
   const managerial = role === "owner" || role === "admin"
   return {
     canManageTeam: managerial,
@@ -46,7 +48,9 @@ export type PrivacyGating = {
   canManagePrivacy: boolean
 }
 
-export function privacyGating(access: PrivacyAccess | undefined): PrivacyGating {
+export function privacyGating(
+  access: PrivacyAccess | undefined
+): PrivacyGating {
   return {
     canViewPrivacy: access === "read" || access === "manage",
     canCreateRequests: access === "read" || access === "manage",
@@ -54,23 +58,50 @@ export function privacyGating(access: PrivacyAccess | undefined): PrivacyGating 
   }
 }
 
-export function managePrivacyDisabledReason(gating: PrivacyGating): string | null {
+export function managePrivacyDisabledReason(
+  gating: PrivacyGating
+): string | null {
   return gating.canManagePrivacy ? null : "Only an owner can do this."
 }
 
-export function editSettingsDisabledReason(caps: SettingsCapabilities | undefined): string | null {
+export function editSettingsDisabledReason(
+  caps: SettingsCapabilities | undefined
+): string | null {
   if (!caps) return null
-  return caps.canEditSettings ? null : "Only owners and admins can change these settings."
+  return caps.canEditSettings
+    ? null
+    : "Only owners and admins can change these settings."
 }
 
-export function manageTeamDisabledReason(caps: SettingsCapabilities | undefined): string | null {
+export function manageTeamDisabledReason(
+  caps: SettingsCapabilities | undefined
+): string | null {
   if (!caps) return null
-  return caps.canManageTeam ? null : "Only owners and admins can manage the team."
+  return caps.canManageTeam
+    ? null
+    : "Only owners and admins can manage the team."
 }
+
+/**
+ * The order roles are offered in, wherever someone picks one (the invite
+ * sheet and change role): the usual choice first, the most powerful last.
+ * Defined once here; `MEMBER_ROLES` (owner first) stays the order of the
+ * permission table on Team.
+ */
+export const ROLE_CHOICE_ORDER = [
+  "member",
+  "viewer",
+  "admin",
+  "owner",
+] as const satisfies readonly MemberRole[]
 
 // The role select never offers "Owner" to a non-owner actor (server: assertRoleChangeAllowed).
-export function roleOptionsFor(actorRole: string): Array<{ value: MemberRole; label: string }> {
-  return MEMBER_ROLES.filter((role) => role !== "owner" || actorRole === "owner").map((role) => ({
+export function roleOptionsFor(
+  actorRole: string
+): Array<{ value: MemberRole; label: string }> {
+  return ROLE_CHOICE_ORDER.filter(
+    (role) => role !== "owner" || actorRole === "owner"
+  ).map((role) => ({
     value: role,
     label: roleLabel(role),
   }))

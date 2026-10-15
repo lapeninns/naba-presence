@@ -7,9 +7,15 @@ import type { MemberRole } from "@/lib/settings/forms/invitation"
 
 /**
  * Presentation copy for the four organisation roles, written against the
- * rules the server enforces (lib/server/permissions.ts, member-roles.ts,
- * review-approval.ts and the settings route). Nothing here decides access;
- * it only describes what the server already decides.
+ * rules the server enforces (lib/server/permissions.ts, capabilities.ts,
+ * member-roles.ts, review-approval.ts and the settings route). Nothing here
+ * decides access; it only describes what the server already decides.
+ * tests/role-copy.test.ts ties every line below to those rules, so a change
+ * to a rule that this copy no longer matches fails there.
+ *
+ * Two lengths: `ROLE_SUMMARIES` is the one-line sub-label every role row
+ * carries in the picker; `ROLE_DESCRIPTIONS` is the full sentence shown for
+ * the selected row, on Team and in the change-role sheet.
  */
 export const ROLE_DESCRIPTIONS: Record<MemberRole, string> = {
   owner:
@@ -17,9 +23,16 @@ export const ROLE_DESCRIPTIONS: Record<MemberRole, string> = {
   admin:
     "Manages the team, Google connections and the reply policy. Sees, edits and publishes for every client.",
   member:
-    "Drafts replies and edits listings they can see. Publishes only when publishing access is on.",
+    "Drafts replies and posts for the listings they can see. Can’t change a listing’s profile, hours or menu. Publishes only when publishing access is on.",
   viewer:
     "Reads reviews, listings and reports they can see. Can’t draft, publish or change anything.",
+}
+
+export const ROLE_SUMMARIES: Record<MemberRole, string> = {
+  owner: "Everything an admin can do, and can change other owners",
+  admin: "Manages the team and every client’s listings",
+  member: "Drafts replies and posts; publishes only if allowed",
+  viewer: "Reads reviews and reports; can’t change anything",
 }
 
 /** The role copy for a workspace mode: a business has no clients to see. */
@@ -33,6 +46,18 @@ export function roleDescriptions(
           "Manages the team, Google connections and the reply policy. Sees, edits and publishes for every location.",
       }
     : ROLE_DESCRIPTIONS
+}
+
+/** The one-line role sub-labels for a workspace mode. */
+export function roleSummaries(
+  mode: "business" | "agency"
+): Record<MemberRole, string> {
+  return mode === "business"
+    ? {
+        ...ROLE_SUMMARIES,
+        admin: "Manages the team and every location’s listings",
+      }
+    : ROLE_SUMMARIES
 }
 
 /** "an admin", "a member": the role as a noun phrase in a sentence. */
@@ -61,8 +86,12 @@ export const ROLE_MATRIX: { capability: string; cells: Capability[] }[] = [
     cells: [YES, YES, THEIR, THEIR],
   },
   {
-    capability: "Draft replies and listing changes",
+    capability: "Draft replies and posts",
     cells: [YES, YES, THEIR, NO],
+  },
+  {
+    capability: "Change a listing’s profile, hours or menu",
+    cells: [YES, YES, NO, NO],
   },
   { capability: "Publish to Google", cells: [YES, YES, IF_PUBLISH, NO] },
   {
@@ -108,7 +137,10 @@ export function accessSummary(
     }
     const count = member.locations.length
     if (count === 0) {
-      return { label: "No locations", detail: "Sees nothing until given access" }
+      return {
+        label: "No locations",
+        detail: "Sees nothing until given access",
+      }
     }
     return {
       label: count === 1 ? "1 location" : `${count} locations`,
