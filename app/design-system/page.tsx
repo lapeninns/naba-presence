@@ -27,7 +27,15 @@ import { NmListDemo } from "@/app/design-system/nm-list-demo"
 import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
+import { UxP02Demo } from "@/app/design-system/ux-p02-demo"
+import { UxP03Demo } from "@/app/design-system/ux-p03-demo"
+import { SystemStatesDemo } from "@/app/design-system/system-states-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
+import { UxP04Demo } from "@/app/design-system/ux-p04-demo"
+import { UxP07Demo } from "@/app/design-system/ux-p07-demo"
+import { UxP09Demo } from "@/app/design-system/ux-p09-demo"
+import { UxP10Demo } from "@/app/design-system/ux-p10-demo"
+import { UxP18Demo } from "@/app/design-system/ux-p18-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -58,7 +66,7 @@ import {
 } from "@/components/ui/card"
 import { ChartDataTable, ChartLegend } from "@/components/ui/chart"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ChipRow, ToggleChip } from "@/components/ui/chip"
+import { ChipRow, FilterChip } from "@/components/ui/chip"
 import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
@@ -126,7 +134,6 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Spinner } from "@/components/ui/spinner"
 import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Stepper } from "@/components/ui/stepper"
@@ -737,7 +744,7 @@ export default function Page() {
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent title="Time range">
                         <SelectItem value="28">Last 28 days</SelectItem>
                         <SelectItem value="90">Last 90 days</SelectItem>
                       </SelectContent>
@@ -811,7 +818,7 @@ export default function Page() {
 
             <Specimen
               title="Segmented and chips"
-              note="Segmented picks one view; chips filter and scope. Pressed chips fill with ink."
+              note="Segmented picks one view; chips filter and scope. A pressed chip takes the accent tint; a zero count draws no figure."
             >
               <Demo>
                 <SegmentedControl defaultValue="warm" aria-label="Tone">
@@ -823,13 +830,13 @@ export default function Page() {
                     Empathetic
                   </SegmentedControlItem>
                 </SegmentedControl>
-                <ToggleChip pressed count={5}>
+                <FilterChip pressed count={5}>
                   Needs reply
-                </ToggleChip>
-                <ToggleChip count={2}>Approval</ToggleChip>
-                <ToggleChip count={1} countTone="alert">
+                </FilterChip>
+                <FilterChip count={2}>Approval</FilterChip>
+                <FilterChip count={1} countTone="alert">
                   Failed
-                </ToggleChip>
+                </FilterChip>
                 <RemovableChipDemo />
               </Demo>
             </Specimen>
@@ -1063,6 +1070,8 @@ export default function Page() {
                 </TabsPanel>
               </Tabs>
             </Specimen>
+
+            <UxP04Demo />
 
             <Specimen title="Stat tiles">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1336,10 +1345,7 @@ export default function Page() {
                 </Card>
                 <Card aria-busy="true" className="gap-2.5">
                   <CardContent className="flex flex-col gap-2.5">
-                    <p className="flex items-center gap-2 text-ui text-ink-muted">
-                      <Spinner decorative size="sm" />
-                      Loading reviews…
-                    </p>
+                    <p className="text-ui text-ink-muted">Loading reviews…</p>
                     <Skeleton className="w-3/5" />
                     <Skeleton />
                     <Skeleton className="w-2/5" />
@@ -1359,6 +1365,7 @@ export default function Page() {
                   />
                 </Card>
               </div>
+              <SystemStatesDemo />
             </Specimen>
           </div>
 
@@ -1407,9 +1414,6 @@ export default function Page() {
                       <Input defaultValue="The Bell" />
                     </Field>
                     <DialogFooter>
-                      <DialogClose render={<Button variant="ghost" />}>
-                        Cancel
-                      </DialogClose>
                       <DialogClose render={<Button />}>Save</DialogClose>
                     </DialogFooter>
                   </DialogContent>
@@ -1433,9 +1437,6 @@ export default function Page() {
                       </Field>
                     </SheetBody>
                     <SheetFooter>
-                      <SheetClose render={<Button variant="ghost" />}>
-                        Cancel
-                      </SheetClose>
                       <SheetClose render={<Button />}>Save</SheetClose>
                     </SheetFooter>
                   </SheetContent>
@@ -1495,6 +1496,7 @@ export default function Page() {
                 <span className="text-ui text-ink-muted">Toasts:</span>
                 <ToastDemo />
               </Demo>
+              <UxP07Demo />
             </Specimen>
           </div>
 
@@ -1559,9 +1561,13 @@ export default function Page() {
           <NmSheetDemo />
           <NmFeedbackDemo />
           <NmLists1bDemo />
+          <UxP10Demo />
           <NmFormsDemo />
+          <UxP09Demo />
           <NmOverlaysDemo />
+          <UxP03Demo />
           <NmDrop3Demo />
+          <UxP18Demo />
         </Section>
 
         <Section
@@ -1624,6 +1630,7 @@ export default function Page() {
             shows here beside the page’s own primary only because this is a
             gallery.
           </p>
+          <UxP02Demo />
         </Section>
       </main>
     </TooltipProvider>

@@ -1,15 +1,14 @@
 "use client"
 
-import { ChevronDown, ChevronRight } from "lucide-react"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import type { ClientHealth } from "@/lib/clients/health"
+import { useBreakpoint } from "@/lib/hooks/use-media-query"
 import {
-  DESTINATIONS,
+  currentHref,
   destinationHref,
-  isActivePath,
   sidebarDestinations,
   type Destination,
 } from "@/lib/navigation/destinations"
@@ -32,21 +31,7 @@ export function navItemsFor(mode: WorkspaceMode, hideCalendar = false) {
 /** Recent clients shown beneath Clients in the full sidebar. */
 const MAX_PINNED_CLIENTS = 6
 
-const MORE_STORAGE_KEY = "np.nav.more"
-
 export type NavClient = { id: string; name: string; health: ClientHealth }
-
-/** `Clients` is the client pages only; a listing belongs to Listings. */
-function isClientsActive(pathname: string | null) {
-  return isActivePath(pathname, "/clients")
-}
-
-function isMoreActive(pathname: string | null) {
-  return DESTINATIONS.some(
-    (destination) =>
-      destination.group === "more" && isActivePath(pathname, destination.href)
-  )
-}
 
 /**
  * The persistent column's row, drawn by one markup at two widths:
@@ -72,74 +57,12 @@ const ROW_CLASS = cn(
 
 const LABEL_CLASS = "min-w-0 truncate md:max-wide:w-full"
 
-/**
- * The operator's last choice for the More disclosure, kept for the session.
- *
- * Read through `useSyncExternalStore` rather than an effect: the server
- * cannot see session storage, so its snapshot is "no choice yet" and the
- * client's first render agrees with it before the stored value takes over.
- */
-const moreListeners = new Set<() => void>()
-
-function subscribeMore(listener: () => void) {
-  moreListeners.add(listener)
-  return () => {
-    moreListeners.delete(listener)
-  }
-}
-
-function readStoredMore(): boolean | null {
-  try {
-    const raw = window.sessionStorage.getItem(MORE_STORAGE_KEY)
-    return raw === null ? null : raw === "open"
-  } catch {
-    return null
-  }
-}
-
-function writeStoredMore(open: boolean) {
-  try {
-    window.sessionStorage.setItem(MORE_STORAGE_KEY, open ? "open" : "closed")
-  } catch {
-    // Private mode or blocked storage: the disclosure simply forgets.
-  }
-  for (const listener of moreListeners) listener()
-}
-
-/**
- * Open while Team or Settings is the current page, otherwise whatever the
- * operator last chose this session.
- *
- * On a More page the toggle still works: collapsing there is remembered for
- * that page only (arriving on it again opens the group, so the current row
- * is never hidden by a choice made elsewhere), and the collapsed row carries
- * the current-page accent so the operator can still see where they are.
- */
-function useMoreOpen(pathname: string | null) {
-  const active = isMoreActive(pathname)
-  const chosen = React.useSyncExternalStore(
-    subscribeMore,
-    readStoredMore,
-    () => null
-  )
-  const [collapsedOn, setCollapsedOn] = React.useState<string | null>(null)
-
-  const open = active ? collapsedOn !== pathname : chosen === true
-  const toggle = () => {
-    if (active) {
-      setCollapsedOn(open ? pathname : null)
-      return
-    }
-    writeStoredMore(!open)
-  }
-  return { open, toggle, currentInside: active && !open }
-}
-
 function NavRow({
   href,
   label,
   icon: Icon,
   active,
+  containsCurrent = false,
   onNavigate,
   count,
   countLabel,
@@ -148,6 +71,12 @@ function NavRow({
   label: string
   icon: Destination["icon"]
   active: boolean
+  /**
+   * A row nested under this one is the current page: the parent takes the
+   * accent text but no tint, bar or `aria-current`, so one row only is "the"
+   * current page.
+   */
+  containsCurrent?: boolean
   onNavigate?: () => void
   count?: number
   countLabel?: string
@@ -165,13 +94,13 @@ function NavRow({
         // The description lives outside the link for the same reason.
         aria-describedby={showCount ? countId : undefined}
         onClick={onNavigate}
-        className={ROW_CLASS}
+        className={cn(ROW_CLASS, containsCurrent && "text-accent-ink")}
       >
         <span className="relative flex shrink-0">
           <Icon
             className={cn(
               "size-4 shrink-0 md:max-wide:size-5",
-              active ? "text-accent-ink" : "text-ink-muted"
+              active || containsCurrent ? "text-accent-ink" : "text-ink-muted"
             )}
             strokeWidth={1.75}
             aria-hidden
@@ -192,7 +121,7 @@ function NavRow({
             aria-hidden
             className={cn(
               "ml-auto text-count font-normal tabular-nums md:max-wide:hidden",
-              active ? "text-accent-ink" : "text-ink-muted"
+              active || containsCurrent ? "text-accent-ink" : "text-ink-muted"
             )}
           >
             {count}
@@ -214,8 +143,13 @@ function NavRow({
  * instead (tab-bar.tsx, more-sheet.tsx); all of them read one registry.
  *
  * In the rail every destination shows as a labelled tile; in the sidebar
- * Team and Settings sit behind the More disclosure, so the daily list stays
- * short and the disclosure opens itself on one of their pages.
+ * Team and Settings sit in their own "Workspace" group beneath the daily
+ * list, always visible (the sidebar has the height; a disclosure only added
+ * a click).
+ *
+ * Exactly one row is marked as the current page: the longest href that
+ * matches the path, so a pinned client wins over Clients and a nested route
+ * never lights two rows.
  */
 function Nav({
   onNavigate,
@@ -253,24 +187,32 @@ function Nav({
   const pathname = usePathname()
   const business = mode === "business"
   const pinned = business ? [] : clients.slice(0, MAX_PINNED_CLIENTS)
-  const more = useMoreOpen(pathname)
-  const moreListId = React.useId()
-  const moreCurrentId = React.useId()
+  const workspaceLabelId = React.useId()
   const groups = sidebarDestinations({
     role: role ?? null,
     mode,
     hideCalendar,
   })
-  const MoreIcon = more.open ? ChevronDown : ChevronRight
+  // The rail draws no pinned clients, so below `wide` their rows are not in
+  // the page and Clients is the current row for a client page. Which row
+  // carries the mark is behaviour, so it reads the viewport; where the rows
+  // go is still CSS.
+  const wide = useBreakpoint("wide")
+  const current = currentHref(pathname, [
+    ...groups.primary.map((item) => item.href),
+    ...(wide ? pinned : []).map((client) => `/clients/${client.id}`),
+    ...groups.more.map((item) => item.href),
+  ])
 
   return (
     <nav aria-label="Primary" className="flex flex-col">
       <ul className="flex flex-col gap-0.5">
         {groups.primary.map((item) => {
-          const active =
-            item.id === "clients"
-              ? isClientsActive(pathname)
-              : isActivePath(pathname, item.href)
+          const active = current === item.href
+          const containsCurrent =
+            item.id === "clients" &&
+            !active &&
+            pinned.some((client) => current === `/clients/${client.id}`)
           return (
             <React.Fragment key={item.href}>
               <li>
@@ -279,6 +221,7 @@ function Nav({
                   label={item.label}
                   icon={item.icon}
                   active={active}
+                  containsCurrent={containsCurrent}
                   onNavigate={onNavigate}
                   count={item.id === "inbox" ? needsReply : undefined}
                   countLabel={
@@ -291,7 +234,7 @@ function Nav({
               {item.id === "clients" && pinned.length > 0
                 ? pinned.map((client) => {
                     const href = `/clients/${client.id}`
-                    const clientActive = pathname === href
+                    const clientActive = current === href
                     return (
                       // Recent clients need the sidebar's width; the rail
                       // keeps to the destinations.
@@ -327,43 +270,22 @@ function Nav({
 
         {groups.more.length > 0 ? (
           <li className="flex flex-col">
-            {/* The disclosure is a sidebar affordance; the rail lists its
-                items as tiles, so it hides there and its list always shows. */}
-            <button
-              type="button"
-              aria-expanded={more.open}
-              aria-controls={moreListId}
-              aria-describedby={more.currentInside ? moreCurrentId : undefined}
-              onClick={more.toggle}
-              // The group's label, quiet like Notion Mail's drawer headings;
-              // it takes the accent only while it hides the current page.
-              className={cn(
-                ROW_CLASS,
-                "max-wide:hidden",
-                more.currentInside ? "text-accent-ink" : "text-ink-muted"
-              )}
+            {/* The group's label, quiet like Notion Mail's drawer headings.
+                It is a sidebar affordance: the rail lists these rows as
+                tiles with no label, so it hides there. Not a heading: the
+                axe suite pins `heading-order`. */}
+            <span
+              id={workspaceLabelId}
+              // The list is named from this text, so it is hidden from
+              // browse mode rather than read a second time.
+              aria-hidden
+              className="px-2.5 pt-4 pb-1 text-caption font-medium text-ink-muted max-wide:hidden"
             >
-              <MoreIcon
-                className={cn(
-                  "size-4 shrink-0",
-                  more.currentInside ? "text-accent-ink" : "text-ink-muted"
-                )}
-                strokeWidth={1.75}
-                aria-hidden
-              />
-              <span className={LABEL_CLASS}>More</span>
-            </button>
-            {more.currentInside ? (
-              <span id={moreCurrentId} hidden>
-                Contains the current page
-              </span>
-            ) : null}
+              Workspace
+            </span>
             <ul
-              id={moreListId}
-              className={cn(
-                "mt-0.5 flex flex-col gap-0.5",
-                !more.open && "wide:hidden"
-              )}
+              aria-labelledby={workspaceLabelId}
+              className="flex flex-col gap-0.5"
             >
               {groups.more.map((item) => (
                 <li key={item.href}>
@@ -371,7 +293,7 @@ function Nav({
                     href={item.href}
                     label={item.label}
                     icon={item.icon}
-                    active={isActivePath(pathname, item.href)}
+                    active={current === item.href}
                     onNavigate={onNavigate}
                   />
                 </li>
@@ -384,4 +306,4 @@ function Nav({
   )
 }
 
-export { Nav, MAX_PINNED_CLIENTS, isClientsActive, isMoreActive }
+export { Nav, MAX_PINNED_CLIENTS }

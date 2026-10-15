@@ -132,6 +132,12 @@ export type OutcomeToastContext = {
    * https link (components/ui/toast.tsx `isSafeToastHref`).
    */
   googleReplyUrl?: string | null
+  /**
+   * Google's moderation state for the reply that was just sent
+   * (`googleReplyState` on the publish and approval answers). `"PENDING"`
+   * means Google has not approved it yet, so the toast must not say it is live.
+   */
+  googleReplyState?: string | null
 }
 
 // Maps a SERVER-CONFIRMED resolved status (never a thrown ApiClientError code
@@ -161,6 +167,16 @@ export function describeOutcomeToast(
   switch (status) {
     case "published": {
       const url = context.googleReplyUrl
+      if (context.googleReplyState === "PENDING") {
+        return {
+          kind: "google",
+          title: "Reply sent",
+          description:
+            "Google is checking it. It is not public until Google approves it.",
+          type: "info",
+          ...(url ? { link: { href: url } } : {}),
+        }
+      }
       return {
         kind: "google",
         title: "Reply published",
@@ -173,7 +189,8 @@ export function describeOutcomeToast(
       return {
         kind: "google",
         title: "Submitted for approval",
-        description: "It goes live on Google once a manager approves it.",
+        description:
+          "It goes live once someone with publishing rights approves it.",
         type: "info",
       }
     case "rejected":

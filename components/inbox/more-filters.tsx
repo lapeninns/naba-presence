@@ -237,7 +237,7 @@ function FiltersSheet({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent title="Client">
                   {Object.entries(clientItems).map(([value, label]) => (
                     <SelectItem key={value || "all"} value={value}>
                       {label}
@@ -263,7 +263,7 @@ function FiltersSheet({
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
+              <SelectContent title="Assignee" alignItemWithTrigger={false}>
                 {Object.entries(ASSIGNEE_ITEMS).map(([value, label]) => (
                   <SelectItem key={value || "anyone"} value={value}>
                     {label}

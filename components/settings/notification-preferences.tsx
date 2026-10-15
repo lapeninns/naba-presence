@@ -228,7 +228,7 @@ export function NotificationPreferences() {
                         }
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent title={`Email: ${copy.label}`}>
                       {(["immediate", "digest", "off"] as const).map(
                         (option) => (
                           <SelectItem key={option} value={option}>

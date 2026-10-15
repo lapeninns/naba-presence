@@ -169,7 +169,7 @@ export function MediaCard({
                     }
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent title="Move to category">
                   {patchCategories.map((c) => (
                     <SelectItem key={c} value={c}>
                       {humaniseCategory(c)}

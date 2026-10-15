@@ -12,7 +12,7 @@ vi.mock("next/link", () => ({
 }))
 
 import { Breadcrumbs } from "@/components/ui/breadcrumb"
-import { RemovableChip, ToggleChip } from "@/components/ui/chip"
+import { FilterChip, RemovableChip } from "@/components/ui/chip"
 import { DataTable } from "@/components/ui/data-table"
 import { DiffView } from "@/components/ui/diff-view"
 import { KpiTile } from "@/components/ui/kpi-tile"
@@ -91,6 +91,24 @@ describe("Stepper", () => {
     render(<Stepper steps={steps} />)
     expect(screen.getByText("In progress")).toBeInTheDocument()
   })
+
+  it("numbers the steps in order and draws an unnumbered step without one", () => {
+    render(
+      <Stepper
+        steps={[
+          { id: "a", label: "Connect", state: "current" },
+          { id: "b", label: "Team", state: "todo" },
+          { id: "c", label: "Done", state: "todo", unnumbered: true },
+        ]}
+      />
+    )
+    const items = screen.getAllByRole("listitem")
+    expect(items[0]).toHaveTextContent("1")
+    expect(items[1]).toHaveTextContent("2")
+    // The closing step keeps its words but takes no number.
+    expect(items[2]).toHaveTextContent("Done")
+    expect(items[2]).not.toHaveTextContent(/\d/)
+  })
 })
 
 describe("Timeline", () => {
@@ -125,9 +143,9 @@ describe("chips", () => {
     const user = userEvent.setup()
     const onClick = vi.fn()
     render(
-      <ToggleChip pressed onClick={onClick}>
+      <FilterChip pressed onClick={onClick}>
         Oldest first
-      </ToggleChip>
+      </FilterChip>
     )
     const chip = screen.getByRole("button", { name: "Oldest first" })
     expect(chip).toHaveAttribute("aria-pressed", "true")

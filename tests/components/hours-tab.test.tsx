@@ -207,7 +207,8 @@ describe("HoursTab", () => {
     ).toBeGreaterThan(0)
   })
 
-  it("keeps saving here available while publishing is paused, and says why", () => {
+  it("keeps saving here available while publishing is paused, and says why", async () => {
+    const user = userEvent.setup()
     useHoursMock.mockReturnValue({
       data: makeHours(),
       isPending: false,
@@ -241,10 +242,14 @@ describe("HoursTab", () => {
     expect(
       screen.getByRole("button", { name: "Review changes" })
     ).toBeDisabled()
-    // Saving here is not publishing: it stays available for an owner.
+    // Saving here is not publishing: with an edit to keep it stays
+    // available for an owner (there is no bar, or no Save here, until then).
+    await user.clear(screen.getByLabelText("Monday period 1 opens"))
+    await user.type(screen.getByLabelText("Monday period 1 opens"), "08:00")
+    expect(screen.getByRole("button", { name: "Save here" })).toBeEnabled()
     expect(
-      screen.getByRole("button", { name: "Save here" })
-    ).toBeInTheDocument()
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
   })
 
   it("points the validation summary at the field that needs fixing", async () => {
@@ -510,8 +515,9 @@ describe("HoursTab reviewed snapshots", () => {
       refetch: vi.fn(),
     })
     view.rerenderTab()
+    // Nothing left to save: the secondaries leave the bar instead of greying.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Save here" })).toBeDisabled()
+      expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
     )
     expect(
       screen.queryByText(/Someone else saved these hours/)

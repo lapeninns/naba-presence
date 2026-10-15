@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { EditorFooter } from "@/components/editors/editor-footer"
@@ -18,36 +19,221 @@ function footer(props: Partial<React.ComponentProps<typeof EditorFooter>>) {
 }
 
 describe("EditorFooter", () => {
-  it("draws no bar on a phone while the editor is clean, and never docks it", () => {
+  it("draws no bar while the editor is clean, at any width", () => {
     render(footer({}))
-    const bar = screen.getByRole("region", { name: "Editor actions" })
-    expect(bar).not.toHaveAttribute("data-docked")
-    expect(bar.className).toMatch(/max-md:hidden/)
+    expect(screen.queryByRole("region", { name: "Editor actions" })).toBeNull()
+    expect(screen.queryByRole("button")).toBeNull()
     // No dock spacer either: a clean editor reserves no room for a bar.
     expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
-    // The desk keeps the clean bar, its actions present but disabled.
-    expect(screen.getByRole("button", { name: "Discard" })).toBeDisabled()
-    expect(
-      screen.getByRole("button", { name: "Review changes" })
-    ).toBeDisabled()
   })
 
-  it("docks to the bottom edge with the first change, with labelled buttons", () => {
+  it("docks one row with the first change: status, one primary, an overflow", () => {
     render(footer({ status: "edited", isDirty: true }))
     const bar = screen.getByRole("region", { name: "Editor actions" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
     expect(bar.className).toMatch(/max-md:fixed/)
-    expect(bar.className).not.toMatch(/max-md:hidden/)
+    // One row: the dock's nowrap is not overridden by a wrapping bar.
+    expect(bar.className).not.toMatch(/max-md:flex-wrap/)
     // The ActionBar's dock: an in-flow spacer keeps the last field
     // reachable above the fixed bar.
     expect(
       bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
     ).not.toBeNull()
-    expect(screen.getByRole("button", { name: "Discard" })).toHaveTextContent(
-      "Discard"
-    )
-    expect(screen.getByRole("button", { name: "Save here" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
+    // The phone's overflow is named, and a touch-sized icon button.
+    expect(screen.getByRole("button", { name: "More actions" })).toHaveClass(
+      "md:hidden"
+    )
+    // Every other word on a phone lives in that menu; from md it is inline.
+    expect(screen.getByRole("button", { name: "Save here" })).toHaveClass(
+      "max-md:hidden"
+    )
+    expect(screen.getByRole("button", { name: "Discard edits" })).toHaveClass(
+      "max-md:hidden"
+    )
+  })
+
+  it("leaves out the secondaries that have nothing to act on", () => {
+    // Drift that is already saved here: something to publish, nothing local
+    // to save or throw away.
+    render(
+      footer({
+        status: "unpublished",
+        isDirty: true,
+        canDiscard: false,
+      })
+    )
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "More actions" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Discard edits" })).toBeNull()
+  })
+
+  it("keeps Save here out of the bar for a resource with no copy of its own", () => {
+    render(footer({ status: "edited", isDirty: true, onSave: undefined }))
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Discard edits" })).toBeEnabled()
+  })
+
+  it("runs the same handlers from the inline buttons and the overflow menu", async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn()
+    const onDiscard = vi.fn()
+    const onReview = vi.fn()
+    render(
+      footer({
+        status: "edited",
+        isDirty: true,
+        onSave,
+        onDiscard,
+        onReview,
+      })
+    )
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    expect(onReview).toHaveBeenCalledTimes(1)
+    // Inline (from md).
+    await user.click(screen.getByRole("button", { name: "Save here" }))
+    await user.click(screen.getByRole("button", { name: "Discard edits" }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onDiscard).toHaveBeenCalledTimes(1)
+    // The phone's overflow menu.
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Save here" }))
+    expect(onSave).toHaveBeenCalledTimes(2)
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Discard edits" })
+    )
+    expect(onDiscard).toHaveBeenCalledTimes(2)
+  })
+
+  it("leaves Save here out when it can't run, with the reason in a note", async () => {
+    const user = userEvent.setup()
+    render(
+      footer({
+        status: "edited",
+        isDirty: true,
+        saveDisabledReason: "Only the name is saved here.",
+      })
+    )
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Only the name is saved here."
+    )
+    // Two rows only while there is a reason to give.
+    expect(
+      screen.getByRole("region", { name: "Editor actions" }).className
+    ).toMatch(/max-md:flex-wrap/)
+    // The overflow holds only what can be done.
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    expect(
+      await screen.findByRole("menuitem", { name: "Discard edits" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Save here" })).toBeNull()
+  })
+
+  it("says what is true when local edits leave nothing to publish", () => {
+    render(footer({ status: "in_sync", isDirty: false, canDiscard: true }))
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveTextContent("No changes to publish")
+    expect(bar).toHaveTextContent("unsaved edits")
+    expect(bar).not.toHaveTextContent("Changes not on Google")
+    // No greyed Review with no reason: Save here is the primary instead.
+    expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
+    const save = screen.getByRole("button", { name: "Save here" })
+    expect(save).toBeEnabled()
+    expect(save).not.toHaveClass("max-md:hidden")
+    expect(screen.getByRole("button", { name: "Discard edits" })).toBeEnabled()
+  })
+
+  it("draws no primary when nothing differs and Save here can't run", () => {
+    render(
+      footer({
+        status: "in_sync",
+        isDirty: false,
+        canDiscard: true,
+        saveDisabledReason: "Saved through its own review.",
+      })
+    )
+    expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Saved through its own review."
+    )
+  })
+
+  it("gives the status its own row beside a long primary label", () => {
+    const { unmount } = render(
+      footer({
+        status: "edited",
+        isDirty: true,
+        reviewLabel: "Review lodging draft",
+      })
+    )
+    expect(
+      screen.getByRole("region", { name: "Editor actions" }).className
+    ).toMatch(/max-md:flex-wrap/)
+    expect(
+      document.querySelector('[data-slot="action-bar-status"]')?.className
+    ).toMatch(/max-md:basis-full/)
+    unmount()
+    render(footer({ status: "edited", isDirty: true }))
+    expect(
+      document.querySelector('[data-slot="action-bar-status"]')?.className
+    ).not.toMatch(/max-md:basis-full/)
+  })
+
+  it("puts focus back on the bar when Save here has done its work", async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(footer({ status: "edited", isDirty: true }))
+    await user.click(screen.getByRole("button", { name: "Save here" }))
+    // Saved: still something to publish, nothing local left to save.
+    rerender(
+      footer({ status: "unpublished", isDirty: true, canDiscard: false })
+    )
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(screen.getByRole("region", { name: "Editor actions" })).toHaveFocus()
+  })
+
+  it("puts focus on the editor when Save here leaves nothing to show", async () => {
+    const user = userEvent.setup()
+    function Harness({ clean }: { clean: boolean }) {
+      return (
+        <EditorFrame
+          title="Hours"
+          titleHidden
+          footer={footer(clean ? {} : { status: "edited", isDirty: true })}
+        >
+          <p>fields</p>
+        </EditorFrame>
+      )
+    }
+    const { rerender } = render(<Harness clean={false} />)
+    await user.click(screen.getByRole("button", { name: "Save here" }))
+    rerender(<Harness clean />)
+    expect(screen.queryByRole("region", { name: "Editor actions" })).toBeNull()
+    expect(document.querySelector('[data-slot="editor-frame"]')).toHaveFocus()
+  })
+
+  it("says Saving… in the status while a save runs", () => {
+    render(footer({ status: "edited", isDirty: true, saving: true }))
+    expect(
+      screen.getByRole("region", { name: "Editor actions" })
+    ).toHaveTextContent(/^\s*Saving…/)
+  })
+
+  it("blocks Review changes with the reason in a note", () => {
+    render(
+      footer({
+        status: "edited",
+        isDirty: true,
+        disabledReason: "Publishing is paused.",
+      })
+    )
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
+    expect(screen.getByRole("note")).toHaveTextContent("Publishing is paused.")
   })
 
   it("keeps a conflict on screen even without local edits", () => {

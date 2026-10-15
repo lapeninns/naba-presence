@@ -19,7 +19,8 @@ import { cn } from "@/lib/utils"
  * One vocabulary with `Empty` (prim-14): the error state IS an
  * `<Empty variant="error">`, announced, with the retry as its action, and
  * an `empty` state should be an `<Empty>` too. Pending is a sentence plus
- * `SkeletonList` rows at the row height the content will have.
+ * `SkeletonList` rows at the row height the content will have (or, with no
+ * rows, a sentence plus a spinner: never both).
  */
 
 export type QueryStatus = "pending" | "error" | "empty" | "ready"
@@ -37,7 +38,11 @@ export function queryStatus(
 
 /**
  * The default pending state: a sentence saying what is being fetched, then the
- * placeholder blocks.
+ * placeholder blocks. Exactly ONE loading indicator is ever drawn: the
+ * skeleton rows when there are any (the sentence beside them is the live
+ * region), otherwise the spinner (a `skeleton={null}` surface whose content
+ * has no row shape to stand in for). A spinner above skeleton rows was two
+ * "loading" signals for one wait.
  *
  * The sentence is not decoration. Every `Skeleton` is `aria-hidden`, and
  * `aria-busy` on a plain div announces nothing on insertion, so this component
@@ -49,11 +54,20 @@ export function queryStatus(
 export function QueryPending({
   className,
   label,
+  skeleton = <SkeletonList rows={3} />,
 }: {
   className?: string
   /** What is being fetched, e.g. "Loading this location's hours". */
   label?: string
+  /**
+   * The placeholder that stands in for the content, at the height it will
+   * have. Defaults to three list rows; a falsy value (`null`) draws the spinner instead.
+   */
+  skeleton?: ReactNode
 }) {
+  // Any falsy value (`null`, `false`, "") means no rows: it must not count as a
+  // skeleton, or nothing at all would be drawn.
+  const hasSkeleton = Boolean(skeleton)
   return (
     <div
       className={cn("flex flex-col gap-3", className)}
@@ -62,11 +76,13 @@ export function QueryPending({
     >
       {label ? (
         <p className="flex items-center gap-2 text-ui text-ink-muted">
-          <Spinner decorative size="sm" />
+          {hasSkeleton ? null : <Spinner decorative size="sm" />}
           {label}
         </p>
-      ) : null}
-      <SkeletonList rows={3} />
+      ) : hasSkeleton ? null : (
+        <Spinner />
+      )}
+      {hasSkeleton ? skeleton : null}
     </div>
   )
 }
@@ -202,7 +218,10 @@ export function RouteErrorState({
         {/* A real <a> styled as a button, not Button+render — see the note in
             app/not-found.tsx for why. buttonVariants() merges its own
             classes, so no cn() is needed around it. */}
-        <Link href={homeHref} className={buttonVariants({ variant: "outline" })}>
+        <Link
+          href={homeHref}
+          className={buttonVariants({ variant: "outline" })}
+        >
           {homeLabel}
         </Link>
       </div>

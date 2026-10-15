@@ -3,7 +3,6 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import {
   DialogPrimitive,
   DrawerPrimitive,
@@ -15,6 +14,7 @@ import {
   overlayPopupClassName,
   overlayScrimClassName,
   overlayScrollPaddingClassName,
+  overlayTitleClassName,
   overlayViewportClassName,
   markOverlayHeader,
   useOverlayChrome,
@@ -37,11 +37,15 @@ import {
  *       <DialogHeader><DialogTitle>Edit link</DialogTitle></DialogHeader>
  *       …fields…
  *       <DialogFooter>
- *         <DialogClose render={<Button variant="secondary" />}>Cancel</DialogClose>
  *         <Button onClick={save}>Save link</Button>
  *       </DialogFooter>
  *     </DialogContent>
  *   </Dialog>
+ *
+ * One anatomy with Sheet and the menu sheets (see overlay.tsx): the title
+ * left, a ✕ opposite it, the confirm as the footer's one primary, and no
+ * Cancel while the ✕ exists. Pass `showCloseButton={false}` only for a
+ * dialog that must be answered, and put `OverlayCancel` first in its footer.
  */
 function Dialog({
   onOpenChange,
@@ -229,16 +233,14 @@ const DialogHeader = markOverlayHeader(function DialogHeader({
  * sheet they stack full width with the primary nearest the thumb. Place the
  * primary action last in source order: it lands on the right in a row and
  * at the bottom of the stack. The bar pins to the popup's bottom edge and
- * rides on the on-screen keyboard.
+ * rides on the on-screen keyboard. It holds the confirm and its true
+ * alternatives, never a Cancel beside the ✕.
  */
 function DialogFooter({
   className,
-  showCloseButton = false,
   plain = false,
-  children,
   ...props
 }: React.ComponentProps<"div"> & {
-  showCloseButton?: boolean
   /** Drop the sunken bar and keep a bare button row. */
   plain?: boolean
 }) {
@@ -254,14 +256,7 @@ function DialogFooter({
         className
       )}
       {...props}
-    >
-      {showCloseButton && (
-        <DialogPrimitive.Close render={<Button variant="ghost" />}>
-          Close
-        </DialogPrimitive.Close>
-      )}
-      {children}
-    </div>
+    />
   )
 }
 
@@ -280,7 +275,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-section font-semibold text-ink", className)}
+      className={cn(overlayTitleClassName, className)}
       {...props}
     />
   )

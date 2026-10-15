@@ -5,7 +5,6 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -205,13 +204,6 @@ function DangerZoneControls() {
               </p>
             ) : null}
             <DialogFooter>
-              <DialogClose
-                render={
-                  <Button variant="ghost" disabled={workflow?.busy}>
-                    Cancel
-                  </Button>
-                }
-              />
               <Button
                 type="submit"
                 disabled={blocked || !parsed.success}
@@ -240,13 +232,6 @@ function DangerZoneControls() {
             </p>
           ) : null}
           <DialogFooter>
-            <DialogClose
-              render={
-                <Button variant="ghost" disabled={workflow?.busy}>
-                  Cancel
-                </Button>
-              }
-            />
             <Button
               variant="danger-outline"
               disabled={blocked}

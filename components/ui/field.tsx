@@ -46,6 +46,24 @@ export function useFieldContext() {
 }
 
 /**
+ * How wide a Field may grow. A field fills its column, which is right for
+ * long text (a description, an address) but leaves a short value (a name, a
+ * code) in a 700-930px bar on a desk, where the eye travels a long way to
+ * its end.
+ *
+ * - `full` (default): the whole column.
+ * - `short`: the column on a phone, and at most `max-w-md` on a desk, for a
+ *   single-line value of a few words. The label, hint and error share the
+ *   field's width, so they stay aligned with it.
+ */
+export type FieldMeasure = "full" | "short"
+
+export const fieldMeasureClassName: Record<FieldMeasure, string | undefined> = {
+  full: undefined,
+  short: "desk:max-w-md",
+}
+
+/**
  * A labelled form control (reference `.field`): label above in the UI role at
  * semibold, the control, then a caption-sized hint or error beneath, 6px
  * apart. The Field
@@ -54,10 +72,15 @@ export function useFieldContext() {
  */
 function Field({
   error,
+  measure = "full",
   className,
   children,
   ...props
-}: React.ComponentProps<"div"> & { error?: string }) {
+}: React.ComponentProps<"div"> & {
+  error?: string
+  /** A desk width limit for short single-line values; see `FieldMeasure`. */
+  measure?: FieldMeasure
+}) {
   const id = useId()
   const [hasDescription, setHasDescription] = useState(false)
   const [controlLabelable, setControlLabelable] = useState(true)
@@ -82,7 +105,12 @@ function Field({
       <div
         data-slot="field"
         data-invalid={invalid ? "" : undefined}
-        className={cn("flex min-w-0 flex-col gap-1.5", className)}
+        data-measure={measure === "full" ? undefined : measure}
+        className={cn(
+          "flex min-w-0 flex-col gap-1.5",
+          fieldMeasureClassName[measure],
+          className
+        )}
         {...props}
       >
         {children}

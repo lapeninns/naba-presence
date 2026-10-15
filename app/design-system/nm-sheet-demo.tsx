@@ -15,7 +15,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -276,9 +275,6 @@ function SettingsDemo() {
             onMatchChange={setMatched}
           />
           <DialogFooter>
-            <DialogClose render={<Button variant="secondary" />}>
-              Cancel
-            </DialogClose>
             <Button
               variant="danger"
               disabled={!matched}
@@ -294,8 +290,8 @@ function SettingsDemo() {
 }
 
 /**
- * A centred header with a description long enough to wrap: the close keeps
- * its own column instead of drawing over the words (FINAL-QA #4).
+ * A left-aligned header with a description long enough to wrap: the close
+ * keeps its own column instead of drawing over the words (FINAL-QA #4).
  */
 function ScopeSheetDemo() {
   const [client, setClient] = React.useState("all")

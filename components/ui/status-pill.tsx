@@ -17,8 +17,8 @@ import { cn } from "@/lib/utils"
  * - `Badge` (badge.tsx) is METADATA: a count, a role, a category ("OWNER",
  *   "You", "3 new"). Not interactive, and it does not claim a state; if the
  *   word would change when something happens, it is a StatusPill.
- * - `Chip` (chip.tsx: ToggleChip, RemovableChip, chipClassName) is a
- *   CONTROL: a filter you press or a token you remove, 44px tall on touch.
+ * - `Chip` (chip.tsx: FilterChip, RemovableChip) is a CONTROL: a
+ *   filter you press or a token you remove, with a 44px target on touch.
  *
  * Reference pill vocabulary: `ok/warn/bad/info` (and the intent names
  * `success/warning/danger`) are accepted aliases that resolve to the five

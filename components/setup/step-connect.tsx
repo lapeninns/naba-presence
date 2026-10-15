@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { ListRow, ListRows } from "@/components/ui/list-row"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
 import { QueryStates } from "@/components/ui/query-states"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -16,6 +17,7 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
+import { CONNECT_FIRST_LOGIN_ID } from "@/lib/setup/steps"
 
 /**
  * Choose the Google login that manages this client's Business Profile.
@@ -59,6 +61,9 @@ function StepConnect({
     (connection) =>
       connection.status === "active" && !connection.reconnectRequired
   )
+  const broken = connections.filter(
+    (connection) => !usable.includes(connection)
+  )
 
   const connect = async (reconnectConnectionId?: string) => {
     setStarting(true)
@@ -93,6 +98,141 @@ function StepConnect({
       }
     )
   }
+
+  const existingLogins = (
+    <section
+      aria-labelledby="setup-connected-logins"
+      className="flex flex-col gap-2"
+    >
+      <h3
+        id="setup-connected-logins"
+        className="text-ui font-medium text-ink-muted"
+      >
+        Use an account already connected
+      </h3>
+      {attachError ? (
+        <Alert variant="destructive" data-testid="setup-attach-error">
+          <AlertTitle>Couldn’t use that account</AlertTitle>
+          <AlertDescription>{attachError}</AlertDescription>
+        </Alert>
+      ) : null}
+      {connections.length === 0 ? (
+        <p className="text-ui text-ink-muted">
+          You haven’t connected a Google account yet.
+        </p>
+      ) : null}
+      {usable.length > 0 ? (
+        // The quick path leads: one tap to reuse a working login. The rows
+        // only act on a tap, Enter or Space, so the arrow keys just move.
+        <OptionRowGroup
+          type="multiple"
+          label="Google accounts already connected"
+          className="gap-0"
+        >
+          {usable.map((connection, position) => {
+            const email = connection.googleEmail ?? "Google account"
+            const using =
+              attachConnection.isPending &&
+              attachConnection.variables?.connectionId === connection.id
+            return (
+              <OptionRow
+                key={connection.id}
+                id={position === 0 ? CONNECT_FIRST_LOGIN_ID : undefined}
+                indicator="chevron"
+                label={using ? "Using this account…" : "Use this account"}
+                aria-labelledby={`setup-login-${connection.id}`}
+                description={
+                  <>
+                    <span
+                      id={`setup-login-${connection.id}`}
+                      className="wrap-anywhere"
+                    >
+                      {email}
+                    </span>
+                    {" · "}
+                    {connection.lastRefreshAt ? (
+                      <RelativeTime
+                        iso={connection.lastRefreshAt}
+                        prefix="Refreshed "
+                      />
+                    ) : (
+                      "Not refreshed yet"
+                    )}
+                  </>
+                }
+                disabled={attachConnection.isPending}
+                onClick={() => pickExisting(connection.id)}
+              />
+            )
+          })}
+        </OptionRowGroup>
+      ) : null}
+      {broken.length > 0 ? (
+        // Notion Mail's list rows. Each row carries its own button, so the
+        // row itself is not a target (`interactive={false}`). On a phone the
+        // list runs to the screen edge like the step around it; in the md+
+        // card the rows drop their own gutter so they line up with the rest
+        // of the step.
+        <ListRows bleed>
+          {broken.map((connection) => (
+            <ListRow
+              key={connection.id}
+              interactive={false}
+              emphasis="neutral"
+              className="md:px-0"
+              wrapperClassName="md:after:start-12 md:after:end-0 desk:after:start-11"
+              leading={
+                <Avatar size="list" aria-hidden>
+                  G
+                </Avatar>
+              }
+              title={
+                // The whole address, wrapped: which login this is must never
+                // be cut off.
+                <span className="wrap-anywhere whitespace-normal">
+                  {connection.googleEmail ?? "Google account"}
+                </span>
+              }
+              subtitle={
+                connection.lastRefreshAt ? (
+                  <RelativeTime
+                    iso={connection.lastRefreshAt}
+                    prefix="Refreshed "
+                  />
+                ) : (
+                  "Not refreshed yet"
+                )
+              }
+              trailing={<StatusPill tone="bad">Needs reconnecting</StatusPill>}
+              tags={
+                <>
+                  <span className="w-full text-caption text-ink-muted">
+                    Reconnect it to use it here. Google opens, then you come
+                    straight back to this step.
+                  </span>
+                  {/* Same reconnect as Settings' connection card: target this
+                      login so Google pre-fills it and the callback renews it
+                      rather than adding one. */}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-1"
+                    pending={starting && startingFor === connection.id}
+                    pendingLabel="Opening Google…"
+                    disabled={starting}
+                    onClick={() => void connect(connection.id)}
+                    aria-label={`Reconnect ${connection.googleEmail ?? "this Google account"}`}
+                  >
+                    Reconnect
+                  </Button>
+                </>
+              }
+            />
+          ))}
+        </ListRows>
+      ) : null}
+    </section>
+  )
 
   return (
     <QueryStates
@@ -151,6 +291,7 @@ function StepConnect({
               consent covers and what it never does. The scopes are the ones
               `lib/server/google/oauth.ts` requests (openid, email, profile,
               business.manage) and nothing more. */}
+          {usable.length > 0 ? existingLogins : null}
           <div className="flex max-w-lg flex-col items-start gap-4">
             <span
               aria-hidden
@@ -160,7 +301,9 @@ function StepConnect({
             </span>
             <div className="flex min-w-0 flex-col gap-1">
               <h3 className="text-title font-semibold text-ink">
-                Connect a Google account
+                {usable.length > 0
+                  ? "Or sign in with another Google account"
+                  : "Connect a Google account"}
               </h3>
               <p className="text-body text-pretty text-ink-muted">
                 Sign in to the Google account that manages{" "}
@@ -208,131 +351,7 @@ function StepConnect({
             </p>
           </div>
 
-          <section
-            aria-labelledby="setup-connected-logins"
-            className="flex flex-col gap-2"
-          >
-            <h3
-              id="setup-connected-logins"
-              className="text-ui font-medium text-ink-muted"
-            >
-              Use an account already connected
-            </h3>
-            {attachError ? (
-              <Alert variant="destructive" data-testid="setup-attach-error">
-                <AlertTitle>Couldn’t use that account</AlertTitle>
-                <AlertDescription>{attachError}</AlertDescription>
-              </Alert>
-            ) : null}
-            {connections.length === 0 ? (
-              <p className="text-ui text-ink-muted">
-                You haven’t connected a Google account yet.
-              </p>
-            ) : (
-              // Notion Mail's list rows. Each row carries its own buttons, so
-              // the row itself is not a target (`interactive={false}`). On a
-              // phone the list runs to the screen edge like the step around
-              // it; in the md+ card the rows drop their own gutter so they
-              // line up with the rest of the step.
-              <ListRows bleed>
-                {connections.map((connection) => {
-                  const broken =
-                    connection.reconnectRequired ||
-                    connection.status !== "active"
-                  return (
-                    <ListRow
-                      key={connection.id}
-                      interactive={false}
-                      emphasis="neutral"
-                      className="md:px-0"
-                      wrapperClassName="md:after:start-12 md:after:end-0 desk:after:start-11"
-                      leading={
-                        <Avatar size="list" aria-hidden>
-                          G
-                        </Avatar>
-                      }
-                      title={
-                        // The whole address, wrapped: which login this is
-                        // must never be cut off.
-                        <span className="wrap-anywhere whitespace-normal">
-                          {connection.googleEmail ?? "Google account"}
-                        </span>
-                      }
-                      subtitle={
-                        connection.lastRefreshAt ? (
-                          <RelativeTime
-                            iso={connection.lastRefreshAt}
-                            prefix="Refreshed "
-                          />
-                        ) : (
-                          "Not refreshed yet"
-                        )
-                      }
-                      trailing={
-                        broken ? (
-                          <StatusPill tone="bad">Needs reconnecting</StatusPill>
-                        ) : (
-                          <StatusPill tone="ok">Connected</StatusPill>
-                        )
-                      }
-                      tags={
-                        broken ? (
-                          <>
-                            <span className="w-full text-caption text-ink-muted">
-                              Reconnect it to use it here. Google opens, then
-                              you come straight back to this step.
-                            </span>
-                            {/* Same reconnect as Settings' connection card:
-                                target this login so Google pre-fills it and
-                                the callback renews it rather than adding
-                                one. */}
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="mt-1"
-                              pending={
-                                starting && startingFor === connection.id
-                              }
-                              pendingLabel="Opening Google…"
-                              disabled={starting}
-                              onClick={() => void connect(connection.id)}
-                              aria-label={`Reconnect ${connection.googleEmail ?? "this Google account"}`}
-                            >
-                              Reconnect
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="mt-1"
-                            pending={
-                              attachConnection.isPending &&
-                              attachConnection.variables?.connectionId ===
-                                connection.id
-                            }
-                            pendingLabel="Using…"
-                            disabled={attachConnection.isPending}
-                            onClick={() => pickExisting(connection.id)}
-                            aria-label={`Use ${connection.googleEmail ?? "this Google account"}`}
-                          >
-                            Use this account
-                          </Button>
-                        )
-                      }
-                    />
-                  )
-                })}
-              </ListRows>
-            )}
-            {usable.length > 0 ? (
-              <p className="text-caption text-ink-muted">
-                Choose “Use this account” to use a connected account for{" "}
-                {business ? "your business" : clientName}, then pick its
-                Business Profile accounts.
-              </p>
-            ) : null}
-          </section>
+          {usable.length > 0 ? null : existingLogins}
         </div>
       )}
     </QueryStates>

@@ -49,16 +49,19 @@ export type Destination = {
   description: { agency: string; business: string }
   /**
    * Where the desk sidebar puts it: `primary` is the daily work, `more` the
-   * organisation admin behind the sidebar's More disclosure (visited to
+   * organisation admin under the sidebar's "Workspace" label (visited to
    * change who may do what rather than to do it).
    */
   group: "primary" | "more"
   /**
-   * Follows the client scope: the link carries the remembered `?clientId=`
-   * (lib/clients/scope.ts CLIENT_SCOPED_PATHS), so moving between Inbox,
-   * Listings and Reports keeps the client.
+   * Whether the page follows the client scope. `true`: the link carries the
+   * remembered `?clientId=` (lib/clients/scope.ts CLIENT_SCOPED_PATHS), so
+   * moving between Inbox, Listings and Reports keeps the client. `false`:
+   * the page is organisation-wide and ignores the scope, so the phone app
+   * bar shows search and the bell there instead of the scope chip. Left out,
+   * the page has no scope of its own but the chip stays (Clients, Calendar).
    */
-  scoped?: true
+  scoped?: boolean
   /** Agency only: a business has one home client behind the scenes. */
   agencyOnly?: true
   /**
@@ -154,6 +157,7 @@ export const DESTINATIONS: readonly Destination[] = [
       business: "Connection, sync and publishing problems that need you",
     },
     group: "more",
+    scoped: false,
   },
   {
     id: "team",
@@ -165,6 +169,7 @@ export const DESTINATIONS: readonly Destination[] = [
       business: "People and what each can reach",
     },
     group: "more",
+    scoped: false,
     managersOnly: true,
   },
   {
@@ -177,6 +182,7 @@ export const DESTINATIONS: readonly Destination[] = [
       business: "Reply policy, Google connections and notifications",
     },
     group: "more",
+    scoped: false,
   },
 ]
 
@@ -299,6 +305,24 @@ export function isActivePath(pathname: string | null, href: string): boolean {
 }
 
 /**
+ * The one href a list of navigation rows marks as the current page: the
+ * longest of them that is the path or an ancestor of it, so a nested row
+ * (a pinned client under Clients) wins over its parent and only one row is
+ * ever `aria-current`.
+ */
+export function currentHref(
+  pathname: string | null,
+  hrefs: readonly string[]
+): string | null {
+  let best: string | null = null
+  for (const href of hrefs) {
+    if (!isActivePath(pathname, href)) continue
+    if (best === null || href.length > best.length) best = href
+  }
+  return best
+}
+
+/**
  * The destination a path belongs to, or null (Setup, a 404). A listing
  * belongs to Listings even when reached from its client.
  */
@@ -314,12 +338,47 @@ export function destinationForPath(
 
 /**
  * A top-level page is a destination's own page: the phone app bar shows the
- * client switcher there. Anything beneath one is a deep page and shows a
- * labelled back control instead.
+ * client switcher there (search and the bell on `scoped: false` pages).
+ * Anything beneath one is a deep page and shows a labelled back control
+ * instead.
  */
 export function isTopLevelPath(pathname: string | null): boolean {
   if (!pathname) return true
   const destination = destinationForPath(pathname)
   if (!destination) return pathname.split("/").filter(Boolean).length <= 1
   return pathname === destination.href
+}
+
+/** The longest back label the phone app bar keeps whole beside the title. */
+const SHORT_BACK_LABEL_MAX = 12
+
+const ENTITY_BACK_LABELS: readonly { pattern: RegExp; label: string }[] = [
+  { pattern: /^\/listings\/[^/]+$/, label: "Listing" },
+  { pattern: /^\/clients\/[^/]+$/, label: "Client" },
+]
+
+/**
+ * The back control's short label, for the phone app bar once the page title
+ * is echoed beside it ("‹ Listing", not "‹ Old Crown Girton Kitchen"): a
+ * name is replaced by what it is, a destination keeps its own label. A
+ * label that already fits, or one with nothing shorter to say, is returned
+ * as it is; the caller keeps the full label in `title`.
+ */
+export function shortBackLabel(target: {
+  href: string
+  label: string
+}): string {
+  if (target.label.length <= SHORT_BACK_LABEL_MAX) return target.label
+  const path = target.href.split(/[?#]/)[0] ?? ""
+  const entity = ENTITY_BACK_LABELS.find(({ pattern }) => pattern.test(path))
+  if (entity) return entity.label
+  // Only a destination's own page may take the destination's name: a deeper
+  // target keeps its label (the bar truncates it, with `title` in full)
+  // rather than announcing a page it isn't.
+  const destination = destinationForPath(path)
+  return destination &&
+    destination.href === path &&
+    destination.label.length < target.label.length
+    ? destination.label
+    : target.label
 }

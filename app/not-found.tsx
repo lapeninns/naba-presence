@@ -1,22 +1,27 @@
-import { FileQuestion } from "lucide-react"
 import Link from "next/link"
 
-import { boundaryButtonClass } from "@/components/app-shell/boundary"
+import {
+  boundaryButtonClass,
+  NOT_FOUND_TITLE,
+  notFoundActionLabel,
+  NotFoundState,
+} from "@/components/app-shell/boundary"
 import { BrandMark } from "@/components/app-shell/brand-mark"
 
-export const metadata = { title: "Page not found · NabaPresence" }
+export const metadata = { title: `${NOT_FOUND_TITLE} · NabaPresence` }
 
 /**
  * The root 404, outside the shell: no sidebar, so the page is the wordmark
  * and a calm, centred empty state whose one action is the way back in. On a
- * phone it sits on the canvas; from `sm` it gets a card.
+ * phone it sits on the canvas; from `sm` it gets a card. Its words come from
+ * `NotFoundState`, shared with the 404 inside the shell.
  */
 export default function NotFound() {
   return (
     <main
       id="main"
       tabIndex={-1}
-      className="flex min-h-svh flex-col items-center justify-center gap-6 bg-canvas px-safe py-10 text-ink outline-none"
+      className="flex min-h-svh flex-col items-center justify-center gap-6 bg-canvas py-10 px-safe text-ink outline-none"
     >
       <Link
         href="/inbox"
@@ -24,33 +29,14 @@ export default function NotFound() {
       >
         <BrandMark size="lg" />
       </Link>
-      <section
-        aria-labelledby="not-found-title"
-        className="flex w-full max-w-md flex-col items-center gap-2 px-5 text-center sm:rounded-2xl sm:border sm:border-line sm:bg-surface sm:p-8"
-      >
-        <span
-          aria-hidden
-          className="mb-1 grid size-11 place-items-center rounded-lg bg-fill text-ink-secondary"
-        >
-          <FileQuestion className="size-5" strokeWidth={1.5} />
-        </span>
-        <h1
-          id="not-found-title"
-          className="text-title font-medium text-balance text-ink"
-        >
-          Page not found
-        </h1>
-        <p className="text-ui text-pretty text-ink-muted">
-          The page you’re looking for doesn’t exist or has moved. Nothing was
-          changed.
-        </p>
+      <NotFoundState className="w-full max-w-md px-5 sm:rounded-2xl sm:border sm:border-line sm:bg-surface sm:p-8">
         <Link
           href="/inbox"
           className={boundaryButtonClass("primary", "lg", "mt-3 w-full")}
         >
-          Go to Inbox
+          {notFoundActionLabel("Inbox")}
         </Link>
-      </section>
+      </NotFoundState>
     </main>
   )
 }

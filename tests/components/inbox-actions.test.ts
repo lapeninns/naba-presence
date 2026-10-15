@@ -148,11 +148,28 @@ describe("describeOutcomeToast", () => {
       cancelled: "local",
     })
   })
+  it("does not say Live on Google while Google is still checking the reply", () => {
+    const toast = describeOutcomeToast("published", {
+      googleReplyState: "PENDING",
+    })
+    expect(toast).toEqual({
+      kind: "google",
+      title: "Reply sent",
+      description:
+        "Google is checking it. It is not public until Google approves it.",
+      type: "info",
+    })
+    expect(JSON.stringify(toast)).not.toMatch(/live/i)
+    expect(
+      describeOutcomeToast("published", { googleReplyState: "APPROVED" }).title
+    ).toBe("Reply published")
+  })
   it("shows the awaiting-approval copy, not success", () => {
     expect(describeOutcomeToast("awaiting_approval")).toEqual({
       kind: "google",
       title: "Submitted for approval",
-      description: "It goes live on Google once a manager approves it.",
+      description:
+        "It goes live once someone with publishing rights approves it.",
       type: "info",
     })
   })

@@ -750,7 +750,7 @@ export function BulkCompose() {
                     }
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent title="What to change">
                   {OPERATIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -828,7 +828,7 @@ export function BulkCompose() {
                                 }
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent title="Set to">
                               <SelectItem value="closed">Closed</SelectItem>
                               <SelectItem value="open">Open</SelectItem>
                               <SelectItem value="clear">
@@ -925,7 +925,7 @@ export function BulkCompose() {
                             }
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent title="Service">
                           {hoursTypes.map((type) => (
                             <SelectItem
                               key={type.hoursTypeId}
@@ -1105,7 +1105,7 @@ export function BulkCompose() {
                             }
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent title={row.name.trim() || "Value"}>
                           <SelectItem value="true">Yes</SelectItem>
                           <SelectItem value="false">No</SelectItem>
                         </SelectContent>
@@ -1177,7 +1177,7 @@ export function BulkCompose() {
                             }
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent title={label}>
                           <SelectItem value="keep">Leave as is</SelectItem>
                           <SelectItem value="set">Set to</SelectItem>
                           <SelectItem value="clear">Remove</SelectItem>
@@ -1247,7 +1247,7 @@ export function BulkCompose() {
                         }
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent title="Open status">
                       <SelectItem value="keep">Leave as is</SelectItem>
                       <SelectItem value="OPEN">Open</SelectItem>
                       <SelectItem value="CLOSED_TEMPORARILY">
@@ -1374,7 +1374,7 @@ export function BulkCompose() {
                             }
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent title={row.path || "Value"}>
                           <SelectItem value="true">Yes</SelectItem>
                           <SelectItem value="false">No</SelectItem>
                           <SelectItem value="clear">Not set</SelectItem>
@@ -1429,7 +1429,7 @@ export function BulkCompose() {
                         }
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent title="Copy the menus of">
                       {ids.map((id) => (
                         <SelectItem key={id} value={id}>
                           {names.get(id) ?? "Listing"}
@@ -1552,7 +1552,7 @@ export function BulkCompose() {
                           }
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent title="Uploaded photo to add">
                         {(assets.data ?? []).map((asset) => (
                           <SelectItem key={asset.id} value={asset.id}>
                             {`${asset.fileName} (${asset.width ?? "?"} × ${asset.height ?? "?"})`}
@@ -1585,7 +1585,7 @@ export function BulkCompose() {
                           }
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent title="Photo category">
                         {BULK_PHOTO_CATEGORIES.map((category) => (
                           <SelectItem key={category} value={category}>
                             {PHOTO_CATEGORY_LABEL[category]}
@@ -1647,7 +1647,7 @@ export function BulkCompose() {
                           {(v: string | null) => (v ? actionTypeLabel(v) : "")}
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent title="Type">
                         {GOOGLE_PLACE_ACTION_TYPES.map((type) => (
                           <SelectItem key={type} value={type}>
                             {actionTypeLabel(type)}

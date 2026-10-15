@@ -16,6 +16,7 @@ import {
   overlayPopupClassName,
   overlayScrimClassName,
   overlayScrollPaddingClassName,
+  overlayTitleClassName,
   overlayViewportClassName,
   markOverlayHeader,
   useOverlayChrome,
@@ -70,12 +71,14 @@ type SheetPresentation =
  *   full   a search picker or tag manager: the bottom sheet at its full
  *          height on a phone, the centred dialog from `sm`.
  *
- * Every variant's title is `text-title` 600 (brief §4.3). `inset` and `full`
- * centre it in a three-part bar; a pushed page puts
- * a labelled back control (`SheetBack`) before a left-aligned title, and
- * `page` on the header moves focus to the new title. A confirm is either
- * immediate (apply on tap, no button) or the header's single `action` on
- * the right ("Schedule", "Done"), never both.
+ * Every variant's title is the one overlay title (`overlayTitleClassName`:
+ * `text-title` 600, left-aligned). `inset` and `full` draw the header as a
+ * bar: the title on the left, the ✕ (and the header's `action`, if any) on
+ * the right; a pushed page puts a labelled back control (`SheetBack`) before
+ * the title, and `page` on the header moves focus to the new title. A
+ * confirm is either immediate (apply on tap, no button) or the header's
+ * single `action` on the right ("Schedule", "Done"), never both. A sheet
+ * with a footer confirm has no Cancel beside the ✕.
  */
 export type SheetVariant = "edge" | "inset" | "full"
 
@@ -258,9 +261,8 @@ function SheetContent({
  * its corner and, on a bottom sheet, the drag handle above the title.
  *
  * On an `inset` or `full` sheet (or wherever `back` or `action` is given)
- * the header is a three-part bar: the back control or nothing on the left,
- * the title (centred; left-aligned after a back control), and on the right
- * the single header action or, without one, the close button.
+ * the header is a bar: the back control (if any), the left-aligned title,
+ * and on the right the single header action beside the close button.
  *
  * `page` names the page an in-sheet push is showing. When it changes, focus
  * moves to the new title, so a screen reader hears where it landed and the
@@ -332,11 +334,11 @@ const SheetHeader = markOverlayHeader(function SheetHeader({
     )
   }
 
+  // The close button is never gone (WCAG 2.5.7): it stays on the right,
+  // after the header's one action when there is one.
   const close = closeButton ? <OverlayCloseButton className="static" /> : null
-  // With an action, Close moves: to the leading slot, or beside the action
-  // when a back control holds that slot. Never gone (WCAG 2.5.7).
   const trailing =
-    action && hasBack && close ? (
+    action && close ? (
       <span className="flex items-center gap-1">
         {action}
         {close}
@@ -362,31 +364,20 @@ const SheetHeader = markOverlayHeader(function SheetHeader({
         data-slot="sheet-header-bar"
         className={cn(
           "grid min-h-(--np-touch) items-center gap-2",
-          // Centred: the side columns never collapse under a long title or
-          // description, so the trailing close or action keeps its own room
-          // instead of drawing over the words (FINAL-QA #4). The leading
-          // column reserves one touch target; the trailing one its control.
+          // The title takes what the trailing control leaves; the trailing
+          // cell keeps its control's width, so a long title or description
+          // wraps beside the ✕ and never draws under it (FINAL-QA #4).
           hasBack
-            ? "grid-cols-[auto_1fr_auto]"
-            : "grid-cols-[minmax(var(--np-touch),1fr)_minmax(0,auto)_minmax(max-content,1fr)]"
+            ? "grid-cols-[auto_minmax(0,1fr)_auto]"
+            : "grid-cols-[minmax(0,1fr)_auto] pl-2"
         )}
       >
-        <div className="flex min-w-0 justify-start">
-          {hasBack ? (
-            back
-          ) : action && closeButton ? (
-            // The header's action replaces the trailing close, so Close moves
-            // to the leading slot: the button alternative to every dismissal
-            // gesture (WCAG 2.5.7) must survive a "Done" or "Schedule".
-            <OverlayCloseButton className="static" />
-          ) : null}
-        </div>
+        {hasBack ? (
+          <div className="flex min-w-0 justify-start">{back}</div>
+        ) : null}
         <div
           data-slot="sheet-header-title"
-          className={cn(
-            "flex min-w-0 flex-col gap-0.5",
-            hasBack ? "items-start text-left" : "items-center text-center"
-          )}
+          className="flex min-w-0 flex-col items-start gap-0.5 text-left"
         >
           {children}
         </div>
@@ -479,8 +470,9 @@ function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
       // variant: an edge sheet can push a page too).
       tabIndex={-1}
       className={cn(
+        overlayTitleClassName,
         // A keyboard user who lands here after a push sees an inset ring.
-        "rounded-(--np-radius-tag) text-title font-semibold text-ink outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2",
+        "rounded-(--np-radius-tag) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2",
         className
       )}
       {...props}

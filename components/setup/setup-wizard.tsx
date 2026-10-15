@@ -28,6 +28,7 @@ import { useClient, useClientSetup } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { GOOGLE_RETURN_PARAMS } from "@/lib/setup/oauth-status"
 import {
+  CONNECT_FIRST_LOGIN_ID,
   resolveStep,
   setupStepsFor,
   stepBlocker,
@@ -130,6 +131,8 @@ function SetupWizard({ clientId }: { clientId: string }) {
     message: string
     key: number
   } | null>(null)
+  // Counts blocked Continues on Connect that have a login to point at.
+  const [connectBlocks, setConnectBlocks] = React.useState(0)
   const [stepsOpen, setStepsOpen] = React.useState(false)
   const titleRef = React.useRef<HTMLHeadingElement>(null)
   // Keyboard safety for the docked step bar, as the editors have it: a
@@ -166,6 +169,15 @@ function SetupWizard({ clientId }: { clientId: string }) {
     }
     shownStep.current = current
   }, [current, resolved])
+
+  // A blocked Continue on Connect, with a working login on file, brings the
+  // "Use this account" options into view: the reason says to pick one above.
+  React.useEffect(() => {
+    if (connectBlocks === 0) return
+    document
+      .getElementById(CONNECT_FIRST_LOGIN_ID)
+      ?.scrollIntoView?.({ block: "center" })
+  }, [connectBlocks])
 
   const following = flow[flow.indexOf(current) + 1]
   React.useEffect(() => {
@@ -254,12 +266,21 @@ function SetupWizard({ clientId }: { clientId: string }) {
       ? AGENCY_UNSAVED
       : stepBlocker(current, facts)
   const showSummary = attempt?.step === current
+  // With a working login on file the quick path is the first option, and it
+  // sits above the sign-in button, so that is where the reason points.
+  const summaryFieldId =
+    current === "connect" && facts.usableLogin
+      ? CONNECT_FIRST_LOGIN_ID
+      : focusTargetFor(current)
   const steps = stepperState(current, facts, mode).map((step) => ({
     id: step.id,
     label: step.label,
     state: step.state,
     note: step.optional ? "Optional" : undefined,
     href: step.reachable && step.id !== current ? hrefFor(step.id) : undefined,
+    // Done closes the flow and is left out of "Step N of M", so it is drawn
+    // without a number too.
+    unnumbered: step.id === "done",
   }))
   const name = business
     ? (clientName ?? "your business")
@@ -306,6 +327,9 @@ function SetupWizard({ clientId }: { clientId: string }) {
         : stepBlocker(current, freshFacts)
     if (reason) {
       setAttempt({ step: current, message: reason, key: Date.now() })
+      if (current === "connect" && freshUsable) {
+        setConnectBlocks((count) => count + 1)
+      }
       return
     }
     goTo(flow[Math.min(index + 1, flow.length - 1)])
@@ -435,7 +459,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   focusKey={attempt.key}
                   errors={[
                     {
-                      fieldId: focusTargetFor(current),
+                      fieldId: summaryFieldId,
                       message: attempt.message,
                     },
                   ]}

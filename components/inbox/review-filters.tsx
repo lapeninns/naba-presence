@@ -87,7 +87,7 @@ function ReviewSortSelect({
       <SelectTrigger aria-label="Sort reviews" className={className}>
         <SelectValue />
       </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false}>
+      <SelectContent title="Sort reviews" alignItemWithTrigger={false}>
         {REVIEW_SORTS.map((sort) => (
           <SelectItem key={sort} value={sort}>
             {REVIEW_SORT_LABELS[sort]}

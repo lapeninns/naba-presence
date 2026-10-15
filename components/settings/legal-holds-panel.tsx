@@ -18,7 +18,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogBody,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -202,7 +201,6 @@ function ApplyHoldDialog({
             ) : null}
           </DialogBody>
           <DialogFooter>
-            <DialogClose render={<Button variant="ghost">Cancel</Button>} />
             <Button
               type="submit"
               pending={apply.isPending}

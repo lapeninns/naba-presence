@@ -1,10 +1,19 @@
 "use client"
 
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
-import { LockIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, LockIcon } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
+import { isZeroCount } from "@/components/ui/count-text"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 
 /**
@@ -24,6 +33,15 @@ import { cn } from "@/lib/utils"
  * other tabs. The visible words are the accessible name (WCAG 2.5.3): to
  * shorten a label on a phone use `shortLabel`, never an `aria-label` that
  * differs from what is shown.
+ *
+ * A tab is never narrower than `--np-touch` (44px) on touch, so a one-word
+ * tab ("All") is still a target. A count of zero draws no figure
+ * (`TabCount`, one rule with `ChipCount`).
+ *
+ * A long `TabNav` can opt into `overflow="more"`: at a desk, tabs that do
+ * not fit move into a "More" menu rather than hiding behind a fade (a mouse
+ * has no sideways swipe). The current tab always stays in the row; a phone
+ * or tablet keeps scrolling.
  */
 function Tabs({ className, ...props }: TabsPrimitive.Root.Props) {
   return (
@@ -153,7 +171,7 @@ function useCurrentInView(
  * to a section of the same page, e.g. a profile's section nav).
  */
 const tabItemClassName = cn(
-  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
+  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
@@ -171,7 +189,7 @@ const tabItemClassName = cn(
  * a faded, clipped edge rather than squeezing a label.
  */
 const textTabItemClassName = cn(
-  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
+  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
@@ -184,8 +202,12 @@ const textTabItemClassName = cn(
 /** The text tabs' row: the same scrolling strip without the hairline. */
 const textTabsRowClassName = cn(tabsRowClassName, "gap-0.5 border-b-0")
 
-/** A count after a text tab's label ("Needs reply 12"). */
+/**
+ * A count after a text tab's label ("Needs reply 12"). A zero draws
+ * nothing (see `isZeroCount`): one rule with `ChipCount`.
+ */
 function TabCount({ className, ...props }: React.ComponentProps<"span">) {
+  if (isZeroCount(props.children)) return null
   return (
     <span
       data-slot="tab-count"
@@ -347,27 +369,394 @@ export type TabNavItem = {
 const disabledTabClassName =
   "cursor-not-allowed font-normal opacity-60 hover-fine:hover:text-ink-muted"
 
+/** The label, reason and count inside a tab, shared by every drawing of it. */
+function TabNavContent({ item }: { item: TabNavItem }) {
+  const reason = item.unavailableReason ? (
+    <>
+      <LockIcon aria-hidden className="size-3.5 text-ink-muted" />
+      <span className="sr-only"> (unavailable: {item.unavailableReason})</span>
+    </>
+  ) : null
+  return (
+    <>
+      <TabLabel label={item.label} shortLabel={item.shortLabel} />
+      {reason}
+      {item.count !== undefined &&
+      item.count !== null &&
+      !isZeroCount(item.count) ? (
+        <>
+          {/* A flex row drops this space from the drawing; it keeps
+              the name "Needs reply 12", not "Needs reply12". */}{" "}
+          <TabCount>{item.count}</TabCount>
+        </>
+      ) : null}
+      {item.badge}
+    </>
+  )
+}
+
+/** Whether a tab is drawn as a dead (disabled) link rather than a link. */
+const isDeadTab = (item: TabNavItem) => Boolean(item.disabled && !item.current)
+
+function TabNavLink({
+  item,
+  itemClassName,
+}: {
+  item: TabNavItem
+  itemClassName: string
+}) {
+  const content = <TabNavContent item={item} />
+  return isDeadTab(item) ? (
+    // No href: not focusable, not followable. The explicit role
+    // keeps it announced as a (disabled) link among its siblings.
+    <a
+      role="link"
+      aria-disabled="true"
+      data-disabled=""
+      data-unavailable={item.unavailableReason ? true : undefined}
+      title={item.unavailableReason ?? undefined}
+      className={cn(itemClassName, disabledTabClassName)}
+    >
+      {content}
+    </a>
+  ) : (
+    <Link
+      href={item.href}
+      aria-current={item.current ? "page" : undefined}
+      data-unavailable={item.unavailableReason ? true : undefined}
+      title={item.unavailableReason ?? undefined}
+      className={cn(itemClassName, item.unavailableReason && "font-normal")}
+    >
+      {content}
+    </Link>
+  )
+}
+
+/** The default row: every tab, scrolling sideways with a faded edge. */
+function TabNavScrollRow({
+  items,
+  itemClassName,
+  variant,
+}: {
+  items: TabNavItem[]
+  itemClassName: string
+  variant: TabsVariant
+}) {
+  const rowRef = React.useRef<HTMLUListElement>(null)
+  useScrollFade(rowRef)
+  const currentHref = items.find((item) => item.current)?.href
+  useCurrentInView(rowRef, '[aria-current="page"]', currentHref)
+  return (
+    <ul
+      ref={rowRef}
+      className={cn(
+        variant === "text" ? textTabsRowClassName : tabsRowClassName,
+        "list-none"
+      )}
+    >
+      {items.map((item) => (
+        <li key={item.href} className="flex shrink-0">
+          <TabNavLink item={item} itemClassName={itemClassName} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** What the "More" row needs to know about the room it has. */
+type StripLayout = {
+  /** Each tab's width, in order. */
+  widths: number[]
+  /** The space between two tabs. */
+  gap: number
+  /** The "More" trigger's width. */
+  more: number
+  /** The width of the row. */
+  available: number
+}
+
+/**
+ * Which tabs stay in the row (true) and which go into "More" (false).
+ * Everything stays when it all fits. Otherwise the row keeps the CURRENT
+ * tab first, so the reader always sees where they are, then as many of the
+ * others as fit in order, leaving room for the "More" trigger. The tabs
+ * that stay are one unbroken run from the start, plus the current tab.
+ */
+function fitTabs(
+  { widths, gap, more, available }: StripLayout,
+  current: number
+): boolean[] {
+  const span = (sum: number, count: number) =>
+    sum + gap * Math.max(0, count - 1)
+  const total = span(
+    widths.reduce((sum, width) => sum + width, 0),
+    widths.length
+  )
+  // Not measured (a hidden or unlaid-out row) or it all fits.
+  if (available <= 0 || total <= available + 0.5) return widths.map(() => true)
+  const room = available - more - gap
+  const visible = widths.map(() => false)
+  let sum = 0
+  let count = 0
+  const take = (index: number) => {
+    if (span(sum + widths[index], count + 1) > room) return false
+    visible[index] = true
+    sum += widths[index]
+    count += 1
+    return true
+  }
+  if (current >= 0) take(current)
+  for (let index = 0; index < widths.length; index += 1) {
+    if (visible[index]) continue
+    if (!take(index)) break
+  }
+  return visible
+}
+
+/** Reads the room from the hidden measuring row (see `TabNavMoreRow`). */
+function measureStrip(
+  row: HTMLElement,
+  ghost: HTMLElement
+): StripLayout | null {
+  const cells = Array.from(ghost.children)
+  if (cells.length < 2) return null
+  const boxes = cells.map((cell) => cell.getBoundingClientRect())
+  const round = (value: number) => Math.round(value * 100) / 100
+  const widths = boxes.slice(0, -1).map((box) => round(box.width))
+  const gap =
+    boxes.length > 2 ? Math.max(0, round(boxes[1].left - boxes[0].right)) : 0
+  return {
+    widths,
+    gap,
+    more: round(boxes[boxes.length - 1].width),
+    available: round(row.getBoundingClientRect().width),
+  }
+}
+
+const sameLayout = (a: StripLayout | null, b: StripLayout | null) =>
+  a === b ||
+  (a !== null &&
+    b !== null &&
+    a.gap === b.gap &&
+    a.more === b.more &&
+    a.available === b.available &&
+    a.widths.length === b.widths.length &&
+    a.widths.every((width, index) => width === b.widths[index]))
+
+/**
+ * The desk row for `overflow="more"`: the tabs that fit, then a "More"
+ * menu holding the rest. Widths come from a hidden, inert copy of every tab
+ * (`ghost`), so a tab that has moved into the menu can still be measured
+ * and put back when there is room; the copy is clipped to a zero-height box
+ * so it never widens the page. Until the first measure every tab is drawn
+ * (the layout effect lands before the first paint).
+ */
+function TabNavMoreRow({
+  items,
+  itemClassName,
+  variant,
+  moreLabel,
+}: {
+  items: TabNavItem[]
+  itemClassName: string
+  variant: TabsVariant
+  moreLabel: string
+}) {
+  const rowRef = React.useRef<HTMLUListElement>(null)
+  const ghostRef = React.useRef<HTMLUListElement>(null)
+  const [layout, setLayout] = React.useState<StripLayout | null>(null)
+  const gapClassName = variant === "text" ? "gap-0.5" : "gap-1"
+
+  const measure = React.useCallback(() => {
+    const row = rowRef.current
+    const ghost = ghostRef.current
+    if (!row || !ghost) return
+    const next = measureStrip(row, ghost)
+    setLayout((previous) => (sameLayout(previous, next) ? previous : next))
+  }, [])
+  // After every render, so a count arriving or a label changing is measured
+  // before it paints; `setLayout` only changes state when a number moved.
+  React.useLayoutEffect(measure)
+  React.useEffect(() => {
+    const row = rowRef.current
+    const ghost = ghostRef.current
+    if (!row || !ghost || typeof ResizeObserver === "undefined") return
+    // The row resizing (the window, the shell's sidebar) and a tab resizing
+    // after mount (a late web font).
+    const observer = new ResizeObserver(measure)
+    observer.observe(row)
+    for (const cell of ghost.children) observer.observe(cell)
+    return () => observer.disconnect()
+  }, [measure, items.length])
+
+  const currentIndex = items.findIndex((item) => item.current)
+  const fits =
+    layout && layout.widths.length === items.length
+      ? fitTabs(layout, currentIndex)
+      : null
+  const shown = items.filter((_, index) => fits?.[index] ?? true)
+  const overflow = items.filter((_, index) => fits !== null && !fits[index])
+  const currentOverflow = overflow.find((item) => item.current)
+
+  return (
+    <div className="relative">
+      <div
+        aria-hidden
+        inert
+        data-slot="tab-nav-measure"
+        className="pointer-events-none invisible absolute inset-x-0 top-0 h-0 overflow-hidden"
+      >
+        <ul
+          ref={ghostRef}
+          className={cn("flex w-max list-none items-end", gapClassName)}
+        >
+          {items.map((item) => (
+            <li key={item.href} className="flex shrink-0">
+              <span
+                // Not `aria-current`: the copy must not add a second current
+                // page to the nav. The attribute only makes it 600 weight.
+                data-current={item.current ? "" : undefined}
+                className={cn(
+                  itemClassName,
+                  "data-current:font-semibold",
+                  isDeadTab(item)
+                    ? disabledTabClassName
+                    : item.unavailableReason && "font-normal"
+                )}
+              >
+                <TabNavContent item={item} />
+              </span>
+            </li>
+          ))}
+          <li className="flex shrink-0">
+            {/* Measured at 600, how it is drawn when it is the current tab. */}
+            <span className={cn(itemClassName, "font-semibold")}>
+              {moreLabel}
+              <ChevronDownIcon aria-hidden />
+            </span>
+          </li>
+        </ul>
+      </div>
+      <ul
+        ref={rowRef}
+        className={cn(
+          "flex min-w-0 list-none items-end overflow-hidden",
+          gapClassName,
+          variant === "text" ? "border-b-0" : "border-b border-line"
+        )}
+      >
+        {shown.map((item) => (
+          <li key={item.href} className="flex shrink-0">
+            <TabNavLink item={item} itemClassName={itemClassName} />
+          </li>
+        ))}
+        {overflow.length > 0 ? (
+          <li className="flex shrink-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                data-slot="tab-nav-more"
+                // The reader is on a page that lives in the menu: the
+                // trigger takes the current tab's underline.
+                aria-current={currentOverflow ? "page" : undefined}
+                className={cn(
+                  itemClassName,
+                  "cursor-pointer data-popup-open:text-ink"
+                )}
+              >
+                {moreLabel}
+                {currentOverflow ? (
+                  <span className="sr-only">
+                    , current page: {currentOverflow.label}
+                  </span>
+                ) : null}
+                <ChevronDownIcon aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" title={moreLabel}>
+                {overflow.map((item) => (
+                  <DropdownMenuItem
+                    key={item.href}
+                    disabled={isDeadTab(item)}
+                    render={
+                      isDeadTab(item) ? (
+                        <a />
+                      ) : (
+                        <Link
+                          href={item.href}
+                          aria-current={item.current ? "page" : undefined}
+                          data-unavailable={
+                            item.unavailableReason ? true : undefined
+                          }
+                        />
+                      )
+                    }
+                    className={cn(
+                      item.unavailableReason && "items-start py-1.5"
+                    )}
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span
+                        className={cn(
+                          item.unavailableReason && "font-normal text-ink-muted"
+                        )}
+                      >
+                        {item.label}
+                      </span>
+                      {item.unavailableReason ? (
+                        <span className="text-caption text-ink-muted">
+                          <span className="sr-only">Unavailable: </span>
+                          {item.unavailableReason}
+                        </span>
+                      ) : null}
+                    </span>
+                    {item.count !== undefined && item.count !== null ? (
+                      <TabCount>{item.count}</TabCount>
+                    ) : null}
+                    {item.badge}
+                    {item.current ? <CheckIcon aria-hidden /> : null}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </li>
+        ) : null}
+      </ul>
+    </div>
+  )
+}
+
 /**
  * Link tabs between routes. `aria-label` names the navigation landmark.
  * The current link carries `aria-current="page"` and the ink underline, and
  * is scrolled into view along the row on mount and on every route change.
+ *
+ * `overflow` chooses what a row too long for its width does:
+ * - `"scroll"` (the default): scroll sideways with a faded edge, everywhere;
+ * - `"more"`: scroll on a phone or tablet, but at a desk (a fine pointer at
+ *   least `md` wide, where a mouse cannot swipe) keep the tabs that fit
+ *   and put the rest in a "More" menu. The current tab always stays in the
+ *   row; if there is no room even for it, the "More" trigger is drawn as
+ *   current instead. The server and the first client render are the
+ *   scrolling row, so there is no hydration mismatch.
  */
 function TabNav({
   items,
   variant = "line",
+  overflow = "scroll",
+  moreLabel = "More",
   className,
   ...props
 }: Omit<React.ComponentProps<"nav">, "children"> & {
   items: TabNavItem[]
   /** `text`: Notion Mail text tabs (see `textTabItemClassName`). */
   variant?: TabsVariant
+  /** What a row too long for its width does at a desk (see above). */
+  overflow?: "scroll" | "more"
+  /** The overflow menu's trigger. Default "More". */
+  moreLabel?: string
 }) {
   const itemClassName =
     variant === "text" ? textTabItemClassName : tabItemClassName
-  const rowRef = React.useRef<HTMLUListElement>(null)
-  useScrollFade(rowRef)
-  const currentHref = items.find((item) => item.current)?.href
-  useCurrentInView(rowRef, '[aria-current="page"]', currentHref)
+  const desk = useMediaQuery(mediaQuery("desk"), false)
   return (
     <nav
       data-slot="tab-nav"
@@ -375,70 +764,20 @@ function TabNav({
       className={cn("min-w-0", className)}
       {...props}
     >
-      <ul
-        ref={rowRef}
-        className={cn(
-          variant === "text" ? textTabsRowClassName : tabsRowClassName,
-          "list-none"
-        )}
-      >
-        {items.map((item) => {
-          const reason = item.unavailableReason ? (
-            <>
-              <LockIcon aria-hidden className="size-3.5 text-ink-muted" />
-              <span className="sr-only">
-                {" "}
-                (unavailable: {item.unavailableReason})
-              </span>
-            </>
-          ) : null
-          const content = (
-            <>
-              <TabLabel label={item.label} shortLabel={item.shortLabel} />
-              {reason}
-              {item.count !== undefined && item.count !== null ? (
-                <>
-                  {/* A flex row drops this space from the drawing; it keeps
-                      the name "Needs reply 12", not "Needs reply12". */}{" "}
-                  <TabCount>{item.count}</TabCount>
-                </>
-              ) : null}
-              {item.badge}
-            </>
-          )
-          return (
-            <li key={item.href} className="flex shrink-0">
-              {item.disabled && !item.current ? (
-                // No href: not focusable, not followable. The explicit role
-                // keeps it announced as a (disabled) link among its siblings.
-                <a
-                  role="link"
-                  aria-disabled="true"
-                  data-disabled=""
-                  data-unavailable={item.unavailableReason ? true : undefined}
-                  title={item.unavailableReason ?? undefined}
-                  className={cn(itemClassName, disabledTabClassName)}
-                >
-                  {content}
-                </a>
-              ) : (
-                <Link
-                  href={item.href}
-                  aria-current={item.current ? "page" : undefined}
-                  data-unavailable={item.unavailableReason ? true : undefined}
-                  title={item.unavailableReason ?? undefined}
-                  className={cn(
-                    itemClassName,
-                    item.unavailableReason && "font-normal"
-                  )}
-                >
-                  {content}
-                </Link>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+      {overflow === "more" && desk ? (
+        <TabNavMoreRow
+          items={items}
+          itemClassName={itemClassName}
+          variant={variant}
+          moreLabel={moreLabel}
+        />
+      ) : (
+        <TabNavScrollRow
+          items={items}
+          itemClassName={itemClassName}
+          variant={variant}
+        />
+      )}
     </nav>
   )
 }

@@ -13,8 +13,14 @@ import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
 import { PresenceFigures } from "@/components/performance/presence-figures"
-import { RefreshGoogleButton } from "@/components/performance/refresh-google-button"
+import {
+  RefreshGoogleButton,
+  RefreshStatus,
+  useRefreshWatch,
+} from "@/components/performance/refresh-google-button"
+import { ReportsSkeleton } from "@/components/reporting/reports-skeleton"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useAnalyticsPresence } from "@/lib/queries/use-analytics-presence"
 import {
   DEFAULT_RANGES,
@@ -49,6 +55,17 @@ export function GooglePerformanceTab({
   const setRangeId = onRangeChange ?? setOwnRange
   const role = useSessionRole()
   const presence = useAnalyticsPresence({ range: rangeId, clientId })
+  // A refresh is followed until the fetch times (or the data) change.
+  const refresh = useRefreshWatch(
+    "performance",
+    presence.data
+      ? [
+          presence.data.fetchedAt?.oldest,
+          presence.data.fetchedAt?.newest,
+          presence.data.freshThrough,
+        ].join("|")
+      : null
+  )
   // The server's own dates once it answers; the same rule before that.
   const answered = presence.data
     ? { from: presence.data.from, to: presence.data.to }
@@ -63,10 +80,22 @@ export function GooglePerformanceTab({
   const header = (
     <ReportTabHead
       caption={
-        // Only a real "as at" date: with nothing collected the panel below
-        // already says so, and the caption would repeat it word for word.
-        !presence.data?.freshThrough ? null : (
-          <PresenceProvenance data={presence.data} />
+        presence.isPending ? (
+          // The provenance is two lines once it arrives: keep their room so
+          // the tiles do not drop when it appears.
+          <div aria-hidden className="flex flex-col gap-1">
+            <Skeleton className="h-4 w-72 max-w-full" />
+            <Skeleton className="h-4 w-40 max-w-full" />
+          </div>
+        ) : !presence.data?.freshThrough && !refresh.refreshing ? null : (
+          // Only a real "as at" date: with nothing collected the panel below
+          // already says so, and the caption would repeat it word for word.
+          <>
+            {presence.data?.freshThrough ? (
+              <PresenceProvenance data={presence.data} />
+            ) : null}
+            {refresh.refreshing ? <RefreshStatus /> : null}
+          </>
         )
       }
       controls={
@@ -76,7 +105,8 @@ export function GooglePerformanceTab({
           <RefreshGoogleButton
             kind="performance"
             canTrigger
-            onDone={() => void presence.refetch()}
+            onStart={refresh.onStart}
+            onFailed={refresh.onFailed}
           />
         ) : null
       }
@@ -94,7 +124,7 @@ export function GooglePerformanceTab({
 
   if (presence.isPending)
     return frame(
-      <ReportingPanel variant="loading" title="Loading visibility figures…" />
+      <ReportsSkeleton variant="google" label="Loading visibility figures…" />
     )
   if (presence.isError)
     return frame(

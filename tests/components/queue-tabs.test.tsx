@@ -119,14 +119,16 @@ describe("QueueTabs", () => {
     }
   })
 
-  it("draws an empty queue as a dash but still says '0 reviews'", () => {
-    // Sighted operators scan for a number and a dash reads as "nothing here"
-    // faster than a 0 does; the announcement stays explicit so the distinction
-    // between "empty" and "still loading" survives without the visual.
+  it("draws an empty queue with no figure but still says '0 reviews'", () => {
+    // The one zero rule (TabCount): no dash, which reads as "unknown", and no
+    // "0". The announcement stays explicit so "empty" is still told apart
+    // from "still loading" (a skeleton) without the visual.
     renderTabs({ counts: counts({ publishing: 0 }) })
-    expect(within(tab("publishing")).getByText("–")).toBeInTheDocument()
-    expect(tab("publishing")).toHaveAccessibleName("Publishing, 0 reviews")
-    expect(within(tab("publishing")).queryByText("0")).not.toBeInTheDocument()
+    const empty = tab("publishing")
+    expect(empty.querySelector('[data-slot="tab-count"]')).toBeNull()
+    expect(within(empty).queryByText("–")).not.toBeInTheDocument()
+    expect(within(empty).queryByText("0")).not.toBeInTheDocument()
+    expect(empty).toHaveAccessibleName("Publishing, 0 reviews")
   })
 
   it("marks the current queue with aria-current", () => {

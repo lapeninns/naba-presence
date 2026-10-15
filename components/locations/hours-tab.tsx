@@ -451,11 +451,6 @@ function HoursForm({
           // A role that can't edit gets the one view-only bar, not a row
           // of disabled buttons.
           readOnlyReason={editReason}
-          hint={
-            hours.status === "in_sync"
-              ? "These hours match Google."
-              : "Google holds a different schedule. Review to see what differs."
-          }
         />
       }
     >

@@ -117,14 +117,18 @@ function content(
     case "disconnected":
       return {
         title: "Google is not connected.",
-        description: "Reconnect Google to sync and reply to your reviews.",
+        description: canManageClients
+          ? "Reconnect Google to sync and reply to your reviews."
+          : "Ask an owner or admin to reconnect Google so you can sync and reply to your reviews.",
       }
     case "not_connected":
       return {
         title: "No locations are linked to Google yet.",
-        description: business
-          ? "Link your locations to Google and their reviews will be imported here."
-          : "Link a client's locations to Google and their reviews will be imported here.",
+        description: canManageClients
+          ? business
+            ? "Link your locations to Google and their reviews will be imported here."
+            : "Link a client's locations to Google and their reviews will be imported here."
+          : "Ask an owner or admin to link them to Google. Their reviews will be imported here.",
       }
     // Deliberately true of a queued import as well as a running one: the
     // counts this reads cannot tell the two apart. "Waiting on Google" holds
@@ -140,16 +144,20 @@ function content(
     case "import_failed":
       return {
         title: "Some locations could not be imported.",
-        description:
-          counts.failed === 1
+        description: canManageClients
+          ? counts.failed === 1
             ? "One location's import did not finish, so its reviews are missing. Check its connection in Settings."
-            : `${counts.failed} locations' imports did not finish, so their reviews are missing. Check their connections in Settings.`,
+            : `${counts.failed} locations' imports did not finish, so their reviews are missing. Check their connections in Settings.`
+          : counts.failed === 1
+            ? "One location's import did not finish, so its reviews are missing. Ask an owner or admin to check its Google connection."
+            : `${counts.failed} locations' imports did not finish, so their reviews are missing. Ask an owner or admin to check their Google connections.`,
       }
     case "never_imported":
       return {
         title: "No reviews have been imported yet.",
-        description:
-          "These locations are linked, but no import has run for them. Start one from Settings.",
+        description: canManageClients
+          ? "These locations are linked, but no import has run for them. Start one from Settings."
+          : "These locations are linked, but no import has run for them. Ask an owner or admin to start one.",
       }
     // The only branch allowed to say there are none — and it still says when
     // Google was last asked rather than asserting a fact about Google now.
@@ -421,7 +429,7 @@ function EmptyState({
   queue?: Queue
   /** The next queue with work in it, offered from an empty one. */
   nextQueue?: { label: string; count: number; onSelect: () => void }
-  /** Owners and admins, who can add a client. */
+  /** Owners and admins, who can add a client and manage Google connections. */
   canManageClients?: boolean
   /** `page` when the state fills the list pane (see `Statement`). */
   placement?: "inline" | "page"
@@ -450,7 +458,15 @@ function EmptyState({
       >
         {business ? "Link your listings" : "Add a client"}
       </Link>
-    ) : reason === "disconnected" ? (
+    ) : !canManageClients &&
+      (reason === "disconnected" ||
+        reason === "import_failed" ||
+        reason === "never_imported" ||
+        reason ===
+          "not_connected") ? // Members and viewers are not sent to a page that would refuse them
+    // (/settings/connections is owners and admins only): the sentence above
+    // says who can fix it, and there is no button.
+    undefined : reason === "disconnected" ? (
       // Says what the page it opens is for here. Same place as below.
       <Link
         href="/settings/connections"

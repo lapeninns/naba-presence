@@ -351,9 +351,6 @@ export function PostSchedules({
             </DialogBody>
           ) : null}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setReview(null)}>
-              Close
-            </Button>
             <Button
               disabled={!review?.canApprove || Boolean(review.preview.problem)}
               pending={approve.isPending}

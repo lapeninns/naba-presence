@@ -205,6 +205,137 @@ export function touchTargetFailures(targets, min = PROJECT_TOUCH_MIN) {
   )
 }
 
+/**
+ * The raw box (`w`/`h` below 44) that a phone user cannot hit. Kept beside
+ * touchTargetFailures so a primitive that extends its hit area with a
+ * pseudo-element still shows up as a small drawn box.
+ * @template {Target & { box?: { w: number, h: number } }} T
+ * @param {T[]} targets
+ * @returns {T[]}
+ */
+export function touchBoxFailures(targets, min = PROJECT_TOUCH_MIN) {
+  return targets.filter((target) => {
+    if (target.inline) return false
+    const box = target.box ?? target
+    return box.w < min || box.h < min
+  })
+}
+
+const NUMBER = String.raw`-?\d+(?:\.\d+)?`
+
+/**
+ * A resolved CSS length in px against `basis` (the containing block's size
+ * on that axis): `12px`, `50%`, or the `calc(50% - 22px)` Chrome reports for
+ * a percentage inset it hasn't resolved. Anything else is null.
+ */
+export function cssLength(value, basis) {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  let match = new RegExp(`^(${NUMBER})px$`).exec(trimmed)
+  if (match) return Number(match[1])
+  match = new RegExp(`^(${NUMBER})%$`).exec(trimmed)
+  if (match) return (Number(match[1]) / 100) * basis
+  match = new RegExp(
+    `^calc\\((${NUMBER})%\\s*([+-])\\s*(${NUMBER})px\\)$`
+  ).exec(trimmed)
+  if (match) {
+    const px = Number(match[3]) * (match[2] === "-" ? -1 : 1)
+    return (Number(match[1]) / 100) * basis + px
+  }
+  return null
+}
+
+/**
+ * One axis of an absolutely positioned box from its resolved offsets against
+ * the containing block [lo, hi]: start + size, end + size or start + end.
+ * Returns null when the offsets don't pin the axis (unresolved values).
+ */
+function resolveAxis(start, end, size, lo, hi) {
+  const basis = hi - lo
+  const a = cssLength(start, basis)
+  const b = cssLength(end, basis)
+  const length = cssLength(size, basis)
+  if (a !== null && length !== null) return [lo + a, lo + a + length]
+  if (b !== null && length !== null) return [hi - b - length, hi - b]
+  if (a !== null && b !== null) return [lo + a, hi - b]
+  return null
+}
+
+/**
+ * The page box of one hit-area pseudo-element (`{ left, top, right, bottom,
+ * width, height }` as resolved CSS strings, plus its containing `block`),
+ * clipped by every ancestor in `clips` that hides overflow on that axis.
+ * Null when it can't be resolved or is clipped away.
+ */
+export function resolveHitPart(part) {
+  const { block } = part
+  const x = resolveAxis(
+    part.left,
+    part.right,
+    part.width,
+    block.left,
+    block.right
+  )
+  const y = resolveAxis(
+    part.top,
+    part.bottom,
+    part.height,
+    block.top,
+    block.bottom
+  )
+  if (!x || !y) return null
+  let [left, right] = x
+  let [top, bottom] = y
+  for (const clip of part.clips ?? []) {
+    if (clip.x) {
+      left = Math.max(left, clip.left)
+      right = Math.min(right, clip.right)
+    }
+    if (clip.y) {
+      top = Math.max(top, clip.top)
+      bottom = Math.min(bottom, clip.bottom)
+    }
+  }
+  if (right - left <= 0 || bottom - top <= 0) return null
+  return { left, top, right, bottom }
+}
+
+const round1 = (value) => Math.round(value * 10) / 10
+
+/**
+ * The effective hit area of a target: the union of its own box and every
+ * pseudo-element extension in `hit` (see the probe in mobile-audit.mjs).
+ * `x`/`y`/`w`/`h` become the effective area, the drawn box moves to `box`,
+ * and `hit` is dropped. Only the extension is clipped, so the effective area
+ * is never smaller than the drawn box.
+ * @template {Target & { hit?: object[] }} T
+ * @param {T} target
+ */
+export function effectiveHitArea(target) {
+  const { hit = [], ...rest } = target
+  const box = { x: target.x, y: target.y, w: target.w, h: target.h }
+  let left = box.x
+  let top = box.y
+  let right = box.x + box.w
+  let bottom = box.y + box.h
+  for (const part of hit) {
+    const extension = resolveHitPart(part)
+    if (!extension) continue
+    left = Math.min(left, extension.left)
+    top = Math.min(top, extension.top)
+    right = Math.max(right, extension.right)
+    bottom = Math.max(bottom, extension.bottom)
+  }
+  return {
+    ...rest,
+    x: round1(left),
+    y: round1(top),
+    w: round1(right - left),
+    h: round1(bottom - top),
+    box,
+  }
+}
+
 /** Length of the union of [start, end] intervals clipped to [lo, hi]. */
 export function unionLength(intervals, lo, hi) {
   const clipped = intervals
@@ -323,6 +454,7 @@ export const METRICS = [
   "clippedText",
   "targetSize",
   "touchTargetBelow44",
+  "touchBoxBelow44",
   "iosZoomInputs",
   "textUnder12",
   "textUnder14Phone",
@@ -355,6 +487,7 @@ export function pageMetrics(page) {
     clippedText: page.clipped?.length ?? 0,
     targetSize: page.targetSize?.length ?? 0,
     touchTargetBelow44: touch ? (page.touchTargets?.length ?? 0) : 0,
+    touchBoxBelow44: touch ? (page.touchBoxes?.length ?? 0) : 0,
     iosZoomInputs: touch ? (page.iosZoom?.length ?? 0) : 0,
     textUnder12: page.text?.under12 ?? 0,
     textUnder14Phone: touch ? (page.text?.under14 ?? 0) : 0,
@@ -420,6 +553,11 @@ const OFFENDER_KINDS = {
   targetSize: (page) => page.targetSize ?? [],
   touchTargetBelow44: (page) =>
     isTouchWidth(page.width) ? (page.touchTargets ?? []) : [],
+  // The drawn box, so its size column shows the box, not the hit area.
+  touchBoxBelow44: (page) =>
+    isTouchWidth(page.width)
+      ? (page.touchBoxes ?? []).map((target) => ({ ...target, ...target.box }))
+      : [],
   iosZoomInputs: (page) =>
     isTouchWidth(page.width) ? (page.iosZoom ?? []) : [],
   focusObscured: (page) =>
@@ -553,6 +691,7 @@ const ROUTE_COLUMNS = [
   "horizontalOverflow",
   "targetSize",
   "touchTargetBelow44",
+  "touchBoxBelow44",
   "iosZoomInputs",
   "textUnder12",
   "axeNodes",
@@ -616,7 +755,14 @@ export function renderMarkdown(report) {
     out.push("")
   }
   offenderSection("WCAG 2.5.8 target size", "targetSize")
-  offenderSection("touch targets below 44px (phones)", "touchTargetBelow44")
+  offenderSection(
+    "touch targets below 44px, effective hit area (phones)",
+    "touchTargetBelow44"
+  )
+  offenderSection(
+    "drawn boxes below 44px, ignoring hit-area extensions (phones)",
+    "touchBoxBelow44"
+  )
   offenderSection("iOS focus zoom inputs (<16px)", "iosZoomInputs")
   offenderSection("focus obscured (2.4.11)", "focusObscured")
   offenderSection("horizontal overflow", "overflow")

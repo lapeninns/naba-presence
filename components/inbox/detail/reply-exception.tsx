@@ -14,6 +14,8 @@ import { publishFailureCause } from "@/lib/inbox/publish-failure"
 import type { PrimaryAction } from "@/lib/inbox/reply-state"
 import type { ReviewDetail } from "@/lib/contracts/reviews"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
+import { useSessionRole } from "@/lib/queries/use-session"
+import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { cn } from "@/lib/utils"
 
 type Review = ReviewDetail["review"]
@@ -49,7 +51,13 @@ type Exception = {
 function describeException(
   review: Review,
   action: PrimaryAction,
-  connection: string
+  connection: string,
+  /**
+   * Owners and admins, the only roles `/settings/connections` opens for. Anyone
+   * else keeps the explanation and is told who to ask, with no link that would
+   * land on Access denied.
+   */
+  canManageConnections = true
 ): Exception | null {
   const reply = review.reply
 
@@ -67,10 +75,11 @@ function describeException(
     if (cause === "connection") {
       return {
         title: "Publish failed",
-        description:
-          "The Google connection for this listing stopped working, so the reply never reached Google. Reconnect it, then retry — the reply itself does not need to change.",
+        description: canManageConnections
+          ? "The Google connection for this listing stopped working, so the reply never reached Google. Reconnect it, then retry — the reply itself does not need to change."
+          : "The Google connection for this listing stopped working, so the reply never reached Google. Ask an owner or admin to reconnect Google, then retry — the reply itself does not need to change.",
         tone: "attention",
-        connectionLink: true,
+        connectionLink: canManageConnections,
       }
     }
     if (cause === "transient") {
@@ -113,10 +122,11 @@ function describeException(
   if (connection === "disconnected") {
     return {
       title: "Google disconnected",
-      description:
-        "This workspace has no active Google connection, so replies cannot reach Google until it is reconnected in Settings.",
+      description: canManageConnections
+        ? "This workspace has no active Google connection, so replies cannot reach Google until it is reconnected in Settings."
+        : "This workspace has no active Google connection, so replies cannot reach Google. Ask an owner or admin to reconnect Google.",
       tone: "attention",
-      connectionLink: true,
+      connectionLink: canManageConnections,
     }
   }
 
@@ -128,10 +138,11 @@ function describeException(
           // location grant, and it stays true for the very person who
           // submitted the reply — only the server knows whether an
           // organisation's two-person rule will accept a decision from them.
-          // The pane offers the action its capabilities permit and says what
-          // the rule is, rather than asserting an ownership it cannot verify.
+          // The pane offers the action its capabilities permit and keeps to
+          // "waiting for approval", rather than asserting an ownership it
+          // cannot verify.
           description:
-            "This reply is parked for approval. Read it, then approve it or send it back with Reject reply — an organisation that asks for two approvers will not take the decision from whoever submitted it.",
+            "This reply is waiting for approval. Someone with publishing rights can approve it or send it back for changes.",
           tone: "caution",
         }
       : {
@@ -214,7 +225,14 @@ function ReplyException({
   action: PrimaryAction
 }) {
   const health = useConnectionHealth()
-  const exception = describeException(review, action, health.status)
+  const canManageConnections =
+    settingsGatingFromRole(useSessionRole()).canManageConnections
+  const exception = describeException(
+    review,
+    action,
+    health.status,
+    canManageConnections
+  )
   if (!exception) return null
   const Icon =
     exception.tone === "attention" ? CircleAlertIcon : TriangleAlertIcon

@@ -49,7 +49,7 @@ export function OnboardingOpening({
                 : openStatusLabel(value.status)}
             </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Opening state">
             <SelectItem value="omit">Not supplied in this proposal</SelectItem>
             <SelectItem value="OPEN">Open</SelectItem>
             <SelectItem value="CLOSED_TEMPORARILY">

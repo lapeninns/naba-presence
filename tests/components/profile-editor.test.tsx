@@ -278,14 +278,18 @@ describe("ProfileTab", () => {
     expect(
       await within(footer).findByText("1 change not on Google")
     ).toBeInTheDocument()
+    // Lodging has its own review: Save here is left out, with the reason.
     expect(
-      within(footer).getByRole("button", { name: "Save here" })
-    ).toBeDisabled()
+      within(footer).queryByRole("button", { name: "Save here" })
+    ).toBeNull()
+    expect(within(footer).getByRole("note")).toHaveTextContent(
+      "Services and lodging are saved through their own review."
+    )
     expect(
       within(footer).getByRole("button", { name: "Review lodging draft" })
     ).toBeEnabled()
     await userEvent.click(
-      within(footer).getByRole("button", { name: "Discard" })
+      within(footer).getByRole("button", { name: "Discard edits" })
     )
     await userEvent.click(
       await screen.findByRole("button", { name: "Discard changes" })
@@ -1020,8 +1024,8 @@ describe("ProfileTab save and review boundaries", () => {
     await waitFor(() => expect(storeCode).toBeEnabled())
     await userEvent.clear(storeCode)
     await userEvent.type(storeCode, "CAMDEN-2")
-    const save = screen.getByRole("button", { name: "Save here" })
-    expect(save).toBeDisabled()
+    // Save here can't take this edit, so it is left out (not greyed).
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
     // The bar says why Save here can't take this edit, once (the repeated
     // save-scope paragraph is gone).
     expect(
@@ -1105,11 +1109,12 @@ it("keeps provider edits unsaved after a successful local save and discards only
   await userEvent.type(name, "Camden House")
   await userEvent.click(screen.getByRole("button", { name: "Save here" }))
   expect(await screen.findByText(/Other profile edits still need review and publication/)).toBeInTheDocument()
-  await waitFor(() => expect(screen.getByRole("button", { name: "Save here" })).toBeDisabled())
+  // Nothing saveable is left, so Save here leaves the bar (it isn't greyed).
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Save here" })).toBeNull())
   const beforeUnload = new Event("beforeunload", { cancelable: true })
   window.dispatchEvent(beforeUnload)
   expect(beforeUnload.defaultPrevented).toBe(true)
-  await userEvent.click(screen.getByRole("button", { name: "Discard" }))
+  await userEvent.click(screen.getByRole("button", { name: "Discard edits" }))
   await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
   expect(screen.getByDisplayValue("CAMDEN-1")).toBeInTheDocument()
   expect(screen.getByRole("textbox", { name: "Business name" })).toHaveValue("Camden House")
@@ -1212,7 +1217,7 @@ it.each(["listing", "attributes"])("preserves failed %s edits after partial flow
   expect(wifiAnswer("Yes")).toBeChecked()
   expect(store).toHaveValue("CAMDEN-2")
   if (listingSent) {
-    await userEvent.click(screen.getByRole("button", { name: "Discard" }))
+    await userEvent.click(screen.getByRole("button", { name: "Discard edits" }))
     await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
     expect(store).toHaveValue("CAMDEN-2")
     expect(wifiAnswer("Yes")).not.toBeChecked()

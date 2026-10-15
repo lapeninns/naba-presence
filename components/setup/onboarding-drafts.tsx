@@ -162,7 +162,7 @@ export function OnboardingDrafts({
                   {account?.accountName || account?.googleAccountName}
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent title="Account for this business">
                 {active.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.accountName || item.googleAccountName}

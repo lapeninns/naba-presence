@@ -127,13 +127,9 @@ describe("ClientSettings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
     )
-    const dialog = await screen.findByRole("alertdialog")
-    fireEvent.click(within(dialog).getByRole("checkbox"))
-    const confirm = within(dialog).getByRole("button", {
-      name: "Unfile its listing and archive",
-    })
-    await waitFor(() => expect(confirm).toBeEnabled())
-    fireEvent.click(confirm)
+    // One step: no confirmation dialog or tick box, the toast's Undo is the
+    // safety net.
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     await waitFor(() => expect(push).toHaveBeenCalledWith("/clients"))
     const patch = fetchMock.mock.calls.find(
       ([, init]) => init?.method === "PATCH"
@@ -300,21 +296,14 @@ describe("ClientSettings", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("asks for an acknowledgement before archiving an empty client", async () => {
+  it("archives an empty client at once, with no confirmation step", async () => {
     const fetchMock = stub({ attached: false })
     renderSettings()
     await screen.findByText(/can be archived/)
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
     )
-    const dialog = await screen.findByRole("alertdialog")
-    const confirm = within(dialog).getByRole("button", {
-      name: "Archive Old Crown Group",
-    })
-    expect(confirm).toBeDisabled()
-    fireEvent.click(within(dialog).getByRole("checkbox"))
-    await waitFor(() => expect(confirm).toBeEnabled())
-    fireEvent.click(confirm)
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     await waitFor(() => expect(push).toHaveBeenCalledWith("/clients"))
     const patch = fetchMock.mock.calls.find(
       ([, init]) => init?.method === "PATCH"
@@ -361,11 +350,6 @@ describe("ClientSettings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
     )
-    const dialog = await screen.findByRole("alertdialog")
-    fireEvent.click(within(dialog).getByRole("checkbox"))
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "Archive Old Crown Group" })
-    )
     await waitFor(() => expect(push).toHaveBeenCalledWith("/clients"))
     expect(screen.queryByText(/wasn’t archived/)).not.toBeInTheDocument()
   })
@@ -377,15 +361,63 @@ describe("ClientSettings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
     )
-    const dialog = await screen.findByRole("alertdialog")
-    fireEvent.click(within(dialog).getByRole("checkbox"))
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "Archive Old Crown Group" })
-    )
-    expect(
-      await within(dialog).findByText(/wasn’t archived/)
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/wasn’t archived/)).toBeInTheDocument()
     expect(push).not.toHaveBeenCalled()
+  })
+
+  it("undoes an archive from the toast: restores the client and re-files its listings", async () => {
+    const fetchMock = stub({ attached: true })
+    renderSettings()
+    await screen.findByText(/still has its listing/)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive Old Crown Group" })
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }))
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")
+      ).toHaveLength(2)
+    )
+    const patches = fetchMock.mock.calls
+      .filter(([, init]) => init?.method === "PATCH")
+      .map(([, init]) => JSON.parse(String(init?.body)))
+    expect(patches[0]).toMatchObject({ archived: true, detachLocations: true })
+    expect(patches[1]).toMatchObject({ archived: false })
+  })
+
+  it("shows the save bar only once the details change, docked on a phone", async () => {
+    stub({ attached: true })
+    renderSettings()
+    const name = await screen.findByLabelText("Client name")
+    expect(
+      screen.queryByRole("region", { name: "Save client details" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("No unsaved changes")).not.toBeInTheDocument()
+    fireEvent.change(name, { target: { value: "Old Crown Pubs" } })
+    const bar = screen.getByRole("region", { name: "Save client details" })
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    fireEvent.click(within(bar).getByRole("button", { name: "Discard" }))
+    expect(name).toHaveValue("Old Crown Group")
+    expect(
+      screen.queryByRole("region", { name: "Save client details" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("leaves the way back to the app bar on a phone", async () => {
+    stub({ attached: true })
+    renderSettings()
+    const back = await screen.findByRole("link", {
+      name: "Back to Old Crown Group",
+    })
+    expect(back).toHaveClass("max-md:hidden")
+    // The section rail is desk-only: no chevron index that only scrolls to
+    // the sections beneath it.
+    expect(
+      screen.getByRole("navigation", { name: "Client settings sections" })
+    ).toHaveClass("hidden")
+    expect(
+      screen.queryByRole("list", { name: "Client settings sections" })
+    ).not.toBeInTheDocument()
   })
 
   it("keeps the edits in the form when a save fails", async () => {
@@ -404,7 +436,7 @@ describe("ClientSettings", () => {
   it("edits the colour with the details, and guards the unsaved change", async () => {
     const fetchMock = stub({ attached: true })
     renderSettings()
-    fireEvent.click(await screen.findByRole("button", { name: /^Pine/ }))
+    fireEvent.click(await screen.findByRole("radio", { name: "Pine" }))
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
     // Leaving through the page's own link asks first; staying keeps the
     // edit.
@@ -459,10 +491,9 @@ describe("ClientSettings", () => {
     )
     expect(await screen.findByLabelText("Client name")).toHaveValue(client.name)
     fireEvent.click(
-      within(notice.closest("[data-slot=draft-restore]") as HTMLElement).getByRole(
-        "button",
-        { name: "Restore unsaved edits" }
-      )
+      within(
+        notice.closest("[data-slot=draft-restore]") as HTMLElement
+      ).getByRole("button", { name: "Restore unsaved edits" })
     )
     expect(screen.getByLabelText("Client name")).toHaveValue("Old Crown Pubs")
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument()

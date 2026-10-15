@@ -91,7 +91,7 @@ export function IdentitySection({
         changed={changed.name ? "Changed" : undefined}
         description={<SaveModelTag model="here" variant="caption" />}
         control={
-          <Field error={errors.name}>
+          <Field measure="short" error={errors.name}>
             <Input
               id={PROFILE_FIELD_IDS.name}
               value={values.name}
@@ -118,7 +118,7 @@ export function IdentitySection({
             changed={changed.storeCode ? "Changed" : undefined}
             description={<SaveModelTag model="google" variant="caption" />}
             control={
-              <Field>
+              <Field measure="short">
                 <Input
                   id={PROFILE_FIELD_IDS.storeCode}
                   value={draft.storeCode}

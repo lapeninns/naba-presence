@@ -94,7 +94,7 @@ describe("Field wiring for a pop-up trigger", () => {
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Open status">
             <SelectItem value="OPEN">Open</SelectItem>
           </SelectContent>
         </Select>
@@ -114,7 +114,7 @@ describe("Field wiring for a pop-up trigger", () => {
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Open status">
             <SelectItem value="OPEN">Open</SelectItem>
           </SelectContent>
         </Select>
@@ -131,7 +131,7 @@ describe("Field wiring for a pop-up trigger", () => {
           <SelectTrigger aria-label="Booking link type">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Type">
             <SelectItem value="DINING_RESERVATION">Reserve</SelectItem>
           </SelectContent>
         </Select>
@@ -183,5 +183,35 @@ describe("SearchInput tap target", () => {
       input.closest('[data-slot="input-search"]') as HTMLElement
     )
     expect(document.activeElement).not.toBe(input)
+  })
+})
+
+describe("Field measure", () => {
+  it("is the full column by default", () => {
+    const { container } = render(
+      <Field>
+        <FieldLabel>Notes</FieldLabel>
+        <Input />
+      </Field>
+    )
+    const field = container.querySelector('[data-slot="field"]')!
+    expect(field).not.toHaveAttribute("data-measure")
+    expect(field.className).not.toMatch(/max-w/)
+  })
+
+  it("limits a short field to max-w-md on a desk only, so a phone stays full width", () => {
+    const { container } = render(
+      <Field measure="short" className="mt-2">
+        <FieldLabel>Agency name</FieldLabel>
+        <Input />
+      </Field>
+    )
+    const field = container.querySelector('[data-slot="field"]')!
+    expect(field).toHaveAttribute("data-measure", "short")
+    const classes = field.className.split(/\s+/)
+    expect(classes).toContain("desk:max-w-md")
+    // No unprefixed cap: below the desk variant the field fills its column.
+    expect(classes).not.toContain("max-w-md")
+    expect(classes).toContain("mt-2")
   })
 })

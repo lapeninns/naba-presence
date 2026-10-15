@@ -133,6 +133,25 @@ describe("aggregate menu review", () => {
     ).toBe(true)
     expect(screen.queryByText("Accepted by Google")).toBeNull()
   })
+  it("docks the publish bar through ActionBar, so its measured height is published", () => {
+    menus.value = state(["A"], ["B"])
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    const bar = screen.getByRole("region", { name: "Publish to Google" })
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    // The ActionBar's own spacer (not a hand-written padding) reserves the
+    // bar's height, and the one primary sits in the bar.
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+    expect(
+      within(bar).getByRole("button", { name: "Publish 1 area to Google" })
+    ).toBeInTheDocument()
+    // The status has its own row on a phone, so a block reason is readable.
+    expect(bar.className).toMatch(/max-md:flex-wrap/)
+    expect(
+      bar.querySelector('[data-slot="action-bar-status"]')?.className
+    ).toMatch(/max-md:basis-full/)
+  })
   it("blocks unresolved duplicate matches in aggregate review", () => {
     menus.value = state(["A", "B"], ["C", "D"])
     renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)

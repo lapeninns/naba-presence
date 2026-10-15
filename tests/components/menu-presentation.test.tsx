@@ -76,7 +76,7 @@ describe("Select", () => {
     expect(screen.queryByText("Sort by")).toBeNull()
   })
 
-  it("is a bottom action sheet on a phone, with a title and Cancel", async () => {
+  it("is a bottom action sheet on a phone: grabber, left title, a ✕ and no Cancel", async () => {
     asDevice("phone")
     const user = userEvent.setup()
     render(<SortSelect />)
@@ -85,10 +85,19 @@ describe("Select", () => {
     const sheet = listbox.closest('[data-slot="select-content"]') as HTMLElement
     expect(sheet).toHaveAttribute("data-presentation", "sheet")
     expect(within(sheet).getByText("Sort by")).toBeInTheDocument()
-    // The options are the listbox's; the title and Cancel sit outside it.
+    // The options are the listbox's; the header sits outside it.
     expect(within(listbox).getAllByRole("option")).toHaveLength(2)
     expect(within(listbox).queryByRole("button")).toBeNull()
-    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    expect(
+      sheet.querySelector('[data-slot="overlay-grabber"]')
+    ).toHaveAttribute("aria-hidden", "true")
+    expect(within(sheet).getByText("Sort by")).toHaveClass(
+      "text-left",
+      "text-title",
+      "font-semibold"
+    )
+    expect(within(sheet).queryByRole("button", { name: "Cancel" })).toBeNull()
+    await user.click(within(sheet).getByRole("button", { name: "Close" }))
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull())
   })
 })
@@ -118,7 +127,9 @@ describe("DropdownMenu", () => {
     expect(sheet).toHaveAttribute("data-presentation", "sheet")
     expect(within(sheet).getByText("Reply actions")).toBeInTheDocument()
     expect(within(menu).getAllByRole("menuitem")).toHaveLength(2)
-    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    expect(sheet.querySelector('[data-slot="overlay-grabber"]')).not.toBeNull()
+    expect(within(sheet).queryByRole("button", { name: "Cancel" })).toBeNull()
+    await user.click(within(sheet).getByRole("button", { name: "Close" }))
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
   })
 
@@ -133,7 +144,7 @@ describe("DropdownMenu", () => {
 })
 
 describe("Popover", () => {
-  it("rises as a sheet with a Close on a phone", async () => {
+  it("rises as a sheet with the overlay header and a ✕ on a phone", async () => {
     asDevice("phone")
     const user = userEvent.setup()
     render(

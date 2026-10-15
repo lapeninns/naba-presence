@@ -20,6 +20,15 @@ export type WorkspaceTerms = {
   /** Capitalised, for headings and table columns. */
   scopeTitle: "Location" | "Client"
   scopePluralTitle: "Locations" | "Clients"
+  /**
+   * One Google Business Profile entry. The same word in both modes and on
+   * every surface (reports, client hub, shared report): never "location" or
+   * "venue" for this, which is what the Listings tab already calls it.
+   */
+  place: "listing"
+  placePlural: "listings"
+  placeTitle: "Listing"
+  placePluralTitle: "Listings"
   /** The Team dialog and column that decide who sees what. */
   access: "Location access" | "Client access"
   /** The label on the name field. */
@@ -36,6 +45,10 @@ const TERMS: Record<WorkspaceMode, WorkspaceTerms> = {
     scopePlural: "locations",
     scopeTitle: "Location",
     scopePluralTitle: "Locations",
+    place: "listing",
+    placePlural: "listings",
+    placeTitle: "Listing",
+    placePluralTitle: "Listings",
     access: "Location access",
     orgName: "Business name",
     reportsDescription:
@@ -49,6 +62,10 @@ const TERMS: Record<WorkspaceMode, WorkspaceTerms> = {
     scopePlural: "clients",
     scopeTitle: "Client",
     scopePluralTitle: "Clients",
+    place: "listing",
+    placePlural: "listings",
+    placeTitle: "Listing",
+    placePluralTitle: "Listings",
     access: "Client access",
     orgName: "Agency name",
     reportsDescription:

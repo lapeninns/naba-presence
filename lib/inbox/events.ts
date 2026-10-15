@@ -30,6 +30,16 @@ export const REPLY_GENERATE_EVENT = "inbox:generate-reply"
 export const PRIMARY_ACTION_EVENT = "inbox:primary-action"
 
 /**
+ * Asks the composer to open the reply that is parked for approval for
+ * editing, which sends it back to Needs reply once it is saved. The reply is
+ * read-only until then, so an approver reading it cannot withdraw the request
+ * by accident. Sent by the action bar's "Edit reply".
+ */
+export const REPLY_EDIT_EVENT = "inbox:edit-reply"
+
+export type ReplyEditDetail = { reviewId: string }
+
+/**
  * How long the situation strip shows its success ring after a publish. The
  * inbox view waits this long before advancing to the next review, so the
  * pulse is actually on screen before the detail pane (keyed on the selected

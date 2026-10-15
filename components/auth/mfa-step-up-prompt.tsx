@@ -159,7 +159,7 @@ function MfaStepUpPrompt({
             return
           }
         }
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "mfa"))
       }
     })
   }
@@ -266,14 +266,6 @@ function MfaStepUpPrompt({
               />
             </DialogBody>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={close}
-                disabled={pending}
-              >
-                Cancel
-              </Button>
               <Button type="submit" disabled={pending}>
                 {pending ? "Checking…" : "Verify"}
               </Button>

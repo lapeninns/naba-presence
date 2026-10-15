@@ -319,6 +319,8 @@ export function ReplyFigures({
                 unitNote={`Average of the ratings received each ${unit}, out of 5.`}
                 data={bins}
                 max={5}
+                kind="line"
+                groupable={false}
                 format={(value) => value.toFixed(1)}
                 series={[
                   { key: "averageRating", label: "Average rating", color: 1 },

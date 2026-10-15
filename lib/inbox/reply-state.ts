@@ -40,7 +40,15 @@ export type ReplyStateInput = {
     canEdit: boolean
     canRequestApproval: boolean
   }
-  reply: { body: string | null; publishStatus: string | null } | null
+  reply: {
+    body: string | null
+    publishStatus: string | null
+    /**
+     * Google's own moderation state for the live reply. `"PENDING"` means
+     * Google has the reply and has not approved it yet, so it is not public.
+     */
+    googleReplyState?: string | null
+  } | null
   drafts: readonly { body: string; verificationStatus: string | null }[]
   /** The latest verdict, with reasons when the surface has them. */
   verification: LatestVerification | null
@@ -240,6 +248,20 @@ function readyText(kind: PrimaryActionKind): string {
       : "Ready to publish"
 }
 
+/** The one sentence for a reply Google has taken but not yet approved. */
+export const WAITING_FOR_GOOGLE_CHECK = "Sent · waiting for Google\u2019s check"
+
+/**
+ * A confirmed publish that Google is still moderating. The reply is on its way
+ * to being public, but is not live until Google says so.
+ */
+export function isAwaitingGoogleCheck(
+  publishStatus: string | null | undefined,
+  googleReplyState: string | null | undefined
+): boolean {
+  return publishStatus === "published" && googleReplyState === "PENDING"
+}
+
 const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
   publish: ["Publishing reply", "Publishing"],
   submit: ["Submitting for approval", "Submitting"],
@@ -331,6 +353,21 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   // Confirmed publication only. `accepted` means Google took the request and
   // has not yet told us what became of it.
   if (action.settled) {
+    // Google holds a published reply for moderation (`googleReplyState`
+    // "PENDING"): customers cannot see it yet, so say that instead of "Live
+    // on Google". This is the same words the toast and the reply subline use.
+    if (isAwaitingGoogleCheck(publishStatus, input.reply?.googleReplyState)) {
+      return {
+        ...status(
+          WAITING_FOR_GOOGLE_CHECK,
+          "Sent",
+          "neutral",
+          "cloud",
+          "not live until Google confirms"
+        ),
+        outcome: "sent",
+      }
+    }
     return publishStatus === "published"
       ? {
           ...status(
@@ -433,6 +470,7 @@ export function replyStateFromRow(
     draftBody: string | null
     replyBody: string | null
     replyStatus: string | null
+    googleReplyState?: string | null
     verificationStatus: string | null
     capabilities: {
       canPublish: boolean
@@ -451,7 +489,11 @@ export function replyStateFromRow(
   return {
     workflowStatus: row.workflowStatus,
     capabilities: row.capabilities,
-    reply: { body: row.replyBody, publishStatus: row.replyStatus },
+    reply: {
+      body: row.replyBody,
+      publishStatus: row.replyStatus,
+      googleReplyState: row.googleReplyState ?? null,
+    },
     drafts: row.draftBody
       ? [{ body: row.draftBody, verificationStatus: verdict }]
       : [],

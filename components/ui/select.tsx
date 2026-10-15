@@ -7,8 +7,8 @@ import { CheckIcon, ChevronDownIcon } from "lucide-react"
 import { useFieldTriggerProps } from "@/components/ui/field"
 import {
   MenuCloseProvider,
-  MenuSheetCancel,
-  MenuSheetTitle,
+  MenuSheetClose,
+  MenuSheetHeader,
   menuGroupLabelClassName,
   menuItemClassName,
   menuPopupClassName,
@@ -103,7 +103,7 @@ function SelectContent({
   alignItemWithTrigger = true,
   title,
   ...props
-}: SelectPrimitive.Popup.Props & {
+}: Omit<SelectPrimitive.Popup.Props, "title"> & {
   /**
    * Base UI's default puts the popup ON the trigger, with the chosen item over
    * it — the platform behaviour, and right for a select standing on its own.
@@ -116,13 +116,17 @@ function SelectContent({
    * The phone's action sheet ignores it: the sheet is never by the trigger.
    */
   alignItemWithTrigger?: boolean
-  /** A heading for the phone's action sheet ("Sort by"). */
-  title?: React.ReactNode
+  /**
+   * The phone's action sheet heading. Required: a sheet of options that does
+   * not say which field they belong to leaves the operator guessing. Use the
+   * field's visible label ("Email: New review"). The desk popup ignores it.
+   */
+  title: string | React.ReactElement
 }) {
   const sheet = useMenuSheet()
   if (sheet) {
-    // The list carries the listbox role, so the title and Cancel can sit in
-    // the popup without being read as options.
+    // The list carries the listbox role, so the header can sit in the popup
+    // without being read as options.
     return (
       <SelectPrimitive.Portal>
         <SelectPrimitive.Backdrop className={menuSheetScrimClassName} />
@@ -136,11 +140,11 @@ function SelectContent({
             className={cn(menuSheetPopupClassName, className)}
             {...props}
           >
-            {title ? <MenuSheetTitle>{title}</MenuSheetTitle> : null}
+            <MenuSheetHeader title={title} />
             <SelectPrimitive.List className={menuSheetListClassName}>
               {children}
             </SelectPrimitive.List>
-            <MenuSheetCancel />
+            <MenuSheetClose />
           </SelectPrimitive.Popup>
         </SelectPrimitive.Positioner>
       </SelectPrimitive.Portal>

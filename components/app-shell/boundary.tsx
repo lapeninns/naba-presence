@@ -1,4 +1,4 @@
-import { CircleAlert } from "lucide-react"
+import { CircleAlert, FileQuestion } from "lucide-react"
 import Link from "next/link"
 import type * as React from "react"
 
@@ -85,6 +85,62 @@ function BoundaryCode({ children }: { children: React.ReactNode }) {
     <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-caption [overflow-wrap:anywhere] text-ink">
       {children}
     </code>
+  )
+}
+
+/**
+ * The words of every "this page doesn't exist" screen, in one place so the
+ * root 404 (outside the shell) and the dashboard 404 (inside it) cannot drift
+ * apart: one title, one sentence, one verb for the way back.
+ */
+const NOT_FOUND_TITLE = "This page doesn’t exist"
+const NOT_FOUND_DESCRIPTION =
+  "The page you followed may have been removed, or the link may be wrong. Nothing was changed."
+
+/** The one verb for the way back, naming where it goes ("Back to Clients"). */
+function notFoundActionLabel(destination: string) {
+  return `Back to ${destination}`
+}
+
+/**
+ * The shared body of both 404s: a calm, centred outline mark, the title as
+ * the page's h1, why, then whatever the caller draws below (the way back and
+ * any secondary controls). The caller owns the surroundings (the root 404's
+ * card, the dashboard's page frame) and the landmark.
+ */
+function NotFoundState({
+  className,
+  children,
+}: {
+  className?: string
+  children?: React.ReactNode
+}) {
+  return (
+    <section
+      aria-labelledby="not-found-title"
+      data-slot="page-empty-state"
+      className={["flex flex-col items-center gap-2 text-center", className]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span
+        aria-hidden
+        className="mb-1 grid size-11 place-items-center rounded-lg bg-fill text-ink-secondary"
+      >
+        <FileQuestion className="size-5" strokeWidth={1.5} />
+      </span>
+      <h1
+        id="not-found-title"
+        tabIndex={-1}
+        className="text-title font-medium text-balance text-ink outline-none"
+      >
+        {NOT_FOUND_TITLE}
+      </h1>
+      <p className="max-w-md text-ui text-pretty text-ink-muted">
+        {NOT_FOUND_DESCRIPTION}
+      </p>
+      {children}
+    </section>
   )
 }
 
@@ -200,4 +256,8 @@ export {
   BoundaryErrorState,
   BoundaryFrame,
   boundaryButtonClass,
+  NOT_FOUND_DESCRIPTION,
+  NOT_FOUND_TITLE,
+  notFoundActionLabel,
+  NotFoundState,
 }

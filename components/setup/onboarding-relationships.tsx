@@ -74,7 +74,7 @@ function RelationshipEntry({ value, onChange, onEntryChange, parent }: Props & {
         setError(undefined)
       }}>
         <SelectTrigger id={`${prefix}-relation`}><SelectValue>{relation ? relationshipLabels[relation] : "Choose relationship"}</SelectValue></SelectTrigger>
-        <SelectContent><SelectItem value="choose">Choose relationship</SelectItem><SelectItem value="DEPARTMENT_OF">Department</SelectItem><SelectItem value="INDEPENDENT_ESTABLISHMENT_IN">Independent business at the same address</SelectItem></SelectContent>
+        <SelectContent title={parent ? "Relationship to parent" : "Relationship of child"}><SelectItem value="choose">Choose relationship</SelectItem><SelectItem value="DEPARTMENT_OF">Department</SelectItem><SelectItem value="INDEPENDENT_ESTABLISHMENT_IN">Independent business at the same address</SelectItem></SelectContent>
       </Select>
     </Field>
     <div className="flex flex-wrap gap-2">

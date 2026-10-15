@@ -13,7 +13,7 @@ import {
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react"
 
 import { AccessScopeForm } from "@/components/settings/access-scope-form"
-import { RoleCards } from "@/components/settings/member-dialogs"
+import { RolePicker } from "@/components/settings/member-dialogs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -51,6 +51,7 @@ import {
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input, inputHints } from "@/components/ui/input"
+import { OptionRow } from "@/components/ui/option-row"
 import {
   QueryStates,
   queryStatus,
@@ -225,11 +226,35 @@ function DeliveryState({
 }
 
 /**
+ * The one primary action on a created invite: Share where this browser has a
+ * share sheet, otherwise Copy link. Copy stays beside the link as the
+ * secondary when Share leads (see `CreatedInvite`).
+ */
+function InvitePrimaryAction({ url }: { url: string }) {
+  const toast = useToastManager()
+  const canShare = useCanShareLink(url)
+  return canShare ? (
+    <Button type="button" onClick={() => void shareInviteLink(url, toast)}>
+      <Share aria-hidden />
+      Share
+    </Button>
+  ) : (
+    <Button type="button" onClick={() => void copyInviteLink(url, toast)}>
+      <Copy aria-hidden />
+      Copy link
+    </Button>
+  )
+}
+
+/**
  * The link just created, kept on screen until the operator is done with it:
  * a toast that vanished in a few seconds was the only place it used to be.
+ * The primary action (`InvitePrimaryAction`) sits in the caller's footer;
+ * `children` follow the link ("Invite someone else").
  */
 function CreatedInvite({
   created,
+  children,
 }: {
   created: {
     email: string
@@ -239,6 +264,7 @@ function CreatedInvite({
     /** Set when the organisation emails its invitations. */
     delivery?: InvitationDelivery | null
   }
+  children?: React.ReactNode
 }) {
   const toast = useToastManager()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -291,30 +317,23 @@ function CreatedInvite({
             className="min-w-0 flex-1 basis-56 font-mono"
             onFocus={(event) => event.currentTarget.select()}
           />
-          <div className="flex gap-2 max-sm:w-full max-sm:*:flex-1">
+          {canShare ? (
             <Button
               type="button"
               variant="secondary"
+              className="max-sm:w-full"
               onClick={() => {
                 inputRef.current?.select()
                 void copyInviteLink(created.url, toast)
               }}
             >
               <Copy aria-hidden />
-              Copy
+              Copy link
             </Button>
-            {canShare ? (
-              <Button
-                type="button"
-                onClick={() => void shareInviteLink(created.url, toast)}
-              >
-                <Share aria-hidden />
-                Share…
-              </Button>
-            ) : null}
-          </div>
+          ) : null}
         </div>
       </Field>
+      {children}
     </div>
   )
 }
@@ -326,7 +345,8 @@ type ClientScope = { mode: "all" | "some"; clientIds: string[] }
  * (the default, and it includes clients added later) or only the ticked
  * ones. Stored on the invitation and applied as listing access when it is
  * accepted (lib/server/provisioning.ts). Clients with no listings can't be
- * ticked: scoped to nothing, they would see everything.
+ * ticked: scoped to nothing, they would see everything. The "Client access"
+ * row above it names it and opens it.
  */
 function InviteClientScope({
   value,
@@ -345,7 +365,6 @@ function InviteClientScope({
     <AccessScopeForm
       noun={{ one: "client", many: "clients" }}
       legend="Client access"
-      legendVisible
       split
       mode={value.mode}
       onModeChange={(mode) => onChange({ ...value, mode })}
@@ -388,6 +407,14 @@ function InviteClientScope({
   )
 }
 
+/** The Client access row's value while the choice is closed. */
+function clientScopeValue(scope: ClientScope): string {
+  if (scope.mode === "all") return "All clients, including clients added later"
+  const count = scope.clientIds.length
+  if (count === 0) return "Only some clients: choose which"
+  return count === 1 ? "1 client chosen" : `${count} clients chosen`
+}
+
 /** "All clients", or up to two client names and a count. */
 function scopeSummary(
   names: string[] | null | undefined,
@@ -400,8 +427,8 @@ function scopeSummary(
 }
 
 /**
- * Invite someone: an email, a role chosen from the role cards, and whether
- * they may publish. Creating an invitation makes a link to share and, when
+ * Invite someone: an email, a role chosen from the role rows, which clients
+ * they see, and whether they may publish. Creating an invitation makes a link to share and, when
  * the organisation emails its invitations, sends it to them as well; nothing
  * changes until they accept. Values survive a refused submit; a server
  * refusal about the address is shown on the address.
@@ -432,6 +459,11 @@ function InviteForm({
     clientIds: [],
   })
   const [scopeError, setScopeError] = useState<string | null>(null)
+  // The client choice sits behind its row until asked for: the row says
+  // "All clients", so the default is seen without the cards taking the room.
+  const [scopeOpen, setScopeOpen] = useState(false)
+  const scopeRef = useRef<HTMLDivElement>(null)
+  const [scopeRefusals, setScopeRefusals] = useState(0)
   const [emailError, setEmailError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [created, setCreated] = useState<{
@@ -458,6 +490,11 @@ function InviteForm({
     onDirtyChange?.(dirty)
   }, [dirty, onDirtyChange])
 
+  // A refused submit opens the choice: move to it so the reason is read.
+  useEffect(() => {
+    if (scopeRefusals > 0) scopeRef.current?.focus()
+  }, [scopeRefusals])
+
   const create = useMutation({
     mutationFn: (input: {
       email: string
@@ -470,6 +507,7 @@ function InviteForm({
       setRole("member")
       setCanPublish(false)
       setScope({ mode: "all", clientIds: [] })
+      setScopeOpen(false)
       setScopeError(null)
       setEmailError(null)
       setFormError(null)
@@ -510,6 +548,8 @@ function InviteForm({
     if (scopedIds && scopedIds.length === 0) {
       // An empty scope would mean every client; make them say so instead.
       setScopeError("Tick at least one client, or choose All clients.")
+      setScopeOpen(true)
+      setScopeRefusals((count) => count + 1)
       return
     }
     setScopeError(null)
@@ -535,6 +575,7 @@ function InviteForm({
   const roleLabelId = `${ids}-role`
   const publishLabelId = `${ids}-publish`
   const publishHintId = `${ids}-publish-hint`
+  const scopeId = `${ids}-scope`
 
   const fields = (
     <>
@@ -558,7 +599,7 @@ function InviteForm({
         <span id={roleLabelId} className="text-ui font-semibold text-ink">
           Role
         </span>
-        <RoleCards
+        <RolePicker
           actorRole={actorRole}
           value={role}
           onValueChange={setRole}
@@ -566,6 +607,48 @@ function InviteForm({
           disabled={create.isPending}
         />
       </div>
+      {scoped ? (
+        <div className="flex min-w-0 flex-col gap-2">
+          <OptionRow
+            indicator="chevron"
+            label="Client access"
+            description={clientScopeValue(scope)}
+            aria-expanded={scopeOpen}
+            aria-controls={scopeId}
+            // The chevron points down while the choice is open.
+            className="aria-expanded:[&_[data-slot=option-row-chevron]]:rotate-90"
+            disabled={create.isPending}
+            onClick={() => setScopeOpen((open) => !open)}
+          />
+          <div
+            ref={scopeRef}
+            id={scopeId}
+            role="group"
+            aria-label="Client access"
+            tabIndex={-1}
+            hidden={!scopeOpen}
+            className="outline-none"
+          >
+            {scopeOpen ? (
+              <InviteClientScope
+                value={scope}
+                onChange={(next) => {
+                  setScope(next)
+                  if (scopeError) setScopeError(null)
+                }}
+                error={scopeError}
+                disabled={create.isPending}
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {business && (role === "member" || role === "viewer") ? (
+        <p className="text-ui text-ink-muted" data-slot="invite-location-note">
+          They’ll see all your locations, including ones you add later. After
+          they join, narrow this from Location access on their row in Team.
+        </p>
+      ) : null}
       <div className="flex items-start justify-between gap-4 rounded-(--np-radius-control) bg-surface-alt px-3 py-2.5">
         <span className="flex min-w-0 flex-col gap-0.5">
           <span id={publishLabelId} className="text-ui font-semibold text-ink">
@@ -583,23 +666,6 @@ function InviteForm({
           onCheckedChange={(value) => setCanPublish(value)}
         />
       </div>
-      {scoped ? (
-        <InviteClientScope
-          value={scope}
-          onChange={(next) => {
-            setScope(next)
-            if (scopeError) setScopeError(null)
-          }}
-          error={scopeError}
-          disabled={create.isPending}
-        />
-      ) : null}
-      {business && (role === "member" || role === "viewer") ? (
-        <p className="text-ui text-ink-muted" data-slot="invite-location-note">
-          They’ll see all your locations, including ones you add later. After
-          they join, narrow this from Location access on their row in Team.
-        </p>
-      ) : null}
       {formError ? (
         <Alert variant="destructive">
           <AlertTitle>The invitation wasn’t created</AlertTitle>
@@ -624,7 +690,8 @@ function InviteForm({
   const inviteAnother = (
     <Button
       type="button"
-      variant="ghost"
+      variant="link"
+      className="self-start"
       onClick={() => {
         setCreated(null)
         // After the reset renders the fields again.
@@ -639,11 +706,11 @@ function InviteForm({
     return (
       <>
         <DialogBody>
-          <CreatedInvite created={created} />
+          <CreatedInvite created={created}>{inviteAnother}</CreatedInvite>
         </DialogBody>
         <DialogFooter>
-          {inviteAnother}
-          <DialogClose render={<Button>Done</Button>} />
+          <DialogClose render={<Button variant="ghost">Done</Button>} />
+          <InvitePrimaryAction url={created.url} />
         </DialogFooter>
       </>
     )
@@ -657,8 +724,10 @@ function InviteForm({
           className: "flex flex-col gap-4",
         })}
       >
-        <CreatedInvite created={created} />
-        <div className="flex justify-end">{inviteAnother}</div>
+        <CreatedInvite created={created}>{inviteAnother}</CreatedInvite>
+        <div className="flex justify-end">
+          <InvitePrimaryAction url={created.url} />
+        </div>
       </div>
     )
   }
@@ -667,10 +736,7 @@ function InviteForm({
     return (
       <form noValidate onSubmit={onSubmit} className="contents">
         <DialogBody>{fields}</DialogBody>
-        <DialogFooter>
-          <DialogClose render={<Button variant="ghost">Cancel</Button>} />
-          {submit}
-        </DialogFooter>
+        <DialogFooter>{submit}</DialogFooter>
       </form>
     )
   }

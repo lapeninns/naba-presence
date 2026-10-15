@@ -1,9 +1,7 @@
 "use client"
 
-import { Copy } from "lucide-react"
 import * as React from "react"
 
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /**
@@ -21,7 +19,7 @@ function SystemCard({
 }: {
   title: string
   description?: React.ReactNode
-  children: React.ReactNode
+  children?: React.ReactNode
   className?: string
 }) {
   const id = React.useId()
@@ -77,49 +75,4 @@ function Code({ children }: { children: React.ReactNode }) {
   )
 }
 
-/**
- * Copies text to the clipboard and says so. Nothing is sent anywhere: when
- * the clipboard is unavailable the text is shown so it can be copied by
- * hand.
- */
-function CopyTextButton({
-  text,
-  label,
-  copiedMessage,
-}: {
-  text: string
-  label: string
-  copiedMessage: string
-}) {
-  const [result, setResult] = React.useState<"copied" | "manual" | null>(null)
-  return (
-    <div className="flex flex-col items-start gap-1.5">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="pointer-coarse:min-h-11"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(text)
-            setResult("copied")
-          } catch {
-            setResult("manual")
-          }
-        }}
-      >
-        <Copy strokeWidth={1.75} aria-hidden />
-        {label}
-      </Button>
-      <p role="status" className="text-caption text-ink-muted">
-        {result === "copied"
-          ? copiedMessage
-          : result === "manual"
-            ? `Copy this: “${text}”`
-            : ""}
-      </p>
-    </div>
-  )
-}
-
-export { Code, CopyTextButton, DetailList, SystemCard }
+export { Code, DetailList, SystemCard }

@@ -1,10 +1,10 @@
 "use client"
 
 import {
-  ArchiveIcon,
   CircleAlertIcon,
   Link2Icon,
   MapPinIcon,
+  PenLineIcon,
   RefreshCwIcon,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -29,12 +29,9 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
-import { Checkbox } from "@/components/ui/checkbox"
 import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
 import {
@@ -53,6 +50,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
+import { SettingsDestructiveAction } from "@/components/ui/settings-row"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
@@ -113,9 +111,10 @@ type ClientDetails = {
  * support ticket, not a security boundary.
  *
  * Reference `client-settings.html`: a section rail beside the Details form,
- * the listings tables and the Archive danger card. On a narrow screen the
- * rail is a grouped list of section links with chevrons (one nav, so the
- * landmark name is not repeated; the desk rail is display:none there).
+ * the listings tables and the Archive danger card. On a narrow screen there
+ * is no rail: the sections simply stack (an index of chevron rows that only
+ * scrolled to a section right under it promised a pushed screen), and the
+ * app bar carries the way back.
  */
 function ClientSettings({ clientId }: { clientId: string }) {
   const query = useClient(clientId)
@@ -175,7 +174,11 @@ function SettingsHeader({
       actions={
         <Link
           href={`/clients/${clientId}`}
-          className={cn(buttonVariants({ variant: "secondary" }))}
+          // The app bar carries the way back on a phone.
+          className={cn(
+            buttonVariants({ variant: "secondary" }),
+            "max-md:hidden"
+          )}
         >
           {name ? `Back to ${name}` : "Back to client"}
         </Link>
@@ -337,17 +340,8 @@ function SettingsBody({
       <div className="flex flex-col gap-6 @3xl:flex-row @3xl:items-start">
         <nav
           aria-label="Client settings sections"
-          className="@3xl:sticky @3xl:top-(--np-toolbar-h) @3xl:w-52 @3xl:shrink-0 @3xl:pt-4"
+          className="hidden @3xl:sticky @3xl:top-(--np-toolbar-h) @3xl:block @3xl:w-52 @3xl:shrink-0 @3xl:pt-4"
         >
-          <GroupedList className="@3xl:hidden">
-            {SECTIONS.map((section) => (
-              <GroupedListItem
-                key={section.id}
-                href={`#${section.id}`}
-                label={section.label}
-              />
-            ))}
-          </GroupedList>
           <div className="hidden @3xl:flex @3xl:flex-col @3xl:gap-0.5">
             {SECTIONS.map((section) => (
               <a
@@ -794,7 +788,7 @@ function MoveToClient({
       >
         <SelectValue>{() => "Move to…"}</SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent title="Move to another client">
         {clients.map((entry) => (
           <SelectItem key={entry.id} value={entry.id}>
             {entry.name}
@@ -818,13 +812,16 @@ function ArchiveSection({
   /** Archives, unfiling these listings first when there are any. */
   onArchive: (detach: string[]) => Promise<void>
 }) {
-  const [open, setOpen] = React.useState(false)
-  const [acknowledged, setAcknowledged] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const loading = attached === null
-  const count = attached?.length ?? 0
-  const listingsPhrase =
-    count === 1 ? "its listing" : `its ${formatNumber(count)} listings`
+
+  const archive = async () => {
+    setError(null)
+    try {
+      await onArchive((attached ?? []).map((entry) => entry.id))
+    } catch (cause) {
+      setError(describeActionError(cause))
+    }
+  }
 
   return (
     <section
@@ -832,9 +829,7 @@ function ArchiveSection({
       aria-labelledby="client-archive"
       className="scroll-mt-20"
     >
-      {/* The desk keeps the danger card; a phone reads it as a quiet group
-          with the consequence and a centred danger-ink text button. */}
-      <Card className="border-danger-ink @max-md:border-transparent @max-md:bg-fill-secondary">
+      <Card className="border-danger-ink">
         <CardHeader>
           <CardTitle as="h2" id="client-archive">
             Archive
@@ -842,109 +837,45 @@ function ArchiveSection({
           <CardDescription>
             Archiving hides the client from lists and filters. Its listings’
             review history is kept, and you can restore it from Clients ›
-            Archived.
+            Archived, or tap Undo straight after.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3">
-          <p
-            id="client-archive-reason"
-            className="min-w-0 grow basis-64 text-ui"
-          >
-            {loading ? (
-              <span className="text-ink-muted">
-                Checking attached listings…
-              </span>
-            ) : count > 0 ? (
-              <span className="text-ink-muted">
-                {client.name} still has {listingsPhrase}. Archiving unfiles{" "}
-                {count === 1 ? "it" : "them"}, so no listing is left under a
-                hidden client.
-              </span>
-            ) : (
-              <span className="text-ink-muted">
-                No listings are attached, so {client.name} can be archived.
-              </span>
-            )}
-          </p>
-          <Button
-            variant="danger-outline"
-            // A long client name wraps instead of pushing the card wider. On
-            // a phone it is a full-width, touch-height danger-ink text button.
-            className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left [overflow-wrap:anywhere] whitespace-normal @max-md:min-h-(--np-touch) @max-md:w-full @max-md:border-transparent @max-md:bg-transparent @max-md:text-center"
-            disabled={loading}
-            focusableWhenDisabled={loading}
-            aria-describedby="client-archive-reason"
-            onClick={() => {
-              setAcknowledged(false)
-              setError(null)
-              setOpen(true)
-            }}
-          >
-            <ArchiveIcon aria-hidden />
-            Archive {client.name}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
-          <AlertDialogTitle className="[overflow-wrap:anywhere]">
-            Archive {client.name}?
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {count > 0
-              ? `${client.name} still has ${count === 1 ? "1 listing" : `${formatNumber(count)} listings`}.`
-              : `${client.name} has no listings attached.`}
-          </AlertDialogDescription>
-          <ul className="flex list-disc flex-col gap-1 pl-5 text-ui text-ink">
-            <li>It disappears from the Clients list, filters and reports.</li>
-            {count > 0 ? (
-              <li>
-                {count === 1 ? "Its listing becomes" : "Its listings become"}{" "}
-                unfiled. They stay linked to Google and keep their reviews.
-              </li>
-            ) : null}
-            <li>Its notes and review history are kept.</li>
-            <li>You can restore it from Clients › Archived.</li>
-          </ul>
-          <Checkbox
-            checked={acknowledged}
-            onCheckedChange={(checked) => setAcknowledged(Boolean(checked))}
-            label="I understand this client will be hidden from my team."
-          />
+        <CardContent className="flex flex-col gap-3">
           {error ? (
             <Alert variant="destructive">
               <AlertTitle>{client.name} wasn’t archived</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          <AlertDialogFooter>
-            <AlertDialogClose
-              render={<Button variant="ghost">Keep the client</Button>}
-            />
-            <Button
-              variant="danger"
-              className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left [overflow-wrap:anywhere] whitespace-normal"
-              disabled={!acknowledged}
-              pending={pending}
-              pendingLabel="Archiving…"
-              onClick={async () => {
-                setError(null)
-                try {
-                  await onArchive((attached ?? []).map((entry) => entry.id))
-                  setOpen(false)
-                } catch (cause) {
-                  setError(describeActionError(cause))
-                }
-              }}
-            >
-              {count > 0
-                ? `Unfile ${count === 1 ? "its listing" : `its ${formatNumber(count)} listings`} and archive`
-                : `Archive ${client.name}`}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          {/* One step: archiving is reversible, so it acts at once and the
+              toast carries the Undo. */}
+          <SettingsDestructiveAction
+            // A long client name wraps instead of pushing the card wider.
+            className="h-auto py-2 text-center [overflow-wrap:anywhere]"
+            disabled={attached === null || pending}
+            onClick={() => void archive()}
+            footnote={
+              attached === null ? (
+                "Checking attached listings…"
+              ) : attached.length > 0 ? (
+                <>
+                  {client.name} still has{" "}
+                  {attached.length === 1
+                    ? "its listing"
+                    : `its ${formatNumber(attached.length)} listings`}
+                  . Archiving unfiles {attached.length === 1 ? "it" : "them"},
+                  so no listing is left under a hidden client. They stay linked
+                  to Google and keep their reviews.
+                </>
+              ) : (
+                `No listings are attached, so ${client.name} can be archived.`
+              )
+            }
+          >
+            {pending ? "Archiving…" : `Archive ${client.name}`}
+          </SettingsDestructiveAction>
+        </CardContent>
+      </Card>
     </section>
   )
 }
@@ -985,6 +916,13 @@ function ClientDetailsForm({
     name.trim() !== client.name ||
     notes.trim() !== (client.notes ?? "") ||
     (colour ?? null) !== (client.colour ?? null)
+  const discard = () => {
+    setName(client.name)
+    setNotes(client.notes ?? "")
+    setColour(client.colour)
+    setNameError(null)
+    setSaveError(null)
+  }
 
   // Warns on a tab close or reload while edits are unsaved, and keeps them
   // through a forced sign-out, offering them back on the next visit; the
@@ -1071,7 +1009,7 @@ function ClientDetailsForm({
             />
             <FieldError />
           </Field>
-          <ClientColourField value={colour} onChange={setColour} />
+          <ClientColourField value={colour} onChange={setColour} name={name} />
           <Field>
             <FieldLabel optional>Notes</FieldLabel>
             <Textarea
@@ -1094,36 +1032,38 @@ function ClientDetailsForm({
             </Alert>
           ) : null}
         </div>
-        <CardFooter bar>
-          <span role="status" className="text-caption text-ink-muted">
-            {dirty ? "Unsaved changes" : "No unsaved changes"}
-          </span>
-          <div className="flex flex-wrap gap-2">
+      </Card>
+      {/* Only once there is something to save. Docked to a phone's bottom
+          edge (the tab bar steps aside and the bar rides the keyboard);
+          stuck to the foot of the form on a desk. */}
+      <ActionBar
+        dock
+        tone="surface"
+        visible={dirty}
+        offset="md:bottom-3"
+        label="Save client details"
+        status={
+          <>
+            <PenLineIcon aria-hidden />
+            <span>{pending ? "Saving…" : "Unsaved changes"}</span>
+          </>
+        }
+        actions={
+          <>
             <Button
               type="button"
               variant="ghost"
-              disabled={!dirty || pending}
-              onClick={() => {
-                setName(client.name)
-                setNotes(client.notes ?? "")
-                setColour(client.colour)
-                setNameError(null)
-                setSaveError(null)
-              }}
+              disabled={pending}
+              onClick={discard}
             >
               Discard
             </Button>
-            <Button
-              type="submit"
-              disabled={!dirty}
-              pending={pending}
-              pendingLabel="Saving…"
-            >
+            <Button type="submit" pending={pending} pendingLabel="Saving…">
               Save changes
             </Button>
-          </div>
-        </CardFooter>
-      </Card>
+          </>
+        }
+      />
       <DiscardDialog
         {...unsaved.leavePrompt}
         title="Leave without saving?"

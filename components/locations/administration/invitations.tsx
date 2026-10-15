@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -276,7 +275,7 @@ export function CreateAdminDialog() {
                   }
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent title="Role">
                 {EDITABLE_ROLES.map((r) => (
                   <SelectItem key={r} value={r}>
                     {adminRoleLabel(r)}
@@ -298,7 +297,7 @@ export function CreateAdminDialog() {
                   }
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent title="Scope">
                 <SelectItem value="location">
                   {ADMIN_SCOPE_LABELS.location}
                 </SelectItem>
@@ -309,9 +308,6 @@ export function CreateAdminDialog() {
             </Select>
           </Field>
           <DialogFooter>
-            <DialogClose render={<Button variant="secondary" />}>
-              Cancel
-            </DialogClose>
             <Button type="submit" disabled={cannotSubmit}>
               {create.isPending ? "Reviewing…" : "Review invitation"}
             </Button>

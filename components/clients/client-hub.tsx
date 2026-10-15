@@ -10,12 +10,14 @@ import {
   PlusIcon,
   RefreshCwIcon,
   Settings2Icon,
+  Share2Icon,
 } from "lucide-react"
 import Link from "next/link"
+import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientAvatar } from "@/components/clients/client-avatar"
-import { ShareReportButton } from "@/components/clients/share-report-dialog"
+import { ShareReportDialog } from "@/components/clients/share-report-dialog"
 import {
   Alert,
   AlertActions,
@@ -23,7 +25,13 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import {
   DropdownMenu,
@@ -39,7 +47,7 @@ import { StatusPill } from "@/components/ui/status-pill"
 import {
   connectionNeedsReconnect,
   diagnoseClient,
-  freshnessSentence,
+  attentionDescription,
   healthDescription,
   healthLabel,
   healthTone,
@@ -66,15 +74,9 @@ const SECTIONS = [
 ]
 
 /**
- * On a phone the primary takes a row of its own under the others (it stays
- * last in reading order, so focus order matches what is seen).
- */
-const PRIMARY_ON_PHONE = "@max-md:basis-full"
-
-/**
- * The side column's cards read as quiet settings groups on a phone: no
- * border, a grey group surface, and a small muted label instead of a title.
- * The desk keeps the cards in the `@4xl` side column.
+ * The details cards (past reviews, notes) read as quiet settings groups on a
+ * phone: no border, a grey group surface, and a small muted label instead of
+ * a title. The desk lays them side by side under the listings table.
  */
 const ASIDE_CARD_ON_PHONE =
   "@max-md:border-transparent @max-md:bg-fill-secondary"
@@ -92,7 +94,7 @@ const ASIDE_LABEL_ON_PHONE =
  * Reference `client.hub`: header with the Google login behind the client and
  * the one primary action that matters now (Reconnect, Finish setup, or Open
  * inbox), four work tiles that each open the filtered inbox, the listings
- * table, and a side column. Everything shown comes from the client summary;
+ * table, and the past-reviews and notes cards. Everything shown comes from the client summary;
  * the reference's activity feed has no data source here and is left out.
  */
 function ClientHub({
@@ -149,73 +151,7 @@ function ClientHub({
 
   // The fix for a broken login lives in the alert below, beside its reason;
   // the header's primary stays the everyday one.
-  const actions: React.ReactNode[] = []
-  if (canManage && notSetUp && !diagnosis) {
-    actions.push(
-      <Link
-        key="finish"
-        href={`/setup?client=${client.id}`}
-        className={cn(buttonVariants(), PRIMARY_ON_PHONE)}
-      >
-        Finish setup
-      </Link>
-    )
-  }
-  const inboxIsPrimary = actions.length === 0
-  if (inboxIsPrimary || !notSetUp) {
-    actions.push(
-      <Link
-        key="inbox"
-        href={`/inbox?clientId=${client.id}`}
-        className={cn(
-          buttonVariants({
-            variant: inboxIsPrimary ? "default" : "secondary",
-          }),
-          inboxIsPrimary && PRIMARY_ON_PHONE
-        )}
-      >
-        {inboxIsPrimary ? <InboxIcon aria-hidden strokeWidth={1.75} /> : null}
-        Open inbox
-      </Link>
-    )
-  }
-  if (canManage) {
-    actions.push(
-      <Link
-        key="settings"
-        href={`/clients/${client.id}/settings`}
-        className={cn(buttonVariants({ variant: "secondary" }))}
-      >
-        <Settings2Icon aria-hidden strokeWidth={1.75} />
-        Settings
-      </Link>
-    )
-  }
-  if (canManage) {
-    // Owners and admins only: the link shows this client's numbers to
-    // anyone who has it (the API refuses everyone else too).
-    actions.push(
-      <ShareReportButton
-        key="share"
-        clientId={client.id}
-        clientName={client.name}
-        variant="ghost"
-      />
-    )
-  }
-  actions.push(
-    <Link
-      key="report"
-      href={`/reports?clientId=${client.id}`}
-      className={cn(buttonVariants({ variant: "ghost" }))}
-    >
-      <BarChart3Icon aria-hidden strokeWidth={1.75} />
-      Report
-    </Link>
-  )
-  // The primary goes last so it sits at the trailing edge.
-  const primaryFirst = actions.shift()
-  const ordered = [...actions.reverse(), primaryFirst]
+  const finishSetup = canManage && notSetUp && !diagnosis
 
   return (
     <>
@@ -240,8 +176,8 @@ function ClientHub({
           description={
             <span className="flex flex-col gap-1.5">
               <span className="text-ui text-ink-secondary">
-                {client.health === "attention" && client.freshness
-                  ? freshnessSentence(client.freshness)
+                {client.health === "attention"
+                  ? attentionDescription(client.freshness)
                   : healthDescription(client.health)}
                 {client.lastSyncAt ? (
                   <>
@@ -257,9 +193,17 @@ function ClientHub({
               <LoginLine client={client} diagnosis={diagnosis} />
             </span>
           }
-          actions={<>{ordered}</>}
         />
       </div>
+
+      {/* One primary under the header, the full width of the page on a phone,
+          with everything else behind More. */}
+      <HubActions
+        clientId={client.id}
+        clientName={client.name}
+        canManage={canManage}
+        finishSetup={finishSetup}
+      />
 
       {diagnosis ? (
         <DiagnosisAlert
@@ -300,12 +244,13 @@ function ClientHub({
             href={`/inbox?clientId=${client.id}&queue=approval`}
           />
           <WorkTile
-            label="Failed publishes"
+            label="Replies that didn’t post"
             value={formatNumber(client.openWork.failed)}
             hint={client.openWork.failed === 0 ? "None" : "Need a retry"}
             tone={client.openWork.failed > 0 ? "bad" : undefined}
             href={`/inbox?clientId=${client.id}&queue=failed`}
           />
+          {/* TODO(CLR-06): adopt lib/workspace/terms.ts once P11 merges */}
           <WorkTile
             label="Listings linked"
             value={`${formatNumber(client.linkedCount)} / ${formatNumber(client.locationCount)}`}
@@ -315,10 +260,10 @@ function ClientHub({
         </div>
       </section>
 
-      {/* The page is the container (PageFrame `@container`). At a 1280px
-          window with the 240px sidebar it is about 979px wide, so the side
-          column has to arrive at @4xl (56rem, 896px), not at 980px. */}
-      <div className="flex flex-col gap-6 @4xl:flex-row @4xl:items-start">
+      {/* The listings table takes the full content width, so it stays a table
+          (not phone record cards) at a desktop window; past reviews and notes
+          sit beside each other under it. */}
+      <div className="flex flex-col gap-6">
         <ListingsSection
           client={client}
           listings={locations}
@@ -330,9 +275,9 @@ function ClientHub({
         />
         <aside
           aria-label={`${client.name} details`}
-          className="flex min-w-0 flex-col gap-4 @4xl:w-80 @4xl:shrink-0"
+          className="grid min-w-0 gap-4 @3xl:grid-cols-2 @3xl:items-start"
         >
-          <ImportCard client={client} canManage={canManage} />
+          <PastReviewsCard client={client} canManage={canManage} />
           <section aria-labelledby="client-notes">
             <Card size="sm" className={ASIDE_CARD_ON_PHONE}>
               <CardHeader>
@@ -371,7 +316,94 @@ function ClientHub({
 }
 
 /**
- * "Behind it: <login>" with its state, from the client's real connections.
+ * The header's actions: the one primary (Finish setup while a client is not
+ * set up, otherwise Open inbox) and a "More" menu for the rest, which is an
+ * action sheet on a phone. Settings and Share report are owner and admin
+ * actions: the share link shows this client's numbers to anyone who has it
+ * (the API refuses everyone else too).
+ */
+function HubActions({
+  clientId,
+  clientName,
+  canManage,
+  finishSetup,
+}: {
+  clientId: string
+  clientName: string
+  canManage: boolean
+  finishSetup: boolean
+}) {
+  const [shareOpen, setShareOpen] = React.useState(false)
+  // Mounted on first use and kept, so it costs nothing on a page where it is
+  // never opened and still animates closed once it has been.
+  const [shareUsed, setShareUsed] = React.useState(false)
+  return (
+    <div className="flex items-center gap-2">
+      {finishSetup ? (
+        <Link
+          href={`/setup?client=${clientId}`}
+          className={cn(buttonVariants(), "@max-md:flex-1")}
+        >
+          Finish setup
+        </Link>
+      ) : (
+        <Link
+          href={`/inbox?clientId=${clientId}`}
+          className={cn(buttonVariants(), "@max-md:flex-1")}
+        >
+          <InboxIcon aria-hidden strokeWidth={1.75} />
+          Open inbox
+        </Link>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button variant="secondary" aria-label="More actions" />}
+        >
+          <EllipsisIcon aria-hidden strokeWidth={1.75} />
+          More
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            render={<Link href={`/reports?clientId=${clientId}`} />}
+          >
+            <BarChart3Icon aria-hidden strokeWidth={1.75} />
+            Report
+          </DropdownMenuItem>
+          {canManage ? (
+            <DropdownMenuItem
+              onClick={() => {
+                setShareUsed(true)
+                setShareOpen(true)
+              }}
+            >
+              <Share2Icon aria-hidden strokeWidth={1.75} />
+              Share report
+            </DropdownMenuItem>
+          ) : null}
+          {canManage ? (
+            <DropdownMenuItem
+              render={<Link href={`/clients/${clientId}/settings`} />}
+            >
+              <Settings2Icon aria-hidden strokeWidth={1.75} />
+              Settings
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {shareUsed ? (
+        <ShareReportDialog
+          clientId={clientId}
+          clientName={clientName}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * "Google login: <login>" with its state, from the client's real connections.
  *
  * The chip never says all is well while a listing is unreachable: a login
  * can be connected and still have lost manager access to one of the
@@ -401,7 +433,7 @@ function LoginLine({
     <span className="flex flex-wrap items-center gap-2 text-caption text-ink-secondary">
       <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
       <span className="min-w-0 [overflow-wrap:anywhere]">
-        Behind it:{" "}
+        Google login:{" "}
         <strong className="font-semibold text-ink">
           {first.googleEmail ?? "Google account"}
         </strong>
@@ -486,8 +518,6 @@ function ListingsSection({
   /** A login needs reconnecting, so every linked listing is paused. */
   loginBroken: boolean
 }) {
-  const linked = listings.filter((listing) => listing.linkId)
-  const verified = listings.filter((listing) => listing.verified).length
   const add = canManage ? (
     <Link
       href={`/setup?client=${client.id}&step=locations`}
@@ -504,16 +534,13 @@ function ListingsSection({
       className="flex min-w-0 flex-1 flex-col gap-2.5"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        {/* TODO(CLR-06): adopt lib/workspace/terms.ts once P11 merges */}
         <h2 id="client-listings" className="text-title font-semibold text-ink">
           Listings
         </h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-caption text-ink-muted tabular-nums">
-            {formatNumber(linked.length)} linked · {formatNumber(verified)}{" "}
-            verified
-          </span>
-          {listings.length > 0 ? add : null}
-        </div>
+        {/* The linked and verified counts are the "Listings linked" tile
+            above; they are not repeated here. */}
+        {listings.length > 0 ? add : null}
       </div>
 
       {listings.length === 0 ? (
@@ -543,7 +570,8 @@ function ListingsSection({
         // Below 48rem of its own width the table becomes record cards: the
         // name is the headline with its Google state trailing, the address
         // the subtitle, verification the one meta line, and More the row's
-        // actions.
+        // actions. A healthy row shows plain text at the desk and nothing on
+        // a phone; a pill appears only for a state that needs a look.
         <DataTable
           caption={`${client.name}'s listings with their Google link and verification`}
           rows={listings}
@@ -590,7 +618,9 @@ function ListingsSection({
                   ) : loginBroken ? (
                     <StatusPill tone="at-risk">Linked · paused</StatusPill>
                   ) : (
-                    <StatusPill tone="healthy">Linked</StatusPill>
+                    <span className="text-ui text-ink-secondary @max-3xl/table:hidden">
+                      Linked
+                    </span>
                   )
                 ) : (
                   <StatusPill tone="neutral" dashed>
@@ -609,7 +639,9 @@ function ListingsSection({
                     —
                   </span>
                 ) : listing.verified ? (
-                  <StatusPill tone="healthy">Verified</StatusPill>
+                  <span className="text-ui text-ink-secondary @max-3xl/table:hidden">
+                    Verified
+                  </span>
                 ) : (
                   <StatusPill tone="attention">Not verified</StatusPill>
                 ),
@@ -647,14 +679,13 @@ function ListingsSection({
                       <DropdownMenuTrigger
                         render={
                           <Button
-                            variant="secondary"
-                            size="sm"
+                            variant="ghost"
+                            size="icon-sm"
                             aria-label={`More for ${listing.name}`}
                           />
                         }
                       >
                         <EllipsisIcon aria-hidden strokeWidth={1.75} />
-                        More
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
                         {SECTIONS.map((section) => (
@@ -680,8 +711,8 @@ function ListingsSection({
   )
 }
 
-/** Review import across the client's listings, from the summary's counts. */
-function ImportCard({
+/** Past reviews across the client's listings, from the summary's counts. */
+function PastReviewsCard({
   client,
   canManage,
 }: {
@@ -699,13 +730,16 @@ function ImportCard({
             id="client-import"
             className={ASIDE_LABEL_ON_PHONE}
           >
-            Review import
+            Past reviews
           </CardTitle>
+          <CardDescription className="@max-md:sr-only">
+            Bring in the reviews Google already holds for these listings.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2.5">
           {total === 0 ? (
             <p className="text-ui text-ink-muted">
-              Nothing to import until a listing is linked.
+              Nothing to bring in until a listing is linked.
             </p>
           ) : (
             <ul className="flex flex-col gap-2 text-ui">
@@ -735,7 +769,9 @@ function ImportCard({
                 "self-start"
               )}
             >
-              {failed > 0 ? "Retry the import" : "Start the import"}
+              {failed > 0
+                ? "Retry bringing in past reviews"
+                : "Bring in past reviews"}
             </Link>
           ) : null}
         </CardContent>
@@ -852,7 +888,7 @@ function DiagnosisAlert({
 /**
  * The hub's loading shape, drawn by the route's `loading.tsx` and by the hub
  * while its query is pending: the same header, the same tile grid and the
- * same listings-plus-side-column split at the same container sizes, so the
+ * same full-width listings table with the details cards under it, so the
  * swap to the real hub does not jump.
  */
 function HubSkeleton() {
@@ -874,9 +910,9 @@ function HubSkeleton() {
           <Skeleton key={index} className="h-28 rounded-(--np-radius-card)" />
         ))}
       </div>
-      <div className="flex flex-col gap-6 @4xl:flex-row @4xl:items-start">
-        <Skeleton className="h-48 min-w-0 flex-1 rounded-(--np-radius-card)" />
-        <div className="flex flex-col gap-4 @4xl:w-80 @4xl:shrink-0">
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-48 min-w-0 rounded-(--np-radius-card)" />
+        <div className="grid gap-4 @3xl:grid-cols-2">
           <Skeleton className="h-28 rounded-(--np-radius-card)" />
           <Skeleton className="h-24 rounded-(--np-radius-card)" />
         </div>

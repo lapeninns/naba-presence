@@ -191,12 +191,14 @@ describe("LocationReport period", () => {
     stubDirectory()
     search = query
     renderView()
+    // The figures mount at once; the name and the period summary wait for
+    // the directory.
     expect(await screen.findByText("Location figures")).toBeInTheDocument()
     expect(locationPerformance).toHaveBeenLastCalledWith(
       expect.objectContaining({ locationId: "l1", rangeId })
     )
     expect(
-      screen.getByRole("button", { name: /^Girton.*Last \d+ days$/ })
+      await screen.findByRole("button", { name: /^Girton.*Last \d+ days$/ })
     ).toBeInTheDocument()
   })
 

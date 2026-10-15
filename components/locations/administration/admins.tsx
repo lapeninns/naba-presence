@@ -166,7 +166,7 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
           {(value: string | null) => (value ? adminRoleLabel(value) : "")}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent title={`Role for ${admin.admin ?? name}`}>
         {EDITABLE_ROLES.map((r) => (
           <SelectItem key={r} value={r}>
             {adminRoleLabel(r)}

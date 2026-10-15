@@ -38,8 +38,10 @@ import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
 import {
   PRIMARY_ACTION_EVENT,
+  REPLY_EDIT_EVENT,
   REPLY_FOCUS_EVENT,
   REPLY_GENERATE_EVENT,
+  type ReplyEditDetail,
 } from "@/lib/inbox/events"
 import { greetingName, replyGuidance } from "@/lib/inbox/reply-guidance"
 import { hasVerifiedDraft } from "@/lib/inbox/reply-state"
@@ -201,8 +203,20 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // permitted for this review, and it must not: permission lives with the
   // review, not with the keyboard.
   const canOpenEditorRef = useRef(false)
+  // A reply parked for approval is read, not edited: saving or regenerating
+  // moves it back to `drafted` and withdraws the request, so the box stays
+  // read-only until "Edit reply" (the action bar's ⋯ menu) asks to open it.
+  const [editingParkedFor, setEditingParkedFor] = useState<string | null>(null)
+  const awaitingApproval = review?.workflowStatus === "awaiting_approval"
+  // Once the reply leaves approval (saved back to a draft, say) the opening is
+  // spent: a second approval request parks it read-only again.
+  if (!awaitingApproval && editingParkedFor !== null) {
+    setEditingParkedFor(null)
+  }
+  const parkedReadOnly = awaitingApproval && editingParkedFor !== reviewId
   const editableNow =
     Boolean(review?.capabilities.canEdit) &&
+    !parkedReadOnly &&
     (!review ||
       !isReviewWorkflowState(review.workflowStatus) ||
       isAllowedReviewTransition(review.workflowStatus, "drafted"))
@@ -220,6 +234,21 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     window.addEventListener(REPLY_FOCUS_EVENT, onFocusReply)
     return () => window.removeEventListener(REPLY_FOCUS_EVENT, onFocusReply)
   }, [])
+  useEffect(() => {
+    function onEditParked(event: Event) {
+      const detail = (event as CustomEvent<ReplyEditDetail>).detail
+      if (detail?.reviewId !== reviewId) return
+      setEditingParkedFor(reviewId)
+      requestAnimationFrame(() => {
+        const field = textareaRef.current
+        field?.focus()
+        const length = field?.value.length ?? 0
+        field?.setSelectionRange(length, length)
+      })
+    }
+    window.addEventListener(REPLY_EDIT_EVENT, onEditParked)
+    return () => window.removeEventListener(REPLY_EDIT_EVENT, onEditParked)
+  }, [reviewId])
 
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
   const aiCredits = useAiCredits()
@@ -238,7 +267,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // cannot run is said in words on the bar.
   const saveBlocked = !editableNow
     ? review?.capabilities.canEdit
-      ? "A publish for this reply is under way."
+      ? parkedReadOnly
+        ? "Choose Edit reply to change this reply."
+        : "A publish for this reply is under way."
       : "You do not have permission to edit this reply."
     : body.trim() === ""
       ? "Write the reply before publishing it."
@@ -438,11 +469,12 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       })
     : []
 
-  // Someone who may not edit gets the reply as text: no tone, no Generate,
-  // no credits and no box that looks typeable but is not.
-  if (!canEdit) {
+  // Someone who may not edit, or who is reading a reply parked for approval,
+  // gets the reply as text: no tone, no Generate, no credits and no box that
+  // looks typeable but is not.
+  if (!canEdit || parkedReadOnly) {
     return (
-      <div data-slot="reply-composer" className="flex min-w-0 flex-col">
+      <div data-slot="reply-composer" className="flex min-w-0 flex-col gap-2">
         <p
           data-slot="reply-readonly"
           lang={review.detectedLanguageCode ?? undefined}
@@ -454,6 +486,15 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         >
           {seededBody || "No reply yet."}
         </p>
+        {canEdit && parkedReadOnly ? (
+          <p
+            data-slot="parked-note"
+            className="m-0 text-caption text-ink-muted"
+          >
+            Waiting for approval. To change this reply, choose Edit reply from
+            the Review actions menu (⋯). It then goes back to Needs reply.
+          </p>
+        ) : null}
       </div>
     )
   }
@@ -573,6 +614,14 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       <label htmlFor={fieldId} className="sr-only">
         Your reply
       </label>
+      {awaitingApproval ? (
+        <p
+          data-slot="parked-editing-note"
+          className="m-0 px-1 text-caption text-ink-muted"
+        >
+          Saving a change sends this reply back to Needs reply.
+        </p>
+      ) : null}
       {generateErrorNote}
 
       {/* The editor surface under the "Reply as …" header row: a quiet

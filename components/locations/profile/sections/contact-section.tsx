@@ -409,7 +409,7 @@ export function OpeningSection({
                 }
               </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent title="Open status">
               {OPEN_STATUS_OPTIONS.map((status) => (
                 <SelectItem key={status} value={status}>
                   {openStatusLabel(status)}

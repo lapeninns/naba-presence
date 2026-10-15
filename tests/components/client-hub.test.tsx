@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -135,23 +136,162 @@ describe("ClientHub", () => {
       screen.queryByRole("link", { name: "Add listings from Google" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("link", { name: "Settings" })
-    ).not.toBeInTheDocument()
-    expect(
       screen.queryByRole("link", { name: /Finish setup/ })
     ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }))
+    const menu = await screen.findByRole("menu")
+    expect(within(menu).getByRole("menuitem", { name: "Report" })).toBeTruthy()
     expect(
-      screen.queryByRole("button", { name: "Share report" })
-    ).not.toBeInTheDocument()
+      within(menu).queryByRole("menuitem", { name: "Settings" })
+    ).toBeNull()
+    expect(
+      within(menu).queryByRole("menuitem", { name: "Share report" })
+    ).toBeNull()
   })
 
   it("lets an owner or admin share the client's report", async () => {
     stub()
     renderHub()
     await screen.findByRole("heading", { name: "Old Crown Group", level: 1 })
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }))
+    const menu = await screen.findByRole("menu")
     expect(
-      screen.getByRole("button", { name: "Share report" })
+      within(menu).getByRole("menuitem", { name: "Share report" })
     ).toBeInTheDocument()
+  })
+
+  it("has one primary action, with the rest behind More", async () => {
+    stub()
+    renderHub()
+    await screen.findByRole("heading", { name: "Old Crown Group", level: 1 })
+    // Open inbox is the only action in the header; Report, Share report and
+    // Settings are not four more buttons.
+    expect(screen.getByRole("link", { name: "Open inbox" })).toHaveAttribute(
+      "href",
+      "/inbox?clientId=c1"
+    )
+    expect(screen.queryByRole("link", { name: "Report" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Share report" })).toBeNull()
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }))
+    const menu = await screen.findByRole("menu")
+    expect(
+      within(menu).getByRole("menuitem", { name: "Report" })
+    ).toHaveAttribute("href", "/reports?clientId=c1")
+    expect(
+      within(menu).getByRole("menuitem", { name: "Settings" })
+    ).toHaveAttribute("href", "/clients/c1/settings")
+    expect(
+      within(menu).getByRole("menuitem", { name: "Share report" })
+    ).toBeInTheDocument()
+  })
+
+  it("makes Finish setup the one primary while a client is not set up", async () => {
+    stub({
+      client: { ...client, health: "not_connected", linkedCount: 0 },
+      locations: [],
+    })
+    renderHub()
+    expect(
+      await screen.findByRole("link", { name: "Finish setup" })
+    ).toHaveAttribute("href", "/setup?client=c1")
+    expect(screen.queryByRole("link", { name: "Open inbox" })).toBeNull()
+  })
+
+  it("names the cause beside Needs attention, never 'up to date'", async () => {
+    stub({
+      client: {
+        ...client,
+        health: "attention",
+        freshness: {
+          state: "up_to_date",
+          reason: null,
+          lastSuccessfulCheckAt: "2026-09-03T10:00:00.000Z",
+        },
+      },
+    })
+    renderHub()
+    expect(await screen.findByText("Needs attention")).toBeInTheDocument()
+    expect(
+      screen.getByText(/A linked listing has changed on Google/)
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Review checks are up to date/)).toBeNull()
+  })
+
+  it("shows a pill only for listings in a non-default state", async () => {
+    stub({
+      locations: [
+        location,
+        {
+          ...location,
+          locationId: "l2",
+          name: "Old Crown Histon",
+          linkId: "ll2",
+          verified: false,
+        },
+        {
+          ...location,
+          locationId: "l3",
+          name: "Old Crown Ely",
+          linkId: null,
+          verified: false,
+        },
+      ],
+    })
+    renderHub()
+    await screen.findByRole("link", { name: "Old Crown Girton" })
+    // Not linked and not verified are states worth a pill.
+    expect(screen.getByText("Not verified")).toBeInTheDocument()
+    expect(screen.getByText("Not linked")).toBeInTheDocument()
+    // Linked and verified are the default: plain text, not a pill.
+    for (const label of ["Linked", "Verified"]) {
+      for (const el of screen.getAllByText(label)) {
+        expect(el.closest('[data-slot="status-pill"]')).toBeNull()
+      }
+    }
+  })
+
+  it("does not repeat the linked and verified counts above the table", async () => {
+    stub()
+    renderHub()
+    await screen.findByRole("link", { name: "Old Crown Girton" })
+    expect(screen.queryByText(/\d+ linked · \d+ verified/)).toBeNull()
+    expect(
+      screen.getByRole("link", { name: /^Listings linked\s*2 \/ 2/ })
+    ).toBeInTheDocument()
+  })
+
+  it("uses plain labels for the login, past reviews and failed replies", async () => {
+    stub({
+      client: {
+        ...client,
+        backfill: { running: 0, failed: 0, succeeded: 1, notStarted: 1 },
+        connections: [
+          {
+            id: "gc1",
+            googleEmail: "ops@lapeninns.co.uk",
+            status: "active",
+            reconnectRequired: false,
+            lastRefreshAt: null,
+          },
+        ],
+      },
+    })
+    renderHub()
+    expect(await screen.findByText(/Google login:/)).toBeInTheDocument()
+    expect(screen.queryByText(/Behind it/)).toBeNull()
+    expect(
+      screen.getByRole("heading", { name: "Past reviews" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Review import")).toBeNull()
+    expect(
+      screen.getByText(/Bring in the reviews Google already holds/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Bring in past reviews" })
+    ).toHaveAttribute("href", "/setup?client=c1&step=backfill")
+    expect(screen.getByText("Replies that didn’t post")).toBeInTheDocument()
+    expect(screen.queryByText("Failed publishes")).toBeNull()
   })
 
   it("names the broken login when Google needs reconnecting", async () => {

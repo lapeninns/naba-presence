@@ -111,7 +111,7 @@ function ForgotPasswordForm() {
       } catch (error) {
         const errors = fieldErrorsFrom(error)
         setFieldErrors(errors)
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "forgot-password"))
         if (errors.email) focusField("email")
       }
     })
@@ -146,7 +146,9 @@ function ForgotPasswordForm() {
                       `Another link is on its way to ${sentTo} if it has an account.`
                     )
                   } catch (error) {
-                    setResendNote(authErrorMessage(error).title)
+                    setResendNote(
+                      authErrorMessage(error, "forgot-password").title
+                    )
                   }
                 })
               }

@@ -4,6 +4,7 @@ import { ApiClientError, apiFetch } from "@/lib/api/client"
 import {
   authErrorMessage,
   confirmStatusMessage,
+  type AuthSurface,
   fieldErrorsFrom,
 } from "@/lib/api/auth-errors"
 import { sanitiseNextPath } from "@/lib/api/next-path"
@@ -54,7 +55,8 @@ describe("sanitiseNextPath", () => {
 describe("authErrorMessage", () => {
   it("offers a resend action for unconfirmed accounts", () => {
     const message = authErrorMessage(
-      new ApiClientError(403, "email_not_verified", "server copy")
+      new ApiClientError(403, "email_not_verified", "server copy"),
+      "sign-in"
     )
     expect(message.action).toBe("resend-confirmation")
     expect(message.title).not.toContain("email_not_verified")
@@ -62,7 +64,8 @@ describe("authErrorMessage", () => {
 
   it("maps invalid credentials without leaking which field was wrong", () => {
     const message = authErrorMessage(
-      new ApiClientError(401, "invalid_credentials", "server copy")
+      new ApiClientError(401, "invalid_credentials", "server copy"),
+      "sign-in"
     )
     expect(message.title).toBe("That email or password is incorrect.")
     expect(message.action).toBeUndefined()
@@ -70,17 +73,107 @@ describe("authErrorMessage", () => {
 
   it("maps rate limiting and provider outages distinctly", () => {
     expect(
-      authErrorMessage(new ApiClientError(429, "auth_rate_limited", "x")).title
+      authErrorMessage(
+        new ApiClientError(429, "auth_rate_limited", "x"),
+        "sign-in"
+      ).title
     ).toBe("Too many attempts.")
     expect(
       authErrorMessage(
-        new ApiClientError(503, "password_auth_disabled", "x")
+        new ApiClientError(503, "password_auth_disabled", "x"),
+        "sign-in"
       ).title
     ).toBe("Sign-in is temporarily unavailable.")
   })
 
+  it.each<[AuthSurface, string]>([
+    ["sign-in", "Sign-in is temporarily unavailable."],
+    ["create-account", "Account creation is temporarily unavailable."],
+    ["forgot-password", "Password reset is temporarily unavailable."],
+    ["reset-password", "Password reset is temporarily unavailable."],
+    ["invitation", "Accepting invitations is temporarily unavailable."],
+    ["mfa", "Two-step verification is temporarily unavailable."],
+  ])("titles an outage for the %s surface", (surface, title) => {
+    for (const code of [
+      "password_auth_disabled",
+      "auth_provider_unavailable",
+    ]) {
+      const message = authErrorMessage(
+        new ApiClientError(503, code, "server copy"),
+        surface
+      )
+      expect(message.title).toBe(title)
+      expect(message.description).toBe(
+        "This is a problem on our side. Try again shortly."
+      )
+    }
+  })
+
+  it("keeps every other code the same on every surface", () => {
+    const surfaces: AuthSurface[] = [
+      "sign-in",
+      "create-account",
+      "forgot-password",
+      "reset-password",
+      "invitation",
+      "mfa",
+    ]
+    for (const code of [
+      "invalid_credentials",
+      "email_not_verified",
+      "auth_rate_limited",
+      "invalid_email_link",
+      "password_reset_failed",
+      "invitation_expired",
+      "mfa_code_invalid",
+    ]) {
+      const [first, ...rest] = surfaces.map((surface) =>
+        authErrorMessage(new ApiClientError(400, code, "x"), surface)
+      )
+      for (const other of rest) expect(other).toEqual(first)
+    }
+  })
+
+  it("does not reveal whether an email has an account", () => {
+    const message = authErrorMessage(
+      new ApiClientError(401, "invalid_credentials", "server copy"),
+      "sign-in"
+    )
+    expect(`${message.title} ${message.description}`).not.toMatch(
+      /no account|not registered|does not exist|doesn.t exist/i
+    )
+  })
+
+  it("never says agency, because the workspace mode is unknown before sign-in", () => {
+    const codes = [
+      "invitation_already_used",
+      "invitation_expired",
+      "invitation_not_found",
+      "invitation_changed",
+      "invitation_email_mismatch",
+      "member_limit_reached",
+      "invitation_scope_empty",
+      "registration_closed",
+      "sign_out_everywhere_failed",
+    ]
+    for (const code of codes) {
+      expect(
+        JSON.stringify(confirmStatusMessage(code)).toLowerCase()
+      ).not.toContain("agency")
+    }
+  })
+
+  it("tells an already-accepted invitation to sign in to continue", () => {
+    const message = authErrorMessage(
+      new ApiClientError(409, "invitation_already_used", "x"),
+      "invitation"
+    )
+    expect(message.title).toBe("This invitation has already been accepted.")
+    expect(message.description).toBe("Sign in to continue.")
+  })
+
   it("falls back safely for unknown errors", () => {
-    const message = authErrorMessage(new Error("boom"))
+    const message = authErrorMessage(new Error("boom"), "sign-in")
     expect(message.title).toBe("Something went wrong.")
     expect(JSON.stringify(message)).not.toContain("boom")
   })
@@ -98,6 +191,12 @@ describe("confirmStatusMessage", () => {
       "That link is invalid or has expired."
     )
   })
+
+  it("titles a sign-in outage from the status by default", () => {
+    expect(confirmStatusMessage("auth_provider_unavailable").title).toBe(
+      "Sign-in is temporarily unavailable."
+    )
+  })
 })
 
 describe("fieldErrorsFrom", () => {
@@ -113,7 +212,9 @@ describe("fieldErrorsFrom", () => {
     })
   })
   it("returns nothing for other errors", () => {
-    expect(fieldErrorsFrom(new ApiClientError(500, "internal_error", "x"))).toEqual({})
+    expect(
+      fieldErrorsFrom(new ApiClientError(500, "internal_error", "x"))
+    ).toEqual({})
   })
 })
 
@@ -169,6 +270,8 @@ describe("apiFetch 204", () => {
       "fetch",
       vi.fn(async () => new Response(null, { status: 204 }))
     )
-    await expect(apiFetch("/api/probe", { method: "DELETE" })).resolves.toBeUndefined()
+    await expect(
+      apiFetch("/api/probe", { method: "DELETE" })
+    ).resolves.toBeUndefined()
   })
 })

@@ -34,7 +34,7 @@ export function LocationFilter() {
         <SelectTrigger id="location" className="w-full">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent title="Location">
           {LOCATIONS.map((o) => (
             <SelectItem key={o.value} value={o.value}>
               {o.label}
@@ -57,7 +57,7 @@ export function Placeholder() {
         <SelectTrigger id="tone" className="w-full">
           <SelectValue placeholder="Select a tone" />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent title="Reply tone">
           {TONES.map((o) => (
             <SelectItem key={o.value} value={o.value}>
               {o.label}
@@ -84,7 +84,7 @@ export function Sizes() {
           <SelectTrigger id="size-default" className="w-56">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Status">
             <SelectItem value="awaiting">Awaiting reply</SelectItem>
             <SelectItem value="replied">Replied</SelectItem>
             <SelectItem value="escalated">Escalated</SelectItem>
@@ -100,7 +100,7 @@ export function Sizes() {
           <SelectTrigger id="size-sm" size="sm" className="w-56">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Status">
             <SelectItem value="awaiting">Awaiting reply</SelectItem>
             <SelectItem value="replied">Replied</SelectItem>
             <SelectItem value="escalated">Escalated</SelectItem>
@@ -120,7 +120,7 @@ export function States() {
           <SelectTrigger id="owner" className="w-full">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Assigned owner">
             <SelectItem value="priya">Priya Sharma</SelectItem>
           </SelectContent>
         </Select>
@@ -132,7 +132,7 @@ export function States() {
           <SelectTrigger id="template" className="w-full" aria-invalid>
             <SelectValue placeholder="Select a template" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Reply template">
             {TONES.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -168,7 +168,7 @@ export function GroupedInToolbar() {
           <SelectTrigger id="grouped">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Assigned to">
             <SelectGroup>
               <SelectLabel>Reply team</SelectLabel>
               <SelectItem value="priya">Priya Sharma</SelectItem>

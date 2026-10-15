@@ -20,7 +20,13 @@ import {
   keywordsCsv,
   KeywordsTable,
 } from "@/components/performance/keywords-table"
-import { RefreshGoogleButton } from "@/components/performance/refresh-google-button"
+import {
+  RefreshGoogleButton,
+  RefreshStatus,
+  useRefreshWatch,
+} from "@/components/performance/refresh-google-button"
+import { ReportsSkeleton } from "@/components/reporting/reports-skeleton"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
 import { ApiClientError } from "@/lib/api/client"
 import { formatNumber } from "@/lib/format"
@@ -51,6 +57,15 @@ export function KeywordsTab({
   const [query, setQuery] = useState("")
   const role = useSessionRole()
   const keywords = useAnalyticsKeywords({ range: rangeId, clientId })
+  // A refresh is followed until the terms on screen change.
+  const refresh = useRefreshWatch(
+    "keywords",
+    keywords.data
+      ? keywords.data.keywords
+          .map((term) => `${term.keyword}:${term.impressions}`)
+          .join("|")
+      : null
+  )
   const paused =
     keywords.isError &&
     keywords.error instanceof ApiClientError &&
@@ -61,12 +76,18 @@ export function KeywordsTab({
   const header = (
     <ReportTabHead
       caption={
-        !keywords.data ? null : (
-          <FetchedAtCaption
-            iso={keywords.data?.from ?? null}
-            timezone="UTC"
-            prefix="Impressions since"
-          />
+        keywords.isPending ? (
+          // One caption line once it arrives: keep its room.
+          <Skeleton aria-hidden className="h-4 w-48 max-w-full" />
+        ) : !keywords.data ? null : (
+          <>
+            <FetchedAtCaption
+              iso={keywords.data?.from ?? null}
+              timezone="UTC"
+              prefix="Impressions since"
+            />
+            {refresh.refreshing ? <RefreshStatus /> : null}
+          </>
         )
       }
       controls={
@@ -76,7 +97,8 @@ export function KeywordsTab({
           <RefreshGoogleButton
             kind="keywords"
             canTrigger
-            onDone={() => void keywords.refetch()}
+            onStart={refresh.onStart}
+            onFailed={refresh.onFailed}
           />
         ) : null
       }
@@ -114,7 +136,9 @@ export function KeywordsTab({
   }
 
   if (keywords.isPending) {
-    return frame(<ReportingPanel variant="loading" title="Loading keywords…" />)
+    return frame(
+      <ReportsSkeleton variant="keywords" label="Loading keywords…" />
+    )
   }
 
   const data = keywords.data

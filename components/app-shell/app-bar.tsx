@@ -5,7 +5,11 @@ import { usePathname } from "next/navigation"
 import * as React from "react"
 
 import type { BackTarget } from "@/lib/navigation/back-target"
-import { destinationForPath } from "@/lib/navigation/destinations"
+import { clientPageKind } from "@/lib/clients/scope"
+import {
+  destinationForPath,
+  shortBackLabel,
+} from "@/lib/navigation/destinations"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -30,12 +34,18 @@ import { useNeedsReplyCount } from "./use-needs-reply-count"
  * Inbox's pushed review), a plain click or Enter runs that instead of
  * following the link; a modified click (new tab, new window) still follows
  * `href`, which is why it stays a link.
+ *
+ * `title` always carries the full label, so a shortened or truncated one
+ * still says where it goes.
  */
 function ShellBackLink({
   target,
+  shortLabel,
   className,
 }: {
   target: BackTarget
+  /** The label drawn instead of the target's, when the bar is short of room. */
+  shortLabel?: string
   className?: string
 }) {
   // The page's handler arrives on the override, which useShellBack returns
@@ -79,7 +89,7 @@ function ShellBackLink({
           "Back to " + "Listings" came out as "Back toListings". In a flex
           row a whitespace-only text node draws nothing. */}
       <span className="sr-only">Back to</span>{" "}
-      <span className="min-w-0 truncate">{target.label}</span>
+      <span className="min-w-0 truncate">{shortLabel ?? target.label}</span>
     </ShellLink>
   )
 }
@@ -87,8 +97,9 @@ function ShellBackLink({
 /**
  * The page's h1 text, visible in the bar only once the h1 has scrolled up
  * under it (the large-title pattern). While the h1 is on screen the bar
- * shows no title, so it never repeats the heading right below it; once the
- * heading is gone the bar says where you are, in the h1's own words. A
+ * shows the workspace name instead, so it never repeats the heading right
+ * below it; once the heading is gone the two cross-fade and the bar says
+ * where you are, in the h1's own words. A
  * page's `<PageChrome title>` may shorten them.
  *
  * Read from the DOM rather than pushed by pages: every page already has
@@ -196,15 +207,24 @@ const INBOX_HREF = "/inbox"
  * The phone's top bar (below 768px), the Notion Mail header: sticky, 52px
  * plus the top safe area, on the canvas with the edge shadow below.
  *
- * - Leading: the labelled back control on a deep page; on a top-level page
- *   the workspace's name.
- * - The page title, from its h1, once the h1 has scrolled under the bar,
- *   with the view's count after it in muted figures.
+ * - Leading: the labelled back control on a deep page.
+ * - One title at a time, from the first row's left edge to the trailing
+ *   controls: the workspace's name while the page's h1 is on screen, then,
+ *   once the h1 has scrolled under the bar, the page title in the h1's own
+ *   words (the name fades out as the title fades in, a plain swap under
+ *   reduced motion), with the view's count after it in muted figures. On a
+ *   deep page the back label shortens to "‹ Listing" beside the title.
  * - Trailing: at most two 44px controls. With a scope switcher to show:
  *   one action (search, or notifications where the page has its own
  *   search, the Inbox) then the scope trigger; the bell moves into More,
  *   whose tab carries its badge. Without one: search (left out on the
- *   Inbox, so one magnifier means one thing) and notifications.
+ *   Inbox, so one magnifier means one thing) and notifications. An
+ *   organisation-wide page (`scoped: false` in the destination registry:
+ *   Team, Settings, Notifications) always gets search and notifications,
+ *   never the scope trigger it would ignore.
+ *
+ * Every label that can still truncate carries its full value in `title`
+ * (the back control, the workspace name, the title, the scope's name).
  *
  * Connection health is not here as a dot: it is a labelled row in the More
  * sheet and words beside every client in the client sheet.
@@ -225,7 +245,9 @@ function AppBar({
   const pathname = usePathname()
   const override = usePageChromeOverride()
   const title = useCompactTitle(override.title)
-  const ownSearch = destinationForPath(pathname)?.ownSearch === true
+  const destination = destinationForPath(pathname)
+  const ownSearch = destination?.ownSearch === true
+  const orgWide = destination?.scoped === false
   const count = useViewCount({ pathname, override, enabled: sessionReady })
 
   return (
@@ -234,40 +256,18 @@ function AppBar({
       className="sticky top-0 z-chrome bg-canvas pt-safe px-safe shadow-np-edge-bottom md:hidden print:hidden"
     >
       <div className="flex h-(--np-appbar-h) items-center gap-1 pr-1 pl-2">
-        <div className="flex max-w-1/2 min-w-0 shrink items-center">
+        <div
+          data-slot="app-bar-lead"
+          className="flex min-w-0 flex-1 items-center"
+        >
           {sessionReady ? (
             <React.Suspense fallback={null}>
-              <AppBarLeading organisationName={organisationName} />
+              <AppBarLeading
+                organisationName={organisationName}
+                title={title}
+                count={count}
+              />
             </React.Suspense>
-          ) : null}
-        </div>
-        <div
-          // The h1 is the page's title for assistive technology; this is a
-          // visual echo of it (and of the view's count), so it is hidden
-          // from the accessibility tree.
-          aria-hidden
-          data-slot="app-bar-heading"
-          className={cn(
-            "flex min-w-0 flex-1 items-baseline gap-1.5 px-1 text-title font-semibold text-ink",
-            "transition-opacity duration-(--np-duration-fast)",
-            title.visible ? "opacity-100" : "opacity-0"
-          )}
-        >
-          <p
-            aria-hidden
-            data-slot="app-bar-title"
-            data-visible={title.visible ? "true" : "false"}
-            className="min-w-0 truncate"
-          >
-            {title.text}
-          </p>
-          {count !== undefined && title.text ? (
-            <span
-              data-slot="app-bar-count"
-              className="shrink-0 font-normal text-ink-muted tabular-nums"
-            >
-              {count > 99 ? "99+" : count}
-            </span>
           ) : null}
         </div>
         {sessionReady ? (
@@ -277,24 +277,35 @@ function AppBar({
             // row past a 320px screen; each control keeps its 44px.
             className="flex min-w-0 shrink items-center"
           >
-            {ownSearch ? (
-              <NotificationsLink />
+            {orgWide ? (
+              <>
+                <CommandPaletteButton onClick={onOpenPalette} />
+                <NotificationsLink />
+              </>
             ) : (
-              <CommandPaletteButton onClick={onOpenPalette} />
+              <>
+                {ownSearch ? (
+                  <NotificationsLink />
+                ) : (
+                  <CommandPaletteButton onClick={onOpenPalette} />
+                )}
+                {/* The scope reads the address (useSearchParams); the
+                    boundary keeps a prerendered page from bailing the whole
+                    bar out to client rendering. Until it resolves the slot
+                    is held blank, never the bell that the scope chip would
+                    then replace. */}
+                <React.Suspense
+                  fallback={ownSearch ? null : <AppBarScopePending />}
+                >
+                  <AppBarScopeSlot
+                    mode={mode}
+                    ownSearch={ownSearch}
+                    titleVisible={title.visible}
+                    onOpenClientScope={onOpenClientScope}
+                  />
+                </React.Suspense>
+              </>
             )}
-            {/* The scope reads the address (useSearchParams); the boundary
-                keeps a prerendered page from bailing the whole bar out to
-                client rendering. Until it resolves the slot is held blank,
-                never the bell that the scope chip would then replace. */}
-            <React.Suspense
-              fallback={ownSearch ? null : <AppBarScopePending />}
-            >
-              <AppBarScopeSlot
-                mode={mode}
-                ownSearch={ownSearch}
-                onOpenClientScope={onOpenClientScope}
-              />
-            </React.Suspense>
           </div>
         ) : null}
       </div>
@@ -306,16 +317,26 @@ function AppBar({
  * The trailing slot's second control: the scope trigger when there is a
  * scope to switch, otherwise the bell (unless the first control already is
  * the bell, on a page with its own search).
+ *
+ * The trigger drops its name and keeps the mark where the name would only
+ * repeat or squeeze: on a client's own page (the title and the back label
+ * already say which client) and on a deep page while its title is echoed
+ * (the name would leave the title a few letters). The name stays in the
+ * accessible name, and in the scope sheet.
  */
 function AppBarScopeSlot({
   mode,
   ownSearch,
+  titleVisible,
   onOpenClientScope,
 }: {
   mode: WorkspaceMode
   ownSearch: boolean
+  titleVisible: boolean
   onOpenClientScope: () => void
 }) {
+  const pathname = usePathname()
+  const back = useShellBack()
   // A business switches location, an agency client (then location); the
   // chip hides itself when there is nothing to switch.
   const scope = useScopeLabel(mode)
@@ -327,12 +348,16 @@ function AppBarScopeSlot({
   const directory = useLocationDirectory(useSessionRole())
   const pending = mode === "agency" ? clients.isPending : directory.isPending
   if (scope.visible) {
-    // Room for the leading name too: the chip gives way first.
+    const markOnly =
+      (clientPageKind(pathname) === "client" && scope.client !== null) ||
+      (back !== null && titleVisible)
+    // Room for the title too: the chip gives way first.
     if (ownSearch) {
       return (
         <ClientScopeChip
           mode={mode}
           onOpen={onOpenClientScope}
+          labelled={!markOnly}
           className="max-w-[40vw]"
         />
       )
@@ -348,6 +373,7 @@ function AppBarScopeSlot({
         <ClientScopeChip
           mode={mode}
           onOpen={onOpenClientScope}
+          labelled={!markOnly}
           className="max-w-[40vw] [body:has([data-docked=bottom])_&]:hidden"
         />
       </>
@@ -368,20 +394,83 @@ function AppBarScopePending() {
   )
 }
 
+/**
+ * The bar's leading half: the back control (a deep page) and the one title
+ * beside it. On a top-level page the workspace's name and the page's title
+ * echo share one cell and cross-fade, so the name never sits beside a
+ * squeezed title. Both are `visibility`-switched with the fade, so the one
+ * that is faded out is also out of the tab order and the accessibility
+ * tree; under reduced motion (the global rule shortens the transition) it
+ * is a plain swap.
+ */
 function AppBarLeading({
   organisationName,
+  title,
+  count,
 }: {
   organisationName: string | null
+  title: { text: string; visible: boolean }
+  count: number | undefined
 }) {
   const back = useShellBack()
-  if (back) return <ShellBackLink target={back} />
+  const name = organisationName ?? "NabaPresence"
+  const fade =
+    "transition-[opacity,visibility] duration-(--np-duration-fast) motion-reduce:transition-none"
   return (
-    <span
-      data-slot="workspace-name"
-      className="min-w-0 truncate px-1 text-ui font-semibold text-ink"
-    >
-      {organisationName ?? "NabaPresence"}
-    </span>
+    <>
+      {back ? (
+        <ShellBackLink
+          target={back}
+          shortLabel={title.visible ? shortBackLabel(back) : undefined}
+        />
+      ) : null}
+      <div className="grid min-w-0 flex-1 items-center">
+        {back ? null : (
+          <span
+            data-slot="workspace-name"
+            data-visible={title.visible ? "false" : "true"}
+            title={name}
+            className={cn(
+              "col-start-1 row-start-1 min-w-0 truncate px-1 text-ui font-semibold text-ink",
+              fade,
+              title.visible ? "invisible opacity-0" : "visible opacity-100"
+            )}
+          >
+            {name}
+          </span>
+        )}
+        <div
+          // The h1 is the page's title for assistive technology; this is a
+          // visual echo of it (and of the view's count), so it is hidden
+          // from the accessibility tree.
+          aria-hidden
+          data-slot="app-bar-heading"
+          className={cn(
+            "col-start-1 row-start-1 flex min-w-0 items-baseline gap-1.5 px-1 text-title font-semibold text-ink",
+            fade,
+            title.visible ? "visible opacity-100" : "invisible opacity-0"
+          )}
+        >
+          <p
+            aria-hidden
+            data-slot="app-bar-title"
+            data-visible={title.visible ? "true" : "false"}
+            title={title.text}
+            className="min-w-0 truncate"
+          >
+            {title.text}
+          </p>
+          {count !== undefined && title.text ? (
+            <span
+              data-slot="app-bar-count"
+              className="shrink-0 font-normal text-ink-muted tabular-nums"
+            >
+              {count > 99 ? "99+" : count}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </>
   )
 }
 
