@@ -79,4 +79,22 @@ describe("LocationActivityPanel", () => {
     expect(screen.getByText("Showing all 2 changes")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull()
   })
+  it("reads each row in words: operation, area, fields and failure", () => {
+    usePagesMock.mockReturnValue({
+      data: {
+        canManage: false, total: 2, pageSize: 10, paging: noMore,
+        items: [
+          { ...item("a"), resourceType: "business_info", operation: "patch", updateMask: ["regularHours", "title"], status: "failed", lastErrorCode: "target_changed" },
+          { ...item("b"), resourceType: "someNewArea", operation: "publish_google", status: "ambiguous" },
+        ],
+      },
+      isPending: false, isError: false, error: null, refetch: vi.fn(),
+    })
+    renderPanel()
+    expect(screen.getByText("Updated · Business profile")).toBeInTheDocument()
+    expect(screen.getByText(/Regular hours, Business name/)).toBeInTheDocument()
+    expect(screen.getByText(/Google’s version changed before this was sent/)).toBeInTheDocument()
+    expect(screen.getByText("Sent to Google · Other change")).toBeInTheDocument()
+    expect(screen.queryByText(/Regularhours|Publish google|Not found/)).toBeNull()
+  })
 })
