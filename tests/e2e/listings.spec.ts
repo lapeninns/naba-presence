@@ -369,25 +369,41 @@ test.describe("listings", () => {
     const name = page.getByRole("textbox", { name: "Business name" })
     await expect(name).toBeVisible()
     await page.waitForLoadState("networkidle")
-    await name.fill("Riverside Rooms & Spa")
+    await name.fill("Riverside Rooms & Suites")
     // Save the change in NabaPresence only, so Review & publish has it waiting.
     await page.getByRole("button", { name: "Save here", exact: true }).click()
 
+    // Review & publish sends the profile step as a POST operation (the save
+    // above was the PUT), so fail that one.
     await page.route(
       `**/api/locations/${state.primaryLocationId}/profile`,
       (route) =>
-        route.request().method() === "PUT"
+        route.request().method() === "POST"
           ? route.fulfill({
               status: 500,
               contentType: "application/json",
               body: JSON.stringify({
-                error: { code: "NOT_FOUND", message: "Not found" },
+                error: "NOT_FOUND",
+                message: "Not found",
               }),
             })
           : route.fallback()
     )
     await page.goto(`/listings/${state.primaryLocationId}/changes`)
-    await page.getByRole("button", { name: "Publish to Google" }).click()
+    // An earlier test may already have moved Google's name on, which asks the
+    // owner to confirm the replace before the button enables.
+    const publish = page.getByRole("button", {
+      name: /^Publish \d+ areas? to Google$/,
+    })
+    await expect(publish).toBeVisible()
+    const confirm = page.getByRole("checkbox", { name: /want to replace it/ })
+    await expect(async () => {
+      if ((await confirm.count()) > 0 && !(await confirm.isChecked())) {
+        await page.getByText(/want to replace it/).click()
+      }
+      await expect(publish).toBeEnabled({ timeout: 1_000 })
+    }).toPass({ timeout: 10_000 })
+    await publish.click()
 
     // One banner carries the next action; focus lands on it.
     const banner = page.getByText(/Publishing stopped at/).first()
