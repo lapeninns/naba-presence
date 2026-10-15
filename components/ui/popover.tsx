@@ -5,6 +5,7 @@ import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 
 import {
   MenuCloseProvider,
+  MenuSheetClose,
   MenuSheetHeader,
   menuSheetPopupClassName,
   menuSheetPositionerClassName,
@@ -123,6 +124,7 @@ function PopoverContent({
             >
               {children}
             </div>
+            <MenuSheetClose />
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>

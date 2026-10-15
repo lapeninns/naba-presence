@@ -6,6 +6,7 @@ import { CheckIcon, ChevronRightIcon } from "lucide-react"
 
 import {
   MenuCloseProvider,
+  MenuSheetClose,
   MenuSheetHeader,
   menuGroupLabelClassName,
   menuRowClassName,
@@ -87,6 +88,7 @@ function DropdownMenuContent({
             >
               {children}
             </MenuPrimitive.List>
+            <MenuSheetClose />
           </MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>

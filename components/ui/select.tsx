@@ -7,6 +7,7 @@ import { CheckIcon, ChevronDownIcon } from "lucide-react"
 import { useFieldTriggerProps } from "@/components/ui/field"
 import {
   MenuCloseProvider,
+  MenuSheetClose,
   MenuSheetHeader,
   menuGroupLabelClassName,
   menuItemClassName,
@@ -143,6 +144,7 @@ function SelectContent({
             <SelectPrimitive.List className={menuSheetListClassName}>
               {children}
             </SelectPrimitive.List>
+            <MenuSheetClose />
           </SelectPrimitive.Popup>
         </SelectPrimitive.Positioner>
       </SelectPrimitive.Portal>

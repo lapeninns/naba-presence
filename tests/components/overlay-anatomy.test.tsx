@@ -250,6 +250,85 @@ describe("Menu and select sheets share the recipe", () => {
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull())
   })
 
+  it("focuses the selected option when a phone select sheet opens, with the ✕ reachable by Tab", async () => {
+    asDevice("phone")
+    const user = userEvent.setup()
+    render(<SortSelect />)
+    const trigger = screen.getByRole("combobox", { name: "Sort" })
+    trigger.focus()
+    await user.keyboard("{Enter}")
+    const listbox = await screen.findByRole("listbox")
+    const selected = within(listbox).getByRole("option", { name: "Newest" })
+    await waitFor(() => expect(selected).toHaveFocus())
+    const close = within(
+      listbox.closest('[data-slot="select-content"]') as HTMLElement
+    ).getByRole("button", { name: "Close" })
+    expect(close).not.toHaveFocus()
+    // The ✕ is a Tab stop, never the first focus.
+    await user.tab()
+    expect(close).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(close).not.toHaveFocus()
+  })
+
+  it("focuses the selected option when a phone select sheet is opened by a tap", async () => {
+    asDevice("phone")
+    const user = userEvent.setup()
+    render(<SortSelect />)
+    await user.click(screen.getByRole("combobox", { name: "Sort" }))
+    const listbox = await screen.findByRole("listbox")
+    await waitFor(() =>
+      expect(
+        within(listbox).getByRole("option", { name: "Newest" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("focuses the first item when a phone menu sheet opens", async () => {
+    asDevice("phone")
+    const user = userEvent.setup()
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
+        <DropdownMenuContent title="Reply actions">
+          <DropdownMenuItem>Archive</DropdownMenuItem>
+          <DropdownMenuItem>Copy</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+    screen.getByRole("button", { name: "Actions" }).focus()
+    await user.keyboard("{Enter}")
+    const menu = await screen.findByRole("menu")
+    await waitFor(() =>
+      expect(
+        within(menu).getByRole("menuitem", { name: "Archive" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("keeps the input focused when a phone combobox sheet opens", async () => {
+    asDevice("phone")
+    const user = userEvent.setup()
+    render(
+      <Combobox items={["The Bell", "The Railway"]} defaultValue="The Bell">
+        <ComboboxInput aria-label="Switch listing" />
+        <ComboboxContent title="Listing">
+          {["The Bell", "The Railway"].map((item) => (
+            <ComboboxItem key={item} value={item}>
+              {item}
+            </ComboboxItem>
+          ))}
+        </ComboboxContent>
+      </Combobox>
+    )
+    await user.click(screen.getByRole("button", { name: "Show options" }))
+    const listbox = await screen.findByRole("listbox")
+    const close = within(
+      listbox.closest('[data-slot="combobox-content"]') as HTMLElement
+    ).getByRole("button", { name: "Close" })
+    expect(close).not.toHaveFocus()
+  })
+
   it("requires a title on SelectContent", () => {
     // The type is the contract: a phone sheet of options must say which
     // field it belongs to. Removing the directive below must fail typecheck.

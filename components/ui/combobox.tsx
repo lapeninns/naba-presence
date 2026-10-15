@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/field"
 import {
   MenuCloseProvider,
+  MenuSheetClose,
   MenuSheetHeader,
   menuGroupLabelClassName,
   menuItemClassName,
@@ -182,6 +183,7 @@ function ComboboxContent({
             <ComboboxPrimitive.List className={menuSheetListClassName}>
               {children}
             </ComboboxPrimitive.List>
+            <MenuSheetClose />
           </ComboboxPrimitive.Popup>
         </ComboboxPrimitive.Positioner>
       </ComboboxPrimitive.Portal>

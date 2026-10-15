@@ -88,7 +88,7 @@ export const menuSheetPositionerClassName =
  * caller's desk sizing (`w-72`, `p-0`) cannot squeeze the sheet.
  */
 export const menuSheetPopupClassName = cn(
-  "mx-auto flex max-h-[min(75dvh,calc(100dvh-var(--np-safe-top)-3rem))]! w-full! max-w-[min(100%,var(--np-sheet-max-w))]! min-w-0! flex-col overflow-hidden rounded-t-(--np-radius-sheet) rounded-b-none border-0 bg-surface p-0! pb-[calc(--spacing(2)+var(--np-dock-bottom))]! text-ink shadow-(--np-shadow-modal) outline-none",
+  "relative mx-auto flex max-h-[min(75dvh,calc(100dvh-var(--np-safe-top)-3rem))]! w-full! max-w-[min(100%,var(--np-sheet-max-w))]! min-w-0! flex-col overflow-hidden rounded-t-(--np-radius-sheet) rounded-b-none border-0 bg-surface p-0! pb-[calc(--spacing(2)+var(--np-dock-bottom))]! text-ink shadow-(--np-shadow-modal) outline-none",
   "transition-transform duration-(--np-duration-sheet) ease-out-strong data-ending-style:translate-y-full data-ending-style:duration-(--np-duration-standard) data-starting-style:translate-y-full"
 )
 
@@ -150,13 +150,16 @@ export function MenuCloseProvider({
 }
 
 /**
- * The sheet's header, the overlay recipe in a menu's drawing: the grabber,
- * the title left-aligned (when the menu has one: "Sort by"), and a ✕ that
- * closes it. There is no Cancel under the list; the ✕ is the visible way
- * out, as in a dialog, and tapping the scrim does the same. The title is
- * text, not a heading, so the menu's own role stays the only landmark in it.
- * Base UI's menu popups carry no drag gesture, so the grabber is the sheet's
- * mark and not a handle: it keeps the default cursor.
+ * The sheet's header, the overlay recipe in a menu's drawing: the grabber
+ * and the title left-aligned (when the menu has one: "Sort by"). The ✕ is
+ * `MenuSheetClose`, drawn after the list so that the popup's initial focus
+ * lands on the selected option or first item, never on the ✕; it is still a
+ * Tab stop, and sits in the top corner. There is no Cancel under the list:
+ * the ✕ is the visible way out, as in a dialog, and tapping the scrim does
+ * the same. The title is text, not a heading, so the menu's own role stays
+ * the only landmark in it. Base UI's menu popups carry no drag gesture, so
+ * the grabber is the sheet's mark and not a handle: it keeps the default
+ * cursor.
  */
 export function MenuSheetHeader({
   title,
@@ -165,14 +168,13 @@ export function MenuSheetHeader({
   title?: React.ReactNode
   className?: string
 }) {
-  const close = React.useContext(MenuCloseContext)
   return (
     <div
       data-slot="menu-sheet-header"
       className={cn("flex shrink-0 flex-col", className)}
     >
       <OverlayGrabber className="cursor-default touch-auto active:cursor-default" />
-      <div className="flex min-h-(--np-touch) items-center gap-2 pr-2 pl-5">
+      <div className="flex min-h-(--np-touch) items-center pr-14 pl-5">
         {title ? (
           <div
             data-slot="menu-sheet-title"
@@ -180,23 +182,30 @@ export function MenuSheetHeader({
           >
             {title}
           </div>
-        ) : (
-          <span className="flex-1" />
-        )}
-        {close ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            data-slot="menu-sheet-close"
-            aria-label="Close"
-            className="text-ink-muted hover:text-ink [&_svg]:size-4"
-            onClick={() => close()}
-          >
-            <XIcon aria-hidden="true" />
-          </Button>
         ) : null}
       </div>
     </div>
+  )
+}
+
+/**
+ * The sheet's ✕, last in the popup's DOM and pinned to its top-right corner
+ * (see `MenuSheetHeader`).
+ */
+export function MenuSheetClose() {
+  const close = React.useContext(MenuCloseContext)
+  if (!close) return null
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      data-slot="menu-sheet-close"
+      aria-label="Close"
+      className="absolute top-5 right-2 text-ink-muted hover:text-ink [&_svg]:size-4"
+      onClick={() => close()}
+    >
+      <XIcon aria-hidden="true" />
+    </Button>
   )
 }
