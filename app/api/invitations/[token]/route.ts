@@ -5,6 +5,7 @@ import {
   type InvitationLookup,
   type InvitationRevokedResponse,
 } from "@/lib/contracts/invitations"
+import type { MemberRole } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
@@ -27,6 +28,7 @@ export const GET = route({
       {
         organisationName: string
         email: string
+        role: MemberRole
         expiresAt: Date
         acceptedAt: Date | null
       }[]
@@ -34,6 +36,7 @@ export const GET = route({
       select
         organisation_name as "organisationName",
         email,
+        role,
         expires_at as "expiresAt",
         accepted_at as "acceptedAt"
       from lookup_invitation(${sha256(params.token)})
@@ -42,9 +45,13 @@ export const GET = route({
       throw new ApiError(404, "invitation_not_found", "Invitation not found.")
     }
     const accepted = invitation.acceptedAt !== null
+    // Field by field, never a spread of the row: this answer is public to
+    // anyone holding the token (D8), so nothing else may leak into it.
     return {
       organisationName: invitation.organisationName,
       email: invitation.email,
+      role: invitation.role,
+      expiresAt: invitation.expiresAt.toISOString(),
       accepted,
       expired: !accepted && invitation.expiresAt.getTime() <= Date.now(),
     } satisfies InvitationLookup

@@ -164,10 +164,19 @@ export type InvitationAcceptedResponse = z.infer<
   typeof invitationAcceptedResponseSchema
 >
 
-/** GET `/api/invitations/[token]` response (public invite lookup). */
+/**
+ * GET `/api/invitations/[token]` response (public invite lookup). Anyone
+ * holding the token can read it, so it carries only what the invitee needs
+ * to decide (D8): who invites them, to which address, the role they would
+ * join with and when the link stops working. Never the inviter, the scope,
+ * publishing access or any other invitation data.
+ */
 export const invitationLookupSchema = z.object({
   organisationName: z.string(),
   email: z.string(),
+  role: memberRoleSchema,
+  /** ISO 8601. */
+  expiresAt: z.string(),
   accepted: z.boolean(),
   expired: z.boolean(),
 })

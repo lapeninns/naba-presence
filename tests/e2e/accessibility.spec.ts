@@ -499,7 +499,10 @@ for (const theme of themes) {
             exact: true,
           })
           .click()
-        await expect(page.getByLabel("Confirm password")).toBeVisible()
+        await expect(
+          page.getByRole("listitem", { name: /Between 12 and 128 characters/ })
+        ).toBeVisible()
+        await expect(page.getByLabel("Confirm password")).toHaveCount(0)
         await page.waitForTimeout(250)
         await expectAccessible(page, `${viewport.name} ${theme} registration`)
       })
@@ -517,7 +520,10 @@ for (const theme of themes) {
         await page.goto(
           "/reset-password?token_hash=recovery-token-hash-for-a11y"
         )
-        await expect(page.getByLabel("Confirm new password")).toBeVisible()
+        await expect(
+          page.getByLabel("New password", { exact: true })
+        ).toBeVisible()
+        await expect(page.getByLabel("Confirm new password")).toHaveCount(0)
         await expectAccessible(page, `${viewport.name} ${theme} reset password`)
       })
 
@@ -530,6 +536,8 @@ for (const theme of themes) {
                 organisationName: "Naba Presence",
                 workspaceMode: "agency",
                 email: "invitee@example.com",
+                role: "admin",
+                expiresAt: "2099-10-22T14:05:00.000Z",
                 accepted: false,
                 expired: false,
               },

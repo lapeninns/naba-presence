@@ -9,13 +9,17 @@ export const emailSchema = z
   .pipe(z.email())
   .transform((value) => value.toLowerCase())
 
+/**
+ * Length only, 12 to 128 characters, with no letter, number or symbol rules
+ * (D9, following NIST SP 800-63B: composition rules push people to
+ * predictable patterns without adding strength). Any character counts,
+ * spaces included, so a passphrase works. There is no breached-password
+ * check yet; that is an owner follow-up, not something this schema fakes.
+ */
 export const passwordSchema = z
   .string()
   .min(12, "Use at least 12 characters.")
   .max(128, "Use no more than 128 characters.")
-  .regex(/[A-Za-z]/, "Include at least one letter.")
-  .regex(/[0-9]/, "Include at least one number.")
-  .regex(/[^A-Za-z0-9]/, "Include at least one symbol.")
 
 export const loginSchema = z.object({
   email: emailSchema,

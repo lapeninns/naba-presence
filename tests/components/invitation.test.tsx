@@ -6,6 +6,11 @@ import { InvitationView } from "@/components/auth/invitation-view"
 import { QueryProvider } from "@/lib/queries/provider"
 import { ApiClientError } from "@/lib/api/client"
 import * as authApi from "@/lib/api/auth"
+import { formatDateTime } from "@/lib/format"
+import { invitationRoleSummary } from "@/lib/settings/roles"
+
+// Fixed and far ahead so the mocks never drift into "expired".
+const EXPIRES_AT = "2099-10-22T14:05:00.000Z"
 
 const assign = vi.fn()
 beforeEach(() => {
@@ -37,6 +42,8 @@ describe("InvitationView", () => {
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
       email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
       accepted: false,
       expired: false,
     })
@@ -49,10 +56,73 @@ describe("InvitationView", () => {
     expect(email).toHaveAttribute("readonly")
   })
 
+  it("shows the role with what it can do, and when the link expires", async () => {
+    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
+      organisationName: "Lapen Inns",
+      email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
+      accepted: false,
+      expired: false,
+    })
+    renderView()
+    await screen.findByRole("heading", { level: 1, name: "Join Lapen Inns" })
+
+    // Value and caption sit under the row's name, so read the row whole.
+    const role = screen.getByText("Role").closest("li, div")
+    expect(role).toHaveTextContent("Member")
+    expect(role).toHaveTextContent(invitationRoleSummary("member"))
+    expect(
+      screen.getByText("Drafts replies and posts; publishes only if allowed")
+    ).toBeInTheDocument()
+
+    // The expiry is shown in the visitor's own zone, so build the expected
+    // text the same way instead of hard-coding a zone-dependent string.
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const expires = screen.getByText("Link expires").closest("li, div")
+    expect(expires).toHaveTextContent(formatDateTime(EXPIRES_AT, timeZone))
+  })
+
+  it("words an admin invitation without naming clients or locations", async () => {
+    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
+      organisationName: "Lapen Inns",
+      email: "invited@example.test",
+      role: "admin",
+      expiresAt: EXPIRES_AT,
+      accepted: false,
+      expired: false,
+    })
+    renderView()
+    await screen.findByRole("heading", { level: 1, name: "Join Lapen Inns" })
+    const role = screen.getByText("Role").closest("li, div")
+    expect(role).toHaveTextContent("Admin")
+    expect(role).toHaveTextContent("Manages the team and every listing")
+  })
+
+  it("keeps the role and expiry rows for a signed-in visitor", async () => {
+    vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
+      organisationName: "Lapen Inns",
+      email: "invited@example.test",
+      role: "viewer",
+      expiresAt: EXPIRES_AT,
+      accepted: false,
+      expired: false,
+    })
+    renderView({ displayName: "Aman Shrestha", email: "invited@example.test" })
+    await screen.findByRole("button", { name: "Accept invitation" })
+    expect(screen.getByText("Role").closest("li, div")).toHaveTextContent(
+      "Viewer"
+    )
+    expect(screen.getByText("Link expires")).toBeInTheDocument()
+    expect(screen.getByText("Signed in as")).toBeInTheDocument()
+  })
+
   it("distinguishes an already-accepted invitation from an expired one", async () => {
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
       email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
       accepted: true,
       expired: false,
     })
@@ -70,6 +140,8 @@ describe("InvitationView", () => {
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
       email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
       accepted: false,
       expired: true,
     })
@@ -107,6 +179,8 @@ describe("InvitationView", () => {
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
       email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
       accepted: false,
       expired: false,
     })
@@ -133,6 +207,8 @@ describe("InvitationView", () => {
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
       email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
       accepted: false,
       expired: false,
     })
@@ -154,6 +230,8 @@ describe("InvitationView", () => {
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
       email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
       accepted: false,
       expired: false,
     })
@@ -176,6 +254,8 @@ describe("InvitationView", () => {
     vi.spyOn(authApi, "lookupInvitation").mockResolvedValue({
       organisationName: "Lapen Inns",
       email: "invited@example.test",
+      role: "member",
+      expiresAt: EXPIRES_AT,
       accepted: false,
       expired: false,
     })

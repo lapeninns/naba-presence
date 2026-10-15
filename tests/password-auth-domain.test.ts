@@ -14,11 +14,32 @@ describe("email and password input policy", () => {
     )
   })
 
-  it("requires a long password with a letter, number, and symbol", () => {
+  it("requires 12 to 128 characters and nothing else (NIST SP 800-63B)", () => {
     expect(passwordSchema.safeParse("short!1").success).toBe(false)
-    expect(passwordSchema.safeParse("onlyletterslong").success).toBe(false)
-    expect(passwordSchema.safeParse("123456789012!").success).toBe(false)
+    expect(passwordSchema.safeParse("a".repeat(11)).success).toBe(false)
+    expect(passwordSchema.safeParse("a".repeat(12)).success).toBe(true)
+    expect(passwordSchema.safeParse("a".repeat(128)).success).toBe(true)
+    expect(passwordSchema.safeParse("a".repeat(129)).success).toBe(false)
+    // No composition rules: letters only, digits only and symbols only pass.
+    expect(passwordSchema.safeParse("onlyletterslong").success).toBe(true)
+    expect(passwordSchema.safeParse("123456789012").success).toBe(true)
+    expect(passwordSchema.safeParse("!!!!!!!!!!!!").success).toBe(true)
     expect(passwordSchema.safeParse("Valid password!42").success).toBe(true)
+  })
+
+  it("accepts a passphrase with spaces", () => {
+    expect(passwordSchema.safeParse("correct horse battery").success).toBe(
+      true
+    )
+  })
+
+  it("names the length rule in its messages", () => {
+    const tooShort = passwordSchema.safeParse("short!1")
+    expect(tooShort.success ? [] : tooShort.error.issues.map((i) => i.message))
+      .toEqual(["Use at least 12 characters."])
+    const tooLong = passwordSchema.safeParse("a".repeat(129))
+    expect(tooLong.success ? [] : tooLong.error.issues.map((i) => i.message))
+      .toEqual(["Use no more than 128 characters."])
   })
 
   it("allows existing users to sign in with a legacy provider-valid password", () => {
@@ -30,12 +51,12 @@ describe("email and password input policy", () => {
     ).toBe(true)
   })
 
-  it("applies the strong policy to new registrations", () => {
+  it("applies the length policy to new registrations", () => {
     expect(
       registerSchema.safeParse({
         displayName: "Owner",
         email: "owner@example.com",
-        password: "weak password",
+        password: "too short",
       }).success
     ).toBe(false)
   })

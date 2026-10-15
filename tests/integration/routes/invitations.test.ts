@@ -150,12 +150,28 @@ describeDatabase("organisation invitations", () => {
 
     const lookup = await fetch(`${server.baseUrl}/api/invitations/${token}`)
     expect(lookup.status, await lookup.clone().text()).toBe(200)
-    expect(await lookup.json()).toEqual({
+    const stored = await invitationByEmail(email)
+    const answer = await lookup.json()
+    // Exactly the public keys (D8), the stored role and the stored expiry as
+    // ISO: nothing else about the invitation is readable by token alone.
+    expect(Object.keys(answer).sort()).toEqual([
+      "accepted",
+      "email",
+      "expired",
+      "expiresAt",
+      "organisationName",
+      "role",
+    ])
+    expect(answer).toEqual({
       organisationName: "Harness tenant",
       email,
+      role: "member",
+      expiresAt: expect.any(String),
       accepted: false,
       expired: false,
     })
+    expect(new Date(answer.expiresAt).getTime()).toBeGreaterThan(Date.now())
+    expect(stored.role).toBe(answer.role)
   })
 
   it("accepts once into the inviting organisation", async () => {

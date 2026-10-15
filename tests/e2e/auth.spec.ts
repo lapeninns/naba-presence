@@ -124,6 +124,8 @@ test.describe("auth surfaces", () => {
         body: JSON.stringify({
           organisationName: "Lapen Inns",
           email: "invited@example.test",
+          role: "member",
+          expiresAt: "2020-01-02T03:04:05.000Z",
           accepted: false,
           expired: true,
         }),
@@ -134,6 +136,37 @@ test.describe("auth surfaces", () => {
     await expect(
       page.getByRole("link", { name: "Go to sign in" })
     ).toBeVisible()
+  })
+
+  test("a live invitation shows the role and when the link expires", async ({
+    page,
+  }) => {
+    await page.route("**/api/invitations/**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          organisationName: "Lapen Inns",
+          email: "invited@example.test",
+          role: "member",
+          expiresAt: "2099-10-22T14:05:00.000Z",
+          accepted: false,
+          expired: false,
+        }),
+      })
+    })
+    await page.goto("/invite/some-token")
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Join Lapen Inns" })
+    ).toBeVisible()
+    await expect(page.getByText("Role", { exact: true })).toBeVisible()
+    await expect(page.getByText("Member", { exact: true })).toBeVisible()
+    await expect(
+      page.getByText("Drafts replies and posts; publishes only if allowed")
+    ).toBeVisible()
+    await expect(page.getByText("Link expires", { exact: true })).toBeVisible()
+    // One password field: no confirmation on create-account (D9).
+    await expect(page.getByLabel("Confirm password")).toHaveCount(0)
   })
 
   for (const theme of ["light", "dark"] as const) {
@@ -178,6 +211,8 @@ test.describe("auth surfaces raise no console or page errors", () => {
           body: JSON.stringify({
             organisationName: "Lapen Inns",
             email: "invited@example.test",
+            role: "member",
+            expiresAt: "2099-10-22T14:05:00.000Z",
             accepted: false,
             expired: false,
           }),
