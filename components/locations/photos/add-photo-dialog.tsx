@@ -10,10 +10,6 @@ import {
 } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 
-import {
-  formatUploadSize,
-  UploadFileCard,
-} from "@/components/locations/photos/upload-file-card"
 import { GateNote } from "@/components/locations/publish-gate"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -26,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { FileCard, formatFileSize } from "@/components/ui/file-card"
 import { Input } from "@/components/ui/input"
 import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
 import { Progress } from "@/components/ui/progress"
@@ -84,9 +81,9 @@ function checkFile(file: File): string | undefined {
   if (!ACCEPTED_TYPES.includes(file.type))
     return `This file type isn’t supported (${file.type || "unknown type"}). Choose a JPEG or PNG.`
   if (file.size > MAX_MEDIA_UPLOAD_BYTES)
-    return `Too large at ${formatUploadSize(file.size)}. Uploads can be up to ${MAX_MEDIA_UPLOAD_BYTES / MB} MB.`
+    return `Too large at ${formatFileSize(file.size)}. Uploads can be up to ${MAX_MEDIA_UPLOAD_BYTES / MB} MB.`
   if (file.size < MIN_PHOTO_UPLOAD_BYTES)
-    return `Too small at ${formatUploadSize(file.size)}. Google needs photos of at least ${MIN_PHOTO_UPLOAD_BYTES / 1024} KB.`
+    return `Too small at ${formatFileSize(file.size)}. Google needs photos of at least ${MIN_PHOTO_UPLOAD_BYTES / 1024} KB.`
   return undefined
 }
 
@@ -470,14 +467,14 @@ export function AddPhotoDialog({
                     entry.status === "unconfirmed" ||
                     entry.status === "failed")
                 return (
-                  <UploadFileCard
+                  <FileCard
                     key={entry.key}
                     name={entry.file.name}
                     previewUrl={entry.previewUrl}
                     meta={
                       <>
                         <span className="tabular-nums">
-                          {formatUploadSize(entry.file.size)}
+                          {formatFileSize(entry.file.size)}
                         </span>
                         <StatusPill tone={pill.tone}>
                           {entry.status === "uploading"
@@ -526,7 +523,7 @@ export function AddPhotoDialog({
                         </span>
                       </p>
                     ) : null}
-                  </UploadFileCard>
+                  </FileCard>
                 )
               })}
             </ul>
