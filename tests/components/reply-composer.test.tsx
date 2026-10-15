@@ -31,6 +31,7 @@ import {
   REPLY_FOCUS_EVENT,
   REPLY_GENERATE_EVENT,
 } from "@/lib/inbox/events"
+import { REPLY_EDIT_EVENT, type ReplyEditDetail } from "@/lib/inbox/events"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 import * as creditsHook from "@/lib/queries/use-ai-credits"
@@ -416,16 +417,69 @@ describe("ReplyComposer — the editor", () => {
 
   // The approver reads what Approve would publish: the parked draft, not a
   // newer one nobody submitted.
+  const PARKED = {
+    workflowStatus: "awaiting_approval",
+    drafts: [
+      draft({ id: "d-newer", body: "A newer draft nobody submitted" }),
+      draft({ id: "d-parked", body: "The parked draft" }),
+    ],
+    pendingDraft: { id: "d-parked", body: "The parked draft" },
+  }
+
   it("shows an approver the parked draft rather than a newer one", () => {
-    mount({
-      workflowStatus: "awaiting_approval",
-      drafts: [
-        draft({ id: "d-newer", body: "A newer draft nobody submitted" }),
-        draft({ id: "d-parked", body: "The parked draft" }),
-      ],
-      pendingDraft: { id: "d-parked", body: "The parked draft" },
+    mount(PARKED)
+    expect(screen.getByText("The parked draft")).toBeInTheDocument()
+    expect(
+      screen.queryByText("A newer draft nobody submitted")
+    ).not.toBeInTheDocument()
+  })
+
+  // INB-04: one tap on Regenerate used to withdraw the approval request. While
+  // the reply is parked it is text, with no tone, Generate or box.
+  it("reads a parked reply as text, with no tone, Generate or editor", () => {
+    mount(PARKED)
+    expect(
+      screen.queryByRole("textbox", { name: "Your reply" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Regenerate|Generate reply/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("radiogroup", { name: "Reply tone" })
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector('[data-slot="parked-note"]')
+    ).toHaveTextContent("goes back to Needs reply")
+  })
+
+  it("opens the parked reply for editing when Edit reply asks, and says what saving does", async () => {
+    mount(PARKED)
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent<ReplyEditDetail>(REPLY_EDIT_EVENT, {
+          detail: { reviewId: "rev-1" },
+        })
+      )
     })
     expect(textbox()).toHaveValue("The parked draft")
+    expect(textbox()).not.toHaveAttribute("readonly")
+    expect(
+      document.querySelector('[data-slot="parked-editing-note"]')
+    ).toHaveTextContent("sends this reply back to Needs reply")
+  })
+
+  it("ignores an Edit reply meant for another review", () => {
+    mount(PARKED)
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent<ReplyEditDetail>(REPLY_EDIT_EVENT, {
+          detail: { reviewId: "rev-other" },
+        })
+      )
+    })
+    expect(
+      screen.queryByRole("textbox", { name: "Your reply" })
+    ).not.toBeInTheDocument()
   })
 
   it("seeds the box from a live reply, editable in place", async () => {

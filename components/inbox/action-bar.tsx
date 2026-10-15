@@ -5,6 +5,7 @@ import {
   CheckIcon,
   CloudUploadIcon,
   MoreHorizontalIcon,
+  PencilIcon,
   RotateCwIcon,
   SendHorizonalIcon,
   Trash2Icon,
@@ -46,7 +47,9 @@ import {
   isAdvancingOutcome,
   PRIMARY_ACTION_EVENT,
   PUBLISH_PULSE_EVENT,
+  REPLY_EDIT_EVENT,
   type PublishPulseDetail,
+  type ReplyEditDetail,
 } from "@/lib/inbox/events"
 import { saveShortcutLabel } from "@/lib/inbox/shortcut-label"
 
@@ -300,6 +303,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // Reject is offered with Approve: inline from md up, in the ⋯ menu below.
   const offerReject = awaitingApproval && !inFlight
 
+  // The parked reply is read-only (it is under review); editing it sends it
+  // back to Needs reply, so it is asked for here rather than one tap away.
+  const offerEdit =
+    awaitingApproval && !inFlight && Boolean(review.capabilities.canEdit)
+
   const shortcutHint = oneStep ? (
     // Desk only: a key hint means nothing to a thumb.
     <Kbd aria-hidden className="ml-1 hidden desk:inline-flex">
@@ -380,7 +388,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </Button>
         )}
 
-        {offerReject || deleteState.enabled ? (
+        {offerReject || offerEdit || deleteState.enabled ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -390,7 +398,9 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   aria-label="Review actions"
                   // Holding only Reject, the menu is the phone's way to it;
                   // from md up Reject has its own button.
-                  className={deleteState.enabled ? undefined : "md:hidden"}
+                  className={
+                    deleteState.enabled || offerEdit ? undefined : "md:hidden"
+                  }
                 />
               }
             >
@@ -400,6 +410,21 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                 (menu-surface): this title over 44px rows, the destructive
                 row last in the danger ink after a rule, and a Cancel. */}
             <DropdownMenuContent align="end" side="top" title="Review actions">
+              {offerEdit ? (
+                <DropdownMenuItem
+                  disabled={approval.isPending}
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent<ReplyEditDetail>(REPLY_EDIT_EVENT, {
+                        detail: { reviewId },
+                      })
+                    )
+                  }
+                >
+                  <PencilIcon aria-hidden />
+                  Edit reply
+                </DropdownMenuItem>
+              ) : null}
               {offerReject ? (
                 <DropdownMenuItem
                   className="md:hidden"
