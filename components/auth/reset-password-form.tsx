@@ -132,13 +132,13 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
           error instanceof ApiClientError &&
           DEAD_TOKEN_CODES.has(error.code)
         ) {
-          setMessage(authErrorMessage(error))
+          setMessage(authErrorMessage(error, "reset-password"))
           setDeadToken(true)
           return
         }
         const errors = fieldErrorsFrom(error)
         setFieldErrors(errors)
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "reset-password"))
         const target = FIELD_ORDER.find((key) => errors[key])
         if (target) focusField(target)
       }

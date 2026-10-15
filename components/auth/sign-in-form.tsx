@@ -217,7 +217,7 @@ function SignInForm({
         } catch (error) {
           const errors = fieldErrorsFrom(error)
           setFieldErrors(errors)
-          setMessage(authErrorMessage(error))
+          setMessage(authErrorMessage(error, "sign-in"))
           const target = SIGN_IN_FIELD_ORDER.find((key) => errors[key])
           if (target) focusField(target)
         }
@@ -263,7 +263,7 @@ function SignInForm({
       } catch (error) {
         const errors = fieldErrorsFrom(error)
         setFieldErrors(errors)
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "create-account"))
         const target = CREATE_FIELD_ORDER.find((key) => errors[key])
         if (target) focusField(target)
       }

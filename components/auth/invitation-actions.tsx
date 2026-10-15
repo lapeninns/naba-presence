@@ -34,7 +34,7 @@ function InvitationActions({
         // re-read it.
         hardNavigate("/inbox")
       } catch (caught) {
-        setError(authErrorMessage(caught))
+        setError(authErrorMessage(caught, "invitation"))
       }
     })
   }

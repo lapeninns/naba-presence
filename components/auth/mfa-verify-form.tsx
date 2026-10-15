@@ -73,7 +73,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           setExpired(true)
           return
         }
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "mfa"))
       })
     return () => {
       cancelled = true
@@ -134,7 +134,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           focusFirstCodeBox(codeRef.current)
           return
         }
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "mfa"))
       }
     })
   }

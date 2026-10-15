@@ -69,7 +69,7 @@ function ResendConfirmationButton({
                 : resendConfirmation(email))
               setState("sent")
             } catch (error) {
-              setFailure(authErrorMessage(error).title)
+              setFailure(authErrorMessage(error, "sign-in").title)
               setState("failed")
             }
           })

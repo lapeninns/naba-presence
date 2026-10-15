@@ -159,7 +159,7 @@ function MfaStepUpPrompt({
             return
           }
         }
-        setMessage(authErrorMessage(error))
+        setMessage(authErrorMessage(error, "mfa"))
       }
     })
   }
