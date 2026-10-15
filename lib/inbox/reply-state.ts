@@ -215,9 +215,11 @@ export function derivePrimaryAction(input: ReplyStateInput): PrimaryAction {
 
 /**
  * A publisher whose publish the server will park for a second person: the
- * organisation's two-person rule is on. `has_qualifying_approval` cannot
- * rescue a press from the composer, because an approval is bound to the
- * parked draft and the approval route publishes it itself.
+ * organisation's two-person rule is on. In practice every press from the
+ * composer parks, because an approval is bound to the exact draft it was
+ * given for and the approval route publishes that draft itself. (The rare
+ * exception, re-sending a draft that already holds a qualifying approval,
+ * is decided by the server either way.)
  */
 export function publishSubmitsForApproval(input: ReplyStateInput): boolean {
   return (

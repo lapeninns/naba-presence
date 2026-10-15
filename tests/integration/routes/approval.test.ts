@@ -660,6 +660,39 @@ describeDatabase("reply approval", () => {
     })
   })
 
+  // The draft's author may not approve under two-person approval, whoever
+  // asked (see above), so the detail must not tell them it is theirs.
+  it("tells the draft's author a two-person approval waits on someone else", async () => {
+    // createFixture's draft is written by the owner.
+    const fixture = await createFixture()
+    await admin`
+      update organisation
+      set require_two_person_approval = true
+      where id = ${fixture.owner.organisationId}
+    `
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+
+    async function scope(cookie: string) {
+      const response = await fetch(
+        `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+        { headers: { cookie } }
+      )
+      const { review } = reviewDetailSchema.parse(await response.json())
+      return review.capabilities.approvalScope
+    }
+    expect(await scope(fixture.owner.cookie)).toBe("others")
+    expect(await scope(requester.cookie)).toBe("others")
+    const secondAdmin = await createActor(fixture.owner.organisationId, {
+      role: "admin",
+      canPublish: true,
+    })
+    expect(await scope(secondAdmin.cookie)).toBe("me")
+  })
+
   it("returns 404 for a cross-tenant approval", async () => {
     const fixture = await createFixture()
     const requester = await createActor(fixture.owner.organisationId, {

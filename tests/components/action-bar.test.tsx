@@ -1068,4 +1068,114 @@ describe("ActionBar", () => {
       screen.queryByText("Reply submitted. Its status will update shortly.")
     ).not.toBeInTheDocument()
   })
+
+  // Plan D1 (R01b): the detail's two-person flag and server approvalScope.
+  describe("two-person approval (R01b)", () => {
+    const twoPersonPublisher = {
+      canPublish: true,
+      canEdit: true,
+      canRequestApproval: false,
+      requireTwoPersonApproval: true,
+    }
+
+    it("offers a publisher Submit for approval, enabled, and says a second person approves", async () => {
+      const user = userEvent.setup()
+      const publish = mutation(
+        vi.fn().mockResolvedValue({ status: "awaiting_approval" })
+      )
+      stubHooks(
+        detailWith({
+          capabilities: { ...twoPersonPublisher, approvalScope: null },
+        }),
+        publish
+      )
+      renderActionBar()
+      expect(
+        screen.queryByRole("button", { name: "Publish reply" })
+      ).not.toBeInTheDocument()
+      const button = screen.getByRole("button", { name: "Submit for approval" })
+      expect(button).toBeEnabled()
+      await user.click(button)
+      expect(publish.mutateAsync).toHaveBeenCalledWith({
+        draftId: "d1",
+        expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
+      })
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            "It goes live once another person with publishing rights approves it."
+          )
+        ).toBeInTheDocument()
+      )
+    })
+
+    it("lets a publisher submit edited text in one press under the two-person rule", async () => {
+      const user = userEvent.setup()
+      const publish = mutation(
+        vi.fn().mockResolvedValue({ status: "awaiting_approval" })
+      )
+      stubHooks(
+        detailWith({
+          capabilities: { ...twoPersonPublisher, approvalScope: null },
+        }),
+        publish
+      )
+      const save = oneStepSave()
+      renderActionBar(true, save)
+      const button = screen.getByRole("button", { name: /Submit for approval/ })
+      expect(button).toBeEnabled()
+      await user.click(button)
+      expect(save.save).toHaveBeenCalled()
+      expect(publish.mutateAsync).toHaveBeenCalledWith({
+        draftId: "d2",
+        expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
+      })
+    })
+
+    it("draws no Approve or Reject for the person who asked, and keeps Edit", async () => {
+      const user = userEvent.setup()
+      const approval = mutation()
+      stubHooks(
+        detailWith({
+          workflowStatus: "awaiting_approval",
+          capabilities: { ...twoPersonPublisher, approvalScope: "others" },
+        }),
+        mutation(),
+        approval
+      )
+      renderActionBar()
+      expect(
+        screen.queryByRole("button", { name: "Approve reply" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Reject reply" })
+      ).not.toBeInTheDocument()
+      // The `a` shortcut has no main button to press.
+      window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
+      expect(approval.mutateAsync).not.toHaveBeenCalled()
+      await user.click(screen.getByRole("button", { name: "Review actions" }))
+      expect(
+        await screen.findByRole("menuitem", { name: "Edit reply" })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: "Reject reply" })
+      ).not.toBeInTheDocument()
+    })
+
+    it("offers Approve and Reject to the second publisher the server names", () => {
+      stubHooks(
+        detailWith({
+          workflowStatus: "awaiting_approval",
+          capabilities: { ...twoPersonPublisher, approvalScope: "me" },
+        })
+      )
+      renderActionBar()
+      expect(
+        screen.getByRole("button", { name: "Approve reply" })
+      ).toBeEnabled()
+      expect(
+        screen.getByRole("button", { name: "Reject reply" })
+      ).toBeInTheDocument()
+    })
+  })
 })

@@ -275,8 +275,13 @@ export async function readReviewDetail(
  *   publisher's publish parks for a second person (publishing/approval.ts,
  *   `requiresApproval`), so the action reads "Submit for approval".
  * - `approvalScope`: while the reply is parked, whether it waits on this
- *   person. This is the Inbox's own `awaiting_my_approval` predicate, so the
- *   pane and the queue a row sits in can never disagree.
+ *   person. It starts from the Inbox's own `awaiting_my_approval` predicate
+ *   and narrows it by two things the approval route also refuses, so the
+ *   pane never says "your approval" to someone whose Approve would fail:
+ *   a session that may not change anything now (`canPublish` false, e.g.
+ *   read-only billing), and, under two-person approval, the author of the
+ *   parked draft (lib/server/review-approval.ts). The queue keeps the plain
+ *   predicate; the author may still reject there.
  *
  * Read-only, and nothing here decides anything: the approval route and
  * `executePublish` still enforce the rules on every press.
@@ -297,14 +302,40 @@ async function reviewDetailCapabilities(
   const requireTwoPersonApproval = settings?.requireTwoPersonApproval ?? false
   let approvalScope: ReviewApprovalScope | null = null
   if (workflowStatus === "awaiting_approval") {
-    const [scope] = await sql<{ mine: boolean }[]>`
-      select ${queuePredicate(sql, session, "awaiting_my_approval", {
-        requireTwoPersonApproval,
-      })} as mine
+    // The parked draft is resolved as recordApprovalDecision resolves it:
+    // `pending_draft_id`, else the newest verified draft.
+    const [scope] = await sql<{ mine: boolean; authoredParked: boolean }[]>`
+      select
+        ${queuePredicate(sql, session, "awaiting_my_approval", {
+          requireTwoPersonApproval,
+        })} as mine,
+        coalesce(
+          (
+            select d.created_by = ${session.userId}
+            from review_reply rr
+            join draft d on d.id = coalesce(
+              rr.pending_draft_id,
+              (
+                select d2.id
+                from draft d2
+                where d2.review_id = r.id
+                  and d2.verification_status in ('pass', 'warn')
+                order by d2.created_at desc
+                limit 1
+              )
+            )
+            where rr.review_id = r.id
+          ),
+          false
+        ) as "authoredParked"
       from review r
       where r.id = ${reviewId}
     `
-    approvalScope = scope?.mine ? "me" : "others"
+    const mine =
+      Boolean(scope?.mine) &&
+      capabilities.canPublish &&
+      !(requireTwoPersonApproval && scope?.authoredParked)
+    approvalScope = mine ? "me" : "others"
   }
   return { ...capabilities, requireTwoPersonApproval, approvalScope }
 }
