@@ -1,10 +1,8 @@
 "use client"
 
-import { RefreshCwIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
-import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { useToastManager } from "@/components/ui/toast"
 import { triggerKeywordsSync, triggerPerformanceSync } from "@/lib/api/sync"
@@ -92,33 +90,22 @@ export function RefreshStatus() {
 
 /**
  * Asks Google for new figures now, rather than at the next scheduled pull.
+ * The press itself lives in the report's actions menu (ReportActionsMenu),
+ * which calls `run`; this hook owns the request and what it says back.
  *
  * The refresh covers the whole organisation's due listings: the sync
  * endpoints take no client scope (only one Google location, for the
  * scheduler), so a client-scoped report refreshes every client's figures.
  */
-export function RefreshGoogleButton({
-  canTrigger,
-  ...props
-}: {
-  kind: Kind
-  canTrigger: boolean
-  /** The press began: the tab starts following the refresh. */
-  onStart?: () => void
-  /** The request failed, so there is nothing to wait for. */
-  onFailed?: () => void
-}) {
-  if (!canTrigger) return null
-  return <RefreshGoogleControl {...props} />
-}
-
-function RefreshGoogleControl({
+export function useRefreshGoogle({
   kind,
   onStart,
   onFailed,
 }: {
   kind: Kind
+  /** The press began: the tab starts following the refresh. */
   onStart?: () => void
+  /** The request failed, so there is nothing to wait for. */
   onFailed?: () => void
 }) {
   const queryClient = useQueryClient()
@@ -156,27 +143,5 @@ function RefreshGoogleControl({
     }
   }
 
-  return (
-    // Beside the tab's caption line at every width; the failure reads under
-    // the button, never as a second full-width row of chrome.
-    <div className="flex flex-col items-end gap-1 print:hidden">
-      <Button
-        variant="secondary"
-        onClick={() => void run()}
-        pending={pending}
-        pendingLabel="Refreshing…"
-      >
-        <RefreshCwIcon aria-hidden strokeWidth={1.75} />
-        Refresh from Google
-      </Button>
-      {error ? (
-        <span
-          role="alert"
-          className="max-w-72 text-right text-caption text-danger-ink"
-        >
-          {error}
-        </span>
-      ) : null}
-    </div>
-  )
+  return { run, pending, error }
 }

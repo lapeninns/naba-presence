@@ -1,5 +1,6 @@
 "use client"
 
+import { BarChart3Icon, ExternalLinkIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
@@ -7,12 +8,15 @@ import { LocationPerformance } from "@/components/performance/location-performan
 import { LocationSelect } from "@/components/performance/location-select"
 import { RangeSelect } from "@/components/performance/range-select"
 import { NotInDirectory } from "@/components/performance/report-scope"
+import { ReportActionsMenu } from "@/components/reporting/report-actions-menu"
 import {
+  ReportPeriodStrip,
   ReportToolbar,
   reportToolbarFieldProps,
 } from "@/components/reporting/report-toolbar"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { buttonVariants } from "@/components/ui/button"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -32,9 +36,11 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * Performance used to be a tenth tab of the location workspace, which made a
  * report look like an editor. It is the same figures, reached from the
  * workspace, the client hub and the report's own Location field through
- * `?locationId=`, under the report toolbar: the location (switching to its
- * client's other locations), the period (`?range=`, owned by the page) and
- * the way back to the whole client.
+ * `?locationId=`: the location (switching to its client's other locations,
+ * in the app bar's scope chip on a phone and the Location field from `md`),
+ * the period (`?range=`, owned by the page; a chip strip on a phone) and the
+ * way back to the whole client (inline from `md`, in the actions menu on a
+ * phone).
  */
 function LocationReport({
   locationId,
@@ -72,7 +78,7 @@ function LocationReport({
         <div role="status" aria-busy="true" className="flex flex-col gap-3">
           <span className="sr-only">Loading this location’s report</span>
           <Skeleton className="h-6 w-64 max-w-full" />
-          <Skeleton className="h-(--np-touch) w-full rounded-(--np-radius-pill) md:hidden" />
+          <Skeleton className="h-(--np-chip-h) w-full rounded-(--np-radius-pill) md:hidden" />
           <Skeleton className="hidden h-(--np-control-h) w-full rounded-(--np-radius-control) md:block" />
         </div>
         {figures}
@@ -110,6 +116,16 @@ function LocationReport({
       : []
   const periodLabel =
     REPLY_RANGES.find((option) => option.id === rangeId)?.label ?? ""
+  const openListingHref = `/listings/${location.id}`
+  const wholeHref =
+    location.clientId && !business
+      ? `/reports?clientId=${location.clientId}`
+      : "/reports"
+  const wholeLabel = business
+    ? "All locations"
+    : location.clientId
+      ? "Whole client"
+      : "All clients"
   const whose = business
     ? null
     : (location.clientName ?? "Not filed under a client")
@@ -129,8 +145,8 @@ function LocationReport({
         <ReportToolbar
           summary={[location.name, periodLabel]}
           meta={periodDates}
-          fields={(placement) => {
-            const field = reportToolbarFieldProps(placement)
+          fields={() => {
+            const field = reportToolbarFieldProps()
             return (
               <>
                 <LocationSelect
@@ -153,11 +169,10 @@ function LocationReport({
                 {onRangeChange ? (
                   <RangeSelect
                     {...field}
-                    className={placement === "bar" ? "w-44" : field.className}
+                    className="w-44"
                     value={rangeId}
                     onChange={onRangeChange}
                     options={REPLY_RANGES}
-                    period={placement === "sheet" ? periodDates : undefined}
                   />
                 ) : null}
               </>
@@ -166,30 +181,45 @@ function LocationReport({
           extras={
             <>
               <Link
-                href={`/listings/${location.id}`}
+                href={openListingHref}
                 className={cn(buttonVariants({ variant: "secondary" }))}
               >
                 Open listing
               </Link>
               <Link
-                href={
-                  location.clientId && !business
-                    ? `/reports?clientId=${location.clientId}`
-                    : "/reports"
-                }
+                href={wholeHref}
                 className={cn(buttonVariants({ variant: "secondary" }))}
               >
-                {business
-                  ? "All locations"
-                  : location.clientId
-                    ? "Whole client"
-                    : "All clients"}
+                {wholeLabel}
               </Link>
             </>
           }
         />
+        {/* A phone: the period in one tap, and the two links in the menu. */}
+        <div className="flex items-start gap-2 md:hidden">
+          {onRangeChange ? (
+            <ReportPeriodStrip
+              className="min-w-0 flex-1 py-2"
+              value={rangeId}
+              options={REPLY_RANGES}
+              onChange={(next) => onRangeChange(next as ReplyRangeId)}
+            />
+          ) : (
+            <span className="flex-1" />
+          )}
+          <ReportActionsMenu>
+            <DropdownMenuItem render={<Link href={openListingHref} />}>
+              <ExternalLinkIcon aria-hidden strokeWidth={1.75} />
+              Open listing
+            </DropdownMenuItem>
+            <DropdownMenuItem render={<Link href={wholeHref} />}>
+              <BarChart3Icon aria-hidden strokeWidth={1.75} />
+              {wholeLabel}
+            </DropdownMenuItem>
+          </ReportActionsMenu>
+        </div>
       </div>
-      {/* The period picker is the toolbar's, so none is drawn below. */}
+      {/* The period picker is the toolbar's (or the strip's), so none is drawn below. */}
       {figures}
     </div>
   )

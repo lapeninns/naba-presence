@@ -1,7 +1,18 @@
 "use client"
 
+import { InfoIcon } from "lucide-react"
 import { useSyncExternalStore } from "react"
 
+import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import type { PresenceResponse } from "@/lib/contracts/analytics"
 import { formatDate, formatDateTime } from "@/lib/format"
 
@@ -123,6 +134,65 @@ export function PresenceProvenance({
           {coverageParts.join(" · ")}
         </p>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * Provenance in one caption line ("Through 14 Oct · 1 of 2 locations") with
+ * an info button whose sheet holds the detail ({@link PresenceProvenance}):
+ * the last day Google has reported, when we last fetched and how many
+ * locations are reporting. The two-line block it replaces took the first
+ * figure of the report off a phone's first screen.
+ */
+export function PresenceCaption({
+  data,
+  timeZone,
+}: {
+  data: PresenceResponse
+  timeZone?: string
+}) {
+  const coverage = data.coverage
+  const through = data.freshThrough
+    ? `Through ${formatDate(data.freshThrough, "UTC")}`
+    : "No Google data in this window"
+  const reporting = coverage
+    ? `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"}`
+    : null
+  return (
+    <div
+      data-slot="presence-caption"
+      className="flex min-w-0 items-center gap-1 text-caption text-ink-muted"
+    >
+      <p className="min-w-0 tabular-nums">
+        {through}
+        {reporting ? ` · ${reporting}` : null}
+      </p>
+      <Sheet>
+        <SheetTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="About these figures"
+              className="text-ink-muted"
+            />
+          }
+        >
+          <InfoIcon aria-hidden strokeWidth={1.75} />
+        </SheetTrigger>
+        <SheetContent side="bottom">
+          <SheetHeader>
+            <SheetTitle>About these figures</SheetTitle>
+            <SheetDescription>
+              Where the Google figures in this report come from.
+            </SheetDescription>
+          </SheetHeader>
+          <SheetBody>
+            <PresenceProvenance data={data} timeZone={timeZone} />
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

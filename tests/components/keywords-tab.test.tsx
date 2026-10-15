@@ -38,6 +38,21 @@ describe("KeywordsTab", () => {
     expect(screen.getByText("5,200")).toBeInTheDocument()
     expect(screen.getByText("1,000+")).toBeInTheDocument()
   })
+  it("puts how Google counts these under the terms, not in a box above them", async () => {
+    stub({
+      range: "6m", from: "2026-03-01", state: "ready", locations: [{ id: "l", name: "L" }],
+      keywords: [
+        { rank: 1, keyword: "riverside hotel bath", impressions: 5200, upperBound: 5200, thresholded: false, firstMonth: "2026-03", latestMonth: "2026-08" },
+      ],
+      unavailableReasons: [],
+    })
+    renderTab()
+    const term = await screen.findByText("riverside hotel bath")
+    const note = screen.getByText(/How Google counts these/)
+    // A footnote: after the first term in the document, and plain text, not an alert.
+    expect(term.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(note.closest("[data-slot=alert]")).toBeNull()
+  })
   it("shows an empty panel when there are no keywords", async () => {
     stub({ range: "6m", from: "2026-03-01", state: "empty", locations: [{ id: "l", name: "L" }], keywords: [], unavailableReasons: [] })
     renderTab()

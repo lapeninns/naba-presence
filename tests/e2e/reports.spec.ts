@@ -80,6 +80,71 @@ test.describe("reports", () => {
     await expect(page).toHaveURL("/reports")
   })
 
+  // The scope is the app bar's chip and the period one tap, on a phone (CLR-01,
+  // CLR-02, CLR-24). The same viewport and touch settings as the touch-390
+  // project, but the unnamed project's browser, so the file's seeded owner
+  // cookie and its other cases stay as they are.
+  test.describe("on a phone", () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+    test("the period is one tap away, with no second scope control or sheet", async ({ page }) => {
+      await page.goto("/reports?tab=google")
+      const period = page.getByRole("group", { name: "Period" })
+      await expect(period.getByRole("button", { name: "Last 28 days" })).toHaveAttribute("aria-pressed", "true")
+      await period.getByRole("button", { name: "Last 90 days" }).tap()
+      await expect(page).toHaveURL(/[?&]range=90d/)
+      await expect(period.getByRole("button", { name: "Last 90 days" })).toHaveAttribute("aria-pressed", "true")
+      // The page's own scope pill (and its sheet of selects) is gone.
+      await expect(page.getByRole("button", { name: /^Journey Hospitality.*Last 90 days$/ })).toHaveCount(0)
+      await expect(page.getByRole("dialog")).toHaveCount(0)
+    })
+
+    test("choosing a client and a period takes three taps", async ({ page }) => {
+      const state = await readJourneyState()
+      await page.goto("/reports?tab=google")
+      // Tap 1: the app bar's scope chip. Tap 2: the client. Tap 3: the period.
+      await page.locator('header[data-slot="app-bar"]').getByRole("button", { name: /^Client:/ }).tap()
+      const scope = page.getByRole("dialog", { name: "Working on" })
+      await scope.getByRole("option", { name: new RegExp(`^${state.clientName}`) }).tap()
+      await expect(page).toHaveURL(new RegExp(`[?&]clientId=${state.clientId}`))
+      await page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 12 months" }).tap()
+      await expect(page).toHaveURL(/[?&]range=12m/)
+      await expect(page).toHaveURL(new RegExp(`[?&]clientId=${state.clientId}`))
+    })
+
+    test("switching tab keeps each tab's period and says when one is carried over", async ({ page }) => {
+      await page.goto("/reports?tab=google&range=90d")
+      await page.getByRole("tab", { name: "Keywords" }).tap()
+      await expect(page).toHaveURL(/[?&]tab=keywords/)
+      // Nothing is dropped from the address, and Keywords says what it shows.
+      await expect(page).toHaveURL(/[?&]range=90d/)
+      await expect(page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 6 months" })).toHaveAttribute("aria-pressed", "true")
+      await expect(page.getByText("Keywords count whole months: showing the last 6 months.")).toBeVisible()
+      await page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 12 months" }).tap()
+      await expect(page).toHaveURL(/[?&]range_kw=12m/)
+      // Back on Google, the period chosen there is still there.
+      await page.getByRole("tab", { name: "Google performance" }).tap()
+      await expect(page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 90 days" })).toHaveAttribute("aria-pressed", "true")
+    })
+
+    test("the first figure is on the first screen of the Google tab", async ({ page }) => {
+      await page.goto("/reports?tab=google")
+      await expect(page.getByText("Call button taps", { exact: true }).first()).toBeVisible()
+      await expect(page.locator("[data-slot=kpi-tile]").first()).toBeInViewport()
+      // Provenance is a caption, and Refresh is in the menu, not above the figures.
+      await expect(page.getByRole("button", { name: "About these figures" })).toBeVisible()
+      await expect(page.getByRole("button", { name: "Refresh from Google" })).toHaveCount(0)
+    })
+
+    test("refresh and sharing are in the actions menu", async ({ page }) => {
+      await page.goto("/reports?tab=google")
+      await page.getByRole("button", { name: "More actions" }).tap()
+      await expect(page.getByRole("menuitem", { name: "Refresh from Google" })).toBeVisible()
+      // With every client in scope the menu asks which client to share.
+      await expect(page.getByRole("menuitem", { name: /^Share (a client’s )?report$/ })).toBeVisible()
+    })
+  })
+
   for (const theme of ["light", "dark"] as const) {
     test(`is free of console and page errors (${theme})`, async ({ page }) => {
       const consoleErrors: string[] = []

@@ -8,6 +8,7 @@ import {
   PRESENCE_RANGES,
   REPLY_RANGES,
   resolvedPeriod,
+  resolveTabRange,
 } from "@/lib/reporting/ranges"
 
 describe("report periods", () => {
@@ -43,6 +44,75 @@ describe("report periods", () => {
 
   it("never throws on a date it cannot read", () => {
     expect(formatPeriod({ from: "a", to: "b" }, "UTC")).toBe("")
+  })
+})
+
+describe("a tab's period (resolveTabRange)", () => {
+  it("shows each tab's own choice and says nothing", () => {
+    expect(resolveTabRange("google", { range: "90d" })).toEqual({
+      id: "90d",
+      note: null,
+    })
+    expect(resolveTabRange("keywords", { rangeKw: "1m" })).toEqual({
+      id: "1m",
+      note: null,
+    })
+    // Keywords' own choice wins over Google's, and neither changes the other.
+    expect(
+      resolveTabRange("keywords", { range: "28d", rangeKw: "12m" })
+    ).toEqual({ id: "12m", note: null })
+    expect(resolveTabRange("reply", { range: "28d", rangeKw: "12m" })).toEqual({
+      id: "28d",
+      note: null,
+    })
+  })
+
+  it("shares 12 and 18 months between the tabs without a note", () => {
+    expect(resolveTabRange("keywords", { range: "12m" })).toEqual({
+      id: "12m",
+      note: null,
+    })
+    expect(resolveTabRange("google", { rangeKw: "18m" })).toEqual({
+      id: "18m",
+      note: null,
+    })
+  })
+
+  it("carries days to the nearest whole months and says so", () => {
+    expect(resolveTabRange("keywords", { range: "28d" })).toEqual({
+      id: "1m",
+      note: "Keywords count whole months: showing the last month.",
+    })
+    expect(resolveTabRange("keywords", { range: "90d" })).toEqual({
+      id: "6m",
+      note: "Keywords count whole months: showing the last 6 months.",
+    })
+  })
+
+  it("carries months back to the nearest days and says so", () => {
+    expect(resolveTabRange("google", { rangeKw: "1m" })).toEqual({
+      id: "28d",
+      note: "This tab counts in days: showing the last 28 days.",
+    })
+    expect(resolveTabRange("reply", { rangeKw: "6m" })).toEqual({
+      id: "90d",
+      note: "This tab counts in days: showing the last 90 days.",
+    })
+  })
+
+  it("opens an older link that put a month period in ?range=", () => {
+    expect(resolveTabRange("keywords", { range: "6m" })).toEqual({
+      id: "6m",
+      note: null,
+    })
+  })
+
+  it("falls back to each tab's default, unannounced", () => {
+    expect(resolveTabRange("reply", {})).toEqual({ id: "28d", note: null })
+    expect(resolveTabRange("keywords", { range: "nonsense" })).toEqual({
+      id: "6m",
+      note: null,
+    })
   })
 })
 

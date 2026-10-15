@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 import { PerformanceView } from "@/components/performance/performance-view"
+import { ToastProvider } from "@/components/ui/toast"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -96,7 +97,9 @@ describe("PerformanceView", () => {
     })
   })
 
-  it("keeps a period the next tab offers, and drops one it does not", async () => {
+  // CLR-24: the period used to be dropped when the next tab did not offer
+  // it, so it changed on screen with no word. Each tab keeps its own now.
+  it("never changes the period in the address when switching tab", async () => {
     search = "tab=google&range=12m"
     renderView()
     await userEvent.click(screen.getByRole("tab", { name: "Keywords" }))
@@ -110,9 +113,10 @@ describe("PerformanceView", () => {
     await userEvent.click(
       screen.getAllByRole("tab", { name: "Keywords" }).at(-1)!
     )
-    expect(replace).toHaveBeenLastCalledWith("/reports?tab=keywords", {
-      scroll: false,
-    })
+    expect(replace).toHaveBeenLastCalledWith(
+      "/reports?tab=keywords&range=90d",
+      { scroll: false }
+    )
   })
 
   it("never waits forever on a client list that failed", async () => {
@@ -210,17 +214,130 @@ describe("PerformanceView", () => {
     )
     expect(await screen.findByText("Location")).toBeInTheDocument()
     expect(screen.getByText("Every location")).toBeInTheDocument()
-    // One client in scope and an owner: the report can be shared.
+    // One client in scope and an owner: the report can be shared, from the
+    // report's actions menu rather than a button of its own.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" })
+    )
     expect(
-      await screen.findByRole("button", { name: "Share report" })
+      await screen.findByRole("menuitem", { name: "Share report" })
     ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Share a client’s report" })
+    ).not.toBeInTheDocument()
   })
 
-  it("offers no Share report without a single client in scope", async () => {
+  it("offers no share without anyone who may share it", async () => {
     renderView()
     await screen.findByRole("tab", { name: "Reply performance" })
     expect(
-      screen.queryByRole("button", { name: "Share report" })
+      screen.queryByRole("button", { name: "More actions" })
     ).not.toBeInTheDocument()
+  })
+})
+
+function stubAgency(role: "owner" | "member") {
+  const client = (id: string, name: string) => ({
+    id,
+    name,
+    slug: name.toLowerCase().replaceAll(" ", "-"),
+    colour: null,
+    logoUrl: null,
+    notes: null,
+    archivedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    locationCount: 2,
+    linkedCount: 2,
+    verifiedCount: 2,
+    health: "healthy",
+    connections: [],
+    openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
+    backfill: { running: 0, failed: 0, succeeded: 2, notStarted: 0 },
+    lastSyncAt: null,
+  })
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const body = url.includes("/api/session")
+        ? {
+            session: {
+              userId: "u1",
+              organisationId: "o1",
+              organisationName: "Agency",
+              workspaceMode: "agency",
+              displayName: "Someone",
+              email: "someone@example.test",
+              role,
+              canPublish: true,
+            },
+          }
+        : url.includes("/api/location-links")
+          ? { locations: [] }
+          : url.includes("/api/clients")
+            ? {
+                items: [
+                  client("00000000-0000-4000-8000-000000000001", "Old Crown"),
+                  client("00000000-0000-4000-8000-000000000002", "Harbour Kitchen"),
+                ],
+                unassignedLocationCount: 0,
+              }
+            : url.includes("/api/report-shares") || url.includes("/report-shares")
+              ? { shares: [] }
+              : {}
+      return new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+      })
+    })
+  )
+}
+
+function renderAgencyView() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={client}>
+      <ToastProvider>
+        <PerformanceView />
+      </ToastProvider>
+    </QueryClientProvider>
+  )
+}
+
+describe("PerformanceView share from All clients (CLR-10)", () => {
+  it("offers Share a client's report in the menu and asks which client", async () => {
+    stubAgency("owner")
+    renderAgencyView()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" })
+    )
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Share a client’s report" })
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Share a client’s report",
+    })
+    expect(
+      within(sheet).getByRole("option", { name: /^Harbour Kitchen/ })
+    ).toBeInTheDocument()
+    await userEvent.click(
+      within(sheet).getByRole("option", { name: /^Old Crown/ })
+    )
+    // On to the share step for the chosen client.
+    expect(
+      await screen.findByRole("dialog", { name: "Share Old Crown’s report" })
+    ).toBeInTheDocument()
+  })
+
+  it("is not offered to someone who cannot share", async () => {
+    stubAgency("member")
+    renderAgencyView()
+    await screen.findByRole("tab", { name: "Reply performance" })
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "More actions" })
+      ).not.toBeInTheDocument()
+    )
   })
 })

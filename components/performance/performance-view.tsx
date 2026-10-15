@@ -4,13 +4,14 @@ import { Link2OffIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
-import { ShareReportButton } from "@/components/clients/share-report-dialog"
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationReport } from "@/components/performance/location-report"
 import { LocationSelect } from "@/components/performance/location-select"
 import { RangeSelect } from "@/components/performance/range-select"
 import { NotInDirectory } from "@/components/performance/report-scope"
+import type { ReportShareTarget } from "@/components/reporting/report-actions-menu"
 import {
+  ReportPeriodStrip,
   ReportToolbar,
   reportToolbarFieldProps,
 } from "@/components/reporting/report-toolbar"
@@ -26,13 +27,13 @@ import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import {
-  DEFAULT_RANGES,
   formatPeriod,
   KEYWORD_RANGES,
   parseRange,
   PRESENCE_RANGES,
   REPLY_RANGES,
   resolvedPeriod,
+  resolveTabRange,
   type ReportTab,
 } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
@@ -49,7 +50,7 @@ const TABS = [
   { value: "keywords", lead: "Keywords", rest: "" },
 ] as const
 
-/** Each tab's periods; the toolbar offers the active tab's. */
+/** Each tab's periods; the period strip and toolbar offer the active tab's. */
 const RANGE_OPTIONS: Record<
   ReportTab,
   ReadonlyArray<{ id: string; label: string }>
@@ -104,8 +105,15 @@ function NoLocationsPanel({ client }: { client: ClientSummary }) {
  *
  * Everything that decides what is on screen lives in the address: the tab
  * (`?tab=`), the client (`?clientId=`), one location (`?locationId=`) and
- * the period (`?range=`), so a report can be shared, reloaded and gone back
- * to exactly as it was.
+ * the period (`?range=` for Reply and Google, which share one, and
+ * `?range_kw=` for Keywords), so a report can be shared, reloaded and gone
+ * back to exactly as it was. Each tab keeps its own last choice, so
+ * switching tab never changes a period; a tab with no choice of its own
+ * takes the nearest equivalent of the other's and says so.
+ *
+ * The client and location are chosen in the app bar's scope chip on a phone
+ * (the same scope control as every other page) and in the inline fields
+ * from `md`; the period is a one-tap chip strip under the tabs on a phone.
  */
 export function PerformanceView() {
   const router = useRouter()
@@ -121,6 +129,7 @@ export function PerformanceView() {
     : (searchParams.get("clientId") ?? undefined)
   const locationId = searchParams.get("locationId")
   const rawRange = searchParams.get("range")
+  const rawRangeKw = searchParams.get("range_kw")
   const clients = useClients()
   const role = useSessionRole()
   const directory = useLocationDirectory(role)
@@ -136,8 +145,20 @@ export function PerformanceView() {
     : clientId
       ? (directory.data ?? []).filter((entry) => entry.clientId === clientId)
       : []
-  // "Share report" shares the business: its home client, whatever it is named.
+  // "Share report" shares the business: its home client, whatever it is
+  // named. With every client in scope the menu asks which one first.
   const shareClient = business ? items[0] : client
+  const shareTarget: ReportShareTarget | null = !canShare
+    ? null
+    : shareClient
+      ? {
+          kind: "client",
+          clientId: shareClient.id,
+          clientName: shareClient.name,
+        }
+      : !business && !clientId && items.length > 0
+        ? { kind: "pick" }
+        : null
 
   function replaceParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString())
@@ -148,28 +169,34 @@ export function PerformanceView() {
 
   function selectTab(next: string) {
     replaceParams((params) => {
+      // Only the tab changes: each tab keeps its own period in the address.
       if (next === "reply") params.delete("tab")
       else params.set("tab", next)
-      // A period the next tab does not offer would silently read as its
-      // default; drop it so the address says what is on screen.
-      if (isTab(next) && parseRange(next, rawRange) !== rawRange) {
-        params.delete("range")
-      }
     })
   }
 
+  /**
+   * A tab's period is written to its own parameter, and left out only when
+   * leaving it out would show the same period with nothing to say.
+   */
   function setRange(tab: ReportTab) {
     return (next: string) =>
       replaceParams((params) => {
-        if (next === DEFAULT_RANGES[tab]) params.delete("range")
-        else params.set("range", next)
+        const key = tab === "keywords" ? "range_kw" : "range"
+        params.delete(key)
+        const kept = resolveTabRange(tab, {
+          range: params.get("range"),
+          rangeKw: params.get("range_kw"),
+        })
+        if (kept.id !== next || kept.note) params.set(key, next)
       })
   }
 
-  const activeRange = parseRange(active, rawRange)
+  const rangeParams = { range: rawRange, rangeKw: rawRangeKw }
+  const activePeriod = resolveTabRange(active, rangeParams)
   // Day-precision dates, so resolving "now" on each render is stable.
   const periodDates = formatPeriod(
-    resolvedPeriod(active, activeRange),
+    resolvedPeriod(active, activePeriod.id),
     PERIOD_ZONE[active]
   )
 
@@ -180,14 +207,9 @@ export function PerformanceView() {
       <LocationReport
         locationId={locationId}
         // One period for the whole location report, from `?range=` like the
-        // tabs; its default (the reply default) is never written.
+        // tabs.
         rangeId={parseRange("reply", rawRange)}
-        onRangeChange={(next) =>
-          replaceParams((params) => {
-            if (next === DEFAULT_RANGES.reply) params.delete("range")
-            else params.set("range", next)
-          })
-        }
+        onRangeChange={setRange("reply")}
       />
     )
 
@@ -220,16 +242,17 @@ export function PerformanceView() {
         : "Loading client…"
       : "All clients"
   const periodLabel =
-    RANGE_OPTIONS[active].find((option) => option.id === activeRange)?.label ??
-    ""
+    RANGE_OPTIONS[active].find((option) => option.id === activePeriod.id)
+      ?.label ?? ""
   const empty = client && client.locationCount === 0
 
   return (
     // Browser "Save as PDF": controls drop out, figures and charts stay whole.
     <div className="flex flex-col gap-(--np-gap-section) print:gap-6 print:[&_button]:hidden print:[&_figure]:break-inside-avoid print:[&_section]:break-inside-avoid">
-      {/* One row above the tabs: the scope and the period apply to the tab on
-          screen, and picking the client per tab would let two of them
-          disagree about whose numbers are shown. */}
+      {/* From `md`, one row above the tabs: the scope and the period apply to
+          the tab on screen, and picking the client per tab would let two of
+          them disagree about whose numbers are shown. On a phone the scope
+          is the app bar's chip and the period is the strip under the tabs. */}
       <ReportToolbar
         summary={
           business
@@ -241,8 +264,8 @@ export function PerformanceView() {
             .filter(Boolean)
             .join(" · ") || undefined
         }
-        fields={(placement) => {
-          const field = reportToolbarFieldProps(placement)
+        fields={() => {
+          const field = reportToolbarFieldProps()
           return (
             <>
               {business ? null : (
@@ -273,25 +296,15 @@ export function PerformanceView() {
               ) : null}
               <RangeSelect
                 {...field}
-                className={placement === "bar" ? "w-44" : field.className}
-                value={activeRange}
+                className="w-44"
+                value={activePeriod.id}
                 onChange={setRange(active)}
                 options={RANGE_OPTIONS[active]}
-                // In the bar the dates sit in the caption beside the fields.
-                period={placement === "sheet" ? periodDates : undefined}
+                // The dates sit in the caption beside the fields.
               />
             </>
           )
         }}
-        actions={
-          shareClient && canShare ? (
-            <ShareReportButton
-              clientId={shareClient.id}
-              clientName={shareClient.name}
-              compact
-            />
-          ) : null
-        }
       />
       {clients.isError ? (
         // The figures below are still scoped by the address; only the
@@ -324,35 +337,47 @@ export function PerformanceView() {
             </TabsTab>
           ))}
         </TabsList>
-        <TabsPanel value="reply" className="pt-5">
+        {/* One tap to change the period; a line says when it was carried over
+            from another tab as its nearest equivalent. */}
+        <ReportPeriodStrip
+          className="pt-3 md:pt-0"
+          value={activePeriod.id}
+          options={RANGE_OPTIONS[active]}
+          onChange={setRange(active)}
+          note={activePeriod.note}
+        />
+        <TabsPanel value="reply" className="pt-3 md:pt-5">
           {empty ? (
             <NoLocationsPanel client={client} />
           ) : (
             <ReplyPerformanceTab
               clientId={clientId}
-              range={parseRange("reply", rawRange)}
+              range={resolveTabRange("reply", rangeParams).id}
               onRangeChange={setRange("reply")}
+              share={shareTarget}
             />
           )}
         </TabsPanel>
-        <TabsPanel value="google" className="pt-5">
+        <TabsPanel value="google" className="pt-3 md:pt-5">
           {empty ? (
             <NoLocationsPanel client={client} />
           ) : (
             <GooglePerformanceTab
               clientId={clientId}
-              range={parseRange("google", rawRange)}
+              range={resolveTabRange("google", rangeParams).id}
               onRangeChange={setRange("google")}
+              share={shareTarget}
             />
           )}
         </TabsPanel>
-        <TabsPanel value="keywords" className="pt-5">
+        <TabsPanel value="keywords" className="pt-3 md:pt-5">
           {empty ? (
             <NoLocationsPanel client={client} />
           ) : (
             <KeywordsTab
               clientId={clientId}
-              range={parseRange("keywords", rawRange)}
+              range={resolveTabRange("keywords", rangeParams).id}
+              share={shareTarget}
             />
           )}
         </TabsPanel>
