@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, render, renderHook, screen } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
 import type { ComponentProps, ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -91,7 +90,6 @@ describe("navigation registry per mode", () => {
     const { container } = render(
       <Nav role="owner" mode="business" clients={clients} scopeClientId="c1" />
     )
-    await userEvent.click(screen.getByRole("button", { name: "More" }))
     const links = screen.getAllByRole("link")
     expect(links.map((link) => link.textContent)).toEqual([
       "Inbox",

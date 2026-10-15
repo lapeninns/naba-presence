@@ -1,7 +1,6 @@
 import { render, screen, within } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const pathname = vi.hoisted(() => ({ current: "/inbox" }))
 vi.mock("next/navigation", () => ({ usePathname: () => pathname.current }))
@@ -19,12 +18,7 @@ vi.mock("next/link", () => ({
   ),
 }))
 
-import {
-  isClientsActive,
-  isMoreActive,
-  Nav,
-  navItemsFor,
-} from "@/components/app-shell/nav"
+import { Nav, navItemsFor } from "@/components/app-shell/nav"
 import type { NavClient } from "@/components/app-shell/nav"
 
 const clients: NavClient[] = [
@@ -34,11 +28,21 @@ const clients: NavClient[] = [
 
 beforeEach(() => {
   pathname.current = "/inbox"
-  window.sessionStorage.clear()
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+/** The links the sidebar marks as the current page. */
+function currentLinks() {
+  return screen
+    .getAllByRole("link")
+    .filter((link) => link.getAttribute("aria-current") === "page")
+}
+
 describe("primary navigation", () => {
-  it("offers five destinations and a More disclosure, and no Home", () => {
+  it("offers five destinations and a Workspace group, and no Home", () => {
     render(<Nav />)
     expect(navItemsFor("agency").map((item) => item.label)).toEqual([
       "Inbox",
@@ -60,10 +64,8 @@ describe("primary navigation", () => {
       )
     }
     expect(screen.queryByRole("link", { name: "Home" })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
-      "aria-expanded",
-      "false"
-    )
+    // The rows Team and Settings sit in are labelled, not disclosed.
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull()
   })
 
   // P08-R5: Calendar is the scheduled publications, so it leaves the
@@ -104,41 +106,32 @@ describe("primary navigation", () => {
     )
   })
 
-  it("keeps Team and Settings behind More until asked", async () => {
-    // The disclosure is CSS on the desk sidebar (`wide:hidden` while
-    // collapsed) because the 768-1180 rail lists the same rows as tiles,
-    // so the rows stay in the DOM and the list's class carries the state.
+  it("lists Team and Settings in a Workspace group, always visible", () => {
+    // The label is for the wide sidebar (`max-wide:hidden`): the 768-1180
+    // rail lists the same rows as tiles, so the rows stay in the DOM.
     render(<Nav role="owner" />)
-    const more = screen.getByRole("button", { name: "More" })
-    const list = document.getElementById(more.getAttribute("aria-controls")!)!
-    expect(more).toHaveAttribute("aria-expanded", "false")
-    expect(list).toHaveClass("wide:hidden")
-    await userEvent.click(more)
-    expect(more).toHaveAttribute("aria-expanded", "true")
-    expect(list).not.toHaveClass("wide:hidden")
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull()
+    const group = screen.getByRole("list", { name: "Workspace" })
+    expect(screen.getByText("Workspace")).toHaveClass("max-wide:hidden")
+    // Named by the visible label, which is not also read as content.
+    expect(screen.getByText("Workspace")).toHaveAttribute("aria-hidden")
     for (const [label, href] of [
       ["Team", "/team"],
       ["Settings", "/settings"],
     ]) {
-      expect(
-        within(list).getByRole("link", { name: label })
-      ).toHaveAttribute("href", href)
+      expect(within(group).getByRole("link", { name: label })).toHaveAttribute(
+        "href",
+        href
+      )
     }
+    // The daily rows are not in the Workspace group.
+    expect(
+      within(group).queryByRole("link", { name: "Inbox" })
+    ).not.toBeInTheDocument()
     // From 768px the toolbar's bell is Notifications' place.
     expect(
       screen.queryByRole("link", { name: "Notifications" })
     ).not.toBeInTheDocument()
-  })
-
-  it("remembers the More choice for the session", async () => {
-    const { unmount } = render(<Nav role="owner" />)
-    await userEvent.click(screen.getByRole("button", { name: "More" }))
-    unmount()
-    render(<Nav role="owner" />)
-    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    )
   })
 
   it("hides Team while the role is still unknown", () => {
@@ -147,19 +140,14 @@ describe("primary navigation", () => {
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument()
   })
 
-  it("opens More on its own when Team or Settings is the current page", () => {
+  it("marks Settings as the current page on one of its sections", () => {
     pathname.current = "/settings/connections"
     render(<Nav />)
-    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    )
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
       "aria-current",
       "page"
     )
-    expect(isMoreActive("/team")).toBe(true)
-    expect(isMoreActive("/inbox")).toBe(false)
+    expect(currentLinks()).toHaveLength(1)
   })
 
   it("introduces no heading", () => {
@@ -181,12 +169,72 @@ describe("primary navigation", () => {
 
   it("lights Listings, not Clients, inside a listing", () => {
     // A listing is reached from the board; the breadcrumb leads back there.
-    expect(isClientsActive("/listings/abc/photos")).toBe(false)
-    expect(isClientsActive("/clients/c1")).toBe(true)
-    expect(isClientsActive("/inbox")).toBe(false)
     pathname.current = "/listings/abc/photos"
     render(<Nav />)
     expect(screen.getByRole("link", { name: "Listings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    expect(screen.getByRole("link", { name: "Clients" })).not.toHaveAttribute(
+      "aria-current"
+    )
+  })
+
+  it.each([
+    ["/listings/abc/hours", "Listings"],
+    ["/settings/notifications", "Settings"],
+    ["/settings", "Settings"],
+    ["/clients/new", "Clients"],
+    ["/team", "Team"],
+  ])("marks exactly one row for %s", (path, name) => {
+    pathname.current = path
+    render(<Nav role="owner" clients={clients} />)
+    const active = currentLinks()
+    expect(active).toHaveLength(1)
+    expect(active[0]).toHaveAccessibleName(name)
+  })
+
+  it("marks the pinned client, and only it, on a client page", () => {
+    // Both rows used to carry the tint and `aria-current` (DSK-09).
+    pathname.current = "/clients/c1"
+    render(<Nav clients={clients} />)
+    const active = currentLinks()
+    expect(active).toHaveLength(1)
+    expect(active[0]).toHaveAccessibleName(/Old Crown Group/)
+    // The parent says it contains the current page by colour alone.
+    const parent = screen.getByRole("link", { name: "Clients" })
+    expect(parent).not.toHaveAttribute("aria-current")
+    expect(parent).toHaveClass("text-accent-ink")
+  })
+
+  it("marks the pinned client on a page beneath it", () => {
+    pathname.current = "/clients/c2/settings"
+    render(<Nav clients={clients} />)
+    const active = currentLinks()
+    expect(active).toHaveLength(1)
+    expect(active[0]).toHaveAccessibleName(/Harbour Kitchen/)
+  })
+
+  it("marks Clients on a client page in the rail, which draws no pinned rows", () => {
+    // Below `wide` the pinned clients are hidden, so a mark on one would
+    // leave the visible column with no current page.
+    vi.stubGlobal("matchMedia", () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+    pathname.current = "/clients/c1"
+    render(<Nav clients={clients} />)
+    const active = currentLinks()
+    expect(active).toHaveLength(1)
+    expect(active[0]).toHaveAccessibleName("Clients")
+  })
+
+  it("marks Clients on a client that is not pinned", () => {
+    pathname.current = "/clients/c9"
+    render(<Nav clients={clients} />)
+    expect(currentLinks()).toHaveLength(1)
+    expect(screen.getByRole("link", { name: "Clients" })).toHaveAttribute(
       "aria-current",
       "page"
     )
@@ -238,7 +286,6 @@ describe("primary navigation", () => {
     // One markup draws the rail and the sidebar; the label is always text.
     render(<Nav />)
     expect(screen.getByRole("link", { name: "Listings" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument()
   })
 
   it("carries the needs-reply count onto the rail icon as a badge", () => {
@@ -248,28 +295,14 @@ describe("primary navigation", () => {
     expect(badge).toHaveAttribute("aria-hidden")
   })
 
-  it("lets More collapse while one of its pages is current", async () => {
-    pathname.current = "/settings"
-    render(<Nav />)
-    const more = screen.getByRole("button", { name: "More" })
-    expect(more).toHaveAttribute("aria-expanded", "true")
-    await userEvent.click(more)
-    expect(more).toHaveAttribute("aria-expanded", "false")
-    expect(more).toHaveAccessibleDescription("Contains the current page")
-    await userEvent.click(more)
-    expect(more).toHaveAttribute("aria-expanded", "true")
-  })
-
-  it.each(["member", "viewer"])("leaves Team out for a %s", async (role) => {
+  it.each(["member", "viewer"])("leaves Team out for a %s", (role) => {
     render(<Nav role={role} />)
-    await userEvent.click(screen.getByRole("button", { name: "More" }))
     expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument()
   })
 
-  it.each(["owner", "admin"])("keeps Team for an %s", async (role) => {
+  it.each(["owner", "admin"])("keeps Team for an %s", (role) => {
     render(<Nav role={role} />)
-    await userEvent.click(screen.getByRole("button", { name: "More" }))
     expect(screen.getByRole("link", { name: "Team" })).toBeInTheDocument()
   })
 })
