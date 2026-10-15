@@ -117,9 +117,16 @@ describe("Stepper", () => {
       ).map((node) => node.className.includes("max-md:sr-only"))
     const plain = render(<Stepper steps={steps} />)
     expect(words(plain.container)).toEqual([true, false, true])
+    expect(plain.container.querySelector("ol")?.className).not.toContain(
+      "max-md:flex-wrap"
+    )
     plain.unmount()
     const kept = render(<Stepper steps={steps} showLabels />)
     expect(words(kept.container)).toEqual([false, false, false])
+    // The words wrap instead of scrolling out of sight.
+    expect(kept.container.querySelector("ol")?.className).toContain(
+      "max-md:flex-wrap"
+    )
     // Every step's label is in the DOM either way.
     expect(screen.getByText("Agency")).toBeInTheDocument()
   })

@@ -56,7 +56,9 @@ export const STEP_STATE_WORDS: Record<StepState, string> = {
  * record use `Lifecycle` instead.
  *
  * `showLabels` keeps every step's words on a phone, at caption size, for a
- * flow whose labels are short (the reviewed write's four steps).
+ * flow whose labels are short (the reviewed write's four steps). The steps
+ * wrap onto a second line rather than scroll, and the rules between them
+ * are dropped.
  *
  * On a phone (below 48rem) a horizontal stepper keeps every ring but only
  * the CURRENT step's words: four labels side by side at 360px each
@@ -117,6 +119,11 @@ function Stepper({
         vertical
           ? "flex flex-col gap-0.5"
           : "flex [scrollbar-width:none] items-center gap-0 overflow-x-auto",
+        // Words for every step wrap onto a second line on a phone instead of
+        // scrolling sideways out of sight.
+        !vertical &&
+          showLabels &&
+          "max-md:flex-wrap max-md:gap-y-1 max-md:overflow-visible",
         className
       )}
       {...props}
@@ -223,7 +230,7 @@ function Stepper({
                 aria-hidden
                 className={cn(
                   "mx-1 h-0.5 min-w-4 flex-1 rounded-full max-md:min-w-2",
-                  showLabels && "max-md:mx-0.5 max-md:min-w-1",
+                  showLabels && "max-md:hidden",
                   step.state === "done" ? "bg-success-solid" : "bg-line"
                 )}
               />

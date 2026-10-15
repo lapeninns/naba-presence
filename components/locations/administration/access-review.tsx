@@ -21,7 +21,7 @@ import { adminRoleLabel } from "@/lib/locations/console-labels"
 import { accessTargetDescription } from "./access-target"
 
 export const ACCESS_OPERATION_LABELS = {
-  create_admin: "Invite administrator",
+  create_admin: "Invite someone",
   update_admin: "Change administrator role",
   delete_admin: "Remove administrator",
   accept_invitation: "Accept invitation",
