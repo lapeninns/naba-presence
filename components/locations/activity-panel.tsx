@@ -8,9 +8,13 @@ import { LoadMore } from "@/components/ui/load-more"
 import { StatusPill } from "@/components/ui/status-pill"
 import { formatNumber } from "@/lib/format"
 import {
+  activityConfirmationLabel,
+  activityErrorLabel,
+  activityExecutionLabel,
+  activityMaskLabels,
   activityPillTone,
   activityStatusLabel,
-  humaniseActivity,
+  activityTitle,
 } from "@/lib/listings/activity-outcome"
 import { useLocationActivityPages } from "@/lib/queries/use-location-activity"
 import { confirmIndustry } from "@/lib/api/location-industry"
@@ -19,8 +23,6 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { queryKeys } from "@/lib/queries/keys"
 
 const PAGE_SIZE = 10
-
-const humanise = humaniseActivity
 
 // The shell's resource hook: module-level, so its identity never changes.
 function useActivityPages(locationId: string) {
@@ -77,12 +79,16 @@ function ActivityList({
           const meta = [
             item.actorDisplayName,
             item.updateMask.length > 0
-              ? item.updateMask.map(humanise).join(", ")
+              ? activityMaskLabels(item.updateMask).join(", ")
               : null,
-            item.lastErrorCode ? humanise(item.lastErrorCode) : null,
+            item.lastErrorCode ? activityErrorLabel(item.lastErrorCode) : null,
             item.historicalReason ?? null,
-            item.executionState && item.executionState !== "unrecorded" ? `Request ${humanise(item.executionState).toLowerCase()}` : null,
-            item.confirmationState && item.confirmationState !== "unrecorded" ? `Google confirmation: ${humanise(item.confirmationState).toLowerCase()}` : null,
+            item.executionState
+              ? activityExecutionLabel(item.executionState)
+              : null,
+            item.confirmationState
+              ? activityConfirmationLabel(item.confirmationState)
+              : null,
           ]
             .filter(Boolean)
             .join(" · ")
@@ -102,11 +108,7 @@ function ActivityList({
               // it flush, the divider runs the full width of the text.
               className="px-0"
               wrapperClassName="after:start-0 after:end-0"
-              title={
-                <>
-                  {humanise(item.operation)} · {humanise(item.resourceType)}
-                </>
-              }
+              title={activityTitle(item.operation, item.resourceType)}
               meta={<time dateTime={item.createdAt}>{when}</time>}
               subtitle={
                 // The status word and every detail stay readable: wrap
@@ -151,18 +153,53 @@ function ActivityList({
   )
 }
 
-function ConfirmManagementButton({ locationId, mutationId, resourceType }: { locationId: string; mutationId: string; resourceType: "lodging" | "business_info" | "attributes" }) {
+function ConfirmManagementButton({
+  locationId,
+  mutationId,
+  resourceType,
+}: {
+  locationId: string
+  mutationId: string
+  resourceType: "lodging" | "business_info" | "attributes"
+}) {
   const confirmation = useResourceMutation({
-    mutationFn: () => resourceType === "lodging" ? confirmIndustry(locationId, mutationId) : confirmBusinessInformation(locationId, mutationId),
-    invalidate: [queryKeys.locationActivity(locationId), resourceType === "lodging" ? queryKeys.locationIndustry(locationId) : queryKeys.locationBusinessInformation(locationId)],
-    successToast: (result) => result.confirmationState === "confirmed" ? `${resourceType === "lodging" ? "Lodging" : "Profile"} change confirmed by Google` : null,
+    mutationFn: () =>
+      resourceType === "lodging"
+        ? confirmIndustry(locationId, mutationId)
+        : confirmBusinessInformation(locationId, mutationId),
+    invalidate: [
+      queryKeys.locationActivity(locationId),
+      resourceType === "lodging"
+        ? queryKeys.locationIndustry(locationId)
+        : queryKeys.locationBusinessInformation(locationId),
+    ],
+    successToast: (result) =>
+      result.confirmationState === "confirmed"
+        ? `${resourceType === "lodging" ? "Lodging" : "Profile"} change confirmed by Google`
+        : null,
   })
   // In the row's trailing column: the button, and under it the one line
   // the check can leave behind, wrapped narrow so it never crowds the row.
-  return <span className="flex flex-col items-end gap-1">
-    <Button size="sm" variant="outline" disabled={confirmation.isPending} onClick={() => confirmation.mutate()}>
-      {confirmation.isPending ? "Checking Google…" : "Check Google confirmation"}
-    </Button>
-    {confirmation.data?.confirmationState === "unresolved" ? <span role="status" className="max-w-40 text-right text-caption text-ink-muted">Still unresolved. No change was resent.</span> : null}
-  </span>
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={confirmation.isPending}
+        onClick={() => confirmation.mutate()}
+      >
+        {confirmation.isPending
+          ? "Checking Google…"
+          : "Check Google confirmation"}
+      </Button>
+      {confirmation.data?.confirmationState === "unresolved" ? (
+        <span
+          role="status"
+          className="max-w-40 text-right text-caption text-ink-muted"
+        >
+          Still unresolved. No change was resent.
+        </span>
+      ) : null}
+    </span>
+  )
 }
