@@ -442,14 +442,30 @@ export function PostComposerSheet({
       intent
     ): Promise<Awaited<ReturnType<typeof publishPost>>> => {
       let postId = post?.id
+      // The revision this person saved, or had on screen for an unchanged
+      // draft: publish refuses a post that has moved on since, so what goes
+      // to Google is what the consent line above the button covered.
+      let revision = post?.contentRevision
       if (input) {
-        if (post) await updatePost(locationId, post.id, input, post.updatedAt)
-        else postId = (await createPost(locationId, input)).post.id
+        if (post) {
+          const saved = await updatePost(
+            locationId,
+            post.id,
+            input,
+            post.updatedAt
+          )
+          revision = "post" in saved ? saved.post.contentRevision : undefined
+        } else {
+          const created = await createPost(locationId, input)
+          postId = created.post.id
+          revision = created.post.contentRevision
+        }
       }
       if (!postId) throw new Error("There is no post to publish.")
       savedBeforeFailure.current = true
       const result = await publishPost(locationId, postId, {
         intentId: intent.intentId,
+        expectedRevision: revision,
       })
       savedBeforeFailure.current = false
       return result

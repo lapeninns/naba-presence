@@ -158,7 +158,13 @@ export function PostsActionBar({
 
   const publish = useResourceMutation({
     mutationFn: (_: void, intent) =>
-      publishPost(locationId, post.id, { intentId: intent.intentId }),
+      // Bound to the revision on screen (the preview the person confirmed):
+      // an edit since the list loaded makes the server refuse
+      // (post_changed_since_saved) rather than publish text they never saw.
+      publishPost(locationId, post.id, {
+        intentId: intent.intentId,
+        expectedRevision: post.contentRevision,
+      }),
     // The publish sends the post as it is now, so a retry is the same action
     // only while the post is the same revision; an edit mints a new intent.
     intentKey: () => [post.id, post.contentRevision],

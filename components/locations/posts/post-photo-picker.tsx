@@ -83,9 +83,14 @@ export function PostPhotoPicker({
               Loading your photos…
             </p>
           ) : media.isError ? (
-            <p role="alert" className="text-ui text-danger-ink">
-              We couldn’t load your photos. You can still add a new one.
-            </p>
+            <div className="flex flex-col items-start gap-2">
+              <p role="alert" className="text-ui text-danger-ink">
+                We couldn’t load your photos from Google.
+              </p>
+              <Button variant="secondary" onClick={() => void media.refetch()}>
+                Try again
+              </Button>
+            </div>
           ) : items.length === 0 ? (
             <Empty
               variant="empty"
@@ -165,7 +170,10 @@ export function PostPhotoPicker({
             <Button
               variant="secondary"
               onClick={() => setAddOpen(true)}
-              disabled={Boolean(addReason)}
+              // Adding needs the listing's photo categories, which arrive
+              // with the library read: until it has loaded, Try again above
+              // is the way forward.
+              disabled={Boolean(addReason) || !media.data}
             >
               <PlusIcon aria-hidden />
               Add a new photo

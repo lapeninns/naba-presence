@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/api/location-posts", () => api)
 
+const mediaState = vi.hoisted(() => ({ failed: false, refetch: vi.fn() }))
 const mediaItems = vi.hoisted(() => ({
   items: [
     {
@@ -33,14 +34,16 @@ const mediaItems = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/queries/use-location-media", () => ({
   useMedia: () => ({
-    data: {
-      items: mediaItems.items,
-      categories: ["ADDITIONAL"],
-      paging: {},
-    },
+    data: mediaState.failed
+      ? undefined
+      : {
+          items: mediaItems.items,
+          categories: ["ADDITIONAL"],
+          paging: {},
+        },
     isPending: false,
-    isError: false,
-    refetch: vi.fn(),
+    isError: mediaState.failed,
+    refetch: mediaState.refetch,
   }),
 }))
 
@@ -109,12 +112,17 @@ beforeEach(() => {
   window.sessionStorage.clear()
   window.localStorage.clear()
 })
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  mediaState.failed = false
+})
 
 describe("PostComposerSheet publishing", () => {
   it("publishes from the footer in two taps, with no separate confirm dialog", async () => {
     const user = userEvent.setup()
-    api.createPost.mockResolvedValue({ post: { id: "p-new" } })
+    api.createPost.mockResolvedValue({
+      post: { id: "p-new", contentRevision: 1 },
+    })
     api.publishPost.mockResolvedValue({
       status: "published",
       operation: { outcome: "confirmed_applied" },
@@ -129,6 +137,12 @@ describe("PostComposerSheet publishing", () => {
     await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
     expect(api.createPost).toHaveBeenCalledOnce()
     expect(api.publishPost.mock.calls[0][1]).toBe("p-new")
+    // Bound to the revision it saved: a change by someone else in between
+    // makes the server refuse rather than publish their text under this
+    // person's consent.
+    expect(api.publishPost.mock.calls[0][2]).toMatchObject({
+      expectedRevision: 1,
+    })
     // Created first, then published: never published before it is saved.
     expect(api.createPost.mock.invocationCallOrder[0]).toBeLessThan(
       api.publishPost.mock.invocationCallOrder[0]
@@ -175,6 +189,20 @@ describe("PostComposerSheet publishing", () => {
     ])
   })
 
+  it("offers Try again, not a dead Add button, when the photo library cannot be read", async () => {
+    const user = userEvent.setup()
+    mediaState.failed = true
+    renderComposer()
+    const sheet = await openAndWrite(user)
+    await user.click(within(sheet).getByRole("button", { name: "Add photo" }))
+    const picker = await screen.findByRole("dialog", { name: "Choose a photo" })
+    expect(
+      within(picker).getByRole("button", { name: "Add a new photo" })
+    ).toBeDisabled()
+    await user.click(within(picker).getByRole("button", { name: "Try again" }))
+    expect(mediaState.refetch).toHaveBeenCalledOnce()
+  })
+
   it("asks for approval, and says nothing reaches Google, when the person cannot publish", async () => {
     const user = userEvent.setup()
     api.createPost.mockResolvedValue({ post: { id: "p-new" } })
@@ -214,6 +242,27 @@ describe("PostComposerSheet publishing", () => {
     expect(api.createPost).toHaveBeenCalledOnce()
   })
 
+  it("tells the person nothing was sent when someone else changed the post after they saved it", async () => {
+    const user = userEvent.setup()
+    api.createPost.mockResolvedValue({
+      post: { id: "p-new", contentRevision: 1 },
+    })
+    api.publishPost.mockRejectedValue(
+      new ApiClientError(409, "post_changed_since_saved", "raw server text")
+    )
+    renderComposer()
+    const sheet = await openAndWrite(user)
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    expect(
+      await screen.findByText(
+        /Someone else changed this post after you saved it/
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText("raw server text")).toBeNull()
+  })
+
   it("does not claim the post is only a draft when the answer was lost", async () => {
     const user = userEvent.setup()
     api.createPost.mockResolvedValue({ post: { id: "p-new" } })
@@ -233,7 +282,9 @@ describe("PostComposerSheet publishing", () => {
 
   it("saves an edited draft against its revision, then publishes it", async () => {
     const user = userEvent.setup()
-    api.updatePost.mockResolvedValue({ post: { id: "p1" } })
+    api.updatePost.mockResolvedValue({
+      post: { id: "p1", status: "draft", contentRevision: 4 },
+    })
     api.publishPost.mockResolvedValue({ status: "published" })
     renderComposer({ post: savedPost() })
     await user.click(screen.getByRole("button", { name: "Edit" }))
@@ -248,19 +299,26 @@ describe("PostComposerSheet publishing", () => {
     await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
     expect(api.updatePost.mock.calls[0][1]).toBe("p1")
     expect(api.updatePost.mock.calls[0][3]).toBe("2026-08-01T00:00:00.000Z")
+    expect(api.publishPost.mock.calls[0][2]).toMatchObject({
+      expectedRevision: 4,
+    })
     expect(api.createPost).not.toHaveBeenCalled()
   })
 
   it("publishes an unchanged saved draft as it is, without saving it again", async () => {
     const user = userEvent.setup()
     api.publishPost.mockResolvedValue({ status: "published" })
-    renderComposer({ post: savedPost() })
+    renderComposer({ post: savedPost({ contentRevision: 7 }) })
     await user.click(screen.getByRole("button", { name: "Edit" }))
     const sheet = await screen.findByRole("dialog")
     await user.click(
       within(sheet).getByRole("button", { name: "Publish to Google" })
     )
     await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
+    // The revision on screen is the one consented to.
+    expect(api.publishPost.mock.calls[0][2]).toMatchObject({
+      expectedRevision: 7,
+    })
     expect(api.updatePost).not.toHaveBeenCalled()
     expect(api.createPost).not.toHaveBeenCalled()
   })
