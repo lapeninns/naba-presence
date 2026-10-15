@@ -372,6 +372,40 @@ describe("ReviewDetail", () => {
     ).toHaveLength(1)
   })
 
+  // INB-01: Google holds the live reply for moderation, so nothing on screen
+  // may call it live while a newer draft is in the composer.
+  it("does not say Live on Google while Google is still checking the live reply", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        workflowStatus: "drafted",
+        drafts: [
+          { ...detail.review.drafts[0]!, body: "A newer, better answer." },
+        ],
+        reply: {
+          id: "reply-1",
+          body: "The words that are on Google today.",
+          publishStatus: "published",
+          googleReplyState: "PENDING",
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+        },
+      }),
+    })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const disclosure = screen.getByRole("button", {
+      name: /differs from the reply below/,
+    })
+    expect(disclosure).toHaveTextContent(/waiting for Google.s check/)
+    expect(disclosure).not.toHaveTextContent(/Live on Google/)
+    expect(
+      container.querySelector('[data-slot="reply-heading"] + p')
+    ).toHaveTextContent(
+      /waiting for Google.s check · your newer draft is not published yet/
+    )
+  })
+
   // "Your published reply" was the label for every publish_status, including
   // the five that mean the reply is not on Google.
   it("does not call a reply awaiting approval published", () => {

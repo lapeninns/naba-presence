@@ -132,7 +132,7 @@ function describeException(
           // "waiting for approval", rather than asserting an ownership it
           // cannot verify.
           description:
-            "This reply is waiting for approval. Approve it, or send it back with a note.",
+            "This reply is waiting for approval. Someone with publishing rights can approve it or send it back for changes.",
           tone: "caution",
         }
       : {

@@ -690,7 +690,13 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
   if (!reply?.body || reply.body === inComposer) return null
 
   const state = describeReplyState(reply.publishStatus)
-  const Icon = SITUATION_TONE_ICON[state.tone]
+  // Google is still moderating it: say so, not "Live on Google".
+  const checking = isAwaitingGoogleCheck(
+    reply.publishStatus,
+    reply.googleReplyState
+  )
+  const stateLabel = checking ? WAITING_FOR_GOOGLE_CHECK : state.label
+  const Icon = SITUATION_TONE_ICON[checking ? "neutral" : state.tone]
   const at = reply.googleReplyUpdatedAt
 
   return (
@@ -712,7 +718,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
           />
           <span className="inline-flex items-center gap-1.5 font-medium text-ink">
             <Icon aria-hidden strokeWidth={1.75} className="size-3.5" />
-            {state.label}
+            {stateLabel}
           </span>
           <span className="text-ink-muted">differs from the reply below</span>
           {at ? (
@@ -839,10 +845,9 @@ function replyVisibility(review: Review): string {
   if (!review.reply || !status || status === "not_published") {
     return "Private until you publish"
   }
-  if (isAwaitingGoogleCheck(status, review.reply.googleReplyState)) {
-    return WAITING_FOR_GOOGLE_CHECK
-  }
-  const label = describeReplyState(status).label
+  const label = isAwaitingGoogleCheck(status, review.reply.googleReplyState)
+    ? WAITING_FOR_GOOGLE_CHECK
+    : describeReplyState(status).label
   return isLiveOnGoogle(status) && replyWork(review).hasUnpublishedChanges
     ? `${label} · your newer draft is not published yet`
     : label
