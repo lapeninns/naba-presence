@@ -152,6 +152,8 @@ export function InviteSheet({
   }
   const dismiss = (next: boolean) => {
     if (next) return onOpenChange(true)
+    // A preview in flight reopens the sheet on its review, so it can't be dismissed.
+    if (create.isPending) return
     if (active) return back()
     if (email.trim().length > 0) setDiscarding(true)
     else close()
@@ -300,7 +302,8 @@ export function InviteSheet({
         }
       >
         <div className="flex min-w-0 flex-col gap-4">
-          {action.error ? (
+          {/* Another access change's earlier error belongs on the page, not on a fresh form. */}
+          {action.error && (active || create.isError) ? (
             <p role="alert" className="text-ui text-danger-ink">
               {action.error}
             </p>

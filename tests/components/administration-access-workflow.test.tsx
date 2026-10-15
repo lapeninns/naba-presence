@@ -193,6 +193,15 @@ describe("administration review, consent and saved outcome controls", () => {
     await userEvent.keyboard("{Escape}")
     expect(screen.getByRole("dialog", { name: "Saved invitation outcome" })).toBeInTheDocument()
   })
+  it("offers no send on the sheet once a send is refused as expired", async () => {
+    vi.mocked(access.executeAdministrationAccess).mockRejectedValueOnce(new ApiClientError(409, "approval_expired", "This review expired."))
+    render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    await userEvent.click(await screen.findByRole("button", { name: "Approve access request" }))
+    await userEvent.click(await screen.findByRole("checkbox")); await userEvent.click(screen.getByRole("button", { name: "Send approved access request" }))
+    await screen.findByText(/This review cannot be sent/)
+    expect(screen.queryByRole("button", { name: "Send approved access request" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+  })
   it("asks for the exact listing name, trimmed, at the send step of an administrator removal", async () => {
     const removal = administrationReviewFixture({ operation: "delete_admin", payload: { name: "locations/camden/admins/manager" } })
     vi.mocked(access.previewAdministrationAccess).mockResolvedValueOnce(removal)
