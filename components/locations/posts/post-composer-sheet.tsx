@@ -454,7 +454,10 @@ export function PostComposerSheet({
             input,
             post.updatedAt
           )
-          revision = "post" in saved ? saved.post.contentRevision : undefined
+          // A post that was already live is republished by the save itself:
+          // its answer is the outcome, and there is nothing left to publish.
+          if (!("post" in saved)) return saved
+          revision = saved.post.contentRevision
         } else {
           const created = await createPost(locationId, input)
           postId = created.post.id
