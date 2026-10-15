@@ -163,11 +163,26 @@ for (const width of [375, 768, 1280])
           page.getByRole("heading", { name: heading, exact: true })
         ).toBeVisible()
       }
+      // The page opens with one line that says what the state means and
+      // what to do, in words rather than a row of pills.
+      const summary = page.locator('[data-slot="alert"][data-state]')
+      await expect(summary).toBeVisible()
+      await expect(summary).toHaveText(
+        /Background jobs are running on schedule\.|background jobs? (hasn't|haven't) run recently|Background work isn't running/
+      )
       // Scheduler rows carry readable names and the schedule each is judged
-      // against, never the internal tick keys.
+      // against; the internal tick keys are only under "Details for support".
+      const details = page.locator('details[data-slot="scheduled-jobs"]')
+      if (
+        !(await details.evaluate(
+          (element) => (element as HTMLDetailsElement).open
+        ))
+      ) {
+        await details.locator("summary").click()
+      }
       const jobs = page.getByRole("list", { name: "Scheduled jobs" })
       for (const label of [
-        "Job runner",
+        "Work queue",
         "Review check",
         "Listing sync",
         "Performance metrics",
@@ -179,11 +194,18 @@ for (const width of [375, 768, 1280])
         await expect(jobs.getByText(label, { exact: true })).toBeVisible()
       }
       for (const key of ["jobs", "presence-resources", "retention"]) {
-        await expect(jobs.getByText(key, { exact: true })).toHaveCount(0)
+        await expect(
+          jobs.locator('[data-slot="list-row-title"]').getByText(key, {
+            exact: true,
+          })
+        ).toHaveCount(0)
+        await expect(
+          jobs.locator('[data-slot="support-details"] code', { hasText: key })
+        ).not.toBeVisible()
       }
       await expect(
         jobs.getByText(
-          "Expected every minute · stale after 5 minutes without a run"
+          "Expected every minute · overdue after 5 minutes without a run"
         )
       ).toBeVisible()
       await expect(

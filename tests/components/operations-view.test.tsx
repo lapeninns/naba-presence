@@ -1,5 +1,5 @@
 import { screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { OperationsView } from "@/components/settings/operations-view"
@@ -16,7 +16,9 @@ import {
   isTickStale,
   SCHEDULED_JOBS,
   scheduledJobInfo,
+  summariseScheduler,
 } from "@/lib/operations/job-labels"
+import { formatZonedTime, usableZone } from "@/lib/operations/zoned-time"
 
 const api = vi.hoisted(() => ({
   fetchOperationsHealth: vi.fn(),
@@ -25,6 +27,20 @@ const api = vi.hoisted(() => ({
   retryNotificationDeliveries: vi.fn(),
 }))
 vi.mock("@/lib/api/operations", () => api)
+
+const settingsApi = vi.hoisted(() => ({ fetchSettings: vi.fn() }))
+vi.mock("@/lib/api/settings", () => settingsApi)
+
+function orgZone(defaultTimezone: string) {
+  settingsApi.fetchSettings.mockResolvedValue({
+    approvalRequired: true,
+    requireTwoPersonApproval: false,
+    rawContentRetentionDays: 30,
+    defaultLanguageCode: "en-GB",
+    defaultTimezone,
+    directPublishConsentAt: null,
+  })
+}
 
 const minutesAgo = (minutes: number) =>
   new Date(Date.now() - minutes * 60_000).toISOString()
@@ -65,6 +81,10 @@ function health(schedulerTicks: SchedulerTick[]) {
   })
 }
 
+beforeEach(() => {
+  orgZone("Pacific/Auckland")
+})
+
 afterEach(() => {
   vi.clearAllMocks()
 })
@@ -104,21 +124,23 @@ describe("OperationsView scheduler rows", () => {
     expect(
       within(list).getByText("Data retention clean-up")
     ).toBeInTheDocument()
-    for (const key of [
-      "jobs",
-      "reconcile",
-      "retention",
-      "presence-resources",
-      "sweep",
-      "health",
-      "keywords",
-      "performance",
-    ]) {
-      expect(within(list).queryByText(key, { exact: true })).toBeNull()
+    // The key is secondary: never a row's title or purpose, only quoted
+    // under "Details for support".
+    const keys = Object.keys(STALE_AFTER)
+    for (const text of [
+      ...list.querySelectorAll('[data-slot="list-row-title"]'),
+      ...list.querySelectorAll('[data-slot="list-row-subtitle"]'),
+    ].map((element) => element.textContent)) {
+      expect(keys).not.toContain(text)
+    }
+    for (const row of rows) {
+      const support = row.querySelector('[data-slot="support-details"]')
+      expect(support).not.toBeNull()
+      expect(keys).toContain(support!.querySelector("code")!.textContent)
     }
   })
 
-  it("marks staleness against each job's own schedule and says why", async () => {
+  it("marks overdue jobs against each job's own schedule and says why", async () => {
     api.fetchOperationsHealth.mockResolvedValue(
       health([
         // The 375px report: 16 minutes is stale for a one-minute tick…
@@ -136,14 +158,14 @@ describe("OperationsView scheduler rows", () => {
     const row = (label: string) =>
       within(list).getByText(label).closest("li") as HTMLElement
 
-    const jobs = row("Job runner")
-    expect(within(jobs).getByText("Stale")).toBeInTheDocument()
+    const jobs = row("Work queue")
+    expect(within(jobs).getByText("Overdue")).toBeInTheDocument()
     expect(
       within(jobs).getByText("Last run 16 minutes ago")
     ).toBeInTheDocument()
     expect(
       within(jobs).getByText(
-        "Expected every minute · stale after 5 minutes without a run"
+        "Expected every minute · overdue after 5 minutes without a run"
       )
     ).toBeInTheDocument()
 
@@ -153,19 +175,19 @@ describe("OperationsView scheduler rows", () => {
     ] as const) {
       const r = row(label)
       expect(within(r).getByText("On schedule")).toBeInTheDocument()
-      expect(within(r).queryByText("Stale")).toBeNull()
+      expect(within(r).queryByText("Overdue")).toBeNull()
       expect(
         within(r).getByText(`Last run ${age} minutes ago`)
       ).toBeInTheDocument()
       expect(
         within(r).getByText(
-          "Expected every 15 minutes · stale after 45 minutes without a run"
+          "Expected every 15 minutes · overdue after 45 minutes without a run"
         )
       ).toBeInTheDocument()
     }
 
     const healthRow = row("Health checks")
-    expect(within(healthRow).getByText("Stale")).toBeInTheDocument()
+    expect(within(healthRow).getByText("Overdue")).toBeInTheDocument()
     expect(within(healthRow).getByText("Never completed")).toBeInTheDocument()
   })
 
@@ -176,7 +198,7 @@ describe("OperationsView scheduler rows", () => {
     api.fetchWebhookFailures.mockResolvedValue({ items: [] })
     renderWithProviders(<OperationsView />)
     const list = await screen.findByRole("list", { name: "Scheduled jobs" })
-    expect(within(list).getByText("Stale")).toBeInTheDocument()
+    expect(within(list).getByText("Overdue")).toBeInTheDocument()
   })
 
   it("humanises an unknown job key", async () => {
@@ -188,8 +210,176 @@ describe("OperationsView scheduler rows", () => {
     const list = await screen.findByRole("list", { name: "Scheduled jobs" })
     expect(within(list).getByText("Gbp media refresh")).toBeInTheDocument()
     expect(
-      within(list).getByText("Stale after 10 minutes without a run")
+      within(list).getByText("Overdue after 10 minutes without a run")
     ).toBeInTheDocument()
+  })
+})
+
+describe("OperationsView summary", () => {
+  const load = async (ticks: SchedulerTick[], heartbeatStale = false) => {
+    api.fetchOperationsHealth.mockResolvedValue({
+      ...health(ticks),
+      schedulerHeartbeatStale: heartbeatStale,
+    })
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    renderWithProviders(<OperationsView />)
+    await screen.findByRole("list", { name: "Scheduled jobs" })
+    return document.querySelector('[data-slot="alert"]') as HTMLElement
+  }
+
+  it("says all is well in one line and keeps the details closed", async () => {
+    const alert = await load([
+      tick("jobs", 1, 300),
+      tick("reconcile", 5, 2_700),
+    ])
+    expect(alert).toHaveAttribute("data-state", "ok")
+    expect(alert).toHaveTextContent("Background jobs are running on schedule.")
+    expect(
+      document.querySelector("details[data-slot=scheduled-jobs]")
+    ).not.toHaveAttribute("open")
+  })
+
+  it("says what is out of date and what to do when some jobs are overdue, and opens the details", async () => {
+    const alert = await load([
+      tick("jobs", 1, 300),
+      tick("reconcile", 100, 2_700, true),
+      tick("presence-resources", 100, 2_700, true),
+    ])
+    expect(alert).toHaveAttribute("data-state", "some-stale")
+    expect(alert).toHaveTextContent(
+      "2 background jobs haven't run recently. New and changed reviews and listing details from Google may be out of date; they should catch up on the next run. Contact support if this lasts more than a day."
+    )
+    expect(
+      document.querySelector("details[data-slot=scheduled-jobs]")
+    ).toHaveAttribute("open")
+    expect(screen.getByText("(3, 2 overdue)")).toBeInTheDocument()
+  })
+
+  it("says background work is not running when the scheduler stops reporting", async () => {
+    const alert = await load([tick("jobs", 1, 300)], true)
+    expect(alert).toHaveAttribute("data-state", "failing")
+    expect(alert).toHaveTextContent(
+      "Background work isn't running. New reviews, listing updates and reply publishing won't be processed until it starts again. Contact support."
+    )
+    expect(screen.getByText("Not reporting")).toBeInTheDocument()
+  })
+
+  it("treats every job overdue as failing", async () => {
+    const alert = await load([
+      tick("jobs", null, 300, true),
+      tick("health", null, 2_700, true),
+    ])
+    expect(alert).toHaveAttribute("data-state", "failing")
+  })
+})
+
+describe("summariseScheduler", () => {
+  const now = new Date("2026-10-15T12:00:00Z")
+  const ago = (minutes: number) =>
+    new Date(now.getTime() - minutes * 60_000).toISOString()
+  const t = (name: string, minutes: number | null, after = 2_700) => ({
+    name,
+    lastCompletedAt: minutes === null ? null : ago(minutes),
+    staleAfterSeconds: after,
+    stale: false,
+  })
+
+  it("is ok with no overdue job", () => {
+    expect(summariseScheduler([t("jobs", 1, 300)], false, now)).toMatchObject({
+      state: "ok",
+      overdue: 0,
+      total: 1,
+    })
+  })
+
+  it("names at most three affected areas and counts the rest", () => {
+    const summary = summariseScheduler(
+      [
+        t("jobs", 99, 300),
+        t("reconcile", 99),
+        t("presence-resources", 99),
+        t("billing-reconcile", 99, 300),
+        t("health", 1),
+      ],
+      false,
+      now
+    )
+    expect(summary.state).toBe("some-stale")
+    expect(summary.message).toContain(
+      "Queued syncs and reply publishing, new and changed reviews, listing details from Google and 1 more may be out of date"
+    )
+  })
+
+  it("does not guess for an unknown overdue job", () => {
+    const summary = summariseScheduler(
+      [t("mystery_tick", 99, 300), t("jobs", 1, 300)],
+      false,
+      now
+    )
+    expect(summary.message).toBe(
+      "1 background job hasn't run recently. Some information may be out of date; it should catch up on the next run. Contact support if this lasts more than a day."
+    )
+  })
+
+  it("is failing when the heartbeat is stale or every job is overdue", () => {
+    expect(summariseScheduler([t("jobs", 1, 300)], true, now).state).toBe(
+      "failing"
+    )
+    expect(summariseScheduler([t("jobs", 99, 300)], false, now).state).toBe(
+      "failing"
+    )
+    expect(summariseScheduler([], true, now).state).toBe("failing")
+    expect(summariseScheduler([], false, now).state).toBe("ok")
+  })
+})
+
+describe("time zone", () => {
+  it("writes a time in the organisation's zone and names it", () => {
+    // 01:30 UTC on 15 Oct is 14:30 in Auckland (UTC+13) and 02:30 in London (BST).
+    const iso = "2026-10-15T01:30:00Z"
+    expect(formatZonedTime(iso, "Pacific/Auckland")).toBe(
+      "15 Oct, 14:30 (Pacific/Auckland)"
+    )
+    expect(formatZonedTime(iso, "Europe/London")).toBe(
+      "15 Oct, 02:30 (Europe/London)"
+    )
+  })
+
+  it("says the visible relative phrase when there is no usable zone", () => {
+    const iso = "2026-10-15T11:55:00Z"
+    const now = new Date("2026-10-15T12:00:00Z")
+    expect(formatZonedTime(iso, null, now)).toBe("5 minutes ago")
+    expect(formatZonedTime(iso, "Not/AZone", now)).toBe("5 minutes ago")
+    expect(usableZone("Not/AZone")).toBeUndefined()
+    expect(usableZone("Pacific/Auckland")).toBe("Pacific/Auckland")
+  })
+
+  it("names the Replay button with the organisation's zone, not London", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(health([]))
+    api.fetchWebhookFailures.mockResolvedValue({
+      items: [
+        {
+          id: "evt-1",
+          eventType: "NEW_REVIEW",
+          status: "failed",
+          retryCount: 1,
+          nextAttemptAt: null,
+          lastErrorCode: "sync_failed",
+          receivedAt: "2026-10-15T01:30:00Z",
+        },
+      ],
+    })
+    renderWithProviders(<OperationsView />)
+    expect(
+      await screen.findByRole("button", {
+        name: "Replay New reviews received 15 Oct, 14:30 (Pacific/Auckland)",
+      })
+    ).toBeInTheDocument()
+    // The raw type and code are for support, not the visible sentence.
+    expect(
+      screen.getByText(/New reviews · Failed · received/)
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/NEW_REVIEW ·/)).toBeNull()
   })
 })
 
@@ -209,10 +399,10 @@ describe("job labels", () => {
     expect(humaniseJobKey("")).toBe("Unnamed job")
     expect(scheduledJobInfo("new_tick").intervalSeconds).toBeNull()
     expect(describeSchedule(SCHEDULED_JOBS.keywords, 172_800)).toBe(
-      "Expected daily · stale after 2 days without a run"
+      "Expected daily · overdue after 2 days without a run"
     )
     expect(describeSchedule(SCHEDULED_JOBS.retention, 900)).toBe(
-      "Expected every 5 minutes · stale after 15 minutes without a run"
+      "Expected every 5 minutes · overdue after 15 minutes without a run"
     )
   })
 

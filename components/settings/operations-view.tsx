@@ -3,6 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
+import { SupportDetails } from "@/components/editors/support-details"
+import {
+  ScheduledJobsDisclosure,
+  SchedulerSummaryAlert,
+} from "@/components/settings/scheduled-jobs-panel"
 import {
   SettingsFacts,
   SettingsSection,
@@ -19,18 +24,15 @@ import {
   replayWebhookEvent,
   retryNotificationDeliveries,
 } from "@/lib/api/operations"
-import type {
-  OperationsHealth,
-  SchedulerTick,
-} from "@/lib/contracts/operations"
-import { formatDateTime, formatNumber } from "@/lib/format"
-import {
-  describeSchedule,
-  isTickStale,
-  scheduledJobInfo,
-} from "@/lib/operations/job-labels"
+import type { OperationsHealth } from "@/lib/contracts/operations"
+import { describeErrorCode } from "@/lib/errors/action-errors"
+import { formatNumber } from "@/lib/format"
+import { summariseScheduler } from "@/lib/operations/job-labels"
+import { formatZonedTime, usableZone } from "@/lib/operations/zoned-time"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
+import { useSettings } from "@/lib/queries/use-settings"
+import { describeNotificationType } from "@/lib/settings/gating"
 
 const FAMILY_LABEL: Record<string, string> = {
   links: "Action links",
@@ -54,8 +56,23 @@ const STATE_LABEL: Record<string, string> = {
   unknown: "Outcome unknown",
 }
 
-function ago(iso: string | null | undefined, prefix?: string) {
-  return iso ? <RelativeTime iso={iso} prefix={prefix} /> : "None"
+/** How a webhook event's status reads to an owner. */
+const EVENT_STATUS_LABEL: Record<string, string> = {
+  failed: "Failed",
+  dead: "Stopped retrying",
+}
+
+/** `timeZone`: the organisation's zone, for the exact time on hover. */
+function ago(
+  iso: string | null | undefined,
+  prefix?: string,
+  timeZone?: string
+) {
+  return iso ? (
+    <RelativeTime iso={iso} prefix={prefix} timeZone={timeZone} />
+  ) : (
+    "None"
+  )
 }
 
 /** Label/value figures, numbers formatted, values in tabular mono. */
@@ -97,6 +114,8 @@ export function OperationsView() {
     id: string
     text: string
   } | null>(null)
+  // The organisation's default time zone, for every clock time on the page.
+  const timeZone = useSettings().data?.defaultTimezone ?? null
   const health = useQuery({
     queryKey: queryKeys.operationsHealth,
     queryFn: (context) => fetchOperationsHealth(requestOptions(context)),
@@ -138,6 +157,7 @@ export function OperationsView() {
     onError: (error, id) => setReplayError({ id, text: failure(error) }),
   })
 
+  const zone = usableZone(timeZone)
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
       <QueryStates
@@ -149,6 +169,7 @@ export function OperationsView() {
         {() => (
           <HealthSections
             data={health.data!}
+            timeZone={timeZone}
             retrying={retry.isPending}
             retryError={retryError}
             onRetry={() => retry.mutate()}
@@ -171,34 +192,47 @@ export function OperationsView() {
           empty={<p className="text-body text-ink-muted">No failed events.</p>}
         >
           <ul className="flex flex-col divide-y divide-line">
-            {failures.data?.items.map((item) => (
-              <li
-                key={item.id}
-                className="flex min-h-(--np-row-h) flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2"
-              >
-                <span className="min-w-0 text-ui text-ink-secondary">
-                  {item.eventType} · {item.status} · received{" "}
-                  {ago(item.receivedAt)}
-                  {item.lastErrorCode ? ` · ${item.lastErrorCode}` : ""}
-                </span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={replay.isPending}
-                  pending={replay.isPending && replay.variables === item.id}
-                  onClick={() => replay.mutate(item.id)}
-                  aria-label={`Replay ${item.eventType} received ${formatDateTime(item.receivedAt, "Europe/London")}`}
+            {failures.data?.items.map((item) => {
+              const type = describeNotificationType(item.eventType)
+              return (
+                <li
+                  key={item.id}
+                  className="flex min-h-(--np-row-h) flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2"
                 >
-                  Replay
-                </Button>
-                <p
-                  aria-live="polite"
-                  className="w-full text-ui text-danger-ink empty:sr-only"
-                >
-                  {replayError?.id === item.id ? replayError.text : null}
-                </p>
-              </li>
-            ))}
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-ui text-ink-secondary">
+                      {type} ·{" "}
+                      {EVENT_STATUS_LABEL[item.status] ?? "Not processed"} ·
+                      received {ago(item.receivedAt, undefined, zone)}
+                    </span>
+                    {item.lastErrorCode ? (
+                      <span className="text-caption text-ink-muted">
+                        {describeErrorCode(item.lastErrorCode)}
+                      </span>
+                    ) : null}
+                    <SupportDetails
+                      items={[item.eventType, item.status, item.lastErrorCode]}
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={replay.isPending}
+                    pending={replay.isPending && replay.variables === item.id}
+                    onClick={() => replay.mutate(item.id)}
+                    aria-label={`Replay ${type} received ${formatZonedTime(item.receivedAt, zone)}`}
+                  >
+                    Replay
+                  </Button>
+                  <p
+                    aria-live="polite"
+                    className="w-full text-ui text-danger-ink empty:sr-only"
+                  >
+                    {replayError?.id === item.id ? replayError.text : null}
+                  </p>
+                </li>
+              )
+            })}
           </ul>
         </QueryStates>
       </SettingsSection>
@@ -206,85 +240,48 @@ export function OperationsView() {
   )
 }
 
-/**
- * One row per scheduled tick: a readable name and purpose, when it last
- * completed, and the schedule it is judged against, so "Stale" always comes
- * with the reason. Staleness uses each tick's own threshold from the server.
- */
-function SchedulerTicks({ ticks }: { ticks: SchedulerTick[] }) {
-  const now = new Date()
-  return (
-    <ul
-      aria-label="Scheduled jobs"
-      className="flex flex-col divide-y divide-line border-t border-line"
-    >
-      {ticks.map((tick) => {
-        const info = scheduledJobInfo(tick.name)
-        const stale = isTickStale(tick, now)
-        const last = tick.lastCompletedAt
-          ? ago(tick.lastCompletedAt, "Last run ")
-          : "Never completed"
-        return (
-          <li
-            key={tick.name}
-            data-job={tick.name}
-            className="flex flex-col gap-1 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
-          >
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-ui font-medium text-ink">{info.label}</span>
-              <span className="text-caption text-ink-muted">
-                {info.purpose}
-              </span>
-            </div>
-            <div className="flex min-w-0 shrink-0 flex-col gap-0.5 sm:items-end sm:text-right">
-              <span className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
-                <StatusPill tone={stale ? "bad" : "ok"}>
-                  {stale ? "Stale" : "On schedule"}
-                </StatusPill>
-                <span>{last}</span>
-              </span>
-              <span className="text-caption text-ink-muted">
-                {describeSchedule(info, tick.staleAfterSeconds)}
-              </span>
-            </div>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
 function HealthSections({
   data,
+  timeZone,
   retrying,
   retryError,
   onRetry,
 }: {
   data: OperationsHealth
+  timeZone: string | null
   retrying: boolean
   retryError: string | null
   onRetry: () => void
 }) {
   const stale = data.schedulerHeartbeatStale
   const deliveries = data.notificationDeliveries
+  const zone = usableZone(timeZone)
+  const now = new Date()
+  const summary = summariseScheduler(data.schedulerTicks, stale, now)
   return (
     <>
+      <SchedulerSummaryAlert summary={summary} />
       <SettingsSection
         variant="group"
         id="ops-scheduler"
         title="Scheduler"
-        description="Background ticks that sync, publish and send notifications."
+        description="Background jobs that sync, publish and send notifications."
       >
         <p className="flex flex-wrap items-center gap-2 text-ui text-ink">
           <StatusPill tone={stale ? "bad" : "ok"}>
-            {stale ? "Heartbeat stale" : "Running"}
+            {stale ? "Not reporting" : "Running"}
           </StatusPill>
           <span className="text-ink-muted">
-            Last heartbeat {ago(data.schedulerHeartbeatAt)}
+            Last check-in {ago(data.schedulerHeartbeatAt, undefined, zone)}
           </span>
         </p>
         {data.schedulerTicks.length ? (
-          <SchedulerTicks ticks={data.schedulerTicks} />
+          <ScheduledJobsDisclosure
+            ticks={data.schedulerTicks}
+            summary={summary}
+            timeZone={timeZone}
+            now={now}
+          />
         ) : null}
       </SettingsSection>
       <SettingsSection
@@ -299,7 +296,7 @@ function HealthSections({
             ["Syncs failed", data.sync.failed ?? 0],
             [
               "Oldest outstanding sync",
-              ago(data.sync.oldestOutstandingAt ?? null),
+              ago(data.sync.oldestOutstandingAt ?? null, undefined, zone),
             ],
             [
               "Worst reconcile age",
@@ -321,7 +318,7 @@ function HealthSections({
         <Figures
           rows={[
             ["All due work", data.dueJobBacklog],
-            ["Job runner checkpoints", data.dueRunnerCheckpointBacklog],
+            ["Work queue checkpoints", data.dueRunnerCheckpointBacklog],
             ["Metrics checkpoints", data.dueMetricsCheckpointBacklog],
             ["Review events", data.dueWebhookBacklog],
             ["Reply publishing", data.duePublishBacklog],
@@ -339,7 +336,8 @@ function HealthSections({
             rows={data.unresolvedWrites.map((row) => [
               FAMILY_LABEL[row.family] ?? row.family.replaceAll("_", " "),
               <>
-                {formatNumber(row.count)} · oldest {ago(row.oldestAt)}
+                {formatNumber(row.count)} · oldest{" "}
+                {ago(row.oldestAt, undefined, zone)}
               </>,
             ])}
           />
@@ -358,7 +356,7 @@ function HealthSections({
         <Figures
           rows={[
             ["Queued", deliveries.queued],
-            ["Oldest queued", ago(deliveries.oldestQueuedAt)],
+            ["Oldest queued", ago(deliveries.oldestQueuedAt, undefined, zone)],
             ...deliveries.states7d.map(
               (row) =>
                 [

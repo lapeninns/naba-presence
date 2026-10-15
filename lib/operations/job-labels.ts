@@ -14,6 +14,12 @@
 export type ScheduledJobInfo = {
   label: string
   purpose: string
+  /**
+   * What goes out of date when the job stops, as a noun phrase for the
+   * summary sentence ("new and changed reviews"). Null when the key is
+   * unknown: the summary then says nothing specific rather than guess.
+   */
+  affects: string | null
   /** Scheduled interval in seconds; null when the key is unknown. */
   intervalSeconds: number | null
 }
@@ -24,55 +30,63 @@ const DAY = 24 * HOUR
 
 export const SCHEDULED_JOBS: Record<string, ScheduledJobInfo> = {
   jobs: {
-    label: "Job runner",
+    label: "Work queue",
     purpose: "Works through queued syncs, review events and reply publishing.",
+    affects: "queued syncs and reply publishing",
     intervalSeconds: MINUTE,
   },
   reconcile: {
     label: "Review check",
     purpose:
       "Queues a check of every linked location for new or changed reviews.",
+    affects: "new and changed reviews",
     intervalSeconds: 15 * MINUTE,
   },
   "presence-resources": {
     label: "Listing sync",
     purpose:
       "Reads hours, profile, posts, photos, menus and action links from Google.",
+    affects: "listing details from Google",
     intervalSeconds: 15 * MINUTE,
   },
   performance: {
     label: "Performance metrics",
     purpose: "Queues a refresh of Google search and Maps performance figures.",
+    affects: "performance figures",
     intervalSeconds: 6 * HOUR,
   },
   sweep: {
     label: "Full review sweep",
     purpose:
       "Queues a full pass over each location's reviews to catch deletions and gaps.",
+    affects: "checks for deleted reviews",
     intervalSeconds: DAY,
   },
   keywords: {
     label: "Search keywords",
     purpose:
       "Queues a refresh of the search terms that led people to listings.",
+    affects: "search keyword figures",
     intervalSeconds: DAY,
   },
   retention: {
     label: "Data retention clean-up",
     purpose:
-      "Works through each day's clean-up, from 03:00 UTC: redacts expired Google content and deletes records past their retention period.",
+      "Works through each day's clean-up: redacts expired Google content and deletes records past their retention period.",
+    affects: "data clean-up",
     intervalSeconds: 5 * MINUTE,
   },
   health: {
     label: "Health checks",
-    purpose:
-      "Evaluates every organisation for incidents and sends due notifications.",
+    purpose: "Checks for incidents and sends due notifications.",
+    affects: "health notifications",
     intervalSeconds: 15 * MINUTE,
   },
   "billing-reconcile": {
     label: "Billing check",
     purpose:
       "Brings every subscription in line with Stripe, in case a billing event was missed.",
+    affects: "billing status",
     intervalSeconds: HOUR,
   },
 }
@@ -89,6 +103,7 @@ export function scheduledJobInfo(key: string): ScheduledJobInfo {
     SCHEDULED_JOBS[key] ?? {
       label: humaniseJobKey(key),
       purpose: "Scheduled background task.",
+      affects: null,
       intervalSeconds: null,
     }
   )
@@ -114,13 +129,13 @@ export function formatInterval(seconds: number): string {
 
 /**
  * The reason line under a tick: its schedule and the gap past which the page
- * marks it stale, e.g. "Expected every 15 minutes · stale after 45 minutes".
+ * marks it stale, e.g. "Expected every 15 minutes · overdue after 45 minutes".
  */
 export function describeSchedule(
   info: ScheduledJobInfo,
   staleAfterSeconds: number
 ): string {
-  const threshold = `stale after ${formatSpan(staleAfterSeconds)} without a run`
+  const threshold = `overdue after ${formatSpan(staleAfterSeconds)} without a run`
   if (info.intervalSeconds === null) {
     return threshold.charAt(0).toUpperCase() + threshold.slice(1)
   }
@@ -145,4 +160,79 @@ export function isTickStale(
   const completed = new Date(tick.lastCompletedAt).getTime()
   if (!Number.isFinite(completed)) return true
   return (now.getTime() - completed) / 1000 > tick.staleAfterSeconds
+}
+
+export type SchedulerSummary = {
+  /** `failing`: nothing is running; `some-stale`: some jobs are overdue. */
+  state: "ok" | "some-stale" | "failing"
+  /** How many jobs are overdue, and how many were reported. */
+  overdue: number
+  total: number
+  /** One plain sentence: what it means and what to do. */
+  message: string
+}
+
+/** ["a", "b", "c", "d"] -> "a, b, c and 1 more". */
+function joinAreas(areas: string[], max = 3): string {
+  const shown = areas.slice(0, max)
+  const rest = areas.length - shown.length
+  const items = rest > 0 ? [...shown, `${rest} more`] : shown
+  if (items.length === 1) return items[0]
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`
+}
+
+/**
+ * The page's one-line answer, from the same staleness rule the rows use.
+ * `failing` is the scheduler itself not reporting, or every job overdue:
+ * nothing is being processed. `some-stale` names what may be out of date,
+ * from each overdue job's own `affects` text, and never guesses for a job
+ * it has no words for.
+ */
+export function summariseScheduler(
+  ticks: ReadonlyArray<{
+    name: string
+    lastCompletedAt: string | null
+    staleAfterSeconds: number
+    stale: boolean
+  }>,
+  heartbeatStale: boolean,
+  now: Date = new Date()
+): SchedulerSummary {
+  const overdueTicks = ticks.filter((tick) => isTickStale(tick, now))
+  const overdue = overdueTicks.length
+  const total = ticks.length
+  if (heartbeatStale || (total > 0 && overdue === total)) {
+    return {
+      state: "failing",
+      overdue,
+      total,
+      message:
+        "Background work isn't running. New reviews, listing updates and reply publishing won't be processed until it starts again. Contact support.",
+    }
+  }
+  if (overdue > 0) {
+    const areas = [
+      ...new Set(
+        overdueTicks
+          .map((tick) => scheduledJobInfo(tick.name).affects)
+          .filter((area): area is string => area !== null)
+      ),
+    ]
+    const subject = areas.length
+      ? joinAreas(areas).replace(/^./, (c) => c.toUpperCase())
+      : "Some information"
+    const one = overdue === 1
+    return {
+      state: "some-stale",
+      overdue,
+      total,
+      message: `${one ? "1 background job hasn't" : `${overdue} background jobs haven't`} run recently. ${subject} may be out of date; ${one ? "it" : "they"} should catch up on the next run. Contact support if this lasts more than a day.`,
+    }
+  }
+  return {
+    state: "ok",
+    overdue,
+    total,
+    message: "Background jobs are running on schedule.",
+  }
 }
