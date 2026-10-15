@@ -200,6 +200,31 @@ describe("AppShell", () => {
     ).toHaveAccessibleDescription(/current/i)
   })
 
+  // A business has no spare More slot for it, so on that one page Calendar
+  // takes a tab (and Notifications moves into More) rather than the page
+  // having no current item.
+  it("gives a business's phone bar a current Calendar tab on that page while scheduling is off", () => {
+    stubApi()
+    pathname.current = "/calendar"
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell
+            session={{ ...session, workspaceMode: "business" }}
+            hideCalendar
+          >
+            <PageFrame>
+              <PageHeader title="Publication calendar" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    expect(
+      within(slot("tab-bar")).getByRole("link", { name: "Calendar" })
+    ).toHaveAttribute("aria-current", "page")
+  })
+
   it("leaves Calendar out of the navigation elsewhere while scheduling is off", () => {
     stubApi()
     pathname.current = "/listings"

@@ -23,6 +23,7 @@ import {
   windowFor,
   type CalendarView,
 } from "@/components/calendar/calendar-dates"
+import { useRememberedClient } from "@/components/app-shell/client-context"
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationSelect } from "@/components/performance/location-select"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/segmented-control"
 import { ViewHeader } from "@/components/ui/view-header"
 import { ApiClientError } from "@/lib/api/client"
+import { withClientScope } from "@/lib/clients/scope"
 import { fetchScheduleOccurrences } from "@/lib/api/publication-schedules"
 import type { ScheduleOccurrence } from "@/lib/contracts/publication-schedules"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
@@ -74,6 +76,7 @@ export function PublicationCalendar({
   const searchParams = useSearchParams()
   const role = useSessionRole()
   const business = useWorkspaceMode() === "business"
+  const { remembered } = useRememberedClient()
   const hydrated = useHydrated()
   const [now] = useState(() => new Date())
   // Without the organisation's zone, the browser's own, once it is known:
@@ -207,7 +210,13 @@ export function PublicationCalendar({
           }
           action={
             <Link
-              href="/listings"
+              // Listings keeps the client in scope (agency only), as the
+              // navigation's own link does, so it opens already narrowed.
+              href={
+                business
+                  ? "/listings"
+                  : withClientScope("/listings", remembered)
+              }
               className={cn(buttonVariants({ variant: "secondary" }))}
             >
               Go to Listings
