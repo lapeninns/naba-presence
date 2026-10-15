@@ -168,7 +168,7 @@ describe("furthestReachable", () => {
     // The accounts step saves against the client's own login, so an
     // unattached agency login left every save there out of scope.
     expect(stepBlocker("connect", { ...facts, usableLogin: true })).toMatch(
-      /Use this account/
+      /Pick an account from the list/
     )
     expect(stepBlocker("connect", facts)).toMatch(/Connect a Google account/)
     expect(

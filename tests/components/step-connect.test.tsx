@@ -77,7 +77,7 @@ describe("StepConnect", () => {
     const onConnected = renderStep()
     attachMock.mockImplementation((_input, options) => options.onSuccess())
     fireEvent.click(
-      screen.getByRole("button", { name: "Use shared@lapen.test" })
+      screen.getByRole("button", { name: "Use this account shared@lapen.test" })
     )
     expect(attachMock).toHaveBeenCalledWith(
       { clientId: "client-1", connectionId: "c-live" },
@@ -86,10 +86,31 @@ describe("StepConnect", () => {
     expect(onConnected).toHaveBeenCalledTimes(1)
   })
 
+  it("leads with the connected login, ahead of a new sign-in", () => {
+    renderStep()
+    const use = screen.getByRole("button", {
+      name: "Use this account shared@lapen.test",
+    })
+    expect(use).toHaveAttribute("data-slot", "option-row")
+    expect(use).toHaveAttribute("id", "setup-connect-use-first")
+    expect(use).toHaveTextContent("Use this account")
+    const signIn = screen.getByRole("button", { name: "Sign in with Google" })
+    expect(
+      use.compareDocumentPosition(signIn) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      screen.getByRole("heading", {
+        name: "Or sign in with another Google account",
+      })
+    ).toBeInTheDocument()
+  })
+
   it("offers no shortcut for a login that needs reconnecting", () => {
     renderStep()
     expect(
-      screen.queryByRole("button", { name: "Use old@lapen.test" })
+      screen.queryByRole("button", {
+        name: /^Use this account old@lapen\.test/,
+      })
     ).toBeNull()
     expect(screen.getByText("Needs reconnecting")).toBeInTheDocument()
   })
@@ -130,7 +151,7 @@ describe("StepConnect", () => {
       options.onError(new Error("nope"))
     )
     fireEvent.click(
-      screen.getByRole("button", { name: "Use shared@lapen.test" })
+      screen.getByRole("button", { name: "Use this account shared@lapen.test" })
     )
     expect(screen.getByTestId("setup-attach-error")).toHaveTextContent(
       "Couldn’t use that account"

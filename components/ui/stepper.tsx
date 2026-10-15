@@ -1,4 +1,4 @@
-import { Check, Minus } from "lucide-react"
+import { Check, Flag, Minus } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
@@ -26,6 +26,12 @@ export type Step = {
    * `stateWords` for this one step ("Sent", "Code entered").
    */
   stateLabel?: string
+  /**
+   * A closing step that is not one of the numbered ones ("Done"): its ring
+   * draws a flag instead of a number, and it does not use up a number, so
+   * the list agrees with a "Step N of M" counter that leaves it out.
+   */
+  unnumbered?: boolean
 }
 
 /** The quiet stepper's default state words. */
@@ -90,6 +96,9 @@ function Stepper({
     )
   }
   const vertical = orientation === "vertical"
+  // An unnumbered step does not use up a number.
+  let counted = 0
+  const numbers = steps.map((step) => (step.unnumbered ? 0 : ++counted))
   return (
     <ol
       data-slot="stepper"
@@ -120,8 +129,10 @@ function Stepper({
           >
             {step.state === "done" ? (
               <Check className="size-3" strokeWidth={2.5} />
+            ) : step.unnumbered ? (
+              <Flag className="size-3" strokeWidth={2.5} />
             ) : (
-              index + 1
+              numbers[index]
             )}
           </span>
         )
