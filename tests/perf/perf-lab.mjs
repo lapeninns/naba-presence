@@ -113,7 +113,8 @@ const DEFAULT_ROUTES = [
   ["/listings/{loc}/hours", "listing"],
   ["/listings/{loc}/photos", "listing"],
   ["/listings/{loc}/posts", "listing"],
-  // The seven areas that fetched after hydration until L16 (LST-14).
+  // The listing areas perf-lab skipped until L16 (LST-14): six now stream
+  // their first read; Review & publish still reads in the browser.
   ["/listings/{loc}/profile", "listing"],
   ["/listings/{loc}/menu", "listing"],
   ["/listings/{loc}/booking", "listing"],

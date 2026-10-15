@@ -54,11 +54,6 @@ import {
   type AdministrationState,
 } from "@/lib/contracts/location-administration"
 import {
-  businessInformationResponseSchema,
-  type BusinessInformationResponse,
-  type BusinessInformationState,
-} from "@/lib/contracts/location-business-information"
-import {
   foodMenusResponseSchema,
   type FoodMenusResponse,
   type FoodMenusState,
@@ -96,7 +91,6 @@ import {
   settingsCapabilities,
   settingsFeaturesApply,
 } from "@/lib/server/capabilities"
-import { loadBusinessInformation } from "@/lib/server/business-information"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { getFoodMenusState } from "@/lib/server/food-menus"
@@ -368,21 +362,6 @@ export async function readProfile(
     profile: await getProfileState(session, locationId),
   } satisfies ProfileResponse
   return throughWire(profileResponseSchema, payload).profile
-}
-
-/**
- * What `useBusinessInformation(id)` fetches: `GET
- * /api/locations/{id}/business-information` with no `type`.
- */
-export async function readBusinessInformation(
-  session: Session,
-  locationId: string
-): Promise<BusinessInformationState> {
-  const payload = {
-    businessInformation: await loadBusinessInformation(session, locationId),
-  } satisfies BusinessInformationResponse
-  return throughWire(businessInformationResponseSchema, payload)
-    .businessInformation
 }
 
 /** What `useFoodMenus(id)` fetches: `GET /api/locations/{id}/food-menus`. */
@@ -693,10 +672,10 @@ function managesConsoles(session: Session): boolean {
 }
 
 /**
- * /listings/{id}/profile: `useProfile(id)` and the business information
- * the editor reads once the profile lands (read together here, so the
- * second no longer waits on the first). A live profile read refreshes the
- * summary, as with hours.
+ * /listings/{id}/profile: `useProfile(id)`. A live profile read refreshes
+ * the summary, as with hours. The business information the editor reads
+ * once the profile lands stays in the browser: `StreamedTab` waits for every
+ * entry, and that multi-call Google read must not hold back the profile.
  */
 export function profileTabPrefetch(
   locationId: string
@@ -707,10 +686,6 @@ export function profileTabPrefetch(
     const loadProfile = () => (profile ??= readProfile(session, locationId))
     return [
       { queryKey: queryKeys.locationProfile(locationId), load: loadProfile },
-      {
-        queryKey: queryKeys.locationBusinessInformation(locationId),
-        load: () => readBusinessInformation(session, locationId),
-      },
       summaryAfter(
         session,
         locationId,
