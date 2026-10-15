@@ -188,7 +188,7 @@ describe("ReviewChangesSheet", () => {
   })
 })
 
-describe("action link approval diff", () => {
+describe("booking link approval diff", () => {
   it("renders the untouched link and type of a make-preferred change as unchanged", () => {
     const link = {
       name: "locations/fixture/placeActionLinks/2",
@@ -248,9 +248,9 @@ describe("action link approval diff", () => {
     } as unknown as ReturnType<typeof usePlaceActionReview>
     render(<PlaceActionApprovalSheet workflow={workflow} disabled={false} />)
     const dialog = within(
-      screen.getByRole("dialog", { name: "Saved action link outcome" })
+      screen.getByRole("dialog", { name: "Saved booking link outcome" })
     )
-    for (const field of ["Link", "Action type"]) {
+    for (const field of ["Link", "Type"]) {
       const row = dialog.getByRole("rowheader", { name: field }).closest("tr")!
       expect(row).toHaveAttribute("data-state", "unchanged")
       expect(within(row).getByText("No change")).toBeInTheDocument()
@@ -326,7 +326,7 @@ const afterCell = (field: string) =>
   screen.getByRole("rowheader", { name: field }).closest("tr")!
     .querySelectorAll("td")[1]
 
-describe("action link removal and drift", () => {
+describe("booking link removal and drift", () => {
   it("proposes the removal while reviewing", () => {
     render(
       <PlaceActionApprovalSheet
@@ -352,11 +352,11 @@ describe("action link removal and drift", () => {
     )
     expect(headers()[2]).toMatch(/^Now on Google \(confirmed/)
     expect(afterCell("Link")).toHaveTextContent("Removed")
-    expect(afterCell("Action type")).toHaveTextContent("Not listed")
+    expect(afterCell("Type")).toHaveTextContent("Not listed")
     expect(afterCell("Preferred")).toHaveTextContent("—")
     expect(screen.queryByText("Remove this link")).not.toBeInTheDocument()
     expect(
-      screen.getByRole("dialog", { name: "Saved action link outcome" })
+      screen.getByRole("dialog", { name: "Saved booking link outcome" })
     ).toBeInTheDocument()
     expect(screen.queryByText(/fresh preview/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Approval expired/)).not.toBeInTheDocument()

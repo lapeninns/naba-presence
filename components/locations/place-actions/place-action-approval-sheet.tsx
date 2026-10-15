@@ -2,49 +2,28 @@
 
 import { useState } from "react"
 
-import {
-  ChangeDiff,
-  ReviewTime,
-  outcomePhase,
-} from "@/components/editors/change-diff"
+import { ChangeDiff, outcomePhase } from "@/components/editors/change-diff"
 import { SupportDetails } from "@/components/editors/support-details"
-import { useVerificationExpiry } from "@/components/locations/administration/use-verification-expiry"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  ConsentSlot,
+  Expiry,
+  OutcomeSummary,
+  ReviewedWriteSheet,
+  reviewedWriteStage,
+} from "@/components/reviewed-write"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { placeActionBaselineSchema } from "@/lib/contracts/place-action-observation"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
+import { useDeadline, useDeadlineWithin } from "@/lib/editors/use-deadline"
 
 import type { usePlaceActionReview } from "./use-place-action-review"
 
 type SheetAction = "approve" | "send" | "read" | "refresh"
 type Workflow = ReturnType<typeof usePlaceActionReview>
-type Outcome = NonNullable<Workflow["outcome"]>
-
-function executionWords(state: Outcome["executionState"]): string {
-  if (state === "accepted") return "Accepted by Google"
-  if (state === "rejected") return "Rejected by Google"
-  if (state === "pending") return "Request still in progress"
-  return "Google acknowledgement unknown"
-}
-
-function confirmationWords(state: Outcome["confirmationState"]): string {
-  if (state === "confirmed") return "Independently confirmed"
-  if (state === "unrecorded") return "No independent confirmation recorded"
-  if (state === "pending") return "Independent observation pending"
-  return "Independent confirmation unresolved"
-}
 
 /**
- * The review → approve → consent → send sheet for one action link change.
+ * The review → approve → consent → send sheet for one booking link change.
  * Approval saves the exact request; sending is a separate, consented action.
  * An expired or stale review cannot send, and a recorded outcome is only
  * ever read back from here, never sent again.
@@ -57,9 +36,10 @@ export function PlaceActionApprovalSheet({
   readonly disabled: boolean
 }) {
   const review = workflow.review
-  const expired = useVerificationExpiry(
-    review?.changeSet.expiresAt ?? "1970-01-01T00:00:00Z"
-  )
+  const expiresAt = review?.changeSet.expiresAt ?? "1970-01-01T00:00:00Z"
+  const expired = useDeadline(expiresAt)
+  // The deadline is only worth a line once it is close: within the hour.
+  const expiresSoon = useDeadlineWithin(expiresAt, 60 * 60_000)
   // Consent and the running action reset whenever the sheet, the review,
   // its approval, the workflow revision or the gate changes.
   const token = `${workflow.open}:${review?.changeSet.id}:${review?.changeSet.approvedBy}:${workflow.revision}:${disabled}`
@@ -98,8 +78,8 @@ export function PlaceActionApprovalSheet({
       after: after?.uri ?? (removed ? "Removed" : "Remove this link"),
     },
     {
-      field: "Action type",
-      before: before ? actionTypeLabel(before.placeActionType) : "No action",
+      field: "Type",
+      before: before ? actionTypeLabel(before.placeActionType) : "No link",
       after: after
         ? actionTypeLabel(after.placeActionType)
         : removed
@@ -136,120 +116,24 @@ export function PlaceActionApprovalSheet({
     outcome.confirmationState !== "confirmed"
 
   return (
-    <Sheet open={workflow.open} onOpenChange={workflow.setOpen}>
-      <SheetContent side="right" size="wide" className="flex flex-col gap-0">
-        <SheetHeader>
-          <SheetTitle>
-            {recorded
-              ? "Saved action link outcome"
-              : "Review action link change"}
-          </SheetTitle>
-          <SheetDescription>
-            {recorded
-              ? `Recorded request for the exact action link change to ${review.changeSet.locationName}. Nothing is sent again from here.`
-              : `Exact action link change for ${review.changeSet.locationName}. Approval saves the request; sending is a separate action.`}
-          </SheetDescription>
-        </SheetHeader>
-        <SheetBody>
-          <ChangeDiff
-            rows={rows}
-            caption={`Reviewed action link change for ${review.changeSet.locationName}`}
-            phase={phase}
-            confirmedAt={outcome?.observedAt}
-          />
-          {/* Google's resource names are for support, not for deciding. */}
-          <SupportDetails
-            items={[
-              `Google target: ${review.target}`,
-              request.operation !== "create"
-                ? `Action link: ${request.name}`
-                : null,
-            ]}
-          />
-          {recorded || sending ? null : (
-            <>
-              <p className="text-caption text-ink-muted tabular-nums">
-                {expired ? "Approval expired" : "Approval expires"}:{" "}
-                <ReviewTime value={review.changeSet.expiresAt} />
-              </p>
-              {expired || workflow.stale ? (
-                <p role="status" className="text-body text-ink">
-                  This review needs a fresh preview before sending.
-                </p>
-              ) : null}
-              {review.changeSet.requiresSecondApprover &&
-              !review.changeSet.approvedBy ? (
-                <p className="text-body text-ink">
-                  A different current owner or administrator must approve this
-                  exact change.
-                </p>
-              ) : null}
-            </>
-          )}
-          {reading && !recorded ? (
-            <p role="status" className="text-ui text-ink-muted">
-              Checking for a saved outcome…
-            </p>
-          ) : null}
-          {sending ? (
-            <p role="status" className="text-ui text-ink-muted">
-              Sending to Google. The outcome appears here when the response
-              arrives.
-            </p>
-          ) : null}
-          {workflow.uncertain && !workflow.busy ? (
-            <p role="status" className="text-body text-ink">
-              The send response is unavailable. Read the saved outcome before
-              another write.
-            </p>
-          ) : null}
-          {outcome ? (
-            <section
-              aria-label="Action link request outcome"
-              className="flex flex-col gap-1.5"
-            >
-              <p
-                aria-hidden
-                className="text-caption font-medium text-ink-muted"
-              >
-                Outcome
-              </p>
-              <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
-                <li className="py-2.5 text-body text-ink">
-                  {executionWords(outcome.executionState)}
-                </li>
-                <li className="py-2.5 text-body text-ink">
-                  {confirmationWords(outcome.confirmationState)}
-                </li>
-                <li className="py-2.5 text-caption text-ink-muted">
-                  Observation:{" "}
-                  {outcome.observedAt ? (
-                    <ReviewTime value={outcome.observedAt} />
-                  ) : (
-                    "No dated observation recorded."
-                  )}
-                </li>
-              </ul>
-            </section>
-          ) : null}
-          {workflow.error ? (
-            <p role="alert" className="text-ui text-danger-ink">
-              {workflow.error}
-            </p>
-          ) : null}
-          {review.changeSet.approvedBy && !outcome && !workflow.uncertain ? (
-            // The consent is its own step, set apart from the review above.
-            <div className="border-t border-line-subtle pt-3">
-              <Checkbox
-                checked={consent}
-                onCheckedChange={(checked) => setConsent(checked === true)}
-                disabled={blocked}
-                label="Send this exact approved action link change to Google."
-              />
-            </div>
-          ) : null}
-        </SheetBody>
-        <SheetFooter className="sm:items-center">
+    <ReviewedWriteSheet
+      open={workflow.open}
+      onOpenChange={workflow.setOpen}
+      title={
+        recorded ? "Saved booking link outcome" : "Review booking link change"
+      }
+      description={
+        recorded
+          ? `Recorded request for the exact booking link change to ${review.changeSet.locationName}. Nothing is sent again from here.`
+          : `Exact booking link change for ${review.changeSet.locationName}. Approval saves the request; sending is a separate action.`
+      }
+      stage={reviewedWriteStage({
+        approved: Boolean(review.changeSet.approvedBy),
+        recorded,
+      })}
+      secondApprover={review.changeSet.requiresSecondApprover}
+      footer={
+        <>
           <Button
             variant="ghost"
             className="sm:mr-auto"
@@ -267,7 +151,7 @@ export function PlaceActionApprovalSheet({
                 pendingLabel="Reading saved outcome…"
                 onClick={act("read", () => workflow.check())}
               >
-                Read saved action link outcome
+                Read saved booking link outcome
               </Button>
               {canRefresh ? (
                 <Button
@@ -277,7 +161,7 @@ export function PlaceActionApprovalSheet({
                   pendingLabel="Refreshing observation…"
                   onClick={act("refresh", () => workflow.check(true))}
                 >
-                  Refresh action link observation
+                  Refresh booking link observation
                 </Button>
               ) : null}
             </>
@@ -288,7 +172,7 @@ export function PlaceActionApprovalSheet({
               pendingLabel="Sending…"
               onClick={act("send", workflow.send)}
             >
-              Send approved action link change
+              Send approved booking link change
             </Button>
           ) : (
             <Button
@@ -296,11 +180,94 @@ export function PlaceActionApprovalSheet({
               pending={workflow.busy && action === "approve"}
               onClick={act("approve", workflow.approve)}
             >
-              Approve action link change
+              Approve booking link change
             </Button>
           )}
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </>
+      }
+    >
+      <div className="flex min-w-0 flex-col gap-4">
+        <ChangeDiff
+          rows={rows}
+          caption={`Reviewed booking link change for ${review.changeSet.locationName}`}
+          phase={phase}
+          confirmedAt={outcome?.observedAt}
+        />
+        {/* Google's resource names are for support, not for deciding. */}
+        <SupportDetails
+          items={[
+            `Google target: ${review.target}`,
+            request.operation !== "create"
+              ? `Booking link: ${request.name}`
+              : null,
+          ]}
+        />
+        {recorded || sending ? null : (
+          <div className="flex min-w-0 flex-col gap-2">
+            {expired || expiresSoon ? (
+              <Expiry
+                expiresAt={expiresAt}
+                approved={Boolean(review.changeSet.approvedBy)}
+                clockExpired={expired}
+              />
+            ) : null}
+            {expired || workflow.stale ? (
+              <Alert variant="warning">
+                <AlertDescription>
+                  This review needs a fresh preview before sending.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {review.changeSet.requiresSecondApprover &&
+            !review.changeSet.approvedBy ? (
+              <p className="text-ui text-ink-muted">
+                A different current owner or administrator must approve this
+                exact change.
+              </p>
+            ) : null}
+          </div>
+        )}
+        {reading && !recorded ? (
+          <p role="status" className="text-ui text-ink-muted">
+            Checking for a saved outcome…
+          </p>
+        ) : null}
+        {sending ? (
+          <p role="status" className="text-ui text-ink-muted">
+            Sending to Google. The outcome appears here when the response
+            arrives.
+          </p>
+        ) : null}
+        {workflow.uncertain && !workflow.busy ? (
+          <Alert variant="warning">
+            <AlertDescription>
+              The send response is unavailable. Read the saved outcome before
+              another write.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {outcome ? (
+          <OutcomeSummary
+            aria-label="Booking link request outcome"
+            execution={outcome.executionState}
+            confirmation={outcome.confirmationState}
+            observedAt={outcome.observedAt}
+          />
+        ) : null}
+        {workflow.error ? (
+          <p role="alert" className="text-ui text-danger-ink">
+            {workflow.error}
+          </p>
+        ) : null}
+        {review.changeSet.approvedBy && !outcome && !workflow.uncertain ? (
+          <ConsentSlot
+            label="Send this exact approved booking link change to Google."
+            checked={consent}
+            onCheckedChange={setConsent}
+            disabled={blocked}
+          />
+        ) : null}
+      </div>
+    </ReviewedWriteSheet>
   )
 }

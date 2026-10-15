@@ -30,6 +30,7 @@ import { SavedPlaceActionWork } from "@/components/locations/place-actions/saved
 import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -102,7 +103,7 @@ export function BookingTab({ locationId }: { locationId: string }) {
     <div id="section-action-links" className="flex min-w-0 flex-col gap-6">
       <LocationTab
         locationId={locationId}
-        loadingLabel="action links"
+        loadingLabel="booking links"
         useResource={usePlaceActions}
         resource="booking"
       >
@@ -234,7 +235,7 @@ function BookingLinks({
           title={
             unsupported
               ? "Manage these action types in Google"
-              : "Google doesn’t offer action links for this listing"
+              : "Google doesn’t offer booking links for this listing"
           }
           description={
             unsupported
@@ -249,7 +250,7 @@ function BookingLinks({
                 rel="noopener noreferrer"
                 className={cn(buttonVariants({ variant: "secondary" }))}
               >
-                Manage action links in Google
+                Manage booking links in Google
               </a>
             ) : (
               <Link
@@ -287,10 +288,10 @@ function BookingLinks({
     <div className="@container/booking flex flex-col gap-6">
       {workflow.unresolved ? (
         <Alert variant="info">
-          <AlertTitle>Action link changes are paused</AlertTitle>
+          <AlertTitle>Booking link changes are paused</AlertTitle>
           <AlertDescription>
             Read the saved outcome and refresh its observation before another
-            action link change.
+            booking link change.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -314,7 +315,7 @@ function BookingLinks({
           </Alert>
         ) : (
           <Alert variant="info">
-            <AlertTitle>The last action link outcome needs a check</AlertTitle>
+            <AlertTitle>The last booking link outcome needs a check</AlertTitle>
             <AlertDescription>
               The last change ({latest.operation.toLowerCase()}) has no
               confirmed outcome. Read its saved request before another change.
@@ -331,8 +332,8 @@ function BookingLinks({
               framed
               icon={<Link2 />}
               titleAs="h2"
-              title="No action links yet"
-              description="Prepare a supported action link below. Review, approval and sending are separate steps; Google decides its public appearance."
+              title="No booking links yet"
+              description="Add a booking link below. Google decides how it appears publicly."
             />
           ) : (
             groupTypes.map((type) => {
@@ -450,7 +451,7 @@ function BookingLinks({
           setDeleteTarget(null)
           setConfirmFailure(null)
         }}
-        title="Review removing this action link?"
+        title="Review removing this booking link?"
         description={
           deleteTarget
             ? `Customers stop seeing it on the ${actionTypeLabel(deleteTarget.placeActionType)} button once Google accepts the change.`
@@ -609,7 +610,7 @@ function GoogleManagedLinks({
       card
       caption={
         <>
-          Google lists {links.length === 1 ? "an action link" : "action links"}{" "}
+          Google lists {links.length === 1 ? "a booking link" : "booking links"}{" "}
           of a type this editor can’t change yet. They stay in place and are
           part of every review’s Google baseline.
         </>
@@ -753,13 +754,15 @@ function AddLinkForm({
   const uriRef = useRef<HTMLInputElement>(null)
   // A typed link survives a refetch, asks before the page is left, and is
   // offered back after a forced sign-out or an unmount.
+  // A table reservation is the button most listings here want first.
+  const defaultType: PlaceActionType = state.supportedTypes.includes(
+    "DINING_RESERVATION"
+  )
+    ? "DINING_RESERVATION"
+    : ((state.supportedTypes[0] as PlaceActionType) ?? "DINING_RESERVATION")
   const editor = useEditorDraft<NewLink>({
     initial: {
-      // A table reservation is the button most listings here want first.
-      type: state.supportedTypes.includes("DINING_RESERVATION")
-        ? "DINING_RESERVATION"
-        : ((state.supportedTypes[0] as PlaceActionType) ??
-          "DINING_RESERVATION"),
+      type: defaultType,
       uri: "",
       preferred: false,
     },
@@ -772,7 +775,11 @@ function AddLinkForm({
     parseStashed: parseNewLink,
     isEqual: sameNewLink,
   })
-  const { type, uri, preferred } = editor.draft
+  const { uri, preferred } = editor.draft
+  // A draft offered back may carry a type Google no longer supports here.
+  const type = state.supportedTypes.includes(editor.draft.type)
+    ? editor.draft.type
+    : defaultType
   const setType = (next: PlaceActionType) =>
     editor.setDraft((current) => ({ ...current, type: next }))
   const setUri = (next: string) =>
@@ -822,32 +829,26 @@ function AddLinkForm({
       className="flex min-w-0 flex-col"
     >
       <SettingsGroup
-        label="Add an action link"
+        label="Add a booking link"
         headingId={headingId}
-        caption="Prepare a review first. Approval saves the exact request; sending to Google is a separate action."
+        caption="Review comes first. Nothing reaches Google until you approve and send it."
         bodyAs="div"
         card
         className="mt-0"
-        footer={
-          <Button
-            type="submit"
-            variant="secondary"
-            disabled={disabled}
-            pending={workflow.busy}
-            pendingLabel="Preparing review…"
-          >
-            Review action link
-          </Button>
-        }
       >
-        <DraftNotices drafts={[editor]} noun="this action link" />
-        {/* The type is a short choice list: a row that opens it. */}
-        <SettingsRow
-          label="Type"
-          value={actionTypeLabel(type)}
-          disabled={disabled}
-          onClick={() => setTypeOpen(true)}
-        />
+        <DraftNotices drafts={[editor]} noun="this booking link" />
+        {/* The type is a short choice list: a row that opens it, or plain
+            text when Google supports only one. */}
+        {state.supportedTypes.length > 1 ? (
+          <SettingsRow
+            label="Type"
+            value={actionTypeLabel(type)}
+            disabled={disabled}
+            onClick={() => setTypeOpen(true)}
+          />
+        ) : (
+          <SettingsRow label="Type" value={actionTypeLabel(type)} />
+        )}
         <div className={cardBlockClassName}>
           <Field error={error ?? undefined}>
             <FieldLabel htmlFor={uriId}>Link</FieldLabel>
@@ -881,6 +882,28 @@ function AddLinkForm({
           />
         </div>
       </SettingsGroup>
+      {/* The action appears once there is a link to review, docked on a
+          phone so the thumb reaches it. */}
+      <ActionBar
+        dock
+        sticky={false}
+        safeArea={false}
+        label="Booking link actions"
+        // Kept on screen while the review is being prepared (its button then
+        // reads "Preparing review…"): unmounting the focused button dropped
+        // focus to the page, and a failed review left it there.
+        visible={uri.trim() !== "" && (!disabled || workflow.busy)}
+        status="Ready to review. Nothing is sent to Google yet."
+        actions={
+          <Button
+            type="submit"
+            pending={workflow.busy}
+            pendingLabel="Preparing review…"
+          >
+            Review booking link
+          </Button>
+        }
+      />
       <Sheet open={typeOpen} onOpenChange={setTypeOpen}>
         <SheetContent variant="inset">
           <SheetHeader>
@@ -1038,7 +1061,7 @@ function EditLinkDialog({
               pendingLabel="Preparing review…"
               disabled={disabled || !link || uri.trim() === link.uri}
             >
-              Review action link change
+              Review booking link change
             </Button>
           </DialogFooter>
         </form>
