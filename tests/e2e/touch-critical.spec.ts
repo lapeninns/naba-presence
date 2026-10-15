@@ -524,8 +524,9 @@ test.describe("touch: critical journeys at 390x844", () => {
     await page.goto("/design-system")
     const demo = page.locator("#ux-p10-row-actions")
     const log = demo.getByTestId("ux-p10-log")
+    // A row's name is its title followed by its preview line.
     const hit = (name: string) =>
-      demo.getByRole("button", { name, exact: true })
+      demo.getByRole("button", { name: new RegExp(`^${name}\\b`) })
     const amelia = hit("Amelia Hart")
     await amelia.scrollIntoViewIfNeeded()
     await settle(page, amelia)
