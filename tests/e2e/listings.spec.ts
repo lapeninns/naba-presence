@@ -74,12 +74,14 @@ test.describe("listings", () => {
         level: 1,
       })
     ).toBeVisible()
-    // The health strip and one card per area, each with its own way in.
-    const health = page.getByRole("region", { name: "Health" })
-    await expect(health.getByText("Google connection")).toBeVisible()
-    await expect(
-      health.getByText("Verification", { exact: true })
-    ).toBeVisible()
+    // Two rows under the areas (verification and sync are each area card's
+    // own status), and one card per area, each with its own way in.
+    const google = page.getByRole("region", { name: "Google", exact: true })
+    await expect(google.getByText("Google connection")).toBeVisible()
+    await expect(google.getByText("Last published")).toBeVisible()
+    await expect(google.getByText("Verification", { exact: true })).toHaveCount(
+      0
+    )
     const areas = page.getByRole("region", { name: "Areas" })
     for (const area of [
       "Business profile",

@@ -7,7 +7,8 @@ import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /**
- * The listings page's "Add listings from Google" header action.
+ * The "Add listings from Google" action, at the end of the listings board
+ * (owners and admins only; the board decides who sees it).
  *
  * A client module on purpose. Next merges a parent route's client reference
  * manifest into every child route's (`/listings` into `/listings/[id]/*` and
@@ -17,8 +18,7 @@ import { cn } from "@/lib/utils"
  * each listing page downloaded the listings board. Wrapping them here keeps
  * the page's only client references to modules no child route renders.
  *
- * Prefetched on intent only: /setup is a heavy page, and this action sits
- * in view on every visit to the board.
+ * Prefetched on intent only: /setup is a heavy page.
  */
 export function AddListingsLink() {
   return (

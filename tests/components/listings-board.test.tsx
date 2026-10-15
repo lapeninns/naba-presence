@@ -134,6 +134,15 @@ const entries: locationsHook.DirectoryEntry[] = [
   },
 ]
 
+/** Opens the order chip's menu and picks an order. */
+async function chooseOrder(
+  user: ReturnType<typeof userEvent.setup>,
+  name: "Worst first" | "By client"
+) {
+  await user.click(screen.getByRole("button", { name: /^Order listings:/ }))
+  await user.click(await screen.findByRole("menuitemradio", { name }))
+}
+
 describe("ListingsBoard", () => {
   it("puts unfiled listings first and offers to file them", () => {
     stub({
@@ -245,7 +254,7 @@ describe("ListingsBoard", () => {
     // Harbour View needs attention; Pier Cafe is unverified; Old Crown is fine.
     expect(names()).toEqual(["Harbour View", "Pier Cafe", "Old Crown Girton"])
 
-    await userEvent.click(screen.getByRole("button", { name: "By client" }))
+    await chooseOrder(userEvent.setup(), "By client")
     expect(names()).toEqual(["Pier Cafe", "Harbour View", "Old Crown Girton"])
     expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
   })
@@ -344,7 +353,7 @@ describe("ListingsBoard", () => {
       screen.getByRole("searchbox", { name: "Search listings" }),
       "crown"
     )
-    await user.click(screen.getByRole("button", { name: "By client" }))
+    await chooseOrder(user, "By client")
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace).toHaveBeenLastCalledWith("/listings?q=crown&order=client")
     vi.advanceTimersByTime(1_000)
@@ -359,28 +368,88 @@ describe("ListingsBoard", () => {
     const user = userEvent.setup()
     render(<ListingsBoard role="owner" />)
     expect(screen.queryByRole("tab")).not.toBeInTheDocument()
-    const order = screen.getByRole("group", { name: "Order listings" })
-    const worst = within(order).getByRole("button", { name: "Worst first" })
-    expect(worst).toHaveAttribute("aria-pressed", "true")
-    worst.focus()
-    await user.keyboard("{ArrowRight}")
+    // The order is one chip in the health strip, not a row of its own.
     expect(
-      within(order).getByRole("button", { name: "By client" })
-    ).toHaveFocus()
+      screen.queryByRole("group", { name: "Order listings" })
+    ).not.toBeInTheDocument()
+    const order = screen.getByRole("button", {
+      name: "Order listings: Worst first",
+    })
+    expect(order).not.toHaveAttribute("aria-pressed")
+    expect(order.closest('[data-slot="filter-chip-strip"]')).toBe(
+      screen
+        .getByRole("group", { name: "Filter by health" })
+        .closest('[data-slot="filter-chip-strip"]')
+    )
+    await user.click(order)
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Worst first" })
+    ).toBeChecked()
     expect(replace).not.toHaveBeenCalled()
-    await user.keyboard("{Enter}")
+    await user.click(screen.getByRole("menuitemradio", { name: "By client" }))
     expect(replace).toHaveBeenLastCalledWith("/listings?order=client")
+    expect(
+      screen.getByRole("button", { name: "Order listings: By client" })
+    ).toBeInTheDocument()
+  })
+
+  it("draws no health chip with nothing in it, except All and the one chosen", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const { unmount } = render(<ListingsBoard role="owner" />)
     const health = screen.getByRole("group", { name: "Filter by health" })
-    for (const label of [
-      "All",
-      "Needs attention",
-      "To publish",
-      "Not linked",
-      "In sync",
-    ])
+    // No summary says anything is wrong or waiting, and none is a confirmed
+    // "In sync" yet: only Pier Cafe (unverified) lands in a bucket, so the
+    // buckets with nothing in them are not drawn.
+    for (const label of ["All", "Not linked"])
       expect(
         within(health).getByRole("button", { name: new RegExp(`^${label}`) })
       ).toBeInTheDocument()
+    for (const label of ["Needs attention", "To publish", "In sync"])
+      expect(
+        within(health).queryByRole("button", {
+          name: new RegExp(`^${label}`),
+        })
+      ).not.toBeInTheDocument()
+    unmount()
+
+    // A chosen chip stays, so it can be left, even with nothing in it.
+    search = "health=attention"
+    render(<ListingsBoard role="owner" />)
+    const chosen = screen.getByRole("button", { name: "Needs attention, 0" })
+    expect(chosen).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("keeps Add listings from Google at the end of the list, for owners and admins only", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const { unmount } = render(<ListingsBoard role="admin" />)
+    const add = screen.getByRole("link", { name: "Add listings from Google" })
+    expect(add).toHaveAttribute("href", "/setup")
+    expect(
+      screen.getByRole("table").compareDocumentPosition(add) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    unmount()
+    render(<ListingsBoard role="member" />)
+    expect(
+      screen.queryByRole("link", { name: "Add listings from Google" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("announces the count in a live region instead of drawing it", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    const line = screen.getByText(/^3 listings/).closest("p")!
+    expect(line).toHaveAttribute("aria-live", "polite")
+    expect(line).toHaveClass("sr-only")
   })
 
   it("selects every listing shown from the table header's select-all bar, and docks the selection bar", async () => {
