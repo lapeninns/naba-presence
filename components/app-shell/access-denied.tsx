@@ -8,16 +8,12 @@ import * as React from "react"
 
 import { useShellBack } from "@/components/app-shell/breadcrumbs-context"
 import { PageEmptyState, PageFrame } from "@/components/app-shell/page-frame"
-import {
-  CopyTextButton,
-  DetailList,
-  SystemCard,
-} from "@/components/app-shell/system-page"
+import { DetailList, SystemCard } from "@/components/app-shell/system-page"
 import { SupportDetails } from "@/components/editors/support-details"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { toast } from "@/components/ui/toast"
 import { useSession } from "@/lib/queries/use-session"
-import { shareLink } from "@/lib/setup/share-link"
+import { setupShareUrl, shareLink } from "@/lib/setup/share-link"
 import { cn } from "@/lib/utils"
 import { useWorkspaceTerms } from "@/lib/workspace/mode"
 
@@ -33,8 +29,8 @@ import { roleExplanation, ROLE_LABEL } from "./account-menu"
  *
  * The one thing that helps is the primary action: "Ask for access" hands a
  * short request and this page's address to the system share sheet (or copies
- * the address where there is none), so it can reach whoever can grant it
- * without leaving the page to compose anything. The quiet second action goes
+ * the request with the address where there is none), so it can reach whoever
+ * can grant it without leaving the page to compose anything. The quiet second action goes
  * where the app bar's back control goes, not always to the Inbox.
  *
  * Renders NO landmark of its own. Some callers sit inside a layout that
@@ -112,6 +108,19 @@ function accessRequest(area: string, session?: AccessSession) {
   return `Hi, could you give me access to ${area} in NabaPresence? I'm ${session.displayName} (${session.email}), currently a ${roleLabel.toLowerCase()} in ${session.organisationName}.`
 }
 
+/**
+ * The address a colleague opens to see what you couldn't. This page's own
+ * address without its query string or hash: the bar can carry more than the
+ * page (Google's OAuth return params on /setup, for one), and none of that
+ * should leave this browser. /setup keeps only the params that reach the same
+ * review.
+ */
+function accessShareUrl(href: string): string {
+  const url = new URL(href)
+  if (url.pathname === "/setup") return setupShareUrl(href)
+  return `${url.origin}${url.pathname}`
+}
+
 function AccessActionButtons({
   area,
   whoCanHelp,
@@ -128,20 +137,25 @@ function AccessActionButtons({
   const target = back ?? { href: "/inbox", label: "Inbox" }
 
   async function askForAccess() {
+    const url = accessShareUrl(window.location.href)
+    // The share sheet gets the message and the link as separate fields; the
+    // clipboard gets both in one piece, so pasting is the whole request.
     const outcome = await shareLink({
-      url: window.location.href,
+      url,
       title: `Access to ${area}`,
       text: request,
+      copyText: `${request}\n${url}`,
     })
     if (outcome === "copied") {
       toast.add({
-        title: "Link copied",
-        description: `Paste it to ${whoCanHelp} and say what you need. Nothing was sent.`,
+        title: "Request copied",
+        description: `It includes the link to this page. Paste it to ${whoCanHelp}. Nothing was sent.`,
         type: "success",
       })
     } else if (outcome === "failed") {
       toast.add({
-        title: "Couldn’t share or copy the link. Copy it from the address bar.",
+        title: "Couldn’t share or copy the request. Copy it manually.",
+        description: `${request} ${url}`,
         type: "error",
       })
     }
@@ -204,7 +218,6 @@ function SignedInAccessCards({
   if (!session) return null
   const roleLabel = ROLE_LABEL[session.role] ?? session.role
   const explanation = roleExplanation(session.role, session.workspaceMode)
-  const request = accessRequest(area, session)
 
   return (
     <div className="mx-auto grid w-full max-w-xl gap-6">
@@ -240,13 +253,7 @@ function SignedInAccessCards({
       <SystemCard
         title="Who can give you access"
         description={`Owners and admins in ${session.organisationName}. They change roles on the Team page.`}
-      >
-        <CopyTextButton
-          text={request}
-          label="Copy an access request"
-          copiedMessage={`Copied. Paste it to ${whoCanHelp}. Nothing was sent.`}
-        />
-      </SystemCard>
+      />
     </div>
   )
 }

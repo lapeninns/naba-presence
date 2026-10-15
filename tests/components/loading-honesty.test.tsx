@@ -92,6 +92,12 @@ describe("QueryPending", () => {
     expect(screen.getAllByRole("status")).toHaveLength(1)
   })
 
+  it("treats a falsy skeleton as none, so something is always drawn", () => {
+    const { container } = render(<QueryPending skeleton={false} />)
+    expect(container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1)
+    expect(container.querySelector('[data-slot="skeleton-list"]')).toBeNull()
+  })
+
   it("draws the skeleton a caller supplies instead of the default rows", () => {
     const { container } = render(
       <QueryPending skeleton={<div data-testid="members-skeleton" />} />

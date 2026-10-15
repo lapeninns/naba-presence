@@ -61,11 +61,13 @@ export function QueryPending({
   label?: string
   /**
    * The placeholder that stands in for the content, at the height it will
-   * have. Defaults to three list rows; `null` draws the spinner instead.
+   * have. Defaults to three list rows; a falsy value (`null`) draws the spinner instead.
    */
   skeleton?: ReactNode
 }) {
-  const hasSkeleton = skeleton !== null && skeleton !== undefined
+  // Any falsy value (`null`, `false`, "") means no rows: it must not count as a
+  // skeleton, or nothing at all would be drawn.
+  const hasSkeleton = Boolean(skeleton)
   return (
     <div
       className={cn("flex flex-col gap-3", className)}

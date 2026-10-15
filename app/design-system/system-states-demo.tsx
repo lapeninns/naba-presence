@@ -3,11 +3,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { QueryPending } from "@/components/ui/query-states"
 
 /**
- * State primitives (UX flows P08): a pending state draws exactly ONE loading
- * indicator, and a system page folds the machine detail (the address they
- * asked for) behind "Details for support" instead of printing it.
+ * System states: a pending state draws exactly ONE loading indicator, and a
+ * system page folds the machine detail (the address they asked for) behind
+ * "Details for support" instead of printing it.
  */
-export function UxP08Demo() {
+export function SystemStatesDemo() {
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <Card className="gap-2.5" aria-busy="true">

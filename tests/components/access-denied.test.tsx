@@ -4,9 +4,9 @@ import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { toastAdd, shellBack } = vi.hoisted(() => ({
+const { toastAdd, pathState } = vi.hoisted(() => ({
   toastAdd: vi.fn(),
-  shellBack: vi.fn(),
+  pathState: { current: "/settings/connections" },
 }))
 
 vi.mock("next/link", () => ({
@@ -17,12 +17,17 @@ vi.mock("next/link", () => ({
   ),
 }))
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/settings/connections",
+  usePathname: () => pathState.current,
+}))
+// The shell's own back target is computed from the path and the lists it
+// already holds; the lists are empty here so no request is made.
+vi.mock("@/lib/queries/use-clients", () => ({
+  useClients: () => ({ data: undefined }),
+}))
+vi.mock("@/lib/queries/use-locations", () => ({
+  useLocationDirectory: () => ({ data: undefined }),
 }))
 vi.mock("@/components/ui/toast", () => ({ toast: { add: toastAdd } }))
-vi.mock("@/components/app-shell/breadcrumbs-context", () => ({
-  useShellBack: shellBack,
-}))
 
 import {
   AccessDenied,
@@ -37,6 +42,12 @@ function setNavigator(value: Partial<Navigator>) {
       configurable: true,
     })
   }
+}
+
+function setLocation(href: string) {
+  const url = new URL(href)
+  pathState.current = url.pathname
+  Object.defineProperty(window, "location", { value: url, configurable: true })
 }
 
 function renderWithSession(area = "Google connections") {
@@ -60,11 +71,7 @@ function renderWithSession(area = "Google connections") {
 }
 
 beforeEach(() => {
-  shellBack.mockReturnValue(null)
-  Object.defineProperty(window, "location", {
-    value: new URL("https://app.example.com/settings/connections"),
-    configurable: true,
-  })
+  setLocation("https://app.example.com/settings/connections")
 })
 
 afterEach(() => {
@@ -74,6 +81,8 @@ afterEach(() => {
   delete navigator.share
   // @ts-expect-error -- deleting an optional browser API
   delete navigator.canShare
+  // @ts-expect-error -- deleting an optional browser API
+  delete navigator.clipboard
 })
 
 describe("AccessDenied", () => {
@@ -136,20 +145,91 @@ describe("AccessDenied", () => {
     expect(toastAdd).not.toHaveBeenCalled()
   })
 
-  it("copies the link and says so when there is no share sheet", async () => {
+  it("copies the request and the link together when there is no share sheet", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     setNavigator({ clipboard: { writeText } as unknown as Clipboard })
-    render(<AccessDenied area="Google connections" />)
+    renderWithSession()
 
     await userEvent.click(
       screen.getByRole("button", { name: "Ask for access" })
     )
 
-    expect(writeText).toHaveBeenCalledWith(
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const copied = writeText.mock.calls[0][0] as string
+    expect(copied).toContain("access to Google connections")
+    expect(copied).toContain("Sam Viewer")
+    expect(copied).toContain("https://app.example.com/settings/connections")
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Request copied", type: "success" })
+    )
+  })
+
+  it("offers one copy path, not a second near-duplicate button", () => {
+    renderWithSession()
+    expect(
+      screen.queryByRole("button", { name: /Copy an access request/ })
+    ).toBeNull()
+    expect(screen.getAllByRole("button")).toHaveLength(1)
+  })
+
+  it("puts the request and link in the toast when neither share nor copy works", async () => {
+    // No share sheet and no clipboard: the person gets the text to copy by hand.
+    setNavigator({
+      clipboard: {
+        writeText: vi.fn().mockRejectedValue(new Error("denied")),
+      } as unknown as Clipboard,
+    })
+    renderWithSession()
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ask for access" })
+    )
+
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "error",
+        description: expect.stringContaining(
+          "https://app.example.com/settings/connections"
+        ),
+      })
+    )
+    const { description, title } = toastAdd.mock.calls[0][0]
+    expect(description).toContain("access to Google connections")
+    expect(title).not.toMatch(/address bar/)
+  })
+
+  it("never shares the query string or hash of the address bar", async () => {
+    // Google's OAuth return params can sit in the address bar of a page.
+    setLocation(
+      "https://app.example.com/settings/connections?google=connected&status=ok&rid=req-1&reason=denied#token"
+    )
+    const share = vi.fn().mockResolvedValue(undefined)
+    setNavigator({ share })
+    renderWithSession()
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ask for access" })
+    )
+
+    expect(share.mock.calls[0][0].url).toBe(
       "https://app.example.com/settings/connections"
     )
-    expect(toastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Link copied", type: "success" })
+  })
+
+  it("on /setup shares only the params that reach the same review", async () => {
+    setLocation(
+      "https://app.example.com/setup?client=c1&step=team&google=connected&status=ok&rid=req-1&reason=denied"
+    )
+    const share = vi.fn().mockResolvedValue(undefined)
+    setNavigator({ share })
+    renderWithSession("Client setup")
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ask for access" })
+    )
+
+    expect(share.mock.calls[0][0].url).toBe(
+      "https://app.example.com/setup?client=c1&step=team"
     )
   })
 
@@ -170,22 +250,16 @@ describe("AccessDenied", () => {
     expect(toastAdd).not.toHaveBeenCalled()
   })
 
-  it("goes back to the shell's back target, not always the Inbox", () => {
-    shellBack.mockReturnValue({ href: "/settings", label: "Settings" })
+  it.each([
+    ["/settings/connections", "Back to Settings", "/settings"],
+    ["/clients/new", "Back to Clients", "/clients"],
+    // A top-level page has no parent, so the way back is the Inbox.
+    ["/team", "Back to Inbox", "/inbox"],
+  ])("on %s goes back as the shell's back control does", (path, name, href) => {
+    setLocation(`https://app.example.com${path}`)
     renderWithSession()
-    expect(
-      screen.getByRole("link", { name: "Back to Settings" })
-    ).toHaveAttribute("href", "/settings")
-    expect(screen.queryByRole("link", { name: "Back to Inbox" })).toBeNull()
-  })
-
-  it("falls back to the Inbox only when the shell has no parent to offer", () => {
-    shellBack.mockReturnValue(null)
-    renderWithSession()
-    expect(screen.getByRole("link", { name: "Back to Inbox" })).toHaveAttribute(
-      "href",
-      "/inbox"
-    )
+    expect(screen.getByRole("link", { name })).toHaveAttribute("href", href)
+    expect(screen.getAllByRole("link", { name: /^Back to / })).toHaveLength(1)
   })
 
   it("keeps the address behind Details for support, closed", () => {

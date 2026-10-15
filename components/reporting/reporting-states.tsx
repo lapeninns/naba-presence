@@ -56,7 +56,7 @@ const ICONS: Record<
 /**
  * One report's non-figure states (reference `loadingPanel`, `errorPanel`,
  * `emptyPanel`), drawn with the shared state primitives: loading is
- * `QueryPending` (a named spinner over the rows that will arrive), an error
+ * `QueryPending` (a named status over the rows that will arrive), an error
  * is `QueryError` (the `Empty` error state, announced, with a retry), and
  * the rest are `Empty`, drawn on a bordered card when `framed` (a panel
  * standing on the page) and bare inside a card that already has an edge.

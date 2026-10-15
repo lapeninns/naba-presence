@@ -27,8 +27,8 @@ import { NmListDemo } from "@/app/design-system/nm-list-demo"
 import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
+import { SystemStatesDemo } from "@/app/design-system/system-states-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
-import { UxP08Demo } from "@/app/design-system/ux-p08-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -1356,7 +1356,7 @@ export default function Page() {
                   />
                 </Card>
               </div>
-              <UxP08Demo />
+              <SystemStatesDemo />
             </Specimen>
           </div>
 
