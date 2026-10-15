@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HoursTab } from "@/components/locations/hours-tab"
+import { SERVICE_OPTIONS_WARNING } from "@/lib/editors/hours-notes"
 import * as hoursApi from "@/lib/api/location-hours"
 import { Toaster } from "@/components/ui/toast"
 import { emptyHours } from "@/lib/locations/forms/hours"
@@ -82,7 +83,7 @@ describe("HoursTab", () => {
         reconciliationRequired: true,
         warnings: [
           "Some saved periods have no confirmed closing day or date. Compare them with Google and explicitly save their end boundaries before publishing.",
-          "Google service-type metadata could not be loaded. Existing services are preserved; adding services is unavailable until the lookup succeeds.",
+          SERVICE_OPTIONS_WARNING,
         ],
       }),
       isPending: false,
@@ -100,20 +101,76 @@ describe("HoursTab", () => {
     const notices = Array.from(
       container.querySelectorAll<HTMLElement>('[data-slot="alert"]')
     )
-    expect(notices).toHaveLength(1)
+    // The weekly notice, and the service-options note in the service group.
+    expect(notices).toHaveLength(2)
     const notice = notices[0]!
     expect(["alert", "status"]).toContain(notice.getAttribute("role"))
-    // Google is empty, the boundaries need confirming, and the metadata
-    // lookup failed: three notes, one panel. The server's boundary warning
-    // repeats the "Confirm saved closing days" note, so it is not listed.
-    expect(notice).toHaveTextContent("3 things to know about these hours")
-    expect(within(notice).getAllByRole("listitem")).toHaveLength(3)
+    // Google is empty and the boundaries need confirming: two notes, one
+    // panel. The server's boundary warning repeats the "Confirm saved closing
+    // days" note, so it is not listed. The service-options note belongs to the
+    // service hours, not to the weekly schedule above them.
+    expect(notice).toHaveTextContent("2 things to know about these hours")
+    expect(within(notice).getAllByRole("listitem")).toHaveLength(2)
     expect(notice).not.toHaveTextContent("no confirmed closing day")
+    expect(notice).not.toHaveTextContent("service options")
+    expect(notice).toHaveTextContent("No hours on Google")
+    expect(
+      screen.getByText(SERVICE_OPTIONS_WARNING).closest('[data-slot="alert"]')
+    ).not.toBe(notice)
     expect(
       within(notice).getByRole("button", {
         name: "Match Google closing boundaries",
       })
     ).toBeEnabled()
+  })
+
+  it("names the time zone in words when it is not the viewer's own", () => {
+    useHoursMock.mockReturnValue({
+      data: makeHours({
+        location: {
+          id: "loc-1",
+          name: "Riverside",
+          googleLocationName: "locations/1",
+          timezone: "Pacific/Auckland",
+        },
+      }),
+      isPending: false,
+    })
+    renderTab()
+    expect(screen.getByText(/Times are in/)).toHaveTextContent(
+      "Times are in New Zealand time."
+    )
+    expect(screen.queryByText(/Pacific\/Auckland/)).not.toBeInTheDocument()
+  })
+
+  it("says nothing about the zone when it is the viewer's own", () => {
+    useHoursMock.mockReturnValue({
+      data: makeHours({
+        location: {
+          id: "loc-1",
+          name: "Riverside",
+          googleLocationName: "locations/1",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+      }),
+      isPending: false,
+    })
+    renderTab()
+    expect(screen.queryByText(/Times are in/)).not.toBeInTheDocument()
+  })
+
+  it("names every Copy to… control with its visible text", () => {
+    useHoursMock.mockReturnValue({ data: makeHours(), isPending: false })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    const copy = screen.getAllByRole("button", { name: /^Copy to…/ })
+    expect(copy.length).toBeGreaterThan(0)
+    for (const button of copy)
+      expect(button.getAttribute("aria-label")).toContain(
+        button.textContent?.trim() ?? ""
+      )
   })
 
   it("says when Google was last checked and checks it again on request", async () => {

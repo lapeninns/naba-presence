@@ -75,6 +75,7 @@ function EditorFooter({
   disabledReason,
   className,
   changeCount,
+  emptyOnGoogle,
   onSave,
   saving = false,
   saveDisabledReason,
@@ -95,6 +96,8 @@ function EditorFooter({
   className?: string
   /** How many fields differ from Google; words the status line. */
   changeCount?: number
+  /** The header pill's words when nothing differs and Google holds nothing. */
+  emptyOnGoogle?: string
   /**
    * Save NabaPresence's own copy without publishing. Omit for resources
    * that have no copy of their own (the button is then not drawn).
@@ -139,6 +142,7 @@ function EditorFooter({
           localEdits,
           savesHere: Boolean(onSave),
           changeCount,
+          emptyOnGoogle,
         }
   )
 

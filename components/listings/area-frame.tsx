@@ -657,7 +657,9 @@ function AreaFrameBody({
   // reached for this listing the summary's "Unknown" speaks instead.
   const reported = editorStatusPill(editor)
   const editorPill =
-    reported && reported.tone === "healthy" && googleUnreachable(summary.data)
+    reported &&
+    (reported.tone === "healthy" || editor?.emptyOnGoogle === reported.label) &&
+    googleUnreachable(summary.data)
       ? null
       : reported
 

@@ -1,5 +1,6 @@
 import type { NormalizedHours } from "@/lib/contracts/location-hours"
 import { hoursPartKey } from "@/lib/domain/hours-vocabulary"
+import { formatTimeOfDay } from "@/lib/format"
 import { DAY_LABELS } from "@/lib/locations/forms/hours"
 
 export type HoursChangeRow = {
@@ -25,10 +26,7 @@ export function describeDay(day: NormalizedHours["regular"][number]): string {
 
 export function clockTime(value: string): string {
   if (value === "24:00") return "midnight (end of day)"
-  const [rawHour, minute] = value.split(":")
-  const hour = Number(rawHour)
-  if (!Number.isInteger(hour)) return value
-  return `${hour % 12 === 0 ? 12 : hour % 12}:${minute} ${hour < 12 ? "am" : "pm"}`
+  return formatTimeOfDay(value)
 }
 
 export function describeSpecialEntry(

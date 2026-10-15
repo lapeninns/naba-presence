@@ -3,6 +3,7 @@
 import { CalendarPlus, CircleAlert, Copy, Plus, Trash2, X } from "lucide-react"
 import { useId, useImperativeHandle, useRef, useState, type Ref } from "react"
 
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -258,6 +259,7 @@ export function HoursEditor({
   serviceId,
   weeklyOnly = false,
   timeZone,
+  serviceNote,
 }: {
   ref?: Ref<HoursEditorHandle>
   value: NormalizedHours
@@ -275,6 +277,8 @@ export function HoursEditor({
   weeklyOnly?: boolean
   /** The listing's IANA zone, for which special days have passed. */
   timeZone?: string
+  /** A plain-words note about the service options, shown with the services. */
+  serviceNote?: string | null
 }) {
   const fieldId = (id: string) =>
     serviceId ? `service-${encodeURIComponent(serviceId)}-${id}` : id
@@ -604,7 +608,7 @@ export function HoursEditor({
                           variant="ghost"
                           size="sm"
                           className="text-ink-secondary"
-                          aria-label={`Copy ${label}’s hours to other days`}
+                          aria-label={`Copy to… (${label}’s hours)`}
                           onClick={() => setCopyFrom(dayOfWeek)}
                         >
                           <Copy aria-hidden />
@@ -628,6 +632,11 @@ export function HoursEditor({
           className="mt-0"
         >
           <div className="flex flex-col gap-4">
+            {serviceNote ? (
+              <Alert variant="info">
+                <AlertDescription>{serviceNote}</AlertDescription>
+              </Alert>
+            ) : null}
             {value.moreHours.length === 0 ? (
               <p className="text-ui text-ink-muted">
                 No service schedules are saved.

@@ -1,7 +1,14 @@
 "use client"
 
 import { Globe } from "lucide-react"
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react"
 
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
@@ -11,6 +18,7 @@ import {
   type EditorStatus,
 } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { formatTimeZoneLabel } from "@/lib/format"
 import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import {
@@ -41,7 +49,11 @@ import {
   markHoursConflicts,
   validateHours,
 } from "@/lib/editors/hours-presentation"
-import { hoursNotes, type HoursNote } from "@/lib/editors/hours-notes"
+import {
+  hoursNotes,
+  serviceNote,
+  type HoursNote,
+} from "@/lib/editors/hours-notes"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
   NOTHING_TO_SEND,
@@ -97,6 +109,17 @@ function leftOutNote(dirty: boolean) {
   return dirty
     ? "Your whole schedule is saved here first. Anything left out stays as Google has it now and waits for a later publish."
     : "Anything left out stays as Google has it now and waits for a later publish."
+}
+
+const subscribeNever = () => () => {}
+
+/** The viewer's own zone; null on the server and during hydration. */
+function useViewerTimeZone(): string | null {
+  return useSyncExternalStore(
+    subscribeNever,
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    () => null
+  )
 }
 
 function isEmptySchedule(hours: HoursState["google"]) {
@@ -406,10 +429,15 @@ function HoursForm({
     noun: "these hours",
     savesHere: true,
   })
-  const notes = hoursNotes(hours, {
-    gated: Boolean(gate),
-    googleEmpty: isEmptySchedule(hours.google),
-  })
+  const googleEmpty = isEmptySchedule(hours.google)
+  // The zone is said only when it is not the viewer's own: "UK time" for a
+  // manager abroad, nothing for someone on the venue's clock.
+  const viewerZone = useViewerTimeZone()
+  const zoneLabel = formatTimeZoneLabel(
+    hours.location.timezone,
+    viewerZone ?? hours.location.timezone
+  )
+  const notes = hoursNotes(hours, { gated: Boolean(gate), googleEmpty })
 
   async function reconcile() {
     setReconciling(true)
@@ -441,6 +469,7 @@ function HoursForm({
           isDirty={isDirty || rows.length > 0}
           canDiscard={isDirty}
           changeCount={rows.length}
+          emptyOnGoogle={googleEmpty ? "No hours on Google" : undefined}
           onReview={review}
           onDiscard={() => setDiscardOpen(true)}
           onSave={() => {
@@ -509,20 +538,19 @@ function HoursForm({
         onNavigate={(fieldId) => editorRef.current?.reveal(fieldId)}
       />
 
-      <p className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
-        <Globe
-          className="size-4 text-ink-muted"
-          strokeWidth={1.75}
-          aria-hidden
-        />
-        <span>
-          Times are in{" "}
-          <strong className="font-semibold text-ink">
-            {hours.location.timezone}
-          </strong>
-          .
-        </span>
-      </p>
+      {zoneLabel ? (
+        <p className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
+          <Globe
+            className="size-4 text-ink-muted"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <span>
+            Times are in{" "}
+            <strong className="font-semibold text-ink">{zoneLabel}</strong>.
+          </span>
+        </p>
+      ) : null}
 
       <GoogleFreshness
         observedAt={hours.observedAt}
@@ -540,6 +568,7 @@ function HoursForm({
         errors={fieldErrors}
         supportedHoursTypes={hours.supportedHoursTypes}
         timeZone={hours.location.timezone}
+        serviceNote={serviceNote(hours.warnings)}
       />
 
       <DiscardDialog
