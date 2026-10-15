@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
 import { useReturnFocus } from "@/lib/editors/use-return-focus"
+import { syncStatusLabel } from "@/lib/listings/health"
 import { cn } from "@/lib/utils"
 
 export type EditorStatus =
@@ -19,7 +20,7 @@ export type EditorStatus =
 
 /** The status words when no change count is given. */
 const STATUS_WORDS: Record<EditorStatus, string> = {
-  in_sync: "In sync with Google",
+  in_sync: syncStatusLabel("in_sync"),
   edited: "Changes not on Google",
   // Saved here, never sent. "Edited" read as "you just changed something",
   // which is wrong when the difference has been sitting there for a week.

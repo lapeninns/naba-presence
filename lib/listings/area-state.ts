@@ -110,9 +110,7 @@ function syncedState(
     label:
       dirty && area.dirtyCount > 1
         ? `${formatNumber(area.dirtyCount)} changes not on Google`
-        : area.status === "in_sync"
-          ? "In sync"
-          : syncStatusLabel(area.status),
+        : syncStatusLabel(area.status),
     line,
     ...(since ? { since } : {}),
   }

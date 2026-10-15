@@ -76,7 +76,7 @@ describe("editorStatusPill", () => {
   it("claims in sync only when the editor compared and found no difference", () => {
     expect(editorStatusPill(base)).toEqual({
       tone: "healthy",
-      label: "In sync with Google",
+      label: "In sync",
     })
     expect(editorStatusPill({ ...base, status: "edited" })).toBeNull()
   })

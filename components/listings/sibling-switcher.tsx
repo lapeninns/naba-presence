@@ -25,8 +25,9 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * invites publishing to the wrong business; to change client you go through
  * the client, which is also where the breadcrumb points.
  *
- * The trigger is the line it replaces (the listing's name on an area, the
- * client on the overview), so it costs no row of its own. The list is a
+ * The trigger is the listing's name on every listing page (DSK-06): the
+ * line above the title on an area, the title itself on the overview. It
+ * costs no row of its own. The list is a
  * menu of real links: an action sheet on a phone with no keyboard raised,
  * client-side navigation, and the editor's leave guard catches the click
  * like any other in-app link. The current listing's row opens its overview.
@@ -39,6 +40,7 @@ function SiblingSwitcher({
   role,
   children,
   fallback = null,
+  wrap = false,
   className,
 }: {
   current: DirectoryEntry
@@ -47,6 +49,8 @@ function SiblingSwitcher({
   children?: React.ReactNode
   /** What to render when there is no sibling to switch to. */
   fallback?: React.ReactNode
+  /** Wrap long words onto more lines (a title) instead of truncating. */
+  wrap?: boolean
   className?: string
 }) {
   const pathname = usePathname()
@@ -71,7 +75,14 @@ function SiblingSwitcher({
           className
         )}
       >
-        <span className="min-w-0 truncate">{children ?? current.name}</span>
+        <span
+          className={cn(
+            "min-w-0",
+            wrap ? "text-balance break-words" : "truncate"
+          )}
+        >
+          {children ?? current.name}
+        </span>
         <span className="sr-only">, {purpose}</span>
         <ChevronDownIcon
           aria-hidden

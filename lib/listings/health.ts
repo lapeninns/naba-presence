@@ -264,7 +264,7 @@ export function listingHealthDescription(health: ListingHealth): string {
 export function syncStatusLabel(status: SyncStatus): string {
   switch (status) {
     case "in_sync":
-      return "In sync with Google"
+      return "In sync"
     case "core_dirty":
       return "Not on Google yet"
     case "google_dirty":

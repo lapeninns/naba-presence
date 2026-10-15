@@ -988,7 +988,7 @@ describe("ProfileTab while Google's half is still loading", () => {
       await screen.findByRole("textbox", { name: "Business name" })
     ).toBeInTheDocument()
 
-    expect(screen.queryByText("In sync with Google")).toBeNull()
+    expect(screen.queryByText("In sync")).toBeNull()
     expect(
       screen.queryByText("Everything on this page matches Google.")
     ).toBeNull()

@@ -176,7 +176,7 @@ describe("aggregate menu review", () => {
   it("shows no changes for duplicate equality even if a cached summary says dirty", () => {
     menus.value = state(["A", "A"], ["A", "A"])
     renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
-    expect(screen.getByText("In sync with Google")).toBeInTheDocument()
+    expect(screen.getByText("In sync")).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Publish 1 area to Google" })
     ).toHaveAttribute("aria-disabled", "true")

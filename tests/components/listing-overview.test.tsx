@@ -105,7 +105,7 @@ describe("ListingOverview", () => {
     stub({ summary: summary() })
     render(<ListingOverview locationId="l1" role="owner" />)
     expect(
-      screen.getByRole("heading", { level: 1, name: "Old Crown Girton" })
+      screen.getByRole("heading", { level: 1, name: /^Old Crown Girton/ })
     ).toBeInTheDocument()
     expect(screen.getByText("Old Crown Group")).toBeInTheDocument()
     expect(screen.getAllByText("Not checked").length).toBeGreaterThan(0)
@@ -126,24 +126,25 @@ describe("ListingOverview", () => {
     }
     expect(within(areas).getByText("27 of your photos")).toBeInTheDocument()
     expect(
-      within(areas).getByRole("link", { name: "Check Opening hours" })
+      within(areas).getByRole("link", { name: "Open Opening hours" })
     ).toHaveAttribute("href", "/listings/l1/hours")
-    // Nothing to publish: no call to action in the header (the area tabs
-    // still end on Review & publish, uncounted).
+    // Nothing to publish: no call to action in the header.
     expect(
       document.querySelector('[data-slot="review-publish-link"]')
     ).toBeNull()
     expect(
       screen.queryByRole("link", { name: /Review & publish \(/ })
     ).not.toBeInTheDocument()
-    // Two listings under this client: the client line is the switcher, a
-    // menu (no text field, so no keyboard on a phone).
+    // Two listings under this client: the listing's name, the title, is the
+    // switcher (DSK-06), a menu (no text field, so no keyboard on a phone).
+    // The client stays as plain words above it.
     expect(screen.queryByRole("combobox")).toBeNull()
-    expect(
-      screen.getByRole("button", {
-        name: /switch to another listing of this client/,
-      })
-    ).toHaveTextContent("Old Crown Group")
+    const switcher = screen.getByRole("button", {
+      name: /switch to another listing of this client/,
+    })
+    expect(switcher).not.toHaveTextContent("Old Crown Group")
+    expect(switcher.closest("h1")).not.toBeNull()
+    expect(screen.getByText("Old Crown Group")).toBeInTheDocument()
   })
 
   it("offers Review & publish when local edits are not on Google", () => {
