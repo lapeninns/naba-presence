@@ -530,7 +530,9 @@ function ListingsBoard({
   )
   const order: BoardOrder = business ? "health" : orderState
 
-  const pendingSearch = React.useRef<{ q: string; timer: number } | null>(null)
+  const pendingSearch = React.useRef<{ q: string; timer: number } | null>(
+    null
+  )
   React.useEffect(
     () => () => window.clearTimeout(pendingSearch.current?.timer),
     []
