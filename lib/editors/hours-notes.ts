@@ -28,6 +28,21 @@ export type HoursNote = {
  */
 const RECONCILIATION_WARNING = /no confirmed closing day/i
 
+/**
+ * The server's note when Google's service options could not be read
+ * (`lib/server/hours.ts`). It is about services, not the weekly schedule, so
+ * the hours page shows it only where services are edited (`serviceNote`).
+ */
+export const SERVICE_OPTIONS_WARNING =
+  "Some service options couldn’t load. Try again later. Your existing services are safe."
+
+/** The service-options note when the read carried it, for the service group. */
+export function serviceNote(warnings: readonly string[]): string | null {
+  return warnings.includes(SERVICE_OPTIONS_WARNING)
+    ? SERVICE_OPTIONS_WARNING
+    : null
+}
+
 export function hoursNotes(
   hours: Pick<HoursState, "status" | "warnings" | "reconciliationRequired">,
   { gated, googleEmpty }: { gated: boolean; googleEmpty: boolean }
@@ -46,9 +61,9 @@ export function hoursNotes(
     notes.push({
       key: "google-empty",
       tone: "info",
-      title: "Google has no opening hours for this listing",
+      title: "No hours on Google",
       description:
-        "Customers see “Hours not available”. Switch on the days the business opens, set the times, then publish.",
+        "Google shows no hours yet, so customers see “Hours not available”. Switch on the days the business opens, set the times, then publish.",
     })
   }
   if (hours.reconciliationRequired) {
@@ -67,6 +82,7 @@ export function hoursNotes(
     seen.add(warning)
     if (hours.reconciliationRequired && RECONCILIATION_WARNING.test(warning))
       continue
+    if (warning === SERVICE_OPTIONS_WARNING) continue
     notes.push({
       key: `warning:${warning}`,
       tone: "warning",

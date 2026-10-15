@@ -86,7 +86,7 @@ describe("aggregate hours review", () => {
       .mockResolvedValue({ status: "published" })
     renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
     expect(screen.getByText(/Synthetic bar.*Sunday/)).toBeInTheDocument()
-    expect(screen.getByText(/3:00 am.*Monday/)).toBeInTheDocument()
+    expect(screen.getByText(/03:00.*Monday/)).toBeInTheDocument()
     await userEvent
       .setup()
       .click(screen.getByRole("button", { name: "Publish 1 area to Google" }))

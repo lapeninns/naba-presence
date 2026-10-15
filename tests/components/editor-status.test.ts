@@ -17,6 +17,22 @@ describe("editorStatusPill", () => {
     expect(editorStatusPill(null)).toBeNull()
   })
 
+  it("says 'No hours on Google' instead of 'In sync' when both sides are empty", () => {
+    expect(
+      editorStatusPill({ ...base, emptyOnGoogle: "No hours on Google" })
+    ).toEqual({ tone: "attention", label: "No hours on Google" })
+    // Edits still win: the operator is mid-change.
+    expect(
+      editorStatusPill({
+        ...base,
+        status: "edited",
+        isDirty: true,
+        localEdits: true,
+        emptyOnGoogle: "No hours on Google",
+      })
+    ).toEqual({ tone: "pending", label: "Unsaved edits" })
+  })
+
   it("says unsaved edits over any 'in sync' while the tab holds edits", () => {
     expect(
       editorStatusPill({

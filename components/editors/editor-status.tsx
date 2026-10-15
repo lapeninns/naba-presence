@@ -22,6 +22,11 @@ export type EditorStatusReport = {
   savesHere: boolean
   /** How many fields differ from Google, when the editor counts them. */
   changeCount?: number
+  /**
+   * What the editor says instead of "In sync with Google" when both sides
+   * are empty ("No hours on Google"): in sync, but not fine.
+   */
+  emptyOnGoogle?: string
 }
 
 type Store = {
@@ -131,6 +136,8 @@ function editorStatusPill(
           : "Not on Google yet",
     }
   }
+  if (report.status === "in_sync" && report.emptyOnGoogle)
+    return { tone: "attention", label: report.emptyOnGoogle }
   if (report.status === "in_sync")
     return { tone: "healthy", label: "In sync with Google" }
   return null
