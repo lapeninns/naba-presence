@@ -54,14 +54,50 @@ function renderCard(
 
 afterEach(() => vi.clearAllMocks())
 
+/** Opens the row's ⋯ menu and chooses Disconnect, as a person would. */
+async function chooseDisconnect(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await user.click(screen.getByRole("button", { name: `Actions for ${name}` }))
+  await user.click(await screen.findByRole("menuitem", { name: /^Disconnect/ }))
+}
+
 describe("ConnectionCard", () => {
-  it("lists a connected account with a humanised status and a disconnect action", () => {
+  it("lists a connected account with its status trailing and Disconnect behind a menu", async () => {
+    const user = userEvent.setup()
     renderCard([connection({})])
     expect(screen.getByText("owner@riverside.test")).toBeInTheDocument()
     expect(screen.getByText("Connected")).toBeInTheDocument()
+    // The account is the row's headline and the status sits at the end of the
+    // title line; neither is a label beside a red button.
+    const cells = screen
+      .getByText("owner@riverside.test")
+      .closest("tr")!
+      .querySelectorAll("td")
+    expect(cells[0]).toHaveAttribute("data-priority", "primary")
+    expect(screen.getByText("Connected").closest("td")).toHaveAttribute(
+      "data-priority",
+      "trailing"
+    )
+    // No Disconnect button in the headline spot: it is the menu's last item.
     expect(
-      screen.getByRole("button", { name: "Disconnect owner@riverside.test" })
-    ).toBeInTheDocument()
+      screen.queryByRole("button", { name: /^Disconnect/ })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Actions for owner@riverside.test" })
+    )
+    const items = await screen.findAllByRole("menuitem")
+    expect(items).toHaveLength(1)
+    expect(items[0]).toHaveAccessibleName(/^Disconnect/)
+    expect(items[0]).toHaveAttribute("data-variant", "destructive")
+  })
+
+  it("has no menu on an account that is already disconnected", () => {
+    renderCard([connection({ status: "disconnected" })])
+    expect(
+      screen.queryByRole("button", { name: /^Actions for/ })
+    ).not.toBeInTheDocument()
   })
 
   it("offers a connect button when there are no connections", () => {
@@ -75,9 +111,7 @@ describe("ConnectionCard", () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
     renderCard([connection({})], mutate)
-    await user.click(
-      screen.getByRole("button", { name: "Disconnect owner@riverside.test" })
-    )
+    await chooseDisconnect(user, "owner@riverside.test")
     const dialog = await screen.findByRole("alertdialog")
     // The consequences stay, and the cancel keeps its words.
     expect(within(dialog).getByText("After 7 days")).toBeInTheDocument()
@@ -127,13 +161,64 @@ describe("ConnectionCard", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("returns focus to the row's ⋯ trigger when the dialog is cancelled", async () => {
+    const user = userEvent.setup()
+    renderCard([connection({})])
+    await chooseDisconnect(user, "owner@riverside.test")
+    const dialog = await screen.findByRole("alertdialog")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keep it connected" })
+    )
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    await vi.waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Actions for owner@riverside.test" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("returns focus to the account whose menu was opened from the keyboard", async () => {
+    const user = userEvent.setup()
+    renderCard([
+      connection({ id: "c1", googleEmail: "owner@riverside.test" }),
+      connection({ id: "c2", googleEmail: "ops@harbour.test" }),
+    ])
+    // A click opens and closes the first account's menu…
+    await user.click(
+      screen.getByRole("button", { name: "Actions for owner@riverside.test" })
+    )
+    await screen.findByRole("menuitem", { name: /^Disconnect/ })
+    await user.keyboard("{Escape}")
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("menuitem")).not.toBeInTheDocument()
+    )
+    // …then the second account's opens from the keyboard (no click).
+    const second = screen.getByRole("button", {
+      name: "Actions for ops@harbour.test",
+    })
+    second.focus()
+    await user.keyboard("{ArrowDown}")
+    const item = await screen.findByRole("menuitem", { name: /^Disconnect/ })
+    await vi.waitFor(() => expect(item).toHaveFocus())
+    await user.keyboard("{Enter}")
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent("ops@harbour.test")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keep it connected" })
+    )
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    await vi.waitFor(() => expect(second).toHaveFocus())
+  })
+
   it("asks for the word DISCONNECT when the login has no email on record", async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
     renderCard([connection({ googleEmail: null })], mutate)
-    await user.click(
-      screen.getByRole("button", { name: "Disconnect Google account" })
-    )
+    await chooseDisconnect(user, "Google account")
     const dialog = await screen.findByRole("alertdialog")
     const confirm = within(dialog).getByRole("button", { name: "Disconnect" })
     expect(confirm).toBeDisabled()

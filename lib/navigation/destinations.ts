@@ -323,6 +323,43 @@ export function currentHref(
 }
 
 /**
+ * Pages outside every destination's path that still belong to one. Setup
+ * adds a client's Google connection (agency) or the business's own
+ * (business), so it lives under Clients or Listings: that tab is current
+ * there, and the back control goes to it.
+ */
+const ADOPTED_PAGES: readonly {
+  href: string
+  owner: Record<WorkspaceMode, DestinationId>
+}[] = [{ href: "/setup", owner: { agency: "clients", business: "listings" } }]
+
+function adoptedPage(pathname: string | null) {
+  return ADOPTED_PAGES.find((page) => isActivePath(pathname, page.href))
+}
+
+/** The destination an adopted page (Setup) lives under, or null. */
+export function adoptingDestination(
+  pathname: string | null,
+  mode: WorkspaceMode
+): Destination | null {
+  const page = adoptedPage(pathname)
+  if (!page) return null
+  return DESTINATIONS.find((d) => d.id === page.owner[mode]) ?? null
+}
+
+/**
+ * The path the navigation marks as current: an adopted page reads as the
+ * destination it lives under (Setup as Clients, or as Listings in a
+ * business), every other page as itself.
+ */
+export function navigationPath(
+  pathname: string | null,
+  mode: WorkspaceMode
+): string | null {
+  return adoptingDestination(pathname, mode)?.href ?? pathname
+}
+
+/**
  * The destination a path belongs to, or null (Setup, a 404). A listing
  * belongs to Listings even when reached from its client.
  */
@@ -344,6 +381,7 @@ export function destinationForPath(
  */
 export function isTopLevelPath(pathname: string | null): boolean {
   if (!pathname) return true
+  if (adoptedPage(pathname)) return false
   const destination = destinationForPath(pathname)
   if (!destination) return pathname.split("/").filter(Boolean).length <= 1
   return pathname === destination.href

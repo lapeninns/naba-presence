@@ -321,6 +321,42 @@ describeDatabase(
       expect((await other.json()).error).toBe("approval_not_pending")
     })
 
+    it("refuses a publish bound to a revision the post has moved past, and sends nothing", async () => {
+      const { owner, locationId } = await twoPersonTenant()
+      const postId = await createDraft(owner.cookie, locationId, "Quiz night")
+      // Someone else edits after the composer saved revision 1.
+      const edited = await send(
+        owner.cookie,
+        "PATCH",
+        url(locationId, `/${postId}`),
+        standardPost("Quiz night, now with prizes")
+      )
+      expect(edited.status).toBe(200)
+
+      const stale = await send(
+        owner.cookie,
+        "POST",
+        url(locationId, `/${postId}/publish`),
+        { expectedRevision: 1 }
+      )
+      expect(stale.status).toBe(409)
+      expect((await stale.json()).error).toBe("post_changed_since_saved")
+      expect(providerWrites()).toHaveLength(0)
+      expect(await stored(postId)).toMatchObject({
+        status: "draft",
+        contentRevision: 2,
+      })
+
+      // Naming the current revision goes through (here: parked for approval).
+      const current = await send(
+        owner.cookie,
+        "POST",
+        url(locationId, `/${postId}/publish`),
+        { expectedRevision: 2 }
+      )
+      expect(current.status).toBe(202)
+    })
+
     it("refuses an approval of a stale revision and of a post that is not pending", async () => {
       const { owner, second, locationId } = await twoPersonTenant()
       const postId = await createDraft(owner.cookie, locationId, "Quiz night")

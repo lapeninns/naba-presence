@@ -60,10 +60,17 @@ export function updatePost(id: string, postId: string, input: LocalPostInputValu
 export function publishPost(
   id: string,
   postId: string,
-  options: MutationOptions = {}
+  options: MutationOptions & {
+    /** The revision the person saved or saw: a changed post is refused. */
+    expectedRevision?: number
+  } = {}
 ): Promise<PublishPostResult> {
   return apiFetch(`/api/locations/${id}/posts/${postId}/publish`, {
     method: "POST",
+    body:
+      options.expectedRevision === undefined
+        ? undefined
+        : { expectedRevision: options.expectedRevision },
     schema: postPublishOutcomeSchema,
     intentId: options.intentId,
   })

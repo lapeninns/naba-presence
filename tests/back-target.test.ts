@@ -26,7 +26,7 @@ function back(
     locations: loaded ? locations : [],
     mode,
   })
-  return backTarget(pathname, trail)
+  return backTarget(pathname, trail, mode)
 }
 
 describe("backTarget", () => {
@@ -87,6 +87,15 @@ describe("backTarget", () => {
 
   it("falls back to the destination while the lists are still loading", () => {
     expect(back("/listings/l1/hours", { loaded: false })).toEqual({
+      href: "/listings",
+      label: "Listings",
+    })
+  })
+
+  it("takes Setup up to Clients, or to Listings in a business", () => {
+    // SET-11: Setup belongs to no destination's path, so it had no back.
+    expect(back("/setup")).toEqual({ href: "/clients", label: "Clients" })
+    expect(back("/setup", { mode: "business" })).toEqual({
       href: "/listings",
       label: "Listings",
     })

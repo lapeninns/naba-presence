@@ -223,15 +223,21 @@ describe("PostsTab", () => {
     expect(save).toHaveAccessibleDescription("Write the post first.")
     expect(within(sheet).getByText("Write the post first.")).toBeVisible()
 
-    const note = within(sheet).getByText(/Nothing reaches Google until/)
-    for (
-      let node: HTMLElement | null = note;
-      node && node !== sheet;
-      node = node.parentElement
-    )
-      expect(node.className).not.toMatch(
-        /(^|\s)(hidden|max-sm:hidden|sr-only)(\s|$)/
+    // The footer says what Save draft does, and (as the person can publish)
+    // what Publish to Google sends: both at every width.
+    for (const note of [
+      within(sheet).getByText(/Save draft keeps it here only/),
+      within(sheet).getByText(/Publish to Google sends this update/),
+    ]) {
+      for (
+        let node: HTMLElement | null = note;
+        node && node !== sheet;
+        node = node.parentElement
       )
+        expect(node.className).not.toMatch(
+          /(^|\s)(hidden|max-sm:hidden|sr-only)(\s|$)/
+        )
+    }
 
     await user.type(
       within(sheet).getByRole("textbox", { name: "Post summary" }),
