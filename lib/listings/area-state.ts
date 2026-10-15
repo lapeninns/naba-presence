@@ -138,12 +138,13 @@ export function areaState(
       const unreachable = googleUnreachable(summary)
       const hours = summary.hours
       // Google's empty hours are an in-sync state, but not a fine one: the
-      // words match the hours editor ("No hours on Google"). Dirty and
-      // conflict states, and an unreachable Google, keep their own words.
+      // words match the hours editor ("No hours on Google"). Local edits,
+      // a conflict, a change made on Google (hours removed there: "Changed
+      // on Google" asks for the review) and an unreachable Google keep their
+      // own words.
       if (
         !unreachable &&
-        hours.status !== "core_dirty" &&
-        hours.status !== "conflict" &&
+        hours.status === "in_sync" &&
         noHoursOnGoogle(summary, now)
       )
         return {

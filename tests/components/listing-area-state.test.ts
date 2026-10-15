@@ -44,6 +44,12 @@ describe("areaState hours with no hours on Google", () => {
     })
   })
 
+  it("keeps Changed on Google when Google removed the hours", () => {
+    expect(
+      areaState("hours", hoursSummary({ status: "google_dirty" })).label
+    ).toBe("Changed on Google")
+  })
+
   it("leaves dirty, conflict and unreachable states as they are", () => {
     expect(
       areaState("hours", hoursSummary({ status: "core_dirty", dirtyCount: 1 }))
