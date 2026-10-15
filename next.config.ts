@@ -123,12 +123,28 @@ export const SHARE_HEADERS: { key: string; value: string }[] = [
  */
 const CLIENT_MAX_INITIAL_REQUESTS = 50
 
+/**
+ * The smallest shared chunk webpack splits out of the client entries (Next
+ * sets 20000). Every App Router segment is its own client entry, so a
+ * layout with client UI (the listing header, L16) shares many small modules
+ * with each page's editor. Below 20 KB those groups are copied into both
+ * entries instead of split: TanStack Query's observers, the icon base, the
+ * dropdown and the query keys each loaded twice on a listing page. At 8000
+ * the listing areas' first-load JS (`tests/perf/route-js.mjs`, gzip) goes
+ * from +16..26 KB over L03 to -6..+7 KB, no route grows by more than 4 KB,
+ * and total client JS drops from 1381 to 1227 KB, for about 30 more
+ * (smaller) chunk requests per route. Measure again with route-js and
+ * perf-lab before changing.
+ */
+const CLIENT_MIN_SHARED_CHUNK = 8000
+
 const nextConfig: NextConfig = {
   output: "standalone",
   webpack(config, { dev, isServer }) {
     if (!dev && !isServer && config.optimization?.splitChunks) {
       config.optimization.splitChunks.maxInitialRequests =
         CLIENT_MAX_INITIAL_REQUESTS
+      config.optimization.splitChunks.minSize = CLIENT_MIN_SHARED_CHUNK
     }
     return config
   },
