@@ -359,6 +359,84 @@ test.describe("listings", () => {
     expect((await saved).status()).toBe(200)
   })
 
+  test("publish failure: Review & publish says it once, names the next action and keeps the code behind support details", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto(`/listings/${state.primaryLocationId}/profile`)
+    const name = page.getByRole("textbox", { name: "Business name" })
+    await expect(name).toBeVisible()
+    await page.waitForLoadState("networkidle")
+    await name.fill("Riverside Rooms & Spa")
+    // Save the change in NabaPresence only, so Review & publish has it waiting.
+    await page.getByRole("button", { name: "Save here", exact: true }).click()
+
+    await page.route(
+      `**/api/locations/${state.primaryLocationId}/profile`,
+      (route) =>
+        route.request().method() === "PUT"
+          ? route.fulfill({
+              status: 500,
+              contentType: "application/json",
+              body: JSON.stringify({
+                error: { code: "NOT_FOUND", message: "Not found" },
+              }),
+            })
+          : route.fallback()
+    )
+    await page.goto(`/listings/${state.primaryLocationId}/changes`)
+    await page.getByRole("button", { name: "Publish to Google" }).click()
+
+    // One banner carries the next action; focus lands on it.
+    const banner = page.getByText(/Publishing stopped at/).first()
+    await expect(banner).toBeVisible()
+    await expect(
+      page.getByText(
+        /Retry publishing when you’re ready|Check Google, then retry publishing/
+      )
+    ).toBeVisible()
+    // The step's own Retry is gone: the one action is the main button.
+    await expect(
+      page.getByRole("list", { name: "Publish results" }).getByRole("button", {
+        name: "Retry",
+      })
+    ).toHaveCount(0)
+    // The toast is six words or fewer and the code stays behind the details.
+    await expect(
+      page.getByText("Publishing stopped. See the steps.")
+    ).toBeVisible()
+    await expect(page.getByText("NOT_FOUND")).toBeHidden()
+    await page.getByText("Details for support").first().click()
+    await expect(page.getByText("NOT_FOUND").first()).toBeVisible()
+  })
+
+  test("read-only views: a member sees read rows, not greyed fields, and Review & publish does not send them off to edit", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.memberAssignedCookie)
+    await page.goto(`/listings/${state.primaryLocationId}/profile`)
+    await expect(page.getByText(/View-only access\./)).toBeVisible()
+    // The field stays disabled but reads as plain text: the editor is a read
+    // view, with no box and no greyed-out ink.
+    const field = page.getByRole("textbox", { name: "Business name" })
+    await expect(field).toBeDisabled()
+    await expect(page.locator("[data-read-only]").first()).toBeVisible()
+    await expect(field).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expect(field).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)")
+
+    await page.goto(`/listings/${state.primaryLocationId}/changes`)
+    await expect(
+      page.getByRole("heading", { name: "Review & publish", level: 1 })
+    ).toBeVisible()
+    await expect(page.getByText(/Edit an area and come back here/)).toHaveCount(
+      0
+    )
+  })
+
   test("the retired Performance segment lands on Reports scoped to the location", async ({
     baseURL,
     page,
