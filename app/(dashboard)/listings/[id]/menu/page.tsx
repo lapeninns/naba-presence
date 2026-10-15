@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { MenuTab } from "@/components/locations/menu-tab"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { menuTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingMenuPage({
       entries={menuTabPrefetch(id)}
       loadingLabel="food menu"
     >
-      <MenuTab locationId={id} />
+      <AreaEditor area="menu" locationId={id} />
     </StreamedTab>
   )
 }

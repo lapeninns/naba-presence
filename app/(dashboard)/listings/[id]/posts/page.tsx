@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { PostsTab } from "@/components/locations/posts-tab"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { postsTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingPostsPage({
       entries={postsTabPrefetch(id)}
       loadingLabel="posts"
     >
-      <PostsTab locationId={id} />
+      <AreaEditor area="posts" locationId={id} />
     </StreamedTab>
   )
 }

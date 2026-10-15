@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { BookingTab } from "@/components/locations/booking-tab"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { bookingTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingBookingPage({
       entries={bookingTabPrefetch(id)}
       loadingLabel="action links"
     >
-      <BookingTab locationId={id} />
+      <AreaEditor area="booking" locationId={id} />
     </StreamedTab>
   )
 }

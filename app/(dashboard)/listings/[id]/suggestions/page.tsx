@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { SuggestionsTab } from "@/components/locations/suggestions/suggestions-page"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { suggestionsTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingSuggestionsPage({
       entries={suggestionsTabPrefetch(id)}
       loadingLabel="suggested updates"
     >
-      <SuggestionsTab locationId={id} />
+      <AreaEditor area="suggestions" locationId={id} />
     </StreamedTab>
   )
 }

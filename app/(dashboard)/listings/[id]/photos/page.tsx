@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { PhotosTab } from "@/components/locations/photos-tab"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { photosTabPrefetch } from "@/lib/server/prefetch"
 import { requestSearch } from "@/lib/server/request-search"
@@ -38,7 +38,7 @@ export default async function ListingPhotosPage({
       entries={photosTabPrefetch(id, search)}
       loadingLabel="photos"
     >
-      <PhotosTab locationId={id} />
+      <AreaEditor area="photos" locationId={id} />
     </StreamedTab>
   )
 }

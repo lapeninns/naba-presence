@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { VerificationTab } from "@/components/locations/administration"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { verificationTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingVerificationPage({
       entries={verificationTabPrefetch(id)}
       loadingLabel="verification"
     >
-      <VerificationTab locationId={id} />
+      <AreaEditor area="verification" locationId={id} />
     </StreamedTab>
   )
 }

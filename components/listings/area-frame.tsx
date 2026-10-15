@@ -15,6 +15,7 @@ import {
   UploadIcon,
 } from "lucide-react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { useSelectedLayoutSegment } from "next/navigation"
 import * as React from "react"
 
@@ -839,6 +840,92 @@ function AreaFrameBody({
  * another area, so the header never remounts; the overview and Review &
  * publish render their own header and pass through.
  */
+/** The editor's placeholder while its code loads on an in-app area switch. */
+function AreaEditorLoading() {
+  return (
+    <Skeleton
+      aria-busy="true"
+      className="h-40 w-full rounded-(--np-radius-card)"
+    />
+  )
+}
+
+/**
+ * Each area's editor, loaded from here rather than imported by its page.
+ * Every App Router segment is its own client entry, so when the layout drew
+ * this frame and each page imported its editor, the two entries carried
+ * their own copies of every small module they share (L16 first-load JS).
+ * With the editors as dynamic imports of the frame's own module, and every
+ * area page importing `AreaEditor` from it, each editor's chunk has the
+ * frame's modules already loaded beside it and carries only its own. They
+ * still render on the server (`next/dynamic` keeps SSR and preloads the
+ * chunk), so a document load paints the editor as before.
+ */
+const AREA_EDITORS: Record<
+  ListingAreaKey,
+  React.ComponentType<{ locationId: string }>
+> = {
+  profile: dynamic(
+    () =>
+      import("@/components/locations/profile/profile-editor").then(
+        (m) => m.ProfileTab
+      ),
+    { loading: AreaEditorLoading }
+  ),
+  hours: dynamic(
+    () => import("@/components/locations/hours-tab").then((m) => m.HoursTab),
+    { loading: AreaEditorLoading }
+  ),
+  booking: dynamic(
+    () =>
+      import("@/components/locations/booking-tab").then((m) => m.BookingTab),
+    { loading: AreaEditorLoading }
+  ),
+  photos: dynamic(
+    () => import("@/components/locations/photos-tab").then((m) => m.PhotosTab),
+    { loading: AreaEditorLoading }
+  ),
+  posts: dynamic(
+    () => import("@/components/locations/posts-tab").then((m) => m.PostsTab),
+    { loading: AreaEditorLoading }
+  ),
+  menu: dynamic(
+    () => import("@/components/locations/menu-tab").then((m) => m.MenuTab),
+    { loading: AreaEditorLoading }
+  ),
+  people: dynamic(
+    () =>
+      import("@/components/locations/administration").then((m) => m.AccessTab),
+    { loading: AreaEditorLoading }
+  ),
+  verification: dynamic(
+    () =>
+      import("@/components/locations/administration").then(
+        (m) => m.VerificationTab
+      ),
+    { loading: AreaEditorLoading }
+  ),
+  suggestions: dynamic(
+    () =>
+      import("@/components/locations/suggestions/suggestions-page").then(
+        (m) => m.SuggestionsTab
+      ),
+    { loading: AreaEditorLoading }
+  ),
+}
+
+/** One area's editor, for that area's page (see `AREA_EDITORS`). */
+function AreaEditor({
+  area,
+  locationId,
+}: {
+  area: ListingAreaKey
+  locationId: string
+}) {
+  const Editor = AREA_EDITORS[area]
+  return <Editor locationId={locationId} />
+}
+
 function ListingAreaLayout({
   locationId,
   role,
@@ -859,6 +946,7 @@ function ListingAreaLayout({
 }
 
 export {
+  AreaEditor,
   AreaFrame,
   AreaStatusPill,
   ListingAreaHeader,

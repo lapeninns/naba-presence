@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { HoursTab } from "@/components/locations/hours-tab"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { hoursTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingHoursPage({
       entries={hoursTabPrefetch(id)}
       loadingLabel="opening hours"
     >
-      <HoursTab locationId={id} />
+      <AreaEditor area="hours" locationId={id} />
     </StreamedTab>
   )
 }

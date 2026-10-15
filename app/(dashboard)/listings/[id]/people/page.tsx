@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { AccessTab } from "@/components/locations/administration"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { peopleTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingPeoplePage({
       entries={peopleTabPrefetch(id)}
       loadingLabel="people with access"
     >
-      <AccessTab locationId={id} />
+      <AreaEditor area="people" locationId={id} />
     </StreamedTab>
   )
 }

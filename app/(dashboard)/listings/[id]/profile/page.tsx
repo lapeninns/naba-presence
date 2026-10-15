@@ -1,5 +1,5 @@
+import { AreaEditor } from "@/components/listings/area-frame"
 import { StreamedTab } from "@/components/listings/streamed-tab"
-import { ProfileTab } from "@/components/locations/profile/profile-editor"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
 import { profileTabPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -29,7 +29,7 @@ export default async function ListingProfilePage({
       entries={profileTabPrefetch(id)}
       loadingLabel="business profile"
     >
-      <ProfileTab locationId={id} />
+      <AreaEditor area="profile" locationId={id} />
     </StreamedTab>
   )
 }
