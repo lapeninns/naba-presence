@@ -17,8 +17,9 @@ const CHIP_COUNT_CLASS = "text-count leading-none tabular-nums"
 const ALERT_COUNT_CLASS = "font-semibold text-danger-ink"
 
 /**
- * A count inside a chip, segment or tab (sans, tabular figures). A zero
- * draws nothing (see `isZeroCount`): one rule for every strip.
+ * A count inside a chip, segment or tab (sans, tabular figures), in the
+ * ink of the control it sits in (so a pressed chip's count stays legible).
+ * A zero draws nothing (see `isZeroCount`): one rule for every strip.
  */
 function ChipCount({
   tone = "default",
@@ -32,7 +33,7 @@ function ChipCount({
       data-tone={tone}
       className={cn(
         CHIP_COUNT_CLASS,
-        tone === "alert" ? ALERT_COUNT_CLASS : "text-ink-muted",
+        tone === "alert" && ALERT_COUNT_CLASS,
         className
       )}
       {...props}
@@ -96,8 +97,10 @@ function RemovableChip({
  * - the pressed or current chip is scrolled into view when it changes, so a
  *   filter chosen elsewhere (a URL, a reset) is never off-screen.
  *
- * The vertical padding leaves room for the 44px touch extension and the
- * focus halo, which a scrolling box would otherwise clip.
+ * The vertical padding (`py-2`, 8px) leaves room for the 44px touch
+ * extension of the 28px chip (8px above and below), which a scrolling box
+ * would otherwise clip to a shorter target, and for the focus halo. The
+ * negative margin gives the space back, so the row keeps its drawn height.
  */
 function ChipRow({
   className,
@@ -182,7 +185,7 @@ function ChipRow({
       ref={setRef}
       data-slot="chip-row"
       className={cn(
-        "-mx-0.5 -my-1.5 flex min-w-0 [scrollbar-width:none] gap-2 overflow-x-auto px-0.5 py-1.5 [&::-webkit-scrollbar]:hidden",
+        "-mx-0.5 -my-2 flex min-w-0 [scrollbar-width:none] gap-2 overflow-x-auto px-0.5 py-2 [&::-webkit-scrollbar]:hidden",
         "data-[fade=end]:[mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]",
         "data-[fade=start]:[mask-image:linear-gradient(to_left,#000_calc(100%-2.5rem),transparent)]",
         "data-[fade=both]:[mask-image:linear-gradient(to_right,transparent,#000_2.5rem,#000_calc(100%-2.5rem),transparent)]",
@@ -241,8 +244,12 @@ function filterChipClassName({
     "after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
     "hover-fine:hover:bg-fill",
     "disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
+    // Pressed or applied: tint, 600 weight and a 1px accent-ink edge. The
+    // weight and the edge are the cues that do not depend on the tint (in
+    // the dark theme it is close to the unpressed grey in lightness). The
+    // edge is an inset ring, so it never shifts the layout.
     active &&
-      "bg-accent-tint font-semibold text-accent-ink hover-fine:hover:bg-(--np-accent-tint-strong)",
+      "bg-accent-tint font-semibold text-accent-ink ring-1 ring-accent-ink ring-inset hover-fine:hover:bg-(--np-accent-tint-strong)",
     className
   )
 }
@@ -296,7 +303,10 @@ function FilterChip({
       aria-label={
         removable
           ? (removeLabel ?? `Remove filter: ${labelText(children)}`)
-          : undefined
+          : zero
+            ? // A zero draws no figure, but the name still says it: "In sync, 0".
+              `${labelText(children)}, 0`
+            : undefined
       }
       onClick={(event) => {
         onClick?.(event)
@@ -313,16 +323,7 @@ function FilterChip({
         <>
           {/* A real space, so the name reads "Needs attention 2"; the flex
               row drops it from the drawing and `gap` spaces it. */}{" "}
-          <span
-            data-slot="chip-count"
-            data-tone={countTone}
-            className={cn(
-              CHIP_COUNT_CLASS,
-              countTone === "alert" && ALERT_COUNT_CLASS
-            )}
-          >
-            {count}
-          </span>
+          <ChipCount tone={countTone}>{count}</ChipCount>
         </>
       ) : null}
       {removable ? <X aria-hidden strokeWidth={1.75} /> : null}
@@ -431,7 +432,7 @@ function FilterChipStrip({
       // The 28px chip reaches 44px on touch; the padding keeps that hit
       // area from being clipped by the scrolling row. A strip that took
       // focus (no chips left, no `onEmpty`) shows no ring of its own.
-      className={cn("-my-2 gap-1.5 py-2 outline-none", className)}
+      className={cn("gap-1.5 outline-none", className)}
       {...props}
     />
   )

@@ -2,7 +2,12 @@ import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { ChipCount, FilterChip } from "@/components/ui/chip"
+import {
+  ChipCount,
+  ChipRow,
+  FilterChip,
+  FilterChipStrip,
+} from "@/components/ui/chip"
 import { isZeroCount } from "@/components/ui/count-text"
 import {
   TabCount,
@@ -188,6 +193,26 @@ describe("TabNav desk overflow", () => {
     expect(copy).toHaveAttribute("aria-hidden", "true")
     expect(copy).toHaveAttribute("inert")
   })
+
+  it("has exactly one aria-current=page in the nav: the copy does not add a second", () => {
+    renderNav("Alpha", 450)
+    expect(nav().querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+    // The copy still measures the current tab at 600 weight, by attribute.
+    const copy = nav().querySelector("[data-slot=tab-nav-measure]")!
+    const current = copy.querySelectorAll("[data-current]")
+    expect(current).toHaveLength(1)
+    expect(current[0]).toHaveTextContent("Alpha")
+    expect(current[0]).toHaveClass("data-current:font-semibold")
+  })
+
+  it("measures the More trigger at the weight it is drawn when current", () => {
+    renderNav("Alpha", 450)
+    const copy = nav().querySelector("[data-slot=tab-nav-measure]")!
+    const trigger = copy.querySelector("ul > li:last-child > span")!
+    expect(trigger).toHaveTextContent("More")
+    expect(trigger).toHaveClass("font-semibold")
+    expect(trigger).not.toHaveClass("font-medium")
+  })
 })
 
 describe("tab touch floor (MEA-03)", () => {
@@ -282,9 +307,44 @@ describe("the zero rule (INB-11)", () => {
 
   it("draws a FilterChip with a zero count as its label alone", () => {
     render(<FilterChip count={0}>Not linked</FilterChip>)
-    const chip = screen.getByRole("button", { name: "Not linked" })
+    const chip = screen.getByRole("button", { name: "Not linked, 0" })
     expect(chip).toHaveTextContent(/^Not linked$/)
     expect(chip.querySelector('[data-slot="chip-count"]')).toBeNull()
+  })
+
+  it("keeps the zero in a chip's accessible name, which contains the visible label", () => {
+    render(
+      <>
+        <FilterChip count={0}>In sync</FilterChip>
+        <FilterChip count={0} aria-label="Nothing to publish">
+          To publish
+        </FilterChip>
+        <FilterChip count={4}>Needs attention</FilterChip>
+      </>
+    )
+    expect(
+      screen.getByRole("button", { name: "In sync, 0" })
+    ).toBeInTheDocument()
+    // A caller's own name wins.
+    expect(
+      screen.getByRole("button", { name: "Nothing to publish" })
+    ).toBeInTheDocument()
+    // A real count reads from the text, as before.
+    expect(
+      screen.getByRole("button", { name: "Needs attention 4" })
+    ).toBeInTheDocument()
+  })
+
+  it("draws the chip's count through ChipCount, in the chip's own ink", () => {
+    render(
+      <FilterChip pressed count={3}>
+        Needs reply
+      </FilterChip>
+    )
+    const figure = screen.getByText("3")
+    expect(figure).toHaveAttribute("data-slot", "chip-count")
+    expect(figure).toHaveClass("text-count", "tabular-nums")
+    expect(figure.className).not.toMatch(/text-ink|text-danger/)
   })
 })
 
@@ -313,7 +373,7 @@ describe("FilterChip hideWhenZero", () => {
         Not linked
       </FilterChip>
     )
-    const chip = screen.getByRole("button", { name: "Not linked" })
+    const chip = screen.getByRole("button", { name: "Not linked, 0" })
     expect(chip).toHaveAttribute("aria-pressed", "true")
     expect(chip.querySelector('[data-slot="chip-count"]')).toBeNull()
   })
@@ -347,7 +407,65 @@ describe("FilterChip hideWhenZero", () => {
         <FilterChip hideWhenZero>All</FilterChip>
       </>
     )
-    expect(screen.getByRole("button", { name: "In sync" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "In sync, 0" })
+    ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument()
+  })
+})
+
+describe("chip rows keep the 44px hit area", () => {
+  // The 28px chip's touch extension reaches 8px above and below it. A row
+  // that scrolls sideways clips vertically (overflow-x-auto), so its padding
+  // must be at least that 8px (py-2) or the target shrinks to 40px. The
+  // negative margin gives the space back so the row keeps its height.
+  it("pads ChipRow by the extension's 8px, undone by a matching negative margin", () => {
+    render(
+      <ChipRow data-testid="row">
+        <FilterChip>All</FilterChip>
+      </ChipRow>
+    )
+    const row = screen.getByTestId("row")
+    expect(row).toHaveClass("overflow-x-auto", "py-2", "-my-2")
+    expect(row.className).not.toMatch(/\bpy-1\.5\b/)
+  })
+
+  it("keeps the padding in FilterChipStrip, where a caller's classes are merged in", () => {
+    render(
+      <FilterChipStrip data-testid="strip" className="-mx-5 px-5">
+        <FilterChip>All</FilterChip>
+      </FilterChipStrip>
+    )
+    expect(screen.getByTestId("strip")).toHaveClass("py-2", "-my-2")
+  })
+
+  it("draws the chip's extension at the touch floor", () => {
+    render(<FilterChip>All</FilterChip>)
+    expect(screen.getByRole("button", { name: "All" })).toHaveClass(
+      "after:inset-y-[calc((100%-var(--np-touch))/2)]",
+      "desk:after:hidden"
+    )
+  })
+})
+
+describe("the pressed filter chip", () => {
+  it("has cues beyond the tint: 600 weight and an accent-ink edge", () => {
+    render(<FilterChip pressed>Needs reply</FilterChip>)
+    const chip = screen.getByRole("button", { name: "Needs reply" })
+    expect(chip).toHaveClass(
+      "bg-accent-tint",
+      "font-semibold",
+      "ring-1",
+      "ring-inset",
+      "ring-accent-ink"
+    )
+    expect(chip.className).not.toMatch(/\bbg-ink\b/)
+  })
+
+  it("leaves an unpressed chip without the edge", () => {
+    render(<FilterChip>Needs reply</FilterChip>)
+    const chip = screen.getByRole("button", { name: "Needs reply" })
+    expect(chip).not.toHaveClass("ring-1")
+    expect(chip).not.toHaveClass("font-semibold")
   })
 })

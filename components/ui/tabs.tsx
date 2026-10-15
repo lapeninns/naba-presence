@@ -613,9 +613,12 @@ function TabNavMoreRow({
           {items.map((item) => (
             <li key={item.href} className="flex shrink-0">
               <span
-                aria-current={item.current ? "page" : undefined}
+                // Not `aria-current`: the copy must not add a second current
+                // page to the nav. The attribute only makes it 600 weight.
+                data-current={item.current ? "" : undefined}
                 className={cn(
                   itemClassName,
+                  "data-current:font-semibold",
                   isDeadTab(item)
                     ? disabledTabClassName
                     : item.unavailableReason && "font-normal"
@@ -626,7 +629,8 @@ function TabNavMoreRow({
             </li>
           ))}
           <li className="flex shrink-0">
-            <span className={itemClassName}>
+            {/* Measured at 600, how it is drawn when it is the current tab. */}
+            <span className={cn(itemClassName, "font-semibold")}>
               {moreLabel}
               <ChevronDownIcon aria-hidden />
             </span>
