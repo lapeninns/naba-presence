@@ -80,7 +80,7 @@ export function InviteSheet({
   const reviewing = invitation && !attempt ? review : null
   const recorded = invitation && attempt ? attempt : null
   const active = invitation && Boolean(current)
-  const sheetOpen = open || active
+  const sheetOpen = open
 
   const [scope, setScope] = useState("location")
   const [email, setEmail] = useState("")
@@ -145,15 +145,18 @@ export function InviteSheet({
     setEmail("")
     onOpenChange(false)
   }
+  // Nothing in flight, so the sheet can close. A settled review or outcome is
+  // put away; an unresolved one stays, and the page panel shows it as it did
+  // before the sheet, so closing never hides work that still needs a look.
   const back = () => {
-    if (action.busy || action.unresolved) return
-    action.reset()
+    if (action.busy) return
+    if (!action.unresolved) action.reset()
     close()
   }
   const dismiss = (next: boolean) => {
     if (next) return onOpenChange(true)
-    // A preview in flight reopens the sheet on its review, so it can't be dismissed.
-    if (create.isPending) return
+    // A request in flight can't be dismissed: its answer lands on this sheet.
+    if (create.isPending || action.busy) return
     if (active) return back()
     if (email.trim().length > 0) setDiscarding(true)
     else close()
@@ -219,13 +222,10 @@ export function InviteSheet({
               <Button
                 variant="ghost"
                 className="sm:mr-auto"
-                disabled={
-                  action.busy ||
-                  ["pending", "unresolved"].includes(recorded.confirmationState)
-                }
+                disabled={action.busy}
                 onClick={back}
               >
-                Back to access
+                {action.unresolved ? "Close for now" : "Back to access"}
               </Button>
               <Button
                 variant="secondary"
@@ -247,10 +247,10 @@ export function InviteSheet({
               <Button
                 variant="ghost"
                 className="sm:mr-auto"
-                disabled={action.busy || action.uncertain}
+                disabled={action.busy}
                 onClick={back}
               >
-                Back to access
+                {action.unresolved ? "Close for now" : "Back to access"}
               </Button>
               <Button
                 variant="secondary"
@@ -306,6 +306,13 @@ export function InviteSheet({
           {action.error && (active || create.isError) ? (
             <p role="alert" className="text-ui text-danger-ink">
               {action.error}
+            </p>
+          ) : null}
+          {action.busy || create.isPending ? (
+            <p role="status" className="text-ui text-ink-muted">
+              {pending === "send"
+                ? "Sending… you can close this when it finishes."
+                : "Working… you can close this when it finishes."}
             </p>
           ) : null}
           {recorded ? (

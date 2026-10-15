@@ -39,6 +39,8 @@ export function AdministrationAccessWorkspace({ children }: { children: ReactNod
   const { locationId, writeBlocked } = section
   const action = useAdministrationAccessController(locationId)
   const [inviteOpen, setInviteOpen] = useState(false)
+  // The review or outcome the person closed the invitation sheet on while it was unresolved.
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null)
   const setAccessBlocked = useLifecycleContext()?.setAccessBlocked
   const client = useQueryClient(), rosterKey = queryKeys.locationAdministration(locationId)
   const rosterFetching = useIsFetching({ queryKey: rosterKey }) > 0
@@ -64,6 +66,8 @@ export function AdministrationAccessWorkspace({ children }: { children: ReactNod
   // An invitation reads and sends on its own sheet (the form, the review and
   // the outcome); the page panel holds every other access change.
   const invitation = (attempt ?? review)?.request.operation === "create_admin"
+  // The sheet is up while its form is open, and for an invitation review or outcome until it is closed on.
+  const inviteShown = inviteOpen || (invitation && dismissedAt !== action.selectionRevision)
   const publishReason = section.publishReason ?? (action.busy ? "An access action is in progress. Wait for its saved response before another Google change." : action.unresolved ? "Resolve the saved access outcome before another Google change." : rosterUpdating ? ROSTER_UPDATING_REASON : rosterUnavailable ? ROSTER_UNAVAILABLE_REASON : null)
   const savedItems: SavedWorkItem[] = items.map((item) => ({
     id: item.reviewId,
@@ -74,8 +78,8 @@ export function AdministrationAccessWorkspace({ children }: { children: ReactNod
     disabled: action.busy || Boolean(action.unresolved && (review?.changeSet.id ?? attempt?.reviewId) !== item.reviewId),
     onOpen: () => action.open(item),
   }))
-  return <Context.Provider value={{ ...action, rosterUpdating, rosterUnavailable, retryRoster, openInvite: () => setInviteOpen(true) }}><div className="flex min-w-0 flex-col gap-6">
-    {(review || attempt || action.error) && !invitation && !inviteOpen ? <ReviewedWritePanel
+  return <Context.Provider value={{ ...action, rosterUpdating, rosterUnavailable, retryRoster, openInvite: () => { setDismissedAt(null); setInviteOpen(true) } }}><div className="flex min-w-0 flex-col gap-6">
+    {(review || attempt || action.error) && !inviteShown ? <ReviewedWritePanel
       id="access-review-workspace"
       title={attempt ? "Saved access outcome" : review ? "Review access request" : "Access request"}
       description={review && !attempt ? "Review this exact target and action. Approval saves permission to send; it does not change access on Google." : undefined}
@@ -87,7 +91,7 @@ export function AdministrationAccessWorkspace({ children }: { children: ReactNod
       {attempt ? <AccessOutcome attempt={attempt} review={review} busy={action.busy} onCheck={() => action.check()} onRefresh={() => action.check(true)} onBack={action.reset} /> : review ? <AccessReview key={`${review.changeSet.id}:${action.selectionRevision}`} review={review} locationName={section.locationName} busy={action.busy} blocked={writeBlocked} uncertain={action.uncertain} stale={action.stale} onApprove={action.approve} onExecute={action.execute} onCheck={() => action.check()} onBack={action.reset} /> : null}
     </ReviewedWritePanel> : null}
     <AdministrationProvider locationId={locationId} locationName={section.locationName} disabled={section.disabled} publishReason={publishReason}>{children}</AdministrationProvider>
-    <InviteSheet action={action} section={section} formBlocked={Boolean(publishReason)} open={inviteOpen} onOpenChange={setInviteOpen} />
+    <InviteSheet action={action} section={section} formBlocked={Boolean(publishReason)} open={inviteShown} onOpenChange={(next) => { setInviteOpen(next); if (!next) setDismissedAt(action.selectionRevision) }} />
     <SavedWorkList
       id="access-saved-work"
       title="Saved access work"

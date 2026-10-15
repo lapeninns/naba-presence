@@ -128,7 +128,8 @@ describe("administration review, consent and saved outcome controls", () => {
     vi.mocked(access.fetchAdministrationAccessAttempt).mockRejectedValue(new ApiClientError(404, "administration_attempt_not_found", "absent"))
     vi.mocked(access.fetchAdministrationAccessReview).mockRejectedValue(new ApiClientError(409, "approval_expired", "This review expired."))
     render(); await send(); await screen.findByText(/send response was unavailable/)
-    expect(screen.getByRole("button", { name: "Back to access" })).toBeDisabled()
+    // Nothing is in flight, so the sheet can close; the response is still unread.
+    expect(screen.getByRole("button", { name: "Close for now" })).toBeEnabled()
     await userEvent.click(screen.getByRole("button", { name: "Check saved access outcome" }))
     await screen.findByText(/This review cannot be sent/)
     expect(screen.getByRole("button", { name: "Back to access" })).toBeEnabled()
@@ -184,14 +185,28 @@ describe("administration review, consent and saved outcome controls", () => {
     const title = await screen.findByText("Review invitation")
     await waitFor(() => expect(title).toHaveFocus())
   })
-  it("keeps an unresolved invitation outcome on the sheet and blocks the page behind it", async () => {
-    vi.mocked(access.executeAdministrationAccess).mockResolvedValue({ ...outcome, status: "ambiguous", executionState: "unknown", confirmationState: "unresolved", postcondition: "unknown", error: "outcome_unresolved" })
-    render(); await send(); await screen.findByText("Independent confirmation unresolved")
-    expect(screen.getByRole("button", { name: "Back to access" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Transfer this location", hidden: true })).toBeDisabled()
-    // Escape and the scrim cannot dismiss what is still unresolved.
+  it("can't be closed while a send is in flight, and says so", async () => {
+    let complete: ((value: AdministrationAccessAttempt) => void) | undefined
+    vi.mocked(access.executeAdministrationAccess).mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    render(); await send()
+    expect(await screen.findByText("Sending… you can close this when it finishes.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Close for now" })).toBeDisabled()
     await userEvent.keyboard("{Escape}")
-    expect(screen.getByRole("dialog", { name: "Saved invitation outcome" })).toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: "Review invitation" })).toBeInTheDocument()
+    complete?.(outcome)
+    expect(await screen.findByRole("dialog", { name: "Saved invitation outcome" })).toBeInTheDocument()
+  })
+  it("lets an unresolved invitation outcome close and keeps it on the page, still blocking other writes", async () => {
+    vi.mocked(access.executeAdministrationAccess).mockResolvedValue({ ...outcome, status: "ambiguous", executionState: "unknown", confirmationState: "unresolved", postcondition: "unknown", error: "outcome_unresolved" })
+    const { container } = render(); await send(); await screen.findByText("Independent confirmation unresolved")
+    await userEvent.click(screen.getByRole("button", { name: "Close for now" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    // The page panel holds the unresolved outcome, as it did before the sheet.
+    expect(container.querySelector('section[aria-labelledby="access-review-workspace"]')).not.toBeNull()
+    expect(screen.getByText("Independent confirmation unresolved")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Back to access" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Transfer this location" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Preview fixture access" })).toBeDisabled()
   })
   it("offers no send on the sheet once a send is refused as expired", async () => {
     vi.mocked(access.executeAdministrationAccess).mockRejectedValueOnce(new ApiClientError(409, "approval_expired", "This review expired."))
