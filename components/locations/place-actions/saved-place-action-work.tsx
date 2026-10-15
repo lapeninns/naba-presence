@@ -15,6 +15,7 @@ import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { placeActionBaselineSchema } from "@/lib/contracts/place-action-observation"
 import { reviewedPlaceActionPayloadSchema } from "@/lib/contracts/place-action-review"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
+import { useDeadline } from "@/lib/editors/use-deadline"
 import type { usePlaceActionReview } from "./use-place-action-review"
 import { PlaceActionApprovalSheet } from "./place-action-approval-sheet"
 /**
@@ -25,7 +26,7 @@ export function placeActionWorkLabel(
   changeSet: Pick<GbpChangeSet, "payload" | "baseline">
 ): { title: string; uri: string | null } {
   const payload = reviewedPlaceActionPayloadSchema.safeParse(changeSet.payload)
-  if (!payload.success) return { title: "Action link change", uri: null }
+  if (!payload.success) return { title: "Booking link change", uri: null }
   const request = payload.data.request
   if (request.operation !== "delete") {
     const type = actionTypeLabel(request.payload.placeActionType)
@@ -41,9 +42,23 @@ export function placeActionWorkLabel(
   return {
     title: link
       ? `Remove ${actionTypeLabel(link.placeActionType)} link`
-      : "Remove action link",
+      : "Remove booking link",
     uri: link?.uri ?? null,
   }
+}
+
+/** The approval deadline, but only once it is close (within the hour) or past. */
+function ExpiryNearby({ expiresAt }: { readonly expiresAt: string }) {
+  const soon = useDeadline(
+    new Date(new Date(expiresAt).getTime() - 60 * 60_000).toISOString()
+  )
+  if (!soon) return null
+  return (
+    <>
+      {" "}
+      · <ApprovalExpiry expiresAt={expiresAt} />
+    </>
+  )
 }
 
 export function SavedPlaceActionWork({
@@ -74,10 +89,10 @@ export function SavedPlaceActionWork({
       <SettingsGroup
         // The region keeps its own name (an e2e capture selects it by
         // `aria-label`); the heading says the same words.
-        aria-label="Saved action link work"
+        aria-label="Saved booking link work"
         aria-labelledby={undefined}
-        label="Saved action link work"
-        caption="Recorded outcomes remain available when Google cannot be read. Expired approvals cannot be sent again."
+        label="Saved booking link work"
+        caption="Outcomes stay here even when Google can’t be read."
         bodyAs="div"
         card
         className="mt-0 min-w-0"
@@ -88,7 +103,7 @@ export function SavedPlaceActionWork({
               disabled={query.isFetchingNextPage}
               onClick={() => void query.fetchNextPage()}
             >
-              Load more action link work
+              Load more booking link work
             </Button>
           ) : undefined
         }
@@ -100,7 +115,7 @@ export function SavedPlaceActionWork({
         ) : null}
         {query.isPending ? (
           <p role="status" className={cn(blockClassName, "text-ink-muted")}>
-            Loading saved action link work…
+            Loading saved booking link work…
           </p>
         ) : query.isError ? (
           <p
@@ -110,18 +125,18 @@ export function SavedPlaceActionWork({
               "flex flex-wrap items-center gap-2 text-ink"
             )}
           >
-            Saved action link work could not be loaded.{" "}
+            Saved booking link work could not be loaded.{" "}
             <Button
               size="sm"
               variant="secondary"
               onClick={() => void query.refetch()}
             >
-              Retry saved action link work
+              Retry saved booking link work
             </Button>
           </p>
         ) : items.length === 0 ? (
           <p className={cn(blockClassName, "text-ink-muted")}>
-            No saved action link requests.
+            No saved booking link requests.
           </p>
         ) : (
           // One list row per saved request, its state and its one action
@@ -149,9 +164,8 @@ export function SavedPlaceActionWork({
                           <>
                             {item.changeSet.approvedBy
                               ? "Approved request"
-                              : "Awaiting approval"}{" "}
-                            ·{" "}
-                            <ApprovalExpiry
+                              : "Awaiting approval"}
+                            <ExpiryNearby
                               expiresAt={item.changeSet.expiresAt}
                             />
                           </>
@@ -179,8 +193,8 @@ export function SavedPlaceActionWork({
                           onClick={() => workflow.restore(item.changeSet)}
                         >
                           {item.attemptId
-                            ? "Open action link outcome"
-                            : "Open action link review"}
+                            ? "Open booking link outcome"
+                            : "Open booking link review"}
                         </Button>
                       </div>
                     </>

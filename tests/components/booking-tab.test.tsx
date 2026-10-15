@@ -39,7 +39,10 @@ function renderTab() {
   )
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  sessionStorage.clear()
+})
 
 describe("BookingTab", () => {
   it("says when Google was last checked and checks it again on request", async () => {
@@ -55,16 +58,16 @@ describe("BookingTab", () => {
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
     expect(screen.getByRole("heading", { name: "Manage these action types in Google" })).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Manage action links in Google" })).toHaveAttribute("href", "https://business.google.com/")
-    expect(screen.queryByRole("button", { name: "Review action link" })).not.toBeInTheDocument()
-    expect(screen.queryByText("Google doesn’t offer action links for this listing")).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Manage booking links in Google" })).toHaveAttribute("href", "https://business.google.com/")
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Google doesn’t offer booking links for this listing")).not.toBeInTheDocument()
   })
   it("shows an observed empty location-specific action set without inventing enum-wide editors", () => {
     useBookingMock.mockReturnValue({ data: makeState({ supportedTypes: [], unsupportedTypes: [], links: [] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
-    expect(screen.getByRole("heading", { name: "Google doesn’t offer action links for this listing" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Review action link" })).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Google doesn’t offer booking links for this listing" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
   })
   it("lists links, marks a non-editable provider link read-only, and shows no gate reason for a publisher", () => {
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
@@ -72,9 +75,9 @@ describe("BookingTab", () => {
     renderTab()
     expect(screen.getByText("https://book.test")).toBeInTheDocument()
     expect(screen.getByText("Managed by Google")).toBeInTheDocument()
-    // The add button exists; it is only disabled until a link is typed (dirty),
-    // and a publisher sees no permission gate note.
-    expect(screen.getByRole("button", { name: "Review action link" })).toBeInTheDocument()
+    // The review action is docked once a link is typed, so none is on screen
+    // yet, and a publisher sees no permission gate note.
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
     expect(screen.queryByText("You do not have permission to publish this location to Google.")).not.toBeInTheDocument()
   })
 
@@ -82,9 +85,28 @@ describe("BookingTab", () => {
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: false, canPublish: false } })
     renderTab()
-    expect(screen.getByRole("button", { name: "Review action link" })).toBeDisabled()
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /^Type/ })).toBeDisabled()
     expect(screen.getByText("You do not have permission to publish this location to Google.")).toBeInTheDocument()
+  })
+
+  it("docks the review action once a link is typed", async () => {
+    const user = userEvent.setup()
+    useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.queryByRole("button", { name: "Review booking link" })).not.toBeInTheDocument()
+    await user.type(screen.getByRole("textbox", { name: "Link" }), "https://book.example")
+    const bar = screen.getByRole("region", { name: "Booking link actions" })
+    expect(within(bar).getByRole("button", { name: "Review booking link" })).toBeEnabled()
+  })
+
+  it("shows the type as plain text when Google supports only one", () => {
+    useBookingMock.mockReturnValue({ data: makeState({ supportedTypes: ["DINING_RESERVATION"] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.queryByRole("button", { name: /^Type/ })).not.toBeInTheDocument()
+    expect(screen.getAllByText("Reserve a table").length).toBeGreaterThan(0)
   })
 
   it("chooses the new link's type from a short option list", async () => {
@@ -167,12 +189,12 @@ describe("BookingTab", () => {
     items = await screen.findAllByRole("menuitem")
     expect(items.map((item) => item.textContent)).toEqual(["Make preferred", "Remove link"])
     await user.click(screen.getByRole("menuitem", { name: "Remove link" }))
-    const confirm = await screen.findByRole("alertdialog", { name: "Review removing this action link?" })
+    const confirm = await screen.findByRole("alertdialog", { name: "Review removing this booking link?" })
     expect(within(confirm).getByText("https://book.test/other")).toBeInTheDocument()
     expect(within(confirm).getByRole("button", { name: "Prepare removal review" })).toBeEnabled()
   })
 
-  it("asks before an in-app link leaves a typed new action link behind", async () => {
+  it("asks before an in-app link leaves a typed new booking link behind", async () => {
     const user = userEvent.setup()
     useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
