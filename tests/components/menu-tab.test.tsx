@@ -334,7 +334,7 @@ describe("menu draft preservation across revisions", () => {
       screen.getByRole("button", { name: "Edit Soup", hidden: true })
     ).toHaveAccessibleDescription("£7")
   })
-  it("keeps the find tools off a short menu and counts in the singular", () => {
+  it("keeps the find tools off a short menu", () => {
     useMenuMock.mockReturnValue({
       data: makeMenus(),
       isPending: false,
@@ -348,6 +348,46 @@ describe("menu draft preservation across revisions", () => {
     renderTab()
     expect(screen.queryByRole("searchbox", { name: "Search menu" })).toBeNull()
     expect(screen.queryByText(/items shown/)).toBeNull()
+  })
+  it("offers the find tools once a single section holds more than twelve items", () => {
+    const base = makeMenus()
+    const menu = base.canonicalMenus[0] as {
+      sections: { items: unknown[] }[]
+    }
+    const item = menu.sections[0]!.items[0]
+    useMenuMock.mockReturnValue({
+      data: {
+        ...base,
+        canonicalMenus: [
+          {
+            ...menu,
+            sections: [
+              {
+                ...menu.sections[0],
+                items: Array.from({ length: 13 }, (_, index) => ({
+                  ...(item as object),
+                  labels: [{ displayName: `Dish ${index + 1}` }],
+                })),
+              },
+            ],
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    expect(
+      screen.getByRole("searchbox", { name: "Search menu" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("13 of 13 items shown · 1 section total")
+    ).toBeInTheDocument()
   })
   it("offers the find tools once the menu has three sections", () => {
     useMenuMock.mockReturnValue({
