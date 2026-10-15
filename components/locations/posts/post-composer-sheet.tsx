@@ -35,7 +35,6 @@ import {
   SheetBody,
   SheetClose,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -94,11 +93,6 @@ const ROW =
 const ROW_LABEL =
   "shrink-0 text-ui font-normal text-ink-muted @[360px]/composer:w-28"
 const ROW_VALUE = "flex min-w-0 flex-1 flex-col gap-1"
-/**
- * Borderless at rest, so the rows read as one surface; the edge and the
- * focus ring come back on hover, focus and an error.
- */
-const BARE = "border-transparent bg-transparent hover-fine:hover:border-line"
 
 /** The summary limit the posts route parses with (`localPostInputSchema`). */
 const SUMMARY_MAX = 1500
@@ -396,7 +390,7 @@ export function PostComposerSheet({
       ? null
       : editing
         ? "No changes to save yet."
-        : "Nothing to save yet. Write the post first."
+        : "Write the post first."
   const event = values.topicType !== "STANDARD"
   const offer = values.topicType === "OFFER"
   const summaryLength = values.summary.length
@@ -482,11 +476,6 @@ export function PostComposerSheet({
       <SheetContent side="right" size="wide">
         <SheetHeader>
           <SheetTitle>{editing ? "Edit post" : "New post"}</SheetTitle>
-          <SheetDescription>
-            {post?.status === "failed"
-              ? "Saving turns it back into a draft. Nothing reaches Google until you publish it from the list."
-              : "Saved as a draft. Nothing reaches Google until you publish it from the list."}
-          </SheetDescription>
         </SheetHeader>
 
         <SheetBody className="@container/composer">
@@ -534,7 +523,6 @@ export function PostComposerSheet({
                         onChange={(e) => set("eventTitle", e.target.value)}
                         disabled={disabled}
                         autoComplete="off"
-                        className={BARE}
                       />
                       <FieldError>{errors.eventTitle}</FieldError>
                     </div>
@@ -557,7 +545,7 @@ export function PostComposerSheet({
                             disabled={disabled}
                             aria-invalid={errors.dates ? true : undefined}
                             aria-describedby={datesId}
-                            className={cn(BARE, "flex-[1.3]")}
+                            className={"flex-[1.3]"}
                           />
                           <Field className="min-w-0 flex-1">
                             <FieldLabel className="sr-only">
@@ -568,7 +556,6 @@ export function PostComposerSheet({
                               value={values.startTime}
                               onChange={(e) => set("startTime", e.target.value)}
                               disabled={disabled}
-                              className={BARE}
                             />
                           </Field>
                         </div>
@@ -584,7 +571,7 @@ export function PostComposerSheet({
                             disabled={disabled}
                             aria-invalid={errors.dates ? true : undefined}
                             aria-describedby={datesId}
-                            className={cn(BARE, "flex-[1.3]")}
+                            className={"flex-[1.3]"}
                           />
                           <Field className="min-w-0 flex-1">
                             <FieldLabel className="sr-only">
@@ -595,7 +582,6 @@ export function PostComposerSheet({
                               value={values.endTime}
                               onChange={(e) => set("endTime", e.target.value)}
                               disabled={disabled}
-                              className={BARE}
                             />
                           </Field>
                         </div>
@@ -636,7 +622,7 @@ export function PostComposerSheet({
                             disabled={disabled}
                           >
                             <SelectTrigger
-                              className={cn(BARE, "w-full")}
+                              className={"w-full"}
                               aria-invalid={errors.repeat ? true : undefined}
                               aria-describedby={repeatId}
                             >
@@ -674,7 +660,6 @@ export function PostComposerSheet({
                               disabled={disabled}
                               aria-invalid={errors.repeat ? true : undefined}
                               aria-describedby={repeatId}
-                              className={BARE}
                             />
                           </div>
                         </Field>
@@ -724,7 +709,7 @@ export function PostComposerSheet({
                               }
                               disabled={disabled}
                             >
-                              <SelectTrigger className={cn(BARE, "w-full")}>
+                              <SelectTrigger className={"w-full"}>
                                 <SelectValue>
                                   {(value: string | null) =>
                                     monthly.find(
@@ -781,7 +766,6 @@ export function PostComposerSheet({
                           disabled={disabled}
                           maxLength={100}
                           autoComplete="off"
-                          className={BARE}
                         />
                       </div>
                     </Field>
@@ -797,7 +781,6 @@ export function PostComposerSheet({
                           value={values.redeemUrl}
                           onChange={(e) => set("redeemUrl", e.target.value)}
                           disabled={disabled}
-                          className={BARE}
                         />
                         <FieldError>{errors.redeemUrl}</FieldError>
                       </div>
@@ -811,7 +794,6 @@ export function PostComposerSheet({
                           value={values.terms}
                           onChange={(e) => set("terms", e.target.value)}
                           disabled={disabled}
-                          className={BARE}
                         />
                       </div>
                     </Field>
@@ -845,7 +827,6 @@ export function PostComposerSheet({
                   maxRows={16}
                   disabled={disabled}
                   aria-label="Post summary"
-                  className={BARE}
                 />
                 <FieldError>{errors.summary}</FieldError>
               </Field>
@@ -897,7 +878,7 @@ export function PostComposerSheet({
                       }
                       disabled={disabled}
                     >
-                      <SelectTrigger className={cn(BARE, "w-full")}>
+                      <SelectTrigger className={"w-full"}>
                         <SelectValue>
                           {(value: string | null) =>
                             value && value !== "NONE"
@@ -933,7 +914,6 @@ export function PostComposerSheet({
                         value={values.actionUrl}
                         onChange={(e) => set("actionUrl", e.target.value)}
                         disabled={disabled}
-                        className={BARE}
                       />
                       <FieldError>{errors.actionUrl}</FieldError>
                     </div>
@@ -1015,8 +995,9 @@ export function PostComposerSheet({
             {/* The composer only saves: publishing (or asking for approval,
                 or scheduling where it is on) happens from the post list. */}
             <p>
-              This saves a draft. Nothing goes to Google until it is published
-              from the list.
+              {post?.status === "failed"
+                ? "Saving turns it back into a draft. Nothing reaches Google until you publish it from the list."
+                : "This saves a draft. Nothing reaches Google until you publish it from the list."}
             </p>
           </div>
           {/* Marked as the overlay's close control so a dirty composer
