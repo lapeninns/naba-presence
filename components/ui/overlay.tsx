@@ -600,12 +600,14 @@ export function OverlayChrome({
   }
   return (
     <OverlayChromeContext.Provider value={value}>
-      {body}
       {presentation === "sheet" && !grabbed ? (
         // No header drew the handle (a visually hidden or absent header): a
-        // phone sheet still carries one, over the popup's top padding.
-        <OverlayGrabber className="absolute inset-x-0 top-0" />
+        // phone sheet still carries one. It is first in the DOM and in the
+        // flow, so it reserves its own height and never paints over the
+        // content or a control that is positioned in the popup's corner.
+        <OverlayGrabber className="-mb-2" />
       ) : null}
+      {body}
       {showCloseButton && !hosted ? <OverlayCloseButton /> : null}
     </OverlayChromeContext.Provider>
   )

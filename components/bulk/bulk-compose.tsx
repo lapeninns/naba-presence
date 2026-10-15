@@ -828,7 +828,7 @@ export function BulkCompose() {
                                 }
                               </SelectValue>
                             </SelectTrigger>
-                            <SelectContent title={`Set to, date ${index + 1}`}>
+                            <SelectContent title="Set to">
                               <SelectItem value="closed">Closed</SelectItem>
                               <SelectItem value="open">Open</SelectItem>
                               <SelectItem value="clear">
@@ -1105,7 +1105,7 @@ export function BulkCompose() {
                             }
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent title="Value">
+                        <SelectContent title={row.name.trim() || "Value"}>
                           <SelectItem value="true">Yes</SelectItem>
                           <SelectItem value="false">No</SelectItem>
                         </SelectContent>
@@ -1374,9 +1374,7 @@ export function BulkCompose() {
                             }
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent
-                          title={`Value for lodging field ${index + 1}`}
-                        >
+                        <SelectContent title={row.path || "Value"}>
                           <SelectItem value="true">Yes</SelectItem>
                           <SelectItem value="false">No</SelectItem>
                           <SelectItem value="clear">Not set</SelectItem>

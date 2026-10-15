@@ -137,6 +137,7 @@ describe("BookingTab", () => {
     await user.keyboard("{Escape}")
     await user.click(within(await screen.findByRole("alertdialog", { name: "Close without saving?" })).getByRole("button", { name: "Close and discard" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.queryByRole("alertdialog")).toBeNull()
 
     // The ✕ with edits asks too: it is chrome, not a decision about them.
     await user.click(screen.getByRole("button", { name: "Edit the Reserve a table link" }))
@@ -145,6 +146,7 @@ describe("BookingTab", () => {
     await user.click(within(dialog).getByRole("button", { name: "Close" }))
     await user.click(within(await screen.findByRole("alertdialog", { name: "Close without saving?" })).getByRole("button", { name: "Close and discard" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.queryByRole("alertdialog")).toBeNull()
   })
 
   it("keeps Edit visible and puts preferring and removing in an overflow menu, removal last and confirmed", async () => {

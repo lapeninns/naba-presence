@@ -113,13 +113,13 @@ function CommandDialog({
           <DialogDescription className="sr-only">
             {description}
           </DialogDescription>
-          {/* The sheet's own grabber is drawn by the overlay chrome. */}
-          <div className="relative flex h-11 shrink-0 items-start">
+          {/* The sheet's grabber is drawn by the overlay chrome, above this row. */}
+          <div className="relative flex h-8 shrink-0 items-start">
             <DialogClose
               render={
                 <Button
                   variant="link"
-                  className="absolute top-1.5 right-4 h-8! text-ui no-underline"
+                  className="absolute top-0 right-4 h-8! text-ui no-underline"
                 />
               }
             >

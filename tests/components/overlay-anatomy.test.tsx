@@ -144,6 +144,11 @@ describe("The overlay recipe", () => {
     render(<SaveDialog hiddenHeader />)
     const hidden = await screen.findByRole("dialog", { name: "Edit link" })
     expect(hidden.querySelectorAll(GRABBER)).toHaveLength(1)
+    // The fallback grabber is in the flow and first in the popup, so it
+    // reserves its own height and never paints over the content or a control.
+    const grabber = hidden.querySelector(GRABBER)!
+    expect(grabber).not.toHaveClass("absolute")
+    expect(hidden.firstElementChild).toBe(grabber)
     // The content still draws the one ✕ the hidden header left to it.
     expect(
       within(hidden).getAllByRole("button", { name: "Close" })
@@ -165,6 +170,13 @@ describe("The overlay recipe", () => {
     const dialog = await screen.findByRole("dialog", { name: "Search" })
     expect(dialog).toHaveAttribute("data-presentation", "sheet")
     expect(dialog.querySelectorAll(GRABBER)).toHaveLength(1)
+    // Its Cancel (the sheet's only visible close) is never under the grabber.
+    const grabber = dialog.querySelector(GRABBER)!
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" })
+    expect(grabber).not.toHaveClass("absolute")
+    expect(
+      grabber.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 
   it("draws no grabber on the desk dialog", async () => {

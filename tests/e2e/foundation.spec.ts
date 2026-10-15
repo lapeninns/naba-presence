@@ -191,7 +191,7 @@ test.describe("foundation layout and theme (RC3)", () => {
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
     })
 
-    test(`a centred sheet header keeps Close clear of its words at ${width}px (#4)`, async ({ page }) => {
+    test(`a left-aligned sheet header keeps Close clear of its words at ${width}px (#4)`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 })
       await page.goto("/design-system")
       await page.getByRole("button", { name: "Choose a client" }).click()

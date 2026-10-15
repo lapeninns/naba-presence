@@ -467,23 +467,19 @@ function TemplateReplyDialog({
 
         <DialogFooter>
           {phase === "setup" ? (
-            <>
-              <Button
-                disabled={eligible.length === 0}
-                disabledReason={
-                  eligible.length === 0
-                    ? "None of the selected reviews can take a template reply."
-                    : undefined
-                }
-                onClick={() =>
-                  void (bulkEngine ? queueBatch() : createDrafts())
-                }
-              >
-                {bulkEngine
-                  ? `Reply to ${eligible.length}`
-                  : `Create ${eligible.length} ${eligible.length === 1 ? "draft" : "drafts"}`}
-              </Button>
-            </>
+            <Button
+              disabled={eligible.length === 0}
+              disabledReason={
+                eligible.length === 0
+                  ? "None of the selected reviews can take a template reply."
+                  : undefined
+              }
+              onClick={() => void (bulkEngine ? queueBatch() : createDrafts())}
+            >
+              {bulkEngine
+                ? `Reply to ${eligible.length}`
+                : `Create ${eligible.length} ${eligible.length === 1 ? "draft" : "drafts"}`}
+            </Button>
           ) : null}
           {running && phase !== "starting" ? (
             <Button

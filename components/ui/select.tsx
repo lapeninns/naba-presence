@@ -120,7 +120,7 @@ function SelectContent({
    * not say which field they belong to leaves the operator guessing. Use the
    * field's visible label ("Email: New review"). The desk popup ignores it.
    */
-  title: React.ReactNode
+  title: string | React.ReactElement
 }) {
   const sheet = useMenuSheet()
   if (sheet) {

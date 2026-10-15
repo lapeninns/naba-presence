@@ -5,13 +5,13 @@ import { useId, useImperativeHandle, useRef, useState, type Ref } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { ListRow } from "@/components/ui/list-row"
 import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
@@ -740,22 +740,23 @@ export function HoursEditor({
               </SheetBody>
             </SheetContent>
           </Sheet>
-          <Dialog
+          <AlertDialog
             open={removeType !== null}
             onOpenChange={(open) => !open && setRemoveType(null)}
           >
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Remove service schedule?</DialogTitle>
-                <DialogDescription>
-                  Remove{" "}
-                  {supportedHoursTypes.find(
-                    (type) => type.hoursTypeId === removeType
-                  )?.displayName ?? removeType}{" "}
-                  from this draft. Review and publish to remove it from Google.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
+            <AlertDialogContent>
+              <AlertDialogTitle>Remove service schedule?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Remove{" "}
+                {supportedHoursTypes.find(
+                  (type) => type.hoursTypeId === removeType
+                )?.displayName ?? removeType}{" "}
+                from this draft. Review and publish to remove it from Google.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogClose render={<Button variant="ghost" />}>
+                  Cancel
+                </AlertDialogClose>
                 <Button
                   type="button"
                   onClick={() => {
@@ -770,9 +771,9 @@ export function HoursEditor({
                 >
                   Remove schedule from draft
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </SettingsGroup>
       ) : null}
 
