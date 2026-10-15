@@ -8,7 +8,9 @@ import {
   circlesIntersect,
   compactTotals,
   componentKey,
+  cssLength,
   DEFAULT_ROUTES,
+  effectiveHitArea,
   evaluateTargetSize,
   focusVerdict,
   parseArgs,
@@ -18,6 +20,7 @@ import {
   resolvePath,
   textStats,
   topOffenders,
+  touchBoxFailures,
   touchTargetFailures,
   unionLength,
 } from "./mobile-audit-lib.mjs"
@@ -197,6 +200,192 @@ describe("WCAG 2.5.8 target size", () => {
   })
 })
 
+describe("effective hit area (MEA-01)", () => {
+  type Box = { left: number; top: number; right: number; bottom: number }
+  const pad = (x: number, y: number, w: number, h: number): Box => ({
+    left: x,
+    top: y,
+    right: x + w,
+    bottom: y + h,
+  })
+  // A pseudo-element as the probe records it: resolved offsets, the
+  // containing block's padding box and the clipping ancestors.
+  const part = (
+    block: Box,
+    offsets: Partial<
+      Record<"left" | "top" | "right" | "bottom" | "width" | "height", string>
+    >,
+    clips: (Box & { x: boolean; y: boolean })[] = []
+  ) => ({
+    left: "auto",
+    top: "auto",
+    right: "auto",
+    bottom: "auto",
+    width: "auto",
+    height: "auto",
+    ...offsets,
+    block,
+    clips,
+  })
+  const sized = (t: { w: number; h: number }) => [t.w, t.h]
+
+  it("extends an sm button vertically to 44px but keeps its width", () => {
+    // `after:inset-x-0 after:inset-y-[calc((100%-44px)/2)]` on a 151x32 box.
+    const button = target(0, 10, 100, 151, 32, {
+      hit: [
+        part(pad(10, 100, 151, 32), {
+          left: "0px",
+          right: "0px",
+          top: "-6px",
+          bottom: "-6px",
+          width: "151px",
+          height: "44px",
+        }),
+      ],
+    })
+    const effective = effectiveHitArea(button)
+    expect(sized(effective)).toEqual([151, 44])
+    expect(effective.y).toBe(94)
+    expect(effective.box).toEqual({ x: 10, y: 100, w: 151, h: 32 })
+    expect(effective).not.toHaveProperty("hit")
+    expect(touchTargetFailures([effective])).toEqual([])
+    expect(touchBoxFailures([effective]).map((f) => f.id)).toEqual([0])
+  })
+
+  it("extends a switch and a checkbox to 44x44", () => {
+    // Switch: `before:-inset-x-1 before:inset-y-[calc((100%-44px)/2)]`.
+    const toggle = target(0, 300, 200, 36, 20, {
+      hit: [
+        part(pad(300, 200, 36, 20), {
+          left: "-4px",
+          right: "-4px",
+          top: "-12px",
+          bottom: "-12px",
+          width: "44px",
+          height: "44px",
+        }),
+      ],
+    })
+    // Checkbox: `after:inset-[calc((100%-44px)/2)]` on a 20px box, with
+    // only start offsets and sizes resolved.
+    const checkbox = target(1, 20, 400, 20, 20, {
+      hit: [
+        part(pad(20, 400, 20, 20), {
+          left: "-12px",
+          top: "-12px",
+          width: "44px",
+          height: "44px",
+        }),
+      ],
+    })
+    const effective = [toggle, checkbox].map(effectiveHitArea)
+    expect(effective.map(sized)).toEqual([
+      [44, 44],
+      [44, 44],
+    ])
+    expect(touchTargetFailures(effective)).toEqual([])
+    expect(touchBoxFailures(effective).map((f) => f.id)).toEqual([0, 1])
+  })
+
+  it("still fails a genuinely small target and a narrow extended one", () => {
+    const icon = target(0, 0, 0, 20, 20)
+    // A chip only extends vertically, so a 30px-wide one stays too narrow.
+    const chip = target(1, 50, 0, 30, 32, {
+      hit: [
+        part(pad(50, 0, 30, 32), {
+          left: "0px",
+          right: "0px",
+          top: "-6px",
+          bottom: "-6px",
+        }),
+      ],
+    })
+    const effective = [icon, chip].map(effectiveHitArea)
+    expect(effective.map(sized)).toEqual([
+      [20, 20],
+      [30, 44],
+    ])
+    expect(touchTargetFailures(effective).map((f) => f.id)).toEqual([0, 1])
+  })
+
+  it("clips the extension to an ancestor that hides overflow", () => {
+    // A chip in a 36px-tall horizontal scroller: the scroller clips the
+    // vertical extension back to the drawn box.
+    const chip = target(0, 100, 102, 80, 32, {
+      hit: [
+        part(
+          pad(100, 102, 80, 32),
+          { left: "0px", right: "0px", top: "-6px", bottom: "-6px" },
+          [{ ...pad(0, 100, 390, 36), x: true, y: true }]
+        ),
+      ],
+    })
+    const effective = effectiveHitArea(chip)
+    expect(sized(effective)).toEqual([80, 36])
+    expect(effective.y).toBe(100)
+    // Never smaller than the drawn box: only the extension is clipped.
+    const clippedAway = effectiveHitArea(
+      target(1, 500, 102, 80, 32, {
+        hit: [
+          part(
+            pad(500, 102, 80, 32),
+            { left: "0px", right: "0px", top: "-6px", bottom: "-6px" },
+            [{ ...pad(0, 100, 390, 36), x: true, y: true }]
+          ),
+        ],
+      })
+    )
+    expect(sized(clippedAway)).toEqual([80, 32])
+  })
+
+  it("treats a stretched card link's card as its target", () => {
+    // `after:absolute after:inset-0` with the card as containing block.
+    const link = target(0, 32, 40, 20, 20, {
+      hit: [
+        part(pad(16, 16, 358, 120), {
+          left: "0px",
+          top: "0px",
+          right: "0px",
+          bottom: "0px",
+        }),
+      ],
+    })
+    const effective = effectiveHitArea(link)
+    expect([effective.x, effective.y, effective.w, effective.h]).toEqual([
+      16, 16, 358, 120,
+    ])
+    expect(touchTargetFailures([effective])).toEqual([])
+  })
+
+  it("resolves percentage and calc() insets against the containing block", () => {
+    expect(cssLength("12px", 100)).toBe(12)
+    expect(cssLength("-4.5px", 100)).toBe(-4.5)
+    expect(cssLength("50%", 20)).toBe(10)
+    expect(cssLength("calc(50% - 22px)", 20)).toBe(-12)
+    expect(cssLength("calc(50% + 2px)", 20)).toBe(12)
+    expect(cssLength("auto", 20)).toBeNull()
+    // A switch whose vertical insets Chrome left as calc(50% - 22px).
+    const toggle = target(0, 0, 100, 36, 20, {
+      hit: [
+        part(pad(0, 100, 36, 20), {
+          left: "-4px",
+          right: "-4px",
+          top: "calc(50% - 22px)",
+          bottom: "calc(50% - 22px)",
+        }),
+      ],
+    })
+    expect(sized(effectiveHitArea(toggle))).toEqual([44, 44])
+  })
+
+  it("ignores offsets it can't resolve", () => {
+    const button = target(0, 0, 0, 32, 32, {
+      hit: [part(pad(0, 0, 32, 32), { left: "min(1px, 2%)", top: "-6px" })],
+    })
+    expect(sized(effectiveHitArea(button))).toEqual([32, 32])
+  })
+})
+
 describe("chrome budget", () => {
   it("sums top and bottom chrome and ignores full-height boxes", () => {
     const result = chromeBudget(
@@ -263,6 +452,18 @@ describe("aggregation and budgets", () => {
       { tag: "button", slot: "button", slotDepth: 0, w: 32, h: 32 },
       { tag: "svg", slot: "button", slotDepth: 1, w: 32, h: 32 },
     ],
+    touchBoxes: [
+      { tag: "button", slot: "button", slotDepth: 0, w: 32, h: 32 },
+      { tag: "svg", slot: "button", slotDepth: 1, w: 32, h: 32 },
+      {
+        tag: "button",
+        slot: "switch",
+        slotDepth: 0,
+        w: 44,
+        h: 44,
+        box: { x: 0, y: 0, w: 36, h: 20 },
+      },
+    ],
     iosZoom: [{ tag: "input", slot: "input", slotDepth: 0, fontSize: 14 }],
     text: { under12: 3, under14: 5, smallest: 11 },
     axe: [
@@ -301,6 +502,7 @@ describe("aggregation and budgets", () => {
       horizontalOverflow: 2,
       targetSize: 2,
       touchTargetBelow44: 2,
+      touchBoxBelow44: 3,
       iosZoomInputs: 1,
       textUnder12: 6,
       textUnder14Phone: 5,
