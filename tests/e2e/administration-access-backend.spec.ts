@@ -52,7 +52,7 @@ for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}
     expect(fixture.writes()[0]).toMatchObject({ body: { admin: "invitee@example.test", role: "MANAGER" } })
     expect(fixture.writes()[0].path).toContain(`${scope === "account" ? fixture.connection.googleAccountName : fixture.linked.googleLocationName}/admins`)
     const sheet = page.locator('[data-slot="sheet-content"]')
-    await expect(sheet.getByText("Administrator invitation listed; access awaits acceptance", { exact: true })).toBeVisible()
+    await expect(sheet.getByText("Google lists the invitation. They get access once they accept it.", { exact: true })).toBeVisible()
     await page.reload(); await page.getByRole("button", { name: "Open outcome", exact: true }).click()
     await expect(sheet.getByText("Independently confirmed", { exact: true })).toBeVisible()
     await captureAccessSheet(page, info, "restored")

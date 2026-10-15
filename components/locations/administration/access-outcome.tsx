@@ -12,7 +12,7 @@ function observedEffect(attempt: AdministrationAccessAttempt): string {
   switch (attempt.postcondition) {
     case "administrator_present":
       return attempt.pendingInvitation
-        ? "Administrator invitation listed; access awaits acceptance"
+        ? "Google lists the invitation. They get access once they accept it."
         : "Administrator access listed"
     case "administrator_role_changed":
       return "Reviewed administrator role listed"

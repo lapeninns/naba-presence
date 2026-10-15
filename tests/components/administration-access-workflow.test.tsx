@@ -63,7 +63,7 @@ describe("administration review, consent and saved outcome controls", () => {
     render(); const button = await approve()
     expect(button).toBeDisabled(); expect(access.executeAdministrationAccess).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole("checkbox")); await userEvent.click(button)
-    expect(await screen.findByText("Administrator invitation listed; access awaits acceptance")).toBeInTheDocument()
+    expect(await screen.findByText("Google lists the invitation. They get access once they accept it.")).toBeInTheDocument()
     expect(screen.getByText("Independently confirmed")).toBeInTheDocument()
     expect(access.executeAdministrationAccess).toHaveBeenCalledExactlyOnceWith(id, id, review.changeSet.payloadHash)
   })
