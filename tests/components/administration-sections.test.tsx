@@ -320,9 +320,9 @@ describe("invitations", () => {
       operation: "create_admin",
       payload: { scope: "location", admin: "new@camden.test", role: "MANAGER" },
     })
-    await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Invite someone" })).not.toBeInTheDocument()
-    )
+    // The saved review takes the form's place on the same sheet.
+    expect(await screen.findByRole("heading", { name: "Review invitation" })).toBeInTheDocument()
+    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument()
   })
 
   it("labels the role and scope pickers by their visible labels and gives the email field identifier keyboard hints", async () => {

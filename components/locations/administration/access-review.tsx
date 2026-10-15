@@ -40,32 +40,10 @@ export function reviewedRows(
   return parsed.success ? parsed.data.rows : []
 }
 
-export function AccessReview({
-  review,
-  locationName,
-  busy,
-  blocked,
-  uncertain,
-  stale,
-  onApprove,
-  onExecute,
-  onCheck,
-  onBack,
-}: {
+/** The rows a saved access review shows: the exact listing, action, target and proposal. */
+export function accessReviewRows(
   review: AdministrationAccessReview
-  locationName: string
-  busy: boolean
-  blocked: boolean
-  uncertain: boolean
-  stale: boolean
-  onApprove: () => void
-  onExecute: () => void
-  onCheck: () => void
-  onBack: () => void
-}) {
-  const [confirmed, setConfirmed] = useState(false)
-  const [typedName, setTypedName] = useState("")
-  const expired = useDeadline(review.changeSet.expiresAt)
+): SummaryRow[] {
   const request = review.request,
     payload = request.payload,
     change = review.changeSet
@@ -123,6 +101,38 @@ export function AccessReview({
     value: review.target,
     technical: true,
   })
+  return rows
+}
+
+export function AccessReview({
+  review,
+  locationName,
+  busy,
+  blocked,
+  uncertain,
+  stale,
+  onApprove,
+  onExecute,
+  onCheck,
+  onBack,
+}: {
+  review: AdministrationAccessReview
+  locationName: string
+  busy: boolean
+  blocked: boolean
+  uncertain: boolean
+  stale: boolean
+  onApprove: () => void
+  onExecute: () => void
+  onCheck: () => void
+  onBack: () => void
+}) {
+  const [confirmed, setConfirmed] = useState(false)
+  const [typedName, setTypedName] = useState("")
+  const expired = useDeadline(review.changeSet.expiresAt)
+  const request = review.request,
+    change = review.changeSet
+  const rows = accessReviewRows(review)
 
   // Removing someone's access is the destructive access request: its send
   // step asks for the listing name as well as the consent, matched the same

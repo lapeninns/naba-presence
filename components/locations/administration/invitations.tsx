@@ -1,34 +1,14 @@
 "use client"
 
 import { UserPlusIcon } from "lucide-react"
-import { useState } from "react"
 
 import { StatusPill } from "@/components/ui/status-pill"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Empty } from "@/components/ui/empty"
-import { Input, inputHints } from "@/components/ui/input"
 import { ListRow, ListRows } from "@/components/ui/list-row"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { administrationAccessRequestSchema } from "@/lib/contracts/google-administration-review"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
-import { createAdminSchema } from "@/lib/locations/forms/administration"
 import {
   asArray,
   asRecord,
@@ -38,7 +18,6 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
-import { EDITABLE_ROLES } from "./admins"
 import { invitationPlace } from "./access-target"
 import { useAdministrationSection } from "./context"
 import {
@@ -166,154 +145,17 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
 }
 
 // --- Create admin ------------------------------------------------------
-// These are our own UI-level scope values (not a Google enum), but the
-// trigger still must not go blank/raw on first paint (spec §7) - factor the
-// label here so the SelectValue render-function and the SelectItems below
-// can never drift out of sync.
-const ADMIN_SCOPE_LABELS: Record<string, string> = {
-  location: "This location",
-  account: "The whole Google account",
-}
-
+/** The "Invite someone" button; the invitation itself is the sheet the access workspace holds. */
 export function CreateAdminDialog() {
-  const { locationId, publishReason, writeBlocked } = useAdministrationSection()
+  const { writeBlocked } = useAdministrationSection()
   const access = useAdministrationAccess()
-  const [open, setOpen] = useState(false)
-  const [scope, setScope] = useState("location")
-  const [email, setEmail] = useState("")
-  const [role, setRole] = useState("MANAGER")
-
-  const parsed = createAdminSchema.safeParse({ scope, admin: email, role })
-  const emailError =
-    email.trim().length > 0 && !parsed.success
-      ? parsed.error.issues.find((issue) => issue.path[0] === "admin")?.message
-      : undefined
-
-  const create = useResourceMutation({
-    mutationFn: () => {
-      const values = createAdminSchema.parse({ scope, admin: email, role })
-      return access.preview(
-        administrationAccessRequestSchema.parse({
-          operation: "create_admin",
-          payload: values,
-        })
-      )
-    },
-    invalidate: [queryKeys.locationAdministration(locationId)],
-    successToast: "Invitation ready to approve",
-    onSuccess: () => {
-      setOpen(false)
-      setEmail("")
-    },
-  })
-
-  const cannotSubmit =
-    !parsed.success ||
-    Boolean(publishReason) ||
-    create.isPending ||
-    access.busy ||
-    Boolean(access.unresolved)
-
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) setEmail("")
-      }}
-      // A typed address is a draft: a stray scrim tap or Escape asks first.
-      dirty={email.trim().length > 0}
-      onDiscard={() => setEmail("")}
+    <Button
+      disabled={writeBlocked || access.busy || Boolean(access.unresolved)}
+      onClick={access.openInvite}
     >
-      <DialogTrigger
-        render={
-          <Button
-            disabled={writeBlocked || access.busy || Boolean(access.unresolved)}
-          />
-        }
-      >
-        <UserPlusIcon aria-hidden data-icon="inline-start" />
-        Invite someone
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Invite someone</DialogTitle>
-          <DialogDescription>
-            Google emails them an invitation. They get access once they accept
-            it on Google. Reviewing sends nothing yet.
-          </DialogDescription>
-        </DialogHeader>
-        {/* A real form: Enter in the email field reviews the invitation. */}
-        <form
-          className="flex min-w-0 flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (!cannotSubmit) create.mutate()
-          }}
-        >
-          <Field error={emailError}>
-            <FieldLabel>Email address</FieldLabel>
-            <Input
-              {...inputHints.email}
-              // Someone else's address: don't offer the operator's own.
-              autoComplete="off"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <FieldError />
-          </Field>
-          <Field>
-            <FieldLabel>Role</FieldLabel>
-            <Select
-              value={role}
-              onValueChange={(value: string | null) => value && setRole(value)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(value: string | null) =>
-                    value ? adminRoleLabel(value) : ""
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent title="Role">
-                {EDITABLE_ROLES.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {adminRoleLabel(r)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel>Scope</FieldLabel>
-            <Select
-              value={scope}
-              onValueChange={(value: string | null) => value && setScope(value)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(value: string | null) =>
-                    value ? (ADMIN_SCOPE_LABELS[value] ?? value) : ""
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent title="Scope">
-                <SelectItem value="location">
-                  {ADMIN_SCOPE_LABELS.location}
-                </SelectItem>
-                <SelectItem value="account">
-                  {ADMIN_SCOPE_LABELS.account}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <DialogFooter>
-            <Button type="submit" disabled={cannotSubmit}>
-              {create.isPending ? "Reviewing…" : "Review invitation"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+      <UserPlusIcon aria-hidden data-icon="inline-start" />
+      Invite someone
+    </Button>
   )
 }

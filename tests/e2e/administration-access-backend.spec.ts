@@ -1,7 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { startAdministrationBackend } from "./helpers/administration-backend"
 import { captureVerificationSection } from "./helpers/verification-capture"
-import { captureAccessDialog } from "./helpers/administration-capture"
+import { captureAccessSheet } from "./helpers/administration-capture"
 
 let backend: Awaited<ReturnType<typeof startAdministrationBackend>>
 test.beforeAll(async () => { backend = await startAdministrationBackend() })
@@ -13,22 +13,24 @@ async function technicalReference(page: Page, pattern: RegExp) {
   await panel(page).getByText("Technical details", { exact: true }).click()
   await expect(panel(page).locator("details dd").filter({ hasText: pattern })).toBeVisible()
 }
-async function approveAndSend(page: Page, info: TestInfo, typedName?: string) {
-  const review = panel(page)
+/** An invitation reads and sends on its own sheet; every other access change in the page panel. */
+async function approveAndSend(page: Page, info: TestInfo, typedName?: string, surface: "panel" | "sheet" = "panel") {
+  const review = surface === "sheet" ? page.getByRole("dialog") : panel(page)
+  const shot = (name: string) => surface === "sheet" ? captureAccessSheet(page, info, name) : captureVerificationSection(page, info, { name, section: "access-review-workspace" })
   await expect(review.getByRole("button", { name: "Approve access request" })).toBeEnabled()
-  await captureVerificationSection(page, info, { name: "review", section: "access-review-workspace" })
+  await shot("review")
   await review.getByRole("button", { name: "Approve access request" }).click()
   await expect(review.getByRole("button", { name: "Send approved access request" })).toBeDisabled()
-  await captureVerificationSection(page, info, { name: "approved", section: "access-review-workspace" })
+  await shot("approved")
   // A removal's send step asks for the listing name as well as the consent.
   if (typedName !== undefined) { await review.getByLabel("Type the listing name:", { exact: false }).fill(typedName); await expect(review.getByRole("button", { name: "Send approved access request" })).toBeDisabled() }
   await review.getByRole("checkbox").focus(); await page.keyboard.press("Space")
   await review.getByRole("button", { name: "Send approved access request" }).focus()
-  await captureVerificationSection(page, info, { name: "keyboard-ready", section: "access-review-workspace" })
+  await shot("keyboard-ready")
   await page.keyboard.press("Enter")
   await expect(review.getByText("Accepted by Google", { exact: true })).toBeVisible()
   await expect(review.getByText("Independently confirmed", { exact: true })).toBeVisible()
-  await captureVerificationSection(page, info, { name: "outcome", section: "access-review-workspace" })
+  await shot("outcome")
 }
 for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}px`, () => {
   test.use({ viewport: { width, height: 1100 } })
@@ -39,20 +41,23 @@ for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}
     await captureVerificationSection(page, info, { name: "account-admins", section: "people-account" })
     await captureVerificationSection(page, info, { name: "lifecycle-consequences", section: "danger-zone-heading" })
     await page.getByRole("button", { name: "Invite someone" }).click()
-    await captureAccessDialog(page, info, "invitation-empty")
+    await captureAccessSheet(page, info, "invitation-empty")
     if (scope === "account") { await page.getByRole("combobox", { name: "Scope", exact: true }).click(); await page.getByRole("option", { name: "The whole Google account", exact: true }).click() }
     await page.getByLabel("Email address", { exact: true }).fill("invitee@example.test")
-    await captureAccessDialog(page, info, "invitation-filled")
+    await captureAccessSheet(page, info, "invitation-filled")
     await page.getByRole("button", { name: "Review invitation", exact: true }).click()
     expect(fixture.writes()).toHaveLength(0)
-    await approveAndSend(page, info)
+    await approveAndSend(page, info, undefined, "sheet")
     expect(fixture.writes()).toHaveLength(1)
     expect(fixture.writes()[0]).toMatchObject({ body: { admin: "invitee@example.test", role: "MANAGER" } })
     expect(fixture.writes()[0].path).toContain(`${scope === "account" ? fixture.connection.googleAccountName : fixture.linked.googleLocationName}/admins`)
-    await expect(panel(page).getByText("Administrator invitation listed; access awaits acceptance", { exact: true })).toBeVisible()
+    const sheet = page.getByRole("dialog")
+    await expect(sheet.getByText("Administrator invitation listed; access awaits acceptance", { exact: true })).toBeVisible()
     await page.reload(); await page.getByRole("button", { name: "Open outcome", exact: true }).click()
-    await expect(panel(page).getByText("Independently confirmed", { exact: true })).toBeVisible()
-    await captureVerificationSection(page, info, { name: "restored", section: "access-review-workspace" })
+    await expect(sheet.getByText("Independently confirmed", { exact: true })).toBeVisible()
+    await captureAccessSheet(page, info, "restored")
+    await sheet.getByRole("button", { name: "Back to access", exact: true }).click()
+    await expect(sheet).toBeHidden()
     await captureVerificationSection(page, info, { name: "saved-work", section: "access-saved-work" })
     expect(fixture.writes()).toHaveLength(1)
   })

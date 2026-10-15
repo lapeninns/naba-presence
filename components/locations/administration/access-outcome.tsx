@@ -34,6 +34,7 @@ export function AccessOutcome({
   onCheck,
   onRefresh,
   onBack,
+  showActions = true,
 }: {
   attempt: AdministrationAccessAttempt
   review?: AdministrationAccessReview | null
@@ -41,6 +42,8 @@ export function AccessOutcome({
   onCheck: () => void
   onRefresh: () => void
   onBack: () => void
+  /** Off when the caller (a sheet) carries these actions in its own footer. */
+  showActions?: boolean
 }) {
   // Describe the target from the reviewed rows when this outcome's review is at
   // hand, otherwise from what Google listed when the outcome was observed.
@@ -68,28 +71,30 @@ export function AccessOutcome({
         { label: "Google reference", value: attempt.target, technical: true },
       ]}
       actions={
-        <>
-          <Button variant="secondary" disabled={busy} onClick={onCheck}>
-            Read saved access outcome
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={busy || attempt.executionState === "rejected"}
-            onClick={onRefresh}
-          >
-            Refresh Google access state
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={
-              busy ||
-              ["pending", "unresolved"].includes(attempt.confirmationState)
-            }
-            onClick={onBack}
-          >
-            Back to access
-          </Button>
-        </>
+        showActions ? (
+          <>
+            <Button variant="secondary" disabled={busy} onClick={onCheck}>
+              Read saved access outcome
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={busy || attempt.executionState === "rejected"}
+              onClick={onRefresh}
+            >
+              Refresh Google access state
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={
+                busy ||
+                ["pending", "unresolved"].includes(attempt.confirmationState)
+              }
+              onClick={onBack}
+            >
+              Back to access
+            </Button>
+          </>
+        ) : undefined
       }
     >
       {attempt.confirmationState === "unresolved" && (

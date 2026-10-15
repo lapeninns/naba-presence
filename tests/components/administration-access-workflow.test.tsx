@@ -13,9 +13,25 @@ import { renderWithProviders } from "../helpers/render"
 vi.mock("@/lib/api/google-administration-access")
 const review = administrationReviewFixture({ operation: "create_admin", payload: { scope: "location", admin: "new@example.test", role: "MANAGER" } })
 const id = review.changeSet.id
+// An invitation reads and sends on its sheet; a role change is what the page panel holds.
+const roleChange = administrationReviewFixture({ operation: "update_admin", payload: { name: "locations/camden/admins/manager", role: "OWNER" } })
+const approvedRoleChange = { ...roleChange, changeSet: { ...roleChange.changeSet, approvedBy: "manager" } }
+let previewed: typeof review = review
+function panelFixture() {
+  previewed = roleChange
+  vi.mocked(access.previewAdministrationAccess).mockResolvedValue(roleChange)
+  vi.mocked(access.approveAdministrationAccess).mockResolvedValue(approvedRoleChange)
+  vi.mocked(access.fetchAdministrationAccessReview).mockResolvedValue(approvedRoleChange)
+  const roleOutcome = { ...outcome, request: roleChange.request, target: roleChange.target, postcondition: "administrator_role_changed" as const, pendingInvitation: null }
+  vi.mocked(access.executeAdministrationAccess).mockResolvedValue(roleOutcome)
+  vi.mocked(access.fetchAdministrationAccessAttempt).mockResolvedValue(roleOutcome)
+  vi.mocked(access.refreshAdministrationAccessAttempt).mockResolvedValue(roleOutcome)
+  return roleOutcome
+}
 const approved = { ...review, changeSet: { ...review.changeSet, approvedBy: "manager" } }
 const outcome: AdministrationAccessAttempt = { id, reviewId: id, payloadHash: review.changeSet.payloadHash, request: review.request, target: review.target, status: "succeeded", executionState: "accepted", confirmationState: "confirmed", idempotent: false, observation: null, postcondition: "administrator_present", pendingInvitation: true, error: null }
 beforeEach(() => {
+  previewed = review
   vi.mocked(access.previewAdministrationAccess).mockResolvedValue(review)
   vi.mocked(access.approveAdministrationAccess).mockResolvedValue(approved)
   vi.mocked(access.fetchAdministrationAccessReview).mockResolvedValue(approved)
@@ -27,7 +43,7 @@ beforeEach(() => {
 afterEach(() => vi.resetAllMocks())
 function PreviewControl() {
   const action = useAdministrationAccess()
-  return <button disabled={action.busy || Boolean(action.unresolved)} onClick={() => { void action.preview(review.request).catch(() => {}) }}>Preview fixture access</button>
+  return <button disabled={action.busy || Boolean(action.unresolved)} onClick={() => { void action.preview(previewed.request).catch(() => {}) }}>Preview fixture access</button>
 }
 function render(blocked = false) { return renderWithProviders(<AdministrationProvider locationId={id} locationName="Camden Hotel" disabled={false} publishReason={blocked ? "Publishing paused" : null}><AdministrationAccessWorkspace><PreviewControl /><DangerZone /></AdministrationAccessWorkspace></AdministrationProvider>) }
 async function approve() { await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" })); await userEvent.click(await screen.findByRole("button", { name: "Approve access request" })); return screen.findByRole("button", { name: "Send approved access request" }) }
@@ -82,7 +98,8 @@ describe("administration review, consent and saved outcome controls", () => {
     expect(screen.queryByText("Current role")).not.toBeInTheDocument()
   })
   it("clears consent when the same saved approved review is reopened", async () => {
-    vi.mocked(access.fetchAdministrationAccessWorkflows).mockResolvedValue({ items: [{ reviewId: id, createdAt: review.observedAt, request: review.request, attemptId: null, executionState: null, confirmationState: null }], nextCursor: null })
+    panelFixture()
+    vi.mocked(access.fetchAdministrationAccessWorkflows).mockResolvedValue({ items: [{ reviewId: id, createdAt: roleChange.observedAt, request: roleChange.request, attemptId: null, executionState: null, confirmationState: null }], nextCursor: null })
     render(); await approve(); await userEvent.click(screen.getByRole("checkbox"))
     await userEvent.click(screen.getByRole("button", { name: "Open review" }))
     await waitFor(() => expect(screen.getByRole("checkbox")).not.toBeChecked())
@@ -98,7 +115,8 @@ describe("administration review, consent and saved outcome controls", () => {
     expect(access.executeAdministrationAccess).toHaveBeenCalledTimes(1)
   })
   it("keeps unresolved work from enabling a new review or abandoning the recorded outcome", async () => {
-    vi.mocked(access.executeAdministrationAccess).mockResolvedValue({ ...outcome, status: "ambiguous", executionState: "unknown", confirmationState: "unresolved", postcondition: "unknown", error: "outcome_unresolved" })
+    const roleOutcome = panelFixture()
+    vi.mocked(access.executeAdministrationAccess).mockResolvedValue({ ...roleOutcome, status: "ambiguous", executionState: "unknown", confirmationState: "unresolved", postcondition: "unknown", error: "outcome_unresolved" })
     render(); await send(); await screen.findByText("Independent confirmation unresolved")
     expect(screen.getByRole("button", { name: "Preview fixture access" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Back to access" })).toBeDisabled()
@@ -122,6 +140,7 @@ describe("administration review, consent and saved outcome controls", () => {
     expect(access.executeAdministrationAccess).not.toHaveBeenCalled()
   })
   it("blocks adjacent lifecycle writes throughout an in-flight access request", async () => {
+    const roleOutcome = panelFixture()
     let complete: ((value: AdministrationAccessAttempt) => void) | undefined
     vi.mocked(access.executeAdministrationAccess).mockImplementation(() => new Promise((resolve) => { complete = resolve }))
     render(); await send()
@@ -129,11 +148,12 @@ describe("administration review, consent and saved outcome controls", () => {
     expect(screen.getByRole("button", { name: "Delete this location" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Preview fixture access" })).toBeDisabled()
     expect(access.executeAdministrationAccess).toHaveBeenCalledTimes(1)
-    complete?.(outcome)
+    complete?.(roleOutcome)
     expect(await screen.findByText("Independently confirmed")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Transfer this location" })).toBeEnabled()
   })
   it("moves focus to the review when it opens, and to the outcome when it is recorded", async () => {
+    panelFixture()
     render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
     const heading = await screen.findByRole("heading", { name: "Review access request" })
     await waitFor(() => expect(heading).toHaveFocus())
@@ -145,6 +165,33 @@ describe("administration review, consent and saved outcome controls", () => {
     await userEvent.click(screen.getByRole("checkbox")); await userEvent.click(screen.getByRole("button", { name: "Send approved access request" }))
     const outcomeHeading = await screen.findByRole("heading", { name: "Saved access outcome" })
     await waitFor(() => expect(outcomeHeading).toHaveFocus())
+  })
+  it("holds an invitation on its own sheet, not the page panel, from the review to the outcome", async () => {
+    const { container } = render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    const sheet = await screen.findByRole("dialog", { name: "Review invitation" })
+    expect(within(sheet).getByRole("list", { name: "Steps to send this change" })).toHaveTextContent("Approve")
+    expect(container.querySelector('section[aria-labelledby="access-review-workspace"]')).toBeNull()
+    // The one action sits in the footer, with the exact target in the body.
+    expect(within(sheet).getByText("New invitation for new@example.test on this listing")).toBeInTheDocument()
+    await userEvent.click(within(sheet).getByRole("button", { name: "Approve access request" }))
+    await userEvent.click(await within(sheet).findByRole("checkbox"))
+    await userEvent.click(within(sheet).getByRole("button", { name: "Send approved access request" }))
+    expect(await screen.findByRole("dialog", { name: "Saved invitation outcome" })).toBeInTheDocument()
+    expect(access.executeAdministrationAccess).toHaveBeenCalledExactlyOnceWith(id, id, review.changeSet.payloadHash)
+  })
+  it("moves focus to the sheet's title when the review opens", async () => {
+    render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    const title = await screen.findByText("Review invitation")
+    await waitFor(() => expect(title).toHaveFocus())
+  })
+  it("keeps an unresolved invitation outcome on the sheet and blocks the page behind it", async () => {
+    vi.mocked(access.executeAdministrationAccess).mockResolvedValue({ ...outcome, status: "ambiguous", executionState: "unknown", confirmationState: "unresolved", postcondition: "unknown", error: "outcome_unresolved" })
+    render(); await send(); await screen.findByText("Independent confirmation unresolved")
+    expect(screen.getByRole("button", { name: "Back to access" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Transfer this location", hidden: true })).toBeDisabled()
+    // Escape and the scrim cannot dismiss what is still unresolved.
+    await userEvent.keyboard("{Escape}")
+    expect(screen.getByRole("dialog", { name: "Saved invitation outcome" })).toBeInTheDocument()
   })
   it("asks for the exact listing name, trimmed, at the send step of an administrator removal", async () => {
     const removal = administrationReviewFixture({ operation: "delete_admin", payload: { name: "locations/camden/admins/manager" } })

@@ -10,3 +10,13 @@ export async function captureAccessDialog(page: Page, info: TestInfo, name: stri
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: info.outputPath(`${name}.png`), animations: "disabled" })
 }
+
+/** The invitation sheet: visible and settled, free of axe violations and of horizontal scroll. */
+export async function captureAccessSheet(page: Page, info: TestInfo, name: string) {
+  const sheet = page.getByRole("dialog")
+  await expect(sheet).toBeVisible()
+  await expect.poll(() => sheet.evaluate((element) => getComputedStyle(element).opacity)).toBe("1")
+  expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: info.outputPath(`${name}.png`), animations: "disabled" })
+}
