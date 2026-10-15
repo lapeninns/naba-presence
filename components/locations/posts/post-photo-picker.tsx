@@ -61,6 +61,7 @@ export function PostPhotoPicker({
   const [addMounted, setAddMounted] = useState(false)
   if (addOpen && !addMounted) setAddMounted(true)
 
+  const paging = media.data?.paging
   const items = (media.data?.items ?? []).filter(
     (item) => item.mediaFormat === "PHOTO" && photoLink(item) !== null
   )
@@ -142,6 +143,18 @@ export function PostPhotoPicker({
               })}
             </ul>
           )}
+
+          {paging?.hasMore ? (
+            <Button
+              variant="secondary"
+              className="self-start"
+              onClick={paging.loadMore}
+              pending={paging.loadingMore}
+              pendingLabel="Loading…"
+            >
+              Show more photos
+            </Button>
+          ) : null}
 
           <DialogFooter className="sm:items-center">
             {addReason ? (

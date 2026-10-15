@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { PostComposerSheet } from "@/components/locations/posts/post-composer-sheet"
 import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
+import type { Post } from "@/lib/api/location-posts"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 
 const api = vi.hoisted(() => ({
@@ -41,6 +43,27 @@ vi.mock("@/lib/queries/use-location-media", () => ({
     refetch: vi.fn(),
   }),
 }))
+
+function savedPost(overrides: Partial<Post> = {}): Post {
+  return {
+    id: "p1",
+    topicType: "STANDARD",
+    languageCode: "en-GB",
+    summary: "Open late",
+    callToAction: null,
+    event: null,
+    offer: null,
+    media: [],
+    status: "draft",
+    googlePostName: null,
+    googleState: null,
+    googleSearchUrl: null,
+    lastErrorCode: null,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    ...overrides,
+  }
+}
 
 const PUBLISHER = {
   canPublish: true,
@@ -176,15 +199,96 @@ describe("PostComposerSheet publishing", () => {
   it("keeps the draft and says so when the publish fails after the save", async () => {
     const user = userEvent.setup()
     api.createPost.mockResolvedValue({ post: { id: "p-new" } })
-    api.publishPost.mockRejectedValue(new Error("boom"))
+    api.publishPost.mockRejectedValue(
+      new ApiClientError(422, "validation_failed", "Google refused the post.")
+    )
     renderComposer()
     const sheet = await openAndWrite(user)
     await user.click(
       within(sheet).getByRole("button", { name: "Publish to Google" })
     )
     await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
-    expect(await screen.findByText(/saved as a draft/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/kept in NabaPresence, not lost/)
+    ).toBeInTheDocument()
     expect(api.createPost).toHaveBeenCalledOnce()
+  })
+
+  it("does not claim the post is only a draft when the answer was lost", async () => {
+    const user = userEvent.setup()
+    api.createPost.mockResolvedValue({ post: { id: "p-new" } })
+    api.publishPost.mockRejectedValue(new TypeError("Failed to fetch"))
+    renderComposer()
+    const sheet = await openAndWrite(user)
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(document.querySelector('[data-type="error"]')).not.toBeNull()
+    )
+    expect(screen.queryByText(/kept in NabaPresence/)).toBeNull()
+    expect(screen.queryByText(/saved as a draft/i)).toBeNull()
+  })
+
+  it("saves an edited draft against its revision, then publishes it", async () => {
+    const user = userEvent.setup()
+    api.updatePost.mockResolvedValue({ post: { id: "p1" } })
+    api.publishPost.mockResolvedValue({ status: "published" })
+    renderComposer({ post: savedPost() })
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const sheet = await screen.findByRole("dialog")
+    await user.type(
+      within(sheet).getByRole("textbox", { name: "Post summary" }),
+      " tonight"
+    )
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
+    expect(api.updatePost.mock.calls[0][1]).toBe("p1")
+    expect(api.updatePost.mock.calls[0][3]).toBe("2026-08-01T00:00:00.000Z")
+    expect(api.createPost).not.toHaveBeenCalled()
+  })
+
+  it("publishes an unchanged saved draft as it is, without saving it again", async () => {
+    const user = userEvent.setup()
+    api.publishPost.mockResolvedValue({ status: "published" })
+    renderComposer({ post: savedPost() })
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const sheet = await screen.findByRole("dialog")
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
+    expect(api.updatePost).not.toHaveBeenCalled()
+    expect(api.createPost).not.toHaveBeenCalled()
+  })
+
+  it("names Retry publish in the consent line for a failed post", async () => {
+    const user = userEvent.setup()
+    renderComposer({ post: savedPost({ status: "failed" }) })
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const sheet = await screen.findByRole("dialog")
+    expect(
+      within(sheet).getByRole("button", { name: "Retry publish" })
+    ).toBeEnabled()
+    expect(within(sheet).getByText(/^Retry publish sends this/)).toBeVisible()
+  })
+
+  it("explains why Publish is off, on the button itself, when publishing is paused", async () => {
+    const user = userEvent.setup()
+    renderComposer({ writesEnabled: false })
+    const sheet = await openAndWrite(user)
+    const publish = within(sheet).getByRole("button", {
+      name: "Publish to Google",
+    })
+    expect(publish).toHaveAccessibleDescription(
+      /Publishing to Google is currently unavailable/
+    )
+    expect(
+      within(sheet).getByText(/Publish to Google sends this update/)
+    ).toBeVisible()
   })
 
   it("asks for text before publishing an empty post, and sends nothing", async () => {

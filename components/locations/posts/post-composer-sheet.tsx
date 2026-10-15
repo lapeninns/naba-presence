@@ -69,7 +69,10 @@ import {
   type LocalPostTopicType,
 } from "@/lib/contracts/location-posts"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
-import { describeActionError } from "@/lib/errors/action-errors"
+import {
+  describeActionError,
+  isUnconfirmedFailure,
+} from "@/lib/errors/action-errors"
 import {
   localPostFormSchema,
   type LocalPostFormValues,
@@ -372,6 +375,10 @@ export function PostComposerSheet({
   const saveReasonId = useId()
   const consentId = useId()
   const [photoOpen, setPhotoOpen] = useState(false)
+  // The picker reads the listing's photos from Google, so it mounts the
+  // first time it is asked for, not with the composer.
+  const [photoMounted, setPhotoMounted] = useState(false)
+  if (photoOpen && !photoMounted) setPhotoMounted(true)
   // On a phone the preview waits under the fields until asked for.
   const [previewOpen, setPreviewOpen] = useState(true)
   // A saved post's own photos are kept as they are unless one is chosen
@@ -425,7 +432,9 @@ export function PostComposerSheet({
 
   // Publish from the composer: save the post, then publish it. A save that
   // went through stays saved if the publish does not, so the person keeps
-  // the draft and the list offers the retry.
+  // the post and the list offers the retry. (Only the publish step carries
+  // the intent; a lost answer to the save itself can leave a second draft,
+  // as the plain Save draft can.)
   const savedBeforeFailure = useRef(false)
   const publish = useResourceMutation({
     mutationFn: async (
@@ -452,8 +461,11 @@ export function PostComposerSheet({
     errorContext: "post",
     errorToast: (error) => {
       const reason = describeActionError(error, { context: "post" })
-      return savedBeforeFailure.current
-        ? `${reason} The post is saved as a draft.`
+      // Only a definite refusal says the post is kept here: after a lost
+      // answer Google may hold it, and the message above already says to
+      // check the list before changing it.
+      return savedBeforeFailure.current && !isUnconfirmedFailure(error)
+        ? `${reason} The post is kept in NabaPresence, not lost.`
         : reason
     },
     onSuccess: (result) => {
@@ -481,6 +493,11 @@ export function PostComposerSheet({
   })
 
   const gate = caps ? postPublishGate(caps, writesEnabled) : null
+  const publishLabel = gate?.requestApproval
+    ? "Request approval"
+    : post?.status === "failed"
+      ? "Retry publish"
+      : "Publish to Google"
   // Adding a new photo goes through the library's own flow, which writes to
   // Google; choosing one Google already has does not.
   const addPhotoReason = resourceDisabledReason(caps, "media", writesEnabled)
@@ -531,7 +548,12 @@ export function PostComposerSheet({
   /** The fields checked and parsed for the route, or null with the reason shown. */
   function parsedInput(needsText: boolean): LocalPostFormValues | null {
     const found = validate(values)
-    if (needsText && !values.summary.trim() && !values.photoUrl)
+    if (
+      needsText &&
+      !values.summary.trim() &&
+      !values.photoUrl &&
+      keptMedia(post).length === 0
+    )
       found.summary = "Write something, or add a photo, before publishing."
     setErrors(found)
     setAttempt((count) => count + 1)
@@ -1165,7 +1187,7 @@ export function PostComposerSheet({
               >
                 {gate.requestApproval
                   ? "Request approval saves this post and asks an approver. Nothing reaches Google until they approve it."
-                  : `Publish to Google sends this ${
+                  : `${publishLabel} sends this ${
                       values.topicType === "OFFER"
                         ? "offer"
                         : values.topicType === "EVENT"
@@ -1174,7 +1196,6 @@ export function PostComposerSheet({
                     }${values.photoUrl || thumbnails.length > 0 ? ", with its photo," : ""} to your Google listing now. Customers see it as soon as Google accepts it.`}
               </p>
             ) : null}
-            {gate?.reason ? <p>{gate.reason}</p> : null}
             <p>
               {post?.status === "failed"
                 ? "Save draft turns it back into a draft. Nothing reaches Google until you publish it."
@@ -1200,12 +1221,8 @@ export function PostComposerSheet({
           {gate ? (
             <Button
               onClick={submitPublish}
-              disabled={
-                disabled ||
-                Boolean(gate.reason) ||
-                (!post && !isDirty) ||
-                create.isPending
-              }
+              disabled={disabled || (!post && !isDirty) || create.isPending}
+              disabledReason={gate.reason ?? undefined}
               aria-describedby={consentId}
               pending={publish.isPending}
               pendingLabel={
@@ -1213,23 +1230,21 @@ export function PostComposerSheet({
               }
             >
               {gate.requestApproval ? null : <UploadIcon aria-hidden />}
-              {gate.requestApproval
-                ? "Request approval"
-                : post?.status === "failed"
-                  ? "Retry publish"
-                  : "Publish to Google"}
+              {publishLabel}
             </Button>
           ) : null}
         </SheetFooter>
       </SheetContent>
-      <PostPhotoPicker
-        open={photoOpen}
-        onOpenChange={setPhotoOpen}
-        locationId={locationId}
-        chosenUrl={values.photoUrl}
-        onChoose={(url) => set("photoUrl", url)}
-        addReason={addPhotoReason}
-      />
+      {photoMounted ? (
+        <PostPhotoPicker
+          open={photoOpen}
+          onOpenChange={setPhotoOpen}
+          locationId={locationId}
+          chosenUrl={values.photoUrl}
+          onChoose={(url) => set("photoUrl", url)}
+          addReason={addPhotoReason}
+        />
+      ) : null}
     </Sheet>
   )
 }
