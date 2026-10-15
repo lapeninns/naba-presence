@@ -720,6 +720,17 @@ function InboxViewInner({
     [canBatch, onAdjacentReview, reviews, selection, state.selected]
   )
 
+  // The app bar's switcher only appears with more than one client. Without it
+  // nothing there shows or clears a `?clientId=` scope, so the chip row does.
+  const clientChip =
+    state.clientId && clientsQuery.data && clientsQuery.data.items.length <= 1
+      ? {
+          name: clientsQuery.data.items.find(
+            (client) => client.id === state.clientId
+          )?.name,
+          onRemove: () => void applyClientScope(undefined),
+        }
+      : undefined
   const loaded = !reviewsQuery.isPending && !reviewsQuery.isError
   // In the viewer's own clock, which the server rendering a prefetched list
   // does not share: held back until hydration so the two renders agree.
@@ -771,6 +782,7 @@ function InboxViewInner({
       <ActiveFilterChips
         state={state}
         locations={locationsQuery.data ?? []}
+        clientChip={clientChip}
         onChange={onFilterChange}
         onClear={onClearFilters}
       />

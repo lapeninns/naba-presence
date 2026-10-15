@@ -85,8 +85,10 @@ test.describe("inbox URL state", () => {
     expect(await rows.count()).toBe(loaded)
   })
 
-  // INB-07 / R05: the client scope belongs to the app bar, so it is neither a
-  // filter chip nor something "Clear all filters" takes away.
+  // INB-07 / R05: the client scope belongs to the app bar, so it is not a
+  // filter chip and "Clear all filters" does not take it away. The journey
+  // tenant has ONE client, so the app bar shows no switcher; the scope then
+  // keeps a removable chip, as the only sign of it, and nothing else.
   test("Clear all filters keeps the client scope", async ({
     baseURL,
     page,
@@ -95,18 +97,23 @@ test.describe("inbox URL state", () => {
     const [name, value] = state.cookie.split("=", 2)
     await page.context().addCookies([{ name, value, url: baseURL! }])
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto(`/inbox?queue=all&clientId=${state.clientId}&rating=5`)
+    await page.goto(`/inbox?queue=all&clientId=${state.clientId}&assignee=me`)
 
-    // The rating is a filter chip; the scope is not.
+    // The assignee is a filter chip wherever the rating lives; the scope is
+    // its own chip, alone because there is no switcher to show it.
     const chips = page.locator('[data-slot="active-filter-chips"]')
-    await expect(chips.getByText("Rating: 5 stars")).toBeVisible()
-    await expect(chips.getByText(/^Client:/)).toHaveCount(0)
+    await expect(chips.getByText("Assigned to: Me")).toBeVisible()
+    await expect(chips.getByText(`Client: ${state.clientName}`)).toBeVisible()
 
     await chips.getByRole("button", { name: "Clear all filters" }).click()
 
-    await expect(page).not.toHaveURL(/rating=/)
+    await expect(page).not.toHaveURL(/assignee=/)
     await expect(page).toHaveURL(new RegExp(`clientId=${state.clientId}(&|$)`))
-    // Nothing narrows the list any more, so the chip row is gone.
-    await expect(chips).toHaveCount(0)
+    // The filter is gone, the scope is not: its chip stays, "Clear all" goes.
+    await expect(chips.getByText("Assigned to: Me")).toHaveCount(0)
+    await expect(chips.getByText(`Client: ${state.clientName}`)).toBeVisible()
+    await expect(
+      chips.getByRole("button", { name: "Clear all filters" })
+    ).toHaveCount(0)
   })
 })

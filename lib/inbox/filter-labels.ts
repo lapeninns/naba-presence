@@ -13,6 +13,7 @@ export const FILTER_NAMES = {
   rating: "Rating",
   written: "Written review",
   venue: "Venue",
+  client: "Client",
   assignee: "Assigned to",
   owner: "Waiting on",
   replyState: "Reply status",
