@@ -28,6 +28,7 @@ import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
+import { UxP10Demo } from "@/app/design-system/ux-p10-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -1559,6 +1560,7 @@ export default function Page() {
           <NmSheetDemo />
           <NmFeedbackDemo />
           <NmLists1bDemo />
+          <UxP10Demo />
           <NmFormsDemo />
           <NmOverlaysDemo />
           <NmDrop3Demo />

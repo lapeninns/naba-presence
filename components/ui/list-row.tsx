@@ -5,6 +5,10 @@ import { ChevronDownIcon } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
+import {
+  ListRowSwipe,
+  type ListRowSwipeActions,
+} from "@/components/ui/list-row-swipe"
 import { cn } from "@/lib/utils"
 
 /**
@@ -66,6 +70,12 @@ import { cn } from "@/lib/utils"
  * - `wrap`: the title and subtitle wrap (breaking long words such as email
  *   addresses anywhere) instead of truncating, so two long values never
  *   look identical.
+ * - `swipeActions` (one or two, `{ label, icon, onAction, tone }`): a quick
+ *   action on the row. A left swipe on a touch screen reveals them, and a
+ *   visible "⋯" button at the end of the row opens the same actions as a
+ *   menu: that button is the alternative to dragging (WCAG 2.5.7) and the
+ *   only path for a keyboard or a mouse. Name it with `actionsLabel`
+ *   ("Actions for Amelia Hart"). See list-row-swipe.tsx.
  * - `ListRows listbox`: a selectable list. The `ul` is a `listbox`, each
  *   `li` is `presentation` and each row an `option` with `aria-selected`
  *   (rows default to `selectedAs="selected"`). Name it with `aria-label`.
@@ -273,6 +283,14 @@ export type ListRowProps = Omit<
   titleId?: string
   /** Title and subtitle wrap instead of truncating. */
   wrap?: boolean
+  /**
+   * One or two quick actions: revealed by a left swipe on touch and always
+   * reachable from a visible "⋯" menu button at the end of the row. Not
+   * available inside `ListRows listbox` (an option owns no controls).
+   */
+  swipeActions?: ListRowSwipeActions
+  /** Names the "⋯" button; default "More actions". Say which row it is. */
+  actionsLabel?: string
 }
 
 export type ListRowWrapperProps = Omit<
@@ -313,6 +331,8 @@ function ListRow({
   titleAs = "span",
   titleId,
   wrap = false,
+  swipeActions,
+  actionsLabel = "More actions",
   className,
   render,
   ...props
@@ -332,6 +352,15 @@ function ListRow({
     }
     footer = details = leadingControl = undefined
   }
+  if (inListbox && swipeActions != null) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "ListRow: swipeActions are not rendered inside ListRows listbox."
+      )
+    }
+    swipeActions = undefined
+  }
+  const hasSwipe = swipeActions != null && swipeActions.length > 0
   // A heading may only sit in a non-interactive row or a plain link row:
   // never inside a <button> (or an unknown `render` element) or an option.
   const headingAllowed =
@@ -480,6 +509,8 @@ function ListRow({
   const hitClassName = cn(
     "flex min-h-(--np-touch) w-full min-w-0 items-start gap-3 py-(--np-row-mail-py) text-left text-ink no-underline",
     flush ? "px-0" : "px-(--np-page-pad-x)",
+    // The "⋯" button takes the row's end padding.
+    hasSwipe && "pe-1",
     interactive &&
       "cursor-pointer transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 hover-fine:hover:bg-surface-alt",
     selected && "bg-fill hover-fine:hover:bg-fill",
@@ -558,7 +589,18 @@ function ListRow({
           {leadingControl}
         </span>
       ) : null}
-      {hit}
+      {hasSwipe ? (
+        <ListRowSwipe
+          actions={swipeActions!}
+          actionsLabel={actionsLabel}
+          selected={selected}
+          flush={flush}
+        >
+          {hit}
+        </ListRowSwipe>
+      ) : (
+        hit
+      )}
       {hasFooter ? (
         <div
           data-slot="list-row-footer"
@@ -681,4 +723,8 @@ function ListRowTag({
   )
 }
 
+export type {
+  ListRowSwipeAction,
+  ListRowSwipeActions,
+} from "@/components/ui/list-row-swipe"
 export { LIST_BLEED_CLASS, ListRow, ListRowTag, ListRows }
