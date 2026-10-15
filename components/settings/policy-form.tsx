@@ -138,7 +138,7 @@ const CHANGE_LABELS: Record<keyof FormState, string> = {
   defaultTimezone: "Timezone",
 }
 
-const RETENTION_MESSAGE = "Choose a whole number of days from 1 to 30."
+const RETENTION_MESSAGE = "Choose how long to keep review text."
 
 /** The retention choices on offer; the server accepts 1 to 30 days. */
 const RETENTION_PRESETS = [7, 14, 30] as const
@@ -461,14 +461,19 @@ export function PolicyForm({ role }: { role: string | null }) {
 
   // Mirrors lib/server/publishing/approval.ts `requiresApproval`: approval
   // parks replies from people who can't publish; the two-person rule parks
-  // every reply, publisher or not, until someone else approves it. This is
-  // the one place the page says what the approval choice means; with
-  // approval off the alert's title already says replies publish straight
-  // away, so the sentence only adds who can't send.
+  // every reply, publisher or not, until someone else approves it, whether
+  // or not approval is on. This is the one place the page says what the
+  // approval choice means. With approval off and no two-person rule, the
+  // alert's title already says replies publish straight away, so the
+  // sentence only adds who can't send. "Nobody can approve their own reply"
+  // is the two-person switch's own hint while that switch is on screen, so
+  // it is said here only when approval is off and the switch is hidden.
+  const everyReplyWaits =
+    "Every reply, including one from someone who can publish, waits for a second person to approve it before it reaches Google."
   const consequence = current.requireTwoPersonApproval
     ? current.approvalRequired
-      ? "Every reply, including one from someone who can publish, waits for a second person to approve it before it reaches Google. Nobody can approve their own reply."
-      : "People who can’t publish can’t send replies. The two-person rule is still on, so every other reply waits for a second person to approve it."
+      ? everyReplyWaits
+      : `The two-person rule is still on. ${everyReplyWaits} Nobody can approve their own reply.`
     : current.approvalRequired
       ? "Replies from people who can’t publish wait in the Approval queue for someone who can. People who can publish send their replies straight to Google."
       : "People who can’t publish can’t send replies."
@@ -581,8 +586,12 @@ export function PolicyForm({ role }: { role: string | null }) {
           <Alert variant="warning">
             <AlertTitle>
               {current.requireTwoPersonApproval
-                ? "Approval is off"
-                : "Replies publish straight to Google"}
+                ? turningApprovalOff
+                  ? "Approval will be off"
+                  : "Approval is off"
+                : turningApprovalOff
+                  ? "Replies will publish straight to Google"
+                  : "Replies publish straight to Google"}
             </AlertTitle>
             <AlertDescription className="flex flex-col gap-2.5">
               <span>{consequence}</span>

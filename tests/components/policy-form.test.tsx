@@ -306,6 +306,61 @@ describe("PolicyForm", () => {
       expect(screen.queryByText(/Direct publishing/)).not.toBeInTheDocument()
     })
 
+    it("says approval is off, and what the two-person rule still does, without claiming non-publishers cannot send", () => {
+      open({
+        approvalRequired: false,
+        requireTwoPersonApproval: true,
+        directPublishConsentAt: "2026-10-14T09:00:00.000Z",
+      })
+      renderForm("owner")
+      const alerts = alertsIn()
+      expect(alerts).toHaveLength(1)
+      expect(alerts[0]).toHaveTextContent("Approval is off")
+      expect(alerts[0]).toHaveTextContent(
+        "Every reply, including one from someone who can publish, waits for a second person to approve it before it reaches Google."
+      )
+      expect(alerts[0]).toHaveTextContent("Nobody can approve their own reply.")
+      expect(alerts[0]).toHaveTextContent("Confirmed on 14 October 2026.")
+      expect(alerts[0]).not.toHaveTextContent("can’t send replies")
+      expect(alerts[0]).not.toHaveTextContent("straight to Google")
+    })
+
+    it("says it in the future tense while approval is being turned off, and in the present once saved", () => {
+      open()
+      renderForm("owner")
+      fireEvent.click(
+        screen.getByRole("switch", {
+          name: "Require approval before replies publish",
+        })
+      )
+      expect(alertsIn()[0]).toHaveTextContent(
+        "Replies will publish straight to Google"
+      )
+    })
+
+    it("says Approval will be off while turning it off with the two-person rule on", () => {
+      open({ requireTwoPersonApproval: true })
+      renderForm("owner")
+      fireEvent.click(
+        screen.getByRole("switch", {
+          name: "Require approval before replies publish",
+        })
+      )
+      expect(alertsIn()[0]).toHaveTextContent("Approval will be off")
+    })
+
+    it("says nobody can approve their own reply once, with approval on and the two-person rule on", () => {
+      open({ requireTwoPersonApproval: true })
+      renderForm("owner")
+      const form = screen.getByRole("form", { name: "Reply policy" })
+      expect(form.textContent?.match(/approve their own reply/g)).toHaveLength(
+        1
+      )
+      expect(alertsIn()[0]).toHaveTextContent(
+        "Every reply, including one from someone who can publish"
+      )
+    })
+
     it("keeps the one alert, with its confirmation, while turning approval off", () => {
       open()
       renderForm("owner")
