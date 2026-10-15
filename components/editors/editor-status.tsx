@@ -150,7 +150,7 @@ function editorStatusPill(
   if (report.status === "in_sync" && report.emptyOnGoogle)
     return { tone: "attention", label: report.emptyOnGoogle }
   if (report.status === "in_sync")
-    return { tone: "healthy", label: "In sync with Google" }
+    return { tone: "healthy", label: "In sync" }
   return null
 }
 

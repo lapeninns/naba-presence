@@ -352,10 +352,16 @@ for (const width of [375, 768, 1280])
       )
       f.state.types = ["FUTURE_ACTION"]
       // Within the editors' staleness budget a reload serves the stored
-      // observation (W3-2); "Check Google now" reads the new types.
+      // observation (W3-2); "Check Google now" reads the new types. Under
+      // 768px it sits in the status pill's sheet (L03).
+      if (width < 768)
+        await page
+          .getByRole("button", { name: /how changes reach Google$/i })
+          .click()
       await page
         .getByRole("button", { name: "Check Google now", exact: true })
         .click()
+      if (width < 768) await page.keyboard.press("Escape")
       await expect(
         page.getByRole("link", {
           name: "Manage booking links in Google",

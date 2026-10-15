@@ -9,7 +9,6 @@ import {
   GlobeIcon,
   History,
   InfoIcon,
-  LayoutListIcon,
   MoreHorizontalIcon,
   SendIcon,
   ShieldCheckIcon,
@@ -23,6 +22,13 @@ import { ShellLink } from "@/components/app-shell/shell-link"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { ActivityDrawer } from "@/components/editors/activity-drawer"
+import {
+  GoogleFreshnessFailure,
+  GoogleFreshnessLine,
+  GoogleFreshnessSlot,
+  useGoogleFreshnessReport,
+  type GoogleFreshnessReport,
+} from "@/components/editors/google-freshness"
 import {
   EditorStatusProvider,
   editorStatusPill,
@@ -129,24 +135,29 @@ function NavCount({ item }: { item: ListingAreaNavItem }) {
 }
 
 /**
- * The desk's area tabs: the shared item list as a scrolling tab row, Review
- * & publish last. TabNav owns the strip: the edge fades, and scrolling the
- * current tab into view (along the row only) on mount and on every route
- * change. An area this listing can't use is drawn muted with its reason
- * (TabNav's `unavailableReason`) and is NOT `disabled`: it still opens, to
- * look, exactly as the phone's area list does (listings-content-07).
+ * The desk's area tabs: the shared item list as one row from 64rem. Tabs
+ * that don't fit move into a "More" menu (P04's overflow) instead of hiding
+ * behind a fade. Review & publish is not a tab: it is a header action, so
+ * it never scrolls out of reach (DSK-01). An area this listing can't use is
+ * drawn muted with its reason (TabNav's `unavailableReason`) and is NOT
+ * `disabled`: it still opens, to look, exactly as the phone's area list does
+ * (listings-content-07).
  */
 function ListingAreaTabs({ items }: { items: ListingAreaNavItem[] }) {
   return (
     <TabNav
       aria-label="Listing areas"
-      items={items.map((item) => ({
-        href: item.href,
-        label: item.label,
-        current: item.current,
-        unavailableReason: item.unavailableReason,
-        badge: <NavCount item={item} />,
-      }))}
+      overflow="more"
+      moreLabel="More areas"
+      items={items
+        .filter((item) => item.key !== "changes")
+        .map((item) => ({
+          href: item.href,
+          label: item.label,
+          current: item.current,
+          unavailableReason: item.unavailableReason,
+          badge: <NavCount item={item} />,
+        }))}
       className="hidden lg:block"
       data-slot="listing-area-tabs"
     />
@@ -154,36 +165,32 @@ function ListingAreaTabs({ items }: { items: ListingAreaNavItem[] }) {
 }
 
 /**
- * The same items as one compact control under the desk's tab width: a
- * button naming the current page that opens the area list (an action sheet
- * on a phone). Every row is a real link, so the editor's leave guard catches
- * it. Unavailable areas get the tab row's treatment: muted, with the reason,
- * and still open.
+ * The page title as the area switcher (LST-06): the H1's words open the
+ * area list (an action sheet on a phone), so no second row repeats the
+ * title. Every row is a real link, so the editor's leave guard catches it.
+ * Unavailable areas get the tab row's treatment: muted, with the reason,
+ * and still open. The trigger says what it does through its menu role, so
+ * the heading's name stays the area's name.
  */
-function AreaSwitcher({
+function AreaTitleSwitcher({
   items,
-  className,
+  title,
 }: {
   items: ListingAreaNavItem[]
-  className?: string
+  title: string
 }) {
-  const current = items.find((item) => item.current)
-  const label = current?.label ?? "Overview"
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         data-slot="listing-area-selector"
-        render={
-          <Button
-            variant="secondary"
-            className={cn("min-w-0 justify-between", className)}
-          />
-        }
-        aria-label={`Listing area: ${label}`}
+        className="-mx-1 inline-flex min-h-(--np-touch) max-w-full min-w-0 items-center gap-1 rounded-(--np-radius-tag) px-1 text-left focus-halo hover-fine:underline hover-fine:underline-offset-4 desk:min-h-(--np-control-h)"
       >
-        <LayoutListIcon aria-hidden strokeWidth={1.75} />
-        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-        <ChevronDownIcon aria-hidden />
+        <span className="min-w-0 text-balance break-words">{title}</span>
+        <ChevronDownIcon
+          aria-hidden
+          strokeWidth={1.75}
+          className="size-5 shrink-0 text-ink-muted"
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" title="Listing areas">
         {items.map((item) => (
@@ -223,15 +230,21 @@ function AreaSwitcher({
 }
 
 /**
- * Where a change made in this area goes, on a phone: one tap away behind an
- * info button instead of two or three lines above the editor. The desk
- * shows the same sentence as a line under the tabs.
+ * The status pill is the tap target for where a change made in this area
+ * goes and when the editor last saw Google (LST-06): on a phone, one sheet
+ * instead of an info button, a note and a freshness row above the editor.
+ * Without a pill a phone gets an info button instead. Wider screens also
+ * show the same words as one line under the tabs (`AreaMetaLine`).
  */
-function ModelNoteInfo({
+function AreaInfo({
   area,
+  pill,
+  freshness,
   className,
 }: {
-  area: { key: ListingAreaKey; model: ListingAreaModel; label: string }
+  area: { key: ListingAreaKey; model: ListingAreaModel }
+  pill: React.ReactNode
+  freshness: GoogleFreshnessReport | null
   className?: string
 }) {
   return (
@@ -239,25 +252,80 @@ function ModelNoteInfo({
       <PopoverTrigger
         data-slot="model-note-trigger"
         render={
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label="Where changes go"
-            className={className}
-          />
+          pill ? (
+            <button
+              type="button"
+              className={cn(
+                "inline-flex min-h-(--np-touch) shrink-0 items-center gap-1 rounded-(--np-radius-tag) focus-halo",
+                className
+              )}
+            />
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="How changes reach Google"
+              className={className}
+            />
+          )
         }
       >
-        <InfoIcon aria-hidden strokeWidth={1.75} />
+        {pill ? (
+          <>
+            {pill}
+            <InfoIcon
+              aria-hidden
+              strokeWidth={1.75}
+              className="size-4 text-ink-muted"
+            />
+            <span className="sr-only">, how changes reach Google</span>
+          </>
+        ) : (
+          <InfoIcon aria-hidden strokeWidth={1.75} />
+        )}
       </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        title={`Where ${area.label.toLowerCase()} changes go`}
-      >
-        <p data-slot="model-note" className="text-body text-ink-secondary">
-          {modelNote(area.model, area.key)}
-        </p>
+      <PopoverContent align="end" title="How changes reach Google">
+        <div className="flex flex-col gap-3 text-body text-ink-secondary">
+          <p data-slot="model-note">{modelNote(area.model, area.key)}</p>
+          {freshness ? <GoogleFreshnessLine report={freshness} /> : null}
+        </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/**
+ * Wider screens: where a change made here goes and when the editor last
+ * saw Google, as ONE line under the tabs instead of two or three rows.
+ */
+function AreaMetaLine({
+  area,
+  freshness,
+}: {
+  area: { key: ListingAreaKey; model: ListingAreaModel }
+  freshness: GoogleFreshnessReport | null
+}) {
+  const ModelIcon = MODEL_ICON[area.model]
+  return (
+    <div
+      data-slot="listing-area-meta"
+      className="hidden flex-wrap items-center gap-x-2 gap-y-1 text-ui text-ink-secondary md:flex"
+    >
+      <ModelIcon
+        className="size-4 shrink-0 text-ink-muted"
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <span data-slot="model-note">{modelNote(area.model, area.key)}</span>
+      {freshness ? (
+        <>
+          <span aria-hidden className="text-ink-muted">
+            ·
+          </span>
+          <GoogleFreshnessLine report={freshness} />
+        </>
+      ) : null}
+    </div>
   )
 }
 
@@ -296,12 +364,14 @@ function ReviewPublishLink({
 /**
  * The phone's overflow: everything the desk shows as header buttons
  * (the page's links, Review & publish, Activity) in one menu, so the header
- * keeps to three short rows.
+ * keeps to two short rows. With Activity the only entry, there is nothing
+ * to choose between: the button opens it directly (SET-13).
  */
 function HeaderOverflow({
   locationId,
   summary,
   links,
+  showReviewPublish,
   onActivity,
   triggerRef,
   className,
@@ -309,12 +379,30 @@ function HeaderOverflow({
   locationId: string
   summary: ListingSummary | undefined
   links: ListingHeaderLink[]
+  showReviewPublish: boolean
   onActivity: () => void
   triggerRef: React.RefObject<HTMLButtonElement | null>
   className?: string
 }) {
   const pending =
-    summary && !googleUnreachable(summary) ? unpublishedCount(summary) : 0
+    showReviewPublish && summary && !googleUnreachable(summary)
+      ? unpublishedCount(summary)
+      : 0
+  if (links.length === 0 && pending === 0) {
+    return (
+      <Button
+        ref={triggerRef}
+        variant="ghost"
+        size="icon"
+        aria-label="Activity"
+        data-slot="listing-header-activity"
+        className={cn("shrink-0", className)}
+        onClick={onActivity}
+      >
+        <History aria-hidden strokeWidth={1.75} />
+      </Button>
+    )
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -370,15 +458,18 @@ function HeaderOverflow({
 /**
  * The shared head of every listing page.
  *
- * Phone (under 48rem), three short rows so the editor starts above the
- * fold: the listing's name as the switcher to its sibling listings (the
- * client's name on the overview) with a "⋯" menu holding the page's links,
- * Review & publish and Activity; the page title (sans, D1) with ONE
- * status pill; and one area button opening the area list, beside an info
- * button that says where a change made here goes.
+ * Phone (under 48rem), two short rows so the editor starts high on the
+ * screen (LST-06): the listing's name, which switches to its sibling
+ * listings, with a "⋯" menu holding the page's links, Review & publish and
+ * Activity; then the page title, which opens the area list, with ONE status
+ * pill that opens where a change made here goes and when the editor last
+ * saw Google. On the overview the title is the listing's name and the
+ * switcher (DSK-06), under the client as plain words.
  *
- * Desk adds the client as a caption, the description, the header buttons,
- * the tab row from 64rem and the model note as a line.
+ * Wider screens add the description, the header buttons (Review & publish
+ * always among them), the tab row from 64rem, and one line under it for the
+ * model note and the editor's last Google check. The client caption is left
+ * to the breadcrumb on area pages (DSK-05).
  *
  * `status` is the pill beside the title. Pass `undefined` to show a
  * placeholder while it loads and `null` for none.
@@ -414,8 +505,7 @@ function ListingAreaHeader({
     current === "overview" || current === "changes"
       ? null
       : listingArea(current)
-  const ModelIcon = area ? MODEL_ICON[area.model] : null
-  const title = current === "overview" ? entry.name : listingPageLabel(current)
+  const title = listingPageLabel(current)
   const nested = current !== "overview"
   const clientLabel = business
     ? "Listing"
@@ -428,12 +518,13 @@ function ListingAreaHeader({
     caps,
     linked: entry.linked,
   })
+  const freshness = useGoogleFreshnessReport()
   const [activityOpen, setActivityOpen] = React.useState(false)
   const overflowRef = React.useRef<HTMLButtonElement>(null)
 
-  // The line above the title: the listing's name on an area (the way back to
-  // its overview, and the switcher to its siblings), the client on the
-  // overview (the switcher there).
+  // The line above the title: on an area, the listing's name (the way back
+  // to its overview, and the switcher to its siblings); on the overview,
+  // the client as plain words, since the title below is the switcher.
   const context = nested ? (
     <SiblingSwitcher
       current={entry}
@@ -459,38 +550,32 @@ function ListingAreaHeader({
       }
     />
   ) : (
-    <SiblingSwitcher
-      current={entry}
-      role={role}
-      className="text-ui font-medium text-ink-secondary"
-      fallback={
-        <p className="flex min-h-(--np-control-h) min-w-0 items-center text-ui font-medium text-ink-muted md:min-h-0">
-          <span className="truncate">{clientLabel}</span>
-        </p>
-      }
-    >
-      {clientLabel}
-    </SiblingSwitcher>
+    <p className="flex min-h-(--np-control-h) min-w-0 items-center text-ui font-medium text-ink-muted md:min-h-0">
+      <span className="truncate">{clientLabel}</span>
+    </p>
   )
+
+  const pill =
+    status === undefined ? (
+      <Skeleton className="h-5 w-28 rounded-(--np-radius-tag)" aria-hidden />
+    ) : (
+      status
+    )
 
   return (
     <header
       data-slot="listing-area-header"
-      className="flex shrink-0 flex-col gap-2 md:gap-4"
+      className="flex shrink-0 flex-col gap-2 md:gap-3"
     >
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div className="flex min-w-0 grow basis-80 flex-col md:gap-1">
-          {nested ? (
-            <p className="hidden text-caption font-medium text-ink-muted md:block">
-              {clientLabel}
-            </p>
-          ) : null}
           <div className="flex min-w-0 items-center justify-between gap-2">
             <div className="flex min-w-0">{context}</div>
             <HeaderOverflow
               locationId={locationId}
               summary={summary}
               links={links}
+              showReviewPublish={current !== "changes"}
               onActivity={() => setActivityOpen(true)}
               triggerRef={overflowRef}
               className="md:hidden"
@@ -498,15 +583,26 @@ function ListingAreaHeader({
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="min-w-0 text-page-title font-semibold text-balance break-words text-ink">
-              {title}
+              {nested ? (
+                <AreaTitleSwitcher items={items} title={title} />
+              ) : (
+                <SiblingSwitcher
+                  current={entry}
+                  role={role}
+                  className="text-page-title font-semibold"
+                  fallback={entry.name}
+                />
+              )}
             </h1>
-            {status === undefined ? (
-              <Skeleton
-                className="h-5 w-28 rounded-(--np-radius-tag)"
-                aria-hidden
+            {area && status !== undefined ? (
+              <AreaInfo
+                area={area}
+                pill={pill}
+                freshness={freshness}
+                className={pill ? undefined : "md:hidden"}
               />
             ) : (
-              status
+              pill
             )}
           </div>
           {area ? (
@@ -545,13 +641,9 @@ function ListingAreaHeader({
             )
           )}
           {current === "changes" ? null : (
-            // From lg the tab row's "Review & publish" tab carries the
-            // count, so the button would be a second entry to the same page.
-            <ReviewPublishLink
-              locationId={locationId}
-              summary={summary}
-              className="lg:hidden"
-            />
+            // Always a header action: the tab row no longer carries it, so
+            // it is never cut off at the strip's end (DSK-01).
+            <ReviewPublishLink locationId={locationId} summary={summary} />
           )}
           <ActivityDrawer
             locationId={locationId}
@@ -562,30 +654,10 @@ function ListingAreaHeader({
         </div>
       </div>
 
-      {/* Under the tab row's width: one area button (not on the overview,
-          whose cards are the area list) and, on a phone, the model note
-          behind an info button. */}
-      {nested ? (
-        <div className="flex items-center gap-2 lg:hidden">
-          <AreaSwitcher items={items} className="flex-1 md:flex-none" />
-          {area ? <ModelNoteInfo area={area} className="md:hidden" /> : null}
-        </div>
-      ) : null}
       <ListingAreaTabs items={items} />
 
-      {area && ModelIcon ? (
-        <p
-          data-slot="model-note"
-          className="hidden items-start gap-2 text-ui text-ink-secondary md:flex"
-        >
-          <ModelIcon
-            className="mt-0.5 size-4 shrink-0 text-ink-muted"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          <span>{modelNote(area.model, area.key)}</span>
-        </p>
-      ) : null}
+      {area ? <AreaMetaLine area={area} freshness={freshness} /> : null}
+      <GoogleFreshnessFailure report={freshness} className="text-ui" />
     </header>
   )
 }
@@ -628,7 +700,9 @@ function AreaFrame(props: {
 }) {
   return (
     <EditorStatusProvider>
-      <AreaFrameBody {...props} />
+      <GoogleFreshnessSlot>
+        <AreaFrameBody {...props} />
+      </GoogleFreshnessSlot>
     </EditorStatusProvider>
   )
 }
