@@ -538,7 +538,7 @@ describe("NotificationPreferences", () => {
     renderPreferences("member")
     expect(
       await screen.findByText(
-        "Email notifications aren't available for this workspace yet. You'll still see them in the app."
+        "Email notifications aren’t available for this workspace yet. You’ll still see them in the app."
       )
     ).toBeInTheDocument()
     expect(
@@ -664,6 +664,43 @@ describe("NotificationPreferences", () => {
     expect(
       screen.getByRole("switch", { name: "Scheduled post missed" })
     ).toBeChecked()
+  })
+
+  it("still offers Undo when another save starts before the bulk action returns", async () => {
+    const { calls, release } = preferenceServer({
+      emailConfigured: true,
+      preferences: twoEvents.map((row) =>
+        row.channel === "in_app" ? { ...row, mode: "off" as const } : row
+      ),
+      hold: true,
+    })
+    renderPreferences("owner")
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Turn all on in app" })
+    )
+    await waitFor(() => expect(puts(calls)).toHaveLength(1))
+    // A second save starts while the bulk request is still out.
+    await userEvent.click(
+      screen.getByRole("combobox", { name: "Email: Publishing failed" })
+    )
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Daily summary" })
+    )
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    release()
+    expect(
+      await screen.findByText("Turned on in-app notifications")
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument()
+  })
+
+  it("draws no empty card for the email group without a provider", async () => {
+    preferenceServer({ emailConfigured: false, preferences: publishing })
+    renderPreferences("member")
+    await screen.findByRole("heading", { name: "By email" })
+    const group = document.getElementById("notification-email")!
+    expect(group).not.toHaveAttribute("data-card")
+    expect(group.querySelector("ul")).toBeNull()
   })
 
   it("sets the email cadence from a titled sheet row once email is available", async () => {

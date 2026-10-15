@@ -120,18 +120,19 @@ export function NotificationPreferences({ role }: { role: string | null }) {
         channel: "in_app" as const,
         mode: mode(kind, "in_app"),
       }))
-    save.mutate(changes, {
-      onSuccess: () => {
-        if (previous.length === 0) return
-        showToast({
-          id: "notification-preferences-bulk",
-          title: allInAppOn
-            ? "Turned off in-app notifications"
-            : "Turned on in-app notifications",
-          undo: { onUndo: () => save.mutate(previous) },
-        })
-      },
-    })
+    // `mutateAsync`, not per-call `mutate` callbacks: those only fire for the
+    // latest call, and this one must report its own outcome even when another
+    // save starts before it returns. The hook has already toasted a failure.
+    void save.mutateAsync(changes).then(() => {
+      if (previous.length === 0) return
+      showToast({
+        id: "notification-preferences-bulk",
+        title: allInAppOn
+          ? "Turned off in-app notifications"
+          : "Turned on in-app notifications",
+        undo: { onUndo: () => save.mutate(previous) },
+      })
+    }, noop)
   }
 
   const emailConfigured = query.data?.emailConfigured ?? true
@@ -184,7 +185,8 @@ export function NotificationPreferences({ role }: { role: string | null }) {
         })}
       </SettingsGroup>
       <SettingsGroup
-        card
+        // No rows without a provider: a card would draw an empty box.
+        card={emailConfigured}
         label="By email"
         id="notification-email"
         bodyAs={emailConfigured ? "ul" : "div"}
@@ -192,8 +194,8 @@ export function NotificationPreferences({ role }: { role: string | null }) {
         caption={
           emailConfigured ? undefined : (
             <>
-              Email notifications aren&apos;t available for this workspace yet.
-              You&apos;ll still see them in the app.
+              Email notifications aren’t available for this workspace yet.
+              You’ll still see them in the app.
               {canSetUpEmail ? (
                 <>
                   {" "}
@@ -237,7 +239,7 @@ export function NotificationPreferences({ role }: { role: string | null }) {
                           the value are one tap target, like a chevron row. */}
                       <SelectTrigger
                         aria-label={`Email: ${copy.label}`}
-                        className="absolute inset-0 h-auto w-full justify-end gap-1 border-0 bg-transparent px-2 text-ui text-ink-muted disabled:bg-transparent data-disabled:bg-transparent [&_[data-slot=select-icon]]:hidden"
+                        className="absolute inset-0 h-auto w-full justify-end gap-1 border-0 bg-transparent px-2 text-ui text-ink-muted focus-visible:shadow-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset disabled:bg-transparent data-popup-open:shadow-none forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid data-disabled:bg-transparent [&_[data-slot=select-icon]]:hidden"
                       >
                         <SelectValue>
                           {(value: string | null) =>
@@ -268,6 +270,8 @@ export function NotificationPreferences({ role }: { role: string | null }) {
     </QueryStates>
   )
 }
+
+function noop() {}
 
 /** The cache as it will read once `changes` are saved. */
 function applyChanges(

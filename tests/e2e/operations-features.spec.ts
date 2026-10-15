@@ -149,9 +149,9 @@ for (const width of [375, 768, 1280])
           .locator("#notification-email")
           .getByRole("link", { name: "Operations", exact: true })
       ).toHaveAttribute("href", "/settings/operations")
-      await expect(
-        page.getByRole("combobox", { name: /^Email:/ })
-      ).toHaveCount(0)
+      await expect(page.getByRole("combobox", { name: /^Email:/ })).toHaveCount(
+        0
+      )
       await capture(page, info, "notification-preferences")
       const [saved] =
         await backend.admin`select mode from notification_preference where organisation_id = ${f.owner.organisationId} and event_kind = 'schedule_missed' and channel = 'in_app'`

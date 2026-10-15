@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -295,6 +295,45 @@ describe("MembersTable", () => {
       .getByRole("switch", { name: "Allow Ben Member to publish" })
       .closest("tr")!
     expect(within(row).getByRole("alert")).toBe(alert)
+    // Said once, beside the switch: the toaster is mounted and holds nothing.
+    expect(screen.getAllByText(/Publishing wasn’t changed/)).toHaveLength(1)
+    expect(document.querySelector("[data-slot=toast]")).toBeNull()
+  })
+
+  it("keeps each member's own outcome when two are toggled in turn", async () => {
+    const user = userEvent.setup()
+    const finishers: Record<string, (ok: boolean) => void> = {}
+    vi.spyOn(membersApi, "updateMember").mockImplementation(
+      (input) =>
+        new Promise((resolve, reject) => {
+          finishers[input.userId] = (ok) =>
+            ok ? resolve(undefined as never) : reject(new Error("boom"))
+        })
+    )
+    renderTable("owner", "owner-1", [
+      member({ userId: "m-1", displayName: "Ben Member", email: "ben@test" }),
+      member({ userId: "m-2", displayName: "Cat Member", email: "cat@test" }),
+    ])
+    await user.click(
+      screen.getByRole("switch", { name: "Allow Ben Member to publish" })
+    )
+    await user.click(
+      screen.getByRole("switch", { name: "Allow Cat Member to publish" })
+    )
+    // Ben's save returns after Cat's was started.
+    await act(async () => finishers["m-1"](true))
+    await act(async () => finishers["m-2"](false))
+    const rowOf = (name: string) =>
+      screen
+        .getByRole("switch", { name: `Allow ${name} to publish` })
+        .closest("tr")!
+    expect(
+      await within(rowOf("Ben Member")).findByText("Saved: publishing on")
+    ).toBeInTheDocument()
+    expect(within(rowOf("Cat Member")).getByRole("alert")).toHaveTextContent(
+      /^Publishing wasn’t changed\./
+    )
+    expect(within(rowOf("Ben Member")).queryByRole("alert")).toBeNull()
   })
 
   it("lays a member out as a record card with the menu in the title line, not pinned over it", () => {
