@@ -61,6 +61,17 @@ describe("workspaceTerms", () => {
     })
   })
 
+  it("uses one place noun, listing, in both modes", () => {
+    for (const mode of ["business", "agency"] as const) {
+      expect(workspaceTerms(mode)).toMatchObject({
+        place: "listing",
+        placePlural: "listings",
+        placeTitle: "Listing",
+        placePluralTitle: "Listings",
+      })
+    }
+  })
+
   it("describes the admin role without clients for a business", () => {
     expect(roleDescriptions("business").admin).not.toMatch(/client/i)
     expect(roleDescriptions("agency").admin).toMatch(/client/i)
@@ -284,7 +295,11 @@ describe("planClientAccess workspace mode", () => {
   const catalogue: ClientCatalogueEntry[] = [
     { clientId: "c1", name: "Home", listingIds: ["l1", "l2"] },
   ]
-  const base = { role: "member" as const, catalogue, current: [] as AccessGrant[] }
+  const base = {
+    role: "member" as const,
+    catalogue,
+    current: [] as AccessGrant[],
+  }
 
   it("refuses a per-location grant in an agency workspace", () => {
     expect(
