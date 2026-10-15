@@ -10,7 +10,10 @@ import { BrandMark } from "@/components/app-shell/brand-mark"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchSession } from "@/lib/api/session"
 import { withClientScope } from "@/lib/clients/scope"
-import type { NavigationContext } from "@/lib/navigation/destinations"
+import {
+  isActivePath,
+  type NavigationContext,
+} from "@/lib/navigation/destinations"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
@@ -259,9 +262,14 @@ function AppShell({
   const role = liveSession?.role ?? session?.role ?? null
   const mode: WorkspaceMode =
     liveSession?.workspaceMode ?? session?.workspaceMode ?? "agency"
+  // The Calendar page still opens (a link, the palette) with scheduling off.
+  // Leaving its destination out then left the page with no current item, so
+  // it stays in the navigation while it is the page you are on.
+  const onCalendar = isActivePath(usePathname(), "/calendar")
+  const hideCalendarFromNav = hideCalendar && !onCalendar
   const context = useMemo<NavigationContext>(
-    () => ({ role, mode, hideCalendar }),
-    [role, mode, hideCalendar]
+    () => ({ role, mode, hideCalendar: hideCalendarFromNav }),
+    [role, mode, hideCalendarFromNav]
   )
 
   return (

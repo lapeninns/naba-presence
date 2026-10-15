@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { CalendarOffIcon, ChevronLeft, ChevronRight } from "lucide-react"
+import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 
@@ -24,7 +25,7 @@ import {
 } from "@/components/calendar/calendar-dates"
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationSelect } from "@/components/performance/location-select"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import {
@@ -41,6 +42,7 @@ import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
+import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
@@ -184,8 +186,11 @@ export function PublicationCalendar({
     const manager = role === "owner" || role === "admin"
     return (
       <>
-        {header}
-        {/* The state is the page: no toolbar, no buttons, nothing to retry. */}
+        {/* No description above the state: it described scheduled posts on
+            a calendar that is not there. */}
+        <ViewHeader title="Publication calendar" />
+        {/* The state is the page: no toolbar, nothing to retry. Its one
+            action is the way back to where posts are written. */}
         <Empty
           variant="not-enabled"
           placement="page"
@@ -199,6 +204,14 @@ export function PublicationCalendar({
                 ? " It is turned on per workspace by NabaPresence support; ask them when you are ready to schedule posts."
                 : " Ask an owner or admin if you need it."}
             </>
+          }
+          action={
+            <Link
+              href="/listings"
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              Go to Listings
+            </Link>
           }
         />
       </>

@@ -151,7 +151,9 @@ describe("AppShell", () => {
 
   it("marks the active nav item in the sidebar and the tab bar", () => {
     renderShell()
-    const sidebar = within(screen.getByRole("complementary", { name: "Sidebar" }))
+    const sidebar = within(
+      screen.getByRole("complementary", { name: "Sidebar" })
+    )
     expect(sidebar.getByRole("link", { name: "Inbox" })).toHaveAttribute(
       "aria-current",
       "page"
@@ -167,6 +169,56 @@ describe("AppShell", () => {
     expect(tabs.getByRole("link", { name: "Clients" })).not.toHaveAttribute(
       "aria-current"
     )
+  })
+
+  // LST-28: with scheduling off the page still opens (a link, the palette),
+  // and it used to have no current item in the sidebar or on the phone.
+  it("keeps Calendar in the navigation, as the current item, while scheduling is off and you are on it", () => {
+    stubApi()
+    pathname.current = "/calendar"
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session} hideCalendar>
+            <PageFrame>
+              <PageHeader title="Publication calendar" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    const sidebar = within(
+      screen.getByRole("complementary", { name: "Sidebar" })
+    )
+    expect(sidebar.getByRole("link", { name: "Calendar" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    // An agency's phone bar holds Calendar in More, which then reads current.
+    expect(
+      within(slot("tab-bar")).getByRole("button", { name: "More" })
+    ).toHaveAccessibleDescription(/current/i)
+  })
+
+  it("leaves Calendar out of the navigation elsewhere while scheduling is off", () => {
+    stubApi()
+    pathname.current = "/listings"
+    render(
+      <Toaster>
+        <QueryProvider>
+          <AppShell session={session} hideCalendar>
+            <PageFrame>
+              <PageHeader title="Listings" />
+            </PageFrame>
+          </AppShell>
+        </QueryProvider>
+      </Toaster>
+    )
+    expect(
+      within(
+        screen.getByRole("complementary", { name: "Sidebar" })
+      ).queryByRole("link", { name: "Calendar" })
+    ).toBeNull()
   })
 
   it("draws both navigation trees, each a labelled Primary nav", () => {
@@ -474,9 +526,10 @@ describe("AppShell", () => {
       "href",
       "/team"
     )
-    expect(
-      within(nav).getByRole("link", { name: "Settings" })
-    ).toHaveAttribute("href", "/settings")
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/settings"
+    )
     expect(
       within(dialog).getByRole("region", { name: "Account" })
     ).toBeInTheDocument()
@@ -536,7 +589,9 @@ describe("account menu", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     expect(
-      await screen.findByText(/Full access, including the agency.s settings and team/)
+      await screen.findByText(
+        /Full access, including the agency.s settings and team/
+      )
     ).toBeInTheDocument()
   })
 

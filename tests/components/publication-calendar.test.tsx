@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { PublicationCalendar } from "@/components/calendar/publication-calendar"
-import { periodHeading, todayIn, utcDay, windowFor } from "@/components/calendar/calendar-dates"
+import {
+  periodHeading,
+  todayIn,
+  utcDay,
+  windowFor,
+} from "@/components/calendar/calendar-dates"
 
 // A working address bar: router.replace rewrites the search params the
 // component reads, so URL state round-trips like it does in the browser.
@@ -30,7 +35,11 @@ vi.mock("next/navigation", async () => {
   const React = await import("react")
   return {
     usePathname: () => "/calendar",
-    useRouter: () => ({ push: vi.fn(), replace: nav.replace, refresh: vi.fn() }),
+    useRouter: () => ({
+      push: vi.fn(),
+      replace: nav.replace,
+      refresh: vi.fn(),
+    }),
     useSearchParams: () =>
       new URLSearchParams(
         React.useSyncExternalStore(
@@ -240,6 +249,13 @@ describe("PublicationCalendar with scheduling switched off", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument()
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument()
     expect(screen.queryByText("Client")).not.toBeInTheDocument()
+    // No description of a calendar that is not there, and a way out.
+    expect(
+      screen.queryByText(/Scheduled post publications across the listings/)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Go to Listings" })
+    ).toHaveAttribute("href", "/listings")
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(
       fetchSpy.mock.calls.filter(([input]) =>
