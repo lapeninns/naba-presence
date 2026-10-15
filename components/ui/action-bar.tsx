@@ -30,6 +30,13 @@ export type ActionBarAction = {
   disabledReason?: string
   /** Work in flight on this action. */
   pending?: boolean
+  /** The inline button's label while `pending` ("Saving…"). */
+  pendingLabel?: string
+  /**
+   * The id of an element that describes this action (for assistive tech
+   * only); set on both drawings.
+   */
+  describedBy?: string
 }
 
 /**
@@ -260,9 +267,7 @@ function DockSpacer({
     }
     publish()
     const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(publish)
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(publish)
     observer?.observe(bar)
     window.addEventListener("resize", publish)
     return () => {
@@ -337,6 +342,8 @@ function InlineAction({
       disabled={action.disabled}
       disabledReason={action.disabledReason}
       pending={action.pending}
+      pendingLabel={action.pendingLabel}
+      aria-describedby={action.describedBy}
     >
       {action.icon}
       {action.label}
@@ -379,6 +386,7 @@ function OverflowMenu({
             variant={action.destructive ? "destructive" : "default"}
             disabled={action.disabled || action.pending}
             disabledReason={action.disabledReason}
+            aria-describedby={action.describedBy}
             onClick={action.onClick}
             render={
               action.href && !action.disabled && !action.disabledReason ? (

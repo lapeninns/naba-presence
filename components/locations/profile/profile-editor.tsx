@@ -947,11 +947,6 @@ function ProfileEditor({
             // A role that can't edit gets the one view-only bar, not a row
             // of disabled buttons.
             readOnlyReason={editReason}
-            hint={
-              googleReady
-                ? "Profile fields match Google. Specialist details use their own review."
-                : "Nothing to publish yet."
-            }
           />
         )
       }

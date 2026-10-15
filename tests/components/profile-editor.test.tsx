@@ -285,7 +285,7 @@ describe("ProfileTab", () => {
       within(footer).getByRole("button", { name: "Review lodging draft" })
     ).toBeEnabled()
     await userEvent.click(
-      within(footer).getByRole("button", { name: "Discard" })
+      within(footer).getByRole("button", { name: "Discard edits" })
     )
     await userEvent.click(
       await screen.findByRole("button", { name: "Discard changes" })
@@ -1109,7 +1109,7 @@ it("keeps provider edits unsaved after a successful local save and discards only
   const beforeUnload = new Event("beforeunload", { cancelable: true })
   window.dispatchEvent(beforeUnload)
   expect(beforeUnload.defaultPrevented).toBe(true)
-  await userEvent.click(screen.getByRole("button", { name: "Discard" }))
+  await userEvent.click(screen.getByRole("button", { name: "Discard edits" }))
   await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
   expect(screen.getByDisplayValue("CAMDEN-1")).toBeInTheDocument()
   expect(screen.getByRole("textbox", { name: "Business name" })).toHaveValue("Camden House")
@@ -1212,7 +1212,7 @@ it.each(["listing", "attributes"])("preserves failed %s edits after partial flow
   expect(wifiAnswer("Yes")).toBeChecked()
   expect(store).toHaveValue("CAMDEN-2")
   if (listingSent) {
-    await userEvent.click(screen.getByRole("button", { name: "Discard" }))
+    await userEvent.click(screen.getByRole("button", { name: "Discard edits" }))
     await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
     expect(store).toHaveValue("CAMDEN-2")
     expect(wifiAnswer("Yes")).not.toBeChecked()

@@ -143,7 +143,7 @@ describe("MenuTab", () => {
     await user.type(item, "Broth")
     await closeItem(user)
 
-    await user.click(screen.getByRole("button", { name: "Discard" }))
+    await user.click(screen.getByRole("button", { name: "Discard edits" }))
     const dialog = await screen.findByRole("alertdialog")
     expect(
       within(dialog).getByText("Discard your changes?")
@@ -308,7 +308,8 @@ describe("menu draft preservation across revisions", () => {
     expect(
       screen.queryByText("Someone else saved this menu while you were editing")
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Save here" })).toBeDisabled()
+    // Nothing left to save: Save here leaves the bar instead of greying.
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
     // The row reads the stored price, not the typed "7.00".
     expect(
       screen.getByRole("button", { name: "Edit Soup", hidden: true })

@@ -31,13 +31,11 @@ import { cn } from "@/lib/utils"
  * the header's pill is the one status on the page (the footer reports to
  * it), so two pills can never disagree.
  *
- * The footer. On a phone (under 48rem) the EditorFooter docks itself to the
- * bottom edge once there is something to save. The docked ActionBar leaves a
- * spacer its measured height in the flow (two rows on a phone: status over
- * its buttons), so the bar never covers the last field. From 48rem on
- * screens at least 620px tall it sticks 12px above
- * the bottom of the scrolling pane as a floating dark bar; shorter screens
- * use normal document flow so the bar cannot cover the form.
+ * The footer. A clean editor has none. Once there is something to save, a
+ * phone (under 48rem) docks the EditorFooter to the bottom edge as one row;
+ * the docked ActionBar leaves a spacer its measured height in the flow, so
+ * the bar never covers the last field. From 48rem it sits inline at the end
+ * of the form, so it can never cover the fields it saves.
  */
 function EditorFrame({
   title,
@@ -84,10 +82,7 @@ function EditorFrame({
     <section
       ref={ref}
       data-slot="editor-frame"
-      className={cn(
-        "flex flex-col gap-5",
-        className
-      )}
+      className={cn("flex flex-col gap-5", className)}
     >
       {titleHidden ? <h2 className="sr-only">{title}</h2> : null}
       {showHead || gateReason ? (
@@ -143,10 +138,7 @@ function EditorFrame({
       {children}
 
       {footer ? (
-        <div
-          data-slot="editor-frame-footer"
-          className="z-chrome mt-auto md:[@media(min-height:620px)]:sticky md:[@media(min-height:620px)]:bottom-3"
-        >
+        <div data-slot="editor-frame-footer" className="mt-auto">
           {footer}
         </div>
       ) : null}

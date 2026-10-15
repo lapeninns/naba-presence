@@ -669,6 +669,14 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(editorBar).toBeVisible()
     await expect(editorBar).toHaveAttribute("data-docked", "bottom")
     await expect(page.locator("[data-slot=tab-bar]")).toBeHidden()
+    // One row: status, the primary and the overflow; Save here and Discard
+    // edits wait in the overflow menu rather than beside them.
+    await expect(
+      editorBar.getByRole("button", { name: "More actions", exact: true })
+    ).toBeVisible()
+    await expect(
+      editorBar.getByRole("button", { name: "Save here", exact: true })
+    ).toBeHidden()
     await expectNotCovered(review, "Review changes")
     await expectFocusClear(
       page,
