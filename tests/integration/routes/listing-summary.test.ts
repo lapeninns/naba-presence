@@ -2,6 +2,7 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { listingSummarySchema } from "@/lib/contracts/location-summary"
+import { hashHours, normalizeGoogleHours } from "@/lib/domain/hours"
 
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import { startAppServer } from "../helpers/app-server"
@@ -72,6 +73,121 @@ describeDatabase("listing summary routes", () => {
     ).toContain(location.locationId)
   })
 
+  it("says whether Google's last observed hours are empty", async () => {
+    const tenant = await createTestTenant(admin, { role: "owner" })
+    organisations.push(tenant.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: tenant.organisationId,
+    })
+    const seed = async (googleHash: string) => {
+      const location = await seedLinkedLocation(admin, {
+        organisationId: tenant.organisationId,
+        connectionId: connection.connectionId,
+        googleAccountName: connection.googleAccountName,
+      })
+      await admin`
+        insert into presence_resource_reconcile_state (
+          organisation_id, location_id, resource, status,
+          last_attempt_at, last_succeeded_at, observed_google_hash,
+          observed_at, observation_attempted_at, comparison_blocked
+        ) values (
+          ${tenant.organisationId}, ${location.locationId}, 'hours', 'succeeded',
+          now(), now(), ${googleHash}, now(), now(), false
+        )`
+      return location
+    }
+    const read = async (locationId: string) => {
+      const response = await fetch(
+        `${server.baseUrl}/api/locations/${locationId}/summary`,
+        { headers: { cookie: tenant.cookie } }
+      )
+      expect(response.status).toBe(200)
+      const { summary } = (await response.json()) as { summary: unknown }
+      return listingSummarySchema.parse(summary)
+    }
+
+    const empty = await seed(hashHours(normalizeGoogleHours({})))
+    expect((await read(empty.locationId)).hours.googleEmpty).toBe(true)
+
+    const real = await seed(
+      hashHours(
+        normalizeGoogleHours({
+          regularHours: {
+            periods: [
+              {
+                openDay: "MONDAY",
+                closeDay: "MONDAY",
+                openTime: { hours: 9 },
+                closeTime: { hours: 17 },
+              },
+            ],
+          },
+        })
+      )
+    )
+    expect((await read(real.locationId)).hours.googleEmpty).toBe(false)
+
+    // Never observed: the field is absent, not false.
+    const unseen = await seedLinkedLocation(admin, {
+      organisationId: tenant.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    expect(await read(unseen.locationId)).toMatchObject({
+      hours: { status: "unknown" },
+    })
+    expect((await read(unseen.locationId)).hours.googleEmpty).toBeUndefined()
+  })
+
+  it("counts a client whose only listing shows no hours on Google under attention", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const [client] = await admin<
+      { id: string }[]
+    >`insert into client (organisation_id, name, slug) values (${owner.organisationId}, 'No hours fixture', 'no-hours-fixture') returning id::text as id`
+    await admin`update location set client_id = ${client.id} where id = ${linked.locationId}`
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+      () => ({
+        status: 200,
+        json: {
+          name: linked.googleLocationName,
+          title: "No hours pub",
+          metadata: { canHaveFoodMenus: false },
+          regularHours: { periods: [] },
+          specialHours: { specialHourPeriods: [] },
+          moreHours: [],
+        },
+      })
+    )
+    const root = `${server.baseUrl}/api/locations/${linked.locationId}`
+    async function read(path: string) {
+      const response = await fetch(path, { headers: { cookie: owner.cookie } })
+      expect(response.status, await response.clone().text()).toBe(200)
+      return response.json()
+    }
+    await read(`${root}/hours`)
+    await read(`${root}/profile`)
+    await read(`${root}/food-menus`)
+    const { summary } = await read(`${root}/summary`)
+    expect(summary.hours).toMatchObject({ status: "in_sync", googleEmpty: true })
+    const state = (await read(`${server.baseUrl}/api/clients`)).items.find(
+      (item: { id: string }) => item.id === client.id
+    )
+    expect(state).toMatchObject({
+      health: "attention",
+      canonicalChecks: { total: 1, checked: 0, attention: 1 },
+    })
+  }, 30_000)
+
   it("hides a listing the member cannot see", async () => {
     const tenant = await createTestTenant(admin, { role: "owner" })
     organisations.push(tenant.organisationId)
@@ -140,7 +256,16 @@ describeDatabase("listing summary routes", () => {
                 name: linked.googleLocationName,
                 title: "Comparison pub",
                 metadata: { canHaveFoodMenus: false },
-                regularHours: { periods: [] },
+                regularHours: {
+                  periods: [
+                    {
+                      openDay: "MONDAY",
+                      closeDay: "MONDAY",
+                      openTime: { hours: 9 },
+                      closeTime: { hours: 17 },
+                    },
+                  ],
+                },
                 specialHours: { specialHourPeriods: [] },
                 moreHours: [],
               },
@@ -213,7 +338,16 @@ describeDatabase("listing summary routes", () => {
               name: linked.googleLocationName,
               title: "Comparison pub",
               metadata: { canHaveFoodMenus: false },
-              regularHours: { periods: [] },
+              regularHours: {
+                    periods: [
+                      {
+                        openDay: "MONDAY",
+                        closeDay: "MONDAY",
+                        openTime: { hours: 9 },
+                        closeTime: { hours: 17 },
+                      },
+                    ],
+                  },
               specialHours: { specialHourPeriods: [] },
               moreHours: [],
             },

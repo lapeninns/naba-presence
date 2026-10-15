@@ -13,6 +13,7 @@ import type { ListingArea, ListingAreaKey } from "@/lib/listings/areas"
 import {
   googleUnreachable,
   comparisonCheck,
+  noHoursOnGoogle,
   syncStatusLabel,
   syncStatusTone,
   UNREACHABLE_LABEL,
@@ -133,8 +134,25 @@ export function areaState(
   switch (key) {
     case "profile":
       return syncedState(summary.profile, googleUnreachable(summary), now)
-    case "hours":
-      return syncedState(summary.hours, googleUnreachable(summary), now)
+    case "hours": {
+      const unreachable = googleUnreachable(summary)
+      const hours = summary.hours
+      // Google's empty hours are an in-sync state, but not a fine one: the
+      // words match the hours editor ("No hours on Google"). Dirty and
+      // conflict states, and an unreachable Google, keep their own words.
+      if (
+        !unreachable &&
+        hours.status !== "core_dirty" &&
+        hours.status !== "conflict" &&
+        noHoursOnGoogle(summary, now)
+      )
+        return {
+          tone: "attention",
+          label: "No hours on Google",
+          line: "Customers see no opening hours",
+        }
+      return syncedState(hours, unreachable, now)
+    }
     case "menu":
       if (summary.menu.eligible === false)
         return {

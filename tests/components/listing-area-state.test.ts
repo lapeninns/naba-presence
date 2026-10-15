@@ -17,6 +17,67 @@ function summary(overrides: Partial<ListingSummary> = {}): ListingSummary {
   }
 }
 
+describe("areaState hours with no hours on Google", () => {
+  const now = new Date().toISOString()
+  const hoursSummary = (hours: Partial<ListingSummary["hours"]>) =>
+    summary({
+      connection: {
+        status: "active",
+        reconnectRequired: false,
+        googleEmail: null,
+      },
+      hours: {
+        status: "in_sync",
+        dirtyCount: 0,
+        observedAt: now,
+        checkStatus: "checked",
+        googleEmpty: true,
+        ...hours,
+      },
+    })
+
+  it("is attention rather than In sync", () => {
+    expect(areaState("hours", hoursSummary({}))).toEqual({
+      tone: "attention",
+      label: "No hours on Google",
+      line: "Customers see no opening hours",
+    })
+  })
+
+  it("leaves dirty, conflict and unreachable states as they are", () => {
+    expect(
+      areaState("hours", hoursSummary({ status: "core_dirty", dirtyCount: 1 }))
+        .label
+    ).toBe("Not on Google yet")
+    expect(
+      areaState("hours", hoursSummary({ status: "conflict", dirtyCount: 1 }))
+        .label
+    ).toBe("Conflict")
+    expect(
+      areaState("hours", {
+        ...hoursSummary({}),
+        connection: {
+          status: "revoked",
+          reconnectRequired: true,
+          googleEmail: null,
+        },
+      }).label
+    ).toBe("Unknown — can’t reach Google")
+  })
+
+  it("is In sync when googleEmpty is false or absent, and Couldn’t check when failed", () => {
+    expect(areaState("hours", hoursSummary({ googleEmpty: false })).label).toBe(
+      "In sync"
+    )
+    expect(
+      areaState("hours", hoursSummary({ googleEmpty: undefined })).label
+    ).toBe("In sync")
+    expect(
+      areaState("hours", hoursSummary({ checkStatus: "failed" })).label
+    ).toBe("Couldn’t check")
+  })
+})
+
 describe("areaState", () => {
   it("counts local edits on a canonical area in the pill", () => {
     const state = areaState(

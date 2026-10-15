@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest"
 
 import { hashFoodMenus } from "@/lib/domain/food-menus"
-import { hashHours, type NormalizedHours } from "@/lib/domain/hours"
+import {
+  hashHours,
+  normalizeGoogleHours,
+  type NormalizedHours,
+} from "@/lib/domain/hours"
 import {
   hashProfileValue,
   PROFILE_FIELD_KEYS,
   type NormalizedProfile,
 } from "@/lib/domain/profile"
 import {
+  EMPTY_HOURS_HASH,
   hoursArea,
   menuArea,
   profileArea,
@@ -105,6 +110,105 @@ describe("hoursArea", () => {
       checkStatus: "failed",
       observedAt: observation.observedAt.toISOString(),
     })
+  })
+})
+
+describe("EMPTY_HOURS_HASH and googleEmpty", () => {
+  const observation = (googleHash: string | null) => ({
+    locationId: "l1",
+    googleHash,
+    comparisonCanonicalHash: null,
+    comparisonGoogleHash: null,
+    observedAt: new Date(),
+    attemptedAt: new Date(),
+    errorCode: null,
+    blocked: false,
+  })
+
+  it("is what every Google payload without hours hashes to", () => {
+    const hashOf = (location: Parameters<typeof normalizeGoogleHours>[0]) =>
+      hashHours(normalizeGoogleHours(location))
+    // The server hashes `normalizeGoogleHours(googleLocation)` for every
+    // observation (lib/server/hours.ts, compareHours).
+    expect(hashOf({})).toBe(EMPTY_HOURS_HASH)
+    expect(
+      hashOf({
+        regularHours: { periods: [] },
+        specialHours: { specialHourPeriods: [] },
+        moreHours: [],
+      })
+    ).toBe(EMPTY_HOURS_HASH)
+    // Periods Google sends that cannot be read are no hours either.
+    expect(
+      hashOf({
+        regularHours: {
+          periods: [{ openDay: "MONDAY", openTime: null, closeTime: null }],
+        },
+      })
+    ).toBe(EMPTY_HOURS_HASH)
+    // A saved week of closed days is the same semantic value.
+    expect(
+      hashHours({
+        regular: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+          dayOfWeek,
+          isClosed: true,
+          periods: [],
+        })),
+        special: [],
+        moreHours: [],
+      })
+    ).toBe(EMPTY_HOURS_HASH)
+  })
+
+  it("is not what any real hours, special hours or more-hours hash to", () => {
+    const hashOf = (location: Parameters<typeof normalizeGoogleHours>[0]) =>
+      hashHours(normalizeGoogleHours(location))
+    expect(
+      hashOf({
+        regularHours: {
+          periods: [
+            {
+              openDay: "MONDAY",
+              closeDay: "MONDAY",
+              openTime: { hours: 9 },
+              closeTime: { hours: 17 },
+            },
+          ],
+        },
+      })
+    ).not.toBe(EMPTY_HOURS_HASH)
+    expect(
+      hashOf({
+        specialHours: {
+          specialHourPeriods: [
+            { startDate: { year: 2026, month: 12, day: 25 }, closed: true },
+          ],
+        },
+      })
+    ).not.toBe(EMPTY_HOURS_HASH)
+    expect(
+      hashOf({ moreHours: [{ hoursTypeId: "KITCHEN", periods: [] }] })
+    ).not.toBe(EMPTY_HOURS_HASH)
+    expect(hashHours(hours)).not.toBe(EMPTY_HOURS_HASH)
+  })
+
+  it("flags empty Google hours, with or without a canonical row", () => {
+    expect(hoursArea(canonical({}), observation(EMPTY_HOURS_HASH))).toMatchObject(
+      { googleEmpty: true }
+    )
+    expect(
+      hoursArea(undefined, observation(EMPTY_HOURS_HASH)).googleEmpty
+    ).toBe(true)
+  })
+
+  it("says false for real Google hours and nothing when Google was never observed", () => {
+    expect(
+      hoursArea(canonical({}), observation(hashHours(hours))).googleEmpty
+    ).toBe(false)
+    expect(hoursArea(canonical({}), observation(null))).not.toHaveProperty(
+      "googleEmpty"
+    )
+    expect(hoursArea(canonical({}))).not.toHaveProperty("googleEmpty")
   })
 })
 
