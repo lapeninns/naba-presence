@@ -118,6 +118,55 @@ describe("PostsTab", () => {
     expect(refreshPosts.mutate).toHaveBeenCalledOnce()
   })
 
+  it("leads each update with its own first line and shows the type as a tag", () => {
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        posts: [
+          post({ id: "a", summary: "Open late tonight\nLast orders at 11pm" }),
+          post({ id: "b", summary: "Closed on Monday" }),
+        ],
+      }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent)
+    expect(headings).toEqual(
+      expect.arrayContaining(["Open late tonight", "Closed on Monday"])
+    )
+    expect(headings).not.toContain("Update")
+    // The first line is said once: the body keeps only what the title omits.
+    expect(screen.getAllByText("Open late tonight")).toHaveLength(1)
+    expect(screen.getByText("Last orders at 11pm")).toBeInTheDocument()
+    expect(screen.getAllByText("Update").length).toBeGreaterThan(0)
+    expect(screen.queryByText("Lifecycle")).not.toBeInTheDocument()
+    expect(screen.getAllByText("History").length).toBeGreaterThan(0)
+  })
+
+  it("puts New post in the empty state, not beside it", () => {
+    usePostsMock.mockReturnValue({
+      data: makeState({ posts: [] }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    expect(screen.getByRole("button", { name: "New post" })).toBeEnabled()
+    expect(screen.getAllByRole("button", { name: "New post" })).toHaveLength(1)
+    expect(screen.queryByText(/Write the first one with New post/)).toBeNull()
+  })
+
   it("opens on the posts, not on an empty form, and previews what is typed", async () => {
     const user = userEvent.setup()
     usePostsMock.mockReturnValue({
@@ -171,14 +220,10 @@ describe("PostsTab", () => {
     const sheet = await screen.findByRole("dialog")
     const save = within(sheet).getByRole("button", { name: "Save draft" })
     expect(save).toBeDisabled()
-    expect(save).toHaveAccessibleDescription(
-      "Nothing to save yet. Write the post first."
-    )
-    expect(
-      within(sheet).getByText("Nothing to save yet. Write the post first.")
-    ).toBeVisible()
+    expect(save).toHaveAccessibleDescription("Write the post first.")
+    expect(within(sheet).getByText("Write the post first.")).toBeVisible()
 
-    const note = within(sheet).getByText(/Nothing goes to Google until/)
+    const note = within(sheet).getByText(/Nothing reaches Google until/)
     for (
       let node: HTMLElement | null = note;
       node && node !== sheet;
@@ -194,9 +239,7 @@ describe("PostsTab", () => {
     )
     expect(save).toBeEnabled()
     expect(save).not.toHaveAttribute("aria-describedby")
-    expect(
-      within(sheet).queryByText("Nothing to save yet. Write the post first.")
-    ).toBeNull()
+    expect(within(sheet).queryByText("Write the post first.")).toBeNull()
   })
 
   it("sets a post to repeat weekly and shows the repeat on the list", async () => {
