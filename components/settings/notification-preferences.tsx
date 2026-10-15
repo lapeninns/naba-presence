@@ -1,6 +1,10 @@
 "use client"
 
-import { useMutationState, useQuery } from "@tanstack/react-query"
+import {
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { ChevronRightIcon } from "lucide-react"
 import Link from "next/link"
 
@@ -76,6 +80,11 @@ export function NotificationPreferences({ role }: { role: string | null }) {
     NotificationPreferencesResponse
   >({
     mutationKey: SAVE_KEY,
+    // One write at a time, in the order they were made: each change still
+    // shows at once (onMutate runs immediately), but a row save, the bulk
+    // change and its Undo can never reach the server out of order and
+    // overwrite one another.
+    scope: { id: "notification-preferences-save" },
     mutationFn: (changes) => updateNotificationPreferences(changes),
     queryKey: queryKeys.notificationPreferences,
     update: (current, changes) => current && applyChanges(current, changes),
@@ -91,7 +100,9 @@ export function NotificationPreferences({ role }: { role: string | null }) {
   const saving = new Set(
     pending.flat().map((change) => rowKey(change.kind, change.channel))
   )
-  const bulkSaving = pending.some((changes) => changes.length > 1)
+  // The group action waits for every save in flight, a single row's too.
+  const anySaving = pending.length > 0
+  const queryClient = useQueryClient()
 
   const rows = query.data
     ? [...new Set(query.data.preferences.map((preference) => preference.kind))]
@@ -130,7 +141,25 @@ export function NotificationPreferences({ role }: { role: string | null }) {
         title: allInAppOn
           ? "Turned off in-app notifications"
           : "Turned on in-app notifications",
-        undo: { onUndo: () => save.mutate(previous) },
+        undo: {
+          // Only the rows still as the bulk change left them: a row changed
+          // since keeps its newer choice.
+          onUndo: () => {
+            const now =
+              queryClient.getQueryData<NotificationPreferencesResponse>(
+                queryKeys.notificationPreferences
+              )
+            const restore = previous.filter(
+              (change) =>
+                now?.preferences.find(
+                  (preference) =>
+                    preference.kind === change.kind &&
+                    preference.channel === "in_app"
+                )?.mode === target
+            )
+            if (restore.length > 0) save.mutate(restore)
+          },
+        },
       })
     }, noop)
   }
@@ -154,7 +183,7 @@ export function NotificationPreferences({ role }: { role: string | null }) {
         id="notification-in-app"
         action={
           <SettingsGroupAction
-            disabled={bulkSaving || rows.length === 0}
+            disabled={anySaving || rows.length === 0}
             onClick={turnAll}
           >
             {allInAppOn ? "Turn all off in app" : "Turn all on in app"}

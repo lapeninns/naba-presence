@@ -594,14 +594,88 @@ describe("NotificationPreferences", () => {
     expect(
       screen.getByRole("combobox", { name: "Email: Publishing failed" })
     ).toBeEnabled()
+    // The group action waits for it: a bulk change sent now could be
+    // overwritten by this earlier save.
     expect(
       screen.getByRole("button", { name: "Turn all on in app" })
-    ).toBeEnabled()
+    ).toBeDisabled()
     release()
     await waitFor(() =>
       expect(publishingSwitch).not.toHaveAttribute("aria-disabled", "true")
     )
     expect(publishingSwitch).not.toBeChecked()
+    expect(
+      screen.getByRole("button", { name: "Turn all on in app" })
+    ).toBeEnabled()
+  })
+
+  it("sends saves one at a time, in the order they were made", async () => {
+    const { calls, release } = preferenceServer({
+      emailConfigured: true,
+      preferences: twoEvents,
+      hold: true,
+    })
+    renderPreferences("owner")
+    const first = await screen.findByRole("switch", {
+      name: "Publishing failed",
+    })
+    const second = screen.getByRole("switch", {
+      name: "Scheduled post missed",
+    })
+    fireEvent.click(first)
+    fireEvent.click(second)
+    // Both show before any answer, but only the first request is out.
+    await waitFor(() => expect(first).not.toBeChecked())
+    await waitFor(() => expect(second).not.toBeChecked())
+    await waitFor(() => expect(puts(calls)).toHaveLength(1))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(puts(calls)).toHaveLength(1)
+    release()
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    expect(puts(calls).map((call) => call.body)).toEqual([
+      {
+        changes: [
+          { kind: "publication_failed", channel: "in_app", mode: "off" },
+        ],
+      },
+      {
+        changes: [{ kind: "schedule_missed", channel: "in_app", mode: "off" }],
+      },
+    ])
+  })
+
+  it("leaves a row changed after the bulk action alone on Undo", async () => {
+    const { calls } = preferenceServer({
+      emailConfigured: true,
+      preferences: twoEvents.map((row) =>
+        row.channel === "in_app" ? { ...row, mode: "off" as const } : row
+      ),
+    })
+    renderPreferences("owner")
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Turn all on in app" })
+    )
+    await screen.findByText("Turned on in-app notifications")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Publishing failed" })
+      ).not.toHaveAttribute("aria-disabled", "true")
+    )
+    // A newer choice on one row…
+    fireEvent.click(screen.getByRole("switch", { name: "Publishing failed" }))
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Publishing failed" })
+      ).not.toHaveAttribute("aria-disabled", "true")
+    )
+    // …survives Undo, which puts back only the row the bulk change left as
+    // it was.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+    await waitFor(() => expect(puts(calls)).toHaveLength(3))
+    expect(puts(calls)[2]?.body).toEqual({
+      changes: [{ kind: "schedule_missed", channel: "in_app", mode: "off" }],
+    })
   })
 
   it("puts a refused choice back and says why", async () => {
@@ -686,8 +760,10 @@ describe("NotificationPreferences", () => {
     await userEvent.click(
       await screen.findByRole("option", { name: "Daily summary" })
     )
-    await waitFor(() => expect(puts(calls)).toHaveLength(2))
+    // Saves go out one at a time, so the second waits behind the first.
+    await waitFor(() => expect(puts(calls)).toHaveLength(1))
     release()
+    await waitFor(() => expect(puts(calls)).toHaveLength(2))
     expect(
       await screen.findByText("Turned on in-app notifications")
     ).toBeInTheDocument()
