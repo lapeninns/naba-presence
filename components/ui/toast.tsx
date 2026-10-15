@@ -473,11 +473,14 @@ export function withToastDefaults<T extends AddOptions>(
 export function withReplacementReset<T extends AddOptions>(options: T): T {
   if (!options.id) return options
   return {
+    title: undefined,
     description: undefined,
     type: undefined,
+    priority: undefined,
     data: undefined,
     actionProps: undefined,
     onClose: undefined,
+    onRemove: undefined,
     timeout: undefined,
     ...options,
   }
@@ -623,11 +626,16 @@ function outcomeToManagerOptions(
     kind === "google" && link && isSafeToastHref(link.href)
       ? { kind, link: { href: link.href } }
       : { kind }
+  // Undo runs once: the toast stays on screen through its exit animation,
+  // where a second tap would otherwise run the revert again.
+  let undone = false
   const actionProps =
     kind === "local" && undo
       ? {
           children: undo.label ?? "Undo",
           onClick: () => {
+            if (undone) return
+            undone = true
             undo.onUndo()
             manager.close(id)
           },
@@ -684,6 +692,12 @@ export function showToast(
  * toast. Give a stable `id` when repeated actions should replace the toast
  * rather than stack. Never for a Google write (D5): use `toastProgress` with
  * `kind: "google"`. Returns the toast's id.
+ *
+ * Undo runs `revert` once, however often it is tapped while the toast leaves.
+ * A stable `id` replaces the earlier toast, and with it the earlier Undo: the
+ * first action can no longer be undone from a toast once a second one has
+ * taken its place. Use a stable id only where the latest action is the one
+ * that matters; otherwise leave `id` out and let each action keep its own.
  */
 export function applyWithUndo<T = void>({
   apply,

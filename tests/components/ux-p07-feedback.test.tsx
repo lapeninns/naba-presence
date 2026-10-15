@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   act,
+  fireEvent,
   render,
   renderHook,
   screen,
@@ -17,6 +18,7 @@ import {
   createToastManager,
   showToast,
   toast,
+  useToastManager,
   type ToastManagerLike,
 } from "@/components/ui/toast"
 import { useOptimisticMutation } from "@/lib/queries/use-optimistic-mutation"
@@ -116,6 +118,44 @@ describe("toast replace by id", () => {
     }
   })
 
+  it("replaces in place through useToastManager().add too", () => {
+    function Adder() {
+      const manager = useToastManager()
+      return (
+        <>
+          <button
+            onClick={() =>
+              manager.add({
+                id: "hook",
+                title: "First",
+                description: "Old detail",
+                actionProps: { children: "Retry" },
+              })
+            }
+          >
+            first
+          </button>
+          <button onClick={() => manager.add({ id: "hook", title: "Second" })}>
+            second
+          </button>
+        </>
+      )
+    }
+    render(
+      <Toaster>
+        <Adder />
+      </Toaster>
+    )
+    fireEvent.click(screen.getByText("first"))
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument()
+    fireEvent.click(screen.getByText("second"))
+    expect(toastEls()).toHaveLength(1)
+    expect(screen.getByText("Second")).toBeInTheDocument()
+    expect(screen.queryByText("First")).toBeNull()
+    expect(screen.queryByText("Old detail")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull()
+  })
+
   it("a different id still stacks", () => {
     render(<Toaster />)
     act(() => {
@@ -164,6 +204,20 @@ describe("applyWithUndo", () => {
     })
     expect(value).toBe("unanswered")
     await waitFor(() => expect(open()).toHaveLength(0))
+  })
+})
+
+describe("Undo runs once", () => {
+  it("a second tap during the exit animation does not revert again", () => {
+    const manager = setupManager()
+    const revert = vi.fn()
+    act(() => {
+      applyWithUndo({ title: "Done", apply: () => {}, revert, manager })
+    })
+    const undo = screen.getByRole("button", { name: "Undo" })
+    fireEvent.click(undo)
+    fireEvent.click(undo)
+    expect(revert).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -258,5 +312,141 @@ describe("useOptimisticMutation", () => {
       })
     }
     expect(toastEls()).toHaveLength(1)
+  })
+  describe("overlapping calls", () => {
+    function deferred() {
+      const calls: { resolve: () => void; reject: (e: Error) => void }[] = []
+      const mutationFn = () =>
+        new Promise<void>((resolve, reject) => {
+          calls.push({ resolve, reject })
+        })
+      return { calls, mutationFn }
+    }
+
+    it("refetches once, when the last call settles", async () => {
+      const { calls, mutationFn } = deferred()
+      const { client, invalidate, result } = setup(mutationFn)
+      act(() => result.current.mutate("a"))
+      await waitFor(() => expect(calls).toHaveLength(1))
+      act(() => result.current.mutate("b"))
+      await waitFor(() => expect(calls).toHaveLength(2))
+      expect(client.getQueryData<Item[]>(KEY)).toEqual([
+        { id: "a", read: true },
+        { id: "b", read: true },
+      ])
+
+      await act(async () => calls[0].resolve())
+      // "b" is still pending: a refetch now would not include it.
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(client.getQueryData<Item[]>(KEY)).toEqual([
+        { id: "a", read: true },
+        { id: "b", read: true },
+      ])
+
+      await act(async () => calls[1].resolve())
+      await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1))
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: KEY })
+    })
+
+    it("does not undo a later call's change when an earlier one fails", async () => {
+      const { calls, mutationFn } = deferred()
+      const { client, invalidate, result } = setup(mutationFn)
+      act(() => result.current.mutate("a"))
+      await waitFor(() => expect(calls).toHaveLength(1))
+      act(() => result.current.mutate("b"))
+      await waitFor(() => expect(calls).toHaveLength(2))
+
+      await act(async () => calls[0].reject(new Error("No")))
+      // Restoring the snapshot taken before "a" would also lose "b".
+      expect(client.getQueryData<Item[]>(KEY)).toEqual([
+        { id: "a", read: true },
+        { id: "b", read: true },
+      ])
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(await screen.findByText("Could not mark as read")).toBeVisible()
+
+      await act(async () => calls[1].resolve())
+      await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1))
+    })
+  })
+
+  it("leaves the cache alone when update declines, even on failure", async () => {
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <Toaster />
+        {children}
+      </QueryClientProvider>
+    )
+    const { result } = renderHook(
+      () =>
+        useOptimisticMutation<void, string, Item[]>({
+          mutationFn: () => Promise.reject(new Error("No")),
+          queryKey: ["p07", "declined"],
+          update: () => undefined,
+          errorTitle: "Failed",
+        }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.mutateAsync("a").catch(() => {})
+    })
+    expect(client.getQueryState(["p07", "declined"])).toBeUndefined()
+  })
+
+  it("removes data that update made out of an empty cache on failure", async () => {
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <Toaster />
+        {children}
+      </QueryClientProvider>
+    )
+    const { result } = renderHook(
+      () =>
+        useOptimisticMutation<void, string, Item[]>({
+          mutationFn: () => Promise.reject(new Error("No")),
+          queryKey: ["p07", "empty"],
+          update: (_current, id) => [{ id, read: true }],
+          errorTitle: "Failed",
+        }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.mutateAsync("a").catch(() => {})
+    })
+    expect(client.getQueryData(["p07", "empty"])).toBeUndefined()
+  })
+
+  it("gives each mutation its own error toast", async () => {
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <Toaster />
+        {children}
+      </QueryClientProvider>
+    )
+    const useFailing = (name: string) =>
+      useOptimisticMutation<void, string, Item[]>({
+        mutationFn: () => Promise.reject(new Error("No")),
+        queryKey: ["p07", name],
+        update: () => undefined,
+        errorTitle: `${name} failed`,
+      })
+    const { result } = renderHook(
+      () => ({ one: useFailing("one"), two: useFailing("two") }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.one.mutateAsync("a").catch(() => {})
+      await result.current.two.mutateAsync("a").catch(() => {})
+    })
+    expect(toastEls()).toHaveLength(2)
   })
 })

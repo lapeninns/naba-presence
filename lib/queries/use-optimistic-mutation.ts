@@ -1,12 +1,13 @@
 "use client"
 
 import {
+  hashKey,
   useMutation,
   useQueryClient,
   type QueryKey,
   type UseMutationOptions,
 } from "@tanstack/react-query"
-import type * as React from "react"
+import * as React from "react"
 
 import { showToast } from "@/components/ui/toast"
 
@@ -14,6 +15,8 @@ import { showToast } from "@/components/ui/toast"
 type OptimisticContext<TCache> = {
   queryKey: QueryKey
   previous: TCache | undefined
+  /** Whether `update` changed the cache (it may decline by returning undefined). */
+  applied: boolean
 }
 
 export type UseOptimisticMutationOptions<
@@ -47,7 +50,8 @@ export type UseOptimisticMutationOptions<
   alsoInvalidate?: QueryKey[]
   /**
    * A stable id for the error toast, so a second failure replaces the first
-   * rather than stacking. Defaults to one id per mutation.
+   * rather than stacking. Defaults to one id per `mutationKey`, so two
+   * different mutations never share a toast.
    */
   errorToastId?: string
 }
@@ -59,8 +63,10 @@ export type UseOptimisticMutationOptions<
  * preference). A Google write is never optimistic: use `toastProgress` with
  * `kind: "google"` and show the result when it arrives.
  *
- *   const markRead = useOptimisticMutation({
- *     mutationFn: (id: string) => markNotificationRead(id),
+ *   type Notifications = { items: { id: string; read: boolean }[] }
+ *
+ *   const markRead = useOptimisticMutation<void, string, Notifications>({
+ *     mutationFn: (id) => markNotificationRead(id),
  *     queryKey: queryKeys.notifications,
  *     update: (current, id) =>
  *       current && {
@@ -72,18 +78,27 @@ export type UseOptimisticMutationOptions<
  *     errorTitle: "Could not mark as read",
  *   })
  *
+ * The generics are `<TData, TVariables, TCache>`: name them, as above, so
+ * `current` and the returned value are typed.
+ *
  * What it does, in order:
  * 1. `onMutate`: cancels in-flight fetches of the query (so a slow refetch
  *    cannot overwrite the change), snapshots the cache, then applies `update`.
  * 2. `onError`: puts the snapshot back and shows an error toast
  *    (`errorTitle`), so the failure is seen even if the operator has moved on.
+ *    If the cache was empty and `update` created the data, the entry is reset
+ *    rather than set to undefined.
  * 3. `onSettled`: refetches the query (and `alsoInvalidate`), so the screen
  *    ends on what the server holds whether it succeeded or failed.
  *
- * Caveats: two overlapping mutations on one query roll back to their own
- * snapshot, and the refetch on settle then corrects any difference. Keep
- * `update` to the one query; list derivations belong in `alsoInvalidate`.
- * `onSuccess` and the other mutation options pass straight through.
+ * Overlapping calls (a second tap while the first is in flight) share one
+ * `mutationKey` (by default `["optimistic", ...queryKey]`). While another call on the same query is still pending, a
+ * settling call neither restores its snapshot (it predates the other's
+ * change) nor refetches (the answer would not yet include the other's
+ * change). The last call to settle refetches once, which corrects whatever
+ * the earlier ones left. Keep `update` to the one query; list derivations
+ * belong in `alsoInvalidate`. `onSuccess` and the other mutation options
+ * pass straight through.
  */
 export function useOptimisticMutation<
   TData = unknown,
@@ -101,29 +116,50 @@ export function useOptimisticMutation<
   ...options
 }: UseOptimisticMutationOptions<TData, TVariables, TCache, TError>) {
   const client = useQueryClient()
+  const instanceId = React.useId()
   const keyFor = (variables: TVariables) =>
     typeof queryKey === "function" ? queryKey(variables) : queryKey
+  const resolvedMutationKey: QueryKey =
+    mutationKey ??
+    (typeof queryKey === "function"
+      ? ["optimistic", instanceId]
+      : ["optimistic", ...queryKey])
   const toastId =
-    errorToastId ??
-    `optimistic-error:${mutationKey ? JSON.stringify(mutationKey) : "mutation"}`
+    errorToastId ?? `optimistic-error:${hashKey(resolvedMutationKey)}`
+
+  /** How many calls on this query are still pending (this one included). */
+  const pendingOn = (key: QueryKey) =>
+    client.getMutationCache().findAll({
+      mutationKey: resolvedMutationKey,
+      predicate: (mutation) =>
+        mutation.state.status === "pending" &&
+        hashKey(keyFor(mutation.state.variables as TVariables)) ===
+          hashKey(key),
+    }).length
 
   return useMutation<TData, TError, TVariables, OptimisticContext<TCache>>({
     ...options,
-    mutationKey,
+    mutationKey: resolvedMutationKey,
     onMutate: async (variables) => {
       const key = keyFor(variables)
       await client.cancelQueries({ queryKey: key })
       const previous = client.getQueryData<TCache>(key)
       const next = update(previous, variables)
-      if (next !== undefined) client.setQueryData<TCache>(key, next)
-      return { queryKey: key, previous }
+      const applied = next !== undefined
+      if (applied) client.setQueryData<TCache>(key, next)
+      return { queryKey: key, previous, applied }
     },
     onError: (error, _variables, context) => {
-      if (context) {
-        client.setQueryData<TCache | undefined>(
-          context.queryKey,
-          context.previous
-        )
+      // Another call is still pending: this snapshot predates its change, so
+      // restoring it would undo that. The last call to settle refetches.
+      if (context?.applied && pendingOn(context.queryKey) <= 1) {
+        if (context.previous === undefined) {
+          // `update` made data out of nothing: there is no snapshot to put
+          // back, and setQueryData(undefined) would leave it in place.
+          void client.resetQueries({ queryKey: context.queryKey, exact: true })
+        } else {
+          client.setQueryData<TCache>(context.queryKey, context.previous)
+        }
       }
       showToast({
         id: toastId,
@@ -137,10 +173,12 @@ export function useOptimisticMutation<
       })
     },
     onSettled: async (_data, _error, variables) => {
+      const key = keyFor(variables)
+      if (pendingOn(key) > 1) return
       await Promise.all([
-        client.invalidateQueries({ queryKey: keyFor(variables) }),
-        ...(alsoInvalidate ?? []).map((key) =>
-          client.invalidateQueries({ queryKey: key })
+        client.invalidateQueries({ queryKey: key }),
+        ...(alsoInvalidate ?? []).map((other) =>
+          client.invalidateQueries({ queryKey: other })
         ),
       ])
     },
