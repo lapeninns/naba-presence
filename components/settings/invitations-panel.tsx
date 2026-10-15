@@ -462,6 +462,8 @@ function InviteForm({
   // The client choice sits behind its row until asked for: the row says
   // "All clients", so the default is seen without the cards taking the room.
   const [scopeOpen, setScopeOpen] = useState(false)
+  const scopeRef = useRef<HTMLDivElement>(null)
+  const [scopeRefusals, setScopeRefusals] = useState(0)
   const [emailError, setEmailError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [created, setCreated] = useState<{
@@ -487,6 +489,11 @@ function InviteForm({
   useEffect(() => {
     onDirtyChange?.(dirty)
   }, [dirty, onDirtyChange])
+
+  // A refused submit opens the choice: move to it so the reason is read.
+  useEffect(() => {
+    if (scopeRefusals > 0) scopeRef.current?.focus()
+  }, [scopeRefusals])
 
   const create = useMutation({
     mutationFn: (input: {
@@ -542,6 +549,7 @@ function InviteForm({
       // An empty scope would mean every client; make them say so instead.
       setScopeError("Tick at least one client, or choose All clients.")
       setScopeOpen(true)
+      setScopeRefusals((count) => count + 1)
       return
     }
     setScopeError(null)
@@ -607,10 +615,20 @@ function InviteForm({
             description={clientScopeValue(scope)}
             aria-expanded={scopeOpen}
             aria-controls={scopeId}
+            // The chevron points down while the choice is open.
+            className="aria-expanded:[&_[data-slot=option-row-chevron]]:rotate-90"
             disabled={create.isPending}
             onClick={() => setScopeOpen((open) => !open)}
           />
-          <div id={scopeId} hidden={!scopeOpen}>
+          <div
+            ref={scopeRef}
+            id={scopeId}
+            role="group"
+            aria-label="Client access"
+            tabIndex={-1}
+            hidden={!scopeOpen}
+            className="outline-none"
+          >
             {scopeOpen ? (
               <InviteClientScope
                 value={scope}

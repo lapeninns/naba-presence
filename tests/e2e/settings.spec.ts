@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page, test } from "@playwright/test"
 
 import { readJourneyState } from "./helpers/stub-bridge"
+import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = ["landmark-no-duplicate-main", "landmark-main-is-top-level", "heading-order", "page-has-heading-one"]
@@ -132,6 +133,15 @@ test.describe("settings", () => {
 // journey tenant is left as it was; reads go to the real app.
 const ROLE_NAMES = /^(Member|Viewer|Admin|Owner)/
 
+// Team has two "Invite a teammate" buttons (the page header and the empty
+// invitations list): the header's is the one these steps use.
+function inviteButton(page: Page) {
+  return page
+    .getByRole("main")
+    .locator("header")
+    .getByRole("button", { name: "Invite a teammate" })
+}
+
 async function roleRows(scope: Locator) {
   const rows = scope
     .getByRole("radiogroup", { name: "Role" })
@@ -150,9 +160,14 @@ test.describe("team roles", () => {
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
+    // Client access has no row in a business workspace: say so up front.
+    expect(
+      await pageWorkspaceMode(page),
+      "this test needs an agency workspace"
+    ).toBe("agency")
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/team")
-    await page.getByRole("button", { name: "Invite a teammate" }).click()
+    await inviteButton(page).click()
     const dialog = page.getByRole("dialog", { name: "Invite a teammate" })
     await expect(dialog).toBeVisible()
 
@@ -167,11 +182,15 @@ test.describe("team roles", () => {
       dialog.getByRole("radio", { name: ROLE_NAMES }).first()
     ).toBeChecked()
     await expect(dialog.getByText("Usual choice")).toHaveCount(1)
+    // The pill is a hint, not part of the radio's name.
+    await expect(
+      dialog.getByRole("radio", { name: "Member", exact: true })
+    ).toBeChecked()
     // The selected row carries the true Member copy: no promise of listing edits.
     await expect(
       dialog.getByRole("radio", { name: /^Member/ })
     ).toHaveAccessibleDescription(
-      /Can.t change a listing.s profile, hours or menu/
+      /Can.t edit a listing.s profile, hours or menu/
     )
 
     // Client access (Location access has no row in a business workspace) is
@@ -229,7 +248,7 @@ test.describe("team roles", () => {
       })
     })
     await page.goto("/team")
-    await page.getByRole("button", { name: "Invite a teammate" }).click()
+    await inviteButton(page).click()
     const dialog = page.getByRole("dialog", { name: "Invite a teammate" })
     await dialog
       .getByRole("textbox", { name: "Email address" })

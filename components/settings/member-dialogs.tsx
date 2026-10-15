@@ -77,7 +77,12 @@ export function RolePicker({
               option.value === "member" ? (
                 <>
                   {option.label}
-                  <StatusPill tone="accent" plain className="ms-2">
+                  <StatusPill
+                    tone="accent"
+                    plain
+                    aria-hidden="true"
+                    className="ms-2"
+                  >
                     Usual choice
                   </StatusPill>
                 </>
@@ -86,7 +91,16 @@ export function RolePicker({
               )
             }
             description={
-              selected ? full[option.value] : summaries[option.value]
+              <>
+                {option.value === "member"
+                  ? `${selected ? full.member : summaries.member} `
+                  : selected
+                    ? full[option.value]
+                    : summaries[option.value]}
+                {option.value === "member" ? (
+                  <span className="sr-only">This is the usual choice.</span>
+                ) : null}
+              </>
             }
             onClick={() => onValueChange(option.value)}
           />

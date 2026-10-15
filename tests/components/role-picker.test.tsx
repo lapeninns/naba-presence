@@ -66,6 +66,16 @@ describe("RolePicker", () => {
     expect(screen.queryByRole("radio", { name: /^Owner/ })).toBeNull()
   })
 
+  it("keeps the Usual choice pill out of the radio's name and in its description", () => {
+    render(<Harness actorRole="owner" />)
+    const member = screen.getByRole("radio", { name: "Member" })
+    expect(member).toBeChecked()
+    expect(member).toHaveAccessibleDescription(
+      `${roleDescriptions("agency").member} This is the usual choice.`
+    )
+    expect(screen.getByRole("radio", { name: "Viewer" })).toBeInTheDocument()
+  })
+
   it("marks Member as the usual choice, and only Member", () => {
     render(<Harness actorRole="owner" />)
     expect(screen.getAllByText("Usual choice")).toHaveLength(1)
@@ -80,7 +90,9 @@ describe("RolePicker", () => {
     const full = roleDescriptions("agency")
     const member = screen.getByRole("radio", { name: /^Member/ })
     expect(member).toBeChecked()
-    expect(member).toHaveAccessibleDescription(full.member)
+    expect(member).toHaveAccessibleDescription(
+      expect.stringContaining(full.member)
+    )
     expect(
       screen.getByRole("radio", { name: /^Viewer/ })
     ).toHaveAccessibleDescription(summaries.viewer)
@@ -104,7 +116,9 @@ describe("RolePicker", () => {
     ).toHaveAccessibleDescription(roleDescriptions("agency").viewer)
     expect(
       screen.getByRole("radio", { name: /^Member/ })
-    ).toHaveAccessibleDescription(roleSummaries("agency").member)
+    ).toHaveAccessibleDescription(
+      expect.stringContaining(roleSummaries("agency").member)
+    )
   })
 
   it("moves with the arrow keys, choosing as it goes", async () => {

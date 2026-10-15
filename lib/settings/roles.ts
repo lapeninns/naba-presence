@@ -23,7 +23,7 @@ export const ROLE_DESCRIPTIONS: Record<MemberRole, string> = {
   admin:
     "Manages the team, Google connections and the reply policy. Sees, edits and publishes for every client.",
   member:
-    "Drafts replies and posts for the listings they can see. Can’t change a listing’s profile, hours or menu. Publishes only when publishing access is on.",
+    "Drafts replies and posts for the listings they can see. Can’t edit a listing’s profile, hours or menu. Publishes only when publishing access is on.",
   viewer:
     "Reads reviews, listings and reports they can see. Can’t draft, publish or change anything.",
 }
@@ -90,7 +90,7 @@ export const ROLE_MATRIX: { capability: string; cells: Capability[] }[] = [
     cells: [YES, YES, THEIR, NO],
   },
   {
-    capability: "Change a listing’s profile, hours or menu",
+    capability: "Edit a listing’s profile, hours or menu",
     cells: [YES, YES, NO, NO],
   },
   { capability: "Publish to Google", cells: [YES, YES, IF_PUBLISH, NO] },

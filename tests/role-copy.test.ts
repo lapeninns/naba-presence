@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 import { editDisabledReason } from "@/lib/locations/gating"
@@ -21,11 +25,42 @@ import {
   roleSummaries,
 } from "@/lib/settings/roles"
 
-// The role copy ("Drafts replies and posts…", "Can’t change a listing’s
+// The role copy ("Drafts replies and posts…", "Can’t edit a listing’s
 // profile…") is presentation. What each role can do is decided by the
 // server's own rules, so this file computes the facts from those rules and
 // holds every line of copy to them: change a rule, or the copy, and the
 // other has to follow.
+
+/**
+ * The routes that save a listing's profile, hours and menu. Saving is the
+ * "edit"; publishing what is already saved goes through POST and needs only
+ * a publish grant, so it is not an edit.
+ */
+const LISTING_SAVE_ROUTES = [
+  "app/api/locations/[id]/profile/route.ts",
+  "app/api/locations/[id]/hours/route.ts",
+  "app/api/locations/[id]/food-menus/route.ts",
+] as const
+
+const repoRoot = fileURLToPath(new URL("../", import.meta.url))
+
+/** The `roles` array of a route file's `export const PUT = route({...})`. */
+function putRoles(file: string): string[] {
+  const source = readFileSync(join(repoRoot, file), "utf8")
+  const start = source.indexOf("export const PUT = route({")
+  if (start === -1) throw new Error(`${file} has no PUT route`)
+  const rest = source.slice(start + 1)
+  const next = rest.indexOf("\nexport const ")
+  const block = next === -1 ? rest : rest.slice(0, next)
+  const roles = block.match(/roles:\s*\[([^\]]*)\]/)
+  if (!roles) throw new Error(`${file}: PUT has no roles`)
+  return [...roles[1]!.matchAll(/"(\w+)"/g)].map((m) => m[1]!)
+}
+
+/** Whether every listing-save route admits this role: the route config, read as written. */
+function saveRoutesAdmit(role: MemberRole): boolean {
+  return LISTING_SAVE_ROUTES.every((file) => putRoles(file).includes(role))
+}
 
 type Publishing = "always" | "if-allowed" | "never"
 
@@ -63,8 +98,9 @@ function factsFor(role: MemberRole) {
     privacySettings: false,
   })
   return {
-    // capabilities.ts: canEditCanonical === isManagerialRole(session.role)
-    editsListingDetails: isManagerialRole(role),
+    // From the save routes' own `roles`; the next test pins it to
+    // capabilities.ts (canEditCanonical === isManagerialRole).
+    editsListingDetails: saveRoutesAdmit(role),
     draftsContent: locationActionCapabilities(role, on).canEdit,
     publishing: publishing("publish"),
     approvesOthers: publishing("decide_approval"),
@@ -103,8 +139,15 @@ describe("the facts the role copy is held to", () => {
     })
   })
 
-  it("is the rule behind the 'Only owners and admins can edit this location' message", () => {
+  it("reads the save routes as owner and admin only, and viewers never", () => {
+    for (const file of LISTING_SAVE_ROUTES) {
+      expect(putRoles(file).sort()).toEqual(["admin", "owner"])
+    }
+  })
+
+  it("agrees with canEditCanonical and the 'Only owners and admins can edit this location' message", () => {
     for (const role of MEMBER_ROLES) {
+      expect(isManagerialRole(role)).toBe(saveRoutesAdmit(role))
       const caps = { canEditCanonical: isManagerialRole(role) } as Parameters<
         typeof editDisabledReason
       >[0]
@@ -128,7 +171,7 @@ describe.each([
       expect(/\bedits\b/i.test(full)).toBe(facts.editsListingDetails)
       if (!facts.editsListingDetails) {
         expect(full).toMatch(
-          /can’t (change a listing’s profile, hours or menu|draft, publish or change anything)/i
+          /can’t (edit a listing’s profile, hours or menu|draft, publish or change anything)/i
         )
       }
     })
@@ -193,7 +236,7 @@ describe("the permission table on Team", () => {
         v === "always" ? "yes" : v === "never" ? "no" : "conditional"
       )
 
-    expect(kinds(row("Change a listing’s profile, hours or menu"))).toEqual(
+    expect(kinds(row("Edit a listing’s profile, hours or menu"))).toEqual(
       yesOrNo(facts.map((f) => f.editsListingDetails))
     )
     expect(kinds(row("Publish to Google"))).toEqual(

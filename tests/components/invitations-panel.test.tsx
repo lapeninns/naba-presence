@@ -280,6 +280,14 @@ describe("InvitationsPanel", () => {
     expect(
       screen.getByText("Tick at least one client, or choose All clients.")
     ).toBeInTheDocument()
+    // The refusal moves focus to the open Client access section.
+    expect(screen.getByRole("group", { name: "Client access" })).toHaveFocus()
+    // Closed again, a second refusal opens it and returns there.
+    await user.click(access)
+    expect(access).toHaveAttribute("aria-expanded", "false")
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    expect(access).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("group", { name: "Client access" })).toHaveFocus()
 
     expect(
       screen.getByRole("checkbox", { name: "New Client" })
