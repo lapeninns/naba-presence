@@ -35,6 +35,7 @@ import {
   KEYWORD_RANGES,
   PRESENCE_RANGES,
   REPLY_RANGES,
+  periodToWriteOnTabSwitch,
   resolvedPeriod,
   resolveTabRange,
   type ReportTab,
@@ -194,6 +195,12 @@ export function PerformanceView() {
       // Only the tab changes: each tab keeps its own period in the address.
       if (next === "reply") params.delete("tab")
       else params.set("tab", next)
+      // The period on screen is carried the same whatever the click history
+      // (see periodToWriteOnTabSwitch).
+      if (isTab(next)) {
+        const carried = periodToWriteOnTabSwitch(active, next, rangeParams)
+        if (carried) params.set(carried.name, carried.value)
+      }
     })
   }
 

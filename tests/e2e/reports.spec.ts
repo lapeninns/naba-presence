@@ -129,10 +129,18 @@ test.describe("reports", () => {
       await expect(page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 90 days" })).toHaveAttribute("aria-pressed", "true")
     })
 
-    test("keywords says so when Google is on its default period", async ({ page }) => {
+    test("keywords carries Google's default period as one month, with its note", async ({ page }) => {
       await page.goto("/reports?tab=google")
       await page.getByRole("tab", { name: "Keywords" }).tap()
-      await expect(page.getByText("Keywords count whole months: showing the last 6 months.")).toBeVisible()
+      await expect(page).toHaveURL(/[?&]range=28d/)
+      await expect(page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last month" })).toHaveAttribute("aria-pressed", "true")
+      await expect(page.getByText("Keywords count whole months: showing the last month.")).toBeVisible()
+    })
+
+    test("keywords opens on its own 6 months, unannounced, when landed on directly", async ({ page }) => {
+      await page.goto("/reports?tab=keywords")
+      await expect(page.getByRole("group", { name: "Period" }).getByRole("button", { name: "Last 6 months" })).toHaveAttribute("aria-pressed", "true")
+      await expect(page.getByText(/Keywords count whole months/)).toHaveCount(0)
     })
 
     test("the first figure is on the first screen of the Google tab", async ({ page }) => {

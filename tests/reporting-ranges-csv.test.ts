@@ -8,6 +8,7 @@ import {
   PRESENCE_RANGES,
   REPLY_RANGES,
   resolvedPeriod,
+  periodToWriteOnTabSwitch,
   resolveTabRange,
 } from "@/lib/reporting/ranges"
 
@@ -112,14 +113,13 @@ describe("a tab's period (resolveTabRange)", () => {
     expect(resolveTabRange("google", {})).toEqual({ id: "28d", note: null })
   })
 
-  // The reader on Google's default 28 days (no ?range= at all) who taps
-  // Keywords sees a different window, so the caption says so.
-  it("says so when Keywords opens on its own default beside Google's", () => {
-    const note = "Keywords count whole months: showing the last 6 months."
-    expect(resolveTabRange("keywords", {})).toEqual({ id: "6m", note })
+  // A direct landing on Keywords has nothing carried over, so it opens on its
+  // own default and says nothing.
+  it("opens Keywords on its own default, unannounced, with nothing in the address", () => {
+    expect(resolveTabRange("keywords", {})).toEqual({ id: "6m", note: null })
     expect(resolveTabRange("keywords", { range: "nonsense" })).toEqual({
       id: "6m",
-      note,
+      note: null,
     })
   })
 
@@ -131,6 +131,56 @@ describe("a tab's period (resolveTabRange)", () => {
       id: "1m",
       note: "Keywords count whole months: showing the last month.",
     })
+  })
+
+  // The same visible Google period must give the same Keywords period and
+  // note, whether 28 days is the untouched default or was picked again.
+  it("gives Keywords the same period for Google's default however it got there", () => {
+    const fresh = periodToWriteOnTabSwitch("google", "keywords", {})
+    expect(fresh).toEqual({ name: "range", value: "28d" })
+    const viaFresh = resolveTabRange("keywords", { range: fresh!.value })
+    const viaClicks = resolveTabRange("keywords", { range: "28d" })
+    expect(viaFresh).toEqual(viaClicks)
+    expect(viaFresh).toEqual({
+      id: "1m",
+      note: "Keywords count whole months: showing the last month.",
+    })
+  })
+})
+
+describe("what a tab switch writes (periodToWriteOnTabSwitch)", () => {
+  it("writes the visible period when leaving Reply or Google for Keywords with none in the address", () => {
+    expect(periodToWriteOnTabSwitch("reply", "keywords", {})).toEqual({
+      name: "range",
+      value: "28d",
+    })
+    expect(
+      periodToWriteOnTabSwitch("google", "keywords", { range: "nonsense" })
+    ).toEqual({ name: "range", value: "28d" })
+  })
+
+  it("writes Keywords' own period when leaving it with none in the address", () => {
+    expect(periodToWriteOnTabSwitch("keywords", "google", {})).toEqual({
+      name: "range_kw",
+      value: "6m",
+    })
+  })
+
+  it("writes nothing when a period is already in the address", () => {
+    expect(
+      periodToWriteOnTabSwitch("google", "keywords", { range: "90d" })
+    ).toBeNull()
+    expect(
+      periodToWriteOnTabSwitch("keywords", "google", { rangeKw: "12m" })
+    ).toBeNull()
+    expect(
+      periodToWriteOnTabSwitch("google", "keywords", { range: "1m" })
+    ).toBeNull()
+  })
+
+  it("writes nothing between Reply and Google, which share one period", () => {
+    expect(periodToWriteOnTabSwitch("reply", "google", {})).toBeNull()
+    expect(periodToWriteOnTabSwitch("google", "reply", {})).toBeNull()
   })
 })
 

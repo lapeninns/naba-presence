@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -410,15 +416,58 @@ describe("PerformanceView share beside the no-location panel", () => {
 })
 
 describe("PerformanceView period note", () => {
-  it("says so when Keywords opens on its own period beside Google's default", () => {
+  it("opens a direct landing on Keywords on its own 6 months with no note", () => {
     stubAgency("owner")
     search = "tab=keywords"
     renderAgencyView()
     expect(
-      screen.getByText(
-        "Keywords count whole months: showing the last 6 months."
+      within(screen.getByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: "Last 6 months" }
       )
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      screen.queryByText(/Keywords count whole months/)
+    ).not.toBeInTheDocument()
+  })
+
+  it("carries Google's untouched default to Keywords as one month, as a picked 28 days does", async () => {
+    stubAgency("owner")
+    search = "tab=google"
+    renderAgencyView()
+    await userEvent.click(
+      screen.getAllByRole("tab", { name: "Keywords" }).at(-1)!
+    )
+    expect(replace).toHaveBeenCalledExactlyOnceWith(
+      "/reports?tab=keywords&range=28d",
+      { scroll: false }
+    )
+    cleanup()
+    // What the address then says is what picking 28 days again writes.
+    search = "tab=keywords&range=28d"
+    renderAgencyView()
+    expect(
+      within(screen.getByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: "Last month" }
+      )
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      screen.getByText("Keywords count whole months: showing the last month.")
     ).toBeInTheDocument()
+  })
+
+  it("keeps Keywords' own default when leaving it, so coming back is the same", async () => {
+    stubAgency("owner")
+    search = "tab=keywords"
+    renderAgencyView()
+    await userEvent.click(
+      screen.getAllByRole("tab", { name: "Google performance" }).at(-1)!
+    )
+    expect(replace).toHaveBeenCalledExactlyOnceWith(
+      "/reports?tab=google&range_kw=6m",
+      { scroll: false }
+    )
   })
 
   it("writes the default period too, so another tab can carry it", async () => {
