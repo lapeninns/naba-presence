@@ -39,6 +39,9 @@ vi.mock("@/lib/server/location-summary", () => ({
   readListingSummaries: vi.fn(async () => []),
 }))
 vi.mock("@/lib/server/profile", () => ({ getProfileState: vi.fn() }))
+vi.mock("@/lib/server/business-information", () => ({
+  loadBusinessInformation: vi.fn(),
+}))
 vi.mock("@/lib/server/food-menus", () => ({ getFoodMenusState: vi.fn() }))
 vi.mock("@/lib/server/place-actions", () => ({ loadPlaceActions: vi.fn() }))
 vi.mock("@/lib/server/import-review", () => ({
@@ -87,11 +90,12 @@ async function summaryMocks() {
 }
 
 describe("listing area prefetch keys", () => {
-  it("profile: the profile, then the summary; business information stays in the browser", () => {
+  it("profile: the profile and its business information side by side, then the summary", () => {
     expect(
       profileTabPrefetch(LOCATION)(owner).map((entry) => entry.queryKey)
     ).toEqual([
       queryKeys.locationProfile(LOCATION),
+      queryKeys.locationBusinessInformation(LOCATION),
       queryKeys.listingSummary(LOCATION),
     ])
   })
@@ -161,7 +165,7 @@ describe("listing area summary re-read", () => {
     vi.mocked(getProfileState).mockResolvedValueOnce({
       source: "stored",
     } as never)
-    const [profile, summary] = profileTabPrefetch(LOCATION)(owner)
+    const [profile, , summary] = profileTabPrefetch(LOCATION)(owner)
     // The profile read is shared: the summary entry waits on the same one.
     await profile.load().catch(() => undefined)
     await expect(summary.load()).resolves.toBe(PREFETCH_SKIP)
@@ -174,7 +178,7 @@ describe("listing area summary re-read", () => {
     const { getProfileState } = await import("@/lib/server/profile")
     vi.mocked(getProfileState).mockClear()
     vi.mocked(getProfileState).mockRejectedValueOnce(new Error("google down"))
-    const [, summary] = profileTabPrefetch(LOCATION)(owner)
+    const [, , summary] = profileTabPrefetch(LOCATION)(owner)
     await expect(summary.load()).resolves.toBeNull()
     expect(getProfileState).toHaveBeenCalledOnce()
     expect(readListingSummaries).toHaveBeenCalledOnce()
