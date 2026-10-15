@@ -91,7 +91,7 @@ for (const width of [375, 768, 1280]) {
     const fixture = await setupVerificationWorkspace(page)
     await fixture.open()
     await expect(
-      page.getByText("Merchant standing is unknown", { exact: true })
+      page.getByText("Verification status is unknown", { exact: true })
     ).toBeVisible()
     await expect(page.getByText("Not verified", { exact: true })).toHaveCount(0)
     const panel = page.locator('section[aria-labelledby="verification-pin"]')

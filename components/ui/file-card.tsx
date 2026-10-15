@@ -45,7 +45,7 @@ export type FileCardProps = Omit<
   state?: React.ReactNode
   /**
    * Replaces the built size · state line entirely (e.g. the size and a
-   * StatusPill). Same region as the photos `UploadFileCard`'s `meta`.
+   * StatusPill). The photos sheet uses it this way.
    */
   meta?: React.ReactNode
   /** A Progress under the name (words first: give it a `status`). */
@@ -69,10 +69,9 @@ export type FileCardProps = Omit<
  * line, then optionally a progress bar and the refusal reason, and a named
  * remove (×) in the corner.
  *
- * Regions match the photos flow's local `UploadFileCard` (thumbnail / name /
- * `meta` / `trailing` / `children`), so it switches by renaming the import:
- * the same props mean the same thing, and `size`, `state`, `progress`,
- * `refusal` and `onRemove` draw the common contents for it.
+ * Regions are thumbnail / name / `meta` / `trailing` / `children`, and
+ * `size`, `state`, `progress`, `refusal` and `onRemove` draw the common
+ * contents for it. The photos sheet is its first flow consumer.
  *
  * It is an `li`: put cards in a `ul` (a strip or a grid) named for what they
  * are ("Photos to upload"). Words first: the state and the refusal are text;

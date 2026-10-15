@@ -169,7 +169,7 @@ test.describe("listings", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.goto(`/listings/${state.primaryLocationId}/photos`)
     await page.getByRole("button", { name: "Add photos" }).click()
-    await expect(page.getByRole("heading", { name: "Add media" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Add photos" })).toBeVisible()
     await expect(
       page.getByRole("button", { name: "Choose from library" })
     ).toBeVisible()
@@ -178,7 +178,7 @@ test.describe("listings", () => {
       "image/jpeg,image/png"
     )
     await expect(
-      page.getByRole("button", { name: "Review file upload" })
+      page.getByRole("button", { name: "Upload photos" })
     ).toBeDisabled()
   })
 
@@ -549,6 +549,12 @@ test.describe("listings", () => {
         level: 2,
       })
     ).toBeVisible()
+    // The stub listing is verified with nothing pending, so the answer leads
+    // and the tools sit behind one disclosure.
+    await expect(
+      page.getByText("Verified. Google confirms you manage this listing.")
+    ).toBeVisible()
+    await page.getByText("Verification tools", { exact: true }).click()
     // Starting verification is reviewed, approved, then sent separately.
     const panel = page.locator('section[aria-labelledby="verification-start"]')
     await panel.getByRole("button", { name: "Check available methods" }).click()

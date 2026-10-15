@@ -1,6 +1,7 @@
 "use client"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { TechnicalDetails } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
 import { SectionHeader } from "@/components/ui/section-header"
 import { TabLoading } from "@/components/locations/tab-states"
@@ -45,13 +46,13 @@ function VerificationWorkspace({ locationId, locationName }: { readonly location
   const pinExpected = (current.data?.verifications ?? []).some((item) => item.phase === "pending" && verificationCompletionPayloadSchema.shape.method.safeParse(item.method).success)
   const sections = {
     status: <section key="status" aria-labelledby="verification-status" className="flex min-w-0 flex-col gap-3">
-      <SectionHeader id="verification-status" title="How Google sees this listing" description="Merchant standing and verification requests are checked independently." />
+      <SectionHeader id="verification-status" title="How Google sees this listing" description="Whether Google confirms you manage it, and any verification requests." />
       {current.isPending && <p role="status" className="text-ui text-ink-muted">Reading current verification state from Google…</p>}
       {current.isError && <Alert variant="warning"><AlertTitle>Current Google state could not be read</AlertTitle><AlertDescription>{current.data ? "The details below are earlier observations, not a successful refresh." : "No current observation is available. This does not mean the listing is unverified or has no requests."} Inspect saved outcomes or use the current-state check on this page.</AlertDescription></Alert>}
       {current.data && <VerificationMerchantObservation state={current.data} />}
     </section>,
     pin: <section key="pin" aria-labelledby="verification-pin" className="flex min-w-0 flex-col gap-3">
-      <SectionHeader id="verification-pin" title={pinExpected ? "Enter the PIN from Google" : "PIN completion and saved outcomes"} description="Review supported pending PIN requests or recover recorded completions." />
+      <SectionHeader id="verification-pin" title={pinExpected ? "Enter the PIN from Google" : "PINs and saved reviews"} description="Enter a PIN Google sent, or pick up a PIN review you saved earlier." />
       <ReviewedCompletionVerification verifications={current.data?.verifications ?? []} />
     </section>,
     start: <section key="start" aria-labelledby="verification-start" className="flex min-w-0 flex-col gap-3">
@@ -63,16 +64,30 @@ function VerificationWorkspace({ locationId, locationName }: { readonly location
       <p className="text-ui text-ink-secondary">Use the delivery and expiry instructions for the exact method. Some methods continue entirely in Google. Check the current request and saved outcome before asking for another; recover an uncertain send before replacing it.</p>
     </section>,
     history: <section key="history" aria-labelledby="verification-history" className="flex min-w-0 flex-col gap-3">
-      <SectionHeader id="verification-history" title="History" description={current.data ? `Requests Google returned when checked at ${verificationCheckTime(current.data.checkedAt)}. Saved outcomes above can be newer than this check; completion does not establish current merchant standing.` : "Requests Google returns when its current state can be read."} />
+      <SectionHeader id="verification-history" title="History" description={current.data ? `Requests Google returned when checked at ${verificationCheckTime(current.data.checkedAt)}. Saved results above can be newer than this check. Finishing a request does not by itself mean the listing is verified.` : "Requests Google returns when its current state can be read."} />
       {current.data ? <VerificationRequestHistory verifications={current.data.verifications} checkedAt={current.data.checkedAt} /> : <p className="text-ui text-ink-muted">Verification history is unavailable until Google state can be read.</p>}
     </section>,
   }
+  // A verified listing with nothing pending has no verification task: lead
+  // with the answer and keep the PIN, start and history tools one tap away.
+  const pendingRequest = current.data?.merchant?.hasPendingVerification === true || (current.data?.verifications ?? []).some((item) => item.phase === "pending")
+  const verifiedAtRest = !current.isError && current.data?.merchant?.hasVoiceOfMerchant === true && !pendingRequest
+  const toolsOrder = ["pin", "start", "guidance", "history"] as const
   const order = pinExpected ? (["pin", "status", "start", "guidance", "history"] as const) : (["status", "pin", "start", "guidance", "history"] as const)
 
   return <AdministrationProvider locationId={locationId} locationName={locationName} disabled={false} publishReason={writeReason}>
     <VerificationWorkspaceActions><div className="flex min-w-0 flex-col gap-6">
       {writeReason && <Alert variant="warning"><AlertTitle>Verification changes are paused</AlertTitle><AlertDescription>{writeReason} Saved reviews and outcomes remain available to authorised owners and admins.</AlertDescription>{caps.isError && <Button variant="secondary" onClick={() => void caps.refetch()}>Check publishing permissions again</Button>}</Alert>}
-      {order.map((section) => sections[section])}
+      {verifiedAtRest
+        ? <>
+            {sections.status}
+            <TechnicalDetails summary="Verification tools" list={false}>
+              <div className="flex min-w-0 flex-col gap-6">
+                {toolsOrder.map((section) => sections[section])}
+              </div>
+            </TechnicalDetails>
+          </>
+        : order.map((section) => sections[section])}
     </div></VerificationWorkspaceActions>
   </AdministrationProvider>
 }
