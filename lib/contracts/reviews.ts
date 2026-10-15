@@ -431,6 +431,11 @@ export const reviewRowSchema = z.object({
   // parked one; see `pendingDraft` on the detail). Null otherwise. Optional so
   // older servers and stubs still parse.
   pendingDraftId: z.string().nullable().optional(),
+  // While the reply awaits approval, whether Approve is this person's: false
+  // for the person who asked and for the parked draft's author under
+  // two-person approval (the same `canApprove` as the detail's capabilities).
+  // Null otherwise; absent from older servers, where the client assumes yes.
+  canApprove: z.boolean().nullable().optional(),
   replyStatus: z.string().nullable(),
   googleReplyState: z.string().nullable(),
   googlePolicyViolation: z.string().nullable(),
