@@ -52,7 +52,8 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
   return (
     <>
       {/* The header's button scrolls away on a phone; the app bar carries
-          the same action from then on (SET-25). Same gate, same call. */}
+          the same action from then on (SET-25). Same gate, same call, same
+          pending words. */}
       {hasConnection ? (
         <PageChrome
           action={{
@@ -60,6 +61,7 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
             icon: Plus,
             onSelect: () => connect.mutate({}),
             pending: connect.isPending,
+            pendingLabel: "Opening Google…",
           }}
         />
       ) : null}

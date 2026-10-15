@@ -62,4 +62,34 @@ test.describe("connections OAuth return", () => {
       .analyze()
     expect(wcag.violations).toEqual([])
   })
+
+  test("on a phone the app bar takes over Connect another account once the header button has scrolled away", async ({ baseURL, page }) => {
+    const state = await readJourneyState()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/settings/connections")
+    const header = page.getByRole("main").getByRole("button", { name: "Connect another account" })
+    const barAction = page
+      .locator('header[data-slot="app-bar"]')
+      .getByRole("button", { name: "Connect another account" })
+    await expect(header).toBeVisible()
+    // Before scrolling the header owns it: never two on screen.
+    await expect(barAction).toHaveCount(0)
+
+    // Scroll until the header button is under the app bar.
+    await header.evaluate((element) => {
+      const top = document.querySelector('[data-slot="app-bar"]')?.getBoundingClientRect().height ?? 0
+      window.scrollBy(0, element.getBoundingClientRect().bottom - top + 8)
+    })
+    await expect(barAction).toBeVisible()
+    await expect(header).not.toBeInViewport()
+    const box = await barAction.boundingBox()
+    expect(box!.width).toBeGreaterThanOrEqual(44)
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+
+    // And back at the top the header has it again.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await expect(barAction).toHaveCount(0)
+    await expect(header).toBeVisible()
+  })
 })

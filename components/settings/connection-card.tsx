@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -246,6 +246,7 @@ function DisconnectDialog({
   served,
   open,
   pending,
+  finalFocus,
   onOpenChange,
   onConfirm,
 }: {
@@ -253,6 +254,8 @@ function DisconnectDialog({
   served: ServedClient[] | undefined
   open: boolean
   pending: boolean
+  /** Where focus returns on close: the ⋯ trigger the dialog was opened from. */
+  finalFocus: RefObject<HTMLElement | null>
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
 }) {
@@ -270,7 +273,10 @@ function DisconnectDialog({
         if (!next) setTyped("")
       }}
     >
-      <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
+      <AlertDialogContent
+        className="grid-cols-[minmax(0,1fr)]"
+        finalFocus={finalFocus}
+      >
         <AlertDialogTitle className="[overflow-wrap:anywhere]">
           Disconnect {email}?
         </AlertDialogTitle>
@@ -357,6 +363,9 @@ export function ConnectionCard({
     useState<ConnectionSummary | null>(null)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const openedFor = useRef<string | null>(null)
+  // The ⋯ trigger the open menu belongs to, so closing the Disconnect dialog
+  // (Keep it connected) puts focus back there rather than on the page.
+  const menuTrigger = useRef<HTMLElement | null>(null)
 
   const connections = query.data?.connections
   const focused = focusId
@@ -542,6 +551,9 @@ export function ConnectionCard({
                               size="icon-sm"
                               aria-label={`Actions for ${name}`}
                               disabled={disconnect.isPending}
+                              onClick={(event) => {
+                                menuTrigger.current = event.currentTarget
+                              }}
                             />
                           }
                         >
@@ -592,6 +604,7 @@ export function ConnectionCard({
         }
         open={disconnectOpen}
         pending={disconnect.isPending}
+        finalFocus={menuTrigger}
         onOpenChange={setDisconnectOpen}
         onConfirm={() => {
           if (disconnectTarget) {

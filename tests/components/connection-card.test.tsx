@@ -161,6 +161,24 @@ describe("ConnectionCard", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("returns focus to the row's ⋯ trigger when the dialog is cancelled", async () => {
+    const user = userEvent.setup()
+    renderCard([connection({})])
+    await chooseDisconnect(user, "owner@riverside.test")
+    const dialog = await screen.findByRole("alertdialog")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keep it connected" })
+    )
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    await vi.waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Actions for owner@riverside.test" })
+      ).toHaveFocus()
+    )
+  })
+
   it("asks for the word DISCONNECT when the login has no email on record", async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()

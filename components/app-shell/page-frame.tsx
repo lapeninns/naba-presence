@@ -119,7 +119,12 @@ function PageHeader({
           ) : null}
         </div>
         {actions ? (
-          <div className="flex flex-wrap items-center gap-2 @max-[480px]:w-full @max-[480px]:*:flex-1">
+          <div
+            // The phone app bar watches this to know when the header's own
+            // buttons have scrolled away (PageChrome `action`).
+            data-slot="page-header-actions"
+            className="flex flex-wrap items-center gap-2 @max-[480px]:w-full @max-[480px]:*:flex-1"
+          >
             {actions}
           </div>
         ) : null}

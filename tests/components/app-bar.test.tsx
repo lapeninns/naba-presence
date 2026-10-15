@@ -585,14 +585,21 @@ describe("AppBar trailing slot", () => {
 // bar watches it with an IntersectionObserver; jsdom has none, so these
 // stand one in and report the h1 as scrolled away.
 function stubScrolledHeading() {
-  const callbacks: IntersectionObserverCallback[] = []
+  const observers: {
+    callback: IntersectionObserverCallback
+    elements: Element[]
+  }[] = []
   vi.stubGlobal(
     "IntersectionObserver",
     class {
+      private entry: (typeof observers)[number]
       constructor(callback: IntersectionObserverCallback) {
-        callbacks.push(callback)
+        this.entry = { callback, elements: [] }
+        observers.push(this.entry)
       }
-      observe() {}
+      observe(element: Element) {
+        this.entry.elements.push(element)
+      }
       disconnect() {}
       unobserve() {}
       takeRecords() {
@@ -600,20 +607,28 @@ function stubScrolledHeading() {
       }
     }
   )
+  // Reports every watched element (or only those `only` accepts) as under
+  // the bar (`bottom: 0`) or still below it.
+  const report = (bottom: number, only?: (element: Element) => boolean) =>
+    act(() => {
+      for (const { callback, elements } of observers) {
+        if (only && !elements.some(only)) continue
+        callback(
+          [{ boundingClientRect: { bottom } } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        )
+      }
+    })
   return {
-    scrollAway: () =>
-      act(() => {
-        for (const callback of callbacks) {
-          callback(
-            [
-              {
-                boundingClientRect: { bottom: 0 },
-              } as IntersectionObserverEntry,
-            ],
-            {} as IntersectionObserver
-          )
-        }
-      }),
+    scrollAway: () => report(0),
+    /** Moves only the page header's actions under (or back below) the bar. */
+    scrollActions: (away: boolean) =>
+      report(
+        away ? 0 : 500,
+        (element) => element.getAttribute("data-slot") === "page-header-actions"
+      ),
+    /** Moves only the h1 under the bar. */
+    scrollHeading: () => report(0, (element) => element.tagName === "H1"),
   }
 }
 
@@ -728,17 +743,90 @@ describe("AppBar page action", () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
   })
 
-  it("draws the label as text without an icon and disables the control while pending", async () => {
+  it("waits for the header's own button to scroll away, not just the h1", async () => {
     pathname.current = "/settings/connections"
     const heading = stubScrolledHeading()
+    const { bar, within: inBar } = renderBar({
+      page: (
+        <>
+          <div data-slot="page-header-actions">
+            <button type="button">Connect another account</button>
+          </div>
+          <PageChrome
+            action={{
+              label: "Connect another account",
+              icon: Plus,
+              onSelect: vi.fn(),
+            }}
+          />
+        </>
+      ),
+    })
+    const inHeader = () => bar.querySelector('[data-slot="app-bar-action"]')
+
+    // The h1 is gone but the header button is still on screen: one control
+    // with that name, never two.
+    heading.scrollHeading()
+    await vi.waitFor(() =>
+      expect(bar.querySelector('[data-slot="app-bar-title"]')).toHaveAttribute(
+        "data-visible",
+        "true"
+      )
+    )
+    expect(inHeader()).toBeNull()
+    expect(
+      inBar.queryByRole("button", { name: "Connect another account" })
+    ).toBeNull()
+
+    // The header button scrolls under the bar too: the bar takes over.
+    heading.scrollActions(true)
+    expect(
+      await inBar.findByRole("button", { name: "Connect another account" })
+    ).toBeInTheDocument()
+
+    // And back: scrolling up hands it back to the header.
+    heading.scrollActions(false)
+    await vi.waitFor(() => expect(inHeader()).toBeNull())
+  })
+
+  it("stays focusable and is renamed while pending, and ignores presses", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const onSelect = vi.fn()
     const { within: inBar } = renderBar({
       page: (
         <PageChrome
           action={{
             label: "Connect another account",
-            onSelect: vi.fn(),
+            pendingLabel: "Opening Google…",
+            icon: Plus,
+            onSelect,
             pending: true,
           }}
+        />
+      ),
+    })
+    heading.scrollAway()
+    const action = await inBar.findByRole("button", {
+      name: "Opening Google…",
+    })
+    // aria-disabled, not disabled: focus is not dropped to the body.
+    expect(action).not.toBeDisabled()
+    expect(action).toHaveAttribute("aria-disabled", "true")
+    expect(action).toHaveAttribute("aria-busy", "true")
+    action.focus()
+    expect(action).toHaveFocus()
+    await userEvent.setup().click(action)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it("draws the label as text when the action has no icon", async () => {
+    pathname.current = "/settings/connections"
+    const heading = stubScrolledHeading()
+    const { within: inBar } = renderBar({
+      page: (
+        <PageChrome
+          action={{ label: "Connect another account", onSelect: vi.fn() }}
         />
       ),
     })
@@ -747,8 +835,6 @@ describe("AppBar page action", () => {
       name: "Connect another account",
     })
     expect(action).toHaveTextContent("Connect another account")
-    expect(action).toBeDisabled()
-    expect(action).toHaveAttribute("aria-busy", "true")
   })
 
   it("makes the control a link when the action has an href", async () => {

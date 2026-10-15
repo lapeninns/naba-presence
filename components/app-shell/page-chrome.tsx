@@ -66,8 +66,10 @@ export type ShellAction = {
   onSelect?: () => void
   /** Makes the control a link. */
   href?: string
-  /** Disables the control while the action it starts is running. */
+  /** Makes the control inert, but still focusable, while the action runs. */
   pending?: boolean
+  /** The name (and visible text) while `pending`: "Opening Google…". */
+  pendingLabel?: string
 }
 
 /** A back target, with the page's own handler when it declared one. */
@@ -154,6 +156,7 @@ function PageChrome({
   const actionIcon = action?.icon
   const actionHref = action?.href
   const actionPending = action?.pending
+  const actionPendingLabel = action?.pendingLabel
 
   React.useEffect(() => {
     if (!set) return
@@ -179,6 +182,7 @@ function PageChrome({
         icon: actionIcon,
         href: actionHref,
         pending: actionPending,
+        pendingLabel: actionPendingLabel,
         onSelect: () => onSelectRef.current?.(),
       }
     }
@@ -198,6 +202,7 @@ function PageChrome({
     actionIcon,
     actionHref,
     actionPending,
+    actionPendingLabel,
   ])
 
   React.useEffect(() => () => set?.(owner, null), [set, owner])
