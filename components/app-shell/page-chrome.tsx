@@ -26,8 +26,13 @@ import type { BackTarget } from "@/lib/navigation/back-target"
  * new tab), but a plain activation runs `onBack` instead, so the page can
  * pop the history entry it pushed, ask its leave guard, and put focus back
  * where it came from.
- * `title` replaces the h1 text in the phone app bar; keep it the h1's
- * words, shortened if anything, never different ones.
+ * `title` replaces the h1 text in the phone app bar, where it takes the
+ * workspace name's place (the two cross-fade) once the h1 has scrolled
+ * away; keep it the h1's words, shortened if anything, never different
+ * ones. A deep page's back label shortens at the same moment ("‹ Listing"
+ * for a listing's name; lib/navigation/destinations.ts `shortBackLabel`),
+ * so a page's `back.label` may be the full name: the bar keeps it in
+ * `title`.
  * `count` puts a muted view count after that title ("Inbox 12", the Notion
  * Mail header); `countLabel` says what it counts ("need a reply"). The
  * echo is visual only, so keep the count in the page's own h1 or region

@@ -313,8 +313,9 @@ function SearchableSwitcher({
  * The phone app bar's scope trigger, after Notion Mail's trailing account
  * avatar: the scope's mark (the client's avatar, a location pin, or the
  * neutral "everything" mark) in a 44px hit area, with the scope's name
- * beside it, truncated (`labelled={false}` leaves only the mark). Opens
- * `ClientScopeSheet`.
+ * beside it, truncated with the full name in `title` (`labelled={false}`
+ * leaves only the mark: the app bar does that on a client's own page, where
+ * the title already says which client). Opens `ClientScopeSheet`.
  *
  * Hidden when there is nothing to switch: agency, one client or none (or the
  * list unknown); business, one location or none. The accessible name says
@@ -354,7 +355,11 @@ function ClientScopeChip({
     >
       <ScopeMark scope={scope} />
       {labelled ? (
-        <span aria-hidden className="max-w-28 min-w-0 truncate">
+        <span
+          aria-hidden
+          title={scope.label}
+          className="max-w-28 min-w-0 truncate"
+        >
           {scope.label}
         </span>
       ) : null}

@@ -304,6 +304,9 @@ function AccountMenu({
     handleSignOut,
     setConfirmEverywhere,
   } = account
+  const subtitle = [roleLabel, session?.organisationName]
+    .filter(Boolean)
+    .join(" · ")
 
   return (
     <>
@@ -329,14 +332,18 @@ function AccountMenu({
               rail && "md:max-wide:sr-only"
             )}
           >
-            <span className="truncate text-ui font-semibold text-ink">
+            <span
+              title={displayName}
+              className="truncate text-ui font-semibold text-ink"
+            >
               {displayName}
             </span>
-            {roleLabel || session?.organisationName ? (
-              <span className="truncate text-caption text-ink-muted">
-                {[roleLabel, session?.organisationName]
-                  .filter(Boolean)
-                  .join(" · ")}
+            {subtitle ? (
+              <span
+                title={subtitle}
+                className="truncate text-caption text-ink-muted"
+              >
+                {subtitle}
               </span>
             ) : null}
           </span>
