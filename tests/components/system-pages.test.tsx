@@ -3,9 +3,17 @@ import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { describe, expect, it, vi } from "vitest"
 
+const { shellBack, pathState } = vi.hoisted(() => ({
+  shellBack: vi.fn(),
+  pathState: { current: "/reports" },
+}))
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/reports",
+  usePathname: () => pathState.current,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+}))
+vi.mock("@/components/app-shell/breadcrumbs-context", () => ({
+  useShellBack: shellBack,
 }))
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: ComponentProps<"a">) => (
@@ -21,10 +29,13 @@ import DashboardError from "@/app/(dashboard)/error"
 import DashboardLoading from "@/app/(dashboard)/loading"
 import { BoundaryErrorState } from "@/components/app-shell/boundary"
 import DashboardNotFound from "@/app/(dashboard)/not-found"
-import { ShellNavigationContext } from "@/components/app-shell/shell-navigation"
 import { queryKeys } from "@/lib/queries/keys"
 import GlobalError from "@/app/global-error"
-import NotFound from "@/app/not-found"
+import NotFound, { metadata as rootNotFoundMetadata } from "@/app/not-found"
+import {
+  NOT_FOUND_DESCRIPTION,
+  NOT_FOUND_TITLE,
+} from "@/components/app-shell/boundary"
 
 describe("route error boundary", () => {
   it("names the failed area, shows the digest and retries", async () => {
@@ -104,9 +115,9 @@ describe("root pages", () => {
     render(<NotFound />)
     expect(screen.getAllByRole("main")).toHaveLength(1)
     expect(
-      screen.getByRole("heading", { level: 1, name: "Page not found" })
+      screen.getByRole("heading", { level: 1, name: NOT_FOUND_TITLE })
     ).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Go to Inbox" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Back to Inbox" })).toHaveAttribute(
       "href",
       "/inbox"
     )
@@ -153,63 +164,100 @@ describe("dashboard loading", () => {
 
 describe("dashboard 404", () => {
   function renderNotFound(
-    role: string,
-    workspaceMode: "agency" | "business",
-    hideCalendar?: boolean
+    workspaceMode: "agency" | "business" = "agency",
+    path = "/clients/00000000-0000-4000-8000-000000000000"
   ) {
+    pathState.current = path
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     })
     client.setQueryData(queryKeys.session, {
-      session: { role, workspaceMode },
+      session: { role: "owner", workspaceMode },
     })
-    render(
+    return render(
       <QueryClientProvider client={client}>
-        {hideCalendar === undefined ? (
-          <DashboardNotFound />
-        ) : (
-          <ShellNavigationContext.Provider
-            value={{ role, mode: workspaceMode, hideCalendar }}
-          >
-            <DashboardNotFound />
-          </ShellNavigationContext.Provider>
-        )}
+        <DashboardNotFound />
       </QueryClientProvider>
-    )
-    const section = screen.getByRole("region", { name: "Where to go instead" })
-    return Array.from(section.querySelectorAll("a")).map((link) =>
-      link.getAttribute("href")
     )
   }
 
-  it("offers the registry's destinations for an agency owner", () => {
-    expect(renderNotFound("owner", "agency")).toEqual([
-      "/inbox",
-      "/listings",
-      "/clients",
-      "/calendar",
-      "/reports",
-      "/notifications",
-      "/team",
-      "/settings",
-    ])
+  it("says the same words as the root 404: one title, one sentence, one verb", () => {
+    shellBack.mockReturnValue(null)
+    const dashboard = renderNotFound()
+    const dashboardTitle = screen.getByRole("heading", { level: 1 }).textContent
+    const dashboardBody = screen.getByText(NOT_FOUND_DESCRIPTION).textContent
+    const dashboardVerb = screen
+      .getByRole("link", { name: /^Back to / })
+      .textContent?.split(" ")
+      .slice(0, 2)
+      .join(" ")
+    dashboard.unmount()
+
+    render(<NotFound />)
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      dashboardTitle
+    )
+    expect(screen.getByText(NOT_FOUND_DESCRIPTION).textContent).toBe(
+      dashboardBody
+    )
+    expect(
+      screen
+        .getByRole("link", { name: /^Back to / })
+        .textContent?.split(" ")
+        .slice(0, 2)
+        .join(" ")
+    ).toBe(dashboardVerb)
+    expect(dashboardTitle).toBe(NOT_FOUND_TITLE)
+    // The tab title says it too.
+    expect(String(rootNotFoundMetadata.title)).toContain(NOT_FOUND_TITLE)
+  })
+
+  it("goes up to the shell's back target, not always the Inbox", () => {
+    shellBack.mockReturnValue({ href: "/clients", label: "Clients" })
+    renderNotFound()
+    expect(
+      screen.getByRole("link", { name: "Back to Clients" })
+    ).toHaveAttribute("href", "/clients")
+    expect(screen.queryByRole("link", { name: "Back to Inbox" })).toBeNull()
+  })
+
+  it("falls back to the Inbox when the shell has no parent", () => {
+    shellBack.mockReturnValue(null)
+    renderNotFound()
+    expect(screen.getByRole("link", { name: "Back to Inbox" })).toHaveAttribute(
+      "href",
+      "/inbox"
+    )
+  })
+
+  it("keeps the raw address behind Details for support, closed", () => {
+    shellBack.mockReturnValue(null)
+    const path = "/clients/00000000-0000-4000-8000-000000000000"
+    const { container } = renderNotFound("agency", path)
+    const details = container.querySelector(
+      'details[data-slot="support-details"]'
+    )
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute("open")
+    expect(details).toHaveTextContent("Details for support")
+    expect(details).toHaveTextContent(path)
+    expect(screen.queryByText(/You asked for/)).toBeNull()
+  })
+
+  it("does not repeat the shell's destinations", () => {
+    shellBack.mockReturnValue(null)
+    renderNotFound()
+    expect(
+      screen.queryByRole("region", { name: "Where to go instead" })
+    ).toBeNull()
+    expect(screen.queryByRole("link", { name: /^Reports$/ })).toBeNull()
     // Inside the shell: no landmark of its own.
     expect(screen.queryByRole("main")).not.toBeInTheDocument()
   })
 
-  it("leaves Calendar out when the shell says scheduling is off", () => {
-    expect(renderNotFound("owner", "agency", true)).not.toContain("/calendar")
-  })
-
-  it("keeps Calendar when the shell says scheduling is on", () => {
-    expect(renderNotFound("owner", "agency", false)).toContain("/calendar")
-  })
-
-  it("keeps the exact title and opens the command palette to search", async () => {
-    renderNotFound("owner", "agency")
-    expect(
-      screen.getByRole("heading", { level: 1, name: "This page doesn’t exist" })
-    ).toBeInTheDocument()
+  it("opens the command palette to search", async () => {
+    shellBack.mockReturnValue(null)
+    renderNotFound()
     const opened = vi.fn()
     document.addEventListener("np:open-command-palette", opened)
     await userEvent.click(
@@ -220,21 +268,11 @@ describe("dashboard 404", () => {
   })
 
   it("says listings, not clients, to a business", () => {
-    renderNotFound("owner", "business")
+    shellBack.mockReturnValue({ href: "/listings", label: "Listings" })
+    renderNotFound("business", "/listings/00000000-0000-4000-8000-000000000000")
     expect(
       screen.getByRole("button", { name: /Search listings/ })
     ).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/client|agency/i)
-  })
-
-  it("leaves Team out for a member and Clients out for a business", () => {
-    expect(renderNotFound("member", "business")).toEqual([
-      "/inbox",
-      "/listings",
-      "/calendar",
-      "/reports",
-      "/notifications",
-      "/settings",
-    ])
   })
 })

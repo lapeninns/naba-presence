@@ -28,6 +28,7 @@ import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
+import { UxP08Demo } from "@/app/design-system/ux-p08-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -126,7 +127,6 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Spinner } from "@/components/ui/spinner"
 import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Stepper } from "@/components/ui/stepper"
@@ -1336,10 +1336,7 @@ export default function Page() {
                 </Card>
                 <Card aria-busy="true" className="gap-2.5">
                   <CardContent className="flex flex-col gap-2.5">
-                    <p className="flex items-center gap-2 text-ui text-ink-muted">
-                      <Spinner decorative size="sm" />
-                      Loading reviews…
-                    </p>
+                    <p className="text-ui text-ink-muted">Loading reviews…</p>
                     <Skeleton className="w-3/5" />
                     <Skeleton />
                     <Skeleton className="w-2/5" />
@@ -1359,6 +1356,7 @@ export default function Page() {
                   />
                 </Card>
               </div>
+              <UxP08Demo />
             </Specimen>
           </div>
 

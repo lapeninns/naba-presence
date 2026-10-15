@@ -1,85 +1,52 @@
 "use client"
 
-import { ArrowLeft, ChevronRight, FileQuestion, Search } from "lucide-react"
+import { ArrowLeft, Search } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import {
-  BoundaryCode,
   BoundaryFrame,
   boundaryButtonClass,
+  notFoundActionLabel,
+  NotFoundState,
 } from "@/components/app-shell/boundary"
+import { useShellBack } from "@/components/app-shell/breadcrumbs-context"
 import {
   openCommandPalette,
   useShortcutHint,
 } from "@/components/app-shell/command-palette"
-import { useShellNavigation } from "@/components/app-shell/shell-navigation"
-import { visibleDestinations } from "@/lib/navigation/destinations"
-import { useSessionRole } from "@/lib/queries/use-session"
+import { SupportDetails } from "@/components/editors/support-details"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * Inside the shell, not the bare root 404: someone who follows a stale link to
- * a deleted client should still have their navigation, and a list of where
- * they can go instead. Team is offered only to the roles that can open it.
+ * a deleted client should still have their navigation. The navigation already
+ * lists every destination, so this page does not repeat them.
  *
  * The look is a calm, centred empty state (an outline icon, the title, why,
- * one primary action) followed by the destinations drawn as drawer rows:
- * icon, label, chevron, 48px tall, under a muted group label.
+ * one primary action). The primary action is the shell's own back target, the
+ * same place the app bar's back control goes ("Back to Clients" for a stale
+ * client link), with the Inbox as the way home when the shell has no parent
+ * to offer. The address they asked for is for whoever supports them, so it
+ * sits behind "Details for support" rather than in the sentence.
  *
- * Plain markup and the light helpers in components/app-shell/boundary.tsx
- * only (the palette module is the shell's own, already loaded): this file is
- * bundled into every dashboard segment's not-found chunk.
+ * Words and layout come from `NotFoundState`, shared with the root 404. Plain
+ * markup and the light helpers in components/app-shell/boundary.tsx only (the
+ * palette module is the shell's own, already loaded): this file is bundled
+ * into every dashboard segment's not-found chunk.
  */
 export default function DashboardNotFound() {
   const pathname = usePathname()
-  const role = useSessionRole()
   const shortcut = useShortcutHint()
-  const mode = useWorkspaceMode()
-  const business = mode === "business"
-  // The shell's own destination list (lib/navigation/destinations.ts), so
-  // this page offers exactly what the navigation does for this role and
-  // mode, including leaving Calendar out when scheduling is off (the shell
-  // holds that flag; outside the shell it is unknown and Calendar shows).
-  const hideCalendar = useShellNavigation()?.hideCalendar ?? false
-  const destinations = visibleDestinations({ role, mode, hideCalendar }).map(
-    (destination) => ({
-      ...destination,
-      description: destination.description[mode],
-    })
-  )
+  const business = useWorkspaceMode() === "business"
+  const back = useShellBack() ?? { href: "/inbox", label: "Inbox" }
 
   return (
     <BoundaryFrame>
-      <div
-        data-slot="page-empty-state"
-        className="flex flex-col items-center gap-2 pt-6 text-center sm:pt-12 lg:pt-16"
-      >
-        <span
-          aria-hidden
-          className="mb-1 grid size-11 place-items-center rounded-lg bg-fill text-ink-secondary"
-        >
-          <FileQuestion className="size-5" strokeWidth={1.5} />
-        </span>
-        <h1
-          tabIndex={-1}
-          className="text-title font-medium text-balance text-ink outline-none"
-        >
-          This page doesn’t exist
-        </h1>
-        <p className="max-w-md text-ui text-pretty text-ink-muted">
-          {business
-            ? "The listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
-            : "The client, listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."}
-        </p>
-        {pathname ? (
-          <p className="flex max-w-full min-w-0 flex-wrap items-center justify-center gap-2 text-caption text-ink-muted">
-            You asked for <BoundaryCode>{pathname}</BoundaryCode>
-          </p>
-        ) : null}
+      <NotFoundState className="pt-6 sm:pt-12 lg:pt-16">
         <div className="mt-3 flex w-full max-w-sm flex-col items-stretch gap-1 sm:w-auto sm:items-center">
           <Link
-            href="/inbox"
+            href={back.href}
             className={boundaryButtonClass(
               "primary",
               "default",
@@ -87,7 +54,7 @@ export default function DashboardNotFound() {
             )}
           >
             <ArrowLeft strokeWidth={1.75} aria-hidden />
-            Back to Inbox
+            {notFoundActionLabel(back.label)}
           </Link>
           <button
             type="button"
@@ -108,48 +75,8 @@ export default function DashboardNotFound() {
             </kbd>
           </button>
         </div>
-      </div>
-
-      <section
-        aria-labelledby="where-to-go"
-        className="mx-auto flex w-full max-w-md flex-col gap-1"
-      >
-        <h2
-          id="where-to-go"
-          className="px-3 text-ui font-medium text-ink-muted"
-        >
-          Where to go instead
-        </h2>
-        <ul className="flex flex-col">
-          {destinations.map((destination) => (
-            <li key={destination.href}>
-              <Link
-                href={destination.href}
-                className="flex min-h-12 items-center gap-3 rounded-(--np-radius-menu) px-3 py-1.5 text-ink focus-halo transition-colors duration-(--np-duration-fast) focus-visible:outline-none hover-fine:bg-fill"
-              >
-                <destination.icon
-                  aria-hidden
-                  className="size-5 shrink-0 text-ink-secondary"
-                  strokeWidth={1.5}
-                />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-body text-ink">
-                    {destination.label}
-                  </span>
-                  <span className="text-caption text-pretty text-ink-muted">
-                    {destination.description}
-                  </span>
-                </span>
-                <ChevronRight
-                  aria-hidden
-                  className="size-4 shrink-0 text-ink-muted"
-                  strokeWidth={1.75}
-                />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
+        <SupportDetails items={[pathname]} className="mt-1" />
+      </NotFoundState>
 
       <section
         aria-labelledby="link-help"

@@ -65,6 +65,42 @@ describe("QueryPending", () => {
     expect(screen.queryByRole("status")).toBeNull()
   })
 
+  it("draws exactly one loading indicator: rows with a sentence, no spinner", () => {
+    const { container } = render(<QueryPending label="Loading reviews…" />)
+    expect(
+      container.querySelector('[data-slot="skeleton-list"]')
+    ).not.toBeNull()
+    expect(container.querySelector('[data-slot="spinner"]')).toBeNull()
+  })
+
+  it("draws the spinner, and only the spinner, when there are no rows", () => {
+    const { container } = render(
+      <QueryPending label="Checking the connection…" skeleton={null} />
+    )
+    expect(container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1)
+    expect(container.querySelector('[data-slot="skeleton-list"]')).toBeNull()
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeNull()
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Checking the connection…"
+    )
+  })
+
+  it("draws one spinner, and no second status, when neither label nor rows are given", () => {
+    const { container } = render(<QueryPending skeleton={null} />)
+    expect(container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1)
+    expect(container.querySelector('[data-slot="skeleton-list"]')).toBeNull()
+    expect(screen.getAllByRole("status")).toHaveLength(1)
+  })
+
+  it("draws the skeleton a caller supplies instead of the default rows", () => {
+    const { container } = render(
+      <QueryPending skeleton={<div data-testid="members-skeleton" />} />
+    )
+    expect(screen.getByTestId("members-skeleton")).toBeInTheDocument()
+    expect(container.querySelector('[data-slot="skeleton-list"]')).toBeNull()
+    expect(container.querySelector('[data-slot="spinner"]')).toBeNull()
+  })
+
   it("carries a label through QueryStates", () => {
     render(
       <QueryStates
@@ -85,7 +121,15 @@ function Probe() {
     queryFn: async () => "loaded",
     retry: false,
   })
-  return <p>{query.isPending ? "pending" : query.isError ? "error" : String(query.data)}</p>
+  return (
+    <p>
+      {query.isPending
+        ? "pending"
+        : query.isError
+          ? "error"
+          : String(query.data)}
+    </p>
+  )
 }
 
 afterEach(() => onlineManager.setOnline(true))

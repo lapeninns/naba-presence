@@ -13,7 +13,7 @@ export const metadata = { title: "Team · NabaPresence" }
 export default async function TeamPage() {
   const session = await getSession()
   if (session && session.role !== "owner" && session.role !== "admin") {
-    return <AccessDeniedPage area="Team access" />
+    return <AccessDeniedPage area="Team" />
   }
 
   return (
