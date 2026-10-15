@@ -61,11 +61,18 @@ function nounsOf(rows: readonly CombinedReviewRow[]): string[] {
   return [...new Set(rows.map((row) => inSentence(row.noun ?? row.field)))]
 }
 
+function sentenceCase(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`
+}
+
 /**
  * The sheet's one plain line saying where each change goes, built from what
- * is actually in the sheet: "Name and phone save here first; store code
- * goes to Google when you publish." No internal model names. Null for an
- * empty sheet.
+ * is actually in the sheet. It never implies a copy field stays off Google:
+ * "Name and phone save here first, then go to Google with the store code
+ * when you publish." While any request needs someone else's approval the
+ * caller keeps publishing off, so the line promises no save and no send:
+ * "The store code needs a different authorised user to approve it before
+ * anything is sent." No internal model names. Null for an empty sheet.
  */
 export function combinedReviewNote(
   rows: readonly CombinedReviewRow[]
@@ -77,25 +84,20 @@ export function combinedReviewNote(
   const waiting = nounsOf(
     rows.filter((row) => row.route === "google" && row.waitsForApprover)
   )
-  const parts: string[] = []
-  if (here.length > 0)
-    parts.push(
-      `${listOf(here)} ${here.length === 1 ? "saves" : "save"} here first` +
-        (google.length === 0 && waiting.length === 0
-          ? `, then ${here.length === 1 ? "goes" : "go"} to Google when you publish`
-          : "")
-    )
-  if (google.length > 0)
-    parts.push(
-      `${listOf(google)} ${google.length === 1 ? "goes" : "go"} to Google when you publish`
-    )
   if (waiting.length > 0)
-    parts.push(
-      `${listOf(waiting)} ${waiting.length === 1 ? "waits" : "wait"} for another publisher to approve before ${waiting.length === 1 ? "it goes" : "they go"} to Google`
-    )
-  if (parts.length === 0) return null
-  const sentence = parts.join("; ")
-  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`
+    return `The ${listOf(waiting)} ${waiting.length === 1 ? "needs" : "need"} a different authorised user to approve ${waiting.length === 1 ? "it" : "them"} before anything is sent.`
+  if (here.length === 0)
+    return google.length === 0
+      ? null
+      : sentenceCase(
+          `${listOf(google)} ${google.length === 1 ? "goes" : "go"} to Google when you publish.`
+        )
+  const single = here.length === 1
+  return sentenceCase(
+    `${listOf(here)} ${single ? "saves" : "save"} here first, then ${single ? "goes" : "go"} to Google` +
+      (google.length > 0 ? ` with the ${listOf(google)}` : "") +
+      " when you publish."
+  )
 }
 
 /** Words for a step that never ran because an earlier one stopped the publish. */

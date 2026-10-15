@@ -1464,7 +1464,9 @@ describe("ProfileTab one review sheet (L14)", () => {
     const review = await screen.findByRole("dialog", { name: "Review changes" })
     expect(within(review).getByText("2 changes for Camden Hotel.")).toBeInTheDocument()
     expect(
-      within(review).getByText("Name saves here first; store code goes to Google when you publish.")
+      within(review).getByText(
+        "Name saves here first, then goes to Google with the store code when you publish."
+      )
     ).toBeInTheDocument()
     expect(within(review).getByText("Camden House")).toBeInTheDocument()
     expect(within(review).getByText("CAMDEN-2")).toBeInTheDocument()
@@ -1474,11 +1476,19 @@ describe("ProfileTab one review sheet (L14)", () => {
     await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
     // Everything went out, so the sheet closes as before.
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review changes" })).toBeNull())
-    const methods = calls.map(({ method, url }) => `${method} ${new URL(url, "http://x").pathname}`)
-    expect(methods).toContain("POST /api/locations/loc-1/business-information")
-    expect(methods).toContain("PATCH /api/locations/loc-1/business-information")
-    expect(methods).toContain("PUT /api/locations/loc-1/profile")
-    expect(methods).toContain("POST /api/locations/loc-1/profile")
+    // In order: approve the prepared request, send it, then save the copy
+    // and publish it (the business information goes first, as on main).
+    const writes = calls
+      .filter(({ method }) => method !== "GET")
+      .map(({ method, url }) => `${method} ${new URL(url, "http://x").pathname}`)
+      .filter((call) => /\/(business-information|profile)$/.test(call))
+    const sent = writes.slice(writes.indexOf("POST /api/locations/loc-1/business-information"))
+    expect(sent).toEqual([
+      "POST /api/locations/loc-1/business-information",
+      "PATCH /api/locations/loc-1/business-information",
+      "PUT /api/locations/loc-1/profile",
+      "POST /api/locations/loc-1/profile",
+    ])
   })
 
   it("keeps publishing off with the existing reason when any request needs another approver", async () => {
@@ -1491,7 +1501,7 @@ describe("ProfileTab one review sheet (L14)", () => {
     // The plain line says why; the copy field doesn't unlock the button.
     expect(
       within(review).getByText(
-        "Name saves here first; store code waits for another publisher to approve before it goes to Google."
+        "The store code needs a different authorised user to approve it before anything is sent."
       )
     ).toBeInTheDocument()
     expect(within(review).getByRole("button", { name: "Publish to Google" })).toBeDisabled()
