@@ -193,9 +193,9 @@ describe("EMPTY_HOURS_HASH and googleEmpty", () => {
   })
 
   it("flags empty Google hours, with or without a canonical row", () => {
-    expect(hoursArea(canonical({}), observation(EMPTY_HOURS_HASH))).toMatchObject(
-      { googleEmpty: true }
-    )
+    expect(
+      hoursArea(canonical({}), observation(EMPTY_HOURS_HASH))
+    ).toMatchObject({ googleEmpty: true })
     expect(
       hoursArea(undefined, observation(EMPTY_HOURS_HASH)).googleEmpty
     ).toBe(true)

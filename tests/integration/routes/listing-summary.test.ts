@@ -178,7 +178,10 @@ describeDatabase("listing summary routes", () => {
     await read(`${root}/profile`)
     await read(`${root}/food-menus`)
     const { summary } = await read(`${root}/summary`)
-    expect(summary.hours).toMatchObject({ status: "in_sync", googleEmpty: true })
+    expect(summary.hours).toMatchObject({
+      status: "in_sync",
+      googleEmpty: true,
+    })
     const state = (await read(`${server.baseUrl}/api/clients`)).items.find(
       (item: { id: string }) => item.id === client.id
     )
@@ -339,15 +342,15 @@ describeDatabase("listing summary routes", () => {
               title: "Comparison pub",
               metadata: { canHaveFoodMenus: false },
               regularHours: {
-                    periods: [
-                      {
-                        openDay: "MONDAY",
-                        closeDay: "MONDAY",
-                        openTime: { hours: 9 },
-                        closeTime: { hours: 17 },
-                      },
-                    ],
+                periods: [
+                  {
+                    openDay: "MONDAY",
+                    closeDay: "MONDAY",
+                    openTime: { hours: 9 },
+                    closeTime: { hours: 17 },
                   },
+                ],
+              },
               specialHours: { specialHourPeriods: [] },
               moreHours: [],
             },

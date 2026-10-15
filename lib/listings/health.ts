@@ -182,7 +182,10 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
     return "pending_verification"
   }
   if (!summary) return "unchecked"
-  if (otherAttention(summary, input.now) || noHoursOnGoogle(summary, input.now)) {
+  if (
+    otherAttention(summary, input.now) ||
+    noHoursOnGoogle(summary, input.now)
+  ) {
     return "attention"
   }
   if (unpublishedCount(summary) > 0 || summary.posts.awaitingApproval > 0) {

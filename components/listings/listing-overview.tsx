@@ -21,7 +21,6 @@ import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import {
   listingHealth,
-  listingAttentionReason,
   listingHealthDescription,
   listingHealthLabel,
   listingHealthTone,
@@ -243,9 +242,7 @@ function ListingOverview({
               description={
                 <>
                   {summary.data || !entry.linked
-                    ? (health === "attention"
-                        ? listingAttentionReason(summary.data, now)
-                        : null) ?? listingHealthDescription(health)
+                    ? listingHealthDescription(health)
                     : null}
                   {address ? ` ${address}.` : ""}
                 </>
