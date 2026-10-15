@@ -1,9 +1,9 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMutationState, useQuery } from "@tanstack/react-query"
+import { ChevronRightIcon } from "lucide-react"
+import Link from "next/link"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import {
   Select,
@@ -12,12 +12,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
+import {
+  SettingsGroup,
+  SettingsGroupAction,
+  SettingsRow,
+} from "@/components/ui/settings-row"
+import { showToast } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import {
   fetchNotificationPreferences,
   updateNotificationPreferences,
 } from "@/lib/api/operational-notifications"
+import type { NotificationPreferencesResponse } from "@/lib/contracts/operational-notifications"
 import {
   NOTIFICATION_EVENT_LABELS,
   type NotificationEventKind,
@@ -25,8 +31,7 @@ import {
 } from "@/lib/domain/notification-preferences"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
-import { cn } from "@/lib/utils"
-import { SettingsGroupAction } from "@/components/ui/settings-row"
+import { useOptimisticMutation } from "@/lib/queries/use-optimistic-mutation"
 
 const EMAIL_LABEL: Record<NotificationMode, string> = {
   immediate: "Immediately",
@@ -41,50 +46,53 @@ type Change = {
   mode: NotificationMode
 }
 
+const SAVE_KEY = ["notification-preferences", "save"] as const
+const rowKey = (kind: NotificationEventKind, channel: Channel) =>
+  `${kind}:${channel}`
+
 /**
  * The signed-in person's own choices, saved one change at a time (the
- * autosave model of the settings save contract, policy-form.tsx). Each
- * change's outcome — "Saving…", "Saved", or why it failed — is said in the
- * row that changed, beside its controls, not at the top of a long list.
+ * autosave model of the settings save contract, policy-form.tsx). A change
+ * shows at once and puts itself back, with an error toast, if the server
+ * refuses it; only the row being saved is disabled, never the list.
+ * "Turn all on/off" offers Undo. Email cadence is a chevron row opening a
+ * titled select sheet, offered only once an email provider exists.
  * Separate from Google's notification settings, which configure the review
  * feed.
+ *
+ * `role` is the signed-in role: only an owner or admin can set up email, so
+ * only they are pointed to Operations when it is missing.
  */
-export function NotificationPreferences() {
-  const client = useQueryClient()
-  // The row the latest change was made in ("all" for the group action),
-  // and how it went.
-  const [last, setLast] = useState<{
-    kind: NotificationEventKind | "all"
-    state: "saving" | "saved" | "failed"
-    message?: string
-  } | null>(null)
+export function NotificationPreferences({ role }: { role: string | null }) {
   const query = useQuery({
     queryKey: queryKeys.notificationPreferences,
     queryFn: (context) => fetchNotificationPreferences(requestOptions(context)),
   })
   // One change from a row, or every in-app change from "Turn all on/off" in
   // a single request (the endpoint takes 1–40 changes at once).
-  const save = useMutation({
-    mutationFn: (changes: Change | Change[]) =>
-      updateNotificationPreferences(
-        Array.isArray(changes) ? changes : [changes]
-      ),
-    onMutate: (changes) =>
-      setLast({ kind: subjectOf(changes), state: "saving" }),
-    onSuccess: (data, changes) => {
-      setLast({ kind: subjectOf(changes), state: "saved" })
-      client.setQueryData(queryKeys.notificationPreferences, data)
-    },
-    onError: (error, changes) =>
-      setLast({
-        kind: subjectOf(changes),
-        state: "failed",
-        message:
-          error instanceof ApiClientError
-            ? error.message
-            : "The choice could not be saved. Try again.",
-      }),
+  const save = useOptimisticMutation<
+    NotificationPreferencesResponse,
+    Change[],
+    NotificationPreferencesResponse
+  >({
+    mutationKey: SAVE_KEY,
+    mutationFn: (changes) => updateNotificationPreferences(changes),
+    queryKey: queryKeys.notificationPreferences,
+    update: (current, changes) => current && applyChanges(current, changes),
+    errorTitle: "Your notification choice wasn’t saved",
+    errorDescription: (error) =>
+      error instanceof ApiClientError ? error.message : "Try again.",
   })
+  // The rows with a save in flight, and whether the group action is mid-save.
+  const pending = useMutationState({
+    filters: { mutationKey: SAVE_KEY, status: "pending" },
+    select: (mutation) => mutation.state.variables as Change[],
+  })
+  const saving = new Set(
+    pending.flat().map((change) => rowKey(change.kind, change.channel))
+  )
+  const bulkSaving = pending.some((changes) => changes.length > 1)
+
   const rows = query.data
     ? [...new Set(query.data.preferences.map((preference) => preference.kind))]
     : []
@@ -96,176 +104,185 @@ export function NotificationPreferences() {
   const allInAppOn =
     rows.length > 0 &&
     rows.every((kind) => mode(kind, "in_app") === "immediate")
-  const groupOutcome = last?.kind === "all" ? last : null
+
+  const turnAll = () => {
+    const target: NotificationMode = allInAppOn ? "off" : "immediate"
+    const changes = rows.map((kind) => ({
+      kind,
+      channel: "in_app" as const,
+      mode: target,
+    }))
+    // Undo puts back what each row held before, in the same single request.
+    const previous = rows
+      .filter((kind) => mode(kind, "in_app") !== target)
+      .map((kind) => ({
+        kind,
+        channel: "in_app" as const,
+        mode: mode(kind, "in_app"),
+      }))
+    save.mutate(changes, {
+      onSuccess: () => {
+        if (previous.length === 0) return
+        showToast({
+          id: "notification-preferences-bulk",
+          title: allInAppOn
+            ? "Turned off in-app notifications"
+            : "Turned on in-app notifications",
+          undo: { onUndo: () => save.mutate(previous) },
+        })
+      },
+    })
+  }
+
+  const emailConfigured = query.data?.emailConfigured ?? true
+  const canSetUpEmail = role === "owner" || role === "admin"
 
   return (
-    <div className="flex flex-col gap-4">
-      {query.data && !query.data.emailConfigured ? (
-        <Alert variant="info">
-          <AlertTitle>Email is not set up</AlertTitle>
-          <AlertDescription>
-            No notification email is sent until an email provider is configured.
-            Notifications still appear in the app.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      <QueryStates
-        status={queryStatus(query)}
-        pendingLabel="Loading your notification settings"
-        error={{
-          title: "Notification settings could not be loaded",
-          description:
-            "We couldn't load your notification settings. Try again.",
-        }}
-        onRetry={() => void query.refetch()}
+    <QueryStates
+      status={queryStatus(query)}
+      pendingLabel="Loading your notification settings"
+      error={{
+        title: "Notification settings could not be loaded",
+        description: "We couldn't load your notification settings. Try again.",
+      }}
+      onRetry={() => void query.refetch()}
+    >
+      <SettingsGroup
+        card
+        label="In the app"
+        id="notification-in-app"
+        action={
+          <SettingsGroupAction
+            disabled={bulkSaving || rows.length === 0}
+            onClick={turnAll}
+          >
+            {allInAppOn ? "Turn all off in app" : "Turn all on in app"}
+          </SettingsGroupAction>
+        }
+        listProps={{ "aria-label": "In-app notification choices" }}
       >
-        <section
-          aria-labelledby="notification-events-label"
-          className="flex flex-col gap-1.5"
-        >
-          <div className="flex min-h-(--np-touch) flex-wrap items-center justify-between gap-x-3 px-1 desk:min-h-8">
-            <h2
-              id="notification-events-label"
-              className="text-ui font-medium text-ink-muted"
-            >
-              Notify me about
-            </h2>
-            <SettingsGroupAction
-              disabled={save.isPending || rows.length === 0}
-              onClick={() =>
-                save.mutate(
-                  rows.map((kind) => ({
+        {rows.map((kind) => {
+          const copy = NOTIFICATION_EVENT_LABELS[kind]
+          return (
+            <SettingsRow
+              key={kind}
+              label={copy.label}
+              description={copy.description}
+              checked={mode(kind, "in_app") === "immediate"}
+              disabled={saving.has(rowKey(kind, "in_app"))}
+              onCheckedChange={(checked) =>
+                save.mutate([
+                  {
                     kind,
-                    channel: "in_app" as const,
-                    mode: allInAppOn
-                      ? ("off" as const)
-                      : ("immediate" as const),
-                  }))
-                )
+                    channel: "in_app",
+                    mode: checked ? "immediate" : "off",
+                  },
+                ])
               }
-            >
-              {allInAppOn ? "Turn all off in app" : "Turn all on in app"}
-            </SettingsGroupAction>
-          </div>
-          <p
-            aria-live="polite"
-            data-slot="preference-status"
-            className={cn(
-              "px-1 text-ui empty:sr-only",
-              groupOutcome?.state === "failed"
-                ? "text-danger-ink"
-                : "text-ink-muted"
-            )}
-          >
-            {groupOutcome?.state === "saving"
-              ? "Saving…"
-              : groupOutcome?.state === "saved"
-                ? "Saved"
-                : groupOutcome?.state === "failed"
-                  ? `Not saved. ${groupOutcome.message}`
-                  : null}
-          </p>
-          <ul
-            className="flex flex-col md:divide-y md:divide-line md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
-            aria-label="Notification choices"
-          >
-            {rows.map((kind) => {
+            />
+          )
+        })}
+      </SettingsGroup>
+      <SettingsGroup
+        card
+        label="By email"
+        id="notification-email"
+        bodyAs={emailConfigured ? "ul" : "div"}
+        listProps={{ "aria-label": "Email notification choices" }}
+        caption={
+          emailConfigured ? undefined : (
+            <>
+              Email notifications aren&apos;t available for this workspace yet.
+              You&apos;ll still see them in the app.
+              {canSetUpEmail ? (
+                <>
+                  {" "}
+                  Set up email in{" "}
+                  <Link
+                    href="/settings/operations"
+                    className="text-accent-ink underline underline-offset-2"
+                  >
+                    Operations
+                  </Link>
+                  .
+                </>
+              ) : null}
+            </>
+          )
+        }
+      >
+        {emailConfigured
+          ? rows.map((kind) => {
               const copy = NOTIFICATION_EVENT_LABELS[kind]
-              const outcome = last?.kind === kind ? last : null
               return (
-                <li
+                <SettingsRow
                   key={kind}
-                  className="grid grid-cols-1 gap-x-4 gap-y-2 px-1 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center md:px-(--np-card-pad)"
-                >
-                  <div className="min-w-0">
-                    <p className="text-body font-medium text-ink">
-                      {copy.label}
-                    </p>
-                    <p className="text-caption text-ink-muted">
-                      {copy.description}
-                    </p>
-                  </div>
-                  <Switch
-                    // The words are the tap target; the name keeps the row's
-                    // subject ("In app: New reviews") for a screen reader. The
-                    // name is one text run: an sr-only sibling is block-level
-                    // and would put a space before the colon.
-                    label={
-                      <>
-                        <span aria-hidden="true">In app</span>
-                        <span className="sr-only">In app: {copy.label}</span>
-                      </>
-                    }
-                    labelClassName="justify-start gap-3 text-ui text-ink-secondary"
-                    checked={mode(kind, "in_app") === "immediate"}
-                    disabled={save.isPending}
-                    onCheckedChange={(checked) =>
-                      save.mutate({
-                        kind,
-                        channel: "in_app",
-                        mode: checked ? "immediate" : "off",
-                      })
-                    }
-                  />
-                  <Select
-                    value={mode(kind, "email")}
-                    disabled={save.isPending}
-                    onValueChange={(value) =>
-                      save.mutate({
-                        kind,
-                        channel: "email",
-                        mode: value as NotificationMode,
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      className="w-full sm:w-44"
-                      aria-label={`Email: ${copy.label}`}
+                  label={copy.label}
+                  className="relative"
+                  action={
+                    <Select
+                      value={mode(kind, "email")}
+                      disabled={saving.has(rowKey(kind, "email"))}
+                      onValueChange={(value) =>
+                        save.mutate([
+                          {
+                            kind,
+                            channel: "email",
+                            mode: value as NotificationMode,
+                          },
+                        ])
+                      }
                     >
-                      <SelectValue>
-                        {(value: string | null) =>
-                          `Email: ${EMAIL_LABEL[(value ?? "off") as NotificationMode]}`
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent title={`Email: ${copy.label}`}>
-                      {(["immediate", "digest", "off"] as const).map(
-                        (option) => (
-                          <SelectItem key={option} value={option}>
-                            {EMAIL_LABEL[option]}
-                          </SelectItem>
-                        )
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <p
-                    aria-live="polite"
-                    data-slot="preference-status"
-                    className={cn(
-                      "text-ui empty:sr-only sm:col-span-3 sm:text-right",
-                      outcome?.state === "failed"
-                        ? "text-danger-ink"
-                        : "text-ink-muted"
-                    )}
-                  >
-                    {outcome?.state === "saving"
-                      ? "Saving…"
-                      : outcome?.state === "saved"
-                        ? "Saved"
-                        : outcome?.state === "failed"
-                          ? `Not saved. ${outcome.message}`
-                          : null}
-                  </p>
-                </li>
+                      {/* The trigger covers the whole row, so the words and
+                          the value are one tap target, like a chevron row. */}
+                      <SelectTrigger
+                        aria-label={`Email: ${copy.label}`}
+                        className="absolute inset-0 h-auto w-full justify-end gap-1 border-0 bg-transparent px-2 text-ui text-ink-muted disabled:bg-transparent data-disabled:bg-transparent [&_[data-slot=select-icon]]:hidden"
+                      >
+                        <SelectValue>
+                          {(value: string | null) =>
+                            EMAIL_LABEL[(value ?? "off") as NotificationMode]
+                          }
+                        </SelectValue>
+                        <ChevronRightIcon
+                          aria-hidden="true"
+                          className="size-5 shrink-0 text-ink-muted"
+                        />
+                      </SelectTrigger>
+                      <SelectContent title={`Email: ${copy.label}`}>
+                        {(["immediate", "digest", "off"] as const).map(
+                          (option) => (
+                            <SelectItem key={option} value={option}>
+                              {EMAIL_LABEL[option]}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  }
+                />
               )
-            })}
-          </ul>
-        </section>
-      </QueryStates>
-    </div>
+            })
+          : null}
+      </SettingsGroup>
+    </QueryStates>
   )
 }
 
-function subjectOf(changes: Change | Change[]): NotificationEventKind | "all" {
-  return Array.isArray(changes) ? "all" : changes.kind
+/** The cache as it will read once `changes` are saved. */
+function applyChanges(
+  current: NotificationPreferencesResponse,
+  changes: Change[]
+): NotificationPreferencesResponse {
+  const preferences = current.preferences.map((preference) => {
+    const change = changes.find(
+      (candidate) =>
+        candidate.kind === preference.kind &&
+        candidate.channel === preference.channel
+    )
+    return change
+      ? { ...preference, mode: change.mode, explicit: true }
+      : preference
+  })
+  return { ...current, preferences }
 }

@@ -242,6 +242,37 @@ describe("MembersTable", () => {
     expect(toggle).toHaveAccessibleDescription("Saved: publishing on")
   })
 
+  it("puts the publishing switch after its words and waits only on the member being saved", async () => {
+    const user = userEvent.setup()
+    let finish = () => {}
+    vi.spyOn(membersApi, "updateMember").mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(undefined as never)
+      })
+    )
+    renderTable("owner", "owner-1", [
+      member({ userId: "m-1", displayName: "Ben Member", email: "ben@test" }),
+      member({ userId: "m-2", displayName: "Cat Member", email: "cat@test" }),
+    ])
+    const ben = screen.getByRole("switch", {
+      name: "Allow Ben Member to publish",
+    })
+    const words = within(ben.closest("tr")!).getByText("Drafts only")
+    // The words come first and the switch trails them.
+    expect(
+      words.compareDocumentPosition(ben) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    await user.click(ben)
+    await waitFor(() => expect(ben).toHaveAttribute("aria-disabled", "true"))
+    expect(
+      screen.getByRole("switch", { name: "Allow Cat Member to publish" })
+    ).not.toHaveAttribute("aria-disabled", "true")
+    finish()
+    await waitFor(() =>
+      expect(ben).not.toHaveAttribute("aria-disabled", "true")
+    )
+  })
+
   it("shows a refused publishing change next to the switch, not in a toast", async () => {
     const user = userEvent.setup()
     vi.spyOn(membersApi, "updateMember").mockRejectedValue(new Error("boom"))

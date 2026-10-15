@@ -78,7 +78,7 @@ describe("NotificationPreferences error state", () => {
           })
       )
     )
-    withClient(<NotificationPreferences />)
+    withClient(<NotificationPreferences role="owner" />)
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("Notification settings could not be loaded")
     expect(alert).toHaveTextContent(
