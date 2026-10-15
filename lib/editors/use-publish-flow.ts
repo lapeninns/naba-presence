@@ -14,6 +14,7 @@ import {
 import {
   describePublishStepError,
   errorOutcome,
+  isTimeoutError,
   isUnconfirmedFailure,
 } from "@/lib/errors/action-errors"
 import {
@@ -26,6 +27,9 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import { gbpMutationResultSchema } from "@/lib/contracts/gbp-management"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
+
+/** The failure toast: six words or fewer, the reason is on the step. */
+export const PUBLISH_FAILURE_TOAST = "Publishing stopped. See the steps."
 
 /**
  * What a step's `run` resolves to when it found nothing to send (the saved
@@ -74,6 +78,17 @@ export type PublishStepResult = {
   label: string
   status: PublishStepStatus
   message?: string
+  /**
+   * A failed step's one-line reason, without the note about earlier steps
+   * that `message` carries. A surface that already states what happened to
+   * the other steps shows this instead, so the failure is said once.
+   */
+  reason?: string
+  /**
+   * A failed step that may have been applied anyway (Google's answer was
+   * lost, timed out or is still pending): check before sending it again.
+   */
+  unconfirmed?: boolean
   kind?: "local" | "google"
   /** The API's error code for a failed step, when it sent one. */
   code?: string
@@ -259,12 +274,18 @@ export function usePublishFlow({
           : completed.some((result) => result.kind === "local")
             ? " Completed local saves are kept. No Google step completed successfully."
             : ""
-        failure =
-          describePublishStepError(cause, step.kind ?? "google") + progress
+        const reason = describePublishStepError(cause, step.kind ?? "google")
+        failure = reason + progress
         running[index] = {
           ...running[index],
           status: "failed",
           message: failure,
+          reason,
+          unconfirmed:
+            isUnconfirmedFailure(cause) ||
+            isTimeoutError(cause) ||
+            (cause instanceof DOMException &&
+              (cause.name === "TimeoutError" || cause.name === "AbortError")),
           code: cause instanceof ApiClientError ? cause.code : undefined,
           outcome: errorOutcome(cause),
           intentId:
@@ -287,7 +308,9 @@ export function usePublishFlow({
 
     if (failure) {
       setError(failure)
-      toasts.add({ title: failure, type: "error" })
+      // The step and the surface's banner carry the reason; the toast only
+      // says it stopped.
+      toasts.add({ title: PUBLISH_FAILURE_TOAST, type: "error" })
       return false
     }
     // A parked step is the news: the surface's own "sent to Google" or

@@ -22,6 +22,11 @@ export type EditorStatusReport = {
   savesHere: boolean
   /** How many fields differ from Google, when the editor counts them. */
   changeCount?: number
+  /**
+   * What the editor says instead of "In sync with Google" when both sides
+   * are empty ("No hours on Google"): in sync, but not fine.
+   */
+  emptyOnGoogle?: string
 }
 
 type Store = {
@@ -71,6 +76,7 @@ function useReportEditorStatus(report: EditorStatusReport | null) {
   const localEdits = report?.localEdits
   const savesHere = report?.savesHere
   const changeCount = report?.changeCount
+  const emptyOnGoogle = report?.emptyOnGoogle
   const present = report !== null
   React.useEffect(() => {
     if (!store) return
@@ -82,10 +88,20 @@ function useReportEditorStatus(report: EditorStatusReport | null) {
             localEdits: localEdits!,
             savesHere: savesHere!,
             changeCount,
+            emptyOnGoogle,
           }
         : null
     )
-  }, [store, present, status, isDirty, localEdits, savesHere, changeCount])
+  }, [
+    store,
+    present,
+    status,
+    isDirty,
+    localEdits,
+    savesHere,
+    changeCount,
+    emptyOnGoogle,
+  ])
   React.useEffect(() => {
     if (!store) return
     return () => store.set(null)
@@ -131,6 +147,8 @@ function editorStatusPill(
           : "Not on Google yet",
     }
   }
+  if (report.status === "in_sync" && report.emptyOnGoogle)
+    return { tone: "attention", label: report.emptyOnGoogle }
   if (report.status === "in_sync")
     return { tone: "healthy", label: "In sync with Google" }
   return null
