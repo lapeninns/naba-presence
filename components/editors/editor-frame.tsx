@@ -82,7 +82,10 @@ function EditorFrame({
     <section
       ref={ref}
       data-slot="editor-frame"
-      className={cn("flex flex-col gap-5", className)}
+      // Not a tab stop: a place for focus to land when the footer's button
+      // has gone (see EditorFooter), so it never falls back to the body.
+      tabIndex={-1}
+      className={cn("flex flex-col gap-5 outline-none", className)}
     >
       {titleHidden ? <h2 className="sr-only">{title}</h2> : null}
       {showHead || gateReason ? (

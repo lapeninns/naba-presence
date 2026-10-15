@@ -146,6 +146,11 @@ describe("aggregate menu review", () => {
     expect(
       within(bar).getByRole("button", { name: "Publish 1 area to Google" })
     ).toBeInTheDocument()
+    // The status has its own row on a phone, so a block reason is readable.
+    expect(bar.className).toMatch(/max-md:flex-wrap/)
+    expect(
+      bar.querySelector('[data-slot="action-bar-status"]')?.className
+    ).toMatch(/max-md:basis-full/)
   })
   it("blocks unresolved duplicate matches in aggregate review", () => {
     menus.value = state(["A", "B"], ["C", "D"])

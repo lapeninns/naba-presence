@@ -22,14 +22,10 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     await value.getByRole("radio", { name: "No", exact: true }).click()
     const footer = page.getByRole("region", { name: "Editor actions", exact: true })
     await expect(footer.getByText("1 change not on Google", { exact: true })).toBeVisible()
-    if (width < 768) {
-      // A phone folds Save here into the bar's overflow menu.
-      await footer.getByRole("button", { name: "More actions", exact: true }).click()
-      await expect(page.getByRole("menuitem", { name: "Save here", exact: true })).toHaveAttribute("aria-disabled", "true")
-      await page.keyboard.press("Escape")
-    } else {
-      await expect(footer.getByRole("button", { name: "Save here", exact: true })).toBeDisabled()
-    }
+    // Save here can't take a lodging draft: it is left out of the bar (and the
+    // phone's overflow menu) rather than greyed, and the bar's note says why.
+    await expect(footer.getByRole("button", { name: "Save here", exact: true })).toHaveCount(0)
+    await expect(footer.getByRole("note")).toContainText("saved through their own review")
     await capture(page, info, "explicit-no")
     await footer.getByRole("button", { name: "Review lodging draft", exact: true }).click()
     const review = page.getByRole("dialog", { name: lodgingSheet })

@@ -63,6 +63,10 @@ export type ActionBarAction = {
  *   dock       on a phone (below `md`), fix the bar to the bottom edge of
  *              the screen (see "Docking" below). Ignored from `md`, where the
  *              bar is inline or `sticky` as before.
+ *   statusRow  on a docked phone bar, give the status its own full-width row
+ *              above the actions (and drop its two-line clamp), for a long
+ *              status or a wide primary that would leave it no room. The
+ *              dock spacer measures the taller bar. Default false: one row.
  *   visible    default true. Pass `isDirty` (or "has a selection") so a
  *              clean editor shows no bar at all; it slides in with the
  *              first change.
@@ -97,6 +101,7 @@ function ActionBar({
   overflowLabel = "More actions",
   tone = "charcoal",
   dock = false,
+  statusRow = false,
   visible = true,
   sticky = true,
   offset = "bottom-0",
@@ -114,6 +119,7 @@ function ActionBar({
   overflowLabel?: string
   tone?: "charcoal" | "surface"
   dock?: boolean
+  statusRow?: boolean
   visible?: boolean
   sticky?: boolean
   offset?: string
@@ -142,6 +148,7 @@ function ActionBar({
         sticky && !dock && STICKY_ABOVE_TAB_BAR,
         safeArea && "pb-[max(--spacing(3),var(--np-safe-bottom))]",
         dock && DOCKED_CLASS,
+        dock && statusRow && "max-md:flex-wrap max-md:gap-y-2",
         className
       )}
       {...props}
@@ -159,7 +166,10 @@ function ActionBar({
             // wraps to more rows is still covered: DockSpacer measures it.)
             // The clamp is visual only; the full words stay in the
             // accessibility tree and in the polite announcement.
-            dock && "max-md:basis-0 max-md:[&>:not(svg)]:line-clamp-2"
+            dock &&
+              (statusRow
+                ? "max-md:basis-full"
+                : "max-md:basis-0 max-md:[&>:not(svg)]:line-clamp-2")
           )}
         >
           {status}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useId } from "react"
+import { useId, useRef } from "react"
 
 import { CircleAlert, CircleCheck, Clock, Eye, Save } from "lucide-react"
 
@@ -11,6 +11,7 @@ import {
   type ActionBarAction,
 } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
+import { useReturnFocus } from "@/lib/editors/use-return-focus"
 import { cn } from "@/lib/utils"
 
 export type EditorStatus =
@@ -26,6 +27,8 @@ const STATUS_WORDS: Record<EditorStatus, string> = {
   google_dirty: "Changed on Google",
   conflict: "Conflict with Google",
 }
+
+const DEFAULT_REVIEW_LABEL = "Review changes"
 
 function countWords(count: number) {
   return `${count} ${count === 1 ? "change" : "changes"} not on Google`
@@ -46,10 +49,13 @@ function countWords(count: number) {
  * "Discard edits" throws the local edits away. Both are secondaries of the
  * ActionBar, so a phone folds them into the "More actions" menu and the bar
  * stays one row (status, primary, overflow); from `md` they sit inline beside
- * the primary. A secondary with nothing to act on is left out, not greyed.
- * The status line says which of the two has happened: "unsaved edits" or
- * "saved here"; while a save runs it says "Saving…", since the phone's
- * button is in a closed menu.
+ * the primary. A secondary with nothing to act on, or that can't run (its
+ * reason is the bar's note), is left out, not greyed. When the edits leave
+ * nothing to publish (they match Google), there is no "Review changes" and
+ * "Save here" is the primary. The status line says which of the two has
+ * happened: "unsaved edits" or "saved here"; while a save runs it leads with
+ * "Saving…", since the phone's button is in a closed menu. After a save,
+ * focus returns to the bar (or the editor) rather than falling to the page.
  *
  * A viewer gets the same bar with no buttons and the reason in words, so the
  * page never shows controls that can't be used without saying why.
@@ -74,7 +80,7 @@ function EditorFooter({
   saveDisabledReason,
   saveDescription,
   readOnlyReason,
-  reviewLabel = "Review changes",
+  reviewLabel = DEFAULT_REVIEW_LABEL,
   rail = false,
 }: {
   status: EditorStatus
@@ -117,6 +123,10 @@ function EditorFooter({
     ? "desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]"
     : undefined
   const localEdits = canDiscard ?? isDirty
+  const regionRef = useRef<HTMLDivElement>(null)
+  // Save here leaves the bar once it has done its work: focus goes back to
+  // the bar (or the editor), not the page.
+  const returnFocus = useReturnFocus(regionRef)
 
   // Tell the area header (AreaFrame) what this footer says, so its pill
   // never reads "In sync" over unsaved edits. A view-only bar reports nothing.
@@ -156,40 +166,45 @@ function EditorFooter({
   // Nothing to save, publish or resolve: no bar, at any width.
   if (!isDirty && !localEdits && status !== "conflict") return null
 
+  // Nothing differs from Google (local edits only): say so, not "changes not
+  // on Google", and offer no Review (there is nothing to publish).
   const headline =
     status === "conflict"
       ? STATUS_WORDS.conflict
-      : typeof changeCount === "number" && changeCount > 0
-        ? countWords(changeCount)
-        : STATUS_WORDS[status === "in_sync" ? "edited" : status]
-  const where = saving
-    ? "saving…"
-    : localEdits
-      ? "unsaved edits"
-      : status === "unpublished" || (onSave && isDirty)
-        ? "saved here"
-        : null
+      : !isDirty
+        ? "No changes to publish"
+        : typeof changeCount === "number" && changeCount > 0
+          ? countWords(changeCount)
+          : STATUS_WORDS[status === "in_sync" ? "edited" : status]
+  const where = localEdits
+    ? "unsaved edits"
+    : status === "unpublished" || (onSave && isDirty)
+      ? "saved here"
+      : null
   const StatusIcon =
     status === "conflict" ? CircleAlert : isDirty ? Clock : CircleCheck
   const reason =
     (isDirty && disabledReason) || (localEdits && saveDisabledReason)
+  // A save that can't run is left out, not greyed: the note row says why.
+  const canSave = Boolean(onSave && localEdits && !saveDisabledReason)
+  const saveAction: ActionBarAction = {
+    label: "Save here",
+    icon: <Save aria-hidden />,
+    onClick: () => {
+      returnFocus()
+      onSave?.()
+    },
+    pending: saving,
+    pendingLabel: "Saving…",
+    describedBy: saveDescription ? saveDescriptionId : undefined,
+  }
 
   // Secondaries are data: the ActionBar draws them inline from `md` and in
   // its overflow menu on a phone, with the same handlers and busy state.
-  // With nothing to throw away or save they are left out, not greyed.
+  // With nothing to throw away or save they are left out, not greyed. With
+  // nothing to publish, "Save here" is the primary instead.
   const secondaryActions: ActionBarAction[] = []
-  if (onSave && localEdits) {
-    secondaryActions.push({
-      label: "Save here",
-      icon: <Save aria-hidden />,
-      onClick: onSave,
-      pending: saving,
-      pendingLabel: "Saving…",
-      // The reason is the bar's own note row, so it isn't said twice.
-      disabled: Boolean(saveDisabledReason),
-      describedBy: saveDescription ? saveDescriptionId : undefined,
-    })
-  }
+  if (canSave && isDirty) secondaryActions.push(saveAction)
   if (localEdits) {
     secondaryActions.push({
       label: "Discard edits",
@@ -197,6 +212,21 @@ function EditorFooter({
       destructive: true,
     })
   }
+  const primary = isDirty ? (
+    <Button onClick={onReview} disabled={Boolean(disabledReason)}>
+      {reviewLabel}
+    </Button>
+  ) : canSave ? (
+    <Button
+      onClick={saveAction.onClick}
+      pending={saving}
+      pendingLabel="Saving…"
+      aria-describedby={saveAction.describedBy}
+    >
+      <Save aria-hidden />
+      Save here
+    </Button>
+  ) : undefined
 
   return (
     <ActionBar
@@ -211,15 +241,35 @@ function EditorFooter({
       sticky={false}
       safeArea={false}
       label="Editor actions"
+      ref={regionRef}
+      tabIndex={-1}
+      // A long primary label ("Review lodging draft") would leave the status
+      // no room beside it: it takes its own row then.
+      statusRow={reviewLabel.length > DEFAULT_REVIEW_LABEL.length}
       // A reason the primary or Save here is blocked takes its own row under
       // the buttons, so a phone's bar is two rows only while it has one.
-      className={cn(reason && "max-md:flex-wrap", railClass, className)}
+      className={cn(
+        reason && "max-md:flex-wrap",
+        "focus-visible:outline-none",
+        railClass,
+        className
+      )}
       status={
         <>
           <StatusIcon aria-hidden />
           <span className="min-w-0">
-            <strong className="font-medium">{headline}</strong>
-            {where ? <ActionBarMuted> · {where}</ActionBarMuted> : null}
+            {/* Saving goes first so a clamped status can never cut it. */}
+            {saving ? (
+              <>
+                <strong className="font-medium">Saving…</strong>
+                <ActionBarMuted> · {headline}</ActionBarMuted>
+              </>
+            ) : (
+              <>
+                <strong className="font-medium">{headline}</strong>
+                {where ? <ActionBarMuted> · {where}</ActionBarMuted> : null}
+              </>
+            )}
             <span className="sr-only">
               {" "}
               Nothing changes on Google until you publish.
@@ -228,18 +278,11 @@ function EditorFooter({
         </>
       }
       secondaryActions={secondaryActions}
-      primary={
-        <Button
-          onClick={onReview}
-          disabled={!isDirty || Boolean(disabledReason)}
-        >
-          {reviewLabel}
-        </Button>
-      }
+      primary={primary}
     >
       {/* What a partial save covers. The area header already says it as its
           model note, so here it only describes the button. */}
-      {onSave && saveDescription ? (
+      {canSave && saveDescription ? (
         <span id={saveDescriptionId} className="sr-only">
           {saveDescription}
         </span>

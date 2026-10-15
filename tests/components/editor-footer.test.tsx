@@ -107,7 +107,7 @@ describe("EditorFooter", () => {
     expect(onDiscard).toHaveBeenCalledTimes(2)
   })
 
-  it("disables Save here, in the bar and the menu, with the reason in a note", async () => {
+  it("leaves Save here out when it can't run, with the reason in a note", async () => {
     const user = userEvent.setup()
     render(
       footer({
@@ -116,7 +116,7 @@ describe("EditorFooter", () => {
         saveDisabledReason: "Only the name is saved here.",
       })
     )
-    expect(screen.getByRole("button", { name: "Save here" })).toBeDisabled()
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
     expect(screen.getByRole("note")).toHaveTextContent(
       "Only the name is saved here."
     )
@@ -124,17 +124,102 @@ describe("EditorFooter", () => {
     expect(
       screen.getByRole("region", { name: "Editor actions" }).className
     ).toMatch(/max-md:flex-wrap/)
+    // The overflow holds only what can be done.
     await user.click(screen.getByRole("button", { name: "More actions" }))
     expect(
-      await screen.findByRole("menuitem", { name: "Save here" })
-    ).toHaveAttribute("aria-disabled", "true")
+      await screen.findByRole("menuitem", { name: "Discard edits" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Save here" })).toBeNull()
+  })
+
+  it("says what is true when local edits leave nothing to publish", () => {
+    render(footer({ status: "in_sync", isDirty: false, canDiscard: true }))
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveTextContent("No changes to publish")
+    expect(bar).toHaveTextContent("unsaved edits")
+    expect(bar).not.toHaveTextContent("Changes not on Google")
+    // No greyed Review with no reason: Save here is the primary instead.
+    expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
+    const save = screen.getByRole("button", { name: "Save here" })
+    expect(save).toBeEnabled()
+    expect(save).not.toHaveClass("max-md:hidden")
+    expect(screen.getByRole("button", { name: "Discard edits" })).toBeEnabled()
+  })
+
+  it("draws no primary when nothing differs and Save here can't run", () => {
+    render(
+      footer({
+        status: "in_sync",
+        isDirty: false,
+        canDiscard: true,
+        saveDisabledReason: "Saved through its own review.",
+      })
+    )
+    expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Saved through its own review."
+    )
+  })
+
+  it("gives the status its own row beside a long primary label", () => {
+    const { unmount } = render(
+      footer({
+        status: "edited",
+        isDirty: true,
+        reviewLabel: "Review lodging draft",
+      })
+    )
+    expect(
+      screen.getByRole("region", { name: "Editor actions" }).className
+    ).toMatch(/max-md:flex-wrap/)
+    expect(
+      document.querySelector('[data-slot="action-bar-status"]')?.className
+    ).toMatch(/max-md:basis-full/)
+    unmount()
+    render(footer({ status: "edited", isDirty: true }))
+    expect(
+      document.querySelector('[data-slot="action-bar-status"]')?.className
+    ).not.toMatch(/max-md:basis-full/)
+  })
+
+  it("puts focus back on the bar when Save here has done its work", async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(footer({ status: "edited", isDirty: true }))
+    await user.click(screen.getByRole("button", { name: "Save here" }))
+    // Saved: still something to publish, nothing local left to save.
+    rerender(
+      footer({ status: "unpublished", isDirty: true, canDiscard: false })
+    )
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(screen.getByRole("region", { name: "Editor actions" })).toHaveFocus()
+  })
+
+  it("puts focus on the editor when Save here leaves nothing to show", async () => {
+    const user = userEvent.setup()
+    function Harness({ clean }: { clean: boolean }) {
+      return (
+        <EditorFrame
+          title="Hours"
+          titleHidden
+          footer={footer(clean ? {} : { status: "edited", isDirty: true })}
+        >
+          <p>fields</p>
+        </EditorFrame>
+      )
+    }
+    const { rerender } = render(<Harness clean={false} />)
+    await user.click(screen.getByRole("button", { name: "Save here" }))
+    rerender(<Harness clean />)
+    expect(screen.queryByRole("region", { name: "Editor actions" })).toBeNull()
+    expect(document.querySelector('[data-slot="editor-frame"]')).toHaveFocus()
   })
 
   it("says Saving… in the status while a save runs", () => {
     render(footer({ status: "edited", isDirty: true, saving: true }))
     expect(
       screen.getByRole("region", { name: "Editor actions" })
-    ).toHaveTextContent("saving…")
+    ).toHaveTextContent(/^\s*Saving…/)
   })
 
   it("blocks Review changes with the reason in a note", () => {

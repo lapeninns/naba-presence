@@ -968,14 +968,16 @@ function ReviewPublish({
                 </Alert>
               ) : null}
 
-              {/* The same bar policy as an editor's footer: docked to the
-                  bottom edge on a phone (the tab bar steps aside, and the
-                  spacer, scroll padding and toasts follow its measured
-                  height), sticky on a desk only where the window is tall
-                  enough for it to leave the content room, inline on short
-                  screens. */}
+              {/* Docked to the bottom edge on a phone (the tab bar steps
+                  aside, and the spacer, scroll padding and toasts follow its
+                  measured height); `statusRow` gives the status its own row
+                  there, since "Publish N areas to Google" leaves it no room
+                  beside it. On a desk it sticks above the bottom edge only
+                  where the window is tall enough to leave the content room
+                  (the `controls` variant), and is inline on short screens. */}
               <ActionBar
                 dock
+                statusRow
                 sticky={false}
                 safeArea={false}
                 className="controls:sticky controls:bottom-3"
