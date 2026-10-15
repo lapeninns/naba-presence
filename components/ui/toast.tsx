@@ -18,12 +18,19 @@ const baseToastManager = ToastPrimitive.createToastManager()
 
 /**
  * The app's toast manager. Its `add` applies the same defaults as
- * `useToastManager` (see `withToastDefaults`), so module-level callers that
- * import `toast` directly get them too.
+ * `useToastManager` (see `withToastDefaults`, `withReplacementReset`), so
+ * module-level callers that import `toast` directly get them too.
+ *
+ * Replace by id: `toast.add({ id, ... })` with an id that is already showing
+ * updates that toast in place instead of stacking a second one, and restarts
+ * its auto-dismiss. Use one stable id for a message that is only ever "the
+ * latest" ("Switched to Harbour Kitchen"). The id is not unique per message
+ * on purpose: two different messages must never share one.
  */
 const toast: typeof baseToastManager = {
   ...baseToastManager,
-  add: (options) => baseToastManager.add(withToastDefaults(options)),
+  add: (options) =>
+    baseToastManager.add(withReplacementReset(withToastDefaults(options))),
 }
 
 function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
@@ -455,7 +462,33 @@ export function withToastDefaults<T extends AddOptions>(
 }
 
 /**
- * The toast manager, with `add` applying `withToastDefaults`.
+ * Makes a replacing `add` mean "this toast, now", not "this toast merged over
+ * the old one". Base UI updates a toast that already has the id by spreading
+ * the new options over it, so a field the new options leave out would keep
+ * the old toast's value: an Undo button, a description or a type icon from
+ * the message being replaced. With an `id`, every content field is therefore
+ * set explicitly (to `undefined` when the caller gave none). Without an `id`
+ * nothing can be replaced and the options pass through untouched.
+ */
+export function withReplacementReset<T extends AddOptions>(options: T): T {
+  if (!options.id) return options
+  return {
+    title: undefined,
+    description: undefined,
+    type: undefined,
+    priority: undefined,
+    data: undefined,
+    actionProps: undefined,
+    onClose: undefined,
+    onRemove: undefined,
+    timeout: undefined,
+    ...options,
+  }
+}
+
+/**
+ * The toast manager, with `add` applying `withToastDefaults` and
+ * `withReplacementReset`.
  * Every in-app caller reads toasts through this, so the rule holds without
  * each one remembering it.
  */
@@ -463,7 +496,7 @@ function useToastManager() {
   const manager = ToastPrimitive.useToastManager()
   const { add } = manager
   const wrappedAdd = React.useCallback<typeof add>(
-    (options) => add(withToastDefaults(options)),
+    (options) => add(withReplacementReset(withToastDefaults(options))),
     [add]
   )
   return React.useMemo(
@@ -593,11 +626,16 @@ function outcomeToManagerOptions(
     kind === "google" && link && isSafeToastHref(link.href)
       ? { kind, link: { href: link.href } }
       : { kind }
+  // Undo runs once: the toast stays on screen through its exit animation,
+  // where a second tap would otherwise run the revert again.
+  let undone = false
   const actionProps =
     kind === "local" && undo
       ? {
           children: undo.label ?? "Undo",
           onClick: () => {
+            if (undone) return
+            undone = true
             undo.onUndo()
             manager.close(id)
           },
@@ -635,6 +673,63 @@ export function showToast(
     ...outcomeToManagerOptions(options, id, manager),
     id,
   })
+}
+
+/**
+ * The Undo recipe for a LOCAL, reversible action: do it now, then offer to
+ * take it back. The action is never delayed behind a "pending" toast, so
+ * leaving the page or losing the toast cannot lose the change; Undo is the
+ * way back, not a confirmation.
+ *
+ *   applyWithUndo({
+ *     title: "Marked as no reply needed",
+ *     apply: () => setStatus(review.id, "no_reply_needed"),   // runs now
+ *     revert: () => setStatus(review.id, "unanswered"),       // runs on Undo
+ *   })
+ *
+ * `apply` may return what `revert` needs (the previous value), so the way
+ * back restores what was there rather than a guess. Using Undo closes the
+ * toast. Give a stable `id` when repeated actions should replace the toast
+ * rather than stack. Never for a Google write (D5): use `toastProgress` with
+ * `kind: "google"`. Returns the toast's id.
+ *
+ * Undo runs `revert` once, however often it is tapped while the toast leaves.
+ * A stable `id` replaces the earlier toast, and with it the earlier Undo: the
+ * first action can no longer be undone from a toast once a second one has
+ * taken its place. Use a stable id only where the latest action is the one
+ * that matters; otherwise leave `id` out and let each action keep its own.
+ */
+export function applyWithUndo<T = void>({
+  apply,
+  revert,
+  title,
+  description,
+  id,
+  undoLabel,
+  timeout,
+  manager = toast,
+}: {
+  apply: () => T
+  revert: (applied: T) => void
+  title: React.ReactNode
+  description?: React.ReactNode
+  id?: string
+  /** Default "Undo". */
+  undoLabel?: string
+  timeout?: number
+  manager?: ToastManagerLike
+}): string {
+  const applied = apply()
+  return showToast(
+    {
+      id,
+      title,
+      description,
+      timeout,
+      undo: { onUndo: () => revert(applied), label: undoLabel },
+    },
+    manager
+  )
 }
 
 // Not distributive on purpose: only a kind known to be "local" may offer

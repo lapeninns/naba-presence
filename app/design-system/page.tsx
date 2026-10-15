@@ -31,6 +31,7 @@ import { UxP02Demo } from "@/app/design-system/ux-p02-demo"
 import { UxP03Demo } from "@/app/design-system/ux-p03-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { UxP04Demo } from "@/app/design-system/ux-p04-demo"
+import { UxP07Demo } from "@/app/design-system/ux-p07-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -1494,6 +1495,7 @@ export default function Page() {
                 <span className="text-ui text-ink-muted">Toasts:</span>
                 <ToastDemo />
               </Demo>
+              <UxP07Demo />
             </Specimen>
           </div>
 
