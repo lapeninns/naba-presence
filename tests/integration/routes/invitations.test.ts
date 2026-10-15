@@ -166,7 +166,7 @@ describeDatabase("organisation invitations", () => {
       organisationName: "Harness tenant",
       email,
       role: "member",
-      expiresAt: expect.any(String),
+      expiresAt: new Date(stored.expiresAt).toISOString(),
       accepted: false,
       expired: false,
     })

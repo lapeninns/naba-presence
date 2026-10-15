@@ -41,7 +41,11 @@ function GoToSignInLink() {
   )
 }
 
-/** The expiry in the visitor's own time zone ("22 Oct, 14:05"). */
+/**
+ * The expiry in the visitor's own time zone ("22 Oct, 14:05"). Safe only
+ * because the lookup runs in the browser: a server prefetch of this query
+ * would render it in the server's zone and mismatch on hydration.
+ */
 function expiryLabel(expiresAt: string): string {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return formatDateTime(expiresAt, timeZone)
@@ -151,10 +155,10 @@ function InvitationView({
         eyebrow="Invitation"
         title="Checking your invitation"
       >
-        {/* The skeleton takes the shape of what arrives: the details list,
-            then the form's two fields and its button. */}
+        {/* The skeleton takes the shape of what arrives: the details list
+            (four rows), then the form's fields and its button. */}
         <div aria-busy="true" className="flex flex-col gap-6">
-          <Skeleton className="h-32 w-full rounded-lg" />
+          <Skeleton className="h-60 w-full rounded-lg" />
           <Skeleton className="h-(--np-field-h) w-full rounded-md" />
           <Skeleton className="h-(--np-field-h) w-full rounded-md" />
           <Skeleton className="h-11 w-full rounded-md" />
