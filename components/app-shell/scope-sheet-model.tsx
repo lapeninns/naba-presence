@@ -124,12 +124,19 @@ export function switchedTitle(scopeName: string): string {
 }
 
 /**
+ * One id for every switch, so a second switch replaces the first toast in
+ * place (`toast.add` replaces by id) instead of stacking a stale "Switched
+ * to ..." behind it.
+ */
+export const SWITCH_TOAST_ID = "scope-switched"
+
+/**
  * Says what the operator is now working on. A local, already-applied change,
  * so no Undo and no type icon: one plain line, like any other confirmation
- * of where you are.
+ * of where you are. Switching again replaces it (`SWITCH_TOAST_ID`).
  */
 export function announceSwitch(scopeName: string) {
-  toast.add({ title: switchedTitle(scopeName) })
+  toast.add({ id: SWITCH_TOAST_ID, title: switchedTitle(scopeName) })
 }
 
 /** A location's name with its client: "The Bell · Harbour Kitchen". */
