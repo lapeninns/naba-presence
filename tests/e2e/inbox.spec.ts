@@ -39,8 +39,8 @@ test.describe("inbox", () => {
     ).toBeVisible()
     // The permanent left rail is gone: five queue controls and a compact
     // filter toolbar sit above the list and the detail. Located by slot rather
-    // than by name, because each control's accessible name also carries its
-    // count ("Needs reply, 12 reviews").
+    // than by name, because a control's accessible name can also carry its
+    // count ("Approval, 5 reviews").
     await expect(
       page.getByRole("navigation", { name: "Review queues" })
     ).toBeVisible()
@@ -72,6 +72,63 @@ test.describe("inbox", () => {
     await expect(
       page.getByRole("combobox", { name: "Approval waiting on" })
     ).toBeHidden()
+  })
+
+  // R07: rating and "With text" are one-tap chips above the list, not groups
+  // inside the Filters sheet. 5 stars with text was Filters, 5 stars, With
+  // text, "Show 1 review" (four taps); it is now two.
+  test("filters by 5 stars with text in two taps, from chips above the list", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/inbox")
+    const quick = page.getByRole("group", { name: "Quick filters" })
+    await expect(quick).toBeVisible()
+    const stars = quick.getByRole("button", { name: "5 stars" })
+    const withText = quick.getByRole("button", { name: "With text" })
+    await expect(stars).toHaveAttribute("aria-pressed", "false")
+
+    await stars.click()
+    await expect(stars).toHaveAttribute("aria-pressed", "true")
+    await withText.click()
+    await expect(withText).toHaveAttribute("aria-pressed", "true")
+    await expect
+      .poll(() => {
+        const params = new URL(page.url()).searchParams
+        return [params.get("rating"), params.get("written")]
+      })
+      .toEqual(["5", "with_text"])
+
+    // Tapping a pressed chip again takes that filter off in one tap.
+    await stars.click()
+    await expect(stars).toHaveAttribute("aria-pressed", "false")
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("rating"))
+      .toBeNull()
+  })
+
+  test("keeps rating, client and reply status out of the Filters sheet", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/inbox")
+    await page.getByRole("button", { name: /^Filters/ }).click()
+    const sheet = page.getByRole("dialog", { name: "Filters" })
+    await expect(sheet).toBeVisible()
+    await expect(
+      sheet.getByRole("combobox", { name: "Filter by location" })
+    ).toBeVisible()
+    await expect(sheet.getByRole("group", { name: "Rating" })).toHaveCount(0)
+    await expect(
+      sheet.getByRole("combobox", { name: "Filter by client" })
+    ).toHaveCount(0)
+    await expect(
+      sheet.getByRole("radiogroup", { name: "Reply status" })
+    ).toHaveCount(0)
   })
 
   // R3 F2-S2 / RC3 QA #2: on a phone the venue line keeps the client ·

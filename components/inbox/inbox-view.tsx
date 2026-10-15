@@ -774,14 +774,6 @@ function InboxViewInner({
         counts={toolbarCounts}
         countsPending={toolbarCountsPending}
         locations={locationsQuery.data ?? []}
-        clients={
-          business
-            ? []
-            : (clientsQuery.data?.items ?? []).map((client) => ({
-                id: client.id,
-                name: client.name,
-              }))
-        }
         showLocationFilter={showLocationFilter}
         actions={actions}
         titleIsHeading={toolbarTitleIsHeading}

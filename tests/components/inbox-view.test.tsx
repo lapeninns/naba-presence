@@ -272,8 +272,12 @@ describe("InboxView — filters keep a dirty reply open", () => {
     renderInbox()
     const textbox = await dirtyComposer(user)
 
+    // Rating is a pressed chip above the list: tapping it takes it off.
     await user.click(
-      screen.getByRole("button", { name: /^Remove filter: Rating/ })
+      within(screen.getByRole("group", { name: "Quick filters" })).getByRole(
+        "button",
+        { name: "4 stars" }
+      )
     )
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(replace).toHaveBeenCalledTimes(1)
@@ -298,8 +302,12 @@ describe("InboxView — filters keep a dirty reply open", () => {
     const user = userEvent.setup()
     renderInbox()
 
+    // Rating is a pressed chip above the list: tapping it takes it off.
     await user.click(
-      screen.getByRole("button", { name: /^Remove filter: Rating/ })
+      within(screen.getByRole("group", { name: "Quick filters" })).getByRole(
+        "button",
+        { name: "4 stars" }
+      )
     )
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")

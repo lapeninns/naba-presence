@@ -105,9 +105,7 @@ test.describe("inbox critical journeys", () => {
     // the list behind it updates as the venue is chosen.
     await page.getByRole("button", { name: /^Filters/ }).click()
     const filters = page.getByRole("dialog", { name: "Filters" })
-    await filters
-      .getByLabel("Filter by location")
-      .fill(state.directReview.locationName)
+    await filters.getByLabel("Filter by location").click()
     await page
       .getByRole("option", {
         name: state.directReview.locationName,

@@ -3,19 +3,9 @@
 import { useId } from "react"
 
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
-import {
-  RatingFilter,
-  ReplyFilter,
-  WrittenFilter,
-} from "@/components/inbox/filter-controls"
+import { WrittenFilter } from "@/components/inbox/filter-controls"
 import { ReviewSortSelect } from "@/components/inbox/review-filters"
 import { Button } from "@/components/ui/button"
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxInput,
-  ComboboxItem,
-} from "@/components/ui/combobox"
 import { Field, FieldLabel, FormError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { usePhoneOverlay } from "@/components/ui/overlay"
@@ -49,8 +39,8 @@ import { cn } from "@/lib/utils"
  * One filter under its heading. A group named by that heading, not a named
  * `<section>`: a group keeps its controls' shared name ("Date range" for
  * From and To) without making the sheet a dozen landmarks. Where the control
- * is already a group of that name (the rating toggles, the written and reply
- * radio groups), `controlNamed` leaves the wrapper plain, so the name is not
+ * is already a group of that name (the written-review radio group),
+ * `controlNamed` leaves the wrapper plain, so the name is not
  * announced twice.
  */
 function Group({
@@ -88,7 +78,11 @@ const ASSIGNEE_ITEMS: Record<string, string> = {
 }
 
 /**
- * Every narrowing the inbox offers, in one sheet (reference `#filters`). On a
+ * The narrowings the inbox keeps off the page, in one sheet (reference
+ * `#filters`). The two commonest, star rating and "With text", are one-tap
+ * chips above the list (QuickFilters), so the sheet does not repeat the
+ * ratings. It holds no client (that scope is the app bar's) and no reply
+ * status (the queue tabs already say which reviews are waiting). On a
  * phone it is the Sheet's `full` variant: the bottom sheet at full height,
  * where the thumb is, with the title centred in the bar (more than seven
  * controls, so not the `inset` card). From there up it stays the default
@@ -108,7 +102,6 @@ function FiltersSheet({
   resultLabel,
   state,
   locations,
-  clients,
   showLocationFilter,
   onChange,
   onClear,
@@ -121,8 +114,6 @@ function FiltersSheet({
   resultLabel: string
   state: InboxState
   locations: LocationOption[]
-  /** The agency's clients, for the scope select. Empty for a single-client org. */
-  clients: { id: string; name: string }[]
   /** False for a single-location org, which has no venue to choose. */
   showLocationFilter: boolean
   onChange: (partial: Partial<InboxState>) => void
@@ -132,18 +123,23 @@ function FiltersSheet({
   /** "Waiting on", inside Approval only. */
   ownerControl?: (id: string) => React.ReactNode
 }) {
-  const clientId = useId()
   const venueId = useId()
   const assigneeId = useId()
   const ageId = useId()
   const ownerId = useId()
   const phone = usePhoneOverlay()
-  const clientItems: Record<string, string> = {
-    "": "All clients",
-    ...Object.fromEntries(clients.map((client) => [client.id, client.name])),
+  const venueItems: Record<string, string> = {
+    "": "All venues",
+    ...Object.fromEntries(
+      locations.map((location) => [location.id, location.name])
+    ),
   }
-  const selectedLocation =
-    locations.find((location) => location.id === state.locationIds[0]) ?? null
+  // A venue from a stale link that is not in the list reads as "All venues"
+  // here; its chip above the list still names and clears it.
+  const venueValue =
+    state.locationIds[0] && state.locationIds[0] in venueItems
+      ? state.locationIds[0]
+      : ""
 
   function toIso(dateValue: string): string | undefined {
     if (!dateValue) return undefined
@@ -175,14 +171,6 @@ function FiltersSheet({
         </SheetHeader>
 
         <SheetBody className="gap-0">
-          <Group title={FILTER_NAMES.rating} controlNamed>
-            <RatingFilter
-              ratings={state.ratings}
-              onChange={(ratings) => onChange({ ratings })}
-              className="w-full"
-            />
-          </Group>
-
           {/* Stars with no words are replied to from a standard template, a
               whole selection at a time — this is how to gather them. */}
           <Group title={FILTER_NAMES.written} controlNamed>
@@ -197,48 +185,22 @@ function FiltersSheet({
               link — hiding both strands the operator in a filtered view. */}
           {showLocationFilter ? (
             <Group title={FILTER_NAMES.venue}>
-              <Combobox
-                items={locations}
-                value={selectedLocation}
-                onValueChange={(location: LocationOption | null) =>
-                  onChange({ locationIds: location ? [location.id] : [] })
-                }
-                itemToStringLabel={(location: LocationOption) => location.name}
-              >
-                <ComboboxInput
-                  id={venueId}
-                  placeholder="All venues"
-                  aria-label="Filter by location"
-                />
-                <ComboboxContent>
-                  {locations.map((location) => (
-                    <ComboboxItem key={location.id} value={location}>
-                      {location.name}
-                    </ComboboxItem>
-                  ))}
-                </ComboboxContent>
-              </Combobox>
-            </Group>
-          ) : null}
-
-          {clients.length > 1 ? (
-            <Group title={FILTER_NAMES.client}>
               <Select
-                value={state.clientId ?? ""}
-                items={clientItems}
+                value={venueValue}
+                items={venueItems}
                 onValueChange={(value: string | null) =>
-                  onChange({ clientId: value ? value : undefined })
+                  onChange({ locationIds: value ? [value] : [] })
                 }
               >
                 <SelectTrigger
-                  id={clientId}
-                  aria-label="Filter by client"
+                  id={venueId}
+                  aria-label="Filter by location"
                   className="w-full"
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent title="Client">
-                  {Object.entries(clientItems).map(([value, label]) => (
+                <SelectContent title="Venue" alignItemWithTrigger={false}>
+                  {Object.entries(venueItems).map(([value, label]) => (
                     <SelectItem key={value || "all"} value={value}>
                       {label}
                     </SelectItem>
@@ -276,13 +238,6 @@ function FiltersSheet({
           {ownerControl ? (
             <Group title={FILTER_NAMES.owner}>{ownerControl(ownerId)}</Group>
           ) : null}
-
-          <Group title={FILTER_NAMES.replyState} controlNamed>
-            <ReplyFilter
-              replyState={state.replyState}
-              onChange={(replyState) => onChange({ replyState })}
-            />
-          </Group>
 
           <Group title={FILTER_NAMES.age}>{ageControl(ageId)}</Group>
 

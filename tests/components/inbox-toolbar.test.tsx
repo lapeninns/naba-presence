@@ -24,7 +24,6 @@ function renderToolbar(
     counts: undefined,
     countsPending: true,
     locations: [],
-    clients: [],
     showLocationFilter: false,
     resultLabel,
     onFilterChange: vi.fn(),
@@ -105,6 +104,57 @@ describe("InboxToolbar", () => {
     expect(
       within(sheet).getByRole("button", { name: "Show 7 reviews" })
     ).toBeInTheDocument()
+  })
+
+  it("puts star ratings and With text above the list as one-tap chips", async () => {
+    const user = userEvent.setup()
+    const { props } = renderToolbar()
+    const quick = screen.getByRole("group", { name: "Quick filters" })
+    // Under the queue strip, in the band: nothing to open first.
+    const queues = screen.getByRole("navigation", { name: "Review queues" })
+    expect(
+      queues.compareDocumentPosition(quick) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    await user.click(within(quick).getByRole("button", { name: "5 stars" }))
+    expect(props.onFilterChange).toHaveBeenLastCalledWith({ ratings: [5] })
+    await user.click(within(quick).getByRole("button", { name: "With text" }))
+    expect(props.onFilterChange).toHaveBeenLastCalledWith({
+      written: "with_text",
+    })
+  })
+
+  it("draws a queue's count once: Needs reply is the title's, so its tab has none", () => {
+    renderToolbar("7 reviews", { counts: counts(12), countsPending: false })
+    const tabs = screen.getByRole("navigation", { name: "Review queues" })
+    expect(
+      within(tabs).getByRole("button", { name: "Needs reply" })
+    ).toBeInTheDocument()
+    expect(within(tabs).queryByText("12")).not.toBeInTheDocument()
+    expect(within(header()).getByText("(12 need a reply)")).toBeInTheDocument()
+    // Another queue keeps its own figure.
+    expect(
+      within(tabs).getByRole("button", { name: "Failed, 2 reviews" })
+    ).toBeInTheDocument()
+  })
+
+  it("hides the queue counts while a filter narrows the list, not for scope or sort", () => {
+    const { rerender, props } = renderToolbar("7 reviews", {
+      counts: counts(12),
+      countsPending: false,
+    })
+    const tabs = screen.getByRole("navigation", { name: "Review queues" })
+    expect(tabs.querySelector('[data-slot="tab-count"]')).not.toBeNull()
+
+    rerender(
+      <InboxToolbar
+        {...props}
+        state={{ ...state, clientId: "c1", sort: "rating_asc" }}
+      />
+    )
+    expect(tabs.querySelector('[data-slot="tab-count"]')).not.toBeNull()
+
+    rerender(<InboxToolbar {...props} state={{ ...state, ratings: [5] }} />)
+    expect(tabs.querySelector('[data-slot="tab-count"]')).toBeNull()
   })
 
   it("follows the title with the needs-reply count, keeping the heading's name", () => {

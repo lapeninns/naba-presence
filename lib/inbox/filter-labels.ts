@@ -65,11 +65,6 @@ export function formatRatings(ratings: number[]): string {
     : `${sorted.join(", ")} stars`
 }
 
-/** e.g. "Rating: 5 stars", "Rating: 1–2 stars". */
-export function formatRatingsChip(ratings: number[]): string {
-  return `${FILTER_NAMES.rating}: ${formatRatings(ratings)}`
-}
-
 /** Chip label for an active date filter, e.g. "Date range: 9 Jul – 15 Jul". */
 export function formatDateRangeChip(
   dateFrom: string | undefined,

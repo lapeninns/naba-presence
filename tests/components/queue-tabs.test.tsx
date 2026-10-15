@@ -62,6 +62,9 @@ function tab(queue: string) {
   return found as HTMLElement
 }
 
+/** The queues that draw a figure while `needs_reply` is the current one. */
+const FIGURED = VISIBLE_QUEUES.filter((queue) => queue !== "needs_reply")
+
 const modeMock = vi.hoisted(() => vi.fn(() => "agency"))
 vi.mock("@/lib/workspace/mode", () => ({ useWorkspaceMode: () => modeMock() }))
 
@@ -92,7 +95,7 @@ describe("QueueTabs", () => {
     // "Needs reply12".
     renderTabs({ counts: counts({ approval: 5, publishing: 1 }) })
     expect(
-      within(nav()).getByRole("button", { name: "Needs reply, 12 reviews" })
+      within(nav()).getByRole("button", { name: "Approval, 5 reviews" })
     ).toBeInTheDocument()
     expect(
       within(nav()).getByRole("button", { name: "Approval, 5 reviews" })
@@ -104,12 +107,37 @@ describe("QueueTabs", () => {
     expect(within(tab("approval")).getByText("5")).toBeInTheDocument()
   })
 
+  it("draws each number once: not on Needs reply (the title's) or on the current queue (the list header's)", () => {
+    // "Inbox 12", "Needs reply 12" and "12 reviews" was the same number three
+    // times. The title carries Needs reply, the list header the current
+    // queue, and the other queues keep their own figures.
+    renderTabs({ queue: "failed" })
+    for (const queue of ["needs_reply", "failed"] as const) {
+      expect(tab(queue).querySelector('[data-slot="tab-count"]')).toBeNull()
+      expect(tab(queue)).toHaveAccessibleName(REVIEW_QUEUE_LABELS[queue])
+    }
+    expect(within(tab("approval")).getByText("5")).toBeInTheDocument()
+    expect(within(tab("done")).getByText("13")).toBeInTheDocument()
+  })
+
+  it("draws no figure at all while a filter narrows the list", () => {
+    // The counts cover whole queues and know nothing of the filters, so a
+    // "5" beside a list of two rows would disagree with it. The list header
+    // carries the number that matches the rows.
+    renderTabs({ filtered: true })
+    for (const queue of VISIBLE_QUEUES) {
+      expect(tab(queue).querySelector('[data-slot="tab-count"]')).toBeNull()
+      expect(tab(queue)).toHaveAccessibleName(REVIEW_QUEUE_LABELS[queue])
+    }
+    expect(nav()).not.toHaveAttribute("aria-describedby")
+  })
+
   it("shows a skeleton rather than a zero while the counts are in flight", () => {
     // A "0" before the number lands tells an operator there is nothing to do
     // when there may be plenty of it; the placeholder has to be honest about
     // not knowing yet.
     renderTabs({ counts: undefined, countsPending: true })
-    for (const queue of VISIBLE_QUEUES) {
+    for (const queue of FIGURED) {
       const control = tab(queue)
       expect(
         control.querySelector('[data-slot="skeleton"]')
@@ -117,6 +145,10 @@ describe("QueueTabs", () => {
       expect(control.textContent).not.toMatch(/\d/)
       expect(control).toHaveAccessibleName(REVIEW_QUEUE_LABELS[queue])
     }
+    // Needs reply and the current queue have no figure to wait for.
+    expect(
+      tab("needs_reply").querySelector('[data-slot="skeleton"]')
+    ).toBeNull()
   })
 
   it("draws an empty queue with no figure but still says '0 reviews'", () => {
@@ -166,7 +198,7 @@ describe("QueueTabs", () => {
     // Approval, not for the narrower "waiting on me" slice they arrived in.
     const user = userEvent.setup()
     const { onQueueChange } = renderTabs({ queue: "awaiting_my_approval" })
-    await user.click(within(nav()).getByRole("button", { name: /^Approval,/ }))
+    await user.click(within(nav()).getByRole("button", { name: /^Approval/ }))
     expect(onQueueChange).toHaveBeenCalledWith("approval")
   })
 
@@ -174,16 +206,14 @@ describe("QueueTabs", () => {
     // The counts endpoint is scoped by queue and client and knows nothing of
     // the rating, search, age or assignee filters the list applies, so the
     // numbers here can legitimately exceed the rows below. Saying so is
-    // cheaper than a badge that quietly disagrees with the list.
+    // cheaper than a badge that quietly disagrees with the list. (While a
+    // filter is on the counts are not drawn at all, so there is no note.)
     renderTabs()
     const describedBy = nav().getAttribute("aria-describedby")
     expect(describedBy).toBeTruthy()
     const note = document.getElementById(describedBy!)
     expect(note).toHaveTextContent(
       "Counts cover every review in each queue for the current client scope."
-    )
-    expect(note).toHaveTextContent(
-      "The list below also applies your filters, so it can show fewer."
     )
   })
 
@@ -195,13 +225,10 @@ describe("QueueTabs", () => {
     )
     expect(note).toHaveTextContent("Counts cover every review in each queue.")
     expect(note).not.toHaveTextContent(/client/i)
-    expect(note).toHaveTextContent(
-      "The list below also applies your filters, so it can show fewer."
-    )
   })
   it("sets every count in the count role, never a sub-13px figure", () => {
     renderTabs()
-    for (const queue of VISIBLE_QUEUES) {
+    for (const queue of FIGURED) {
       const figure = tab(queue).querySelector("[aria-hidden]")
       expect(figure).toHaveClass("text-count")
       expect(figure?.className).not.toMatch(/text-\[/)
@@ -239,7 +266,7 @@ describe("QueueTabs", () => {
 
   it("sets counts in sans tabular figures, a non-zero Failed in the danger ink", () => {
     renderTabs({ counts: counts({ failed: 4 }) })
-    for (const queue of VISIBLE_QUEUES) {
+    for (const queue of FIGURED) {
       const figure = tab(queue).querySelector("[aria-hidden]")
       expect(figure).toHaveClass("tabular-nums")
       expect(figure).not.toHaveClass("font-mono")

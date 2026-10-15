@@ -68,6 +68,32 @@ test.describe("inbox URL state", () => {
     expect(await page.evaluate(() => window.history.length)).toBe(before)
   })
 
+  test("the one-tap rating and text chips filter without a server render or a history entry", async ({
+    baseURL,
+    page,
+  }) => {
+    // R07: the chips above the list write `rating` and `written` through the
+    // same history-API path as every other filter (replace, not push).
+    await openInbox(page, baseURL)
+    const flights: string[] = []
+    page.on("request", (request) => {
+      if (isInboxFlight(request)) flights.push(request.url())
+    })
+    const before = await page.evaluate(() => window.history.length)
+    const quick = page.getByRole("group", { name: "Quick filters" })
+    await quick.getByRole("button", { name: "5 stars" }).click()
+    await quick.getByRole("button", { name: "With text" }).click()
+    await expect
+      .poll(() => {
+        const params = new URL(page.url()).searchParams
+        return [params.get("rating"), params.get("written")]
+      })
+      .toEqual(["5", "with_text"])
+    await page.waitForLoadState("networkidle")
+    expect(await page.evaluate(() => window.history.length)).toBe(before)
+    expect(flights).toEqual([])
+  })
+
   test("the loaded rows survive a selection", async ({ baseURL, page }) => {
     const rows = await openInbox(page, baseURL)
     // Past the first page where the tenant has one (50 rows a page): that
