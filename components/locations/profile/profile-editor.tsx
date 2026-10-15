@@ -926,6 +926,7 @@ function ProfileEditor({
     <EditorFrame
       title="Business profile"
       titleHidden
+      readView={Boolean(editReason)}
       footer={
         quiet ? undefined : (
           <EditorFooter

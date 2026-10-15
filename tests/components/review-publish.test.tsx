@@ -3,11 +3,16 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ReactNode } from "react"
 import { ReviewPublish } from "@/components/listings/review-publish"
+import { ApiClientError } from "@/lib/api/client"
 import { emptyListingSummary } from "@/lib/contracts/location-summary"
 import * as menuApi from "@/lib/api/location-menu"
 import { renderWithProviders } from "../helpers/render"
 
 const menus = vi.hoisted(() => ({ value: {} }))
+const ctx = vi.hoisted(() => ({
+  caps: { canPublish: true, canEditCanonical: true },
+  dirty: true,
+}))
 vi.mock("@/components/listings/listing-gate", () => ({
   ListingGate: ({
     children,
@@ -29,13 +34,15 @@ vi.mock("@/lib/queries/use-listing-summary", () => ({
         linked: true,
         verified: true,
       }),
-      menu: { status: "core_dirty", dirtyCount: 1, eligible: true },
+      menu: ctx.dirty
+        ? { status: "core_dirty", dirtyCount: 1, eligible: true }
+        : { status: "in_sync", dirtyCount: 0, eligible: true },
     },
     isPending: false,
   }),
 }))
 vi.mock("@/lib/queries/use-location-capabilities", () => ({
-  useLocationCapabilities: () => ({ data: { canPublish: true } }),
+  useLocationCapabilities: () => ({ data: ctx.caps }),
 }))
 vi.mock("@/lib/queries/use-location-profile", () => ({
   useProfile: () => ({ isPending: false }),
@@ -67,7 +74,11 @@ function state(google: string[], canonical: string[]) {
     status: "drift",
   }
 }
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  ctx.caps = { canPublish: true, canEditCanonical: true }
+  ctx.dirty = true
+})
 
 describe("aggregate menu review", () => {
   it("does not reread and substitute newer preconditions at publish time", async () => {
@@ -169,5 +180,68 @@ describe("aggregate menu review", () => {
     expect(
       screen.getByRole("button", { name: "Publish 1 area to Google" })
     ).toHaveAttribute("aria-disabled", "true")
+  })
+})
+
+describe("publish failure and read-only views", () => {
+  it("states a failure once: one line on the step, one banner, a short toast, the code folded away", async () => {
+    const user = userEvent.setup()
+    menus.value = state(["A"], ["B"])
+    vi.spyOn(menuApi, "publishFoodMenus").mockRejectedValue(
+      new ApiClientError(404, "NOT_FOUND", "raw")
+    )
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    await user.click(
+      screen.getByRole("button", { name: "Publish 1 area to Google" })
+    )
+    const banner = await screen.findByText(/Publishing stopped at/)
+    expect(banner).toBeVisible()
+    // The reason is on the step, and only there.
+    expect(
+      screen.getAllByText(/Google couldn’t find that account or listing/)
+    ).toHaveLength(1)
+    expect(screen.queryByText(/Earlier steps were sent/)).toBeNull()
+    expect(screen.queryByText(/did not finish with a confirmed result/)).toBeNull()
+    // The toast is short, and there is no second Retry on the step.
+    const toasts = screen.getByRole("region", { name: "Notifications" })
+    expect(
+      await within(toasts).findByText("Publishing stopped. See the steps.")
+    ).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Retry publishing" })
+    ).toBeInTheDocument()
+    // The code is behind "Details for support", closed.
+    const steps = screen.getByRole("list", { name: "Publish results" })
+    expect(within(steps).getByText("Details for support")).toBeVisible()
+    expect(within(steps).getByText("NOT_FOUND")).not.toBeVisible()
+  })
+  it("says to check Google first when the failed step was sent but not confirmed", async () => {
+    const user = userEvent.setup()
+    menus.value = state(["A"], ["B"])
+    vi.spyOn(menuApi, "publishFoodMenus").mockRejectedValue(
+      new DOMException("unconfirmed", "TimeoutError")
+    )
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    await user.click(
+      screen.getByRole("button", { name: "Publish 1 area to Google" })
+    )
+    expect(
+      await screen.findByText(/Check Google, then retry publishing/)
+    ).toBeVisible()
+  })
+  it("tells a role that cannot edit that nothing is waiting, not to edit", () => {
+    ctx.dirty = false
+    ctx.caps = { canPublish: false, canEditCanonical: false }
+    renderWithProviders(<ReviewPublish locationId="l1" role="member" />)
+    expect(
+      screen.getAllByText(/Nothing is waiting to go to Google/).length
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText(/Edit an area and come back/)).toBeNull()
+  })
+  it("still tells an editor to edit an area and come back", () => {
+    ctx.dirty = false
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    expect(screen.getByText(/Edit an area and come back/)).toBeVisible()
   })
 })
