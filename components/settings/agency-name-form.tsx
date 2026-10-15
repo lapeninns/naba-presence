@@ -136,7 +136,7 @@ export function AgencyNameForm() {
         />
         <FieldDescription>
           {isOwner
-            ? "What your team sees in the sidebar and what invitations say they are joining."
+            ? "What your team sees at the top of the app and what invitations say they are joining."
             : `Only an owner can rename the ${terms.orgLower}.`}
         </FieldDescription>
         <FieldError>{error}</FieldError>

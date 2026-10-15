@@ -24,7 +24,7 @@
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CircleAlert, Eye, Info, PenLine } from "lucide-react"
+import { CircleAlert, Eye, PenLine } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useRef, useState } from "react"
 
@@ -138,7 +138,27 @@ const CHANGE_LABELS: Record<keyof FormState, string> = {
   defaultTimezone: "Timezone",
 }
 
-const RETENTION_MESSAGE = "Enter a whole number of days from 1 to 30."
+const RETENTION_MESSAGE = "Choose a whole number of days from 1 to 30."
+
+/** The retention choices on offer; the server accepts 1 to 30 days. */
+const RETENTION_PRESETS = [7, 14, 30] as const
+
+function retentionLabel(days: number) {
+  return days === 1 ? "1 day" : `${days} days`
+}
+
+/**
+ * The presets, plus the saved value (and the one being edited) when they
+ * are not presets, so opening the page never hides or silently changes what
+ * an organisation already has.
+ */
+function retentionOptions(...held: string[]): number[] {
+  const days = new Set<number>(RETENTION_PRESETS)
+  for (const value of held) {
+    if (/^\d+$/.test(value)) days.add(Number(value))
+  }
+  return [...days].sort((a, b) => a - b)
+}
 
 /** Client-side field problems, in the words the field shows. */
 function localErrors(
@@ -157,23 +177,6 @@ function localErrors(
       language.error.issues[0]?.message ?? "Use a language code such as en-GB."
   }
   return errors
-}
-
-/** A sunken note spelling out what the current choice means. */
-function Consequence({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="status"
-      className="flex items-start gap-2.5 rounded-(--np-radius-control) bg-surface-alt px-3 py-2.5 text-ui text-ink-secondary"
-    >
-      <Info
-        className="mt-0.5 size-4 shrink-0 text-ink-muted"
-        strokeWidth={1.75}
-        aria-hidden
-      />
-      <span>{children}</span>
-    </p>
-  )
 }
 
 function PolicySkeleton() {
@@ -199,7 +202,7 @@ function PolicySkeleton() {
 
 /**
  * The reply policy (reference `settings.html`): one card per concern —
- * approval, raw review content retention, defaults — and a save bar at the
+ * approval, how long review text is kept, defaults — and a save bar at the
  * foot that says what is unsaved. Nothing saves on toggle: the server takes
  * the whole policy at once, and the dirty guard keeps an unsaved change from
  * being lost to a stray reload. Values survive a refused save.
@@ -317,7 +320,7 @@ export function PolicyForm({ role }: { role: string | null }) {
   })
 
   // The same write, cache update and refresh as the wizard's name card
-  // (agency-name-form.tsx): the sidebar reads the name from the cached
+  // (agency-name-form.tsx): the app shell reads the name from the cached
   // session, and server components still hold the old one.
   const rename = useMutation({
     mutationFn: (name: string) => renameOrganisation(name),
@@ -458,14 +461,17 @@ export function PolicyForm({ role }: { role: string | null }) {
 
   // Mirrors lib/server/publishing/approval.ts `requiresApproval`: approval
   // parks replies from people who can't publish; the two-person rule parks
-  // every reply, publisher or not, until someone else approves it.
+  // every reply, publisher or not, until someone else approves it. This is
+  // the one place the page says what the approval choice means; with
+  // approval off the alert's title already says replies publish straight
+  // away, so the sentence only adds who can't send.
   const consequence = current.requireTwoPersonApproval
     ? current.approvalRequired
       ? "Every reply, including one from someone who can publish, waits for a second person to approve it before it reaches Google. Nobody can approve their own reply."
       : "People who can’t publish can’t send replies. The two-person rule is still on, so every other reply waits for a second person to approve it."
     : current.approvalRequired
       ? "Replies from people who can’t publish wait in the Approval queue for someone who can. People who can publish send their replies straight to Google."
-      : "People who can publish send their replies straight to Google, with no approval step. People who can’t publish can’t send replies."
+      : "People who can’t publish can’t send replies."
 
   return (
     <form
@@ -525,7 +531,7 @@ export function PolicyForm({ role }: { role: string | null }) {
           />
           <FieldDescription>
             {isOwner
-              ? "What your team sees in the sidebar and what invitations say they are joining."
+              ? "What your team sees at the top of the app and what invitations say they are joining."
               : `Only an owner can rename the ${terms.orgLower}.`}
           </FieldDescription>
           <FieldError>{nameError ?? nameProblem}</FieldError>
@@ -541,7 +547,6 @@ export function PolicyForm({ role }: { role: string | null }) {
       >
         <Switch
           label="Require approval before replies publish"
-          description="Replies from people who can’t publish wait in the Approval queue for someone who can."
           labelClassName="items-start"
           checked={current.approvalRequired}
           disabled={!canEdit}
@@ -556,31 +561,40 @@ export function PolicyForm({ role }: { role: string | null }) {
           }
         />
 
-        <Consequence>{consequence}</Consequence>
-
         {current.approvalRequired ? (
-          <Switch
-            label="Require a second person to approve each reply"
-            description="The person who asked for approval can’t approve their own reply."
-            labelClassName="items-start"
-            checked={current.requireTwoPersonApproval}
-            disabled={!canEdit}
-            onCheckedChange={(value) => set("requireTwoPersonApproval", value)}
-          />
+          <>
+            <Switch
+              label="Require a second person to approve each reply"
+              description="The person who asked for approval can’t approve their own reply."
+              labelClassName="items-start"
+              checked={current.requireTwoPersonApproval}
+              disabled={!canEdit}
+              onCheckedChange={(value) =>
+                set("requireTwoPersonApproval", value)
+              }
+            />
+            <Alert variant="info">
+              <AlertDescription>{consequence}</AlertDescription>
+            </Alert>
+          </>
         ) : (
           <Alert variant="warning">
-            <AlertTitle>Replies will publish without approval</AlertTitle>
+            <AlertTitle>
+              {current.requireTwoPersonApproval
+                ? "Approval is off"
+                : "Replies publish straight to Google"}
+            </AlertTitle>
             <AlertDescription className="flex flex-col gap-2.5">
-              <span>
-                {turningApprovalOff
-                  ? isOwner
+              <span>{consequence}</span>
+              {turningApprovalOff ? (
+                <span>
+                  {isOwner
                     ? "Only an owner can confirm this."
-                    : "Only an owner can turn off approval before replies publish."
-                  : "Direct publishing is on."}
-                {consentedOn
-                  ? ` Direct publishing was confirmed on ${consentedOn}.`
-                  : ""}
-              </span>
+                    : "Only an owner can turn off approval before replies publish."}
+                </span>
+              ) : consentedOn ? (
+                <span>Confirmed on {consentedOn}.</span>
+              ) : null}
               {turningApprovalOff ? (
                 <Checkbox
                   checked={current.directPublishConsent}
@@ -598,8 +612,8 @@ export function PolicyForm({ role }: { role: string | null }) {
 
       <SettingsSection
         id="settings-retention"
-        title="Raw review content retention"
-        description="How long we keep the customer’s review text after it arrives."
+        title="Review text"
+        description="What happens to a customer’s review text after it arrives."
         variant="group"
       >
         <Field
@@ -607,24 +621,39 @@ export function PolicyForm({ role }: { role: string | null }) {
           className="grid grid-cols-1 gap-x-4 gap-y-1.5 @[32rem]:grid-cols-[minmax(0,1fr)_auto] @[32rem]:items-center"
         >
           <div className="flex min-w-0 flex-col gap-0.5">
-            <FieldLabel>Days to keep raw review content</FieldLabel>
+            <FieldLabel>How long we keep review text</FieldLabel>
             <FieldDescription>
-              1 to 30 days. After this, the text is deleted here; it stays on
-              Google.
+              After this, the text is deleted here; it stays on Google.
             </FieldDescription>
           </div>
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={30}
+          <Select
             value={current.rawContentRetentionDays}
             disabled={!canEdit}
-            className="w-24 text-right font-mono tabular-nums"
-            onChange={(event) =>
-              set("rawContentRetentionDays", event.target.value)
+            onValueChange={(value: string | null) =>
+              set(
+                "rawContentRetentionDays",
+                value ?? current.rawContentRetentionDays
+              )
             }
-          />
+          >
+            <SelectTrigger className="w-full @[32rem]:w-40">
+              <SelectValue>
+                {(value: string) =>
+                  /^\d+$/.test(value) ? retentionLabel(Number(value)) : value
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {retentionOptions(
+                initial?.rawContentRetentionDays ?? "",
+                current.rawContentRetentionDays
+              ).map((days) => (
+                <SelectItem key={days} value={String(days)}>
+                  {retentionLabel(days)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <FieldError className="@[32rem]:col-span-2">
             {fieldError("rawContentRetentionDays")}
           </FieldError>

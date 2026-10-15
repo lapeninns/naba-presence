@@ -757,17 +757,16 @@ test.describe("touch: critical journeys at 390x844", () => {
       page.getByRole("heading", { name: "Reply policy", level: 1 })
     ).toBeVisible()
 
-    const days = page.getByRole("spinbutton", {
-      name: "Days to keep raw review content",
+    const days = page.getByRole("combobox", {
+      name: "How long we keep review text",
     })
     const saveBar = page.getByRole("region", { name: "Save reply policy" })
     await expect(saveBar).toHaveCount(0)
-    const before = await days.inputValue()
-    const changed = before === "21" ? "14" : "21"
+    const before = (await days.textContent())?.trim()
+    const changed = before === "7 days" ? "14 days" : "7 days"
     await tap(days)
-    await days.selectText()
-    await page.keyboard.type(changed)
-    await expect(days).toHaveValue(changed)
+    await tap(page.getByRole("option", { name: changed, exact: true }))
+    await expect(days).toHaveText(changed)
 
     await expect(saveBar).toBeVisible()
     await expect(saveBar).toHaveAttribute("data-docked", "bottom")
@@ -776,7 +775,7 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expectFocusClear(
       page,
       "[data-docked=bottom]",
-      "input",
+      "button",
       "after the save bar appears"
     )
 
@@ -788,7 +787,7 @@ test.describe("touch: critical journeys at 390x844", () => {
       await page.setViewportSize({ width, height })
       await expect(h1).toHaveCount(1)
       await expect(h1).toHaveText("Reply policy")
-      await expect(days).toHaveValue(changed)
+      await expect(days).toHaveText(changed)
       await expect(saveBar).toBeVisible()
       await expect(saveBar.getByText("1 unsaved change")).toBeVisible()
     }

@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // The keyboard-safety hook is the editors' own (keep-focus-clear.test.tsx);
@@ -84,13 +85,21 @@ function renderForm(role: string) {
   )
 }
 
+const retentionSelect = () =>
+  screen.getByRole("combobox", { name: "How long we keep review text" })
+
+async function chooseRetention(label: string) {
+  await userEvent.click(retentionSelect())
+  await userEvent.click(await screen.findByRole("option", { name: label }))
+}
+
 afterEach(() => {
   vi.clearAllMocks()
   sessionStorage.clear()
 })
 
 describe("PolicyForm", () => {
-  it("renders the current policy and enables save once an owner edits", () => {
+  it("renders the current policy and enables save once an owner edits", async () => {
     useSettingsMock.mockReturnValue({
       data: makeSettings(),
       isPending: false,
@@ -105,10 +114,8 @@ describe("PolicyForm", () => {
       },
     })
     renderForm("owner")
-    const retention = screen.getByRole("spinbutton", {
-      name: "Days to keep raw review content",
-    })
-    expect(retention).toHaveValue(14)
+    const retention = retentionSelect()
+    expect(retention).toHaveTextContent("14 days")
     // A clean form shows no save bar at all (settings-setup-auth-07/m2).
     expect(
       screen.queryByRole("region", { name: "Save reply policy" })
@@ -116,7 +123,7 @@ describe("PolicyForm", () => {
     expect(
       screen.queryByRole("button", { name: "Save changes" })
     ).not.toBeInTheDocument()
-    fireEvent.change(retention, { target: { value: "7" } })
+    await chooseRetention("7 days")
     const bar = screen.getByRole("region", { name: "Save reply policy" })
     // Docked to a phone's bottom edge through the chrome contract: the
     // ActionBar's `dock`, fixed on a phone with an in-flow spacer.
@@ -164,7 +171,7 @@ describe("PolicyForm", () => {
     expect(wired.at(-1)?.[1]).toBe("[data-slot=action-bar]")
   })
 
-  it("links each switch's hint to it as its description", () => {
+  it("links the second-person switch's hint to it as its description", () => {
     useSettingsMock.mockReturnValue({
       data: makeSettings(),
       isPending: false,
@@ -181,18 +188,160 @@ describe("PolicyForm", () => {
     renderForm("owner")
     expect(
       screen.getByRole("switch", {
-        name: "Require approval before replies publish",
-      })
-    ).toHaveAccessibleDescription(
-      "Replies from people who can’t publish wait in the Approval queue for someone who can."
-    )
-    expect(
-      screen.getByRole("switch", {
         name: "Require a second person to approve each reply",
       })
     ).toHaveAccessibleDescription(
       "The person who asked for approval can’t approve their own reply."
     )
+  })
+
+  describe("the retention choice and the approval note", () => {
+    function open(
+      overrides: Partial<OrgSettings> = {},
+      canEditSettings = true
+    ) {
+      useSettingsMock.mockReturnValue({
+        data: makeSettings(overrides),
+        isPending: false,
+        isError: false,
+        refetch: vi.fn(),
+      })
+      useCapsMock.mockReturnValue({
+        data: {
+          canManageTeam: canEditSettings,
+          canManageConnections: canEditSettings,
+          canEditSettings,
+        },
+      })
+    }
+    const alertsIn = () =>
+      screen
+        .getByRole("form", { name: "Reply policy" })
+        .querySelectorAll('[data-slot="alert"]')
+    const optionLabels = async () =>
+      (await screen.findAllByRole("option")).map((option) => option.textContent)
+
+    it("labels the field in plain words, as a select and not a number box", () => {
+      open()
+      renderForm("owner")
+      expect(
+        screen.getByRole("combobox", { name: "How long we keep review text" })
+      ).toBeInTheDocument()
+      expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument()
+      expect(screen.queryByText(/raw review content/i)).not.toBeInTheDocument()
+      expect(
+        screen.getByText(
+          "After this, the text is deleted here; it stays on Google."
+        )
+      ).toBeInTheDocument()
+    })
+
+    it("offers the presets, and sends the chosen days as a number", async () => {
+      open()
+      saveSettingsMock.mockResolvedValue(
+        makeSettings({ rawContentRetentionDays: 30 })
+      )
+      renderForm("owner")
+      await userEvent.click(retentionSelect())
+      expect(await optionLabels()).toEqual(["7 days", "14 days", "30 days"])
+      await userEvent.click(screen.getByRole("option", { name: "30 days" }))
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+      await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledTimes(1))
+      expect(saveSettingsMock.mock.calls[0][0]).toMatchObject({
+        rawContentRetentionDays: 30,
+      })
+    })
+
+    it("keeps a saved value that is not a preset, selected and listed, and changes nothing", async () => {
+      open({ rawContentRetentionDays: 21 })
+      renderForm("owner")
+      expect(retentionSelect()).toHaveTextContent("21 days")
+      // Opening the page is not an edit.
+      expect(
+        screen.queryByRole("region", { name: "Save reply policy" })
+      ).not.toBeInTheDocument()
+      await userEvent.click(retentionSelect())
+      expect(await optionLabels()).toEqual([
+        "7 days",
+        "14 days",
+        "21 days",
+        "30 days",
+      ])
+      expect(screen.getByRole("option", { name: "21 days" })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+    })
+
+    it("says a one-day setting as 1 day", () => {
+      open({ rawContentRetentionDays: 1 })
+      renderForm("owner")
+      expect(retentionSelect()).toHaveTextContent("1 day")
+    })
+
+    it("says the approval state once, as one alert, with approval on", () => {
+      open()
+      renderForm("owner")
+      const alerts = alertsIn()
+      expect(alerts).toHaveLength(1)
+      expect(alerts[0]).toHaveTextContent(
+        "Replies from people who can’t publish wait in the Approval queue"
+      )
+      expect(screen.queryByText(/Direct publishing/)).not.toBeInTheDocument()
+    })
+
+    it("says it once, with the consequence and the date, when approval is already off", () => {
+      open({
+        approvalRequired: false,
+        directPublishConsentAt: "2026-10-14T09:00:00.000Z",
+      })
+      renderForm("owner")
+      const alerts = alertsIn()
+      expect(alerts).toHaveLength(1)
+      expect(alerts[0]).toHaveTextContent("Replies publish straight to Google")
+      expect(alerts[0]).toHaveTextContent("Confirmed on 14 October 2026.")
+      expect(alerts[0]).toHaveTextContent(
+        "People who can’t publish can’t send replies."
+      )
+      expect(screen.queryByText(/Direct publishing/)).not.toBeInTheDocument()
+    })
+
+    it("keeps the one alert, with its confirmation, while turning approval off", () => {
+      open()
+      renderForm("owner")
+      fireEvent.click(
+        screen.getByRole("switch", {
+          name: "Require approval before replies publish",
+        })
+      )
+      const alerts = alertsIn()
+      expect(alerts).toHaveLength(1)
+      expect(alerts[0]).toHaveTextContent("Only an owner can confirm this.")
+      expect(
+        within(alerts[0] as HTMLElement).getByRole("checkbox", {
+          name: "I confirm replies may publish to Google without approval",
+        })
+      ).toBeInTheDocument()
+    })
+
+    it("says top of the app, not the sidebar, in the name's hint", () => {
+      open()
+      renderForm("owner")
+      expect(
+        screen.getByText(
+          "What your team sees at the top of the app and what invitations say they are joining."
+        )
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/sidebar/i)).not.toBeInTheDocument()
+    })
+
+    it("lists no presets for someone who can only look", () => {
+      open({}, false)
+      renderForm("member")
+      expect(retentionSelect()).toBeDisabled()
+      // The read-only note is the one alert here; approval adds its own.
+      expect(alertsIn()).toHaveLength(2)
+    })
   })
 
   it("keeps a refused save's reason in the bar, beside the button", async () => {
@@ -211,21 +360,12 @@ describe("PolicyForm", () => {
     })
     saveSettingsMock.mockRejectedValue(new Error("boom"))
     renderForm("owner")
-    fireEvent.change(
-      screen.getByRole("spinbutton", {
-        name: "Days to keep raw review content",
-      }),
-      { target: { value: "7" } }
-    )
+    await chooseRetention("7 days")
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
     const bar = await screen.findByRole("region", { name: "Save reply policy" })
     expect(await within(bar).findByText("Not saved")).toBeInTheDocument()
     // The edit survives the refusal.
-    expect(
-      screen.getByRole("spinbutton", {
-        name: "Days to keep raw review content",
-      })
-    ).toHaveValue(7)
+    expect(retentionSelect()).toHaveTextContent("7 days")
   })
 
   it("shows the load error with a retry instead of the form", () => {
@@ -261,11 +401,7 @@ describe("PolicyForm", () => {
       },
     })
     renderForm("member")
-    expect(
-      screen.getByRole("spinbutton", {
-        name: "Days to keep raw review content",
-      })
-    ).toBeDisabled()
+    expect(retentionSelect()).toBeDisabled()
     // No save bar for someone who can't edit; the note says why.
     expect(
       screen.queryByRole("button", { name: "Save changes" })
@@ -304,7 +440,7 @@ describe("PolicyForm", () => {
     ).toBeInTheDocument()
   })
 
-  it("lets an admin save other fields when direct publishing is already on", () => {
+  it("lets an admin save other fields when direct publishing is already on", async () => {
     useSettingsMock.mockReturnValue({
       data: makeSettings({ approvalRequired: false }),
       isPending: false,
@@ -324,12 +460,7 @@ describe("PolicyForm", () => {
         name: "I confirm replies may publish to Google without approval",
       })
     ).not.toBeInTheDocument()
-    fireEvent.change(
-      screen.getByRole("spinbutton", {
-        name: "Days to keep raw review content",
-      }),
-      { target: { value: "7" } }
-    )
+    await chooseRetention("7 days")
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled()
   })
 
@@ -400,12 +531,7 @@ describe("PolicyForm", () => {
       )
       renderForm("owner")
       fireEvent.change(nameField(), { target: { value: "Acme Local" } })
-      fireEvent.change(
-        screen.getByRole("spinbutton", {
-          name: "Days to keep raw review content",
-        }),
-        { target: { value: "7" } }
-      )
+      await chooseRetention("7 days")
       expect(
         screen.getByRole("region", { name: "Save reply policy" })
       ).toHaveTextContent("2 unsaved changes · Name, Retention")
@@ -466,7 +592,7 @@ describe("PolicyForm", () => {
     })
   })
 
-  it("warns on a reload while dirty and offers unsaved policy edits back on the next visit", () => {
+  it("warns on a reload while dirty and offers unsaved policy edits back on the next visit", async () => {
     useSettingsMock.mockReturnValue({
       data: makeSettings(),
       isPending: false,
@@ -481,24 +607,19 @@ describe("PolicyForm", () => {
       },
     })
     const first = renderForm("owner")
-    fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Days to keep raw review content" }),
-      { target: { value: "7" } }
-    )
+    await chooseRetention("7 days")
     const reload = new Event("beforeunload", { cancelable: true })
     window.dispatchEvent(reload)
     expect(reload.defaultPrevented).toBe(true)
     first.unmount()
 
     renderForm("owner")
-    const retention = screen.getByRole("spinbutton", {
-      name: "Days to keep raw review content",
-    })
-    expect(retention).toHaveValue(14)
+    const retention = retentionSelect()
+    expect(retention).toHaveTextContent("14 days")
     fireEvent.click(
       screen.getByRole("button", { name: "Restore unsaved edits" })
     )
-    expect(retention).toHaveValue(7)
+    expect(retention).toHaveTextContent("7 days")
     expect(
       screen.getByRole("region", { name: "Save reply policy" })
     ).toHaveTextContent("1 unsaved change")
@@ -507,7 +628,7 @@ describe("PolicyForm", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("offers nothing back to someone who cannot edit the policy", () => {
+  it("offers nothing back to someone who cannot edit the policy", async () => {
     useSettingsMock.mockReturnValue({
       data: makeSettings(),
       isPending: false,
@@ -522,10 +643,7 @@ describe("PolicyForm", () => {
       },
     })
     const first = renderForm("owner")
-    fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Days to keep raw review content" }),
-      { target: { value: "7" } }
-    )
+    await chooseRetention("7 days")
     first.unmount()
     expect(
       Object.keys(sessionStorage).some((key) => key.startsWith("naba:draft:"))
