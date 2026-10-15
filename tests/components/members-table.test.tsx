@@ -465,13 +465,13 @@ describe("MembersTable on a phone", () => {
     const user = userEvent.setup()
     stubWidth(false)
     renderTable("owner", "owner-1", team())
-    await user.click(screen.getByRole("button", { name: "Ben Member, ben@test" }))
+    await user.click(
+      screen.getByRole("button", { name: "Ben Member, ben@test" })
+    )
     const sheet = within(
       await screen.findByRole("dialog", { name: "Ben Member" })
     )
-    expect(
-      sheet.getByRole("switch", { name: /Can publish/ })
-    ).toBeChecked()
+    expect(sheet.getByRole("switch", { name: /Can publish/ })).toBeChecked()
     expect(
       sheet.getByRole("button", { name: /Remove from team/ })
     ).toBeEnabled()
@@ -484,6 +484,26 @@ describe("MembersTable on a phone", () => {
         screen.queryByRole("dialog", { name: "Ben Member" })
       ).not.toBeInTheDocument()
     )
+  })
+
+  it("puts focus back on the member's row after a dialog the sheet opened", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    const row = screen.getByRole("button", { name: "Ben Member, ben@test" })
+    await user.click(row)
+    const sheet = within(
+      await screen.findByRole("dialog", { name: "Ben Member" })
+    )
+    await user.click(sheet.getByRole("button", { name: /^Role/ }))
+    await screen.findByRole("dialog", { name: "Change role" })
+    await user.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Change role" })
+      ).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(row).toHaveFocus())
   })
 
   it("keeps every unavailable control in the sheet with its reason", async () => {
@@ -536,7 +556,9 @@ describe("MembersTable from md", () => {
     stubWidth(true)
     renderTable("owner", "owner-1", team())
     expect(screen.getByRole("table", { name: "Members" })).toBeInTheDocument()
-    expect(screen.queryByRole("list", { name: "Members" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("list", { name: "Members" })
+    ).not.toBeInTheDocument()
     await user.click(
       screen.getByRole("button", { name: "Member: change Ben Member’s role" })
     )

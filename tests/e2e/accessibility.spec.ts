@@ -1604,7 +1604,9 @@ for (const theme of themes) {
         await expectAccessible(page, `${viewport.name} ${theme} team`)
         if (viewport.name === "mobile") {
           await page
-            .getByRole("button", { name: "Alex Morgan (you), alex@example.com" })
+            .getByRole("button", {
+              name: "Alex Morgan (you), alex@example.com",
+            })
             .click()
           await expect(
             page.getByRole("dialog", { name: "Alex Morgan" })

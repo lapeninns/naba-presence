@@ -417,9 +417,10 @@ test.describe("team roles", () => {
       name: "Ben Member, ben.member.with.a.long.address@example.test",
     })
     await expect(row).toBeVisible()
-    // SET-02: one row of three short lines, the full email, no record card.
-    const box = await row.boundingBox()
-    expect(box!.height).toBeLessThan(110)
+    // SET-02: one row (name, the full email, the role chip and its line),
+    // no record card. Measured on the whole list item, footer included.
+    const box = await list.getByRole("listitem").first().boundingBox()
+    expect(box!.height).toBeLessThan(130)
     await expect(list.getByText("All clients · Drafts only")).toBeVisible()
     await expect(page.getByRole("table", { name: "Members" })).toHaveCount(0)
 
@@ -439,5 +440,15 @@ test.describe("team roles", () => {
     await expect(
       sheet.getByRole("button", { name: /Remove from team/ })
     ).toBeEnabled()
+
+    // The sheet hands over to Change role; closing that puts focus back on
+    // the member's row, not on the page.
+    await sheet.getByRole("button", { name: /^Role/ }).click()
+    const dialog = page.getByRole("dialog", { name: "Change role" })
+    await expect(dialog).toBeVisible()
+    await expect(sheet).toBeHidden()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    await expect(row).toBeFocused()
   })
 })

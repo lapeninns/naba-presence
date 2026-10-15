@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Building2, Ellipsis, Shield, Trash2, Users } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import { ClientAccessDialog } from "@/components/settings/client-access-dialog"
 import {
@@ -203,6 +203,10 @@ function MemberRows({
   const [accessOpen, setAccessOpen] = useState(false)
   const [sheetUserId, setSheetUserId] = useState<string | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
+  // The row that opened the sheet. A dialog the sheet hands over to returns
+  // focus there, since the sheet's own row (its opener) is gone by then.
+  const sheetOpener = useRef<HTMLElement | null>(null)
+  const [handedOver, setHandedOver] = useState(false)
   const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(
     null
   )
@@ -274,11 +278,13 @@ function MemberRows({
   })
 
   const openRole = (m: Member) => {
+    setHandedOver(false)
     mutation.reset()
     setRoleTarget(m)
     setRoleOpen(true)
   }
   const openAccess = (m: Member) => {
+    setHandedOver(false)
     setAccessTarget(m)
     setAccessOpen(true)
   }
@@ -292,9 +298,13 @@ function MemberRows({
   const fromSheet = (open: (m: Member) => void) => (m: Member) => {
     setSheetOpen(false)
     open(m)
+    setHandedOver(true)
   }
+  const returnFocus = handedOver ? sheetOpener : undefined
 
-  const publishControl = (view: MemberView) => {
+  // `where` keeps the status ids apart when a widened screen draws the
+  // table while the sheet is still open.
+  const publishControl = (view: MemberView, where: "table" | "sheet") => {
     const m = view.member
     const saving = publish.isPending && publish.variables?.userId === m.userId
     const outcome = publishOutcome?.userId === m.userId ? publishOutcome : null
@@ -305,7 +315,7 @@ function MemberRows({
         publish.mutate({ userId: m.userId, role: m.role, canPublish: value }),
       status: (
         <PublishStatus
-          id={`publish-status-${m.userId}`}
+          id={`publish-status-${where}-${m.userId}`}
           saving={saving}
           outcome={outcome}
         />
@@ -326,7 +336,9 @@ function MemberRows({
         removeReason: sheetView.gate.removeReason,
         publishReason: sheetView.publishReason,
         publishSwitch:
-          sheetView.publishReason === null ? publishControl(sheetView) : null,
+          sheetView.publishReason === null
+            ? publishControl(sheetView, "sheet")
+            : null,
       }
     : null
 
@@ -345,6 +357,7 @@ function MemberRows({
                 label: terms.access,
                 icon: <Building2 aria-hidden />,
                 onAction: () => openAccess(m),
+                disabled: busy,
               }
             : null,
           view.gate.removeReason === null
@@ -353,6 +366,7 @@ function MemberRows({
                 icon: <Trash2 aria-hidden />,
                 tone: "danger" as const,
                 onAction: () => openRemove(m),
+                disabled: busy,
               }
             : null,
         ].filter((action) => action !== null)
@@ -383,7 +397,8 @@ function MemberRows({
             subtitle={m.email}
             aria-label={`${m.displayName}${view.isSelf ? " (you)" : ""}, ${m.email}`}
             aria-haspopup="dialog"
-            onClick={() => {
+            onClick={(event) => {
+              sheetOpener.current = event.currentTarget
               setSheetUserId(m.userId)
               setSheetOpen(true)
             }}
@@ -438,7 +453,7 @@ function MemberRows({
       <TableBody>
         {views.map((view) => {
           const m = view.member
-          const control = publishControl(view)
+          const control = publishControl(view, "table")
           return (
             // The menu is a flex item of the card's title line, after the
             // role badge, so a long name wraps beside it instead of running
@@ -498,7 +513,7 @@ function MemberRows({
                         checked={control.checked}
                         disabled={control.disabled}
                         aria-label={`Allow ${m.displayName} to publish`}
-                        aria-describedby={`publish-status-${m.userId}`}
+                        aria-describedby={`publish-status-table-${m.userId}`}
                         onCheckedChange={control.onCheckedChange}
                       />
                       <span className="whitespace-nowrap">
@@ -611,6 +626,7 @@ function MemberRows({
         pending={mutation.isPending}
         error={mutation.isError ? describeActionError(mutation.error) : null}
         onOpenChange={setRoleOpen}
+        finalFocus={returnFocus}
         onConfirm={(role) => {
           if (!roleTarget) return
           mutation.mutate(
@@ -627,6 +643,7 @@ function MemberRows({
         open={accessOpen}
         member={accessTarget}
         onOpenChange={setAccessOpen}
+        finalFocus={returnFocus}
       />
       <RemoveMemberDialog
         open={removeOpen}
