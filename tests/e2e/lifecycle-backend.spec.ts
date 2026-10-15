@@ -55,7 +55,7 @@ for (const width of [375, 768, 1280]) test.describe(`Lifecycle at ${width}px`, (
     await expect(outcomePanel(page).getByText("Accepted by Google", { exact: true })).toBeVisible()
     await expect(outcomePanel(page).getByText("Independent confirmation unresolved", { exact: true })).toBeVisible()
     await expect(page.getByRole("button", { name: "Transfer this location", exact: true })).toBeDisabled()
-    await expect(page.getByRole("button", { name: "Add administrator", exact: true })).toBeDisabled()
+    await expect(page.getByRole("button", { name: "Invite someone", exact: true })).toBeDisabled()
     await expect(outcomePanel(page).getByRole("button", { name: "Review another lifecycle action" })).toBeDisabled()
     await captureVerificationSection(page, info, { name: "forbidden-unresolved", section: "lifecycle-outcome-title" })
     fixture.lifecycleState.locationStatus = 404

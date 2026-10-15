@@ -126,6 +126,42 @@ export const reviewCapabilitiesSchema = z.object({
 })
 export type ReviewCapabilities = z.infer<typeof reviewCapabilitiesSchema>
 
+/**
+ * Who a parked reply is waiting on, worked out on the server by the same
+ * `awaiting_my_approval` rule as the Inbox queue (lib/server/review-queues.ts):
+ * `"me"` when this person may decide it, `"others"` when it waits on someone
+ * else (under two-person approval, the person who asked can never decide).
+ */
+export const REVIEW_APPROVAL_SCOPES = ["me", "others"] as const
+export type ReviewApprovalScope = (typeof REVIEW_APPROVAL_SCOPES)[number]
+
+/**
+ * The detail's capabilities: the row's three flags plus the approval policy
+ * as it applies to this person and this review (plan D1). The extra fields
+ * are optional so an older server or a stubbed response still parses, and
+ * the client then falls back to its old reading.
+ */
+export const reviewDetailCapabilitiesSchema = reviewCapabilitiesSchema.extend({
+  /**
+   * The organisation's two-person rule. With it on, a publisher's "publish"
+   * is parked until a second person approves it, so the action is "Submit
+   * for approval" rather than "Publish reply".
+   */
+  requireTwoPersonApproval: z.boolean().optional(),
+  /** While the review is `awaiting_approval`; null otherwise. */
+  approvalScope: z.enum(REVIEW_APPROVAL_SCOPES).nullable().optional(),
+  /**
+   * Whether this person may approve the parked reply. Under two-person
+   * approval the draft's author may reject it (scope "me") but not approve
+   * it. False when nothing is parked; absent from an older server, where the
+   * client falls back to the scope.
+   */
+  canApprove: z.boolean().optional(),
+})
+export type ReviewDetailCapabilities = z.infer<
+  typeof reviewDetailCapabilitiesSchema
+>
+
 export const verificationReasonSchema = z.object({
   code: z.string(),
   severity: z.enum(["warn", "fail"]),
@@ -480,7 +516,7 @@ export const reviewDetailSchema = z.object({
         metadataSummary: z.string().nullable(),
       })
     ),
-    capabilities: reviewCapabilitiesSchema,
+    capabilities: reviewDetailCapabilitiesSchema,
     latestVerification: latestVerificationSchema.nullable(),
     /**
      * The approver's rejection, while the reply it returned to draft is still
