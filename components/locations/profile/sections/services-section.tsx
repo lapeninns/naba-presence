@@ -411,7 +411,7 @@ function ServiceEditor({
             <SelectTrigger id="add-structured-service">
               <SelectValue placeholder="Choose a service" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent title="Add a suggested service">
               {choices.map((choice) => (
                 <SelectItem
                   key={choice.serviceTypeId}

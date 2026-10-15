@@ -77,7 +77,7 @@ export function OnboardingMoreHours({ draft, value, contextSaved, onChange, onEn
     </div>)}
     <Field><FieldLabel htmlFor={id}>Additional hours type</FieldLabel><Select value={type || "choose"} disabled={!ready || choices.length === 0} onValueChange={(next) => { if (typeof next === "string") setType(next === "choose" ? "" : next) }}>
       <SelectTrigger id={id}><SelectValue>{type ? label(type) : "Choose a supported hour type"}</SelectValue></SelectTrigger>
-      <SelectContent><SelectItem value="choose">Choose a supported hour type</SelectItem>{choices.map((item) => <SelectItem key={item.hoursTypeId} value={item.hoursTypeId}>{label(item.hoursTypeId)}</SelectItem>)}</SelectContent>
+      <SelectContent title="Additional hours type"><SelectItem value="choose">Choose a supported hour type</SelectItem>{choices.map((item) => <SelectItem key={item.hoursTypeId} value={item.hoursTypeId}>{label(item.hoursTypeId)}</SelectItem>)}</SelectContent>
     </Select></Field>
     {ready && choices.length === 0 && <p role="status" className="text-caption text-ink-muted">Google returned no additional hour types for these saved categories.</p>}
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">

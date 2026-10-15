@@ -34,7 +34,7 @@ export function LodgingScalarControl({ node, value, original, disabled, error, a
       onChange(next)
     }}>
       <SelectTrigger className="w-full"><SelectValue>{(current: string | null) => current === "unknown" || !current ? "Not recorded" : label(current)}</SelectValue></SelectTrigger>
-      <SelectContent>
+      <SelectContent title={node.label}>
         <SelectItem value="unknown" disabled>Not recorded</SelectItem>
         {choices.map((choice) => <SelectItem key={choice} value={choice}>{label(choice)}</SelectItem>)}
       </SelectContent>

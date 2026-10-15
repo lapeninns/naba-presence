@@ -10,7 +10,7 @@ import {
 } from "@/components/settings/access-scope-form"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { DialogBody, DialogClose, DialogFooter } from "@/components/ui/dialog"
+import { DialogBody, DialogFooter } from "@/components/ui/dialog"
 import { queryStatus } from "@/components/ui/query-states"
 import { useToastManager } from "@/components/ui/toast"
 import { updateClientAccess, type Member } from "@/lib/api/members"
@@ -195,7 +195,6 @@ export function LocationAccessForm({
         ) : null}
       </DialogBody>
       <DialogFooter>
-        <DialogClose render={<Button variant="ghost">Cancel</Button>} />
         <Button
           disabled={!dirty}
           pending={save.isPending}

@@ -409,7 +409,7 @@ describe("danger zone", () => {
     expect(patch.fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 
-  it("clears the destination account when the transfer dialog is cancelled", async () => {
+  it("clears the destination account when the transfer dialog is closed", async () => {
     renderSection(<DangerZone />)
     await userEvent.click(
       screen.getByRole("button", { name: "Transfer this location" })
@@ -418,9 +418,13 @@ describe("danger zone", () => {
       screen.getByLabelText(/destination google account/i),
       "accounts/999"
     )
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    // The ✕ with typed text asks first; discarding closes the dialog.
+    await userEvent.click(screen.getByRole("button", { name: "Close" }))
     await userEvent.click(
-      screen.getByRole("button", { name: "Transfer this location" })
+      await screen.findByRole("button", { name: "Discard changes" })
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Transfer this location" })
     )
     expect(screen.getByLabelText(/destination google account/i)).toHaveValue("")
     expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled()

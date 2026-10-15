@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogBody,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -385,7 +384,6 @@ export function ClientAccessForm({
         ) : null}
       </DialogBody>
       <DialogFooter>
-        <DialogClose render={<Button variant="ghost">Cancel</Button>} />
         <Button
           disabled={!dirty}
           pending={save.isPending}

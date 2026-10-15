@@ -82,7 +82,7 @@ function RelationshipControl({ draft, setDraft, location, disabled, kind }: Prop
         if (value === "DEPARTMENT_OF" || value === "INDEPENDENT_ESTABLISHMENT_IN") { setRelationType(value); setEntryError(undefined) }
       }}>
         <SelectTrigger id={`profile-${kind}-relationship`}><SelectValue>{relationType ? relationLabels[relationType] : "Choose relationship"}</SelectValue></SelectTrigger>
-        <SelectContent>
+        <SelectContent title={kind === "parent" ? "Relationship to parent" : "Relationship of child"}>
           <SelectItem value="unchanged">Choose relationship</SelectItem>
           <SelectItem value="DEPARTMENT_OF">Department</SelectItem>
           <SelectItem value="INDEPENDENT_ESTABLISHMENT_IN">Independent business at the same address</SelectItem>

@@ -216,7 +216,7 @@ export function TypedAttributeControl({
           <SelectTrigger aria-label={label} aria-describedby={describedBy} className="w-full sm:w-70">
             <SelectValue placeholder="Not set" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title={label}>
             {enumOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}

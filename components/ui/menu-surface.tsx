@@ -1,9 +1,15 @@
 "use client"
 
 import * as React from "react"
+import { XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { overlayScrimClassName, usePhoneOverlay } from "@/components/ui/overlay"
+import {
+  OverlayGrabber,
+  overlayScrimClassName,
+  overlayTitleClassName,
+  usePhoneOverlay,
+} from "@/components/ui/overlay"
 import { cn } from "@/lib/utils"
 
 /**
@@ -14,9 +20,10 @@ import { cn } from "@/lib/utils"
  * its trigger with 32px rows. On a phone a floating panel is a 44px-row
  * target pinned somewhere the thumb has to travel to, so the same parts
  * present as a bottom action sheet instead: scrim, a full-width list
- * anchored to the bottom edge, an optional title, and Cancel. The parts and
- * their semantics (menu, listbox) are the same; only the geometry changes,
- * decided when the menu opens (see `usePhoneOverlay`).
+ * anchored to the bottom edge under the same header as every other overlay
+ * (grabber, a left-aligned title, a ✕). The parts and their semantics (menu,
+ * listbox) are the same; only the geometry changes, decided when the menu
+ * opens (see `usePhoneOverlay`).
  */
 
 /* ---- Desk: the floating panel ------------------------------------------ */
@@ -92,28 +99,8 @@ export const menuSheetPopupClassName = cn(
 export const menuSheetListClassName =
   "min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-1.5 outline-none [&_[role=option]]:text-body [&_[role^=menuitem]]:text-body"
 
-/** The sheet's title, when the menu has one ("Sort by"). */
-export function MenuSheetTitle({
-  children,
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="menu-sheet-title"
-      className={cn(
-        "flex min-h-12 shrink-0 items-center justify-center border-b border-line px-4 text-center text-ui font-semibold text-ink-muted",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </div>
-  )
-}
-
 /**
- * The root's close action, so Cancel can close any of the menu kinds.
+ * The root's close action, so the ✕ can close any of the menu kinds.
  * Each root wrapper owns the Base UI `actionsRef` and still forwards it to
  * a caller that passed one.
  */
@@ -163,26 +150,53 @@ export function MenuCloseProvider({
 }
 
 /**
- * The sheet's Cancel: a plain button below the list (not a row, so it is
- * never announced as a choice). Tapping the scrim does the same; this is
- * the visible way out.
+ * The sheet's header, the overlay recipe in a menu's drawing: the grabber,
+ * the title left-aligned (when the menu has one: "Sort by"), and a ✕ that
+ * closes it. There is no Cancel under the list; the ✕ is the visible way
+ * out, as in a dialog, and tapping the scrim does the same. The title is
+ * text, not a heading, so the menu's own role stays the only landmark in it.
+ * Base UI's menu popups carry no drag gesture, so the grabber is the sheet's
+ * mark and not a handle: it keeps the default cursor.
  */
-export function MenuSheetCancel({ label = "Cancel" }: { label?: string }) {
+export function MenuSheetHeader({
+  title,
+  className,
+}: {
+  title?: React.ReactNode
+  className?: string
+}) {
   const close = React.useContext(MenuCloseContext)
-  if (!close) return null
   return (
     <div
-      data-slot="menu-sheet-cancel"
-      className="shrink-0 border-t border-line px-3 pt-2"
+      data-slot="menu-sheet-header"
+      className={cn("flex shrink-0 flex-col", className)}
     >
-      <Button
-        type="button"
-        variant="secondary"
-        className="h-11 w-full text-body"
-        onClick={() => close()}
-      >
-        {label}
-      </Button>
+      <OverlayGrabber className="cursor-default touch-auto active:cursor-default" />
+      <div className="flex min-h-(--np-touch) items-center gap-2 pr-2 pl-5">
+        {title ? (
+          <div
+            data-slot="menu-sheet-title"
+            className={cn(overlayTitleClassName, "min-w-0 flex-1")}
+          >
+            {title}
+          </div>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {close ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            data-slot="menu-sheet-close"
+            aria-label="Close"
+            className="text-ink-muted hover:text-ink [&_svg]:size-4"
+            onClick={() => close()}
+          >
+            <XIcon aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
     </div>
   )
 }

@@ -87,7 +87,7 @@ export function OnboardingServiceArea({
           <SelectTrigger>
             <SelectValue>{label}</SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent title="Where do you meet customers?">
             <SelectItem value="storefront">
               At the business location only
             </SelectItem>

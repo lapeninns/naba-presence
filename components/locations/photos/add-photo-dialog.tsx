@@ -393,7 +393,7 @@ export function AddPhotoDialog({
                       {(value: string | null) => humaniseCategory(value ?? "")}
                     </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent title="Google photo category">
                     {categories.map((c) => (
                       <SelectItem key={c} value={c}>
                         {humaniseCategory(c)}

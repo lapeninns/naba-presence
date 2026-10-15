@@ -52,7 +52,7 @@ export function DayField({ label, value, onChange }: { readonly label: string; r
   // pop-up button is not something `<label for>` can name.
   return <Field><FieldLabel>{label}</FieldLabel><Select value={value || "choose"} onValueChange={(next) => { if (typeof next === "string") onChange(next === "choose" ? "" : next) }}>
     <SelectTrigger className="w-full"><SelectValue>{value ? value.charAt(0) + value.slice(1).toLowerCase() : "Choose day"}</SelectValue></SelectTrigger>
-    <SelectContent><SelectItem value="choose">Choose day</SelectItem>{GOOGLE_DAYS.map((day) => <SelectItem key={day} value={day}>{day.charAt(0) + day.slice(1).toLowerCase()}</SelectItem>)}</SelectContent>
+    <SelectContent title={label}><SelectItem value="choose">Choose day</SelectItem>{GOOGLE_DAYS.map((day) => <SelectItem key={day} value={day}>{day.charAt(0) + day.slice(1).toLowerCase()}</SelectItem>)}</SelectContent>
   </Select></Field>
 }
 /**
@@ -135,7 +135,7 @@ function SpecialEntry({ value, onChange, onEntryChange, regularPresent }: {
     <Field><FieldLabel htmlFor={`${prefix}-date`}>Special start date</FieldLabel><Input id={`${prefix}-date`} type="date" value={date} onChange={(event) => setDate(event.target.value)} /></Field>
     <Field><FieldLabel htmlFor={`${prefix}-kind`}>Special date opening</FieldLabel><Select value={kind || "choose"} onValueChange={(next) => { if (next === "choose") setKind(""); if (next === "closed" || next === "open") setKind(next) }}>
       <SelectTrigger id={`${prefix}-kind`}><SelectValue>{kind === "closed" ? "Closed all day" : kind === "open" ? "Custom hours" : "Choose opening"}</SelectValue></SelectTrigger>
-      <SelectContent><SelectItem value="choose">Choose opening</SelectItem><SelectItem value="closed">Closed all day</SelectItem><SelectItem value="open">Custom hours</SelectItem></SelectContent>
+      <SelectContent title="Special date opening"><SelectItem value="choose">Choose opening</SelectItem><SelectItem value="closed">Closed all day</SelectItem><SelectItem value="open">Custom hours</SelectItem></SelectContent>
     </Select></Field>
     {kind === "open" && <div className="grid min-w-0 gap-3 sm:grid-cols-2">
       <HoursTimeField label="Special opening time" value={opens} onChange={setOpens} />

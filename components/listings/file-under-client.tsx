@@ -132,7 +132,7 @@ function FileUnderClient({
             {() => (assignLocations.isPending ? "Filing…" : "File under…")}
           </SelectValue>
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent title="File under a client">
           {items.map((client) => (
             <SelectItem key={client.id} value={client.id}>
               {client.name}

@@ -119,12 +119,12 @@ describe("Sheet variant=inset", () => {
     expect(
       header.querySelector('[data-slot="overlay-grabber"]')
     ).toHaveAttribute("aria-hidden", "true")
-    // The title is the title role, semibold, centred.
+    // The title is the title role, semibold, left-aligned.
     const title = within(sheet).getByRole("heading", { name: "Set reminder" })
     expect(title).toHaveClass("text-title", "font-semibold")
     expect(
       header.querySelector('[data-slot="sheet-header-title"]')
-    ).toHaveClass("items-center", "text-center")
+    ).toHaveClass("items-start", "text-left")
     // Without a header action, the close button is the trailing control.
     expect(
       within(sheet).getByRole("button", { name: "Close" })
@@ -269,7 +269,7 @@ describe("Sheet variant=inset", () => {
 // FINAL-QA #4: in a centred header a long description took the whole row
 // and the empty side columns collapsed to nothing, so Close drew over the
 // words. The side tracks now keep a floor and Close sits in its own cell.
-describe("Sheet centred header reserves the trailing close (FINAL-QA #4)", () => {
+describe("Sheet bar header reserves the trailing close (FINAL-QA #4)", () => {
   it("keeps the close in its own track beside a long title and description", async () => {
     asPhone(true)
     render(
@@ -288,10 +288,8 @@ describe("Sheet centred header reserves the trailing close (FINAL-QA #4)", () =>
     const sheet = await screen.findByRole("dialog", { name: "Choose a client" })
     const bar = sheet.querySelector('[data-slot="sheet-header-bar"]')!
     expect(bar).toHaveClass("grid")
-    // Neither side track may shrink to zero under the centred words.
-    expect(bar.className).toContain(
-      "grid-cols-[minmax(var(--np-touch),1fr)_minmax(0,auto)_minmax(max-content,1fr)]"
-    )
+    // The words take what the trailing control leaves, wrapping beside it.
+    expect(bar.className).toContain("grid-cols-[minmax(0,1fr)_auto]")
     expect(bar.className).not.toContain("grid-cols-[1fr_auto_1fr]")
     const trailing = sheet.querySelector('[data-slot="sheet-header-trailing"]')!
     // The trailing cell keeps its control's width (no min-w-0 collapse).

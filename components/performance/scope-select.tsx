@@ -68,7 +68,7 @@ export function ScopeSelect<T extends string>({
         <SelectTrigger className={cn("w-full", triggerClassName)}>
           <SelectValue>{(id: string | null) => labelFor(id)}</SelectValue>
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent title={label}>
           {allLabel ? (
             <SelectItem value={SCOPE_ALL}>{allLabel}</SelectItem>
           ) : null}

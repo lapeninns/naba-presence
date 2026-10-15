@@ -42,7 +42,7 @@ export function SearchWithLocation() {
         <SelectTrigger aria-label="Location">
           <SelectValue>Central</SelectValue>
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent title="Location">
           <SelectGroup>
             <SelectItem value="central">Central</SelectItem>
             <SelectItem value="riverside">Riverside</SelectItem>

@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
-import { OverlayGrabber, useOverlayPresentation } from "@/components/ui/overlay"
+import { useOverlayPresentation } from "@/components/ui/overlay"
 import { cn } from "@/lib/utils"
 
 /**
@@ -113,8 +113,8 @@ function CommandDialog({
           <DialogDescription className="sr-only">
             {description}
           </DialogDescription>
+          {/* The sheet's own grabber is drawn by the overlay chrome. */}
           <div className="relative flex h-11 shrink-0 items-start">
-            <OverlayGrabber />
             <DialogClose
               render={
                 <Button

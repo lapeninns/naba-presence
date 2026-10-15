@@ -108,7 +108,8 @@ export type OverlayRootProps = Omit<
    * scrim tap, Escape, the Android back gesture, a swipe and the header's
    * close button keep the overlay open and ask "Discard changes?" inside it.
    * A footer Cancel (`DialogClose`/`SheetClose`) and a Save that closes the
-   * overlay itself are deliberate, and pass straight through.
+   * overlay itself are deliberate, and pass straight through (mark a Cancel
+   * `data-overlay-close` to have it ask; `OverlayCancel` is marked).
    */
   dirty?: boolean
   /** Runs when the operator confirms the discard, before the overlay closes. */
@@ -341,9 +342,24 @@ export const overlayPopupClassName = {
 /**
  * The ghost close button in the header's top-right corner (reference
  * `.dialog-close`). Exported for overlays that draw their own header.
+ *
+ * One recipe for every overlay: a left-aligned title (`overlayTitleClassName`),
+ * this ✕ opposite it, the confirm as the footer's one primary (last in
+ * source order, so nearest the thumb in a sheet), and no Cancel beside it:
+ * the ✕ is the way out (`OverlayCancel` draws one only where there is no ✕).
+ * A phone sheet of any kind, including a menu or select sheet, carries the
+ * grabber at its top.
  */
 export const overlayCloseButtonClassName =
   "absolute top-3.5 right-3.5 text-ink-muted hover:text-ink [&_svg]:size-4"
+
+/**
+ * The one title: left-aligned, the title role at 600, on every overlay
+ * (dialog, sheet, panel) and on a menu or select sheet's header. A title
+ * never centres: the close button owns the opposite corner.
+ */
+export const overlayTitleClassName =
+  "text-left text-title font-semibold text-ink"
 
 /**
  * The action row (reference `.dialog-foot`). In a dialog the buttons sit
@@ -460,6 +476,7 @@ type OverlayChromeContextValue = {
   presentation: "dialog" | "sheet" | "panel" | "drawer" | "top"
   showCloseButton: boolean
   hostClose: (hosted: boolean) => void
+  hostGrabber: (hosted: boolean) => void
 }
 
 const OverlayChromeContext =
@@ -532,7 +549,7 @@ function splitLeadingHeaders(children: React.ReactNode): {
 
 /**
  * Provide the chrome context, and report whether a header has taken the
- * close button. `fallbackClose` renders where no header did.
+ * close button and the handle. Where none did, the content draws them.
  *
  * On every Drawer presentation (all but `dialog`) the content after the
  * header is rendered inside Base UI's `Drawer.Content`. Base UI starts a
@@ -556,8 +573,14 @@ export function OverlayChrome({
   children: React.ReactNode
 }) {
   const [hosted, setHosted] = React.useState(false)
+  const [grabbed, setGrabbed] = React.useState(false)
   const value = React.useMemo(
-    () => ({ presentation, showCloseButton, hostClose: setHosted }),
+    () => ({
+      presentation,
+      showCloseButton,
+      hostClose: setHosted,
+      hostGrabber: setGrabbed,
+    }),
     [presentation, showCloseButton]
   )
   let body: React.ReactNode = children
@@ -578,6 +601,11 @@ export function OverlayChrome({
   return (
     <OverlayChromeContext.Provider value={value}>
       {body}
+      {presentation === "sheet" && !grabbed ? (
+        // No header drew the handle (a visually hidden or absent header): a
+        // phone sheet still carries one, over the popup's top padding.
+        <OverlayGrabber className="absolute inset-x-0 top-0" />
+      ) : null}
       {showCloseButton && !hosted ? <OverlayCloseButton /> : null}
     </OverlayChromeContext.Provider>
   )
@@ -590,20 +618,49 @@ export function OverlayChrome({
 export function useOverlayHeader(visuallyHidden: boolean) {
   const chrome = useOverlayChrome()
   const hostClose = chrome?.hostClose
+  const hostGrabber = chrome?.hostGrabber
   const hosts = Boolean(chrome?.showCloseButton) && !visuallyHidden
+  const grabs = !visuallyHidden && chrome?.presentation === "sheet"
   React.useLayoutEffect(() => {
     if (!hosts || !hostClose) return
     hostClose(true)
     return () => hostClose(false)
   }, [hosts, hostClose])
+  React.useLayoutEffect(() => {
+    if (!grabs || !hostGrabber) return
+    hostGrabber(true)
+    return () => hostGrabber(false)
+  }, [grabs, hostGrabber])
   return {
     presentation: chrome?.presentation ?? "dialog",
     closeButton: hosts ? <OverlayCloseButton /> : null,
-    grabber:
-      !visuallyHidden && chrome?.presentation === "sheet" ? (
-        <OverlayGrabber />
-      ) : null,
+    grabber: grabs ? <OverlayGrabber /> : null,
   }
+}
+
+/**
+ * The footer's Cancel, for the overlay that has no ✕ (`showCloseButton`
+ * off): a ghost button that closes it. Where the ✕ exists it draws nothing,
+ * so one overlay never offers two ways to say the same thing; the confirm
+ * stays the footer's one primary. Marked as the overlay's close control, so
+ * a dirty overlay asks before it throws edits away.
+ */
+export function OverlayCancel({
+  children = "Cancel",
+  ...props
+}: Omit<DialogPrimitive.Close.Props, "render">) {
+  const chrome = useOverlayChrome()
+  if (chrome?.showCloseButton) return null
+  return (
+    <DialogPrimitive.Close
+      data-slot="overlay-cancel"
+      data-overlay-close=""
+      render={<Button variant="ghost" />}
+      {...props}
+    >
+      {children}
+    </DialogPrimitive.Close>
+  )
 }
 
 /* ---- Alert recipes, and the discard confirmation ------------------------ */

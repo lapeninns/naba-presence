@@ -468,9 +468,6 @@ function TemplateReplyDialog({
         <DialogFooter>
           {phase === "setup" ? (
             <>
-              <Button variant="secondary" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
               <Button
                 disabled={eligible.length === 0}
                 disabledReason={

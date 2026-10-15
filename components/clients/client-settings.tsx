@@ -794,7 +794,7 @@ function MoveToClient({
       >
         <SelectValue>{() => "Move to…"}</SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent title="Move to another client">
         {clients.map((entry) => (
           <SelectItem key={entry.id} value={entry.id}>
             {entry.name}

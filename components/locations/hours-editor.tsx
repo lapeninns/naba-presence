@@ -758,13 +758,6 @@ export function HoursEditor({
               <DialogFooter>
                 <Button
                   type="button"
-                  variant="ghost"
-                  onClick={() => setRemoveType(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
                   onClick={() => {
                     onChange({
                       ...value,
@@ -1271,9 +1264,6 @@ function CopyDaysDialog({
           </p>
         </SheetBody>
         <SheetFooter>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
           <Button
             type="button"
             disabled={picked.length === 0}

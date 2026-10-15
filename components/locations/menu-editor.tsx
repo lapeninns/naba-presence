@@ -1031,7 +1031,7 @@ export function MenuEditor({
                   >
                     <SelectValue placeholder="Jump to section" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent title="Jump to section">
                     {sections.map((section, index) => (
                       <SelectItem key={keyOf(section)} value={String(index)}>
                         {readLabel(section).displayName ||

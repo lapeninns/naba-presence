@@ -30,7 +30,6 @@ import { Card } from "@/components/ui/card"
 import {
   Dialog,
   DialogBody,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -211,7 +210,6 @@ export function ReconnectDialogView({
           ) : null}
         </DialogBody>
         <DialogFooter>
-          <DialogClose render={<Button variant="ghost">Cancel</Button>} />
           <Button
             pending={pending}
             pendingLabel="Opening Google…"
