@@ -119,9 +119,10 @@ describe("combinedRowResults", () => {
     expect(later[2]).toMatchObject({ state: "skipped" })
   })
 
-  it("shows a waiting request as awaiting approval with its reason, not sent", () => {
-    const views = combinedRowResults([google("Store code", true)], [
-      step("listing", {
+  it("shows a publish the server held for approval as awaiting approval with its reason, not sent", () => {
+    const views = combinedRowResults([here("Business name", "name")], [
+      step("save", { status: "done" }),
+      step("profile", {
         status: "done",
         outcome: "awaiting_approval",
         message: "Sent for approval. Another publisher needs to approve this change before it goes to Google.",

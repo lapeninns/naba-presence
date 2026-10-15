@@ -1383,7 +1383,7 @@ describe("ProfileTab one review sheet (L14)", () => {
   }
 
   /** Routes for a profile whose prepared requests may need a second approver. */
-  function stubCombined({ secondApprover }: { secondApprover: boolean }) {
+  function stubCombined({ secondApprover, profileHeld = false }: { secondApprover: boolean; profileHeld?: boolean }) {
     const reviews = { reviewed: null as GbpChangeSet | null }
     const calls: { method: string; url: string }[] = []
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
@@ -1394,6 +1394,34 @@ describe("ProfileTab one review sheet (L14)", () => {
       if (url.includes("/profile") && !url.includes("/import-review")) {
         if (init?.method === "PUT")
           return jsonResponse({ saved: true, revision: "4", profile: savedProfile })
+        if (init?.method === "POST" && profileHeld)
+          // Two-person mode with listing approvals on: the route parks the
+          // publish (lib/server/listing-changes.ts) and answers 202.
+          return jsonResponse(
+            {
+              status: "awaiting_approval",
+              changeRequest: {
+                id: "op-1",
+                intentId: "intent-1",
+                kind: "profile_publish",
+                label: "Publish profile fields",
+                locationId: "loc-1",
+                target: null,
+                fieldMask: ["name"],
+                details: [{ label: "Business name", value: "Camden House" }],
+                payloadHash: "f".repeat(64),
+                outcome: "awaiting_approval",
+                errorCode: null,
+                author: { id: "owner", name: "Owner" },
+                createdAt: "2026-08-02T00:00:00.000Z",
+                updatedAt: "2026-08-02T00:00:00.000Z",
+                isOwn: true,
+                canDecide: false,
+              },
+              operation: { operationId: "op-1", outcome: "awaiting_approval" },
+            },
+            202
+          )
         if (init?.method === "POST")
           return jsonResponse({ status: "published", attemptId: "a1", idempotent: false })
         return jsonResponse(PROFILE)
@@ -1453,52 +1481,52 @@ describe("ProfileTab one review sheet (L14)", () => {
     expect(methods).toContain("POST /api/locations/loc-1/profile")
   })
 
-  it("leaves a request that needs another approver waiting, says so on its row, and still sends the rest", async () => {
+  it("keeps publishing off with the existing reason when any request needs another approver", async () => {
     sessionStorage.clear()
     const calls = stubCombined({ secondApprover: true })
     renderWithProviders(<ProfileTab locationId="loc-1" />)
     await editNameAndStoreCode()
     await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
     const review = await screen.findByRole("dialog", { name: "Review changes" })
+    // The plain line says why; the copy field doesn't unlock the button.
     expect(
       within(review).getByText(
         "Name saves here first; store code waits for another publisher to approve before it goes to Google."
       )
     ).toBeInTheDocument()
-    const publish = within(review).getByRole("button", { name: "Publish to Google" })
-    expect(publish).toBeEnabled()
-    await userEvent.click(publish)
-
-    // The sheet stays open on its results: one row waits, one is live.
-    const close = await within(review).findByRole("button", { name: "Done" })
-    const rows = within(within(review).getByRole("list", { name: "Publish progress" })).getAllByRole("listitem")
-    const storeRow = rows.find((row) => row.textContent?.includes("Store code"))
-    const nameRow = rows.find((row) => row.textContent?.includes("Business name"))
-    expect(storeRow).toHaveTextContent("Awaiting approval")
-    expect(storeRow).toHaveTextContent(/Another publisher needs to approve this change/)
-    expect(storeRow).not.toHaveTextContent(/Sent to Google|Live on Google/)
-    expect(nameRow).toHaveTextContent("Live on Google")
-    // The waiting request was neither approved nor sent by its own author.
-    const business = calls.filter(({ url }) => url.includes("/business-information"))
-    expect(business.some(({ method }) => method === "POST" || method === "PATCH")).toBe(false)
-    expect(calls.some(({ method, url }) => method === "POST" && url.includes("/profile"))).toBe(true)
-    expect(
-      await within(screen.getByRole("region", { name: "Notifications" })).findByText("Sent for approval")
-    ).toBeVisible()
-    await userEvent.click(close)
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review changes" })).toBeNull())
-  })
-
-  it("keeps publishing off when everything in the sheet needs another approver, as before", async () => {
-    sessionStorage.clear()
-    stubCombined({ secondApprover: true })
-    renderWithProviders(<ProfileTab locationId="loc-1" />)
-    await editNameAndStoreCode({ name: false })
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
-    const review = await screen.findByRole("dialog", { name: "Review changes" })
     expect(within(review).getByRole("button", { name: "Publish to Google" })).toBeDisabled()
     expect(
       within(review).getByText("A different authorised user must approve this saved review.")
     ).toBeInTheDocument()
+    // Nothing was approved, saved here or sent.
+    expect(calls.some(({ method, url }) => url.includes("/business-information") && (method === "POST" || method === "PATCH"))).toBe(false)
+    expect(calls.some(({ method, url }) => url.includes("/profile") && (method === "PUT" || method === "POST"))).toBe(false)
+  })
+
+  it("stays open on its results when the server holds the profile publish for another publisher", async () => {
+    sessionStorage.clear()
+    const calls = stubCombined({ secondApprover: false, profileHeld: true })
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const name = await screen.findByRole("textbox", { name: "Business name" })
+    await waitFor(() => expect(name).toBeEnabled())
+    await userEvent.clear(name)
+    await userEvent.type(name, "Camden House")
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    const review = await screen.findByRole("dialog", { name: "Review changes" })
+    await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+
+    const done = await within(review).findByRole("button", { name: "Done" })
+    const rows = within(within(review).getByRole("list", { name: "Publish progress" })).getAllByRole("listitem")
+    expect(rows).toHaveLength(1)
+    // The server's answer, not a client guess: held for approval, not sent.
+    expect(rows[0]).toHaveTextContent("Business name")
+    expect(rows[0]).toHaveTextContent("Awaiting approval")
+    expect(rows[0]).not.toHaveTextContent(/Sent to Google|Live on Google/)
+    expect(calls.filter(({ method, url }) => method === "POST" && url.includes("/profile"))).toHaveLength(1)
+    expect(
+      await within(screen.getByRole("region", { name: "Notifications" })).findByText("Sent for approval")
+    ).toBeVisible()
+    await userEvent.click(done)
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review changes" })).toBeNull())
   })
 })

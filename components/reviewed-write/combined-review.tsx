@@ -35,7 +35,8 @@ export type CombinedReviewRow = ChangeRow & {
   readonly noun?: string
   /**
    * The request needs a different person's approval before it can go to
-   * Google (two-person mode). Publishing leaves it waiting for them.
+   * Google (two-person mode). The plain line says so; the caller keeps
+   * publishing off until that person approves it.
    */
   readonly waitsForApprover?: boolean
 }

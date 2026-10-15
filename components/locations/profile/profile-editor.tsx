@@ -50,7 +50,6 @@ import { googleUnreachable } from "@/lib/listings/health"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useProfile, useRefreshProfile } from "@/lib/queries/use-location-profile"
 import { ApiClientError, isAwaitingApproval } from "@/lib/api/client"
-import { LISTING_CHANGE_AWAITING_APPROVAL } from "@/lib/contracts/wire-codes"
 import {
   publishBusinessAttributes,
   publishBusinessInformation,
@@ -154,20 +153,6 @@ function routeProfileRow(
   if (key.startsWith("attribute-"))
     return { ...row, route: "google", steps: ["attributes"], waitsForApprover: waits.attributes }
   return { ...row, route: "google", steps: ["listing"], waitsForApprover: waits.listing }
-}
-
-/**
- * A prepared request this person can't approve stays saved for another
- * publisher (Saved profile reviews); nothing is approved or sent. The step
- * ends in the shared "awaiting approval" outcome, which usePublishFlow parks
- * before running the rest, so its row never says it was sent.
- */
-function awaitingAnotherApprover(): never {
-  throw new ApiClientError(
-    202,
-    LISTING_CHANGE_AWAITING_APPROVAL,
-    "Another publisher needs to approve this change before it goes to Google."
-  )
 }
 
 type FieldErrors = Partial<Record<keyof ProfileFormValues, string>>
@@ -471,7 +456,8 @@ function ProfileEditor({
     [values, listing, attributes, revision, googleHash, locationHash, attributesHash]
   )
   const saved = useRef<ProfileState | null>(null)
-  // Set when a step ended waiting for another publisher, so the sheet stays
+  // Set when the server held a step for another publisher (two-person mode,
+  // a 202 the API client raises as awaiting approval), so the sheet stays
   // open on its per-row results instead of closing as if all were sent.
   const parked = useRef(false)
 
@@ -540,7 +526,6 @@ function ProfileEditor({
         // Business information compares the readback field by field.
         verified: true,
         run: async (intent) => {
-          if (waitsForApprover(listingReview)) awaitingAnotherApprover()
           const approved = listingReview.approvedBy ? listingReview : await approveBusinessInformation(locationId, listingReview.id, listingReview.payloadHash)
           const change = businessInformationLocationUpdateSchema.parse({
             operation: "update_location", confirmation: "publish_business_information_to_google",
@@ -563,7 +548,6 @@ function ProfileEditor({
         // the flow refuses any result that is not confirmed.
         verified: true,
         run: async (intent) => {
-          if (waitsForApprover(attributeReview)) awaitingAnotherApprover()
           const approved = attributeReview.approvedBy ? attributeReview : await approveBusinessAttributes(locationId, attributeReview.id, attributeReview.payloadHash)
           const change = businessInformationAttributeUpdateSchema.parse({
             operation: "update_attributes", confirmation: "publish_business_attributes_to_google",
@@ -1123,10 +1107,9 @@ function ProfileEditor({
         publishing={flow.isPublishing}
         results={flow.results}
         error={flow.error}
-        // A request another publisher must approve no longer stops the rest
-        // of the sheet: its row ends "Awaiting approval". Only a sheet with
-        // nothing else in it keeps the button off, as before.
-        publishDisabledReason={publishReason ?? (reviewFingerprint !== fingerprint ? "The draft or Google baseline changed. Close this review and review again." : combinedRows.length > 0 && combinedRows.every((row) => row.waitsForApprover) ? "A different authorised user must approve this saved review." : null)}
+        // Two-person gating is unchanged: any prepared request this person
+        // can't approve keeps the whole publish off.
+        publishDisabledReason={publishReason ?? (reviewFingerprint !== fingerprint ? "The draft or Google baseline changed. Close this review and review again." : [listingReview, attributeReview].some(waitsForApprover) ? "A different authorised user must approve this saved review." : null)}
       />
     </EditorFrame>
   )
