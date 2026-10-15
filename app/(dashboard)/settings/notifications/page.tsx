@@ -14,7 +14,7 @@ export default async function SettingsNotificationsPage() {
         description="Choose what you hear about in the app and by email. A daily summary collects the updates you choose for it into one email."
         tabs={<SettingsNav role={session?.role ?? null} />}
       />
-      <NotificationPreferences />
+      <NotificationPreferences role={session?.role ?? null} />
     </>
   )
 }
