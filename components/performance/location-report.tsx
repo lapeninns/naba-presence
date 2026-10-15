@@ -12,8 +12,8 @@ import {
   reportToolbarFieldProps,
 } from "@/components/reporting/report-toolbar"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
-import { ReportsSkeleton } from "@/components/reporting/reports-skeleton"
 import { buttonVariants } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import {
@@ -57,21 +57,45 @@ function LocationReport({
     "Europe/London"
   )
 
+  // The figures start from `locationId` alone, in parallel with the
+  // directory; only the name and the sibling picker wait for it.
+  const figures = (
+    <LocationPerformance locationId={locationId} rangeId={rangeId} />
+  )
+
   if (directory.isPending) {
     return (
-      <ReportsSkeleton variant="tab" label="Loading this location’s report" />
+      <div
+        className="flex flex-col gap-(--np-gap-section)"
+        data-slot="location-report"
+      >
+        <div role="status" aria-busy="true" className="flex flex-col gap-3">
+          <span className="sr-only">Loading this location’s report</span>
+          <Skeleton className="h-6 w-64 max-w-full" />
+          <Skeleton className="h-(--np-touch) w-full rounded-(--np-radius-pill) md:hidden" />
+          <Skeleton className="hidden h-(--np-control-h) w-full rounded-(--np-radius-control) md:block" />
+        </div>
+        {figures}
+      </div>
     )
   }
 
-  // A failed directory is not "this location isn't yours".
+  // A failed directory is not "this location isn't yours": say so, and keep
+  // the figures, which never needed it.
   if (directory.isError) {
     return (
-      <ReportingPanel
-        variant="error"
-        title="We couldn’t load this location"
-        cause={directory.error}
-        onRetry={() => void directory.refetch()}
-      />
+      <div
+        className="flex flex-col gap-(--np-gap-section)"
+        data-slot="location-report"
+      >
+        <ReportingPanel
+          variant="error"
+          title="We couldn’t load this location"
+          cause={directory.error}
+          onRetry={() => void directory.refetch()}
+        />
+        {figures}
+      </div>
     )
   }
 
@@ -91,7 +115,10 @@ function LocationReport({
     : (location.clientName ?? "Not filed under a client")
 
   return (
-    <div className="flex flex-col gap-(--np-gap-section)">
+    <div
+      className="flex flex-col gap-(--np-gap-section)"
+      data-slot="location-report"
+    >
       <div className="flex flex-col gap-3">
         {/* The scope, said once in words at every width: the summary button
             is phone-only and the meta line is desk-only. */}
@@ -163,7 +190,7 @@ function LocationReport({
         />
       </div>
       {/* The period picker is the toolbar's, so none is drawn below. */}
-      <LocationPerformance locationId={locationId} rangeId={rangeId} />
+      {figures}
     </div>
   )
 }
