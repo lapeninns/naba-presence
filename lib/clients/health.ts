@@ -529,6 +529,21 @@ export function freshnessSentence(freshness: ClientFreshness): string {
   }
 }
 
+/**
+ * The hub's description for a client whose health is "attention". Names the
+ * cause when the freshness has one. When it has none (the stale-check window
+ * is fine but something else needs a look), it falls back to the attention
+ * description instead of "Review checks are up to date", which would sit
+ * beside a "Needs attention" pill and contradict it.
+ */
+export function attentionDescription(
+  freshness: ClientFreshness | null | undefined
+): string {
+  return freshness?.reason
+    ? freshnessSentence(freshness)
+    : healthDescription("attention")
+}
+
 /** The one non-"all" filter bucket a health state belongs to. */
 export type HealthBucket = Exclude<HealthFilter, "all">
 
