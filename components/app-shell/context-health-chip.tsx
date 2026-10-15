@@ -71,7 +71,9 @@ function useContextHealth() {
 /**
  * The desk toolbar's health chip: a bordered white pill with a status dot
  * and the words, always both (the colour never carries the meaning alone).
- * Phones show the same words as a row in the More sheet instead.
+ * Phones show the same words as a row in the More sheet instead. It shrinks
+ * with the toolbar, its words truncating, so the breadcrumb trail beside it
+ * is never cut to stubs first (DSK-05).
  */
 function ContextHealthChip() {
   const { tone, label, href, scopedName, isPending } = useContextHealth()
@@ -80,10 +82,13 @@ function ContextHealthChip() {
   return (
     <ShellLink
       href={href}
+      // The words truncate when the toolbar is tight; the tooltip keeps
+      // them readable in full.
+      title={scopedName ? `${scopedName}: ${label}` : label}
       data-slot="health-chip"
       data-tone={tone}
       className={cn(
-        "inline-flex h-[34px] max-w-[min(22rem,34vw)] min-w-0 shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink",
+        "inline-flex h-[34px] max-w-[min(22rem,34vw)] min-w-0 shrink items-center gap-2 rounded-full border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink",
         "transition-colors duration-(--np-duration-fast) hover:border-line-strong",
         "focus-halo focus-visible:outline-none pointer-coarse:h-11"
       )}

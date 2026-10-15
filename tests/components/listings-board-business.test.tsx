@@ -105,7 +105,7 @@ describe("ListingsBoard in business mode", () => {
       screen.queryByRole("group", { name: "Filter by client" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("group", { name: "Order listings" })
+      screen.queryByRole("button", { name: /^Order listings/ })
     ).not.toBeInTheDocument()
     expect(screen.queryByText("File under a client")).not.toBeInTheDocument()
     expect(container.textContent).not.toMatch(/client|agency/i)

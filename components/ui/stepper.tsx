@@ -55,6 +55,11 @@ export const STEP_STATE_WORDS: Record<StepState, string> = {
  * sideways inside itself when it does not fit. For a reply's five-stage
  * record use `Lifecycle` instead.
  *
+ * `showLabels` keeps every step's words on a phone, at caption size, for a
+ * flow whose labels are short (the reviewed write's four steps). The steps
+ * wrap onto a second line rather than scroll, and the rules between them
+ * are dropped.
+ *
  * On a phone (below 48rem) a horizontal stepper keeps every ring but only
  * the CURRENT step's words: four labels side by side at 360px each
  * truncated to "Con…", which said less than the numbers. The other labels
@@ -75,11 +80,17 @@ function Stepper({
   orientation = "horizontal",
   variant = "default",
   stateWords,
+  showLabels = false,
   className,
   ...props
 }: Omit<React.ComponentProps<"ol">, "children"> & {
   steps: Step[]
   orientation?: "horizontal" | "vertical"
+  /**
+   * Keep every step's words on a phone, in a smaller size, instead of only
+   * the current step's. For short labels ("Review", "Approve", "Send").
+   */
+  showLabels?: boolean
   /** `quiet`: the words-first vertical list (see above). */
   variant?: "default" | "quiet"
   /** `variant="quiet"`: replaces some or all of `STEP_STATE_WORDS`. */
@@ -108,6 +119,11 @@ function Stepper({
         vertical
           ? "flex flex-col gap-0.5"
           : "flex [scrollbar-width:none] items-center gap-0 overflow-x-auto",
+        // Words for every step wrap onto a second line on a phone instead of
+        // scrolling sideways out of sight.
+        !vertical &&
+          showLabels &&
+          "max-md:flex-wrap max-md:gap-y-1 max-md:overflow-visible",
         className
       )}
       {...props}
@@ -142,7 +158,9 @@ function Stepper({
             <span
               className={cn(
                 "flex min-w-0 flex-col",
-                !vertical && step.state !== "current" && "max-md:sr-only"
+                !vertical &&
+                  step.state !== "current" &&
+                  (showLabels ? "max-md:text-caption" : "max-md:sr-only")
               )}
             >
               <span className="truncate">{step.label}</span>
@@ -156,7 +174,10 @@ function Stepper({
               <span
                 className={cn(
                   "ml-auto shrink-0",
-                  !vertical && step.state !== "current" && "max-md:sr-only",
+                  !vertical &&
+                    step.state !== "current" &&
+                    !showLabels &&
+                    "max-md:sr-only",
                   "text-caption font-normal text-ink-muted"
                 )}
               >
@@ -169,7 +190,9 @@ function Stepper({
           "flex min-w-0 items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-2 text-ui text-ink-secondary no-underline",
           step.state === "current" && "font-semibold",
           // Ring-only steps on a phone need no side padding of their own.
-          !vertical && step.state !== "current" && "max-md:px-1",
+          !vertical &&
+            step.state !== "current" &&
+            (showLabels ? "max-md:gap-1.5 max-md:px-1" : "max-md:px-1"),
           vertical &&
             step.state === "current" &&
             "bg-accent-tint text-accent-ink",
@@ -207,6 +230,7 @@ function Stepper({
                 aria-hidden
                 className={cn(
                   "mx-1 h-0.5 min-w-4 flex-1 rounded-full max-md:min-w-2",
+                  showLabels && "max-md:hidden",
                   step.state === "done" ? "bg-success-solid" : "bg-line"
                 )}
               />

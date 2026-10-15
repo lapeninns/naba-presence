@@ -248,11 +248,12 @@ describe("More sheet contents", () => {
     expect(account.getByText("Aman Shrestha")).toBeInTheDocument()
     expect(account.getByText("a@example.test")).toBeInTheDocument()
     const theme = account.getByRole("radiogroup", { name: "Theme" })
+    // One segmented track with short names, so it never wraps (SET-26).
     expect(
       within(theme)
         .getAllByRole("radio")
-        .map((radio) => radio.closest("label")?.textContent)
-    ).toEqual(["Light", "Dark", "Match system"])
+        .map((radio) => radio.textContent)
+    ).toEqual(["Light", "Dark", "System"])
     expect(
       account.getByRole("button", { name: "Sign out" })
     ).toBeInTheDocument()

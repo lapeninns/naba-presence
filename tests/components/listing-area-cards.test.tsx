@@ -39,11 +39,11 @@ describe("overview area actions", () => {
       />
     )
     expect(
-      card("Opening hours").getByRole("link", { name: "Check Opening hours" })
+      card("Opening hours").getByRole("link", { name: "Open Opening hours" })
     ).toHaveAttribute("href", "/listings/l1/hours")
     expect(
       card("People with access").getByRole("link", {
-        name: "Check People with access",
+        name: "Open People with access",
       })
     ).toBeInTheDocument()
   })
@@ -62,13 +62,13 @@ describe("overview area actions", () => {
       />
     )
     expect(
-      card("Photos").getByRole("link", { name: "Check Photos" })
+      card("Photos").getByRole("link", { name: "Open Photos" })
     ).toBeInTheDocument()
     expect(
       card("Photos").getByText(/including uploads outside this app/)
     ).toBeInTheDocument()
     expect(
-      card("Posts").getByRole("link", { name: "Check Posts" })
+      card("Posts").getByRole("link", { name: "Open Posts" })
     ).toBeInTheDocument()
     expect(
       card("Posts").getByText(/including posts created outside this app/)
@@ -183,7 +183,7 @@ describe("overview area actions", () => {
       />
     )
     expect(
-      card("Opening hours").getByRole("link", { name: "Check Opening hours" })
+      card("Opening hours").getByRole("link", { name: "Open Opening hours" })
     ).toHaveAttribute("href", "/listings/l1/hours")
   })
   it("offers viewing rather than editing when Google confirms menus are not offered", () => {

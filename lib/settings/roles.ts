@@ -48,6 +48,18 @@ export function roleDescriptions(
     : ROLE_DESCRIPTIONS
 }
 
+/**
+ * The one-line summary for a role where the workspace mode isn't known: the
+ * public invitation page, whose lookup carries only the role (D8). The same
+ * lines as `ROLE_SUMMARIES`, with the admin's worded to be true in both
+ * modes.
+ */
+export function invitationRoleSummary(role: MemberRole): string {
+  return role === "admin"
+    ? "Manages the team and every listing"
+    : ROLE_SUMMARIES[role]
+}
+
 /** The one-line role sub-labels for a workspace mode. */
 export function roleSummaries(
   mode: "business" | "agency"

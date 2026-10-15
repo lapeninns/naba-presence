@@ -105,10 +105,6 @@ describe("ResetPasswordForm", () => {
     vi.spyOn(authApi, "completePasswordReset").mockResolvedValue({ mfaRequired: false })
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
-    await user.type(
-      screen.getByLabelText("Confirm new password"),
-      "correct-horse-9"
-    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith(`${window.location.origin}/inbox`)
@@ -122,10 +118,6 @@ describe("ResetPasswordForm", () => {
     )
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
-    await user.type(
-      screen.getByLabelText("Confirm new password"),
-      "correct-horse-9"
-    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "That link is invalid or has expired."
@@ -143,10 +135,6 @@ describe("ResetPasswordForm", () => {
     )
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
-    await user.type(
-      screen.getByLabelText("Confirm new password"),
-      "correct-horse-9"
-    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Too many attempts."
@@ -158,15 +146,11 @@ describe("ResetPasswordForm", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("rejects a locally-invalid password before contacting the server", async () => {
+  it("rejects a too-short password before contacting the server", async () => {
     const user = userEvent.setup()
     const spy = vi.spyOn(authApi, "completePasswordReset")
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
-    await user.type(screen.getByLabelText("New password"), "correcthorse9x")
-    await user.type(
-      screen.getByLabelText("Confirm new password"),
-      "correcthorse9x"
-    )
+    await user.type(screen.getByLabelText("New password"), "short!1")
     await user.click(screen.getByRole("button", { name: "Update password" }))
     expect(spy).not.toHaveBeenCalled()
     expect(screen.getByLabelText("New password")).toHaveAttribute(
@@ -176,7 +160,39 @@ describe("ResetPasswordForm", () => {
     // The requirements checklist also renders here, so the accessible
     // description concatenates both — match the error text, not the whole string.
     expect(screen.getByLabelText("New password")).toHaveAccessibleDescription(
-      /Include at least one symbol\./
+      /Use at least 12 characters\./
+    )
+  })
+
+  it("has a single new-password field and no confirmation", () => {
+    render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
+    expect(screen.queryByLabelText(/confirm/i)).not.toBeInTheDocument()
+    const field = screen.getByLabelText("New password")
+    expect(field).toHaveAttribute("autocomplete", "new-password")
+    expect(
+      document.querySelectorAll('input[autocomplete="new-password"]')
+    ).toHaveLength(1)
+    expect(
+      screen.getByRole("button", { name: "Show password" })
+    ).toBeInTheDocument()
+  })
+
+  it("submits a letters-only password of 12 or more characters", async () => {
+    const user = userEvent.setup()
+    const complete = vi
+      .spyOn(authApi, "completePasswordReset")
+      .mockResolvedValue({ mfaRequired: false })
+    render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
+    await user.type(
+      screen.getByLabelText("New password"),
+      "correct horse battery"
+    )
+    await user.click(screen.getByRole("button", { name: "Update password" }))
+    await waitFor(() =>
+      expect(complete).toHaveBeenCalledWith({
+        tokenHash: "token-hash-value-long-enough",
+        password: "correct horse battery",
+      })
     )
   })
 
@@ -195,10 +211,6 @@ describe("ResetPasswordForm", () => {
     expect(username).toHaveValue("")
     expect(username).not.toBeVisible()
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
-    await user.type(
-      screen.getByLabelText("Confirm new password"),
-      "correct-horse-9"
-    )
     await user.click(screen.getByRole("button", { name: "Update password" }))
     const busy = await screen.findByRole("button", { name: "Updating…" })
     expect(busy).toBeDisabled()

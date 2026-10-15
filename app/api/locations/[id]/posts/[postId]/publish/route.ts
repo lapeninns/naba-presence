@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import type { PostPublishOutcome } from "@/lib/contracts/location-posts"
+import {
+  postPublishBodySchema,
+  type PostPublishOutcome,
+} from "@/lib/contracts/location-posts"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { requestOrPublishLocalPost } from "@/lib/server/posts"
@@ -14,7 +17,8 @@ export const POST = route({
   maxDuration,
   mfa: "step_up",
   params: z.object({ id: z.string(), postId: z.string() }),
-  handler: async ({ session, params, requestId }) => {
+  body: postPublishBodySchema,
+  handler: async ({ session, params, body, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
     }
@@ -24,6 +28,7 @@ export const POST = route({
       locationId: params.id,
       postId: params.postId,
       requestId,
+      expectedRevision: body.expectedRevision,
     })) satisfies PostPublishOutcome
     return NextResponse.json(outcome, {
       status: outcome.status === "awaiting_approval" ? 202 : 200,

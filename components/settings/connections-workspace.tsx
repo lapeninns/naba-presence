@@ -3,6 +3,7 @@
 import { Plus } from "lucide-react"
 import Link from "next/link"
 
+import { PageChrome } from "@/components/app-shell/page-chrome"
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ConnectionCard } from "@/components/settings/connection-card"
 import { NotificationsCard } from "@/components/settings/notifications-card"
@@ -50,6 +51,20 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
 
   return (
     <>
+      {/* The header's button scrolls away on a phone; the app bar carries
+          the same action from then on (SET-25). Same gate, same call, same
+          pending words. */}
+      {hasConnection ? (
+        <PageChrome
+          action={{
+            label: "Connect another account",
+            icon: Plus,
+            onSelect: () => connect.mutate({}),
+            pending: connect.isPending,
+            pendingLabel: "Opening Google…",
+          }}
+        />
+      ) : null}
       <PageHeader
         title="Google connections"
         description={

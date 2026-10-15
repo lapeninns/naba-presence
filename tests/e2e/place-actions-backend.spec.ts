@@ -5,7 +5,8 @@ import { captureServicesPanel } from "./helpers/services-capture"
 import { seedMemberUser } from "../integration/helpers/tenant"
 let backend: Awaited<ReturnType<typeof startPlaceActionsBackend>>
 // The sheet is titled as a review until a request is recorded, then as its outcome.
-const actionLinkSheet = /^(Review action link change|Saved action link outcome)$/
+const actionLinkSheet =
+  /^(Review booking link change|Saved booking link outcome)$/
 test.beforeAll(async () => {
   backend = await startPlaceActionsBackend()
 })
@@ -19,15 +20,19 @@ test.beforeEach(async ({ context }) => {
       : route.abort("blockedbyclient")
   )
 })
-async function capture(page: Page, info: TestInfo, name: string, scope = '[role="dialog"]') {
+async function capture(
+  page: Page,
+  info: TestInfo,
+  name: string,
+  scope = '[role="dialog"]'
+) {
   // Let open/close transitions settle first: a closing confirmation overlay
   // over an opening sheet fades the text axe samples.
   await expect(
     page.locator("[data-starting-style], [data-ending-style]")
   ).toHaveCount(0)
   expect(
-    (await new AxeBuilder({ page }).include(scope).analyze())
-      .violations
+    (await new AxeBuilder({ page }).include(scope).analyze()).violations
   ).toEqual([])
   expect(
     await page.evaluate(
@@ -44,20 +49,27 @@ async function prepare(page: Page) {
     .getByRole("textbox", { name: "Link", exact: true })
     .fill("https://shop.example.test/products")
   await page
-    .getByRole("button", { name: "Review action link", exact: true })
+    .getByRole("button", { name: "Review booking link", exact: true })
     .click()
   return page.getByRole("dialog", { name: actionLinkSheet })
 }
 for (const width of [375, 768, 1280])
-  test.describe(`Reviewed action links at ${width}px`, () => {
+  test.describe(`Reviewed booking links at ${width}px`, () => {
     test.use({ viewport: { width, height: 1100 } })
     test("reads provider-supported retail action types and prepares approval before a single independently confirmed create", async ({
       page,
     }, info) => {
       const f = await backend.actionFixture(page)
       await f.open()
+      // The review action is docked once a link is typed.
       await expect(
-        page.getByRole("button", { name: "Review action link", exact: true })
+        page.getByRole("button", { name: "Review booking link", exact: true })
+      ).toHaveCount(0)
+      await page
+        .getByRole("textbox", { name: "Link", exact: true })
+        .fill("https://shop.example.test/products")
+      await expect(
+        page.getByRole("button", { name: "Review booking link", exact: true })
       ).toBeEnabled()
       await captureServicesPanel(
         page,
@@ -75,26 +87,26 @@ for (const width of [375, 768, 1280])
       expect(f.writes()).toHaveLength(0)
       await dialog
         .getByRole("button", {
-          name: "Approve action link change",
+          name: "Approve booking link change",
           exact: true,
         })
         .click()
       await expect(
         dialog.getByRole("button", {
-          name: "Send approved action link change",
+          name: "Send approved booking link change",
           exact: true,
         })
       ).toBeDisabled()
       expect(f.writes()).toHaveLength(0)
       await dialog
         .getByRole("checkbox", {
-          name: "Send this exact approved action link change to Google.",
+          name: "Send this exact approved booking link change to Google.",
         })
         .check()
       await capture(page, info, "approved-consent")
       await dialog
         .getByRole("button", {
-          name: "Send approved action link change",
+          name: "Send approved booking link change",
           exact: true,
         })
         .click()
@@ -120,7 +132,7 @@ for (const width of [375, 768, 1280])
       const dialog = await prepare(page)
       await dialog
         .getByRole("button", {
-          name: "Approve action link change",
+          name: "Approve booking link change",
           exact: true,
         })
         .click()
@@ -128,7 +140,7 @@ for (const width of [375, 768, 1280])
       f.state.types = ["APPOINTMENT"]
       await dialog
         .getByRole("button", {
-          name: "Send approved action link change",
+          name: "Send approved booking link change",
           exact: true,
         })
         .click()
@@ -136,7 +148,7 @@ for (const width of [375, 768, 1280])
       expect(f.writes()).toHaveLength(0)
       await expect(
         dialog.getByRole("button", {
-          name: "Send approved action link change",
+          name: "Send approved booking link change",
           exact: true,
         })
       ).toBeDisabled()
@@ -158,7 +170,7 @@ for (const width of [375, 768, 1280])
       const dialog = await prepare(page)
       await dialog
         .getByRole("button", {
-          name: "Approve action link change",
+          name: "Approve booking link change",
           exact: true,
         })
         .click()
@@ -176,7 +188,7 @@ for (const width of [375, 768, 1280])
       )
       await dialog
         .getByRole("button", {
-          name: "Send approved action link change",
+          name: "Send approved booking link change",
           exact: true,
         })
         .click()
@@ -185,13 +197,13 @@ for (const width of [375, 768, 1280])
       ).toBeVisible()
       await expect(
         dialog.getByRole("button", {
-          name: "Send approved action link change",
+          name: "Send approved booking link change",
           exact: true,
         })
       ).toHaveCount(0)
       await expect(
         dialog.getByRole("button", {
-          name: "Read saved action link outcome",
+          name: "Read saved booking link outcome",
           exact: true,
         })
       ).toBeEnabled()
@@ -201,7 +213,7 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "lost-response")
       await dialog
         .getByRole("button", {
-          name: "Read saved action link outcome",
+          name: "Read saved booking link outcome",
           exact: true,
         })
         .click()
@@ -214,12 +226,12 @@ for (const width of [375, 768, 1280])
       await f.disconnect()
       await page.reload()
       const saved = page.getByRole("region", {
-        name: "Saved action link work",
+        name: "Saved booking link work",
         exact: true,
       })
       await expect(
         saved.getByRole("button", {
-          name: "Open action link outcome",
+          name: "Open booking link outcome",
           exact: true,
         })
       ).toBeEnabled()
@@ -230,10 +242,10 @@ for (const width of [375, 768, 1280])
         page,
         info,
         "disconnected-saved-index",
-        '[aria-label="Saved action link work"]'
+        '[aria-label="Saved booking link work"]'
       )
       await saved
-        .getByRole("button", { name: "Open action link outcome", exact: true })
+        .getByRole("button", { name: "Open booking link outcome", exact: true })
         .click()
       await expect(
         page
@@ -254,7 +266,7 @@ for (const width of [375, 768, 1280])
       const dialog = await prepare(page)
       await dialog
         .getByRole("button", {
-          name: "Approve action link change",
+          name: "Approve booking link change",
           exact: true,
         })
         .click()
@@ -263,7 +275,7 @@ for (const width of [375, 768, 1280])
       f.state.apply = false
       await dialog
         .getByRole("button", {
-          name: "Send approved action link change",
+          name: "Send approved booking link change",
           exact: true,
         })
         .click()
@@ -277,9 +289,14 @@ for (const width of [375, 768, 1280])
       await dialog
         .getByRole("button", { name: "Keep editing", exact: true })
         .click()
+      // Changes are paused: no review action is offered until the saved
+      // outcome has been read.
       await expect(
-        page.getByRole("button", { name: "Review action link", exact: true })
-      ).toBeDisabled()
+        page.getByRole("button", { name: "Review booking link", exact: true })
+      ).toHaveCount(0)
+      await expect(
+        page.getByText("Booking link changes are paused", { exact: true })
+      ).toBeVisible()
       await captureServicesPanel(
         page,
         info,
@@ -287,7 +304,7 @@ for (const width of [375, 768, 1280])
         "#section-action-links"
       )
       await page
-        .getByRole("button", { name: "Open action link outcome", exact: true })
+        .getByRole("button", { name: "Open booking link outcome", exact: true })
         .click()
       f.state.links.push({
         name: `${f.linked.googleLocationName}/placeActionLinks/recovered`,
@@ -299,7 +316,7 @@ for (const width of [375, 768, 1280])
       })
       await dialog
         .getByRole("button", {
-          name: "Refresh action link observation",
+          name: "Refresh booking link observation",
           exact: true,
         })
         .click()
@@ -320,12 +337,12 @@ for (const width of [375, 768, 1280])
       await f.open()
       await expect(
         page.getByRole("heading", {
-          name: "Google doesn’t offer action links for this listing",
+          name: "Google doesn’t offer booking links for this listing",
           exact: true,
         })
       ).toBeVisible()
       await expect(
-        page.getByRole("button", { name: "Review action link", exact: true })
+        page.getByRole("button", { name: "Review booking link", exact: true })
       ).toHaveCount(0)
       await captureServicesPanel(
         page,
@@ -335,18 +352,24 @@ for (const width of [375, 768, 1280])
       )
       f.state.types = ["FUTURE_ACTION"]
       // Within the editors' staleness budget a reload serves the stored
-      // observation (W3-2); "Check Google now" reads the new types.
+      // observation (W3-2); "Check Google now" reads the new types. Under
+      // 768px it sits in the status pill's sheet (L03).
+      if (width < 768)
+        await page
+          .getByRole("button", { name: /how changes reach Google$/i })
+          .click()
       await page
         .getByRole("button", { name: "Check Google now", exact: true })
         .click()
+      if (width < 768) await page.keyboard.press("Escape")
       await expect(
         page.getByRole("link", {
-          name: "Manage action links in Google",
+          name: "Manage booking links in Google",
           exact: true,
         })
       ).toHaveAttribute("href", "https://business.google.com/")
       await expect(
-        page.getByRole("button", { name: "Review action link", exact: true })
+        page.getByRole("button", { name: "Review booking link", exact: true })
       ).toHaveCount(0)
       await captureServicesPanel(
         page,
@@ -425,18 +448,18 @@ for (const width of [375, 768, 1280])
       async function approveAndSend() {
         await sheet
           .getByRole("button", {
-            name: "Approve action link change",
+            name: "Approve booking link change",
             exact: true,
           })
           .click()
         await sheet
           .getByRole("checkbox", {
-            name: "Send this exact approved action link change to Google.",
+            name: "Send this exact approved booking link change to Google.",
           })
           .check()
         await sheet
           .getByRole("button", {
-            name: "Send approved action link change",
+            name: "Send approved booking link change",
             exact: true,
           })
           .click()
@@ -445,7 +468,7 @@ for (const width of [375, 768, 1280])
         ).toBeVisible()
         await expect(
           sheet.getByRole("button", {
-            name: "Refresh action link observation",
+            name: "Refresh booking link observation",
             exact: true,
           })
         ).toHaveCount(0)
@@ -469,7 +492,11 @@ for (const width of [375, 768, 1280])
           exact: true,
         })
         .click()
-      const preferredRow = sheet.getByRole("row").filter({ has: page.getByRole("rowheader", { name: "Preferred", exact: true }) })
+      const preferredRow = sheet
+        .getByRole("row")
+        .filter({
+          has: page.getByRole("rowheader", { name: "Preferred", exact: true }),
+        })
       await expect(preferredRow.getByRole("deletion")).toHaveText("No")
       await expect(preferredRow.getByRole("insertion")).toHaveText("Yes")
       await capture(page, info, "preferred-review")
@@ -492,7 +519,10 @@ for (const width of [375, 768, 1280])
         .getByRole("textbox", { name: "Link", exact: true })
         .fill("https://shop.example.test/first-updated")
       await edit
-        .getByRole("button", { name: "Review action link change", exact: true })
+        .getByRole("button", {
+          name: "Review booking link change",
+          exact: true,
+        })
         .click()
       await expect(
         sheet.getByText("https://shop.example.test/first-updated", {
@@ -531,7 +561,7 @@ for (const width of [375, 768, 1280])
         expect.arrayContaining([`${base}/partner`, `${base}/future`])
       )
       await expect(
-        page.getByRole("dialog", { name: "Saved action link outcome" })
+        page.getByRole("dialog", { name: "Saved booking link outcome" })
       ).toBeVisible()
       await expect(
         sheet.getByText("Remove this link", { exact: true })
@@ -570,11 +600,16 @@ for (const width of [375, 768, 1280])
       const confirm = page
         .getByRole("alertdialog")
         .or(page.getByRole("dialog"))
-        .filter({ hasText: "Review removing this action link?" })
+        .filter({ hasText: "Review removing this booking link?" })
       await expect(confirm.getByRole("alert")).toContainText(
         "Google no longer lists this action link"
       )
-      await capture(page, info, "preparation-failure-in-dialog", '[role="alertdialog"]')
+      await capture(
+        page,
+        info,
+        "preparation-failure-in-dialog",
+        '[role="alertdialog"]'
+      )
       expect(f.writes()).toHaveLength(0)
     })
     test("a second manager approves by keyboard and a revoked approver blocks sending without a write", async ({
@@ -596,7 +631,7 @@ for (const width of [375, 768, 1280])
       ).toBeVisible()
       await expect(
         sheet.getByRole("button", {
-          name: "Approve action link change",
+          name: "Approve booking link change",
           exact: true,
         })
       ).toBeDisabled()
@@ -606,35 +641,33 @@ for (const width of [375, 768, 1280])
       })
       await backend.admin`update member set role = 'admin', can_publish = true where user_id = ${second.userId}`
       await page.context().clearCookies()
-      await page
-        .context()
-        .addCookies([
-          {
-            name: "naba_session",
-            value: second.cookie.slice("naba_session=".length),
-            url: backend.server.baseUrl,
-            httpOnly: true,
-            sameSite: "Lax",
-          },
-        ])
+      await page.context().addCookies([
+        {
+          name: "naba_session",
+          value: second.cookie.slice("naba_session=".length),
+          url: backend.server.baseUrl,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ])
       await f.open()
       const saved = page.getByRole("region", {
-        name: "Saved action link work",
+        name: "Saved booking link work",
         exact: true,
       })
       await saved
-        .getByRole("button", { name: "Open action link review", exact: true })
+        .getByRole("button", { name: "Open booking link review", exact: true })
         .focus()
       await page.keyboard.press("Enter")
       const approve = sheet.getByRole("button", {
-        name: "Approve action link change",
+        name: "Approve booking link change",
         exact: true,
       })
       await expect(approve).toBeEnabled()
       await approve.focus()
       await page.keyboard.press("Enter")
       const consent = sheet.getByRole("checkbox", {
-        name: "Send this exact approved action link change to Google.",
+        name: "Send this exact approved booking link change to Google.",
       })
       await expect(consent).toBeVisible()
       await consent.focus()
@@ -643,28 +676,26 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "second-manager-approved")
       await backend.admin`update member set role = 'viewer', can_publish = false where user_id = ${second.userId}`
       await page.context().clearCookies()
-      await page
-        .context()
-        .addCookies([
-          {
-            name: "naba_session",
-            value: f.owner.cookie.slice("naba_session=".length),
-            url: backend.server.baseUrl,
-            httpOnly: true,
-            sameSite: "Lax",
-          },
-        ])
+      await page.context().addCookies([
+        {
+          name: "naba_session",
+          value: f.owner.cookie.slice("naba_session=".length),
+          url: backend.server.baseUrl,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ])
       await f.open()
       await saved
-        .getByRole("button", { name: "Open action link review", exact: true })
+        .getByRole("button", { name: "Open booking link review", exact: true })
         .click()
       await sheet
         .getByRole("checkbox", {
-          name: "Send this exact approved action link change to Google.",
+          name: "Send this exact approved booking link change to Google.",
         })
         .check()
       const send = sheet.getByRole("button", {
-        name: "Send approved action link change",
+        name: "Send approved booking link change",
         exact: true,
       })
       await send.focus()

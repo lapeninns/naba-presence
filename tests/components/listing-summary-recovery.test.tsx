@@ -78,7 +78,7 @@ it("recovers the failed initial overview summary through its retry action", asyn
     await screen.findByText("We couldn’t check where each area stands")
   ).toBeVisible()
   expect(
-    screen.getByRole("link", { name: "Check Opening hours" })
+    screen.getByRole("link", { name: "Open Opening hours" })
   ).toHaveAttribute("href", "/listings/l1/hours")
   await user.click(screen.getByRole("button", { name: "Try again" }))
   expect(await screen.findByText("27 of your photos")).toBeVisible()

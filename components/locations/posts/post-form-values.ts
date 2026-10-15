@@ -27,6 +27,11 @@ export type PostFormValues = {
   terms: string
   action: LocalPostActionType | ""
   actionUrl: string
+  /**
+   * A photo chosen in the composer (a public image link, Google's copy of a
+   * library photo). Empty keeps whatever photos the saved post already has.
+   */
+  photoUrl: string
 } & RecurrenceFields
 
 export function record(value: unknown): Record<string, unknown> | null {
@@ -78,6 +83,7 @@ export function postFormValues(
     terms: text(offer?.termsConditions),
     action: action ?? "",
     actionUrl: text(cta?.url),
+    photoUrl: "",
     ...recurrenceFields(event, timeZone),
   }
 }

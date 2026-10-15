@@ -100,6 +100,17 @@ export function breadcrumbTrail({
 
   if (business && first === "clients") return []
 
+  // Setup lives under Clients, or under Listings in a business (SET-11), so
+  // its trail says so, as the tab bar and the sidebar do.
+  if (first === "setup") {
+    return [
+      business
+        ? { label: "Listings", href: "/listings" }
+        : { label: "Clients", href: "/clients" },
+      { label: "Setup" },
+    ]
+  }
+
   if (first === "clients" && second) {
     if (second === "new") {
       return [{ label: "Clients", href: "/clients" }, { label: "New client" }]

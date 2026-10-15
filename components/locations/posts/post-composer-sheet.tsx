@@ -1,10 +1,22 @@
 "use client"
 
-import { ChevronDownIcon, PencilIcon, Plus } from "lucide-react"
+import {
+  ChevronDownIcon,
+  ImageIcon,
+  PencilIcon,
+  Plus,
+  UploadIcon,
+} from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useId, useImperativeHandle, useRef, useState } from "react"
 
 import { DraftNotices } from "@/components/editors/draft-notices"
+import { PostPhotoPicker } from "@/components/locations/posts/post-photo-picker"
 import { PostPreview } from "@/components/locations/posts/post-preview"
+import {
+  postPublishGate,
+  publishToast,
+} from "@/components/locations/posts/post-publish"
 import {
   postFormValues,
   record,
@@ -12,6 +24,7 @@ import {
 } from "@/components/locations/posts/post-form-values"
 import { Button } from "@/components/ui/button"
 import { FilterChip } from "@/components/ui/chip"
+import { FileCard } from "@/components/ui/file-card"
 import {
   Field,
   FieldCounter,
@@ -34,14 +47,20 @@ import {
   Sheet,
   SheetBody,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
-import { createPost, updatePost, type Post } from "@/lib/api/location-posts"
+import { useOutcomeToast } from "@/components/ui/toast"
+import {
+  createPost,
+  publishPost,
+  updatePost,
+  type Post,
+} from "@/lib/api/location-posts"
+import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 import {
   DAYS_OF_WEEK,
   LOCAL_POST_ACTION_TYPES,
@@ -51,9 +70,14 @@ import {
 } from "@/lib/contracts/location-posts"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
+  describeActionError,
+  isUnconfirmedFailure,
+} from "@/lib/errors/action-errors"
+import {
   localPostFormSchema,
   type LocalPostFormValues,
 } from "@/lib/locations/forms/local-post"
+import { resourceDisabledReason } from "@/lib/locations/gating"
 import { POST_ACTION_LABEL, postImageUrl } from "@/lib/locations/post-display"
 import {
   DEFAULT_TIMEZONE,
@@ -93,11 +117,6 @@ const ROW =
 const ROW_LABEL =
   "shrink-0 text-ui font-normal text-ink-muted @[360px]/composer:w-28"
 const ROW_VALUE = "flex min-w-0 flex-1 flex-col gap-1"
-/**
- * Borderless at rest, so the rows read as one surface; the edge and the
- * focus ring come back on hover, focus and an error.
- */
-const BARE = "border-transparent bg-transparent hover-fine:hover:border-line"
 
 /** The summary limit the posts route parses with (`localPostInputSchema`). */
 const SUMMARY_MAX = 1500
@@ -115,6 +134,7 @@ const EMPTY: Values = {
   terms: "",
   action: "",
   actionUrl: "",
+  photoUrl: "",
   ...NO_RECURRENCE,
 }
 
@@ -137,14 +157,16 @@ function sameNewPost(a: Values, b: Values): boolean {
 function parseValues(value: unknown): Values | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const stashed = value as Record<string, unknown>
+  // A draft stashed before the photo row existed has no `photoUrl`.
+  const withPhoto: Record<string, unknown> = { photoUrl: "", ...stashed }
   const fits = (Object.keys(EMPTY) as Array<keyof Values>).every((key) =>
     Array.isArray(EMPTY[key])
-      ? Array.isArray(stashed[key])
-      : typeof stashed[key] === typeof EMPTY[key]
+      ? Array.isArray(withPhoto[key])
+      : typeof withPhoto[key] === typeof EMPTY[key]
   )
   if (!fits) return null
   return Object.fromEntries(
-    Object.keys(EMPTY).map((key) => [key, stashed[key]])
+    Object.keys(EMPTY).map((key) => [key, withPhoto[key]])
   ) as Values
 }
 
@@ -231,7 +253,9 @@ function toCandidate(
   const candidate: Record<string, unknown> = {
     topicType: values.topicType,
     summary: values.summary,
-    media: keptMedia(post),
+    // A photo chosen here is the post's photo; none chosen keeps the saved
+    // post's own.
+    media: values.photoUrl ? [{ sourceUrl: values.photoUrl }] : keptMedia(post),
   }
   if (post) candidate.languageCode = post.languageCode
   if (values.topicType !== "STANDARD") {
@@ -271,9 +295,11 @@ function toCandidate(
  * and dates, the text with its counter, an optional button, and a preview
  * beside the fields on a wide sheet (below them on a phone).
  *
- * It saves a draft only. Nothing reaches Google until the post is published
- * from the list, where the repo's approval rules decide whether that is a
- * publish or a request for approval.
+ * "Save draft" keeps the post in NabaPresence only. Where the caller says
+ * what the person may do (`caps`), the footer's primary is "Publish to
+ * Google" (or "Request approval" when they cannot publish), and it is only
+ * ever drawn with the consent line beside it saying what goes to Google:
+ * there is no separate confirm step, so that line is the consent.
  *
  * With `post` it edits that draft (or failed post) instead: the fields start
  * from the saved post, the trigger is a small Edit button, and saving
@@ -285,6 +311,8 @@ export function PostComposerSheet({
   post,
   timezone = DEFAULT_TIMEZONE,
   openRef,
+  caps,
+  writesEnabled = true,
 }: {
   locationId: string
   disabledReason: string | null
@@ -297,8 +325,17 @@ export function PostComposerSheet({
    * draws no trigger of its own and hands back an `open()` instead.
    */
   openRef?: React.Ref<{ open: () => void }>
+  /**
+   * The person's capabilities on this listing. Without them the composer
+   * only saves drafts; with them it can also publish (or ask for approval).
+   */
+  caps?: LocationCapabilities
+  /** The Google publish pause: off means nothing can be sent. */
+  writesEnabled?: boolean
 }) {
   const editing = Boolean(post)
+  const queryClient = useQueryClient()
+  const outcomeToast = useOutcomeToast()
   const [open, setOpen] = useState(false)
   // The fields start from the saved post (or an empty one) and follow it
   // when it changes, without overwriting unsaved edits: a newer save by
@@ -332,13 +369,20 @@ export function PostComposerSheet({
   const repeatId = useId()
   const weekdaysLabelId = useId()
   const mediaLabelId = useId()
+  const photoLabelId = useId()
   const previewId = useId()
   const disabledReasonId = useId()
   const saveReasonId = useId()
+  const consentId = useId()
+  const [photoOpen, setPhotoOpen] = useState(false)
+  // The picker reads the listing's photos from Google, so it mounts the
+  // first time it is asked for, not with the composer.
+  const [photoMounted, setPhotoMounted] = useState(false)
+  if (photoOpen && !photoMounted) setPhotoMounted(true)
   // On a phone the preview waits under the fields until asked for.
   const [previewOpen, setPreviewOpen] = useState(true)
-  // Photos are carried over as they are: there is no upload or removal in
-  // this path, so the strip is read-only.
+  // A saved post's own photos are kept as they are unless one is chosen
+  // here, which replaces them; the strip is read-only.
   // Thumbnails follow the list's rule: Google's copy first, http(s) only.
   const thumbnails = (post && Array.isArray(post.media) ? post.media : [])
     .map((entry) => postImageUrl({ media: [entry] }))
@@ -386,6 +430,94 @@ export function PostComposerSheet({
     },
   })
 
+  // Publish from the composer: save the post, then publish it. A save that
+  // went through stays saved if the publish does not, so the person keeps
+  // the post and the list offers the retry. (Only the publish step carries
+  // the intent; a lost answer to the save itself can leave a second draft,
+  // as the plain Save draft can.)
+  const savedBeforeFailure = useRef(false)
+  const publish = useResourceMutation({
+    mutationFn: async (
+      input: LocalPostFormValues | null,
+      intent
+    ): Promise<Awaited<ReturnType<typeof publishPost>>> => {
+      let postId = post?.id
+      // The revision this person saved, or had on screen for an unchanged
+      // draft: publish refuses a post that has moved on since, so what goes
+      // to Google is what the consent line above the button covered.
+      let revision = post?.contentRevision
+      if (input) {
+        if (post) {
+          const saved = await updatePost(
+            locationId,
+            post.id,
+            input,
+            post.updatedAt
+          )
+          revision = "post" in saved ? saved.post.contentRevision : undefined
+        } else {
+          const created = await createPost(locationId, input)
+          postId = created.post.id
+          revision = created.post.contentRevision
+        }
+      }
+      if (!postId) throw new Error("There is no post to publish.")
+      savedBeforeFailure.current = true
+      const result = await publishPost(locationId, postId, {
+        intentId: intent.intentId,
+        expectedRevision: revision,
+      })
+      savedBeforeFailure.current = false
+      return result
+    },
+    // An unchanged saved draft publishes as it is; anything else is its own
+    // action, so an edit never reuses an earlier attempt's intent.
+    intentKey: (input) => [post?.id ?? "new", input],
+    invalidate: [queryKeys.locationPosts(locationId)],
+    errorContext: "post",
+    errorToast: (error) => {
+      const reason = describeActionError(error, { context: "post" })
+      // Only a definite refusal says the post is kept here: after a lost
+      // answer Google may hold it, and the message above already says to
+      // check the list before changing it.
+      return savedBeforeFailure.current && !isUnconfirmedFailure(error)
+        ? `${reason} The post is kept in NabaPresence, not lost.`
+        : reason
+    },
+    onSuccess: (result) => {
+      if (!post) editor.discard()
+      setErrors({})
+      setServerError(null)
+      setOpen(false)
+      outcomeToast.show(publishToast(result))
+    },
+    onError: (_error, message) => {
+      if (!savedBeforeFailure.current) {
+        setServerError(message)
+        return
+      }
+      // Saved, not published: the draft is in the list with its own retry.
+      savedBeforeFailure.current = false
+      if (!post) editor.discard()
+      setErrors({})
+      setServerError(null)
+      setOpen(false)
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.locationPosts(locationId),
+      })
+    },
+  })
+
+  const gate = caps ? postPublishGate(caps, writesEnabled) : null
+  const publishLabel = gate?.requestApproval
+    ? "Request approval"
+    : post?.status === "failed"
+      ? "Retry publish"
+      : "Publish to Google"
+  // Adding a new photo goes through the library's own flow, which writes to
+  // Google; choosing one Google already has does not.
+  const addPhotoReason = resourceDisabledReason(caps, "media", writesEnabled)
+
   const disabled = Boolean(disabledReason)
   // Why Save is off, in words. A disabled composer's reason is the note in
   // the body; otherwise Save waits for a change (the condition on the
@@ -395,7 +527,7 @@ export function PostComposerSheet({
       ? null
       : editing
         ? "No changes to save yet."
-        : "Nothing to save yet. Write the post first."
+        : "Write the post first."
   const event = values.topicType !== "STANDARD"
   const offer = values.topicType === "OFFER"
   const summaryLength = values.summary.length
@@ -429,11 +561,19 @@ export function PostComposerSheet({
     }))
   }
 
-  function submit() {
+  /** The fields checked and parsed for the route, or null with the reason shown. */
+  function parsedInput(needsText: boolean): LocalPostFormValues | null {
     const found = validate(values)
+    if (
+      needsText &&
+      !values.summary.trim() &&
+      !values.photoUrl &&
+      keptMedia(post).length === 0
+    )
+      found.summary = "Write something, or add a photo, before publishing."
     setErrors(found)
     setAttempt((count) => count + 1)
-    if (Object.keys(found).length > 0) return
+    if (Object.keys(found).length > 0) return null
     const parsed = localPostFormSchema.safeParse(
       toCandidate(values, timezone, post)
     )
@@ -441,11 +581,30 @@ export function PostComposerSheet({
       setServerError(
         parsed.error.issues[0]?.message ?? "Please complete the post."
       )
-      return
+      return null
     }
     setServerError(null)
+    return parsed.data
+  }
+
+  function submit() {
+    const input = parsedInput(false)
+    if (!input) return
     if (post) editor.expectSave()
-    create.mutate(parsed.data)
+    create.mutate(input)
+  }
+
+  function submitPublish() {
+    // A saved draft with nothing changed publishes as it is.
+    if (post && !isDirty) {
+      setServerError(null)
+      publish.mutate(null)
+      return
+    }
+    const input = parsedInput(true)
+    if (!input) return
+    if (post) editor.expectSave()
+    publish.mutate(input)
   }
 
   // The trigger carries no reason of its own: the list's banner says why
@@ -481,11 +640,6 @@ export function PostComposerSheet({
       <SheetContent side="right" size="wide">
         <SheetHeader>
           <SheetTitle>{editing ? "Edit post" : "New post"}</SheetTitle>
-          <SheetDescription>
-            {post?.status === "failed"
-              ? "Saving turns it back into a draft. Nothing reaches Google until you publish it from the list."
-              : "Saved as a draft. Nothing reaches Google until you publish it from the list."}
-          </SheetDescription>
         </SheetHeader>
 
         <SheetBody className="@container/composer">
@@ -533,7 +687,6 @@ export function PostComposerSheet({
                         onChange={(e) => set("eventTitle", e.target.value)}
                         disabled={disabled}
                         autoComplete="off"
-                        className={BARE}
                       />
                       <FieldError>{errors.eventTitle}</FieldError>
                     </div>
@@ -556,7 +709,7 @@ export function PostComposerSheet({
                             disabled={disabled}
                             aria-invalid={errors.dates ? true : undefined}
                             aria-describedby={datesId}
-                            className={cn(BARE, "flex-[1.3]")}
+                            className={"flex-[1.3]"}
                           />
                           <Field className="min-w-0 flex-1">
                             <FieldLabel className="sr-only">
@@ -567,7 +720,6 @@ export function PostComposerSheet({
                               value={values.startTime}
                               onChange={(e) => set("startTime", e.target.value)}
                               disabled={disabled}
-                              className={BARE}
                             />
                           </Field>
                         </div>
@@ -583,7 +735,7 @@ export function PostComposerSheet({
                             disabled={disabled}
                             aria-invalid={errors.dates ? true : undefined}
                             aria-describedby={datesId}
-                            className={cn(BARE, "flex-[1.3]")}
+                            className={"flex-[1.3]"}
                           />
                           <Field className="min-w-0 flex-1">
                             <FieldLabel className="sr-only">
@@ -594,7 +746,6 @@ export function PostComposerSheet({
                               value={values.endTime}
                               onChange={(e) => set("endTime", e.target.value)}
                               disabled={disabled}
-                              className={BARE}
                             />
                           </Field>
                         </div>
@@ -635,7 +786,7 @@ export function PostComposerSheet({
                             disabled={disabled}
                           >
                             <SelectTrigger
-                              className={cn(BARE, "w-full")}
+                              className={"w-full"}
                               aria-invalid={errors.repeat ? true : undefined}
                               aria-describedby={repeatId}
                             >
@@ -673,7 +824,6 @@ export function PostComposerSheet({
                               disabled={disabled}
                               aria-invalid={errors.repeat ? true : undefined}
                               aria-describedby={repeatId}
-                              className={BARE}
                             />
                           </div>
                         </Field>
@@ -723,7 +873,7 @@ export function PostComposerSheet({
                               }
                               disabled={disabled}
                             >
-                              <SelectTrigger className={cn(BARE, "w-full")}>
+                              <SelectTrigger className={"w-full"}>
                                 <SelectValue>
                                   {(value: string | null) =>
                                     monthly.find(
@@ -780,7 +930,6 @@ export function PostComposerSheet({
                           disabled={disabled}
                           maxLength={100}
                           autoComplete="off"
-                          className={BARE}
                         />
                       </div>
                     </Field>
@@ -796,7 +945,6 @@ export function PostComposerSheet({
                           value={values.redeemUrl}
                           onChange={(e) => set("redeemUrl", e.target.value)}
                           disabled={disabled}
-                          className={BARE}
                         />
                         <FieldError>{errors.redeemUrl}</FieldError>
                       </div>
@@ -810,7 +958,6 @@ export function PostComposerSheet({
                           value={values.terms}
                           onChange={(e) => set("terms", e.target.value)}
                           disabled={disabled}
-                          className={BARE}
                         />
                       </div>
                     </Field>
@@ -844,7 +991,6 @@ export function PostComposerSheet({
                   maxRows={16}
                   disabled={disabled}
                   aria-label="Post summary"
-                  className={BARE}
                 />
                 <FieldError>{errors.summary}</FieldError>
               </Field>
@@ -875,12 +1021,47 @@ export function PostComposerSheet({
                     ))}
                   </ul>
                   <span className="text-caption text-ink-muted">
-                    Kept as they are when you save.
+                    {values.photoUrl
+                      ? "Replaced by the photo you chose."
+                      : "Kept as they are unless you choose another."}
                   </span>
                 </div>
               ) : null}
 
               <div className="flex flex-col divide-y divide-line-subtle border-t border-line-subtle">
+                <div className={ROW}>
+                  <span id={photoLabelId} className={ROW_LABEL}>
+                    Photo
+                  </span>
+                  <div className={ROW_VALUE}>
+                    {values.photoUrl ? (
+                      <ul aria-labelledby={photoLabelId}>
+                        <FileCard
+                          name="Photo for this post"
+                          previewUrl={values.photoUrl}
+                          state="Goes to Google with the post"
+                          onRemove={
+                            disabled ? undefined : () => set("photoUrl", "")
+                          }
+                          removeLabel="Remove the photo"
+                        />
+                      </ul>
+                    ) : null}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="self-start"
+                      onClick={() => setPhotoOpen(true)}
+                      disabled={disabled}
+                      aria-describedby={photoLabelId}
+                    >
+                      <ImageIcon aria-hidden />
+                      {values.photoUrl || thumbnails.length > 0
+                        ? "Change photo"
+                        : "Add photo"}
+                    </Button>
+                  </div>
+                </div>
                 <Field className={ROW}>
                   <FieldLabel optional className={ROW_LABEL}>
                     Button
@@ -896,7 +1077,7 @@ export function PostComposerSheet({
                       }
                       disabled={disabled}
                     >
-                      <SelectTrigger className={cn(BARE, "w-full")}>
+                      <SelectTrigger className={"w-full"}>
                         <SelectValue>
                           {(value: string | null) =>
                             value && value !== "NONE"
@@ -932,7 +1113,6 @@ export function PostComposerSheet({
                         value={values.actionUrl}
                         onChange={(e) => set("actionUrl", e.target.value)}
                         disabled={disabled}
-                        className={BARE}
                       />
                       <FieldError>{errors.actionUrl}</FieldError>
                     </div>
@@ -997,7 +1177,9 @@ export function PostComposerSheet({
                     values.action ? POST_ACTION_LABEL[values.action] : ""
                   }
                   recurrence={recurrenceText}
-                  imageUrl={post ? postImageUrl(post) : null}
+                  imageUrl={
+                    values.photoUrl || (post ? postImageUrl(post) : null)
+                  }
                 />
                 <span className="text-caption text-ink-muted">
                   An illustration. Google decides the final layout.
@@ -1009,18 +1191,37 @@ export function PostComposerSheet({
 
         <SheetFooter className="sm:items-center">
           {/* Shown at every width: on a phone it wraps above the buttons. */}
-          <div className="flex min-w-0 flex-col gap-0.5 text-caption text-pretty text-ink-muted sm:mr-auto sm:flex-1">
+          <div className="flex min-w-0 flex-col gap-1 text-caption text-pretty text-ink-muted sm:mr-auto sm:flex-1">
             {saveReason ? <p id={saveReasonId}>{saveReason}</p> : null}
-            {/* The composer only saves: publishing (or asking for approval,
-                or scheduling where it is on) happens from the post list. */}
+            {gate ? (
+              // The consent. It is drawn by the same condition as the
+              // Publish button below, so the button never appears without it.
+              <p
+                id={consentId}
+                data-slot="publish-consent"
+                className="text-ui text-ink"
+              >
+                {gate.requestApproval
+                  ? "Request approval saves this post and asks an approver. Nothing reaches Google until they approve it."
+                  : `${publishLabel} sends this ${
+                      values.topicType === "OFFER"
+                        ? "offer"
+                        : values.topicType === "EVENT"
+                          ? "event"
+                          : "update"
+                    }${values.photoUrl || thumbnails.length > 0 ? ", with its photo," : ""} to your Google listing now. Customers see it as soon as Google accepts it.`}
+              </p>
+            ) : null}
             <p>
-              This saves a draft. Nothing goes to Google until it is published
-              from the list.
+              {post?.status === "failed"
+                ? "Save draft turns it back into a draft. Nothing reaches Google until you publish it."
+                : "Save draft keeps it here only. Google is not affected."}
             </p>
           </div>
           <Button
+            variant={gate ? "secondary" : "default"}
             onClick={submit}
-            disabled={disabled || !isDirty}
+            disabled={disabled || !isDirty || publish.isPending}
             aria-describedby={
               disabled
                 ? disabledReasonId
@@ -1033,8 +1234,33 @@ export function PostComposerSheet({
           >
             {editing ? "Save changes" : "Save draft"}
           </Button>
+          {gate ? (
+            <Button
+              onClick={submitPublish}
+              disabled={disabled || (!post && !isDirty) || create.isPending}
+              disabledReason={gate.reason ?? undefined}
+              aria-describedby={consentId}
+              pending={publish.isPending}
+              pendingLabel={
+                gate.requestApproval ? "Requesting…" : "Publishing…"
+              }
+            >
+              {gate.requestApproval ? null : <UploadIcon aria-hidden />}
+              {publishLabel}
+            </Button>
+          ) : null}
         </SheetFooter>
       </SheetContent>
+      {photoMounted ? (
+        <PostPhotoPicker
+          open={photoOpen}
+          onOpenChange={setPhotoOpen}
+          locationId={locationId}
+          chosenUrl={values.photoUrl}
+          onChoose={(url) => set("photoUrl", url)}
+          addReason={addPhotoReason}
+        />
+      ) : null}
     </Sheet>
   )
 }

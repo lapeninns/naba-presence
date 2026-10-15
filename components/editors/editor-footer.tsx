@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
 import { useReturnFocus } from "@/lib/editors/use-return-focus"
+import { syncStatusLabel } from "@/lib/listings/health"
 import { cn } from "@/lib/utils"
 
 export type EditorStatus =
@@ -19,7 +20,7 @@ export type EditorStatus =
 
 /** The status words when no change count is given. */
 const STATUS_WORDS: Record<EditorStatus, string> = {
-  in_sync: "In sync with Google",
+  in_sync: syncStatusLabel("in_sync"),
   edited: "Changes not on Google",
   // Saved here, never sent. "Edited" read as "you just changed something",
   // which is wrong when the difference has been sitting there for a week.
@@ -75,6 +76,7 @@ function EditorFooter({
   disabledReason,
   className,
   changeCount,
+  emptyOnGoogle,
   onSave,
   saving = false,
   saveDisabledReason,
@@ -95,6 +97,8 @@ function EditorFooter({
   className?: string
   /** How many fields differ from Google; words the status line. */
   changeCount?: number
+  /** The header pill's words when nothing differs and Google holds nothing. */
+  emptyOnGoogle?: string
   /**
    * Save NabaPresence's own copy without publishing. Omit for resources
    * that have no copy of their own (the button is then not drawn).
@@ -139,6 +143,7 @@ function EditorFooter({
           localEdits,
           savesHere: Boolean(onSave),
           changeCount,
+          emptyOnGoogle,
         }
   )
 

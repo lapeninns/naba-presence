@@ -74,12 +74,14 @@ test.describe("listings", () => {
         level: 1,
       })
     ).toBeVisible()
-    // The health strip and one card per area, each with its own way in.
-    const health = page.getByRole("region", { name: "Health" })
-    await expect(health.getByText("Google connection")).toBeVisible()
-    await expect(
-      health.getByText("Verification", { exact: true })
-    ).toBeVisible()
+    // Two rows under the areas (verification and sync are each area card's
+    // own status), and one card per area, each with its own way in.
+    const google = page.getByRole("region", { name: "Google", exact: true })
+    await expect(google.getByText("Google connection")).toBeVisible()
+    await expect(google.getByText("Last published")).toBeVisible()
+    await expect(google.getByText("Verification", { exact: true })).toHaveCount(
+      0
+    )
     const areas = page.getByRole("region", { name: "Areas" })
     for (const area of [
       "Business profile",
@@ -100,7 +102,7 @@ test.describe("listings", () => {
 
     // Opening an area is a focused page with the way back in its header.
     await areas
-      .getByRole("link", { name: "Check Opening hours", exact: true })
+      .getByRole("link", { name: "Open Opening hours", exact: true })
       .click()
     await expect(page).toHaveURL(
       new RegExp(`/listings/${state.primaryLocationId}/hours$`)
@@ -169,7 +171,7 @@ test.describe("listings", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.goto(`/listings/${state.primaryLocationId}/photos`)
     await page.getByRole("button", { name: "Add photos" }).click()
-    await expect(page.getByRole("heading", { name: "Add media" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Add photos" })).toBeVisible()
     await expect(
       page.getByRole("button", { name: "Choose from library" })
     ).toBeVisible()
@@ -178,7 +180,7 @@ test.describe("listings", () => {
       "image/jpeg,image/png"
     )
     await expect(
-      page.getByRole("button", { name: "Review file upload" })
+      page.getByRole("button", { name: "Upload photos" })
     ).toBeDisabled()
   })
 
@@ -359,6 +361,100 @@ test.describe("listings", () => {
     expect((await saved).status()).toBe(200)
   })
 
+  test("publish failure: Review & publish says it once, names the next action and keeps the code behind support details", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto(`/listings/${state.primaryLocationId}/profile`)
+    const name = page.getByRole("textbox", { name: "Business name" })
+    await expect(name).toBeVisible()
+    await page.waitForLoadState("networkidle")
+    await name.fill("Riverside Rooms & Suites")
+    // Save the change in NabaPresence only, so Review & publish has it waiting.
+    await page.getByRole("button", { name: "Save here", exact: true }).click()
+
+    // Review & publish sends the profile step as a POST operation (the save
+    // above was the PUT), so fail that one.
+    await page.route(
+      `**/api/locations/${state.primaryLocationId}/profile`,
+      (route) =>
+        route.request().method() === "POST"
+          ? route.fulfill({
+              status: 500,
+              contentType: "application/json",
+              body: JSON.stringify({
+                error: "NOT_FOUND",
+                message: "Not found",
+              }),
+            })
+          : route.fallback()
+    )
+    await page.goto(`/listings/${state.primaryLocationId}/changes`)
+    // An earlier test may already have moved Google's name on, which asks the
+    // owner to confirm the replace before the button enables.
+    const publish = page.getByRole("button", {
+      name: /^Publish \d+ areas? to Google$/,
+    })
+    await expect(publish).toBeVisible()
+    const confirm = page.getByRole("checkbox", { name: /want to replace it/ })
+    await expect(async () => {
+      if ((await confirm.count()) > 0 && !(await confirm.isChecked())) {
+        await page.getByText(/want to replace it/).click()
+      }
+      await expect(publish).toBeEnabled({ timeout: 1_000 })
+    }).toPass({ timeout: 10_000 })
+    await publish.click()
+
+    // One banner carries the next action; focus lands on it.
+    const banner = page.getByText(/Publishing stopped at/).first()
+    await expect(banner).toBeVisible()
+    await expect(
+      page.getByText(
+        /Retry publishing when you’re ready|Check Google, then retry publishing/
+      )
+    ).toBeVisible()
+    // The step's own Retry is gone: the one action is the main button.
+    await expect(
+      page.getByRole("list", { name: "Publish results" }).getByRole("button", {
+        name: "Retry",
+      })
+    ).toHaveCount(0)
+    // The toast is six words or fewer and the code stays behind the details.
+    await expect(
+      page.getByText("Publishing stopped. See the steps.")
+    ).toBeVisible()
+    await expect(page.getByText("NOT_FOUND")).toBeHidden()
+    await page.getByText("Details for support").first().click()
+    await expect(page.getByText("NOT_FOUND").first()).toBeVisible()
+  })
+
+  test("read-only views: a member sees read rows, not greyed fields, and Review & publish does not send them off to edit", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.memberAssignedCookie)
+    await page.goto(`/listings/${state.primaryLocationId}/profile`)
+    await expect(page.getByText(/View-only access\./)).toBeVisible()
+    // The field stays disabled but reads as plain text: the editor is a read
+    // view, with no box and no greyed-out ink.
+    const field = page.getByRole("textbox", { name: "Business name" })
+    await expect(field).toBeDisabled()
+    await expect(page.locator("[data-read-only]").first()).toBeVisible()
+    await expect(field).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expect(field).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)")
+
+    await page.goto(`/listings/${state.primaryLocationId}/changes`)
+    await expect(
+      page.getByRole("heading", { name: "Review & publish", level: 1 })
+    ).toBeVisible()
+    await expect(page.getByText(/Edit an area and come back here/)).toHaveCount(
+      0
+    )
+  })
+
   test("the retired Performance segment lands on Reports scoped to the location", async ({
     baseURL,
     page,
@@ -408,22 +504,22 @@ test.describe("listings", () => {
       .fill("https://book.e2e/reserve")
     // A link change is reviewed, approved, then sent as a separate step.
     await page
-      .getByRole("button", { name: "Review action link", exact: true })
+      .getByRole("button", { name: "Review booking link", exact: true })
       .click()
     const sheet = page.getByRole("dialog", {
-      name: /^(Review action link change|Saved action link outcome)$/,
+      name: /^(Review booking link change|Saved booking link outcome)$/,
     })
     await sheet
-      .getByRole("button", { name: "Approve action link change", exact: true })
+      .getByRole("button", { name: "Approve booking link change", exact: true })
       .click()
     const send = sheet.getByRole("button", {
-      name: "Send approved action link change",
+      name: "Send approved booking link change",
       exact: true,
     })
     await expect(send).toBeDisabled()
     await sheet
       .getByRole("checkbox", {
-        name: "Send this exact approved action link change to Google.",
+        name: "Send this exact approved booking link change to Google.",
       })
       .check()
     const sent = page.waitForResponse(
@@ -549,6 +645,12 @@ test.describe("listings", () => {
         level: 2,
       })
     ).toBeVisible()
+    // The stub listing is verified with nothing pending, so the answer leads
+    // and the tools sit behind one disclosure.
+    await expect(
+      page.getByText("Verified. Google confirms you manage this listing.")
+    ).toBeVisible()
+    await page.getByText("Verification tools", { exact: true }).click()
     // Starting verification is reviewed, approved, then sent separately.
     const panel = page.locator('section[aria-labelledby="verification-start"]')
     await panel.getByRole("button", { name: "Check available methods" }).click()

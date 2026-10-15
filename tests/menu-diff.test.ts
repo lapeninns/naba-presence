@@ -98,19 +98,20 @@ describe("replacement fields and safe occurrence matching", () => {
       google: menu([item()]),
       draft: menu([draft]),
     })
-    expect(rows.map(({ before, after }) => [before, after])).toEqual([
-      ["GBP", "EUR"],
-      ["6", "7"],
-      ["0", "1"],
-    ])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      field: "Menu · Menu · Starters · Soup · Price",
+      before: "£6.00",
+      after: "EUR 7.000000001",
+    })
   })
-  it("shows every cleared price field when the price is removed", () => {
+  it("shows a removed price as one row in pounds", () => {
     const rows = menuChangeRows({
       google: menu([item()]),
       draft: menu([{ labels: item().labels }]),
     })
-    expect(rows).toHaveLength(3)
-    expect(rows.every((row) => row.after === "Removed")).toBe(true)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ before: "£6.00", after: "Removed" })
   })
   it("shows removed options and attributes that inbound imports preserve", () => {
     const google = menu([
@@ -139,8 +140,12 @@ describe("replacement fields and safe occurrence matching", () => {
       draft: menu([{ ...item(), options: [...options].reverse() }]),
     })
     expect(rows).toHaveLength(1)
-    expect(JSON.parse(rows[0]?.before ?? "null")).toEqual(options)
-    expect(JSON.parse(rows[0]?.after ?? "null")).toEqual([...options].reverse())
+    expect(rows[0]?.before).toBe(
+      "Label: Small, Price: 5; Label: Large, Price: 9"
+    )
+    expect(rows[0]?.after).toBe(
+      "Label: Large, Price: 9; Label: Small, Price: 5"
+    )
   })
   it("shows item ordering even when the same occurrences remain", () => {
     const rows = menuChangeRows({
@@ -188,7 +193,7 @@ describe("replacement fields and safe occurrence matching", () => {
       rows.some((row) => row.before === "Soupe" && row.after === "Removed")
     ).toBe(true)
     expect(
-      rows.some((row) => row.before === "true" && row.after === "Removed")
+      rows.some((row) => row.before === "Yes" && row.after === "Removed")
     ).toBe(true)
   })
   it("uses collision-free keys across matches additions and removals", () => {
@@ -219,7 +224,7 @@ describe("structural replacement fields", () => {
       draft: menu([{ ...item(), nutrition: {} }]),
     })
     expect(result.rows).toHaveLength(1)
-    expect(result.rows[0]).toMatchObject({ before: "Not set", after: "{}" })
+    expect(result.rows[0]).toMatchObject({ before: "Not set", after: "Empty" })
   })
   it("exposes an omitted empty collection in the replacement", () => {
     const result = compareMenuReplacement({
@@ -257,5 +262,109 @@ describe("uncertainty presentation", () => {
       before: "2 entries: 1. Soup — A — £6.00; 2. Soup — B — £6.00",
       after: "2 entries: 1. Soup — C — £6.00; 2. Soup — D — £6.00",
     })
+  })
+})
+
+describe("readable rows at consent", () => {
+  function section(name: string, items: Array<Record<string, unknown>>) {
+    return { labels: [{ displayName: name }], items }
+  }
+  function whole(name: string, sections: Array<Record<string, unknown>>) {
+    return { labels: [{ displayName: name }], sections }
+  }
+  function expectNoJson(
+    rows: ReadonlyArray<{ before: string; after: string }>
+  ) {
+    for (const row of rows) {
+      for (const value of [row.before, row.after]) {
+        expect(value).not.toMatch(/^[{[]/)
+        expect(value).not.toMatch(/"(units|nanos|labels|displayName)"/)
+        expect(value).not.toMatch(/nanos|units/)
+      }
+    }
+  }
+  const priced = {
+    labels: [{ displayName: "Burger", description: "Beef, cheese" }],
+    attributes: {
+      price: { currencyCode: "GBP", units: "16", nanos: 500000000 },
+    },
+  }
+
+  it("shows an added menu with its counts, then every section and dish", () => {
+    const rows = menuChangeRows({
+      google: [],
+      draft: [whole("Lunch", [section("Mains", [priced, item()])])],
+    })
+    expect(rows.map((row) => row.after)).toEqual([
+      "Lunch — 1 section · 2 items",
+      "Mains — 2 items",
+      "Burger — Beef, cheese — £16.50",
+      "Soup — Fresh soup — £6.00",
+    ])
+    expect(rows.every((row) => row.before === "Not on Google")).toBe(true)
+    expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length)
+    expectNoJson(rows)
+  })
+  it("shows a removed menu and everything in it in words", () => {
+    const rows = menuChangeRows({
+      google: [whole("Lunch", [section("Mains", [priced])])],
+      draft: [],
+    })
+    expect(rows.map((row) => row.before)).toEqual([
+      "Lunch — 1 section · 1 item",
+      "Mains — 1 item",
+      "Burger — Beef, cheese — £16.50",
+    ])
+    expect(rows.every((row) => row.after === "Removed from Google")).toBe(true)
+    expectNoJson(rows)
+  })
+  it("shows an added item with its description and £16.50 price", () => {
+    const rows = menuChangeRows({
+      google: [whole("Menu", [section("Mains", [])])],
+      draft: [whole("Menu", [section("Mains", [priced])])],
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.after).toBe("Burger — Beef, cheese — £16.50")
+    expectNoJson(rows)
+  })
+  it("shows a removed section and its dishes in words", () => {
+    const rows = menuChangeRows({
+      google: [whole("Menu", [section("Mains", [priced, item()])])],
+      draft: [whole("Menu", [])],
+    })
+    expect(rows.map((row) => row.before)).toEqual([
+      "Mains — 2 items",
+      "Burger — Beef, cheese — £16.50",
+      "Soup — Fresh soup — £6.00",
+    ])
+    expectNoJson(rows)
+  })
+  it("shows a changed price as pounds, not currency, units and nanos", () => {
+    const cheaper = {
+      ...priced,
+      attributes: { price: { currencyCode: "GBP", units: "15", nanos: 0 } },
+    }
+    const rows = menuChangeRows({
+      google: [whole("Menu", [section("Mains", [priced])])],
+      draft: [whole("Menu", [section("Mains", [cheaper])])],
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ before: "£16.50", after: "£15.00" })
+    expect(rows[0]?.field).toMatch(/Price$/)
+    expectNoJson(rows)
+  })
+  it("never shows JSON for nested or unlabelled values", () => {
+    const rows = menuChangeRows({
+      google: menu([{ ...item(), nutrition: { calories: 400, tags: ["a"] } }]),
+      draft: menu([
+        {
+          ...item(),
+          nutrition: { calories: 450, tags: ["a", "b"] },
+          extra: [{ note: { deep: true } }],
+        },
+      ]),
+    })
+    expect(rows.length).toBeGreaterThan(0)
+    expectNoJson(rows)
   })
 })

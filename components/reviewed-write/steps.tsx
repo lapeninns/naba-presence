@@ -41,10 +41,15 @@ export function reviewedWriteSteps(
       id: "approve",
       label: "Approve",
       state: state("approve"),
-      meta: secondApprover && stage === "approve" ? "Another person" : undefined,
+      meta:
+        secondApprover && stage === "approve" ? "Another person" : undefined,
     },
     { id: "send", label: "Send", state: state("send") },
-    { id: "outcome", label: "Outcome", state: stage === "outcome" ? "current" : "todo" },
+    {
+      id: "outcome",
+      label: "Outcome",
+      state: stage === "outcome" ? "current" : "todo",
+    },
   ]
 }
 
@@ -62,6 +67,7 @@ export function ReviewedWriteSteps({
     <Stepper
       aria-label="Steps to send this change"
       className={className}
+      showLabels
       steps={reviewedWriteSteps(stage, { secondApprover })}
     />
   )

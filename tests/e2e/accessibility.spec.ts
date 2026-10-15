@@ -499,7 +499,10 @@ for (const theme of themes) {
             exact: true,
           })
           .click()
-        await expect(page.getByLabel("Confirm password")).toBeVisible()
+        await expect(
+          page.getByRole("listitem", { name: /Between 12 and 128 characters/ })
+        ).toBeVisible()
+        await expect(page.getByLabel("Confirm password")).toHaveCount(0)
         await page.waitForTimeout(250)
         await expectAccessible(page, `${viewport.name} ${theme} registration`)
       })
@@ -517,7 +520,10 @@ for (const theme of themes) {
         await page.goto(
           "/reset-password?token_hash=recovery-token-hash-for-a11y"
         )
-        await expect(page.getByLabel("Confirm new password")).toBeVisible()
+        await expect(
+          page.getByLabel("New password", { exact: true })
+        ).toBeVisible()
+        await expect(page.getByLabel("Confirm new password")).toHaveCount(0)
         await expectAccessible(page, `${viewport.name} ${theme} reset password`)
       })
 
@@ -530,8 +536,8 @@ for (const theme of themes) {
                 organisationName: "Naba Presence",
                 workspaceMode: "agency",
                 email: "invitee@example.com",
-                accepted: false,
-                expired: false,
+                role: "admin",
+                expiresAt: "2099-10-22T14:05:00.000Z",
               },
             })
           }
@@ -1582,17 +1588,37 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Team", level: 1 })
         ).toBeVisible()
-        // Role changes moved into the row's actions menu (a dialog with
-        // role cards), so the row carries one menu button per member.
-        await expect(
-          page.getByRole("button", { name: "Actions for Alex Morgan" })
-        ).toBeVisible()
+        // From md the table's row menu holds every action. On a phone each
+        // member is a row that opens the member sheet (SET-02).
+        if (viewport.name === "mobile") {
+          await expect(
+            page.getByRole("button", {
+              name: "Alex Morgan, alex@example.com",
+            })
+          ).toBeVisible()
+        } else {
+          await expect(
+            page.getByRole("button", { name: "Actions for Alex Morgan" })
+          ).toBeVisible()
+        }
         await expect(
           page.getByRole("button", {
             name: "Copy invite link for invitee@example.com",
           })
         ).toBeVisible()
         await expectAccessible(page, `${viewport.name} ${theme} team`)
+        if (viewport.name === "mobile") {
+          await page
+            .getByRole("button", {
+              name: "Alex Morgan, alex@example.com",
+            })
+            .click()
+          await expect(
+            page.getByRole("dialog", { name: "Alex Morgan" })
+          ).toBeVisible()
+          await expectAccessible(page, `${viewport.name} ${theme} member sheet`)
+          await page.keyboard.press("Escape")
+        }
       })
     })
   }

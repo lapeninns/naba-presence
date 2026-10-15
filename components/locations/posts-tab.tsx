@@ -55,11 +55,24 @@ import { requestOptions } from "@/lib/queries/request-options"
 import type { ListPaging } from "@/lib/queries/paged-list"
 import { usePosts, useRefreshPosts } from "@/lib/queries/use-location-posts"
 
-function headline(post: Post): string {
-  // Events and offers carry a title of their own. An update has none, so it
-  // is named by its type rather than by repeating its first words above the
-  // same words.
-  return postEventTitle(post) || POST_TOPIC_LABEL[post.topicType]
+const HEADLINE_MAX = 70
+
+/**
+ * The row's title and body. Events and offers carry a title of their own.
+ * An update has none, so its first line leads (several updates must not all
+ * read "Update") and the type moves to the tag. The body then holds only
+ * what the title leaves out, so no words are said twice.
+ */
+function headline(post: Post): { title: string; body: string } {
+  const eventTitle = postEventTitle(post)
+  if (eventTitle) return { title: eventTitle, body: post.summary }
+  const text = post.summary.trim()
+  const [firstLine = "", ...rest] = text.split(/\r?\n/)
+  const first = firstLine.trim()
+  if (!first) return { title: POST_TOPIC_LABEL[post.topicType], body: "" }
+  if (first.length > HEADLINE_MAX)
+    return { title: `${first.slice(0, HEADLINE_MAX).trimEnd()}…`, body: text }
+  return { title: first, body: rest.join("\n").trim() }
 }
 
 function lifecycle(post: Post): LifecycleStage[] {
@@ -252,6 +265,16 @@ function PostsList({
 
   const editReason = contentEditDisabledReason(caps)
 
+  const composer = (
+    <PostComposerSheet
+      locationId={locationId}
+      disabledReason={composeReason ?? editReason}
+      timezone={timezone}
+      caps={caps}
+      writesEnabled={writesEnabled}
+    />
+  )
+
   // Inside the listing area the header above already carries the "Posts"
   // h1, the status and the model note ("Each post is drafted, approved if
   // your policy asks, then published."), so the frame keeps its title for
@@ -274,13 +297,9 @@ function PostsList({
           ? "Posts are paused"
           : "You can look, but not change these posts"
       }
-      actions={
-        <PostComposerSheet
-          locationId={locationId}
-          disabledReason={composeReason ?? editReason}
-          timezone={timezone}
-        />
-      }
+      // With no posts the empty state carries the one action; the header
+      // button would be a second "New post" on the same screen.
+      actions={counts.all === 0 ? undefined : composer}
     >
       <GoogleFreshness
         observedAt={observedAt}
@@ -309,8 +328,9 @@ function PostsList({
             // Why it is empty, then the next step, or why there is none.
             composeReason || editReason
               ? "A post is a short update, event or offer that shows on the listing on Google for about a week. The note above says why new posts can’t be written right now."
-              : "A post is a short update, event or offer that shows on the listing on Google for about a week. Write the first one with New post; nothing reaches Google until you publish it."
+              : "A post is a short update, event or offer that shows on the listing on Google for about a week. Nothing reaches Google until you publish it."
           }
+          action={composer}
         />
       ) : (
         <div className="flex flex-col gap-3">
@@ -382,13 +402,9 @@ function PostsList({
                   <li key={post.id}>
                     <PostCard
                       id={post.id}
-                      title={headline(post)}
-                      topic={
-                        postEventTitle(post)
-                          ? POST_TOPIC_LABEL[post.topicType]
-                          : undefined
-                      }
-                      summary={post.summary}
+                      title={headline(post).title}
+                      topic={POST_TOPIC_LABEL[post.topicType]}
+                      summary={headline(post).body}
                       status={status.label}
                       tone={status.tone}
                       meta={meta}
@@ -401,13 +417,8 @@ function PostsList({
                         <PostsActionBar
                           locationId={locationId}
                           post={post}
-                          // Updates share the headline "Update", so the
-                          // menu is named by the post's own words.
-                          label={
-                            postEventTitle(post) ||
-                            post.summary.slice(0, 60) ||
-                            headline(post)
-                          }
+                          // The menu is named by the post's own words.
+                          label={headline(post).title}
                           caps={caps}
                           writesEnabled={writesEnabled}
                           timezone={timezone}

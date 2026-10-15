@@ -25,7 +25,7 @@ import { hardNavigate } from "@/lib/client/hard-navigate"
 import { RESET_TOKEN_HASH_LENGTH } from "@/lib/domain/auth-limits"
 import { cn } from "@/lib/utils"
 
-const FIELD_ORDER = ["password", "confirmPassword"] as const
+const FIELD_ORDER = ["password"] as const
 
 // A dead token can never succeed no matter how many times the user
 // resubmits, so these two codes tear down the form in favour of a route
@@ -64,7 +64,6 @@ const loadAuthSchemas = () => import("@/lib/domain/auth")
 
 function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [deadToken, setDeadToken] = useState(false)
@@ -107,11 +106,6 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
       const message = parsedPassword.error.issues[0]?.message
       setFieldErrors(message ? { password: message } : {})
       focusField("password")
-      return
-    }
-    if (password !== confirmPassword) {
-      setFieldErrors({ confirmPassword: "Both passwords must match." })
-      focusField("confirmPassword")
       return
     }
     setFieldErrors({})
@@ -191,7 +185,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         </div>
       ) : null}
 
-      {/* A username field beside the new passwords marks this as an
+      {/* A username field beside the new password marks this as an
           account's password change, so a password manager offers to update
           an existing entry rather than save a nameless one. It is empty:
           the reset link doesn't tell this page the address, and the page
@@ -215,14 +209,6 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         autoComplete="new-password"
         error={fieldErrors.password}
         describedBy={<PasswordRequirements value={password} />}
-      />
-      <PasswordField
-        label="Confirm new password"
-        name="confirmPassword"
-        value={confirmPassword}
-        onValueChange={setConfirmPassword}
-        autoComplete="new-password"
-        error={fieldErrors.confirmPassword}
       />
 
       <Button

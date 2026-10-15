@@ -1,3 +1,4 @@
+import { SERVICE_OPTIONS_WARNING } from "@/lib/editors/hours-notes"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Session } from "@/lib/server/session"
 import type { NormalizedHours } from "@/lib/domain/hours"
@@ -35,7 +36,7 @@ describe("optional hours metadata transport failures", () => {
     const state = await getHoursState(session, "l1")
     expect(state.google.moreHours).toEqual([{ hoursTypeId: "EXISTING_SERVICE", periods: [] }])
     expect(state.supportedHoursTypes).toEqual([])
-    expect(state.warnings).toContainEqual(expect.stringContaining("metadata could not be loaded"))
+    expect(state.warnings).toContainEqual(SERVICE_OPTIONS_WARNING)
     expect(mocks.observation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ outcome: "observed" }))
   })
 })

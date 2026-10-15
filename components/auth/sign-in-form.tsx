@@ -42,12 +42,7 @@ import type { WorkspaceMode } from "@/lib/contracts/session"
 type SignInMode = "sign-in" | "create-account"
 
 const SIGN_IN_FIELD_ORDER = ["email", "password"] as const
-const CREATE_FIELD_ORDER = [
-  "displayName",
-  "email",
-  "password",
-  "confirmPassword",
-] as const
+const CREATE_FIELD_ORDER = ["displayName", "email", "password"] as const
 
 // Fields are rendered by `name` (not a predictable DOM id - Field's id comes
 // from an internal useId the parent never sees), so a name-based query is
@@ -135,7 +130,6 @@ function SignInForm({
   const [displayName, setDisplayName] = useState("")
   const [email, setEmail] = useState(invitedEmail ?? "")
   const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
   // Only a new owner chooses, and only while the choice is switched on; an
   // invited person joins the inviting organisation as it is, so the choice
   // is never shown with a token.
@@ -237,17 +231,9 @@ function SignInForm({
         zodFieldErrors(parsed.error, CREATE_FIELD_ORDER),
         { displayName, email, password }
       )
-      if (password !== confirmPassword) {
-        errors.confirmPassword = "Both passwords must match."
-      }
       setFieldErrors(errors)
       const target = CREATE_FIELD_ORDER.find((key) => errors[key])
       if (target) focusField(target)
-      return
-    }
-    if (password !== confirmPassword) {
-      setFieldErrors({ confirmPassword: "Both passwords must match." })
-      focusField("confirmPassword")
       return
     }
     setFieldErrors({})
@@ -450,25 +436,18 @@ function SignInForm({
           }
         />
       ) : (
-        <>
-          <PasswordField
-            label="Password"
-            name="password"
-            value={password}
-            onValueChange={setPassword}
-            autoComplete="new-password"
-            error={fieldErrors.password}
-            describedBy={<PasswordRequirements value={password} />}
-          />
-          <PasswordField
-            label="Confirm password"
-            name="confirmPassword"
-            value={confirmPassword}
-            onValueChange={setConfirmPassword}
-            autoComplete="new-password"
-            error={fieldErrors.confirmPassword}
-          />
-        </>
+        // One new-password field, no "Confirm password": the field's own
+        // "Show password" toggle lets people check what they typed (D9,
+        // NIST SP 800-63B).
+        <PasswordField
+          label="Password"
+          name="password"
+          value={password}
+          onValueChange={setPassword}
+          autoComplete="new-password"
+          error={fieldErrors.password}
+          describedBy={<PasswordRequirements value={password} />}
+        />
       )}
 
       <Button

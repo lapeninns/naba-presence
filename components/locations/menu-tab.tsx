@@ -287,6 +287,7 @@ function MenuForm({
         )
       }
       gateReason={editReason}
+      readView={Boolean(editReason)}
       footer={
         noMenu && !isDirty ? undefined : (
           <EditorFooter

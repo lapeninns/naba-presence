@@ -213,7 +213,7 @@ describe("PhotosTab", () => {
     await user.click(screen.getByRole("button", { name: "Add photos" }))
     // The dialog loads the first time it opens.
     expect(
-      await screen.findByRole("heading", { name: "Add media" })
+      await screen.findByRole("heading", { name: "Add photos" })
     ).toBeInTheDocument()
     // Two explicit ways in on a phone: the camera and the library.
     expect(
@@ -229,9 +229,11 @@ describe("PhotosTab", () => {
     expect(
       screen.getByText(/JPEG or PNG only \(not HEIC\)/)
     ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Upload photos" })).toBeDisabled()
     expect(
-      screen.getByRole("button", { name: "Review file upload" })
-    ).toBeDisabled()
+      screen.getByText("Photos go to Google when you tap Upload.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing waits for a publish step/)).toBeNull()
     expect(screen.getByText("Shared by a customer")).toBeInTheDocument()
   })
 
@@ -361,21 +363,12 @@ describe("PhotosTab", () => {
       screen.getByText("0 sent, 1 ready, 1 can’t upload.")
     ).toBeInTheDocument()
 
-    // The upload confirmation is a second step of the same dialog, never a
-    // dialog stacked on top of it.
-    await user.click(screen.getByRole("button", { name: "Review file upload" }))
+    // One primary in the same sheet: no second review step, no stacked dialog.
+    expect(
+      screen.queryByRole("button", { name: "Review file upload" })
+    ).toBeNull()
     expect(screen.queryByRole("alertdialog")).toBeNull()
-    const confirm = screen.getByRole("dialog", {
-      name: "Upload this file to Google?",
-    })
-    expect(within(confirm).getByText(/under “Additional”/)).toBeInTheDocument()
-    expect(
-      within(confirm).getByRole("img", { name: "bar.jpg" })
-    ).toBeInTheDocument()
-    expect(
-      within(confirm).getByRole("button", { name: "Upload 1 photo" })
-    ).toBeInTheDocument()
-    await user.click(within(confirm).getByRole("button", { name: "Back" }))
+    expect(screen.getByRole("button", { name: "Upload 1 photo" })).toBeEnabled()
 
     await user.click(screen.getByRole("button", { name: "Remove bar.jpg" }))
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")

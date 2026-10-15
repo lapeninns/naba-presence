@@ -8,6 +8,8 @@
  */
 import { z } from "zod"
 
+import { PASSWORD_MAX_CODE_UNITS } from "@/lib/domain/auth-limits"
+
 import {
   emailSchema,
   loginSchema,
@@ -140,7 +142,7 @@ export type MfaFactorsResponse = z.infer<typeof mfaFactorsResponseSchema>
  * aal2.
  */
 export const mfaEnrollSchema = z.object({
-  password: z.string().min(1).max(200),
+  password: z.string().min(1).max(PASSWORD_MAX_CODE_UNITS),
   code: totpCodeSchema.optional(),
 })
 export type MfaEnrollInput = z.input<typeof mfaEnrollSchema>
@@ -152,7 +154,7 @@ export type MfaEnrollInput = z.input<typeof mfaEnrollSchema>
  * from: the first one enrolled, or the backup.
  */
 export const mfaStepUpSchema = z.object({
-  password: z.string().min(1).max(200),
+  password: z.string().min(1).max(PASSWORD_MAX_CODE_UNITS),
   code: totpCodeSchema,
   factor: z.enum(["primary", "backup"]).default("primary"),
 })
