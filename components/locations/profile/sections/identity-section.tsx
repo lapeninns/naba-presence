@@ -14,7 +14,6 @@ import {
 } from "@/components/locations/business-information/category-search"
 import {
   LabelRow,
-  SaveModelTag,
   SectionCard,
 } from "@/components/locations/profile/section-card"
 import { Badge } from "@/components/ui/badge"
@@ -89,7 +88,6 @@ export function IdentitySection({
         label="Business name"
         controlId={PROFILE_FIELD_IDS.name}
         changed={changed.name ? "Changed" : undefined}
-        description={<SaveModelTag model="here" variant="caption" />}
         control={
           <Field measure="short" error={errors.name}>
             <Input
@@ -116,7 +114,6 @@ export function IdentitySection({
             label="Store code"
             controlId={PROFILE_FIELD_IDS.storeCode}
             changed={changed.storeCode ? "Changed" : undefined}
-            description={<SaveModelTag model="google" variant="caption" />}
             control={
               <Field measure="short">
                 <Input
@@ -139,11 +136,8 @@ export function IdentitySection({
             controlId={PROFILE_FIELD_IDS.labels}
             changed={changed.labels ? "Changed" : undefined}
             description={
-              <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                <SaveModelTag model="google" variant="caption" />
-                <span className="tabular-nums">
-                  {draft.labels.length} of {MAX_LABELS}
-                </span>
+              <span className="tabular-nums">
+                {draft.labels.length} of {MAX_LABELS}
               </span>
             }
             control={
@@ -237,7 +231,6 @@ export function CategoriesSection({
   return (
     <SectionCard
       id="section-categories"
-      model="google"
       title="Categories"
       description="The primary category describes the business as a whole and decides which searches it appears in. Add up to 9 more for what else it offers."
       changed={changed.primary || changed.additional}

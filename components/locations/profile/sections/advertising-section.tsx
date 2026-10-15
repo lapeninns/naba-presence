@@ -18,7 +18,7 @@ export function AdvertisingSection({ draft, setDraft, location, disabled, change
   error?: string
 }) {
   const unsupported = !advertisingBaselineSupported(asRecord(location).adWordsLocationExtensions)
-  return <SectionCard id="section-advertising" title="Google Ads phone" model="google" description="An alternate phone number for this location's Google Ads location extensions." changed={changed}>
+  return <SectionCard id="section-advertising" title="Google Ads phone" description="An alternate phone number for this location's Google Ads location extensions." changed={changed}>
     {unsupported && <HandoffNote>The existing advertising data cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage advertising details in Google</a>, then refresh.</HandoffNote>}
     <SettingsRow label="Google Ads phone number" controlId="profile-ad-phone" control={<Field error={error}>
       <Input id="profile-ad-phone" type="tel" inputMode="tel" autoComplete="off" maxLength={50} value={draft.adPhone ?? ""} disabled={disabled || unsupported} onChange={(event) => setDraft((current) => ({ ...current, adPhone: event.target.value }))} />

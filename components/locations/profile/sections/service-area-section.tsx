@@ -39,7 +39,7 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
   const places = area?.places?.placeInfos ?? []
   const blocked = disabled || unsupported
   const existingCountry = asRecord(baseline.serviceArea).regionCode
-  return <SectionCard id="section-service-area" model="google" title="Service area" description="Choose where you meet customers and the areas you serve." changed={changed}>
+  return <SectionCard id="section-service-area" title="Service area" description="Choose where you meet customers and the areas you serve." changed={changed}>
     {unsupported && <HandoffNote>Google returned service-area data this editor cannot preserve. <a className="underline underline-offset-4" href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer">Manage service areas in Google</a>, then refresh this profile.</HandoffNote>}
     <Field error={error}>
       <FieldLabel htmlFor="profile-service-area">Where do you serve customers?</FieldLabel>
