@@ -15,6 +15,12 @@
 // widths x themes product with explicit width:theme pairs.
 // Widths under 768 run as phones (isMobile + hasTouch).
 //
+// Touch targets are scored on their effective hit area: the drawn box plus
+// any hit-extending absolutely positioned ::before/::after (clipped by
+// ancestors that hide overflow) and, for switch/checkbox/radio primitives, a
+// wrapping <label>. touchTargetBelow44 counts those; touchBoxBelow44 counts
+// the drawn boxes alone (the metric before MEA-01).
+//
 // Writes <out>/mobile-audit.json (raw data), mobile-audit.md (summary) and
 // mobile-audit-totals.json (compact, diffable). With --budget the process
 // exits 1 when any metric exceeds its limit; see checkBudget for the shape.
@@ -33,6 +39,7 @@ import {
   checkBudget,
   chromeBudget,
   compactTotals,
+  effectiveHitArea,
   evaluateTargetSize,
   focusVerdict,
   isTouchWidth,
@@ -43,6 +50,7 @@ import {
   renderMarkdown,
   resolvePath,
   textStats,
+  touchBoxFailures,
   touchTargetFailures,
   viewportHeight,
 } from "./mobile-audit-lib.mjs"
@@ -323,7 +331,8 @@ function collectPage({ touch }) {
     const rect = element.getBoundingClientRect()
     if (rect.width <= 1 || rect.height <= 1) continue
     // Off-canvas: past either side, or above the document (skip links).
-    if (rect.right <= 0 || rect.left >= vw || rect.bottom + scrollY <= 0) continue
+    if (rect.right <= 0 || rect.left >= vw || rect.bottom + scrollY <= 0)
+      continue
     targetElements.push(element)
   }
   const blockText = (element) => {
@@ -331,6 +340,109 @@ function collectPage({ touch }) {
     while (node && /^inline/.test(styleOf(node).display))
       node = node.parentElement
     return node ? node.textContent.replace(/\s+/g, " ").trim() : ""
+  }
+  // Hit-area extensions (MEA-01): an absolutely positioned ::before/::after
+  // that takes pointer events is part of the target (the `sm` button, chip,
+  // switch and checkbox reach 44px this way; a card link's ::after covers
+  // its card). Record each one's resolved offsets, its containing block and
+  // every ancestor from that block up that clips overflow, in page
+  // coordinates. effectiveHitArea (mobile-audit-lib.mjs) does the geometry.
+  const toPage = (rect) => ({
+    left: rect.left + scrollX,
+    top: rect.top + scrollY,
+    right: rect.right + scrollX,
+    bottom: rect.bottom + scrollY,
+  })
+  const paddingBox = (node) => {
+    const rect = node.getBoundingClientRect()
+    // An inline box has no client size; its fragments' bounds stand in.
+    if (/^inline$|^contents$/.test(styleOf(node).display)) return toPage(rect)
+    const left = rect.left + node.clientLeft
+    const top = rect.top + node.clientTop
+    return toPage({
+      left,
+      top,
+      right: left + node.clientWidth,
+      bottom: top + node.clientHeight,
+    })
+  }
+  const formsContainingBlock = (node, fixed) => {
+    const style = styleOf(node)
+    return (
+      (!fixed && style.position !== "static") ||
+      style.transform !== "none" ||
+      style.filter !== "none" ||
+      style.perspective !== "none" ||
+      /paint|layout|strict|content/.test(style.contain)
+    )
+  }
+  const hitExtensions = (element) => {
+    const parts = []
+    for (const which of ["::before", "::after"]) {
+      const style = getComputedStyle(element, which)
+      if (style.content === "none" || style.content === "normal") continue
+      if (style.display === "none" || style.visibility === "hidden") continue
+      if (style.pointerEvents === "none") continue
+      if (style.position !== "absolute" && style.position !== "fixed") continue
+      const fixed = style.position === "fixed"
+      let block = null
+      for (
+        let node = element;
+        node && node !== document.documentElement;
+        node = node.parentElement
+      ) {
+        if (formsContainingBlock(node, fixed)) {
+          block = node
+          break
+        }
+      }
+      const clips = []
+      for (
+        let node = block;
+        node && node !== document.documentElement && node !== document.body;
+        node = node.parentElement
+      ) {
+        const style = styleOf(node)
+        const x = style.overflowX !== "visible"
+        const y = style.overflowY !== "visible"
+        if (x || y) clips.push({ ...paddingBox(node), x, y })
+      }
+      parts.push({
+        left: style.left,
+        top: style.top,
+        right: style.right,
+        bottom: style.bottom,
+        width: style.width,
+        height: style.height,
+        block: block
+          ? paddingBox(block)
+          : fixed
+            ? toPage({ left: 0, top: 0, right: vw, bottom: vh })
+            : { left: 0, top: 0, right: vw, bottom: vh },
+        clips,
+      })
+    }
+    return parts
+  }
+  // A switch/checkbox/radio primitive inside a <label> is toggled by the
+  // whole label (a labelled Switch makes its row the target and hides its
+  // own halo), so the label joins the effective hit area, not the drawn box.
+  const labelExtension = (element) => {
+    if (!element.matches("[role=switch],[role=checkbox],[role=radio]"))
+      return []
+    const label = element.closest("label")
+    if (!label) return []
+    const rect = label.getBoundingClientRect()
+    return [
+      {
+        left: "0px",
+        top: "0px",
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        block: toPage(rect),
+        clips: [],
+      },
+    ]
   }
   const targets = targetElements.map((element, id) => {
     let rect = element.getBoundingClientRect()
@@ -340,7 +452,7 @@ function collectPage({ touch }) {
       right: rect.right,
       bottom: rect.bottom,
     }
-    // A wrapping <label> is part of a checkbox/radio's click target.
+    // A wrapping <label> is part of a native checkbox/radio's click target.
     const label = element.matches("input") ? element.closest("label") : null
     if (label) {
       rect = label.getBoundingClientRect()
@@ -371,6 +483,7 @@ function collectPage({ touch }) {
       h: Math.round((box.bottom - box.top) * 10) / 10,
       inline,
       related,
+      hit: [...hitExtensions(element), ...labelExtension(element)],
       ...describe(element),
     }
   })
@@ -656,15 +769,18 @@ async function auditPage(context, route, combo) {
     record.viewport = data.viewport
     record.overflow = data.overflow
     record.clipped = data.clipped
-    const verdicts = evaluateTargetSize(data.targets)
-    const byId = new Map(data.targets.map((target) => [target.id, target]))
+    // Every target is scored on its effective hit area (MEA-01); the drawn
+    // box stays on `box` for touchBoxBelow44.
+    const targets = data.targets.map(effectiveHitArea)
+    const verdicts = evaluateTargetSize(targets)
+    const byId = new Map(targets.map((target) => [target.id, target]))
     const strip = (target) => {
       const copy = { ...target }
       delete copy.related
       delete copy.id
       return copy
     }
-    record.targetCount = data.targets.length
+    record.targetCount = targets.length
     record.targetSize = verdicts
       .filter((verdict) => verdict.status === "fail")
       .map((verdict) => ({
@@ -674,9 +790,8 @@ async function auditPage(context, route, combo) {
     record.targetSizeSpacingPass = verdicts.filter(
       (verdict) => verdict.status === "pass-spacing"
     ).length
-    record.touchTargets = touch
-      ? touchTargetFailures(data.targets).map(strip)
-      : []
+    record.touchTargets = touch ? touchTargetFailures(targets).map(strip) : []
+    record.touchBoxes = touch ? touchBoxFailures(targets).map(strip) : []
     record.iosZoom = data.iosZoom.filter(
       (input) => input.fontSize < IOS_ZOOM_MIN_FONT
     )
@@ -703,7 +818,9 @@ async function auditPage(context, route, combo) {
     // Pass/incomplete counts show axe ran; incomplete rules need manual review.
     record.axeRuns = {
       passes: axe.passes.length,
-      incomplete: axe.incomplete.map((rule) => `${rule.id}:${rule.nodes.length}`),
+      incomplete: axe.incomplete.map(
+        (rule) => `${rule.id}:${rule.nodes.length}`
+      ),
     }
     record.axe = []
     for (const violation of axe.violations) {
