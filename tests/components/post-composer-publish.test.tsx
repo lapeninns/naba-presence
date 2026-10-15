@@ -256,9 +256,7 @@ describe("PostComposerSheet publishing", () => {
       within(sheet).getByRole("button", { name: "Publish to Google" })
     )
     expect(
-      await screen.findByText(
-        /Someone else changed this post after you saved it/
-      )
+      await screen.findByText(/This post changed after it was saved or opened/)
     ).toBeInTheDocument()
     expect(screen.queryByText("raw server text")).toBeNull()
   })
@@ -303,6 +301,23 @@ describe("PostComposerSheet publishing", () => {
       expectedRevision: 4,
     })
     expect(api.createPost).not.toHaveBeenCalled()
+  })
+
+  it("does not publish again when saving the edit already republished a live post", async () => {
+    const user = userEvent.setup()
+    api.updatePost.mockResolvedValue({ status: "published", postId: "p1" })
+    renderComposer({ post: savedPost({ status: "failed" }) })
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const sheet = await screen.findByRole("dialog")
+    await user.type(
+      within(sheet).getByRole("textbox", { name: "Post summary" }),
+      " tonight"
+    )
+    await user.click(
+      within(sheet).getByRole("button", { name: "Retry publish" })
+    )
+    await waitFor(() => expect(api.updatePost).toHaveBeenCalledOnce())
+    expect(api.publishPost).not.toHaveBeenCalled()
   })
 
   it("publishes an unchanged saved draft as it is, without saving it again", async () => {

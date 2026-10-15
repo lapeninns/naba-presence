@@ -1724,14 +1724,18 @@ export async function requestOrPublishLocalPost(input: {
         }
       }
 
+      // Only on the first pass: a reconcile settles the row from Google's
+      // own copy, which can move the revision without anyone editing, and the
+      // content that was bound has by then been checked once already.
       if (
+        reconciled === false &&
         input.expectedRevision !== undefined &&
         input.expectedRevision !== post.contentRevision
       ) {
         throw new ApiError(
           409,
           "post_changed_since_saved",
-          "This post was changed by someone else after you saved it. Nothing was sent to Google. Open it again to see the current version."
+          "This post changed after it was saved or opened, so nothing was sent to Google. Open it again to see the current version."
         )
       }
       if (post.status === "publishing") throw postPublishInProgress()

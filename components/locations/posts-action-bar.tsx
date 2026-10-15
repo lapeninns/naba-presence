@@ -42,6 +42,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ApiClientError } from "@/lib/api/client"
 import {
   decidePostApproval,
   deletePost,
@@ -174,7 +175,18 @@ export function PostsActionBar({
       setPublishOpen(false)
       outcomeToast.show(publishToast(result))
     },
-    onError: () => setPublishOpen(false),
+    onError: (error) => {
+      setPublishOpen(false)
+      // The row on screen is what changed: read it again so the next
+      // Publish names the current revision.
+      if (
+        error instanceof ApiClientError &&
+        error.code === "post_changed_since_saved"
+      )
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.locationPosts(locationId),
+        })
+    },
   })
   const decide = useResourceMutation({
     mutationFn: (decision: "approve" | "reject", intent) =>
