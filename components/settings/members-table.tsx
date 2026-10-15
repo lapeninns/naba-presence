@@ -1,6 +1,10 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useMutationState,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { Building2, Ellipsis, Shield, Trash2, Users } from "lucide-react"
 import { useRef, useState } from "react"
 
@@ -51,6 +55,7 @@ import {
 import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
 import { useMembers } from "@/lib/queries/use-members"
+import { useOptimisticMutation } from "@/lib/queries/use-optimistic-mutation"
 import {
   removeMember,
   updateMember,
@@ -58,6 +63,7 @@ import {
   type MemberClientTotal,
   type MemberRole,
 } from "@/lib/api/members"
+import type { MembersResponse } from "@/lib/contracts/members"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { memberRowGate } from "@/lib/settings/gating"
@@ -106,6 +112,8 @@ function clientAccessReason(
     return `Owners and admins always see every ${terms.scope}.`
   return null
 }
+
+const PUBLISH_KEY = ["members", "publish"] as const
 
 /** The last publishing save on a row, shown beside its switch. */
 type PublishOutcome =
@@ -207,9 +215,13 @@ function MemberRows({
   // focus there, since the sheet's own row (its opener) is gone by then.
   const sheetOpener = useRef<HTMLElement | null>(null)
   const [handedOver, setHandedOver] = useState(false)
-  const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(
-    null
-  )
+  // The last publishing save per member, so overlapping saves each keep
+  // their own outcome.
+  const [publishOutcomes, setPublishOutcomes] = useState<
+    Record<string, PublishOutcome | undefined>
+  >({})
+  const setPublishOutcome = (userId: string, outcome?: PublishOutcome) =>
+    setPublishOutcomes((current) => ({ ...current, [userId]: outcome }))
 
   const mutation = useMutation({
     mutationFn: (input: {
@@ -223,29 +235,35 @@ function MemberRows({
     },
   })
 
-  // Publishing autosaves per row, so its outcome is told beside the switch
-  // rather than in a toast or an alert at the top of the page.
-  const publish = useMutation({
-    mutationFn: (input: {
-      userId: string
-      role: MemberRole
-      canPublish: boolean
-    }) => updateMember(input),
-    onMutate: () => setPublishOutcome(null),
-    onSuccess: async (_result, input) => {
-      await client.invalidateQueries({ queryKey: queryKeys.members })
-      setPublishOutcome({
-        userId: input.userId,
-        status: "saved",
-        canPublish: input.canPublish,
-      })
-    },
-    onError: (error, input) =>
-      setPublishOutcome({
-        userId: input.userId,
-        status: "error",
-        message: describeActionError(error),
-      }),
+  // Publishing autosaves per row and shows at once, so its outcome is told
+  // beside the switch rather than in an alert at the top of the page. The
+  // switch puts itself back if the save fails.
+  const publish = useOptimisticMutation<
+    unknown,
+    { userId: string; role: MemberRole; canPublish: boolean },
+    MembersResponse
+  >({
+    mutationKey: PUBLISH_KEY,
+    mutationFn: (input) => updateMember(input),
+    queryKey: queryKeys.members,
+    update: (current, input) =>
+      current && {
+        ...current,
+        members: current.members.map((member) =>
+          member.userId === input.userId
+            ? { ...member, canPublish: input.canPublish }
+            : member
+        ),
+      },
+    // The failure is told inline beside the switch, not in a toast too.
+    errorToast: false,
+    errorTitle: "Publishing wasn’t changed",
+  })
+  // The members whose publishing save is in flight: only their switches wait.
+  const publishingUserIds = useMutationState({
+    filters: { mutationKey: PUBLISH_KEY, status: "pending" },
+    select: (mutation) =>
+      (mutation.state.variables as { userId: string }).userId,
   })
 
   const removal = useMutation({
@@ -306,13 +324,33 @@ function MemberRows({
   // table while the sheet is still open.
   const publishControl = (view: MemberView, where: "table" | "sheet") => {
     const m = view.member
-    const saving = publish.isPending && publish.variables?.userId === m.userId
-    const outcome = publishOutcome?.userId === m.userId ? publishOutcome : null
+    const saving = publishingUserIds.includes(m.userId)
+    const outcome = publishOutcomes[m.userId] ?? null
     return {
       checked: m.canPublish,
       disabled: saving || busy,
-      onCheckedChange: (value: boolean) =>
-        publish.mutate({ userId: m.userId, role: m.role, canPublish: value }),
+      onCheckedChange: (value: boolean) => {
+        setPublishOutcome(m.userId)
+        // `mutateAsync`: per-call `mutate` callbacks only fire for the latest
+        // call, so toggling a second member would drop the first one's
+        // outcome.
+        publish
+          .mutateAsync({ userId: m.userId, role: m.role, canPublish: value })
+          .then(
+            () =>
+              setPublishOutcome(m.userId, {
+                userId: m.userId,
+                status: "saved",
+                canPublish: value,
+              }),
+            (error: unknown) =>
+              setPublishOutcome(m.userId, {
+                userId: m.userId,
+                status: "error",
+                message: describeActionError(error),
+              })
+          )
+      },
       status: (
         <PublishStatus
           id={`publish-status-${where}-${m.userId}`}
@@ -509,6 +547,9 @@ function MemberRows({
                 {view.publishReason === null ? (
                   <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="flex min-h-(--np-touch) items-center gap-2.5 desk:min-h-8">
+                      <span className="whitespace-nowrap">
+                        {view.publishing.label}
+                      </span>
                       <Switch
                         checked={control.checked}
                         disabled={control.disabled}
@@ -516,9 +557,6 @@ function MemberRows({
                         aria-describedby={`publish-status-table-${m.userId}`}
                         onCheckedChange={control.onCheckedChange}
                       />
-                      <span className="whitespace-nowrap">
-                        {view.publishing.label}
-                      </span>
                     </span>
                     {control.status}
                   </span>

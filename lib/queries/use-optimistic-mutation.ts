@@ -54,6 +54,12 @@ export type UseOptimisticMutationOptions<
    * different mutations never share a toast.
    */
   errorToastId?: string
+  /**
+   * Set false when the caller already says the failure where the operator is
+   * looking (an inline alert beside the control), so it is not announced
+   * twice. The rollback still happens. Default true.
+   */
+  errorToast?: boolean
 }
 
 /**
@@ -112,6 +118,7 @@ export function useOptimisticMutation<
   errorDescription,
   alsoInvalidate,
   errorToastId,
+  errorToast = true,
   mutationKey,
   ...options
 }: UseOptimisticMutationOptions<TData, TVariables, TCache, TError>) {
@@ -161,6 +168,7 @@ export function useOptimisticMutation<
           client.setQueryData<TCache>(context.queryKey, context.previous)
         }
       }
+      if (!errorToast) return
       showToast({
         id: toastId,
         type: "error",
