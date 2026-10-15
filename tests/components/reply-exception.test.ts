@@ -28,7 +28,11 @@ function review(overrides: Partial<Review> = {}): Review {
     drafts: [],
     reply: null,
     timeline: [],
-    capabilities: { canPublish: false, canEdit: true, canRequestApproval: true },
+    capabilities: {
+      canPublish: false,
+      canEdit: true,
+      canRequestApproval: true,
+    },
     latestVerification: null,
     ...overrides,
   }
@@ -82,15 +86,82 @@ describe("describeException: rejected by the approver", () => {
 })
 
 describe("describeException: Google moderation", () => {
-  const reply = (googleReplyState: string | null, publishStatus = "published") => ({
-    id: "reply-1", body: "Thank you", publishStatus, googleReplyState, googlePolicyViolation: null, googleReplyUpdatedAt: null, lastErrorCode: null,
+  const reply = (
+    googleReplyState: string | null,
+    publishStatus = "published"
+  ) => ({
+    id: "reply-1",
+    body: "Thank you",
+    publishStatus,
+    googleReplyState,
+    googlePolicyViolation: null,
+    googleReplyUpdatedAt: null,
+    lastErrorCode: null,
   })
   it("says Google is still reviewing a published reply", () => {
-    const exception = describeException(review({ workflowStatus: "published", reply: reply("PENDING") }), submit, "connected")
+    const exception = describeException(
+      review({ workflowStatus: "published", reply: reply("PENDING") }),
+      submit,
+      "connected"
+    )
     expect(exception?.title).toBe("Google is reviewing this reply")
-    expect(exception?.description).toContain("don’t see it until Google approves it")
+    expect(exception?.description).toContain(
+      "don’t see it until Google approves it"
+    )
   })
   it("shows nothing once Google has approved it", () => {
-    expect(describeException(review({ workflowStatus: "published", reply: reply("APPROVED") }), submit, "connected")?.title).not.toBe("Google is reviewing this reply")
+    expect(
+      describeException(
+        review({ workflowStatus: "published", reply: reply("APPROVED") }),
+        submit,
+        "connected"
+      )?.title
+    ).not.toBe("Google is reviewing this reply")
+  })
+})
+
+describe("describeException: connection actions by role", () => {
+  const failed = (lastErrorCode: string) =>
+    review({
+      workflowStatus: "failed",
+      reply: {
+        id: "reply-1",
+        body: "Sorry",
+        publishStatus: "failed",
+        googleReplyState: null,
+        googlePolicyViolation: null,
+        googleReplyUpdatedAt: null,
+        lastErrorCode,
+      },
+    })
+
+  it("offers the connections link to owners and admins", () => {
+    expect(
+      describeException(
+        failed("google_reconnect_required"),
+        submit,
+        "connected"
+      )
+    ).toMatchObject({ connectionLink: true })
+    expect(describeException(review(), submit, "disconnected")).toMatchObject({
+      connectionLink: true,
+    })
+  })
+
+  it("keeps the explanation for everyone else, with no link and who to ask", () => {
+    for (const exception of [
+      describeException(
+        failed("google_reconnect_required"),
+        submit,
+        "connected",
+        false
+      ),
+      describeException(review(), submit, "disconnected", false),
+    ]) {
+      expect(exception?.connectionLink).toBe(false)
+      expect(exception?.description).toMatch(
+        /Ask an owner or admin to reconnect Google/
+      )
+    }
   })
 })
