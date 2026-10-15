@@ -69,7 +69,6 @@ export function AttributesSection({
   return (
     <SectionCard
       id="section-attributes"
-      model="google"
       title="Attributes"
       description="Facts Google shows on the listing, as Google groups them. Only the attributes Google offers for this kind of business appear here."
       changed={anyChanged}

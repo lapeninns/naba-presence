@@ -1,3 +1,9 @@
+export {
+  combinedReviewNote,
+  combinedRowResults,
+  CombinedReviewSheet,
+  type CombinedReviewRow,
+} from "./combined-review"
 export { ConsentSlot } from "./consent"
 export { Expiry } from "./expiry"
 export { Instant } from "./instant"
