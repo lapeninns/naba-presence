@@ -1,19 +1,27 @@
-import { notFound, redirect } from "next/navigation"
+import { redirect } from "next/navigation"
 
 import { AccessDenied } from "@/components/app-shell/access-denied"
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { BillingCard } from "@/components/settings/billing-card"
 import { SettingsNav } from "@/components/settings/settings-nav"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { getServerEnv } from "@/lib/server/env"
 import { getSession } from "@/lib/server/session"
 
-export const metadata = { title: "Billing · NabaPresence" }
+import {
+  BillingRouteDisabled,
+  billingRoutesEnabled,
+  billingRouteMetadata,
+} from "../billing-disabled"
+
+export function generateMetadata() {
+  return billingRouteMetadata("Billing · NabaPresence")
+}
 
 /**
  * The owner Billing screen (plan P07-S6), where Stripe Checkout and the
  * Customer Portal return (lib/server/billing/checkout.ts
- * BILLING_RETURN_PATH). Shown only while BILLING_ENABLED is on. A return
+ * BILLING_RETURN_PATH). Shown only while BILLING_ENABLED is on; otherwise the
+ * shared 404, decided before the session read (billing-disabled.tsx). A return
  * from Checkout goes to "Confirming subscription": the return itself
  * proves nothing until Stripe's state reaches the record.
  */
@@ -22,7 +30,7 @@ export default async function SettingsBillingPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  if (!getServerEnv().BILLING_ENABLED) notFound()
+  if (!billingRoutesEnabled()) return <BillingRouteDisabled />
   const session = await getSession()
   if (!session || session.role !== "owner") {
     return <AccessDenied area="Billing" />

@@ -1,13 +1,18 @@
-import { notFound } from "next/navigation"
-
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { PlanUsageCard } from "@/components/settings/plan-usage-card"
 import { SettingsNav } from "@/components/settings/settings-nav"
 import { UsageCard } from "@/components/settings/usage-card"
-import { getServerEnv } from "@/lib/server/env"
 import { getSession } from "@/lib/server/session"
 
-export const metadata = { title: "Usage · NabaPresence" }
+import {
+  BillingRouteDisabled,
+  billingRoutesEnabled,
+  billingRouteMetadata,
+} from "../billing-disabled"
+
+export function generateMetadata() {
+  return billingRouteMetadata("Usage · NabaPresence")
+}
 
 /**
  * The shared Usage screen (plan P07-S6): AI reply credits in the current
@@ -16,7 +21,7 @@ export const metadata = { title: "Usage · NabaPresence" }
  * stays on the Policy page as before.
  */
 export default async function SettingsUsagePage() {
-  if (!getServerEnv().BILLING_ENABLED) notFound()
+  if (!billingRoutesEnabled()) return <BillingRouteDisabled />
   const session = await getSession()
   return (
     <>

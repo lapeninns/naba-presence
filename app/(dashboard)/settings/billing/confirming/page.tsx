@@ -1,17 +1,22 @@
-import { notFound } from "next/navigation"
-
 import { AccessDenied } from "@/components/app-shell/access-denied"
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { BillingConfirming } from "@/components/settings/billing-confirming"
 import { SettingsNav } from "@/components/settings/settings-nav"
-import { getServerEnv } from "@/lib/server/env"
 import { getSession } from "@/lib/server/session"
 
-export const metadata = { title: "Confirming subscription · NabaPresence" }
+import {
+  BillingRouteDisabled,
+  billingRoutesEnabled,
+  billingRouteMetadata,
+} from "../../billing-disabled"
+
+export function generateMetadata() {
+  return billingRouteMetadata("Confirming subscription · NabaPresence")
+}
 
 /** Where a completed Checkout lands (plan P07-S6). Owner only. */
 export default async function BillingConfirmingPage() {
-  if (!getServerEnv().BILLING_ENABLED) notFound()
+  if (!billingRoutesEnabled()) return <BillingRouteDisabled />
   const session = await getSession()
   if (!session || session.role !== "owner") {
     return <AccessDenied area="Billing" />
