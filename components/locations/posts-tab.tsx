@@ -270,6 +270,8 @@ function PostsList({
       locationId={locationId}
       disabledReason={composeReason ?? editReason}
       timezone={timezone}
+      caps={caps}
+      writesEnabled={writesEnabled}
     />
   )
 
