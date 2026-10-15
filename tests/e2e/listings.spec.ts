@@ -549,6 +549,12 @@ test.describe("listings", () => {
         level: 2,
       })
     ).toBeVisible()
+    // The stub listing is verified with nothing pending, so the answer leads
+    // and the tools sit behind one disclosure.
+    await expect(
+      page.getByText("Verified. Google confirms you manage this listing.")
+    ).toBeVisible()
+    await page.getByText("Verification tools", { exact: true }).click()
     // Starting verification is reviewed, approved, then sent separately.
     const panel = page.locator('section[aria-labelledby="verification-start"]')
     await panel.getByRole("button", { name: "Check available methods" }).click()

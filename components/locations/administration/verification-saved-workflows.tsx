@@ -110,7 +110,7 @@ export function SavedVerificationWorkflows({
         id={`verification-saved-${operation}`}
         headingLevel="h3"
         title={start ? "Saved verification requests" : "Saved PIN completions"}
-        description="Resume an exact team review or inspect a recorded outcome, including when publishing is paused."
+        description="Pick up a saved review or look at a recorded result. Both stay available while publishing is paused."
         items={items}
         pending={saved.isPending}
         failed={saved.isError}
