@@ -163,11 +163,60 @@ for (const width of [375, 768, 1280])
           page.getByRole("heading", { name: heading, exact: true })
         ).toBeVisible()
       }
+      // The page opens with one line that says what the state means and
+      // what to do, in words rather than a row of pills.
+      const summary = page.locator('[data-slot="alert"][data-state]')
+      await expect(summary).toBeVisible()
+      // The state and its sentence are the ones the health API implies for
+      // this fixture: paused jobs are not overdue, and an overdue job is one
+      // the server flags or that has never completed.
+      const health = (await (
+        await page.request.get("/api/operations/health")
+      ).json()) as {
+        schedulerHeartbeatStale: boolean
+        schedulerTicks: Array<{
+          stale: boolean
+          paused: boolean
+          lastCompletedAt: string | null
+        }>
+      }
+      const running = health.schedulerTicks.filter((tick) => !tick.paused)
+      const overdue = running.filter(
+        (tick) => tick.stale || !tick.lastCompletedAt
+      )
+      const expected =
+        health.schedulerHeartbeatStale ||
+        (running.length > 0 && overdue.length === running.length)
+          ? {
+              state: "failing",
+              text: "Background work isn't running.",
+            }
+          : overdue.length > 0
+            ? {
+                state: "some-stale",
+                text: /background jobs? (hasn't|haven't) run recently/,
+              }
+            : health.schedulerTicks.length > running.length
+              ? { state: "paused", text: /^Paused: / }
+              : {
+                  state: "ok",
+                  text: "Background jobs are running on schedule.",
+                }
+      await expect(summary).toHaveAttribute("data-state", expected.state)
+      await expect(summary).toContainText(expected.text)
       // Scheduler rows carry readable names and the schedule each is judged
-      // against, never the internal tick keys.
+      // against; the internal tick keys are only under "Details for support".
+      const details = page.locator('details[data-slot="scheduled-jobs"]')
+      if (
+        !(await details.evaluate(
+          (element) => (element as HTMLDetailsElement).open
+        ))
+      ) {
+        await details.locator("summary").click()
+      }
       const jobs = page.getByRole("list", { name: "Scheduled jobs" })
       for (const label of [
-        "Job runner",
+        "Work queue",
         "Review check",
         "Listing sync",
         "Performance metrics",
@@ -179,11 +228,18 @@ for (const width of [375, 768, 1280])
         await expect(jobs.getByText(label, { exact: true })).toBeVisible()
       }
       for (const key of ["jobs", "presence-resources", "retention"]) {
-        await expect(jobs.getByText(key, { exact: true })).toHaveCount(0)
+        await expect(
+          jobs.locator('[data-slot="list-row-title"]').getByText(key, {
+            exact: true,
+          })
+        ).toHaveCount(0)
+        await expect(
+          jobs.locator('[data-slot="support-details"] code', { hasText: key })
+        ).not.toBeVisible()
       }
       await expect(
         jobs.getByText(
-          "Expected every minute · stale after 5 minutes without a run"
+          "Expected every minute · overdue after 5 minutes without a run"
         )
       ).toBeVisible()
       await expect(

@@ -35,6 +35,7 @@ import { UxP04Demo } from "@/app/design-system/ux-p04-demo"
 import { UxP07Demo } from "@/app/design-system/ux-p07-demo"
 import { UxP09Demo } from "@/app/design-system/ux-p09-demo"
 import { UxP10Demo } from "@/app/design-system/ux-p10-demo"
+import { UxP18Demo } from "@/app/design-system/ux-p18-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
   Alert,
@@ -1566,6 +1567,7 @@ export default function Page() {
           <NmOverlaysDemo />
           <UxP03Demo />
           <NmDrop3Demo />
+          <UxP18Demo />
         </Section>
 
         <Section

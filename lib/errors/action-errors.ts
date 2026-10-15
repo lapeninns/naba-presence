@@ -498,6 +498,11 @@ const COPY: Record<string, string> = {
   connection_not_found: "That connection is no longer available.",
   google_pagination_cycle:
     "Google returned an unexpected response. Try again shortly.",
+  // The default code recorded on a failed Google review event
+  // (lib/server/webhooks.ts); the other codes that path emits are the Google
+  // errors mapped above.
+  sync_failed:
+    "The update from Google could not be processed. Replaying it queues it for the next sync run.",
   // Google's own throttle, not the caller's. The 429 fallback ("Too many
   // requests") blames the user for a limit they did not reach.
   google_rate_limited:
@@ -740,8 +745,7 @@ export function errorOutcome(
     }
     // Compared as literals rather than through the zod enum: this module
     // is on nearly every page, and only these four outcomes apply here.
-    const named = (error.details as { outcome?: unknown } | undefined)
-      ?.outcome
+    const named = (error.details as { outcome?: unknown } | undefined)?.outcome
     if (
       named === "uncertain" ||
       named === "sent" ||
