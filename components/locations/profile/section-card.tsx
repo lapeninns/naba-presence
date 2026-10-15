@@ -1,8 +1,7 @@
-import { GlobeIcon, PenLine, ShieldCheckIcon } from "lucide-react"
+import { PenLine } from "lucide-react"
 
 import { cardClassName } from "@/components/ui/card"
 import { SettingsGroup } from "@/components/ui/settings-row"
-import { StatusPill } from "@/components/ui/status-pill"
 import { cn } from "@/lib/utils"
 
 /** The reference `.changed-mark`: an info-ink word with a pen, never colour alone. */
@@ -36,79 +35,16 @@ export function LabelRow({
 }
 
 /**
- * Where a section's edits go, said on the section itself, because the
- * profile mixes two models: the name, description, phone and website are
- * saved in NabaPresence first ("Save here" keeps them without touching
- * Google), while categories, address, opening state and attributes have no
- * NabaPresence draft: each change is reviewed and approved as an exact
- * request, then sent to Google directly. Nothing reaches Google unreviewed,
- * so the tag must not say "straight to Google".
- */
-export type SaveModel = "here" | "google"
-
-export const SAVE_MODEL_LABEL: Record<SaveModel, string> = {
-  here: "Saved here first",
-  google: "No draft · reviewed, then sent to Google",
-}
-
-export const SAVE_MODEL_DETAIL: Record<SaveModel, string> = {
-  here: "Saved in NabaPresence first; nothing reaches Google until you review and publish.",
-  google:
-    "No NabaPresence draft: each change is reviewed and approved, then sent to Google directly.",
-}
-
-export function SaveModelTag({
-  model,
-  variant = "pill",
-}: {
-  model: SaveModel
-  /**
-   * `pill`: the outlined tag beside a heading (hours, typed attributes).
-   * `caption`: a quiet line under a settings-group label (profile sections),
-   * the same words and glyph without the pill.
-   */
-  variant?: "pill" | "caption"
-}) {
-  const Icon = model === "here" ? ShieldCheckIcon : GlobeIcon
-  if (variant === "caption")
-    return (
-      <span
-        data-slot="save-model"
-        data-model={model}
-        title={SAVE_MODEL_DETAIL[model]}
-        className="inline-flex items-center gap-1 text-caption font-medium text-ink-secondary"
-      >
-        <Icon className="size-3 shrink-0" strokeWidth={2} aria-hidden />
-        {SAVE_MODEL_LABEL[model]}
-        <span className="sr-only">. {SAVE_MODEL_DETAIL[model]}</span>
-      </span>
-    )
-  return (
-    <StatusPill
-      tone="outline"
-      plain
-      data-slot="save-model"
-      data-model={model}
-      title={SAVE_MODEL_DETAIL[model]}
-      // The long label wraps on a 320px card instead of overflowing it.
-      className="h-auto min-h-5.5 gap-1 py-0.5 font-medium whitespace-normal"
-    >
-      <Icon className="size-3 shrink-0" strokeWidth={2} aria-hidden />
-      {SAVE_MODEL_LABEL[model]}
-      <span className="sr-only">. {SAVE_MODEL_DETAIL[model]}</span>
-    </StatusPill>
-  )
-}
-
-/**
  * One profile section, drawn as a settings group (Notion Mail settings,
- * `SettingsGroup`): a quiet group label, a caption saying where its edits go
- * (SaveModelTag) and what it is for, then the fields. On a phone the group
- * sits flat on the page, with only the space between groups setting them
- * apart; on a desk the rows sit in the group's quiet bordered card. `id` is
- * the jump target for the section nav, and `${id}-heading` the heading it
- * focuses (SettingsGroup's script-focusable heading); the scroll margin
- * keeps the section clear of the phone's sticky section tabs.
+ * `SettingsGroup`): a quiet group label, a caption saying what it is for,
+ * then the fields. Where its edits go is said once, in the review sheet
+ * (components/reviewed-write/combined-review.tsx), not on each section.
+ * On a phone the group sits flat on the page, with only the space between
+ * groups setting them apart; on a desk the rows sit in the group's quiet
+ * bordered card. `id` is the jump target for the section nav, and
+ * `${id}-heading` the heading it focuses (SettingsGroup's script-focusable
+ * heading); the scroll margin keeps the section clear of the phone's
+ * sticky section tabs.
  *
  * `bare`: no card, for a section made of its own groups (attributes).
  * `info`: an information card on every screen (the sunken surface), for a
@@ -119,7 +55,6 @@ export function SectionCard({
   title,
   description,
   changed,
-  model,
   children,
   bare = false,
   info = false,
@@ -129,8 +64,6 @@ export function SectionCard({
   title: string
   description?: React.ReactNode
   changed?: boolean
-  /** Where this section's edits go; omit when the fields inside differ. */
-  model?: SaveModel
   children: React.ReactNode
   /** No card chrome, for a section made of its own cards (attributes). */
   bare?: boolean
@@ -138,16 +71,12 @@ export function SectionCard({
   info?: boolean
   className?: string
 }) {
-  // An info card says its piece inside the card; a settings group says
-  // where its edits go and what it is for in the caption under its label.
+  // An info card says its piece inside the card; a settings group says what
+  // it is for in the caption under its label.
   const lead = info ? null : description
-  const caption =
-    model || lead ? (
-      <span className="flex min-w-0 flex-col gap-1">
-        {model ? <SaveModelTag model={model} variant="caption" /> : null}
-        {lead ? <span className="text-pretty">{lead}</span> : null}
-      </span>
-    ) : undefined
+  const caption = lead ? (
+    <span className="min-w-0 text-pretty">{lead}</span>
+  ) : undefined
   return (
     <SettingsGroup
       id={id}

@@ -36,7 +36,7 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
     if (searched === query.trim()) void search.refetch()
     else setSearched(query.trim())
   }
-  return <SectionCard id="section-chain" model="google" title="Chain affiliation" description="Associate this location with a chain recognised by Google." changed={changed}>
+  return <SectionCard id="section-chain" title="Chain affiliation" description="Associate this location with a chain recognised by Google." changed={changed}>
     {unsupported ? <HandoffNote>The existing chain affiliation cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage it in Google</a>, then refresh.</HandoffNote> : <RowList>
       <ItemRow title={selectedName ?? (current ? "Selected chain" : "No chain affiliation in this draft")} detail={current || undefined}
         trailing={current ? <Button type="button" variant="ghost" disabled={blocked} onClick={() => choose("")}>Remove affiliation</Button> : undefined} />

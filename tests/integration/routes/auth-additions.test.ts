@@ -82,10 +82,22 @@ describeDatabase("auth additions", () => {
     const response = await fetch(
       `${server.baseUrl}/api/invitations/${token}`
     )
-    expect(response.status).toBe(200)
+    // An accepted invitation answers with its state only, never its details
+    // (D8): the same 409 registration uses, and no organisation, address,
+    // role, expiry or the old `accepted`/`expired` flags.
+    expect(response.status, await response.clone().text()).toBe(409)
     const body = await response.json()
-    expect(body.accepted).toBe(true)
-    expect(body.expired).toBe(false)
+    expect(body.error).toBe("invitation_already_used")
+    for (const key of [
+      "organisationName",
+      "email",
+      "role",
+      "expiresAt",
+      "accepted",
+      "expired",
+    ]) {
+      expect(body).not.toHaveProperty(key)
+    }
   })
 })
 

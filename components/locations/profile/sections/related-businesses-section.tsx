@@ -25,7 +25,7 @@ type Props = {
 }
 
 export function RelatedBusinessesSection(props: Props) {
-  return <SectionCard id="section-related-businesses" model="google" title="Related businesses" description="Manage parent and child business relationships using exact Google place IDs." changed={props.changed}>
+  return <SectionCard id="section-related-businesses" title="Related businesses" description="Manage parent and child business relationships using exact Google place IDs." changed={props.changed}>
     <RelationshipControl {...props} kind="parent" />
     <RelationshipControl {...props} kind="child" />
     {props.error && <InlineError>{props.error}</InlineError>}

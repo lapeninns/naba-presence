@@ -24,7 +24,7 @@ import { useReportEditorStatus, type EditorStatusReport } from "@/components/edi
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { industryCapability } from "@/lib/locations/industry-capability"
 import { Spinner } from "@/components/ui/spinner"
-import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
+import { CombinedReviewSheet, type CombinedReviewRow } from "@/components/reviewed-write/combined-review"
 import { parseListingDraft } from "@/lib/locations/forms/listing-draft"
 import type { ChangeRow } from "@/components/editors/change-diff"
 import { LocationTab } from "@/components/locations/location-tab"
@@ -49,7 +49,7 @@ import { PROFILE_SAVED_WORK_ID, ProfileUnreachable } from "@/components/location
 import { googleUnreachable } from "@/lib/listings/health"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useProfile, useRefreshProfile } from "@/lib/queries/use-location-profile"
-import { ApiClientError } from "@/lib/api/client"
+import { ApiClientError, isAwaitingApproval } from "@/lib/api/client"
 import {
   publishBusinessAttributes,
   publishBusinessInformation,
@@ -114,6 +114,46 @@ const FIELD_LABELS: Record<ProfileFieldKey, string> = {
 }
 /** The fields NabaPresence holds a copy of and can push to Google. */
 const EDITABLE: ProfileFieldKey[] = ["name", "description", "phone", "website"]
+
+/** The short words the review sheet's plain line uses for the copy fields. */
+const FIELD_NOUNS: Partial<Record<ProfileFieldKey, string>> = {
+  name: "name",
+  description: "description",
+  phone: "phone",
+  website: "website",
+}
+
+/**
+ * True when a prepared request needs a different person's approval before it
+ * can be sent (two-person mode), so this person can't approve it here.
+ */
+function waitsForApprover(review: GbpChangeSet | null): boolean {
+  return Boolean(
+    review?.requiresSecondApprover && !review.approvedBy && !review.canApprove
+  )
+}
+
+/**
+ * Where one review row goes and which publish steps carry it: the copy
+ * fields save here first and then publish; everything else is a prepared
+ * request (business information or attributes) sent from the same sheet.
+ */
+function routeProfileRow(
+  row: ChangeRow,
+  waits: { listing: boolean; attributes: boolean }
+): CombinedReviewRow {
+  const key = row.key ?? row.field
+  if (key.startsWith("profile-"))
+    return {
+      ...row,
+      route: "here",
+      steps: ["save", "profile"],
+      noun: FIELD_NOUNS[key.slice("profile-".length) as ProfileFieldKey],
+    }
+  if (key.startsWith("attribute-"))
+    return { ...row, route: "google", steps: ["attributes"], waitsForApprover: waits.attributes }
+  return { ...row, route: "google", steps: ["listing"], waitsForApprover: waits.listing }
+}
 
 type FieldErrors = Partial<Record<keyof ProfileFormValues, string>>
 
@@ -416,6 +456,10 @@ function ProfileEditor({
     [values, listing, attributes, revision, googleHash, locationHash, attributesHash]
   )
   const saved = useRef<ProfileState | null>(null)
+  // Set when the server held a step for another publisher (two-person mode,
+  // a 202 the API client raises as awaiting approval), so the sheet stays
+  // open on its per-row results instead of closing as if all were sent.
+  const parked = useRef(false)
 
   const buildSteps = useCallback(() => {
     const list: PublishStep[] = []
@@ -518,7 +562,17 @@ function ProfileEditor({
         },
       })
     }
-    return list
+    return list.map((step): PublishStep => ({
+      ...step,
+      run: async (intent) => {
+        try {
+          return await step.run(intent)
+        } catch (cause) {
+          if (isAwaitingApproval(cause)) parked.current = true
+          throw cause
+        }
+      },
+    }))
   }, [
     valuesDirty,
     values,
@@ -549,8 +603,23 @@ function ProfileEditor({
           ? "Business profile live on Google"
           : "Business profile sent to Google",
     }),
-    onSuccess: () => setReviewOpen(false),
+    onSuccess: () => {
+      if (!parked.current) setReviewOpen(false)
+    },
   })
+
+  // One sheet for both kinds of change: each row says where it goes and
+  // which steps carry it, so its result can be shown on the row itself.
+  const combinedRows = useMemo(
+    () =>
+      reviewRows.map((row) =>
+        routeProfileRow(row, {
+          listing: waitsForApprover(listingReview),
+          attributes: waitsForApprover(attributeReview),
+        })
+      ),
+    [reviewRows, listingReview, attributeReview]
+  )
 
   const [discardOpen, setDiscardOpen] = useState(false)
   // Validation shows after the first save or review attempt, then follows
@@ -1025,19 +1094,22 @@ function ProfileEditor({
         }}
       />
 
-      <ReviewChangesSheet
+      <CombinedReviewSheet
         open={reviewOpen}
         onOpenChange={setReviewOpen}
-        rows={reviewRows}
+        rows={combinedRows}
         locationName={profile.location.name}
         onPublish={() => {
           if (reviewFingerprint !== fingerprint) return
+          parked.current = false
           void flow.publish()
         }}
         publishing={flow.isPublishing}
         results={flow.results}
         error={flow.error}
-        publishDisabledReason={publishReason ?? (reviewFingerprint !== fingerprint ? "The draft or Google baseline changed. Close this review and review again." : [listingReview, attributeReview].some((review) => review?.requiresSecondApprover && !review.approvedBy && !review.canApprove) ? "A different authorised user must approve this saved review." : null)}
+        // Two-person gating is unchanged: any prepared request this person
+        // can't approve keeps the whole publish off.
+        publishDisabledReason={publishReason ?? (reviewFingerprint !== fingerprint ? "The draft or Google baseline changed. Close this review and review again." : [listingReview, attributeReview].some(waitsForApprover) ? "A different authorised user must approve this saved review." : null)}
       />
     </EditorFrame>
   )

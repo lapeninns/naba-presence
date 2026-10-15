@@ -43,26 +43,37 @@ const NO_CAPABILITIES = {
   canRequestApproval: false,
 } satisfies ReviewCapabilities
 
+/**
+ * The organisation's two-person setting. It decides whether the requester of
+ * an approval may also grant it, which separates "awaiting my approval" from
+ * "awaiting others", and whether a list row's `canApprove` is withheld from
+ * the requester and the draft's author. Read once per request, not per row.
+ */
+async function readTwoPersonApproval(
+  sql: TransactionSql,
+  session: Session
+): Promise<boolean> {
+  const [settings] = await sql<{ requireTwoPersonApproval: boolean }[]>`
+    select require_two_person_approval as "requireTwoPersonApproval"
+    from organisation
+    where id = ${session.organisationId}
+  `
+  return settings?.requireTwoPersonApproval ?? false
+}
+
 /** One page of the inbox list for a decoded `ReviewsQuery`. */
 export async function readReviewsPage(
   sql: TransactionSql,
   session: Session,
   query: ReviewsQuery
 ) {
-  // The two-person setting decides whether the requester of an approval
-  // may also grant it, which is what separates "awaiting my approval"
-  // from "awaiting others". Read once per request, not per row.
-  const [settings] = await sql<{ requireTwoPersonApproval: boolean }[]>`
-    select require_two_person_approval as "requireTwoPersonApproval"
-    from organisation
-    where id = ${session.organisationId}
-  `
+  const requireTwoPersonApproval = await readTwoPersonApproval(sql, session)
   const queried = await buildInboxQuery(sql, {
     ...query,
     role: session.role,
     userId: session.userId,
     canPublish: session.canPublish,
-    requireTwoPersonApproval: settings?.requireTwoPersonApproval ?? false,
+    requireTwoPersonApproval,
     searchReviewIds: query.search
       ? await boundedSearchMatches(sql, query.search)
       : undefined,
@@ -389,8 +400,9 @@ export async function readReviewRow(
     role: session.role,
     userId: session.userId,
     canPublish: session.canPublish,
-    // Decides queue membership only; no queue filter is applied here.
-    requireTwoPersonApproval: false,
+    // No queue filter is applied here, but the row's `canApprove` follows the
+    // setting, so a row a write hands back agrees with the one the list reads.
+    requireTwoPersonApproval: await readTwoPersonApproval(sql, session),
   })
   if (!row) return null
   const capabilities = await reviewCapabilitiesForLocations(sql, session, [
