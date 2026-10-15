@@ -314,8 +314,8 @@ export function ReviewedCompletionVerification({
         <>
           {!pending.length && (
             <p className="text-ui text-ink-muted">
-              No independently known pending request is available for PIN entry.
-              Check current Google state or inspect saved completions below.
+              Google has no PIN request waiting for this listing. Check
+              Google again, or look at saved PIN reviews below.
             </p>
           )}
           {/* A pending request is a list row that carries its own PIN form, so

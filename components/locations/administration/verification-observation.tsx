@@ -52,7 +52,14 @@ export function merchantStandingLabel(
 }
 
 const yesNo = (value: boolean | null) =>
-  value === null ? "Unknown" : value ? "Yes" : "No"
+  value === null ? "Not reported" : value ? "Yes" : "No"
+
+/** The one-line answer the page leads with. */
+export function verificationHeadline(confirmed: boolean | null): string {
+  return confirmed === true
+    ? "Verified. Google confirms you manage this listing."
+    : (merchantStandingLabel(confirmed) ?? "Verification status is unknown")
+}
 
 /**
  * Google's standing for this listing: the human status and what Google asks
@@ -69,18 +76,17 @@ export function VerificationMerchantObservation({
     <Card size="sm">
       <CardContent className="flex min-w-0 flex-col gap-2">
         <p className="text-body font-semibold text-ink">
-          {merchantStandingLabel(merchant?.hasVoiceOfMerchant ?? null) ??
-            "Merchant standing is unknown"}
+          {verificationHeadline(merchant?.hasVoiceOfMerchant ?? null)}
         </p>
         <p className="text-ui text-ink-secondary">
           {merchant
             ? actionCopy[merchant.action]
-            : "Google’s merchant standing could not be read. Verification request history is a separate observation."}
+            : "Google’s verification status could not be read. The request history below is a separate check."}
         </p>
         <p className="text-caption text-ink-muted">
           Last checked <Instant value={state.checkedAt} />.
         </p>
-        <TechnicalDetails summary="About this standing">
+        <TechnicalDetails summary="More about this">
           {merchant && (
             <>
               <div className="grid min-w-0 gap-0.5">
@@ -93,7 +99,7 @@ export function VerificationMerchantObservation({
               </div>
               <div className="grid min-w-0 gap-0.5">
                 <dt className="text-caption text-ink-muted">
-                  Pending verification reported
+                  Verification in progress
                 </dt>
                 <dd className="text-ui text-ink">
                   {yesNo(merchant.hasPendingVerification)}
@@ -105,9 +111,9 @@ export function VerificationMerchantObservation({
             <dt className="text-caption text-ink-muted">What this means</dt>
             <dd className="text-ui text-ink-secondary">
               This is Google’s overall confirmation that you can manage the
-              listing; business authority is a separate signal. It does not
-              confirm that a particular edit is published or visible on Search
-              or Maps. Each operation has its own confirmation.
+              listing. Business authority is a separate signal. It does not
+              show that a particular edit is live on Search or Maps; each
+              change is confirmed on its own.
             </dd>
           </div>
         </TechnicalDetails>
