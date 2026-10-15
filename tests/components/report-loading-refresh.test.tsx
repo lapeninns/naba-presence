@@ -196,6 +196,58 @@ describe("refreshing from Google", () => {
     expect(reads()).toBe(settled)
   })
 
+  // The keywords response has no fetch time, so unchanged terms cannot be told
+  // from a sync still running: the wait is short and ends on its own.
+  it("stops following a keywords refresh after 30 seconds when the terms never change", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? json({ organisations: [] })
+        : json({
+            range: "6m",
+            from: "2026-03-01",
+            state: "ready",
+            locations: [{ id: "l", name: "L" }],
+            keywords: [
+              {
+                rank: 1,
+                keyword: "riverside hotel bath",
+                impressions: 5200,
+                upperBound: 5200,
+                thresholded: false,
+                firstMonth: "2026-03",
+                latestMonth: "2026-08",
+              },
+            ],
+            unavailableReasons: [],
+          })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <QueryClientProvider client={client()}>
+        <Toaster>
+          <KeywordsTab />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await screen.findByText("riverside hotel bath")
+    await user.click(
+      screen.getByRole("button", { name: "Refresh from Google" })
+    )
+    expect(await screen.findByText("Refreshing…")).toBeInTheDocument()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_000)
+    })
+    expect(screen.getByText("Refreshing…")).toBeInTheDocument()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    await waitFor(() =>
+      expect(screen.queryByText("Refreshing…")).not.toBeInTheDocument()
+    )
+  })
+
   it("stops waiting when the request fails", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
       init?.method === "POST"

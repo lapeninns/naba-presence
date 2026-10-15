@@ -26,6 +26,11 @@ export function refreshErrorCopy(caught: unknown): string {
 const POLL_MS = 5_000
 /** After this long the wait ends, so a quiet sync is never polled for ever. */
 const POLL_LIMIT_MS = 90_000
+/**
+ * The keywords response carries no fetch time, so a sync that leaves the terms
+ * as they were cannot be told from one still running: wait less for it.
+ */
+const KEYWORDS_POLL_LIMIT_MS = 30_000
 
 type Kind = "performance" | "keywords"
 
@@ -54,7 +59,10 @@ export function useRefreshWatch(kind: Kind, signature: string | null) {
         exact: false,
       })
     }, POLL_MS)
-    const stop = setTimeout(() => setWatch(null), POLL_LIMIT_MS)
+    const stop = setTimeout(
+      () => setWatch(null),
+      kind === "keywords" ? KEYWORDS_POLL_LIMIT_MS : POLL_LIMIT_MS
+    )
     return () => {
       clearInterval(poll)
       clearTimeout(stop)
