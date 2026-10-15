@@ -76,6 +76,7 @@ function useReportEditorStatus(report: EditorStatusReport | null) {
   const localEdits = report?.localEdits
   const savesHere = report?.savesHere
   const changeCount = report?.changeCount
+  const emptyOnGoogle = report?.emptyOnGoogle
   const present = report !== null
   React.useEffect(() => {
     if (!store) return
@@ -87,10 +88,20 @@ function useReportEditorStatus(report: EditorStatusReport | null) {
             localEdits: localEdits!,
             savesHere: savesHere!,
             changeCount,
+            emptyOnGoogle,
           }
         : null
     )
-  }, [store, present, status, isDirty, localEdits, savesHere, changeCount])
+  }, [
+    store,
+    present,
+    status,
+    isDirty,
+    localEdits,
+    savesHere,
+    changeCount,
+    emptyOnGoogle,
+  ])
   React.useEffect(() => {
     if (!store) return
     return () => store.set(null)
