@@ -1041,7 +1041,7 @@ for (const theme of themes) {
         await expect(filtersSheet).toBeHidden()
         const reviewList = page.getByRole("region", { name: "Review list" })
         await expect(reviewList).toBeVisible()
-        const row = reviewList.getByRole("button", { name: /Jordan Lee/ })
+        const row = reviewList.getByRole("button", { name: /^Jordan Lee/ })
         await expect(row).toBeVisible()
         if (viewport.name === "mobile") {
           await expect(
@@ -1256,7 +1256,7 @@ for (const theme of themes) {
         await page.goto("/inbox")
         const reviewList = page.getByRole("region", { name: "Review list" })
         if (viewport.name === "mobile") {
-          await reviewList.getByRole("button", { name: /Jordan Lee/ }).click()
+          await reviewList.getByRole("button", { name: /^Jordan Lee/ }).click()
         }
         await page.getByRole("button", { name: "Review actions" }).click()
         await page

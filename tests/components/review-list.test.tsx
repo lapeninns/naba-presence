@@ -900,7 +900,7 @@ describe("ReviewList row anatomy", () => {
       />
     )
     const fresh = screen.getByRole("button", { name: /^Sam Traveller/ })
-    const handled = screen.getByRole("button", { name: /Ben Handled/ })
+    const handled = screen.getByRole("button", { name: /^Ben Handled/ })
 
     expect(nameOf(fresh, "Sam Traveller")).toHaveClass(
       "font-semibold",
@@ -977,7 +977,7 @@ describe("ReviewList row anatomy", () => {
     expect(said[0]).toHaveClass("sr-only")
     expect(said[0]).toHaveTextContent(/^, No reply yet$/)
     expect(
-      screen.getByRole("button", { name: /Sam Traveller, No reply yet/ })
+      screen.getByRole("button", { name: /^Sam Traveller, No reply yet/ })
     ).toBeInTheDocument()
   })
 

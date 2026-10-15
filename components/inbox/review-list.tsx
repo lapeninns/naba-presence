@@ -379,9 +379,10 @@ function ReviewList({
                   : undefined
               }
               // Named per row, so a screen reader's list of buttons does not
-              // repeat one name. It starts "Actions for", unlike the row's own
-              // button, so the two never match the same lookup. It stays a tab
-              // stop: the keyboard has no other way to this menu.
+              // repeat one name. It starts "Actions for", while the row's own
+              // button starts with the reviewer's name, so a lookup by that
+              // name must be anchored (/^Jordan Lee/) or it matches both. It
+              // stays a tab stop: the keyboard has no other way to this menu.
               actionsLabel={`Actions for ${displayName}`}
               emphasis={needsReply ? "unread" : "read"}
               unreadLabel={pillSpokenByTitle ? status.text : "Needs reply"}
