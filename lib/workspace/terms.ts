@@ -37,6 +37,21 @@ export type WorkspaceTerms = {
   teamDescription: string
 }
 
+/**
+ * The Google listing words on their own, for components that have no
+ * workspace mode to hand (the shared report, the client hub). They are the
+ * same in both modes, so they are not read from `workspaceTerms`.
+ */
+export const LISTING_TERMS = {
+  place: "listing",
+  placePlural: "listings",
+  placeTitle: "Listing",
+  placePluralTitle: "Listings",
+} as const satisfies Pick<
+  WorkspaceTerms,
+  "place" | "placePlural" | "placeTitle" | "placePluralTitle"
+>
+
 const TERMS: Record<WorkspaceMode, WorkspaceTerms> = {
   business: {
     org: "Business",
@@ -45,10 +60,7 @@ const TERMS: Record<WorkspaceMode, WorkspaceTerms> = {
     scopePlural: "locations",
     scopeTitle: "Location",
     scopePluralTitle: "Locations",
-    place: "listing",
-    placePlural: "listings",
-    placeTitle: "Listing",
-    placePluralTitle: "Listings",
+    ...LISTING_TERMS,
     access: "Location access",
     orgName: "Business name",
     reportsDescription:
@@ -62,10 +74,7 @@ const TERMS: Record<WorkspaceMode, WorkspaceTerms> = {
     scopePlural: "clients",
     scopeTitle: "Client",
     scopePluralTitle: "Clients",
-    place: "listing",
-    placePlural: "listings",
-    placeTitle: "Listing",
-    placePluralTitle: "Listings",
+    ...LISTING_TERMS,
     access: "Client access",
     orgName: "Agency name",
     reportsDescription:

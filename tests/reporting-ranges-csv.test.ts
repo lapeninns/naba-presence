@@ -201,8 +201,8 @@ describe("csv", () => {
   })
 
   it("names files plainly", () => {
-    expect(csvFilename("Reply performance by location", "Last 28 days")).toBe(
-      "reply-performance-by-location-last-28-days.csv"
+    expect(csvFilename("Reply performance by listing", "Last 28 days")).toBe(
+      "reply-performance-by-listing-last-28-days.csv"
     )
   })
 })

@@ -87,7 +87,7 @@ describe("PresenceProvenance coverage", () => {
       />
     )
     expect(html).toContain(
-      "1 of 6 locations up to date · 1 with figures but no recorded fetch · 1 waiting for a first fetch · refresh failed for 1 · 1 out of date · 1 sent no figures"
+      "1 of 6 listings up to date · 1 with figures but no recorded fetch · 1 waiting for a first fetch · refresh failed for 1 · 1 out of date · 1 sent no figures"
     )
     expect(html).toContain("Figures up to 11 Oct")
   })
@@ -133,11 +133,11 @@ describe("PresenceProvenance coverage", () => {
     const sheet = renderToString(<PresenceProvenance data={data} />)
     expect(sheet).toContain("Nothing fetched from Google yet")
     expect(sheet).toContain(
-      "0 of 1 location up to date · 1 with figures but no recorded fetch"
+      "0 of 1 listing up to date · 1 with figures but no recorded fetch"
     )
-    expect(sheet).not.toContain("1 of 1 location up to date")
+    expect(sheet).not.toContain("1 of 1 listing up to date")
     const caption = renderToString(<PresenceCaption data={data} />)
-    expect(caption).toContain("0 of 1 location up to date")
-    expect(caption).not.toContain("1 of 1 location up to date")
+    expect(caption).toContain("0 of 1 listing up to date")
+    expect(caption).not.toContain("1 of 1 listing up to date")
   })
 })

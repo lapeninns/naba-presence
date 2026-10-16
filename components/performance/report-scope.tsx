@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button"
 import { Empty, EmptyIllustration } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { LISTING_TERMS, workspaceTerms } from "@/lib/workspace/terms"
 
 /*
  * The scope bar that used to live here (ReportScope) is now the one
@@ -23,7 +24,9 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * lookup-found-nothing drawing.
  */
 export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
-  const business = useWorkspaceMode() === "business"
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  const terms = workspaceTerms(mode)
   return (
     <div data-slot="not-in-directory" className="flex flex-1 flex-col">
       <Empty
@@ -33,7 +36,7 @@ export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
         title={
           kind === "client"
             ? "This client isn’t in your directory"
-            : "This location isn’t in your directory"
+            : `This ${LISTING_TERMS.place} isn’t in your directory`
         }
         description={
           business
@@ -45,7 +48,7 @@ export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
             href="/reports"
             className={cn(buttonVariants({ variant: "secondary" }))}
           >
-            {business ? "All locations" : "All clients"}
+            {`All ${terms.scopePlural}`}
           </Link>
         }
       />

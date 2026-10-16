@@ -21,6 +21,7 @@ import {
   BIN_TOTALS_NOTE,
   formatBinLabel,
 } from "@/lib/reporting/series-bins"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
  * The reply figures: four headline tiles and the two charts over time, with
@@ -38,7 +39,7 @@ import {
  *   window had reviews, the tiles stay: the drop to zero is the finding.
  * - The charts never contradict the tiles: when the tiles count reviews but
  *   the series has none to draw, the card says the chart is unavailable
- *   rather than "No reviews in this window".
+ *   rather than "No reviews in this period".
  */
 
 export type ReplySummaryFigures = {
@@ -86,12 +87,12 @@ const COPY: Record<
   }
 > = {
   internal: {
-    span: "window",
+    span: "period",
     empty: (range, period, scope) =>
       `Nothing has been collected for ${scope} in the ${range}${period ? ` (${period})` : ""}. Figures appear here as reviews arrive from Google.`,
-    chartEmpty: "No reviews in this window",
+    chartEmpty: "No reviews in this period",
     chartEmptyBody: "Figures appear here as reviews arrive from Google.",
-    ratingEmpty: "No rated reviews in this window",
+    ratingEmpty: "No rated reviews in this period",
     ratingEmptyBody: "A rating appears here once a review with stars arrives.",
   },
   public: {
@@ -161,7 +162,7 @@ export function ReplyFigures({
   rangeLabel: string
   /** "15 Sept – 13 Oct", when known. */
   periodText?: string
-  /** Who the figures cover: "these locations", "this location". */
+  /** Who the figures cover: "these listings", "this listing". */
   scope?: string
   /** Leads the CSV file names: the client's name on the shared report. */
   csvPrefix?: string
@@ -194,13 +195,12 @@ export function ReplyFigures({
           title={
             audience === "public"
               ? "No reviews in this period"
-              : "No reviews in this window yet"
+              : "No reviews in this period yet"
           }
           description={copy.empty(
             rangeLabel.toLowerCase(),
             periodText,
-            scope ??
-              (audience === "public" ? "these venues" : "these locations")
+            scope ?? `these ${LISTING_TERMS.placePlural}`
           )}
         />
       </div>

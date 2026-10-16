@@ -42,9 +42,9 @@ test.describe("reports", () => {
     await expect(page.getByRole("tab", { name: "Keywords" })).toHaveAttribute("aria-selected", "true")
   })
 
-  test("reply performance shows KPI tiles, a prior-window delta, and the by-location table", async ({ page }) => {
+  test("reply performance shows KPI tiles, a prior-period delta, and the by-listing table", async ({ page }) => {
     await page.goto("/reports")
-    // "Reviews" labels both the KPI tile and the by-location table's column
+    // "Reviews" labels both the KPI tile and the by-listing table's column
     // header; the KPI grid renders first in DOM order, so .first() resolves
     // the strict-mode ambiguity deterministically rather than guessing.
     await expect(page.getByText("Reviews", { exact: true }).first()).toBeVisible()
@@ -58,7 +58,7 @@ test.describe("reports", () => {
     const delta = page.getByText(/(Up|Down|No change)\s*[+±−]/).first()
     await expect(delta).toBeVisible()
     await expect(delta.locator("svg")).toHaveCount(1)
-    await expect(page.getByRole("columnheader", { name: "Location" })).toBeVisible()
+    await expect(page.getByRole("columnheader", { name: "Listing" })).toBeVisible()
   })
 
   test("google performance renders humanised metric tiles (seeded ready)", async ({ page }) => {

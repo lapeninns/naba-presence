@@ -59,6 +59,7 @@ import { formatNumber } from "@/lib/format"
 import { formatAddressLine } from "@/lib/locations/address"
 import { useClient } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 type Client = ClientResponse["client"]
 type Listing = ClientResponse["locations"][number]
@@ -250,9 +251,8 @@ function ClientHub({
             tone={client.openWork.failed > 0 ? "bad" : undefined}
             href={`/inbox?clientId=${client.id}&queue=failed`}
           />
-          {/* TODO(CLR-06): adopt lib/workspace/terms.ts once P11 merges */}
           <WorkTile
-            label="Listings linked"
+            label={`${LISTING_TERMS.placePluralTitle} linked`}
             value={`${formatNumber(client.linkedCount)} / ${formatNumber(client.locationCount)}`}
             hint={`${formatNumber(client.verifiedCount)} verified on Google`}
             href={`/listings?clientId=${client.id}`}
@@ -534,9 +534,8 @@ function ListingsSection({
       className="flex min-w-0 flex-1 flex-col gap-2.5"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        {/* TODO(CLR-06): adopt lib/workspace/terms.ts once P11 merges */}
         <h2 id="client-listings" className="text-title font-semibold text-ink">
-          Listings
+          {LISTING_TERMS.placePluralTitle}
         </h2>
         {/* The linked and verified counts are the "Listings linked" tile
             above; they are not repeated here. */}
@@ -549,7 +548,7 @@ function ListingsSection({
             titleAs="h3"
             icon={<MapPinIcon />}
             title="No listings yet"
-            description={`Connect the Google account that manages ${client.name}'s Business Profile, then pick its locations. Reviews start arriving once a listing is linked.`}
+            description={`Connect the Google account that manages ${client.name}'s Business Profile, then pick its ${LISTING_TERMS.placePlural}. Reviews start arriving once a ${LISTING_TERMS.place} is linked.`}
             action={
               canManage ? (
                 <Link

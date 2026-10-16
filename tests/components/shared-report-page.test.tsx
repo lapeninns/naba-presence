@@ -257,7 +257,7 @@ describe("SharedClientReportView", () => {
       screen.getByRole("heading", { name: "Google Business Profile" })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("heading", { name: "By venue" })
+      screen.getByRole("heading", { name: "By listing" })
     ).toBeInTheDocument()
   })
 
@@ -294,11 +294,11 @@ describe("SharedClientReportView", () => {
     // No metadata table up there any more.
     expect(banner.querySelector("dl")).toBeNull()
     expect(within(banner).queryByText("Prepared by")).not.toBeInTheDocument()
-    expect(within(banner).queryByText("Venues")).not.toBeInTheDocument()
+    expect(within(banner).queryByText("Listings")).not.toBeInTheDocument()
     expect(within(banner).queryByText("Generated")).not.toBeInTheDocument()
 
     const footer = screen.getByRole("contentinfo")
-    expect(within(footer).getByText("Venues")).toBeInTheDocument()
+    expect(within(footer).getByText("Listings")).toBeInTheDocument()
     expect(
       within(footer).getByText("Old Crown, Sutton, Old Crown, Cheam")
     ).toBeInTheDocument()
@@ -315,8 +315,8 @@ describe("SharedClientReportView", () => {
       />
     )
     const footer = screen.getByRole("contentinfo")
-    expect(within(footer).getByText("Venue")).toBeInTheDocument()
-    expect(within(footer).queryByText("Venues")).not.toBeInTheDocument()
+    expect(within(footer).getByText("Listing")).toBeInTheDocument()
+    expect(within(footer).queryByText("Listings")).not.toBeInTheDocument()
   })
 
   it("says so in the footer when there are no venues yet", () => {
@@ -360,17 +360,17 @@ describe("SharedClientReportView", () => {
       "[data-slot=partial-coverage]"
     ) as HTMLElement
     expect(
-      within(banner).getByText("Showing 2 of 3 venues")
+      within(banner).getByText("Showing 2 of 3 listings")
     ).toBeInTheDocument()
     expect(
       within(banner).getByText(/Could not be refreshed: Old Crown, Cheam/)
     ).toBeInTheDocument()
     expect(
-      within(banner).getByText(/Complete for every venue shown through 12 Sept/)
+      within(banner).getByText(/Complete for every listing shown through 12 Sept/)
     ).toBeInTheDocument()
     // The oldest complete date also reads in the provenance line.
     expect(
-      screen.getByText(/All reporting locations complete through 12 Sept/)
+      screen.getByText(/All reporting listings complete through 12 Sept/)
     ).toBeInTheDocument()
   })
 

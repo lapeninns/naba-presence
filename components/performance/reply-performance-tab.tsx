@@ -26,6 +26,7 @@ import {
   type ReplyRangeId,
 } from "@/lib/reporting/ranges"
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 function ReplyPerformanceLoading() {
   return <ReportsSkeleton variant="tab" label="Loading reply performance…" />
@@ -58,8 +59,7 @@ export function ReplyPerformanceTab({
   const prior = useAnalyticsOverview({ ...previous, clientId })
   const unit = current.granularity
   const rangeLabel =
-    REPLY_RANGES.find((option) => option.id === rangeId)?.label ??
-    "This window"
+    REPLY_RANGES.find((option) => option.id === rangeId)?.label ?? "This period"
   const period = formatPeriod(current, now.data?.timezone ?? "Europe/London")
 
   // The period is the page's (period strip, toolbar); the tab's head is the
@@ -137,12 +137,15 @@ export function ReplyPerformanceTab({
           <SectionHeader
             as="h3"
             id="reply-by-location"
-            title="By location"
+            title={`By ${LISTING_TERMS.place}`}
             description="Highest response rate first. Missing figures show “—”, never zero."
             actions={
               <CsvDownloadButton
-                filename={csvFilename("reply performance by location", rangeLabel)}
-                accessibleLabel="Download reply performance by location as CSV"
+                filename={csvFilename(
+                  `reply performance by ${LISTING_TERMS.place}`,
+                  rangeLabel
+                )}
+                accessibleLabel={`Download reply performance by ${LISTING_TERMS.place} as CSV`}
                 rows={() => replyLocationsCsv(now.data.locations)}
               />
             }

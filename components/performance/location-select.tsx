@@ -5,11 +5,12 @@ import {
   scopeFieldInRowClassName,
   scopeTriggerInRowClassName,
 } from "@/components/performance/scope-select"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
- * Which of a client's listings a report covers (the scope's `Location`
+ * Which of a client's listings a report covers (the scope's `Listing`
  * field, under Client). Picking one opens that listing's report
- * (`?locationId=`); "Every location" stays on the whole client.
+ * (`?locationId=`); "Every listing" stays on the whole client.
  *
  * Without it, a single listing's report could only be reached from the
  * listing itself or the hub, never from the report you were already on.
@@ -33,8 +34,8 @@ export function LocationSelect({
 
   return (
     <ScopeSelect
-      label="Location"
-      allLabel="Every location"
+      label={LISTING_TERMS.placeTitle}
+      allLabel={`Every ${LISTING_TERMS.place}`}
       value={value}
       onChange={onChange}
       options={locations.map((location) => ({
