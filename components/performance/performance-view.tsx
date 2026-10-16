@@ -145,7 +145,16 @@ function NoLocationsPanel({
  * (the same scope control as every other page) and in the inline fields
  * from `md`; the period is a one-tap chip strip under the tabs on a phone.
  */
-export function PerformanceView() {
+export function PerformanceView({
+  windowNow,
+}: {
+  /**
+   * The server's "now" (ISO), when it read the Reply tab's figures for this
+   * address: the tab resolves its windows from it so its query keys are the
+   * ones the server stored them under.
+   */
+  windowNow?: string
+} = {}) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -391,6 +400,7 @@ export function PerformanceView() {
             <NoLocationsPanel client={client} share={shareTarget} />
           ) : (
             <ReplyPerformanceTab
+              windowNow={windowNow}
               clientId={clientId}
               range={resolveTabRange("reply", rangeParams).id}
               onRangeChange={setRange("reply")}

@@ -36,8 +36,15 @@ export function ReplyPerformanceTab({
   clientId,
   range,
   share,
+  windowNow,
 }: {
   clientId?: string
+  /**
+   * The server's "now" (ISO) from the page that prefetched these windows. The
+   * windows are resolved from it, so their keys match the prefetched ones;
+   * without it they are resolved from the browser's clock on mount.
+   */
+  windowNow?: string
   /** What the report's menu shares; none when the viewer may not share. */
   share?: ReportShareTarget | null
   /** The period, kept by the page (in `?range=`); defaults to 28 days. */
@@ -52,8 +59,9 @@ export function ReplyPerformanceTab({
   // infinite fetch loop (72 requests in 5s, observed). Capture the window once
   // per rangeId change so the query keys stay stable.
   const { current, previous } = useMemo(
-    () => resolveReplyRange(rangeId),
-    [rangeId]
+    () =>
+      resolveReplyRange(rangeId, windowNow ? new Date(windowNow) : undefined),
+    [rangeId, windowNow]
   )
   const now = useAnalyticsOverview({ ...current, clientId })
   const prior = useAnalyticsOverview({ ...previous, clientId })
