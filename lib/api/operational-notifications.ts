@@ -71,6 +71,8 @@ export function storeFor(client: QueryClient): Store {
     store = {
       changes: [],
       published: [],
+      pin: null,
+      publishedPin: null,
       listeners,
       subscribe: (onChange) => {
         listeners.add(onChange)

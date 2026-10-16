@@ -1585,7 +1585,8 @@ describe("NotificationsView pending changes", () => {
           queryKeys.notifications("badge")
         )?.unreadCount
 
-      async function markFirstRead() {
+      /** Marks the nth still-unread row read, with the badge page loaded. */
+      async function markRead(index = 0) {
         const server = steppedServer(rows)
         const client = mountScoped(OWNER, true)
         await waitFor(() => expect(count()).toHaveTextContent("22 open"))
@@ -1594,11 +1595,12 @@ describe("NotificationsView pending changes", () => {
         fireEvent.click(
           screen.getAllByRole("button", {
             name: "Mark read: Publishing failed",
-          })[0]!
+          })[index]!
         )
         agree(21)
         return { server, client }
       }
+      const markFirstRead = () => markRead(0)
 
       it("does not take a saved read off the badge twice when a poll has already seen it", async () => {
         const { server, client } = await markFirstRead()
@@ -1635,23 +1637,74 @@ describe("NotificationsView pending changes", () => {
         await waitFor(() => agree(21))
       })
 
-      it("still takes a read of a row beyond the page off the count", async () => {
-        const { server, client } = await markFirstRead()
-        // Marking the 22nd row, which the page never reached: it cannot be on
-        // the page whatever its state, so the page's absence proves nothing
-        // and the count (22, with the row) is lowered for it.
+      it("does not take a saved read of a row beyond the page off the badge twice", async () => {
+        // The oldest row: the page of 20 can never hold it, so whether a poll
+        // has already absorbed its read is not in the page at all.
+        const { server, client } = await markRead(21)
+        act(() => seedShellKeys(client, shellPage(0, 21)))
+        await tick()
+        agree(21)
+        server.holdLists()
+        ;(await server.write(0)).accept()
+        await waitFor(() => expect(badgeCount(client)).toBe(21))
+        await tick()
+        expect(badgeCount(client)).toBe(21)
+        agree(21)
+        server.releaseLists()
+        await waitFor(() => agree(21))
+      })
+
+      it("still takes a read of a row beyond the page off a count from a poll that left before the save", async () => {
+        const { server, client } = await markRead(21)
+        act(() => seedShellKeys(client, shellPage(0, 22)))
+        await tick()
+        agree(21)
+        server.holdLists()
+        ;(await server.write(0)).accept()
+        await waitFor(() => expect(badgeCount(client)).toBe(21))
+        await tick()
+        agree(21)
+        server.releaseLists()
+        await waitFor(() => agree(21))
+      })
+
+      it("keeps the bell on the pinned total while one change commits and another is still out", async () => {
+        const { server, client } = await markRead(21)
+        // A second change, queued behind the first.
         fireEvent.click(
           screen.getAllByRole("button", {
             name: "Mark read: Publishing failed",
-          })[20]!
+          })[0]!
         )
         agree(20)
-        act(() => seedShellKeys(client, shellPage(0, 22)))
+        // A poll that has absorbed the first only.
+        act(() => seedShellKeys(client, shellPage(0, 21)))
         await tick()
         agree(20)
+        server.holdLists()
         ;(await server.write(0)).accept()
+        // The first is permanent (21); the second still takes one off.
+        await waitFor(() => expect(badgeCount(client)).toBe(21))
+        await tick()
+        agree(20)
         ;(await server.write(1)).accept()
         await waitFor(() => expect(badgeCount(client)).toBe(20))
+        await tick()
+        agree(20)
+        server.releaseLists()
+        await waitFor(() => agree(20))
+      })
+
+      it("goes back to the count a poll brought when the only change is refused", async () => {
+        const { server, client } = await markRead(21)
+        act(() => seedShellKeys(client, shellPage(0, 23)))
+        await tick()
+        agree(21)
+        server.holdLists()
+        ;(await server.write(0)).refuse()
+        // Nothing was saved: the poll's count (a new notification) is the truth.
+        await waitFor(() => expect(bell()).toHaveAccessibleName(bellName(23)))
+        server.releaseLists()
       })
     })
 

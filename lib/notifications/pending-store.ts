@@ -43,11 +43,25 @@ export type PendingChange = {
 // The store
 // ---------------------------------------------------------------------------
 
+/**
+ * The shell's unread count as it stood when the first of the changes now
+ * pending was made, moved on by each change that commits since.
+ */
+export type CountPin = { count: number; scope: string }
+
 export type Store = {
   /** The truth, for code that is not rendering. */
   changes: readonly PendingChange[]
   /** What subscribers read: it moves with the cache's own notifications. */
   published: readonly PendingChange[]
+  /**
+   * The bell's count while changes are pending: this, plus the changes, and
+   * never the count a shell poll or refetch brings meanwhile, which may or
+   * may not already have absorbed them and cannot be told which. Null when no
+   * change is pending, or the shell's count was not loaded when one was made.
+   */
+  pin: CountPin | null
+  publishedPin: CountPin | null
   listeners: Set<() => void>
   subscribe: (onChange: () => void) => () => void
   /**
