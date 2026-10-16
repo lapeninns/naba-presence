@@ -5,7 +5,13 @@ import { usePathname } from "next/navigation"
 import { backTarget, type BackTarget } from "@/lib/navigation/back-target"
 import { SETTINGS_SECTION_LABELS } from "@/lib/settings/areas"
 import type { Crumb } from "@/components/ui/breadcrumb"
-import { breadcrumbTrail } from "@/lib/ui/breadcrumb-trail"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { breadcrumbTrail, foldTrail } from "@/lib/ui/breadcrumb-trail"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -63,12 +69,45 @@ function deskTrail(pathname: string | null, trail: Crumb[]): Crumb[] {
 }
 
 /**
+ * The "…" of a folded trail: a menu of the crumbs it stands for, each a real
+ * link where the trail had one (a plain line where it had none), so nothing
+ * the full trail offered is out of reach.
+ */
+function FoldedCrumbs({ crumbs }: { crumbs: Crumb[] }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        data-slot="breadcrumb-folded"
+        aria-label="Earlier pages in the trail"
+        className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-sm text-ink-muted focus-halo hover:text-ink focus-visible:outline-none"
+      >
+        <span aria-hidden>…</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" title="Earlier pages">
+        {crumbs.map((crumb) => (
+          <DropdownMenuItem
+            key={`${crumb.label}-${crumb.href ?? ""}`}
+            render={crumb.href ? <ShellLink href={crumb.href} /> : undefined}
+            disabled={!crumb.href}
+          >
+            <span className="min-w-0 truncate">{crumb.label}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
  * The desk toolbar's trail, from 1180px (`wide`). Narrower screens show the
  * labelled back control instead: at 768 every crumb truncated to a few
  * letters and repeated the eyebrow and the h1 below it.
  *
  * Slash-separated, the ancestors muted links and the current page in
- * semibold ink: the view's title, as in the Notion Mail header. When the
+ * semibold ink. A trail of more than three folds its middle into one "…"
+ * menu of links (DSK-05): a listing's area reads "Listings / … / Hours",
+ * since the page header right below already names the listing and
+ * switches it: the view's title, as in the Notion Mail header. When the
  * page registered a count (`<PageChrome count>`), it follows the title in
  * muted figures ("Inbox 12"); visual only, as the page's own h1 or region
  * carries it for assistive technology.
@@ -83,17 +122,18 @@ function deskTrail(pathname: string | null, trail: Crumb[]): Crumb[] {
  */
 function ShellBreadcrumbs({ className }: { className?: string }) {
   const pathname = usePathname()
-  const crumbs = deskTrail(pathname, useShellTrail())
+  const trail = deskTrail(pathname, useShellTrail())
+  const crumbs = foldTrail(trail)
   const { count, countLabel } = usePageChromeOverride()
   const shownCount = count && count > 0 ? count : undefined
 
   // A lone crumb with no link only repeats the h1 beneath it ("Inbox" over
   // "Inbox"). One that links to a parent (a listing whose name has not
   // loaded yet) is still the way up, so it stays.
-  if (crumbs.length === 0 || (crumbs.length === 1 && !crumbs[0].href))
+  if (trail.length === 0 || (trail.length === 1 && !trail[0].href))
     return <div className={className} />
   // That lone crumb is a link, not the current page.
-  const loneLink = crumbs.length === 1
+  const loneLink = trail.length === 1
 
   return (
     <nav aria-label="Breadcrumb" className={cn("min-w-0", className)}>
@@ -121,7 +161,9 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
                   /
                 </span>
               ) : null}
-              {(isLast && !loneLink) || !crumb.href ? (
+              {crumb.folded ? (
+                <FoldedCrumbs crumbs={crumb.folded} />
+              ) : (isLast && !loneLink) || !crumb.href ? (
                 <span
                   aria-current={isLast ? "page" : undefined}
                   title={crumb.label}
