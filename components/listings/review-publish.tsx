@@ -13,10 +13,9 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { ChangeDiff } from "@/components/editors/change-diff"
-import { ListingGate } from "@/components/listings/listing-gate"
 import {
   useHoursReview,
   useMenuReview,
@@ -58,6 +57,10 @@ import { pendingAreas, type AreaKey } from "@/lib/listings/pending-areas"
 import { queryKeys } from "@/lib/queries/keys"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
+import {
+  useLocationDirectory,
+  type DirectoryEntry,
+} from "@/lib/queries/use-locations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
@@ -346,6 +349,23 @@ function ReviewPublish({
   locationId: string
   role: string | null
 }) {
+  // The frame's gate has already waited for the directory and 404s an
+  // unknown listing, so the entry is there by the time this renders.
+  const directory = useLocationDirectory(role)
+  const entry = directory.data?.find((candidate) => candidate.id === locationId)
+  if (!entry) return null
+  return <ReviewPublishBody locationId={locationId} role={role} entry={entry} />
+}
+
+function ReviewPublishBody({
+  locationId,
+  role,
+  entry,
+}: {
+  locationId: string
+  role: string | null
+  entry: DirectoryEntry
+}) {
   const summary = useListingSummary(locationId)
   const caps = useLocationCapabilities(locationId)
   const areas = summary.data ? pendingAreas(summary.data) : []
@@ -401,9 +421,8 @@ function ReviewPublish({
     return query.isError && !query.data
   })
 
-  const buildSteps = useCallback(() => steps, [steps])
   const flow = usePublishFlow({
-    steps: buildSteps,
+    steps: () => steps,
     invalidate: [
       queryKeys.listingSummary(locationId),
       queryKeys.listingSummaries,
@@ -482,308 +501,288 @@ function ReviewPublish({
   }, [failed])
 
   return (
-    <ListingGate locationId={locationId} role={role}>
-      {(entry) => (
-        <>
-          {summary.isError && !summary.data ? (
-            <Empty
-              variant="error"
-              framed
-              titleAs="h2"
-              title="We couldn’t check this listing"
-              description={`The listing summary didn’t load, so we can’t say which areas have changes. Nothing was sent to Google. ${describeActionError(summary.error)}`}
-              action={
-                <Button
-                  variant="secondary"
-                  onClick={() => void summary.refetch()}
-                >
-                  <RefreshCwIcon aria-hidden />
-                  Try again
-                </Button>
-              }
+    <>
+      {summary.isError && !summary.data ? (
+        <Empty
+          variant="error"
+          framed
+          titleAs="h2"
+          title="We couldn’t check this listing"
+          description={`The listing summary didn’t load, so we can’t say which areas have changes. Nothing was sent to Google. ${describeActionError(summary.error)}`}
+          action={
+            <Button variant="secondary" onClick={() => void summary.refetch()}>
+              <RefreshCwIcon aria-hidden />
+              Try again
+            </Button>
+          }
+        />
+      ) : summary.isPending ? (
+        <ReviewSkeleton />
+      ) : areas.length === 0 || done ? (
+        <div className="flex flex-col gap-4">
+          {done ? (
+            <PublishSteps
+              aria-label="Publish results"
+              steps={toStepRows(flow.results)}
             />
-          ) : summary.isPending ? (
-            <ReviewSkeleton />
-          ) : areas.length === 0 || done ? (
-            <div className="flex flex-col gap-4">
-              {done ? (
-                <PublishSteps
-                  aria-label="Publish results"
-                  steps={toStepRows(flow.results)}
-                />
-              ) : null}
-              <Empty
-                variant="empty"
-                framed
-                tone="ok"
-                icon={<CheckIcon />}
-                titleAs="h2"
-                title={
-                  nothingSent
-                    ? "Nothing needed sending"
-                    : done
-                      ? describeOutcome(publishOutcome(flow.results)).title
-                      : "Nothing to publish"
-                }
-                description={
-                  nothingSent
-                    ? "Every area already matched Google when it was checked, so nothing was sent."
-                    : done
-                      ? publishOutcome(flow.results) === "confirmed_applied"
-                        ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
-                        : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
-                      : cannotEdit
-                        ? `Nothing is waiting to go to Google for ${entry.name}.`
-                        : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
-                }
-                action={
+          ) : null}
+          <Empty
+            variant="empty"
+            framed
+            tone="ok"
+            icon={<CheckIcon />}
+            titleAs="h2"
+            title={
+              nothingSent
+                ? "Nothing needed sending"
+                : done
+                  ? describeOutcome(publishOutcome(flow.results)).title
+                  : "Nothing to publish"
+            }
+            description={
+              nothingSent
+                ? "Every area already matched Google when it was checked, so nothing was sent."
+                : done
+                  ? publishOutcome(flow.results) === "confirmed_applied"
+                    ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
+                    : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
+                  : cannotEdit
+                    ? `Nothing is waiting to go to Google for ${entry.name}.`
+                    : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
+            }
+            action={
+              <Link
+                href={listingHref(locationId)}
+                className={cn(
+                  buttonVariants({
+                    variant: done ? "default" : "secondary",
+                  })
+                )}
+              >
+                Back to listing
+              </Link>
+            }
+          />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {paused ? (
+            <Alert variant="destructive" icon={<UnplugIcon aria-hidden />}>
+              <AlertTitle>Publishing is paused for {entry.name}</AlertTitle>
+              <AlertDescription>
+                {business ? "Your" : "The client’s"} Google login needs
+                reconnecting, so Google can’t be read or written. Your saved
+                changes are kept.{" "}
+                {canManage
+                  ? "Reconnect it from Setup, then come back here."
+                  : "Ask an owner or admin to reconnect it."}
+              </AlertDescription>
+              {canManage && entry.clientId ? (
+                <AlertActions>
                   <Link
-                    href={listingHref(locationId)}
+                    href={`/setup?client=${entry.clientId}&step=connect`}
                     className={cn(
-                      buttonVariants({
-                        variant: done ? "default" : "secondary",
-                      })
+                      buttonVariants({ variant: "secondary", size: "sm" })
                     )}
                   >
-                    Back to listing
+                    Reconnect Google
                   </Link>
-                }
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {paused ? (
-                <Alert variant="destructive" icon={<UnplugIcon aria-hidden />}>
-                  <AlertTitle>Publishing is paused for {entry.name}</AlertTitle>
-                  <AlertDescription>
-                    {business ? "Your" : "The client’s"} Google login needs
-                    reconnecting, so Google can’t be read or written. Your saved
-                    changes are kept.{" "}
-                    {canManage
-                      ? "Reconnect it from Setup, then come back here."
-                      : "Ask an owner or admin to reconnect it."}
-                  </AlertDescription>
-                  {canManage && entry.clientId ? (
-                    <AlertActions>
-                      <Link
-                        href={`/setup?client=${entry.clientId}&step=connect`}
-                        className={cn(
-                          buttonVariants({ variant: "secondary", size: "sm" })
-                        )}
-                      >
-                        Reconnect Google
-                      </Link>
-                    </AlertActions>
-                  ) : null}
-                </Alert>
+                </AlertActions>
               ) : null}
-              {cannotPublish && !paused ? (
-                <Alert variant="info" icon={<EyeIcon aria-hidden />}>
-                  <AlertTitle>
-                    You can review these changes but not publish them
-                  </AlertTitle>
-                  <AlertDescription>
-                    Publishing to Google is limited to owners, admins and
-                    members with publish access to this listing.
-                  </AlertDescription>
-                </Alert>
-              ) : null}
+            </Alert>
+          ) : null}
+          {cannotPublish && !paused ? (
+            <Alert variant="info" icon={<EyeIcon aria-hidden />}>
+              <AlertTitle>
+                You can review these changes but not publish them
+              </AlertTitle>
+              <AlertDescription>
+                Publishing to Google is limited to owners, admins and members
+                with publish access to this listing.
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
-              {/* The areas as one labelled list, in publish order. "To review",
+          {/* The areas as one labelled list, in publish order. "To review",
                   not "waiting": an area here can already be in sync. */}
-              <div className="flex flex-col gap-2">
-                <p
-                  id="review-areas-label"
-                  className="text-caption font-medium text-ink-muted"
-                >
-                  Areas to review ·{" "}
-                  <span className="tabular-nums">
-                    {areas.length === 1
-                      ? "1 area"
-                      : `${formatNumber(areas.length)} areas`}
-                  </span>
-                </p>
-                <ul
-                  aria-labelledby="review-areas-label"
-                  className="flex flex-col gap-3"
-                >
-                  {areas.map((area) => {
-                    const source =
-                      area === "profile"
-                        ? profile
-                        : area === "hours"
-                          ? hours
-                          : menu
-                    return (
-                      <li key={area}>
-                        <AreaSection
-                          locationId={locationId}
-                          area={area}
-                          review={source.review}
-                          pending={source.query.isPending}
-                          error={source.query.error}
-                          onRetry={() => void source.query.refetch()}
-                          include={
-                            areas.length > 1
-                              ? {
-                                  checked: !excluded.includes(area),
-                                  disabled: flow.isPublishing,
-                                  onChange: (checked) =>
-                                    setExcluded((current) =>
-                                      checked
-                                        ? current.filter((key) => key !== area)
-                                        : [...current, area]
-                                    ),
-                                }
-                              : undefined
-                          }
-                        />
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-
-              {unresolved.length > 0 ? (
-                <Alert variant="warning">
-                  <AlertTitle>
-                    Resolve this comparison before publishing
-                  </AlertTitle>
-                  <AlertDescription>
-                    {[
-                      ...new Set(unresolved.map((row) => row.explanation)),
-                    ].join(" ")}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-              {needsAck ? (
-                <Alert variant="warning">
-                  <AlertTitle>
-                    Google holds a different version of {listFields(ackFields)}
-                  </AlertTitle>
-                  <AlertDescription>
-                    Publishing replaces Google’s{" "}
-                    {ackFields.length === 1 ? "value" : "values"} with yours.
-                    Compare them above first.
-                  </AlertDescription>
-                  <AlertActions>
-                    <Checkbox
-                      checked={acknowledged}
-                      disabled={flow.isPublishing}
-                      onCheckedChange={(checked) =>
-                        setAcknowledged(Boolean(checked))
+          <div className="flex flex-col gap-2">
+            <p
+              id="review-areas-label"
+              className="text-caption font-medium text-ink-muted"
+            >
+              Areas to review ·{" "}
+              <span className="tabular-nums">
+                {areas.length === 1
+                  ? "1 area"
+                  : `${formatNumber(areas.length)} areas`}
+              </span>
+            </p>
+            <ul
+              aria-labelledby="review-areas-label"
+              className="flex flex-col gap-3"
+            >
+              {areas.map((area) => {
+                const source =
+                  area === "profile" ? profile : area === "hours" ? hours : menu
+                return (
+                  <li key={area}>
+                    <AreaSection
+                      locationId={locationId}
+                      area={area}
+                      review={source.review}
+                      pending={source.query.isPending}
+                      error={source.query.error}
+                      onRetry={() => void source.query.refetch()}
+                      include={
+                        areas.length > 1
+                          ? {
+                              checked: !excluded.includes(area),
+                              disabled: flow.isPublishing,
+                              onChange: (checked) =>
+                                setExcluded((current) =>
+                                  checked
+                                    ? current.filter((key) => key !== area)
+                                    : [...current, area]
+                                ),
+                            }
+                          : undefined
                       }
-                      label="I’ve read what Google has now and want to replace it."
                     />
-                  </AlertActions>
-                </Alert>
-              ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
 
-              {flow.results.length > 0 ? (
-                <section
-                  aria-labelledby="publish-progress"
-                  className="flex flex-col gap-3"
-                >
-                  <SectionHeader
-                    as="h2"
-                    id="publish-progress"
-                    title="Publishing"
-                    description="Steps run in order. The first failure stops the rest."
-                  />
-                  <PublishSteps
-                    aria-label="Publish results"
-                    steps={toStepRows(flow.results)}
-                  />
-                </section>
-              ) : null}
+          {unresolved.length > 0 ? (
+            <Alert variant="warning">
+              <AlertTitle>Resolve this comparison before publishing</AlertTitle>
+              <AlertDescription>
+                {[...new Set(unresolved.map((row) => row.explanation))].join(
+                  " "
+                )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {needsAck ? (
+            <Alert variant="warning">
+              <AlertTitle>
+                Google holds a different version of {listFields(ackFields)}
+              </AlertTitle>
+              <AlertDescription>
+                Publishing replaces Google’s{" "}
+                {ackFields.length === 1 ? "value" : "values"} with yours.
+                Compare them above first.
+              </AlertDescription>
+              <AlertActions>
+                <Checkbox
+                  checked={acknowledged}
+                  disabled={flow.isPublishing}
+                  onCheckedChange={(checked) =>
+                    setAcknowledged(Boolean(checked))
+                  }
+                  label="I’ve read what Google has now and want to replace it."
+                />
+              </AlertActions>
+            </Alert>
+          ) : null}
 
-              {flow.error && !flow.isPublishing ? (
-                <div
-                  ref={failureRef}
-                  tabIndex={-1}
-                  className="rounded-(--np-radius-card) focus-halo"
-                >
-                  <Alert variant="destructive">
-                    <AlertTitle>
-                      {`Publishing stopped at “${failedStep?.label ?? "a step"}”`}
-                    </AlertTitle>
-                    <AlertDescription>
-                      {earlierSent
-                        ? "Earlier steps were sent to Google. "
-                        : null}
-                      {mayHaveLanded
-                        ? failedStep?.kind === "local"
-                          ? "Reload to check it saved, then retry publishing. "
-                          : "Check Google, then retry publishing. "
-                        : "Retry publishing when you’re ready. "}
-                      Steps after it weren’t sent, and your saved copy is kept.
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              ) : null}
+          {flow.results.length > 0 ? (
+            <section
+              aria-labelledby="publish-progress"
+              className="flex flex-col gap-3"
+            >
+              <SectionHeader
+                as="h2"
+                id="publish-progress"
+                title="Publishing"
+                description="Steps run in order. The first failure stops the rest."
+              />
+              <PublishSteps
+                aria-label="Publish results"
+                steps={toStepRows(flow.results)}
+              />
+            </section>
+          ) : null}
 
-              {/* Docked to the bottom edge on a phone (the tab bar steps
+          {flow.error && !flow.isPublishing ? (
+            <div
+              ref={failureRef}
+              tabIndex={-1}
+              className="rounded-(--np-radius-card) focus-halo"
+            >
+              <Alert variant="destructive">
+                <AlertTitle>
+                  {`Publishing stopped at “${failedStep?.label ?? "a step"}”`}
+                </AlertTitle>
+                <AlertDescription>
+                  {earlierSent ? "Earlier steps were sent to Google. " : null}
+                  {mayHaveLanded
+                    ? failedStep?.kind === "local"
+                      ? "Reload to check it saved, then retry publishing. "
+                      : "Check Google, then retry publishing. "
+                    : "Retry publishing when you’re ready. "}
+                  Steps after it weren’t sent, and your saved copy is kept.
+                </AlertDescription>
+              </Alert>
+            </div>
+          ) : null}
+
+          {/* Docked to the bottom edge on a phone (the tab bar steps
                   aside, and the spacer, scroll padding and toasts follow its
                   measured height); `statusRow` gives the status its own row
                   there, since "Publish N areas to Google" leaves it no room
                   beside it. On a desk it sticks above the bottom edge only
                   where the window is tall enough to leave the content room
                   (the `controls` variant), and is inline on short screens. */}
-              <ActionBar
-                dock
-                statusRow
-                sticky={false}
-                safeArea={false}
-                className="controls:sticky controls:bottom-3"
-                label="Publish to Google"
-                status={
-                  <>
-                    {flow.isPublishing ? (
-                      <Spinner decorative />
-                    ) : (
-                      <UploadIcon aria-hidden />
-                    )}
-                    <span className="min-w-0">
-                      {flow.isPublishing ? (
-                        "Publishing — keep this page open"
-                      ) : loading ? (
-                        "Reading each area from Google…"
-                      ) : (
-                        <>
-                          <span className="tabular-nums">
-                            {formatNumber(rows)}
-                          </span>{" "}
-                          {rows === 1 ? "field" : "fields"} will change on
-                          Google
-                          {disabledReason && steps.length > 0 ? (
-                            <ActionBarMuted> · {disabledReason}</ActionBarMuted>
-                          ) : null}
-                        </>
-                      )}
-                    </span>
-                  </>
-                }
-                primary={
-                  <Button
-                    onClick={publish}
-                    pending={flow.isPublishing}
-                    pendingLabel="Publishing…"
-                    disabledReason={
-                      flow.isPublishing ? undefined : disabledReason
-                    }
-                  >
-                    <UploadIcon aria-hidden data-icon="inline-start" />
-                    {retry
-                      ? "Retry publishing"
-                      : `Publish ${includedAreas.length === 1 ? "1 area" : `${includedAreas.length} areas`} to Google`}
-                  </Button>
-                }
-              />
-            </div>
-          )}
-        </>
+          <ActionBar
+            dock
+            statusRow
+            sticky={false}
+            safeArea={false}
+            className="controls:sticky controls:bottom-3"
+            label="Publish to Google"
+            status={
+              <>
+                {flow.isPublishing ? (
+                  <Spinner decorative />
+                ) : (
+                  <UploadIcon aria-hidden />
+                )}
+                <span className="min-w-0">
+                  {flow.isPublishing ? (
+                    "Publishing — keep this page open"
+                  ) : loading ? (
+                    "Reading each area from Google…"
+                  ) : (
+                    <>
+                      <span className="tabular-nums">{formatNumber(rows)}</span>{" "}
+                      {rows === 1 ? "field" : "fields"} will change on Google
+                      {disabledReason && steps.length > 0 ? (
+                        <ActionBarMuted> · {disabledReason}</ActionBarMuted>
+                      ) : null}
+                    </>
+                  )}
+                </span>
+              </>
+            }
+            primary={
+              <Button
+                onClick={publish}
+                pending={flow.isPublishing}
+                pendingLabel="Publishing…"
+                disabledReason={flow.isPublishing ? undefined : disabledReason}
+              >
+                <UploadIcon aria-hidden data-icon="inline-start" />
+                {retry
+                  ? "Retry publishing"
+                  : `Publish ${includedAreas.length === 1 ? "1 area" : `${includedAreas.length} areas`} to Google`}
+              </Button>
+            }
+          />
+        </div>
       )}
-    </ListingGate>
+    </>
   )
 }
 

@@ -121,7 +121,7 @@ type FramePageKey = ListingAreaKey | "changes"
 /** Under Review & publish's title: what the page is for. The pending count
  *  and what Google said are in the page itself, where they update live. */
 const CHANGES_DESCRIPTION =
-  "Changes saved here that are not yet on Google. Each area is read from Google so you can compare before publishing."
+  "What you have saved here, compared with what Google has now, before anything is published."
 
 /** A link the header offers beside Activity ("Open on Google"). */
 export type ListingHeaderLink = {
@@ -495,7 +495,7 @@ function HeaderOverflow({
  * Wider screens add the description, the header buttons (Review & publish
  * always among them), the tab row from 64rem, and one line under it for the
  * model note and the editor's last Google check. The client caption is left
- * to the breadcrumb on area pages (DSK-05).
+ * to the breadcrumb on area pages, in its "…" menu (DSK-05).
  *
  * `status` is the pill beside the title. Pass `undefined` to show a
  * placeholder while it loads and `null` for none.

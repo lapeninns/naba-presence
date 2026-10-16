@@ -293,6 +293,22 @@ describe("Review & publish prefetch (LST-14)", () => {
     expect(readListingSummaries).toHaveBeenCalledOnce()
   })
 
+  it("leaves every key to the browser, and reads no Google, when the summary can't be read", async () => {
+    const {
+      readListingSummaries,
+      getProfileState,
+      getFoodMenusState,
+      readHoursResponse,
+    } = await waiting(["profile", "hours", "menu"])
+    vi.mocked(readListingSummaries).mockRejectedValue(new Error("db down"))
+    const entries = changesTabPrefetch(LOCATION)(owner)
+    for (const entry of entries)
+      await expect(entry.load()).resolves.toBe(PREFETCH_SKIP)
+    expect(getProfileState).not.toHaveBeenCalled()
+    expect(getFoodMenusState).not.toHaveBeenCalled()
+    expect(readHoursResponse).not.toHaveBeenCalled()
+  })
+
   it("leaves the summary alone after a profile served from storage", async () => {
     const { readListingSummaries, getProfileState } = await waiting(["profile"])
     vi.mocked(getProfileState).mockResolvedValue({ source: "stored" } as never)

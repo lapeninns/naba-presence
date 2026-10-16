@@ -1,7 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { ReactNode } from "react"
 import { ReviewPublish } from "@/components/listings/review-publish"
 import { ApiClientError } from "@/lib/api/client"
 import { emptyListingSummary } from "@/lib/contracts/location-summary"
@@ -13,12 +12,10 @@ const ctx = vi.hoisted(() => ({
   caps: { canPublish: true, canEditCanonical: true },
   dirty: true,
 }))
-vi.mock("@/components/listings/listing-gate", () => ({
-  ListingGate: ({
-    children,
-  }: {
-    children: (entry: { name: string; clientId: null }) => ReactNode
-  }) => children({ name: "Riverside", clientId: null }),
+vi.mock("@/lib/queries/use-locations", () => ({
+  useLocationDirectory: () => ({
+    data: [{ id: "l1", name: "Riverside", clientId: null }],
+  }),
 }))
 vi.mock("@/lib/queries/use-listing-summary", () => ({
   useListingSummary: () => ({

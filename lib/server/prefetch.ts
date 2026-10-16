@@ -871,15 +871,15 @@ export function menuTabPrefetch(
 }
 
 /**
- * /listings/{id}/changes: what Review & publish reads, and only for the areas
- * the DB summary says have saved edits (`pendingAreas`), exactly the areas
- * its hooks (`useProfile`, `useHours`, `useFoodMenus`) are enabled for in the
- * browser. An area with nothing waiting is never read from Google here, so
- * opening the page costs Google no more than before. The summary is read
- * first (pure SQL, and cached for this request by the entries sharing it),
+ * /listings/{id}/changes: what Review & publish compares, read only for the
+ * areas the DB summary says have saved edits (`pendingAreas`), the ones it
+ * builds a review from (`useProfileReview`, `useHoursReview`,
+ * `useMenuReview`). An area with nothing waiting is never read from Google
+ * here. The summary is read first (pure SQL, shared by the three entries),
  * then each pending area live, side by side. As with the area pages, a live
  * read refreshes the summary, so it is read again once they settle unless
- * every one was served from the stored observation.
+ * every one was served from the stored observation. A summary that can't be
+ * read leaves every key to the browser, and counts as no Google read.
  */
 export function changesTabPrefetch(
   locationId: string
@@ -899,7 +899,7 @@ export function changesTabPrefetch(
       let value: Promise<T | typeof PREFETCH_SKIP> | undefined
       const load = () =>
         (value ??= (async () => {
-          const current = await loadSummary()
+          const current = await loadSummary().catch(() => null)
           if (!current || !pendingAreas(current).includes(area))
             return PREFETCH_SKIP
           return read()

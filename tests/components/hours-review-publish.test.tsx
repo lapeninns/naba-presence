@@ -1,7 +1,6 @@
 import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { ReactNode } from "react"
 import { ReviewPublish } from "@/components/listings/review-publish"
 import { emptyListingSummary } from "@/lib/contracts/location-summary"
 import * as hoursApi from "@/lib/api/location-hours"
@@ -9,18 +8,10 @@ import { emptyHours } from "@/lib/locations/forms/hours"
 import { renderWithProviders } from "../helpers/render"
 
 const hours = vi.hoisted(() => ({ value: {} }))
-vi.mock("@/components/listings/listing-gate", () => ({
-  ListingGate: ({
-    children,
-  }: {
-    children: (entry: { name: string; clientId: null }) => ReactNode
-  }) => children({ name: "Riverside", clientId: null }),
-}))
-vi.mock("@/components/listings/area-frame", () => ({
-  ListingAreaHeader: () => null,
-}))
-vi.mock("@/components/editors/activity-drawer", () => ({
-  ActivityDrawer: () => null,
+vi.mock("@/lib/queries/use-locations", () => ({
+  useLocationDirectory: () => ({
+    data: [{ id: "l1", name: "Riverside", clientId: null }],
+  }),
 }))
 vi.mock("@/lib/queries/use-listing-summary", () => ({
   useListingSummary: () => ({
