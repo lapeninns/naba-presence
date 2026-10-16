@@ -502,9 +502,15 @@ test.describe("reply policy after Back", () => {
     const secondPerson = page.getByRole("switch", { name: /Require a second person/ })
     await expect(approval).not.toBeChecked()
     await approval.click()
+    await expect(secondPerson).not.toBeChecked()
     await secondPerson.click()
-    await page.getByRole("button", { name: "Save changes" }).click()
-    await expect(page.getByRole("button", { name: "Save changes" })).toBeHidden()
+    const saveBar = page.getByRole("region", { name: "Save reply policy" })
+    await saveBar.getByRole("button", { name: "Save changes" }).click()
+    // The toast comes only after every write and the refetch succeed; the
+    // bar goes only when nothing is unsaved or saving, so the leave guard
+    // is off before the Inbox click.
+    await expect(page.getByText("Settings saved")).toBeVisible()
+    await expect(saveBar).toBeHidden()
     await expect(approval).toBeChecked()
     await expect(secondPerson).toBeChecked()
 
@@ -518,7 +524,13 @@ test.describe("reply policy after Back", () => {
       .getByRole("navigation", { name: "Primary" })
       .getByRole("link", { name: /^Inbox/ })
       .click()
-    await expect(page).not.toHaveURL(/\/settings$/)
+    await expect(page).toHaveURL(/\/inbox/)
+    await expect(page.getByRole("heading", { name: "Inbox", level: 1 })).toBeVisible()
+    expect(
+      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+    ).toBe(true)
+    // The leave guard pushed a same-address entry while the form was dirty,
+    // so one Back lands on /settings.
     await page.goBack()
     await expect(page).toHaveURL(/\/settings$/)
     await expect(page.getByRole("heading", { name: "Reply policy", level: 1 })).toBeVisible()
@@ -529,7 +541,7 @@ test.describe("reply policy after Back", () => {
     await expect(approval).toBeChecked()
     await expect(secondPerson).toBeChecked()
     // Nothing looks unsaved, so a later save can't send the old values.
-    await expect(page.getByRole("button", { name: "Save changes" })).toBeHidden()
+    await expect(saveBar).toBeHidden()
 
     // And the server holds the saved policy.
     await page.reload()
