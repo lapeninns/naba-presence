@@ -89,9 +89,12 @@ export async function seedTeamTenant(options: {
       async destroy() {
         try {
           await destroyTenants(admin, [tenant.organisationId])
-          await destroyUsers(admin, userIds)
         } finally {
-          await admin.end()
+          try {
+            await destroyUsers(admin, userIds)
+          } finally {
+            await admin.end()
+          }
         }
       },
     }

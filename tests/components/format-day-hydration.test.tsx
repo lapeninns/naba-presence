@@ -21,7 +21,8 @@ function DayProbe({ iso }: { iso: string }) {
 }
 
 afterEach(() => {
-  process.env.TZ = ORIGINAL_TZ
+  if (ORIGINAL_TZ === undefined) delete process.env.TZ
+  else process.env.TZ = ORIGINAL_TZ
 })
 
 describe("formatDay", () => {
@@ -37,7 +38,9 @@ describe("useFormatDay", () => {
     const html = renderToString(<DayProbe iso={NEAR_MIDNIGHT} />)
     expect(html).toContain(formatDay(NEAR_MIDNIGHT, HYDRATION_DAY_ZONE))
 
-    process.env.TZ = "America/Los_Angeles"
+    // Ahead of UTC: an unpinned server writes 12 Sept, this browser 13 Sept,
+    // so hydrating them would be a recoverable error.
+    process.env.TZ = "Asia/Tokyo"
     const errors: unknown[] = []
     const container = document.createElement("div")
     container.innerHTML = html
@@ -47,7 +50,7 @@ describe("useFormatDay", () => {
       })
     })
     expect(errors).toEqual([])
-    expect(container.textContent).toBe("12 Sept 2026")
+    expect(container.textContent).toBe("13 Sept 2026")
     expect(container.textContent).toBe(formatDay(NEAR_MIDNIGHT))
   })
 })
