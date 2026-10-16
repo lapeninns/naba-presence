@@ -91,6 +91,100 @@ const renderWith = (node: React.ReactNode) =>
       {node}
     </QueryClientProvider>
   )
+/** The view under the app's toaster: errors from a change arrive as toasts. */
+const renderView = () =>
+  renderWith(
+    <Toaster>
+      <NotificationsView />
+    </Toaster>
+  )
+type ServerOptions = {
+  items: (Record<string, unknown> & { id: string })[]
+  /** A path ("read" or "resolve") answered with a refusal. */
+  fail?: "read" | "resolve"
+  /** A path held until `release()`. */
+  hold?: "read" | "resolve"
+}
+/**
+ * A server that keeps the notifications: read and resolve change what the
+ * next list returns, so a refetch after a change shows the real answer.
+ */
+function notificationServer({ items, fail, hold }: ServerOptions) {
+  let state = items
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  const calls: Call[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      const call = {
+        url: String(url),
+        method: init.method ?? "GET",
+        body: init.body ? JSON.parse(String(init.body)) : undefined,
+      }
+      calls.push(call)
+      const path = call.url.endsWith("/api/notifications/read")
+        ? "read"
+        : call.url.endsWith("/resolve")
+          ? "resolve"
+          : "list"
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        })
+      if (path === "list") {
+        const filter = new URL(call.url, "http://x").searchParams.get("filter")
+        const shown = state.filter((row) =>
+          filter === "unread"
+            ? !row.readAt
+            : filter === "open"
+              ? row.status === "open"
+              : true
+        )
+        return json({
+          items: shown,
+          nextCursor: null,
+          unreadCount: state.filter(
+            (row) => row.status === "open" && !row.readAt
+          ).length,
+        })
+      }
+      if (hold === path) await gate
+      if (fail === path)
+        return json(
+          { error: "internal_error", message: 'relation "x" does not exist' },
+          500
+        )
+      if (path === "read") {
+        const { incidentIds, read } = call.body as {
+          incidentIds: string[]
+          read: boolean
+        }
+        state = state.map((row) =>
+          incidentIds.includes(row.id)
+            ? { ...row, readAt: read ? "2026-10-01T09:00:00.000Z" : null }
+            : row
+        )
+        return json({ updated: incidentIds.length })
+      }
+      state = state.map((row) =>
+        call.url.includes(row.id)
+          ? {
+              ...row,
+              status: "resolved",
+              resolvedAt: "2026-10-01T09:00:00.000Z",
+              canResolve: false,
+            }
+          : row
+      )
+      return json({ resolved: true })
+    })
+  )
+  return { calls, release: () => release() }
+}
+const readCalls = (calls: Call[]) =>
+  calls.filter((call) => call.url.endsWith("/api/notifications/read"))
 afterEach(() => {
   nav.set("")
   vi.restoreAllMocks()
@@ -106,7 +200,7 @@ describe("NotificationsView", () => {
           ? { resolved: true }
           : { items: [item({})], nextCursor: null, unreadCount: 1 }
     )
-    renderWith(<NotificationsView />)
+    renderView()
     expect(await screen.findByText("Publishing failed")).toBeInTheDocument()
     expect(screen.getByText(/\(unread\)/)).toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
@@ -150,7 +244,7 @@ describe("NotificationsView", () => {
       nextCursor: null,
       unreadCount: 0,
     }))
-    renderWith(<NotificationsView />)
+    renderView()
     expect(await screen.findByText("Listing access lost")).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /^Resolve/ })
@@ -176,7 +270,7 @@ describe("NotificationsView interactions", () => {
       nextCursor: null,
       unreadCount: 1,
     }))
-    const first = renderWith(<NotificationsView />)
+    const first = renderView()
     await screen.findByText("Publishing failed")
     fireEvent.click(screen.getByRole("tab", { name: "Unread" }))
     expect(nav.search).toBe("filter=unread")
@@ -186,7 +280,7 @@ describe("NotificationsView interactions", () => {
       )
     )
     first.unmount()
-    renderWith(<NotificationsView />)
+    renderView()
     expect(await screen.findByRole("tab", { name: "Unread" })).toHaveAttribute(
       "aria-selected",
       "true"
@@ -201,7 +295,7 @@ describe("NotificationsView interactions", () => {
       nextCursor: null,
       unreadCount: 1,
     }))
-    renderWith(<NotificationsView />)
+    renderView()
     fireEvent.click(
       await screen.findByRole("button", { name: "Resolve: Publishing failed" })
     )
@@ -217,7 +311,7 @@ describe("NotificationsView interactions", () => {
 
   it("draws the actions as new buttons after the question, never the question's", async () => {
     stub(() => ({ items: [item({})], nextCursor: null, unreadCount: 1 }))
-    renderWith(<NotificationsView />)
+    renderView()
     fireEvent.click(
       await screen.findByRole("button", { name: "Resolve: Publishing failed" })
     )
@@ -233,107 +327,229 @@ describe("NotificationsView interactions", () => {
     }
   })
 
-  it("names the pending confirm by the words it shows", async () => {
-    let release: () => void = () => {}
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        if (String(url).endsWith("/resolve"))
-          await new Promise<void>((resolve) => (release = resolve))
-        return new Response(
-          JSON.stringify(
-            String(url).endsWith("/resolve")
-              ? { resolved: true }
-              : { items: [item({})], nextCursor: null, unreadCount: 1 }
-          ),
-          { headers: { "content-type": "application/json" } }
-        )
-      })
-    )
-    renderWith(<NotificationsView />)
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
-    )
-    fireEvent.click(
-      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
-    )
-    // WCAG 2.5.3: the accessible name starts with the visible "Resolving…".
-    const pending = await screen.findByRole("button", {
-      name: "Resolving… Publishing failed",
+  it("shows Mark unread at once and leaves every other control live", async () => {
+    const { calls, release } = notificationServer({
+      items: [item({}), second],
+      hold: "read",
     })
-    expect(pending).toHaveTextContent("Resolving…")
-    expect(pending).toBeDisabled()
-    release()
-  })
-
-  it("disables only the row a pending change touches", async () => {
-    let release: () => void = () => {}
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        if (String(url).endsWith("/api/notifications/read"))
-          await new Promise<void>((resolve) => (release = resolve))
-        return new Response(
-          JSON.stringify(
-            String(url).endsWith("/read")
-              ? { updated: 1 }
-              : { items: [item({}), second], nextCursor: null, unreadCount: 2 }
-          ),
-          { headers: { "content-type": "application/json" } }
-        )
-      })
-    )
-    renderWith(<NotificationsView />)
+    renderView()
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Mark read: Publishing failed",
       })
     )
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Mark read: Publishing failed" })
-      ).toBeDisabled()
-    )
+    // The request is still out, yet the row and the count already say read.
+    expect(
+      await screen.findByRole("button", {
+        name: "Mark unread: Publishing failed",
+      })
+    ).toBeEnabled()
+    expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
     expect(
       screen.getByRole("button", { name: "Mark read: Listing access lost" })
     ).toBeEnabled()
     expect(
       screen.getByRole("button", { name: "Resolve: Listing access lost" })
     ).toBeEnabled()
+    await waitFor(() => expect(readCalls(calls)).toHaveLength(1))
     release()
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
+    )
+    expect(
+      screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+    ).toBeInTheDocument()
   })
 
-  it("explains a failed change in plain words", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        String(url).endsWith("/read")
-          ? new Response(
-              JSON.stringify({
-                error: "internal_error",
-                message: 'relation "x" does not exist',
-              }),
-              { status: 500, headers: { "content-type": "application/json" } }
-            )
-          : new Response(
-              JSON.stringify({
-                items: [item({})],
-                nextCursor: null,
-                unreadCount: 1,
-              }),
-              { headers: { "content-type": "application/json" } }
-            )
-      )
+  it("resolves at once after the question, before the server answers", async () => {
+    const { calls, release } = notificationServer({
+      items: [item({})],
+      hold: "resolve",
+    })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
     )
-    renderWith(<NotificationsView />)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+    )
+    // The question is gone and the row says Resolved while the request is out.
+    expect(await screen.findByText("Resolved")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("group", { name: "Resolve Publishing failed?" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Resolve: / })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("0 open and unread")
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.includes("/resolve"))
+      ).toHaveLength(1)
+    )
+    release()
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("0 open and unread")
+    )
+    expect(screen.getByText("Resolved")).toBeInTheDocument()
+  })
+
+  it("puts a refused read back and says so in a toast, with no inline alert", async () => {
+    notificationServer({ items: [item({})], fail: "read" })
+    renderView()
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Mark read: Publishing failed",
       })
     )
-    const alert = await screen.findByRole("alert")
-    expect(alert.textContent).not.toMatch(/relation/)
-    expect(alert.textContent?.length).toBeGreaterThan(0)
+    expect(
+      await screen.findByText("Your change wasn’t saved")
+    ).toBeInTheDocument()
+    // Rolled back: the row is unread again and the count is the server's.
+    expect(
+      await screen.findByRole("button", {
+        name: "Mark read: Publishing failed",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
+    expect(document.body.textContent).not.toMatch(/relation/)
+    // The failure is said by the toast, not by a line above the list.
+    expect(document.querySelector("p.text-danger-ink[role='alert']")).toBeNull()
+  })
+
+  it("puts a refused resolve back, with the Resolve action again", async () => {
+    notificationServer({ items: [item({})], fail: "resolve" })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+    )
+    expect(
+      await screen.findByText("The notification wasn’t resolved")
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Resolved")).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
+  })
+
+  it("takes a row out of the Unread filter the moment it is read", async () => {
+    nav.set("filter=unread")
+    const { release } = notificationServer({
+      items: [item({}), second],
+      hold: "read",
+    })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Mark read: Publishing failed",
+      })
+    )
+    await waitFor(() =>
+      expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+    )
+    expect(screen.getByText("Listing access lost")).toBeInTheDocument()
+    release()
+  })
+
+  it("takes a resolved row out of the Open filter at once", async () => {
+    nav.set("filter=open")
+    const { release } = notificationServer({
+      items: [item({}), second],
+      hold: "resolve",
+    })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+    )
+    release()
+  })
+})
+
+describe("NotificationsView Mark all read", () => {
+  const read = item({
+    id: "44444444-4444-4444-8444-444444444444",
+    kind: "listing_access_lost",
+    readAt: "2026-09-30T11:00:00.000Z",
+  })
+
+  it("reads every unread row shown in one request, then goes", async () => {
+    const second = item({
+      id: "33333333-3333-4333-8333-333333333333",
+      kind: "schedule_missed",
+    })
+    const { calls, release } = notificationServer({
+      items: [item({}), second, read],
+      hold: "read",
+    })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark all read" })
+    )
+    await waitFor(() => expect(readCalls(calls)).toHaveLength(1))
+    expect(readCalls(calls)[0]?.body).toEqual({
+      incidentIds: [item({}).id, second.id],
+      read: true,
+    })
+    // Before the server answers: nothing left to mark, so the button is gone.
+    expect(
+      screen.queryByRole("button", { name: "Mark all read" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("0 open and unread")
+    expect(screen.queryByText(/\(unread\)/)).not.toBeInTheDocument()
+    release()
+  })
+
+  it("is hidden when nothing shown is unread", async () => {
+    notificationServer({ items: [read] })
+    renderView()
+    await screen.findByText("Listing access lost")
+    expect(
+      screen.queryByRole("button", { name: "Mark all read" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("sends more than a hundred rows in turns of a hundred", async () => {
+    const many = Array.from({ length: 101 }, (_, index) =>
+      item({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      })
+    )
+    const { calls } = notificationServer({ items: many })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark all read" })
+    )
+    await waitFor(() => expect(readCalls(calls)).toHaveLength(2))
+    expect(
+      readCalls(calls).map(
+        (call) => (call.body as { incidentIds: string[] }).incidentIds.length
+      )
+    ).toEqual([100, 1])
+  })
+
+  it("rolls every row back, with a toast, when the server refuses", async () => {
+    notificationServer({ items: [item({})], fail: "read" })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark all read" })
+    )
+    expect(
+      await screen.findByText("Your change wasn’t saved")
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Mark all read" })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
   })
 })
 
@@ -351,7 +567,7 @@ describe("NotificationsView rows and empty states", () => {
       nextCursor: null,
       unreadCount: 1,
     }))
-    renderWith(<NotificationsView />)
+    renderView()
     // ListRow: the title carries the weight; its line adds the dot and the
     // sr-only word after it.
     const unreadTitle = await screen.findByText("Publishing failed")
@@ -383,7 +599,7 @@ describe("NotificationsView rows and empty states", () => {
 
   it("titles the page once, with the open-and-unread count after it", async () => {
     stub(() => ({ items: [item({})], nextCursor: null, unreadCount: 3 }))
-    renderWith(<NotificationsView />)
+    renderView()
     await screen.findByText("Publishing failed")
     const headings = screen.getAllByRole("heading", { level: 1 })
     expect(headings).toHaveLength(1)
@@ -406,7 +622,7 @@ describe("NotificationsView rows and empty states", () => {
 
   it("says why the list is empty and what will appear", async () => {
     stub(() => ({ items: [], nextCursor: null, unreadCount: 0 }))
-    renderWith(<NotificationsView />)
+    renderView()
     expect(
       await screen.findByRole("heading", { name: "No notifications yet" })
     ).toBeInTheDocument()
@@ -416,12 +632,23 @@ describe("NotificationsView rows and empty states", () => {
     expect(
       screen.queryByRole("button", { name: "Show all notifications" })
     ).not.toBeInTheDocument()
+    // The next step: where to choose what appears here (the header's link
+    // and the empty state's own action).
+    const settings = screen.getAllByRole("link", {
+      name: "Notification settings",
+    })
+    expect(settings).toHaveLength(2)
+    for (const link of settings)
+      expect(link).toHaveAttribute("href", "/settings/notifications")
+    expect(
+      screen.queryByRole("button", { name: "Mark all read" })
+    ).not.toBeInTheDocument()
   })
 
   it("offers All from an empty filtered view", async () => {
     nav.set("filter=unread")
     const calls = stub(() => ({ items: [], nextCursor: null, unreadCount: 0 }))
-    renderWith(<NotificationsView />)
+    renderView()
     expect(
       await screen.findByRole("heading", {
         name: "Nothing matches this filter",

@@ -1,10 +1,6 @@
 "use client"
 
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query"
 import {
   BadgeCheck,
   Bell,
@@ -43,7 +39,10 @@ import {
   resolveNotification,
   type NotificationFilter,
 } from "@/lib/api/operational-notifications"
-import type { NotificationItem } from "@/lib/contracts/operational-notifications"
+import type {
+  NotificationItem,
+  NotificationListResponse,
+} from "@/lib/contracts/operational-notifications"
 import {
   NOTIFICATION_EVENT_LABELS,
   type NotificationEventKind,
@@ -51,6 +50,7 @@ import {
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
+import { useOptimisticMutation } from "@/lib/queries/use-optimistic-mutation"
 import { cn } from "@/lib/utils"
 
 const FILTERS: Array<{ value: NotificationFilter; label: string }> = [
@@ -93,11 +93,54 @@ function isFilter(value: string | null): value is NotificationFilter {
   return FILTERS.some((option) => option.value === value)
 }
 
+type NotificationPages = InfiniteData<NotificationListResponse, string>
+
+/** The endpoint takes at most 100 ids at once; "Mark all read" sends in turns. */
+const READ_BATCH = 100
+
+/** What the header count counts: open, and not yet read by this person. */
+const countsAsUnread = (item: NotificationItem) =>
+  item.status === "open" && !item.readAt
+
+/**
+ * The list as it will look once a change succeeds, for the optimistic
+ * update. `change` returns the row unchanged (the same object) to leave it
+ * alone, a new row to replace it, or null to take it out of this filter's
+ * list. The "open and unread" count follows the rows that moved.
+ */
+function revise(
+  current: NotificationPages | undefined,
+  change: (item: NotificationItem) => NotificationItem | null
+): NotificationPages | undefined {
+  if (!current) return undefined
+  let delta = 0
+  const pages = current.pages.map((page) => ({
+    ...page,
+    items: page.items.flatMap((item) => {
+      const next = change(item)
+      if (next === item) return [item]
+      delta +=
+        (next ? Number(countsAsUnread(next)) : 0) - Number(countsAsUnread(item))
+      return next ? [next] : []
+    }),
+  }))
+  return {
+    ...current,
+    pages: pages.map((page) => ({
+      ...page,
+      unreadCount: Math.max(0, page.unreadCount + delta),
+    })),
+  }
+}
+
 /**
  * Operational notifications for the signed-in person. Read state is theirs
  * alone and never resolves anything: a condition clears itself when fixed,
  * and an owner or admin closes an event once handled. Resolving closes it
  * for everyone and there is no reopening, so it asks first.
+ *
+ * Read and resolve show at once and put themselves back, with an error
+ * toast, if the server refuses (the list's optimistic recipe, P07).
  *
  * The filter lives in the address (`?filter=`, "all" by default), so Back
  * from a listing returns to the same list.
@@ -108,9 +151,7 @@ export function NotificationsView() {
   const searchParams = useSearchParams()
   const param = searchParams.get("filter")
   const filter: NotificationFilter = isFilter(param) ? param : DEFAULT_FILTER
-  const [failure, setFailure] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
-  const client = useQueryClient()
   const query = useInfiniteQuery({
     queryKey: queryKeys.notifications(filter),
     initialPageParam: "",
@@ -122,22 +163,61 @@ export function NotificationsView() {
       ),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
-  const settle = {
-    onSuccess: () => {
-      setFailure(null)
-      void client.invalidateQueries({ queryKey: queryKeys.notificationsAll })
+  // Read and resolve show at once and put themselves right, with an error
+  // toast, if the server says no. The variables carry the filter so a late
+  // answer settles the list it was made from.
+  const read = useOptimisticMutation<
+    unknown,
+    { ids: string[]; read: boolean; filter: NotificationFilter },
+    NotificationPages
+  >({
+    // One write at a time, in the order tapped: Mark read then Mark unread
+    // on one row can never arrive the other way round.
+    scope: { id: "notifications-read" },
+    mutationFn: async ({ ids, read: value }) => {
+      let result: unknown
+      for (let from = 0; from < ids.length; from += READ_BATCH)
+        result = await markNotificationsRead(
+          ids.slice(from, from + READ_BATCH),
+          value
+        )
+      return result
     },
-    onError: (error: unknown) => setFailure(describeActionError(error)),
-  }
-  const read = useMutation({
-    mutationFn: (input: { ids: string[]; read: boolean }) =>
-      markNotificationsRead(input.ids, input.read),
-    ...settle,
+    queryKey: (variables) => queryKeys.notifications(variables.filter),
+    alsoInvalidate: [queryKeys.notificationsAll],
+    update: (current, { ids, read: value, filter: shown }) =>
+      revise(current, (item) => {
+        if (!ids.includes(item.id) || Boolean(item.readAt) === value)
+          return item
+        // The unread filter only lists unread rows: a read one leaves it.
+        if (value && shown === "unread") return null
+        return { ...item, readAt: value ? new Date().toISOString() : null }
+      }),
+    errorTitle: "Your change wasn’t saved",
+    errorDescription: (error) => describeActionError(error),
   })
-  const resolve = useMutation({
-    mutationFn: (id: string) => resolveNotification(id),
-    ...settle,
-    onSettled: () => setConfirming(null),
+  const resolve = useOptimisticMutation<
+    unknown,
+    { id: string; filter: NotificationFilter },
+    NotificationPages
+  >({
+    mutationFn: ({ id }) => resolveNotification(id),
+    queryKey: (variables) => queryKeys.notifications(variables.filter),
+    alsoInvalidate: [queryKeys.notificationsAll],
+    update: (current, { id, filter: shown }) =>
+      revise(current, (item) => {
+        if (item.id !== id || item.status !== "open") return item
+        // The open filter only lists open rows: a resolved one leaves it.
+        if (shown === "open") return null
+        return {
+          ...item,
+          status: "resolved",
+          resolvedAt: new Date().toISOString(),
+          canResolve: false,
+        }
+      }),
+    errorTitle: "The notification wasn’t resolved",
+    errorDescription: (error) => describeActionError(error),
   })
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
   // Unknown until the first page arrives: a failed or pending load shows no
@@ -146,11 +226,6 @@ export function NotificationsView() {
   const unreadShown = items
     .filter((item) => !item.readAt)
     .map((item) => item.id)
-  // Only the rows a pending change touches wait for it.
-  const pendingIds = new Set<string>([
-    ...(read.isPending ? (read.variables?.ids ?? []) : []),
-    ...(resolve.isPending && resolve.variables ? [resolve.variables] : []),
-  ])
 
   function setFilter(value: string) {
     const next = new URLSearchParams(searchParams.toString())
@@ -219,21 +294,19 @@ export function NotificationsView() {
             >
               {unread} open and unread
             </p>
-            <Button
-              variant="secondary"
-              disabled={!unreadShown.length || read.isPending}
-              onClick={() => read.mutate({ ids: unreadShown, read: true })}
-            >
-              Mark shown as read
-            </Button>
+            {unreadShown.length ? (
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  read.mutate({ ids: unreadShown, read: true, filter })
+                }
+              >
+                Mark all read
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
-      {failure ? (
-        <p role="alert" className="text-ui text-danger-ink">
-          {failure}
-        </p>
-      ) : null}
       <QueryStates
         status={queryStatus(query, { isEmpty: items.length === 0 })}
         pendingLabel="Loading notifications"
@@ -251,6 +324,14 @@ export function NotificationsView() {
               icon={<BellOffIcon />}
               title="No notifications yet"
               description="Problems with Google connections, publishing and syncs appear here."
+              action={
+                <Link
+                  href="/settings/notifications"
+                  className={buttonVariants({ variant: "secondary" })}
+                >
+                  Notification settings
+                </Link>
+              }
             />
           ) : (
             <Empty
@@ -283,12 +364,16 @@ export function NotificationsView() {
             <NotificationRow
               key={item.id}
               item={item}
-              busy={pendingIds.has(item.id)}
               confirming={confirming === item.id}
-              onRead={(value) => read.mutate({ ids: [item.id], read: value })}
+              onRead={(value) =>
+                read.mutate({ ids: [item.id], read: value, filter })
+              }
               onAskResolve={() => setConfirming(item.id)}
               onCancelResolve={() => setConfirming(null)}
-              onResolve={() => resolve.mutate(item.id)}
+              onResolve={() => {
+                setConfirming(null)
+                resolve.mutate({ id: item.id, filter })
+              }}
             />
           ))}
         </ListRows>
@@ -319,7 +404,6 @@ export function NotificationsView() {
  */
 function NotificationRow({
   item,
-  busy,
   confirming,
   onRead,
   onAskResolve,
@@ -327,7 +411,6 @@ function NotificationRow({
   onResolve,
 }: {
   item: NotificationItem
-  busy: boolean
   confirming: boolean
   onRead: (read: boolean) => void
   onAskResolve: () => void
@@ -349,7 +432,6 @@ function NotificationRow({
   return (
     <ListRow
       interactive={false}
-      aria-busy={busy || undefined}
       emphasis={unread ? "unread" : "read"}
       unreadLabel="(unread)"
       leading={
@@ -392,7 +474,6 @@ function NotificationRow({
             key="confirm"
             role="group"
             aria-label={`Resolve ${copy.label}?`}
-            aria-busy={busy || undefined}
             className="flex min-w-0 flex-wrap items-center gap-2"
           >
             <p className="w-full text-caption text-ink-secondary">
@@ -401,30 +482,20 @@ function NotificationRow({
             <Button
               ref={confirmRef}
               variant="default"
-              disabled={busy}
               onClick={onResolve}
-              // The name starts with the words on the button (WCAG 2.5.3),
-              // including while it says "Resolving…".
-              aria-label={
-                busy
-                  ? `Resolving… ${copy.label}`
-                  : `Yes, resolve: ${copy.label}`
-              }
+              // The name starts with the words on the button (WCAG 2.5.3).
+              aria-label={`Yes, resolve: ${copy.label}`}
             >
-              {busy ? "Resolving…" : "Yes, resolve"}
+              Yes, resolve
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={onCancelResolve}>
+            <Button variant="ghost" onClick={onCancelResolve}>
               Cancel
             </Button>
           </div>
         ) : (
           // Ghost buttons pulled back by their own padding, so their words
           // line up with the text column.
-          <div
-            key="actions"
-            aria-busy={busy || undefined}
-            className="-ms-2.5 flex min-w-0 flex-wrap gap-1"
-          >
+          <div key="actions" className="-ms-2.5 flex min-w-0 flex-wrap gap-1">
             {item.locationId ? (
               <Link
                 href={`/listings/${item.locationId}`}
@@ -436,7 +507,6 @@ function NotificationRow({
             ) : null}
             <Button
               variant="ghost"
-              disabled={busy}
               onClick={() => onRead(unread)}
               aria-label={`${unread ? "Mark read" : "Mark unread"}: ${copy.label}`}
             >
@@ -445,7 +515,6 @@ function NotificationRow({
             {item.canResolve ? (
               <Button
                 variant="ghost"
-                disabled={busy}
                 onClick={onAskResolve}
                 aria-label={`Resolve: ${copy.label}`}
               >
