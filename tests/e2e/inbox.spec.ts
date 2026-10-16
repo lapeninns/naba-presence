@@ -27,6 +27,37 @@ async function applyCookie(
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
+/**
+ * The one Cancel stays reachable however far a long backlog is scrolled: the
+ * header sticks under the app bar while rows are ticked. A tall spacer inside the list pane stands in for the rows;
+ * the control must be wholly in view and be what a tap at its centre reaches.
+ */
+async function expectCancelStaysReachable(page: Page) {
+  await page.evaluate(() => {
+    const spacer = document.createElement("div")
+    spacer.dataset.testid = "scroll-spacer"
+    spacer.style.height = "4000px"
+    // Inside the list pane, as a long backlog of rows would be.
+    document.querySelector('[data-slot="inbox-list-pane"]')?.append(spacer)
+    // The page scrolls on a phone.
+    window.scrollTo(0, 2500)
+  })
+  const cancel = page.getByRole("button", { name: "Cancel selection" })
+  await expect(cancel).toBeInViewport({ ratio: 1 })
+  const reached = await cancel.evaluate((button) => {
+    const box = button.getBoundingClientRect()
+    const top = document.elementFromPoint(
+      box.left + box.width / 2,
+      box.top + box.height / 2
+    )
+    return top !== null && button.contains(top)
+  })
+  expect(reached).toBe(true)
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="scroll-spacer"]')?.remove()
+  })
+}
+
 test.describe("inbox", () => {
   test("renders the review queue", async ({ page }) => {
     await page.goto("/inbox")
@@ -222,31 +253,7 @@ test.describe("inbox", () => {
       await expect(
         page.getByRole("button", { name: "Cancel selection" })
       ).toHaveCount(1)
-      // The one Cancel stays reachable however far the page is scrolled:
-      // the header sticks under the app bar while rows are ticked.
-      await page.evaluate(() => {
-        const spacer = document.createElement("div")
-        spacer.dataset.testid = "scroll-spacer"
-        spacer.style.height = "4000px"
-        // Inside the list pane, as a long backlog of rows would be.
-        document.querySelector('[data-slot="inbox-list-pane"]')?.append(spacer)
-        window.scrollTo(0, 2500)
-      })
-      const cancel = page.getByRole("button", { name: "Cancel selection" })
-      await expect(cancel).toBeInViewport({ ratio: 1 })
-      const coveredBy = await cancel.evaluate((button) => {
-        const box = button.getBoundingClientRect()
-        const top = document.elementFromPoint(
-          box.left + box.width / 2,
-          box.top + box.height / 2
-        )
-        return top !== null && button.contains(top)
-      })
-      expect(coveredBy).toBe(true)
-      await page.evaluate(() => {
-        document.querySelector('[data-testid="scroll-spacer"]')?.remove()
-        window.scrollTo(0, 0)
-      })
+      await expectCancelStaysReachable(page)
       // Untick from the box again.
       await boxes.first().tap()
       await expect(boxes.first()).toHaveAttribute("aria-checked", "false")

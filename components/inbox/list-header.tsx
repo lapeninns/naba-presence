@@ -91,12 +91,13 @@ function ListHeader({
       data-slot="inbox-list-header"
       className={cn(
         "flex min-h-11 shrink-0 items-center gap-3 px-(--np-page-pad-x) text-caption text-ink-muted",
-        // Below the desk the page scrolls, not the list: while rows are
-        // ticked the header (the count and the one Cancel) stays at the top,
-        // under the app bar where there is one (phones), so the way out is
-        // never scrolled off a long backlog.
+        // On a phone the page scrolls, not the list: while rows are ticked
+        // the header (the count and the one Cancel) stays under the app bar,
+        // so the way out is never scrolled off a long backlog. From md the
+        // page frame clips and the list scrolls inside it (lg), so there is
+        // no page scroll for it to follow.
         selecting &&
-          "max-lg:sticky max-lg:top-0 max-lg:z-sticky max-lg:bg-surface max-md:top-[calc(var(--np-appbar-h)+var(--np-safe-top))]"
+          "max-md:sticky max-md:top-[calc(var(--np-appbar-h)+var(--np-safe-top))] max-md:z-sticky max-md:bg-surface"
       )}
     >
       {canBatch ? (
