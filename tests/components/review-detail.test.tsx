@@ -16,6 +16,13 @@ import * as membersHook from "@/lib/queries/use-members"
 import { PHONE_OVERLAY_QUERY } from "@/components/ui/overlay"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
+function stubSession(role: string, isError = false) {
+  vi.spyOn(sessionHook, "useSession").mockReturnValue({
+    data: isError ? undefined : { session: { userId: "me-1", role } },
+    isError,
+  } as unknown as ReturnType<typeof sessionHook.useSession>)
+}
+
 function fakeDetail(value: Partial<UseQueryResult<ReviewDetailData>>) {
   vi.spyOn(detailHook, "useReviewDetail").mockReturnValue(
     value as UseQueryResult<ReviewDetailData>
@@ -624,6 +631,7 @@ describe("ReviewDetail", () => {
         mutateAsync,
         isPending: false,
       } as unknown as ReturnType<typeof bulkHook.useBulkReviewAction>)
+      stubSession("owner")
       vi.spyOn(membersHook, "useMembers").mockReturnValue({
         data: {
           members: [
@@ -718,6 +726,73 @@ describe("ReviewDetail", () => {
         reviewIds: ["rev-1"],
         assigneeId: "u1",
       })
+    })
+
+    // /api/members is for owners and admins to read. A member may still
+    // assign at a location they can edit, so the menu must not depend on it.
+    it("offers an ordinary member themselves and Unassign, without reading the team", async () => {
+      stubSession("member")
+      const members = vi.spyOn(membersHook, "useMembers")
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(await screen.findByRole("menuitem", { name: "Assign…" }))
+      const me = await screen.findByRole("menuitem", { name: "Me" })
+      expect(
+        screen.queryByRole("menuitem", { name: "Priya" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: /Couldn't load people/ })
+      ).not.toBeInTheDocument()
+      expect(members).toHaveBeenCalledWith({ enabled: false })
+      expect(members).not.toHaveBeenCalledWith({ enabled: true })
+      me.focus()
+      await user.keyboard("{Enter}")
+      expect(mutateAsync).toHaveBeenCalledWith({
+        action: "assign",
+        reviewIds: ["rev-1"],
+        assigneeId: "me-1",
+      })
+    })
+
+    it("says so when an admin's team list cannot be loaded", async () => {
+      stubSession("admin")
+      vi.spyOn(membersHook, "useMembers").mockReturnValue({
+        data: undefined,
+        isError: true,
+      } as unknown as ReturnType<typeof membersHook.useMembers>)
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(await screen.findByRole("menuitem", { name: "Assign…" }))
+      expect(
+        await screen.findByRole("menuitem", { name: "Couldn't load people" })
+      ).toHaveAttribute("aria-disabled", "true")
+      // Unassign needs no list, so it stays on offer.
+      expect(
+        screen.getByRole("menuitem", { name: "Unassign" })
+      ).toBeInTheDocument()
+    })
+
+    it("says the people are loading while an admin's team list is on its way", async () => {
+      stubSession("admin")
+      vi.spyOn(membersHook, "useMembers").mockReturnValue({
+        data: undefined,
+        isError: false,
+      } as unknown as ReturnType<typeof membersHook.useMembers>)
+      const user = userEvent.setup()
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(await screen.findByRole("menuitem", { name: "Assign…" }))
+      expect(
+        await screen.findByRole("menuitem", { name: "Loading people…" })
+      ).toHaveAttribute("aria-disabled", "true")
     })
 
     it("lists the people in the sheet on a phone, where a submenu has nowhere to fly", async () => {

@@ -278,7 +278,7 @@ function ReviewAssignItems({
   onAssign: (assigneeId: string | null) => void
 }) {
   const assignees = useAssignees([review.locationId])
-  return <AssigneeItems assignees={assignees} onAssign={onAssign} />
+  return <AssigneeItems {...assignees} onAssign={onAssign} />
 }
 
 /**

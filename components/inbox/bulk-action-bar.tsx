@@ -200,7 +200,7 @@ function BulkActionBar({
         : "mark_reviewed"
   const assigneeItems = (
     <AssigneeItems
-      assignees={assignees}
+      {...assignees}
       onAssign={(assigneeId) => void run("assign", assigneeId)}
     />
   )
