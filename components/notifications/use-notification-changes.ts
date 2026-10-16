@@ -138,6 +138,12 @@ export function useNotificationChanges() {
         client.cancelQueries({ queryKey: queryKeys.notificationsAll }),
         client.cancelQueries({ queryKey: queryKeys.shellStatus }),
       ])
+      // Cancelling does not stop a shell poll whose answer is already back and
+      // only a few promise turns from seeding the badge (it seeds from inside
+      // its own query function). Let those turns run first: that answer then
+      // lands while this change is still pending, where it is judged against
+      // the rows like any poll, and not after the commit as the server's word.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
       // What the server saved is made permanent (all of it, or the turns
       // that went before a refused one), so saved rows do not flash unread;
       // a change the store has dropped, or from another scope, is only removed.

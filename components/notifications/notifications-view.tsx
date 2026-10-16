@@ -22,7 +22,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -124,6 +124,7 @@ export function NotificationsView() {
   const param = searchParams.get("filter")
   const filter: NotificationFilter = isFilter(param) ? param : DEFAULT_FILTER
   const [confirming, setConfirming] = useState<string | null>(null)
+  const hintId = useId()
   const query = useInfiniteQuery({
     queryKey: queryKeys.notifications(filter),
     initialPageParam: "",
@@ -239,7 +240,11 @@ export function NotificationsView() {
             onValueChange={(value) => setFilter(String(value))}
             className="w-full sm:w-auto"
           >
-            <TabsList variant="text" aria-label="Show notifications">
+            <TabsList
+              variant="text"
+              aria-label="Show notifications"
+              aria-describedby={hintId}
+            >
               {FILTERS.map((option) => (
                 <TabsTab key={option.value} value={option.value}>
                   {option.label}
@@ -247,7 +252,9 @@ export function NotificationsView() {
               ))}
             </TabsList>
           </Tabs>
-          <p className="text-caption text-ink-muted">{FILTER_HINTS[filter]}</p>
+          <p id={hintId} className="text-caption text-ink-muted">
+            {FILTER_HINTS[filter]}
+          </p>
         </div>
         {unread !== null ? (
           <div className="flex w-full items-center justify-between gap-3 sm:w-auto">

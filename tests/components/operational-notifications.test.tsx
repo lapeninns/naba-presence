@@ -2763,9 +2763,15 @@ describe("NotificationsView follow-ups to the Release & QA review", () => {
     it("says what each filter holds, so Open is not mistaken for Unread", async () => {
       steppedServer([first])
       mountScoped(OWNER)
-      expect(
-        await screen.findByText("Everything sent to you, newest first.")
-      ).toBeInTheDocument()
+      const hint = await screen.findByText(
+        "Everything sent to you, newest first."
+      )
+      expect(hint).toBeInTheDocument()
+      // The tab list is described by it, so a screen reader says it with the tabs.
+      expect(screen.getByRole("tablist")).toHaveAttribute(
+        "aria-describedby",
+        hint.id
+      )
       fireEvent.click(screen.getByRole("tab", { name: "Unread" }))
       expect(
         await screen.findByText("Notifications you have not marked read.")
