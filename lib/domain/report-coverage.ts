@@ -23,6 +23,8 @@ export type CoverageCheckpoint = {
   /** sync_checkpoint.status; absent when the location has no checkpoint. */
   status: string | null
   watermark: string | null
+  /** When the last fetch succeeded; read only by {@link classifyLocationCoverage}. */
+  lastSucceededAt?: Date | null
 }
 
 export type CoverageOptions = {
@@ -94,4 +96,89 @@ function missingReason(
     return "pending"
   }
   return "no_data"
+}
+
+/**
+ * The one state a location is in for a report. Every location in scope has
+ * exactly one, so the counts of the states add up to the locations in scope.
+ *
+ * - `reporting`: has figures in the window, fetched recently, no failed refresh.
+ * - `pending`: no figures yet and the first fetch has not finished.
+ * - `unavailable`: the latest refresh failed (figures it has may stop early).
+ * - `stale`: its figures end before the window, or its last fetch is old
+ *   (a location with figures in the window is still in the totals).
+ * - `no_data`: fetched, and Google had nothing to report.
+ */
+export const LOCATION_COVERAGE_STATUSES = [
+  "reporting",
+  "pending",
+  "unavailable",
+  "stale",
+  "no_data",
+] as const
+export type LocationCoverageStatus = (typeof LOCATION_COVERAGE_STATUSES)[number]
+
+export type LocationCoverageOptions = CoverageOptions & {
+  /** A successful fetch before this instant counts as stale. */
+  staleBefore: Date
+}
+
+export function classifyLocationCoverage(
+  locations: readonly CoverageLocation[],
+  checkpoints: readonly CoverageCheckpoint[],
+  {
+    windowStart,
+    latestStored = new Map(),
+    staleBefore,
+  }: LocationCoverageOptions
+): Array<{ id: string; status: LocationCoverageStatus }> {
+  const byLocation = new Map(
+    checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint])
+  )
+  return locations.map(({ id }) => {
+    const checkpoint = byLocation.get(id)
+    const status = checkpoint?.status ?? null
+    const watermark = checkpoint?.watermark ?? latestStored.get(id) ?? null
+    const fetchedAt = checkpoint?.lastSucceededAt ?? null
+    const oldFetch = fetchedAt !== null && fetchedAt < staleBefore
+    const covered = watermark !== null && watermark >= windowStart
+    if (status === "failed") return { id, status: "unavailable" }
+    if (covered) return { id, status: oldFetch ? "stale" : "reporting" }
+    // Not covered: Google's figures end before the window, or there are none.
+    if (watermark !== null) return { id, status: "stale" }
+    // No figures at all. One fetched long ago is out of date, not empty; one
+    // never fetched is waiting for its first (a `running` claim on a fetched
+    // location does not make it a first fetch again).
+    if (fetchedAt !== null)
+      return { id, status: oldFetch ? "stale" : "no_data" }
+    return {
+      id,
+      status:
+        status === null || status === "pending" || status === "running"
+          ? "pending"
+          : "no_data",
+    }
+  })
+}
+
+/** How many locations are in each {@link LocationCoverageStatus}; the counts sum to `eligible`. */
+export function countLocationCoverage(
+  statuses: ReadonlyArray<{ status: LocationCoverageStatus }>
+) {
+  const counts: Record<LocationCoverageStatus, number> = {
+    reporting: 0,
+    pending: 0,
+    unavailable: 0,
+    stale: 0,
+    no_data: 0,
+  }
+  for (const { status } of statuses) counts[status] += 1
+  return {
+    eligible: statuses.length,
+    reporting: counts.reporting,
+    unavailable: counts.unavailable,
+    stale: counts.stale,
+    pending: counts.pending,
+    noData: counts.no_data,
+  }
 }
