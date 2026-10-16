@@ -178,4 +178,50 @@ describeDatabase("Google presence report provenance", () => {
       expect(value).toBeNull()
     }
   })
+
+  it("does not call stored figures with no recorded fetch up to date, and keeps them in the totals", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const stored = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      ...connection,
+    })
+    const pending = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      ...connection,
+    })
+    for (const external of [
+      stored.externalLocationId,
+      pending.externalLocationId,
+    ]) {
+      await admin`
+        insert into performance_metric_daily (organisation_id, external_location_id, metric, metric_date, value)
+        values (${owner.organisationId}, ${external}, 'WEBSITE_CLICKS', ${day(2)}::date, 3)`
+    }
+    // One has no checkpoint at all; the other a pending one that never succeeded.
+    await admin`
+      insert into sync_checkpoint (organisation_id, external_location_id, sync_type, status, next_attempt_at, last_succeeded_at)
+      values (${owner.organisationId}, ${pending.externalLocationId}, 'performance', 'pending', now(), null)`
+
+    const response = await fetch(
+      `${server.baseUrl}/api/analytics/presence?range=28d`,
+      { headers: { cookie: owner.cookie } }
+    )
+    expect(response.status, await response.clone().text()).toBe(200)
+    const report = presenceResponseSchema.parse(await response.json())
+    expect(report.totals.WEBSITE_CLICKS).toBe(6)
+    expect(report.fetchedAt?.oldest ?? null).toBeNull()
+    expect(report.coverage).toEqual({
+      eligible: 2,
+      reporting: 0,
+      unconfirmed: 2,
+      unavailable: 0,
+      stale: 0,
+      pending: 0,
+      noData: 0,
+    })
+  })
 })
