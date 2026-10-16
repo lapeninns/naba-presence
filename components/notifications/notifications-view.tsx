@@ -1,10 +1,6 @@
 "use client"
 
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BadgeCheck,
   Bell,
@@ -26,7 +22,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -39,8 +35,6 @@ import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
 import { ViewHeader } from "@/components/ui/view-header"
 import {
   fetchNotifications,
-  markNotificationsRead,
-  resolveNotification,
   type NotificationFilter,
 } from "@/lib/api/operational-notifications"
 import type { NotificationItem } from "@/lib/contracts/operational-notifications"
@@ -48,10 +42,16 @@ import {
   NOTIFICATION_EVENT_LABELS,
   type NotificationEventKind,
 } from "@/lib/domain/notification-preferences"
-import { describeActionError } from "@/lib/errors/action-errors"
+import {
+  applyPendingChanges,
+  cachedRowStates,
+  usePendingNotificationChanges,
+} from "@/lib/notifications/pending-changes"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
+
+import { useNotificationChanges } from "./use-notification-changes"
 
 const FILTERS: Array<{ value: NotificationFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -99,6 +99,13 @@ function isFilter(value: string | null): value is NotificationFilter {
  * and an owner or admin closes an event once handled. Resolving closes it
  * for everyone and there is no reopening, so it asks first.
  *
+ * Read and resolve show at once and put themselves back, with an error
+ * toast, if the server refuses. They are pending changes laid over the cached
+ * rows, not written into them, so a refusal takes back only its own change and
+ * a change from an earlier session scope never shows (see
+ * lib/notifications/pending-changes.ts). The page count and the shell's bell
+ * add the same pending change to the server's count, so they always agree.
+ *
  * The filter lives in the address (`?filter=`, "all" by default), so Back
  * from a listing returns to the same list.
  */
@@ -108,9 +115,7 @@ export function NotificationsView() {
   const searchParams = useSearchParams()
   const param = searchParams.get("filter")
   const filter: NotificationFilter = isFilter(param) ? param : DEFAULT_FILTER
-  const [failure, setFailure] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
-  const client = useQueryClient()
   const query = useInfiniteQuery({
     queryKey: queryKeys.notifications(filter),
     initialPageParam: "",
@@ -122,35 +127,49 @@ export function NotificationsView() {
       ),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
-  const settle = {
-    onSuccess: () => {
-      setFailure(null)
-      void client.invalidateQueries({ queryKey: queryKeys.notificationsAll })
-    },
-    onError: (error: unknown) => setFailure(describeActionError(error)),
-  }
-  const read = useMutation({
-    mutationFn: (input: { ids: string[]; read: boolean }) =>
-      markNotificationsRead(input.ids, input.read),
-    ...settle,
-  })
-  const resolve = useMutation({
-    mutationFn: (id: string) => resolveNotification(id),
-    ...settle,
-    onSettled: () => setConfirming(null),
-  })
-  const items = query.data?.pages.flatMap((page) => page.items) ?? []
+  const client = useQueryClient()
+  const changes = useNotificationChanges()
+  const pending = usePendingNotificationChanges()
+  // The cached rows with every pending change laid over them. Where a row is
+  // in another cached list but not this one, that list says what it was.
+  const shown = useMemo(
+    () =>
+      query.data
+        ? applyPendingChanges(
+            query.data.pages,
+            pending,
+            filter,
+            pending.length ? cachedRowStates(client) : undefined
+          )
+        : null,
+    [client, filter, pending, query.data]
+  )
+  const items = shown?.pages.flatMap((page) => page.items) ?? []
   // Unknown until the first page arrives: a failed or pending load shows no
   // count at all rather than "0 open and unread" as if it were a fact.
-  const unread = query.data ? (query.data.pages[0]?.unreadCount ?? 0) : null
+  const unread = shown ? (shown.unreadCount ?? 0) : null
   const unreadShown = items
     .filter((item) => !item.readAt)
     .map((item) => item.id)
-  // Only the rows a pending change touches wait for it.
-  const pendingIds = new Set<string>([
-    ...(read.isPending ? (read.variables?.ids ?? []) : []),
-    ...(resolve.isPending && resolve.variables ? [resolve.variables] : []),
-  ])
+  // "Mark all read" goes once nothing shown is unread, and takes keyboard
+  // focus with it: the change starts, then focus moves to the current filter
+  // tab, so the person keeps their place even if the change is then refused.
+  const tabs = useRef<HTMLDivElement>(null)
+  function focusFilterTab() {
+    tabs.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.focus()
+  }
+  function markShownRead() {
+    changes.markRead(unreadShown, true)
+    focusFilterTab()
+  }
+  // A row that leaves the filtered list takes the focused button with it, so
+  // focus goes to the filter tab first, as for "Mark all read", and stays
+  // there if the change is then refused.
+  const leavesFilter = (action: "read" | "resolve") =>
+    (filter === "unread" && action === "read") ||
+    (filter === "open" && action === "resolve")
 
   function setFilter(value: string) {
     const next = new URLSearchParams(searchParams.toString())
@@ -199,6 +218,7 @@ export function NotificationsView() {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs
+          ref={tabs}
           value={filter}
           onValueChange={(value) => setFilter(String(value))}
           className="w-full sm:w-auto"
@@ -219,23 +239,24 @@ export function NotificationsView() {
             >
               {unread} open and unread
             </p>
-            <Button
-              variant="secondary"
-              disabled={!unreadShown.length || read.isPending}
-              onClick={() => read.mutate({ ids: unreadShown, read: true })}
-            >
-              Mark shown as read
-            </Button>
+            {unreadShown.length ? (
+              <Button variant="secondary" onClick={markShownRead}>
+                {query.hasNextPage || filter === "open"
+                  ? "Mark shown as read"
+                  : "Mark all read"}
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
-      {failure ? (
-        <p role="alert" className="text-ui text-danger-ink">
-          {failure}
-        </p>
-      ) : null}
       <QueryStates
-        status={queryStatus(query, { isEmpty: items.length === 0 })}
+        // Empty only when nothing is shown and nothing more can be loaded: the
+        // rows a pending change took off the page must not hide "Load more".
+        // A failed refetch keeps the rows already loaded (see the notice).
+        status={queryStatus(
+          { isPending: query.isPending, isError: query.isError && !query.data },
+          { isEmpty: items.length === 0 && !query.hasNextPage }
+        )}
         pendingLabel="Loading notifications"
         error={{
           title: "Notifications could not be loaded",
@@ -251,6 +272,14 @@ export function NotificationsView() {
               icon={<BellOffIcon />}
               title="No notifications yet"
               description="Problems with Google connections, publishing and syncs appear here."
+              action={
+                <Link
+                  href="/settings/notifications"
+                  className={buttonVariants({ variant: "secondary" })}
+                >
+                  Notification settings
+                </Link>
+              }
             />
           ) : (
             <Empty
@@ -274,24 +303,46 @@ export function NotificationsView() {
         {/* Full-bleed on a phone (the list is the page, as in Notion Mail's
             inbox), a bordered card from md. ListRow draws the inset divider
             from the text column. */}
-        <ListRows
-          bleed
-          aria-label="Notifications"
-          className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
-        >
-          {items.map((item) => (
-            <NotificationRow
-              key={item.id}
-              item={item}
-              busy={pendingIds.has(item.id)}
-              confirming={confirming === item.id}
-              onRead={(value) => read.mutate({ ids: [item.id], read: value })}
-              onAskResolve={() => setConfirming(item.id)}
-              onCancelResolve={() => setConfirming(null)}
-              onResolve={() => resolve.mutate(item.id)}
-            />
-          ))}
-        </ListRows>
+        {query.isError && query.data ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 text-body text-ink-secondary"
+          >
+            <p>
+              Notifications could not be refreshed. This list may be out of
+              date.
+            </p>
+            <Button variant="secondary" onClick={() => void query.refetch()}>
+              Try again
+            </Button>
+          </div>
+        ) : null}
+        {items.length ? (
+          <ListRows
+            bleed
+            aria-label="Notifications"
+            className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
+          >
+            {items.map((item) => (
+              <NotificationRow
+                key={item.id}
+                item={item}
+                confirming={confirming === item.id}
+                onRead={(value) => {
+                  changes.markRead([item.id], value)
+                  if (value && leavesFilter("read")) focusFilterTab()
+                }}
+                onAskResolve={() => setConfirming(item.id)}
+                onCancelResolve={() => setConfirming(null)}
+                onResolve={() => {
+                  setConfirming(null)
+                  changes.resolve(item.id)
+                  if (leavesFilter("resolve")) focusFilterTab()
+                }}
+              />
+            ))}
+          </ListRows>
+        ) : null}
         {query.hasNextPage ? (
           <Button
             variant="secondary"
@@ -319,7 +370,6 @@ export function NotificationsView() {
  */
 function NotificationRow({
   item,
-  busy,
   confirming,
   onRead,
   onAskResolve,
@@ -327,7 +377,6 @@ function NotificationRow({
   onResolve,
 }: {
   item: NotificationItem
-  busy: boolean
   confirming: boolean
   onRead: (read: boolean) => void
   onAskResolve: () => void
@@ -349,7 +398,6 @@ function NotificationRow({
   return (
     <ListRow
       interactive={false}
-      aria-busy={busy || undefined}
       emphasis={unread ? "unread" : "read"}
       unreadLabel="(unread)"
       leading={
@@ -392,7 +440,6 @@ function NotificationRow({
             key="confirm"
             role="group"
             aria-label={`Resolve ${copy.label}?`}
-            aria-busy={busy || undefined}
             className="flex min-w-0 flex-wrap items-center gap-2"
           >
             <p className="w-full text-caption text-ink-secondary">
@@ -401,30 +448,20 @@ function NotificationRow({
             <Button
               ref={confirmRef}
               variant="default"
-              disabled={busy}
               onClick={onResolve}
-              // The name starts with the words on the button (WCAG 2.5.3),
-              // including while it says "Resolving…".
-              aria-label={
-                busy
-                  ? `Resolving… ${copy.label}`
-                  : `Yes, resolve: ${copy.label}`
-              }
+              // The name starts with the words on the button (WCAG 2.5.3).
+              aria-label={`Yes, resolve: ${copy.label}`}
             >
-              {busy ? "Resolving…" : "Yes, resolve"}
+              Yes, resolve
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={onCancelResolve}>
+            <Button variant="ghost" onClick={onCancelResolve}>
               Cancel
             </Button>
           </div>
         ) : (
           // Ghost buttons pulled back by their own padding, so their words
           // line up with the text column.
-          <div
-            key="actions"
-            aria-busy={busy || undefined}
-            className="-ms-2.5 flex min-w-0 flex-wrap gap-1"
-          >
+          <div key="actions" className="-ms-2.5 flex min-w-0 flex-wrap gap-1">
             {item.locationId ? (
               <Link
                 href={`/listings/${item.locationId}`}
@@ -436,7 +473,6 @@ function NotificationRow({
             ) : null}
             <Button
               variant="ghost"
-              disabled={busy}
               onClick={() => onRead(unread)}
               aria-label={`${unread ? "Mark read" : "Mark unread"}: ${copy.label}`}
             >
@@ -445,7 +481,6 @@ function NotificationRow({
             {item.canResolve ? (
               <Button
                 variant="ghost"
-                disabled={busy}
                 onClick={onAskResolve}
                 aria-label={`Resolve: ${copy.label}`}
               >

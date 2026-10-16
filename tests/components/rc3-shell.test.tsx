@@ -47,9 +47,7 @@ describe("NotificationsView error state", () => {
       "Notifications could not be loaded"
     )
     expect(screen.queryByText(/open and unread/)).toBeNull()
-    expect(
-      screen.queryByRole("button", { name: "Mark shown as read" })
-    ).toBeNull()
+    expect(screen.queryByRole("button", { name: "Mark all read" })).toBeNull()
     expect(screen.getByRole("button", { name: "Try again" })).toBeVisible()
   })
 

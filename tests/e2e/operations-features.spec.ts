@@ -126,9 +126,17 @@ for (const width of [375, 768, 1280])
       await page
         .getByRole("button", { name: "Yes, resolve: Publishing failed" })
         .click()
+      // The row says Resolved at once (optimistic); the server catches up.
       await expect(
         page.getByText("Resolved", { exact: true }).first()
       ).toBeVisible()
+      await expect
+        .poll(async () => {
+          const [closed] =
+            await backend.admin`select status from notification_incident where id = ${failed}`
+          return closed.status
+        })
+        .toBe("resolved")
       await capture(page, info, "notifications-resolved")
       await f.goto("/settings/notifications")
       const toggle = page.getByRole("switch", {
