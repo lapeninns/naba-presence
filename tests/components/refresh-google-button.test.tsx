@@ -11,13 +11,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderMenu(canTrigger: boolean) {
+function renderMenu(canTrigger: boolean, scopedToClient = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
         <ReportActionsMenu
-          refresh={canTrigger ? { kind: "performance" } : null}
+          refresh={canTrigger ? { kind: "performance", scopedToClient } : null}
         />
       </Toaster>
     </QueryClientProvider>
@@ -39,6 +39,16 @@ describe("Refresh from Google in the report's actions menu", () => {
     expect(
       screen.queryByRole("menuitem", { name: /refresh from google/i })
     ).not.toBeInTheDocument()
+  })
+  it("says it refreshes all clients on a report scoped to one client (D7), and keeps the same request", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ organisations: [], skipped: false, nextCursor: null }), { headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    renderMenu(true, true)
+    await openMenu()
+    expect(screen.queryByRole("menuitem", { name: "Refresh from Google" })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh all clients" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/sync/performance")
   })
   it("POSTs the performance sync and shows a pending state", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ organisations: [], skipped: false, nextCursor: null }), { headers: { "content-type": "application/json" } }))

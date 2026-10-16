@@ -38,6 +38,11 @@ export type ReportShareTarget =
 /** Which Google refresh a report's menu starts. */
 export type ReportRefresh = {
   kind: "performance" | "keywords"
+  /**
+   * The report is scoped to one client. The sync endpoints take no client
+   * scope, so the press still refreshes every client: say so in the label.
+   */
+  scopedToClient?: boolean
   /** The press began: the tab starts following the refresh. */
   onStart?: () => void
   /** The request failed, so there is nothing to wait for. */
@@ -77,7 +82,13 @@ function MenuWithRefresh({
   ...props
 }: MenuProps & { refresh: ReportRefresh }) {
   const { run, pending, error } = useRefreshGoogle(refresh)
-  return <MenuView {...props} refresh={{ run, pending }} refreshError={error} />
+  return (
+    <MenuView
+      {...props}
+      refresh={{ run, pending, scopedToClient: refresh.scopedToClient }}
+      refreshError={error}
+    />
+  )
 }
 
 function MenuView({
@@ -87,7 +98,11 @@ function MenuView({
   children,
   className,
 }: Omit<MenuProps, "refresh"> & {
-  refresh?: { run: () => Promise<void>; pending: boolean } | null
+  refresh?: {
+    run: () => Promise<void>
+    pending: boolean
+    scopedToClient?: boolean
+  } | null
   refreshError?: string | null
 }) {
   const [picking, setPicking] = React.useState(false)
@@ -139,7 +154,11 @@ function MenuView({
               onClick={() => void refresh.run()}
             >
               <RefreshCwIcon aria-hidden strokeWidth={1.75} />
-              {refresh.pending ? "Refreshing…" : "Refresh from Google"}
+              {refresh.pending
+                ? "Refreshing…"
+                : refresh.scopedToClient
+                  ? "Refresh all clients"
+                  : "Refresh from Google"}
             </DropdownMenuItem>
           ) : null}
           {children}

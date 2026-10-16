@@ -346,7 +346,7 @@ describe("each narrowing holds on its own", () => {
     expect(presence.state).toBe("no_link")
     // Nothing in scope: missing, never a manufactured zero.
     expect(presence.totals.CALL_CLICKS).toBeNull()
-    expect(presence.coverage).toEqual({ eligible: 0, reporting: 0, unavailable: 0, stale: 0, pending: 0 })
+    expect(presence.coverage).toEqual({ eligible: 0, reporting: 0, unavailable: 0, stale: 0, pending: 0, noData: 0 })
   })
 })
 

@@ -7,7 +7,11 @@ import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
-import { summariseReportCoverage } from "@/lib/domain/report-coverage"
+import {
+  classifyLocationCoverage,
+  countLocationCoverage,
+  summariseReportCoverage,
+} from "@/lib/domain/report-coverage"
 import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import {
   visibilityPredicate,
@@ -127,18 +131,6 @@ export async function loadPresenceReport(
       and ${visibility}
     group by p.metric
   `
-  const reportingLocations = await sql<Array<{ id: string }>>`
-    select distinct l.id::text as id
-    from performance_metric_daily p
-    join location_link ll
-      on ll.external_location_id = p.external_location_id
-     and ll.is_active = true
-    join location l on l.id = ll.location_id
-    where p.metric_date between ${start}::date and ${end}::date
-      ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
-      ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
-      and ${visibility}
-  `
   const checkpoints = await sql<CheckpointRow[]>`
     select
       l.id::text as "locationId",
@@ -219,33 +211,28 @@ export async function loadPresenceReport(
   const previousTotals = emptyTotals()
   for (const row of previousRows) previousTotals[row.metric] = Number(row.value)
   const staleBefore = now.getTime() - PERFORMANCE_STALE_AFTER_HOURS * 3_600_000
-  const byLocation = new Map(
-    checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint])
-  )
   const succeeded = checkpoints
     .map((checkpoint) => checkpoint.lastSucceededAt)
     .filter((value): value is Date => value !== null)
     .map((value) => value.getTime())
-  const coverage = {
-    eligible: locations.length,
-    reporting: reportingLocations.length,
-    unavailable: locations.filter(
-      (location) => byLocation.get(location.id)?.status === "failed"
-    ).length,
-    stale: locations.filter((location) => {
-      const checkpoint = byLocation.get(location.id)
-      return checkpoint?.lastSucceededAt
-        ? checkpoint.lastSucceededAt.getTime() < staleBefore
-        : false
-    }).length,
-    pending: locations.filter((location) => {
-      const checkpoint = byLocation.get(location.id)
-      return (
-        !checkpoint ||
-        (!checkpoint.lastSucceededAt && checkpoint.status !== "failed")
-      )
-    }).length,
-  }
+  const coverage = countLocationCoverage(
+    classifyLocationCoverage(
+      locations,
+      checkpoints.map((checkpoint) => ({
+        locationId: checkpoint.locationId,
+        status: checkpoint.status,
+        watermark: checkpoint.lastMetricDate,
+        lastSucceededAt: checkpoint.lastSucceededAt,
+      })),
+      {
+        windowStart: start,
+        latestStored: new Map(
+          latestStored.map((row) => [row.locationId, row.latest])
+        ),
+        staleBefore: new Date(staleBefore),
+      }
+    )
+  )
   return {
     range: query.range,
     from: start,

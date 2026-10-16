@@ -23,6 +23,8 @@ export type CoverageCheckpoint = {
   /** sync_checkpoint.status; absent when the location has no checkpoint. */
   status: string | null
   watermark: string | null
+  /** When the last fetch succeeded; read only by {@link classifyLocationCoverage}. */
+  lastSucceededAt?: Date | null
 }
 
 export type CoverageOptions = {
@@ -94,4 +96,83 @@ function missingReason(
     return "pending"
   }
   return "no_data"
+}
+
+/**
+ * The one state a location is in for a report. Every location in scope has
+ * exactly one, so the counts of the states add up to the locations in scope.
+ *
+ * - `reporting`: has figures in the window and was fetched recently.
+ * - `pending`: no figures yet and the first fetch has not finished.
+ * - `unavailable`: the latest refresh failed (figures it has may stop early).
+ * - `stale`: its figures end before the window, or its last fetch is old.
+ * - `no_data`: fetched, and Google had nothing to report.
+ */
+export const LOCATION_COVERAGE_STATUSES = [
+  "reporting",
+  "pending",
+  "unavailable",
+  "stale",
+  "no_data",
+] as const
+export type LocationCoverageStatus = (typeof LOCATION_COVERAGE_STATUSES)[number]
+
+export type LocationCoverageOptions = CoverageOptions & {
+  /** A successful fetch before this instant counts as stale. */
+  staleBefore: Date
+}
+
+export function classifyLocationCoverage(
+  locations: readonly CoverageLocation[],
+  checkpoints: readonly CoverageCheckpoint[],
+  { windowStart, latestStored = new Map(), staleBefore }: LocationCoverageOptions
+): Array<{ id: string; status: LocationCoverageStatus }> {
+  const byLocation = new Map(
+    checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint])
+  )
+  return locations.map((location) => {
+    const checkpoint = byLocation.get(location.id)
+    const watermark =
+      checkpoint?.watermark ?? latestStored.get(location.id) ?? null
+    const covered = Boolean(watermark) && (watermark as string) >= windowStart
+    if (!covered) {
+      return {
+        id: location.id,
+        status: missingReason(checkpoint?.status ?? null, Boolean(watermark)),
+      }
+    }
+    if (checkpoint?.status === "failed") {
+      return { id: location.id, status: "unavailable" }
+    }
+    const fetchedAt = checkpoint?.lastSucceededAt
+    return {
+      id: location.id,
+      status:
+        fetchedAt && fetchedAt.getTime() < staleBefore.getTime()
+          ? "stale"
+          : "reporting",
+    }
+  })
+}
+
+/** How many locations are in each {@link LocationCoverageStatus}; the counts sum to `eligible`. */
+export function countLocationCoverage(
+  statuses: ReadonlyArray<{ status: LocationCoverageStatus }>
+) {
+  const counts: Record<LocationCoverageStatus, number> = {
+    reporting: 0,
+    pending: 0,
+    unavailable: 0,
+    stale: 0,
+    no_data: 0,
+  }
+  for (const { status } of statuses) counts[status] += 1
+  return {
+    eligible: statuses.length,
+    reporting: counts.reporting,
+    unavailable: counts.unavailable,
+    stale: counts.stale,
+    pending: counts.pending,
+    noData: counts.no_data,
+  }
 }

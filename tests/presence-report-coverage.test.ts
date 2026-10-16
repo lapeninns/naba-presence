@@ -5,7 +5,11 @@ import {
   presenceResponseSchema,
 } from "@/lib/contracts/analytics"
 import { GOOGLE_PERFORMANCE_METRICS } from "@/lib/domain/google-contract"
-import { summariseReportCoverage } from "@/lib/domain/report-coverage"
+import {
+  classifyLocationCoverage,
+  countLocationCoverage,
+  summariseReportCoverage,
+} from "@/lib/domain/report-coverage"
 
 const LOCATIONS = [
   { id: "a", name: "Alpha" },
@@ -186,5 +190,83 @@ describe("completeness on the wire", () => {
       unavailableReasons: [],
     })
     expect(keywords.completeness).toBeNull()
+  })
+})
+
+describe("classifyLocationCoverage", () => {
+  const staleBefore = new Date("2026-10-10T00:00:00Z")
+  const fresh = new Date("2026-10-12T00:00:00Z")
+  const old = new Date("2026-10-01T00:00:00Z")
+  const FIVE = [
+    ...LOCATIONS,
+    { id: "d", name: "Delta" },
+    { id: "e", name: "Echo" },
+  ]
+
+  it("gives every location exactly one state, so the counts add up to eligible", () => {
+    const statuses = classifyLocationCoverage(
+      FIVE,
+      [
+        { locationId: "a", status: "succeeded", watermark: "2026-10-08", lastSucceededAt: fresh },
+        { locationId: "b", status: "failed", watermark: "2026-09-20", lastSucceededAt: fresh },
+        { locationId: "c", status: "succeeded", watermark: "2026-10-08", lastSucceededAt: old },
+        { locationId: "d", status: "succeeded", watermark: null, lastSucceededAt: fresh },
+      ],
+      { ...WINDOW, staleBefore }
+    )
+    expect(statuses).toEqual([
+      { id: "a", status: "reporting" },
+      { id: "b", status: "unavailable" },
+      { id: "c", status: "stale" },
+      { id: "d", status: "no_data" },
+      { id: "e", status: "pending" },
+    ])
+    const counts = countLocationCoverage(statuses)
+    expect(counts).toEqual({
+      eligible: 5,
+      reporting: 1,
+      unavailable: 1,
+      stale: 1,
+      pending: 1,
+      noData: 1,
+    })
+    expect(
+      counts.reporting + counts.unavailable + counts.stale + counts.pending + counts.noData
+    ).toBe(counts.eligible)
+  })
+
+  it("does not call a location with stored rows both reporting and not fetched", () => {
+    // Rows exist but the checkpoint never recorded a success: the old counts
+    // said "1 reporting" and "1 not fetched yet" for the same location.
+    const statuses = classifyLocationCoverage(
+      [LOCATIONS[0]],
+      [{ locationId: "a", status: "pending", watermark: null, lastSucceededAt: null }],
+      { ...WINDOW, staleBefore, latestStored: new Map([["a", "2026-10-08"]]) }
+    )
+    expect(statuses).toEqual([{ id: "a", status: "reporting" }])
+  })
+
+  it("calls figures that end before the window stale, and a failed refresh unavailable", () => {
+    const statuses = classifyLocationCoverage(
+      LOCATIONS.slice(0, 2),
+      [
+        { locationId: "a", status: "succeeded", watermark: "2026-08-01", lastSucceededAt: fresh },
+        { locationId: "b", status: "failed", watermark: null, lastSucceededAt: null },
+      ],
+      { ...WINDOW, staleBefore }
+    )
+    expect(statuses.map((row) => row.status)).toEqual(["stale", "unavailable"])
+  })
+
+  it("agrees with the completeness summary on which locations are missing", () => {
+    const checkpoints = [
+      { locationId: "a", status: "succeeded", watermark: "2026-10-08", lastSucceededAt: fresh },
+      { locationId: "b", status: "failed", watermark: "2026-08-01", lastSucceededAt: fresh },
+    ]
+    const summary = summariseReportCoverage(LOCATIONS, checkpoints, WINDOW)
+    const statuses = classifyLocationCoverage(LOCATIONS, checkpoints, { ...WINDOW, staleBefore })
+    const missingIds = summary.missing.map((row) => row.id).sort()
+    const notReporting = statuses.filter((row) => row.status !== "reporting").map((row) => row.id).sort()
+    expect(notReporting).toEqual(missingIds)
   })
 })

@@ -56,7 +56,7 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
       totals: { ...totals, CALL_CLICKS: 0, WEBSITE_CLICKS: 30 }, series: [{ date: "2026-08-29", metrics: { CALL_CLICKS: 0, WEBSITE_CLICKS: 30 } }], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true,
       previous: { from: "2026-07-07", to: "2026-08-03", totals: { ...totals, WEBSITE_CLICKS: 20 } },
       fetchedAt: { oldest: "2026-08-30T06:00:00.000Z", newest: "2026-08-30T06:00:00.000Z" },
-      coverage: { eligible: 2, reporting: 1, unavailable: 0, stale: 0, pending: 1 }, dateBasis: "google_daily" })
+      coverage: { eligible: 2, reporting: 1, unavailable: 0, stale: 0, pending: 1, noData: 0 }, dateBasis: "google_daily" })
     renderTab()
     const tileFor = async (label: string) => (await screen.findAllByText(label)).find((node) => node.closest("[data-slot=kpi-tile]"))!.closest("[data-slot=kpi-tile]") as HTMLElement
     expect(within(await tileFor("Call button taps")).getByText("0")).toBeInTheDocument()
@@ -67,8 +67,8 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(screen.queryByText(/Google’s daily dates/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "About these figures" }))
     const about = await screen.findByRole("dialog", { name: "About these figures" })
-    expect(within(about).getByText(/1 of 2 locations reporting · 1 not fetched yet/)).toBeInTheDocument()
-    expect(within(about).getByText(/Data through .*Google’s daily dates/)).toBeInTheDocument()
+    expect(within(about).getByText(/1 of 2 locations have figures · 1 waiting for a first fetch/)).toBeInTheDocument()
+    expect(within(about).getByText(/Figures up to /)).toBeInTheDocument()
     await userEvent.keyboard("{Escape}")
     expect(screen.getByRole("button", { name: "Download totals CSV of the Google profile" })).toBeInTheDocument()
   })
