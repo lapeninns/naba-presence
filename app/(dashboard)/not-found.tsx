@@ -8,11 +8,12 @@ import { NotFoundContent } from "@/components/app-shell/not-found-content"
  * a deleted client should still have their navigation. The page itself is
  * NotFoundContent.
  *
- * A client file on purpose (see a4dcc39f): Next merges every route group's
- * client manifest into one `app` group, so as a server file the `next/link`
- * and lucide imports of `boundary.tsx` took this entry's chunks with them,
- * and every page outside the dashboard (/sign-in, /terms, /invite, …) loaded
- * the dashboard 404's ~30 KB of JS.
+ * A client file on purpose (see a4dcc39f): Next drops route-group segments
+ * when it merges client manifests, so this entry and the root 404 share the
+ * `app` group and the last record per module wins. As a server file, its
+ * `next/link` record (from `boundary.tsx`) carried this entry's chunks, and
+ * every page outside the dashboard (/sign-in, /terms, /invite, …) loaded the
+ * dashboard 404's ~30 KB of JS.
  */
 export default function DashboardNotFound() {
   return (
