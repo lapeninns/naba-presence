@@ -64,6 +64,20 @@ async function stubClients(page: Page, items: unknown[]) {
   })
 }
 
+/**
+ * The shell seeds this list from the server and keeps it fresh for a while, so
+ * the stubbed read only lands once the list has gone stale and the tab is shown
+ * again.
+ */
+async function openClients(page: Page, path = "/clients") {
+  await page.clock.install()
+  await page.goto(path)
+  await page.clock.fastForward(10 * 60_000)
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange"))
+  )
+}
+
 test.describe("clients index", () => {
   test.beforeEach(async ({ baseURL, page }) => {
     const state = await readJourneyState()
@@ -80,7 +94,7 @@ test.describe("clients index", () => {
         stubClient("c-partial", "Harbour Kitchen", "partially_checked"),
         stubClient("c-healthy", "Old Crown Group", "healthy"),
       ])
-      await page.goto("/clients")
+      await openClients(page)
       const strip = page.getByRole("group", { name: "Filter by health" })
       await expect(
         strip.getByRole("button", { name: /^Some listings not checked yet/ })
@@ -120,7 +134,7 @@ test.describe("clients index", () => {
           openWork: { needsReply: 2, awaitingApproval: 0, failed: 0 },
         }),
       ])
-      await page.goto("/clients")
+      await openClients(page)
       const row = page.getByRole("row").filter({ hasText: "Busy Bar" })
       const count = row.getByText("2 to reply")
       await expect(count).toBeVisible()
@@ -142,22 +156,28 @@ test.describe("clients index", () => {
       stubClient("c-broken", "Broken Bistro", "disconnected"),
       stubClient("c-healthy", "Old Crown Group", "healthy"),
     ])
-    await page.goto("/clients")
+    await openClients(page)
     const strip = page.getByRole("group", { name: "Filter by health" })
     await strip.getByRole("button", { name: /^Action needed/ }).click()
     await expect(page).toHaveURL(/[?&]health=disconnected/)
     await expect(
-      page.getByRole("link", { name: "Broken Bistro" })
+      page
+        .getByRole("main")
+        .getByRole("link", { name: "Broken Bistro", exact: true })
     ).toBeVisible()
     await expect(
-      page.getByRole("link", { name: "Old Crown Group" })
+      page
+        .getByRole("main")
+        .getByRole("link", { name: "Old Crown Group", exact: true })
     ).toHaveCount(0)
     await strip
       .getByRole("button", { name: /^Action needed/, pressed: true })
       .click()
     await expect(page).not.toHaveURL(/health=/)
     await expect(
-      page.getByRole("link", { name: "Old Crown Group" })
+      page
+        .getByRole("main")
+        .getByRole("link", { name: "Old Crown Group", exact: true })
     ).toBeVisible()
   })
 
@@ -167,7 +187,7 @@ test.describe("clients index", () => {
     await stubClients(page, [
       stubClient("c-healthy", "Old Crown Group", "healthy"),
     ])
-    await page.goto("/clients?health=disconnected")
+    await openClients(page, "/clients?health=disconnected")
     const chosen = page
       .getByRole("group", { name: "Filter by health" })
       .getByRole("button", { pressed: true })
@@ -190,7 +210,7 @@ test.describe("clients index", () => {
         lastSyncAt: null,
       }),
     ])
-    await page.goto("/clients")
+    await openClients(page)
     const busy = page.getByRole("row").filter({ hasText: "Busy Bar" })
     // The only link in the card is the client's own name.
     await expect(busy.getByRole("link")).toHaveCount(1)
