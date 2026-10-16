@@ -62,8 +62,8 @@ type Row = BulkReviewResult["results"][number]
  * the job runner, and the answer names the batch to follow
  * (`operationId`, rows `queued`). Without it, approve stays this per-row
  * loop and template replies are not offered here (404 feature_disabled;
- * the inbox runs them itself). Assign and "no reply needed" are always
- * synchronous.
+ * the inbox runs them itself). Assign, "no reply needed" and its undo are
+ * always synchronous.
  *
  * The per-row approve loop publishes to Google one row after another inside
  * this request, so it stops at the request deadline (lib/server/deadline.ts)
@@ -150,9 +150,16 @@ export const POST = route({
       return { results } satisfies BulkReviewResult
     }
 
-    for (const reviewId of body.reviewIds) {
+    const targets =
+      body.action === "mark_unreviewed"
+        ? body.marks
+        : body.reviewIds.map((reviewId) => ({ reviewId, triagedAt: null }))
+    for (const { reviewId, triagedAt: undoneMark } of targets) {
       try {
-        await tenant(async (sql) => {
+        // The code of a row left as it was, or null when it was changed;
+        // `triagedAt` is the mark a "no reply needed" press made.
+        let triagedAt: string | undefined
+        const unchanged = await tenant(async (sql): Promise<string | null> => {
           const [review] = await sql<{ locationId: string }[]>`
             select location_id::text as "locationId" from review where id = ${reviewId}
           `
@@ -181,22 +188,50 @@ export const POST = route({
                      assigned_at = ${body.assigneeId ? sql`now()` : null}
                where id = ${reviewId}
             `
+          } else if (body.action === "mark_unreviewed") {
+            // The way back from "no reply needed": the same two columns,
+            // cleared, but only the mark this Undo names (compare-and-clear
+            // on triaged_at, which every mark sets afresh; passed as text
+            // because the driver would round a timestamp parameter to
+            // milliseconds). A review that is not marked, or carries a later
+            // mark, is left as it is and said to be, so the Undo never clears
+            // what it did not make.
+            const cleared = await sql`
+              update review
+                 set triaged_at = null, triaged_by = null
+               where id = ${reviewId}
+                 and triaged_at = ${undoneMark}::text::timestamptz
+               returning id
+            `
+            if (cleared.length === 0) return "review_not_triaged"
           } else {
             // "Reviewed, nothing to say." A five-star review with no text
             // needs no reply, and before this the only way to clear it from
-            // the queue was to publish something.
-            await sql`
+            // the queue was to publish something. A review already marked
+            // keeps the mark (and who made it) and is said to be, so an Undo
+            // never clears a decision this press did not make.
+            const marked = await sql<{ triagedAt: string }[]>`
               update review
                  set triaged_at = now(), triaged_by = ${session.userId}
-               where id = ${reviewId}
+               where id = ${reviewId} and triaged_at is null
+               returning to_char(
+                 triaged_at at time zone 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+               ) as "triagedAt"
             `
+            if (marked.length === 0) return "review_already_triaged"
+            triagedAt = marked[0].triagedAt
           }
 
           await writeAudit(sql, {
             organisationId: session.organisationId,
             actorUserId: session.userId,
             action:
-              body.action === "assign" ? "review.assigned" : "review.triaged",
+              body.action === "assign"
+                ? "review.assigned"
+                : body.action === "mark_unreviewed"
+                  ? "review.untriaged"
+                  : "review.triaged",
             subjectType: "review",
             subjectId: reviewId,
             requestId,
@@ -205,8 +240,13 @@ export const POST = route({
               clientRequestId,
             },
           })
+          return null
         })
-        results.push({ reviewId, status: "ok" })
+        results.push(
+          unchanged
+            ? { reviewId, status: "skipped", code: unchanged }
+            : { reviewId, status: "ok", ...(triagedAt ? { triagedAt } : {}) }
+        )
       } catch (error) {
         // The row's transaction rolled back, so nothing changed for it.
         results.push(
