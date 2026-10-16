@@ -139,13 +139,13 @@ function mount() {
   const { rerender } = render(page(serverSnapshot()))
   return {
     client,
-    // TanStack hydrates a query the cache already holds in an effect, so
-    // the cache is the thing to check; the form reads it on its next
-    // render (the edits and saves below).
+    // TanStack hydrates a query the cache already holds in an effect and
+    // tells the form on a timer tick after that, so wait that out too.
     deliver: async (state: DehydratedState) => {
       await act(async () => {
         rerender(page(state))
       })
+      await act(() => new Promise((done) => setTimeout(done, 0)))
     },
   }
 }
@@ -292,6 +292,9 @@ describe("Reply policy: a rename and a policy save together (#195)", () => {
       requireTwoPersonApproval: true,
       rawContentRetentionDays: 7,
     })
+    // A policy-only save refreshes too, so the router's copy of the page
+    // that Back restores carries the saved policy.
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
   })
 
   it("doesn't refresh when nothing was saved", async () => {
