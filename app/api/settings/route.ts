@@ -4,35 +4,17 @@ import {
 } from "@/lib/contracts/settings"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
+import { loadOrgSettings } from "@/lib/server/org-settings"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
 export const GET = route({
-  handler: async ({ session, tenant }) => {
-    const settings = await tenant(async (sql) => {
-      const [row] = await sql`
-        select
-          approval_required as "approvalRequired",
-          require_two_person_approval as "requireTwoPersonApproval",
-          raw_content_retention_days as "rawContentRetentionDays",
-          default_language_code as "defaultLanguageCode",
-          default_timezone as "defaultTimezone",
-          direct_publish_consent_at as "directPublishConsentAt"
-        from organisation
-        where id = ${session.organisationId}
-      `
-      if (!row) {
-        throw new ApiError(
-          404,
-          "organisation_not_found",
-          "Organisation not found."
-        )
-      }
-      return row
-    })
-    return { settings }
-  },
+  handler: async ({ session, tenant }) => ({
+    settings: await tenant((sql) =>
+      loadOrgSettings(sql, session.organisationId)
+    ),
+  }),
 })
 
 export const PATCH = route({

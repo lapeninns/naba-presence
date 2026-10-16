@@ -102,6 +102,13 @@ const PROBES = {
     'a[href="/settings/notifications"]',
   ],
   billing: ['main a[href="/settings/usage"]', 'a[href="/settings/usage"]'],
+  // Opens the invite dialog; never changes the fixture.
+  team: ['main button:has-text("Invite a teammate")'],
+  // A settings tab, not a switch: a switch would save a preference.
+  notifications: [
+    'main a[href="/settings/policy"]',
+    'main a[href="/settings"]',
+  ],
   setup: ['button[aria-label="Open navigation"]', "main a >> nth=0"],
   signIn: ['input[type="email"]', "main button"],
 }
@@ -126,6 +133,9 @@ const DEFAULT_ROUTES = [
   ["/calendar", "calendar"],
   ["/clients", "clients"],
   ["/settings", "settings"],
+  // Read on the server since P20 (SET-22).
+  ["/settings/notifications", "notifications"],
+  ["/team", "team"],
   ["/settings/billing", "billing"],
   ["/setup", "setup"],
   ["/sign-in", "signIn", "anon"],

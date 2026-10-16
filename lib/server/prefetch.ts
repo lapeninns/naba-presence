@@ -10,6 +10,10 @@ import {
 import { z, type ZodType } from "zod"
 
 import {
+  invitationsResponseSchema,
+  type InvitationsResponse,
+} from "@/lib/contracts/invitations"
+import {
   hoursResponseSchema,
   type HoursState,
 } from "@/lib/contracts/location-hours"
@@ -36,6 +40,14 @@ import {
   type SettingsCapabilitiesResponse,
 } from "@/lib/contracts/location-capabilities"
 import {
+  membersResponseSchema,
+  type MembersResponse,
+} from "@/lib/contracts/members"
+import {
+  notificationPreferencesResponseSchema,
+  type NotificationPreferencesResponse,
+} from "@/lib/contracts/operational-notifications"
+import {
   decodeReviewsQuery,
   encodeReviewsQuery,
   reviewCountsQuerySchema,
@@ -48,6 +60,10 @@ import {
   type ReviewsFilters,
   type ReviewsPage,
 } from "@/lib/contracts/reviews"
+import {
+  settingsResponseSchema,
+  type OrgSettings,
+} from "@/lib/contracts/settings"
 import {
   administrationResponseSchema,
   type AdministrationResponse,
@@ -102,6 +118,7 @@ import { loadBusinessInformation } from "@/lib/server/business-information"
 import { getFoodMenusState } from "@/lib/server/food-menus"
 import { loadGoogleVerificationState } from "@/lib/server/google-verification-state"
 import { listImportProposals } from "@/lib/server/import-review"
+import { loadInvitations } from "@/lib/server/invitations/list"
 import {
   readHoursResponse,
   readMediaListResponse,
@@ -110,6 +127,9 @@ import {
 import { loadLocationAdministration } from "@/lib/server/location-administration"
 import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
+import { loadMembers } from "@/lib/server/members"
+import { readNotificationPreferences as loadNotificationPreferences } from "@/lib/server/notifications/inbox"
+import { loadOrgSettings } from "@/lib/server/org-settings"
 import { loadPauseSnapshot } from "@/lib/server/pause-controls"
 import { loadPlaceActions } from "@/lib/server/place-actions"
 import { getProfileState } from "@/lib/server/profile"
@@ -304,6 +324,50 @@ export async function readSettingsCapabilities(
     capabilities: settingsCapabilities(session, features),
   } satisfies SettingsCapabilitiesResponse
   return throughWire(settingsCapabilitiesResponseSchema, payload).capabilities
+}
+
+/** What `useSettings()` fetches: the `settings` of `GET /api/settings`. */
+export async function readOrgSettings(session: Session): Promise<OrgSettings> {
+  const payload = {
+    settings: await withTenant(session.organisationId, (sql) =>
+      loadOrgSettings(sql, session.organisationId)
+    ),
+  }
+  return throughWire(settingsResponseSchema, payload).settings
+}
+
+/**
+ * What `useMembers()` fetches: `GET /api/members` (owners and admins only).
+ */
+export async function readMembers(session: Session): Promise<MembersResponse> {
+  const payload = await withTenant(session.organisationId, (sql) =>
+    loadMembers(sql)
+  )
+  return throughWire(membersResponseSchema, payload)
+}
+
+/**
+ * What `useInvitations()` fetches: `GET /api/invitations` (owners and
+ * admins only).
+ */
+export async function readInvitations(
+  session: Session
+): Promise<InvitationsResponse> {
+  const payload = await withTenant(session.organisationId, (sql) =>
+    loadInvitations(sql, session.organisationId)
+  )
+  return throughWire(invitationsResponseSchema, payload)
+}
+
+/**
+ * What the notification settings read: `GET /api/notifications/preferences`,
+ * the signed-in person's own choices.
+ */
+export async function readNotificationPreferences(
+  session: Session
+): Promise<NotificationPreferencesResponse> {
+  const payload = await loadNotificationPreferences(session)
+  return throughWire(notificationPreferencesResponseSchema, payload)
 }
 
 /** What `useHours(id)` fetches: `GET /api/locations/{id}/hours`. */
@@ -571,6 +635,45 @@ export function settingsPrefetch(): (session: Session) => PrefetchEntry[] {
       queryKey: queryKeys.settingsCapabilities,
       load: () => readSettingsCapabilities(session),
     },
+  ]
+}
+
+/**
+ * /team: the member list and the pending invitations, both pure SQL, so the
+ * rows paint in the first HTML instead of a skeleton that then grows (SET-22,
+ * the /team layout shift). Only for owners and admins: the only roles the
+ * page serves and both routes answer.
+ */
+export function teamPrefetch(): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!managesConsoles(session)) return []
+    return [
+      { queryKey: queryKeys.members, load: () => readMembers(session) },
+      { queryKey: queryKeys.invitations, load: () => readInvitations(session) },
+    ]
+  }
+}
+
+/** /settings/notifications: the signed-in person's own choices. */
+export function notificationSettingsPrefetch(): (
+  session: Session
+) => PrefetchEntry[] {
+  return (session) => [
+    {
+      queryKey: queryKeys.notificationPreferences,
+      load: () => readNotificationPreferences(session),
+    },
+  ]
+}
+
+/**
+ * Reply policy (/settings on a desk, /settings/policy): the organisation
+ * settings PolicyForm edits. Every role reads them (the route has no role
+ * gate); only owners and admins can save.
+ */
+export function replyPolicyPrefetch(): (session: Session) => PrefetchEntry[] {
+  return (session) => [
+    { queryKey: queryKeys.settings, load: () => readOrgSettings(session) },
   ]
 }
 
