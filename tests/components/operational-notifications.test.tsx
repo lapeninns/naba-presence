@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -40,9 +40,13 @@ vi.mock("next/navigation", async () => {
   }
 })
 
+import { NotificationsLink } from "@/components/app-shell/notifications-link"
 import { NotificationsView } from "@/components/notifications/notifications-view"
 import { NotificationPreferences } from "@/components/settings/notification-preferences"
 import { Toaster } from "@/components/ui/toast"
+import type { SessionResponse, SessionUser } from "@/lib/contracts/session"
+import { queryKeys } from "@/lib/queries/keys"
+import { useScopeReset } from "@/lib/queries/scope-reset"
 
 const LOCATION = "11111111-1111-4111-8111-111111111111"
 const item = (overrides: Record<string, unknown>) => ({
@@ -768,6 +772,559 @@ describe("NotificationsView rows and empty states", () => {
         )
       ).toBe(true)
     )
+  })
+})
+
+/**
+ * A server the test steps by hand. A read or resolve waits for the test to
+ * `accept()` or `refuse()` it; the lists answer at once unless `holdLists()`
+ * keeps them back (a reconciliation GET the test wants to see the screen
+ * without). Requests are numbered in the order they reach the server.
+ */
+type Write = {
+  call: Call
+  accept: () => void
+  refuse: (status?: number) => void
+}
+function steppedServer(initial: (Record<string, unknown> & { id: string })[]) {
+  let state = initial
+  let gate: Promise<void> | null = null
+  let openGate = () => {}
+  const calls: Call[] = []
+  const writes: Write[] = []
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    })
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      const call = {
+        url: String(url),
+        method: init.method ?? "GET",
+        body: init.body ? JSON.parse(String(init.body)) : undefined,
+      }
+      calls.push(call)
+      if (call.method === "GET") {
+        if (gate) await gate
+        const filter = new URL(call.url, "http://x").searchParams.get("filter")
+        return json({
+          items: state.filter((row) =>
+            filter === "unread"
+              ? !row.readAt
+              : filter === "open"
+                ? row.status === "open"
+                : true
+          ),
+          nextCursor: null,
+          unreadCount: state.filter(
+            (row) => row.status === "open" && !row.readAt
+          ).length,
+        })
+      }
+      return new Promise<Response>((resolve) => {
+        writes.push({
+          call,
+          accept: () => {
+            if (call.url.endsWith("/api/notifications/read")) {
+              const { incidentIds, read } = call.body as {
+                incidentIds: string[]
+                read: boolean
+              }
+              state = state.map((row) =>
+                incidentIds.includes(row.id)
+                  ? { ...row, readAt: read ? "2026-10-01T09:00:00.000Z" : null }
+                  : row
+              )
+              resolve(json({ updated: incidentIds.length }))
+              return
+            }
+            state = state.map((row) =>
+              call.url.includes(row.id)
+                ? {
+                    ...row,
+                    status: "resolved",
+                    resolvedAt: "2026-10-01T09:00:00.000Z",
+                    canResolve: false,
+                  }
+                : row
+            )
+            resolve(json({ resolved: true }))
+          },
+          refuse: (status = 500) =>
+            resolve(
+              json(
+                {
+                  error:
+                    status === 403 ? "permission_denied" : "internal_error",
+                  message: "Refused.",
+                },
+                status
+              )
+            ),
+        })
+      })
+    })
+  )
+  return {
+    calls,
+    writes,
+    /** The nth request that changes something, once it has reached the server. */
+    write: async (index: number) => {
+      await waitFor(() => expect(writes.length).toBeGreaterThan(index))
+      return writes[index]!
+    },
+    /** What the server holds from now on (for example another scope's rows). */
+    set: (next: typeof initial) => void (state = next),
+    holdLists: () => {
+      gate = new Promise<void>((resolve) => (openGate = resolve))
+    },
+    releaseLists: () => {
+      gate = null
+      openGate()
+    },
+    listCalls: (filter: string) =>
+      calls.filter(
+        (call) => call.method === "GET" && call.url.includes(`filter=${filter}`)
+      ).length,
+  }
+}
+
+const OWNER: SessionUser = {
+  userId: "u1",
+  organisationId: "o1",
+  organisationName: "Organisation",
+  displayName: "Person",
+  email: "person@example.com",
+  role: "owner",
+  canPublish: true,
+  workspaceMode: "business",
+  scopeFingerprint: "fp-owner",
+}
+const MEMBER: SessionUser = {
+  ...OWNER,
+  role: "member",
+  canPublish: false,
+  scopeFingerprint: "fp-member",
+}
+/** The app's own scope reset (the provider's hook) around the real view. */
+function ScopedApp({
+  client,
+  bell = false,
+}: {
+  client: QueryClient
+  bell?: boolean
+}) {
+  useScopeReset(client)
+  return (
+    <QueryClientProvider client={client}>
+      <Toaster>
+        {bell ? <NotificationsLink /> : null}
+        <NotificationsView />
+      </Toaster>
+    </QueryClientProvider>
+  )
+}
+function mountScoped(session: SessionUser = OWNER, bell = false) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  client.setQueryData<SessionResponse>(queryKeys.session, { session })
+  render(<ScopedApp client={client} bell={bell} />)
+  return client
+}
+const tick = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+const count = () => screen.getByRole("status")
+const bell = () => screen.getByRole("link", { name: /^Notifications/ })
+
+describe("NotificationsView pending changes", () => {
+  const first = item({})
+  const other = item({
+    id: "33333333-3333-4333-8333-333333333333",
+    kind: "listing_access_lost",
+  })
+
+  describe("when the session scope changes under a change", () => {
+    it("never brings an owner's incident back for a member when a resolve is refused late", async () => {
+      const server = steppedServer([first])
+      const client = mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Resolve: Publishing failed",
+        })
+      )
+      fireEvent.click(
+        screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+      )
+      expect(await screen.findByText("Resolved")).toBeInTheDocument()
+      const write = await server.write(0)
+      // The person's role changes: the member's scope sees no incident, and
+      // the reconciliation GET for it is held.
+      server.set([])
+      server.holdLists()
+      await act(async () => {
+        client.setQueryData<SessionResponse>(queryKeys.session, {
+          session: MEMBER,
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+      write.refuse(403)
+      expect(
+        await screen.findByText("The notification wasn’t resolved")
+      ).toBeInTheDocument()
+      await tick()
+      // Nothing from the old scope is put back while the GET is out.
+      expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: /^Resolve: / })
+      ).not.toBeInTheDocument()
+      server.releaseLists()
+      expect(
+        await screen.findByRole("heading", { name: "No notifications yet" })
+      ).toBeInTheDocument()
+      expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+    })
+
+    it("never brings another organisation's row back when a read is refused late", async () => {
+      const server = steppedServer([first])
+      const client = mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Mark read: Publishing failed",
+        })
+      )
+      await screen.findByRole("button", {
+        name: "Mark unread: Publishing failed",
+      })
+      const write = await server.write(0)
+      server.set([other])
+      server.holdLists()
+      await act(async () => {
+        client.setQueryData<SessionResponse>(queryKeys.session, {
+          session: {
+            ...OWNER,
+            organisationId: "o2",
+            scopeFingerprint: "fp-o2",
+          },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      write.refuse(403)
+      expect(
+        await screen.findByText("Your change wasn’t saved")
+      ).toBeInTheDocument()
+      await tick()
+      expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+      server.releaseLists()
+      expect(await screen.findByText("Listing access lost")).toBeInTheDocument()
+      // The other organisation's row is its own, unread, and not touched by
+      // the old read.
+      expect(
+        screen.getByRole("button", { name: "Mark read: Listing access lost" })
+      ).toBeInTheDocument()
+      expect(count()).toHaveTextContent("1 open and unread")
+    })
+
+    it("does not apply an accepted change from the old scope to the new scope's rows", async () => {
+      const server = steppedServer([first])
+      const client = mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Mark read: Publishing failed",
+        })
+      )
+      const write = await server.write(0)
+      // The same incident id, unread, in the scope the session moves to.
+      server.set([first])
+      await act(async () => {
+        client.setQueryData<SessionResponse>(queryKeys.session, {
+          session: MEMBER,
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      await screen.findByText("Publishing failed")
+      server.holdLists()
+      write.accept()
+      await tick()
+      await tick()
+      // Not committed: the member's row is still unread.
+      expect(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      ).toBeInTheDocument()
+      expect(count()).toHaveTextContent("1 open and unread")
+      server.releaseLists()
+    })
+  })
+
+  describe("when changes overlap", () => {
+    it("takes back only the refused change, then the other, in either order", async () => {
+      const server = steppedServer([first, other])
+      renderView()
+      await screen.findByText("Publishing failed")
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      )
+      const a = await server.write(0)
+      // Mark all read now covers only what is still unread: the other row.
+      fireEvent.click(screen.getByRole("button", { name: "Mark all read" }))
+      expect(
+        screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Mark unread: Listing access lost" })
+      ).toBeInTheDocument()
+      expect(count()).toHaveTextContent("0 open and unread")
+      server.holdLists()
+      a.refuse()
+      // A is unread again; B, whose request has not been sent, still shows read.
+      expect(
+        await screen.findByRole("button", {
+          name: "Mark read: Publishing failed",
+        })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Mark unread: Listing access lost" })
+      ).toBeInTheDocument()
+      expect(count()).toHaveTextContent("1 open and unread")
+      const b = await server.write(1)
+      expect(b.call.body).toEqual({ incidentIds: [other.id], read: true })
+      b.refuse()
+      await waitFor(() =>
+        expect(count()).toHaveTextContent("2 open and unread")
+      )
+      expect(screen.getAllByText(/\(unread\)/)).toHaveLength(2)
+      server.releaseLists()
+    })
+
+    it("keeps the one that saved when the other is refused, either way round", async () => {
+      for (const [firstFails, secondFails] of [
+        [false, true],
+        [true, false],
+      ] as const) {
+        const server = steppedServer([first, other])
+        const view = renderView()
+        await screen.findByText("Publishing failed")
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark read: Publishing failed" })
+        )
+        const a = await server.write(0)
+        fireEvent.click(screen.getByRole("button", { name: "Mark all read" }))
+        server.holdLists()
+        if (firstFails) a.refuse()
+        else a.accept()
+        const b = await server.write(1)
+        // What is on screen between the two answers.
+        await waitFor(() =>
+          expect(count()).toHaveTextContent(
+            firstFails ? "1 open and unread" : "0 open and unread"
+          )
+        )
+        expect(
+          screen.getByRole("button", {
+            name: firstFails
+              ? "Mark read: Publishing failed"
+              : "Mark unread: Publishing failed",
+          })
+        ).toBeInTheDocument()
+        if (secondFails) b.refuse()
+        else b.accept()
+        await waitFor(() =>
+          expect(count()).toHaveTextContent("1 open and unread")
+        )
+        // Exactly one of the two is unread, and it is the one that failed.
+        expect(
+          screen.getByRole("button", {
+            name: firstFails
+              ? "Mark read: Publishing failed"
+              : "Mark read: Listing access lost",
+          })
+        ).toBeInTheDocument()
+        expect(
+          screen.getByRole("button", {
+            name: firstFails
+              ? "Mark unread: Listing access lost"
+              : "Mark unread: Publishing failed",
+          })
+        ).toBeInTheDocument()
+        server.releaseLists()
+        view.unmount()
+        vi.unstubAllGlobals()
+      }
+    })
+  })
+
+  it("keeps a pending resolve out of the Open filter when a read in All settles", async () => {
+    const server = steppedServer([first, other])
+    renderView()
+    await screen.findByText("Publishing failed")
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark read: Publishing failed" })
+    )
+    const read = await server.write(0)
+    // Switch to Open (another cached list) and resolve the other incident.
+    fireEvent.click(screen.getByRole("tab", { name: "Open" }))
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Resolve: Listing access lost",
+      })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, resolve: Listing access lost" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByText("Listing access lost")).not.toBeInTheDocument()
+    )
+    const opens = server.listCalls("open")
+    read.accept()
+    // The read settles and every list is refetched; the Open refetch comes
+    // back with the incident still open, because its resolve is still queued.
+    const resolve = await server.write(1)
+    expect(resolve.call.url).toContain(other.id)
+    await waitFor(() => expect(server.listCalls("open")).toBeGreaterThan(opens))
+    await tick()
+    expect(screen.queryByText("Listing access lost")).not.toBeInTheDocument()
+    expect(screen.getByText("Publishing failed")).toBeInTheDocument()
+    expect(count()).toHaveTextContent("0 open and unread")
+    resolve.accept()
+    await waitFor(() => expect(count()).toHaveTextContent("0 open and unread"))
+    expect(screen.queryByText("Listing access lost")).not.toBeInTheDocument()
+  })
+
+  describe("the shell bell", () => {
+    const bellName = (unread: number) =>
+      unread ? `Notifications, ${unread} unread` : "Notifications"
+    const agree = (unread: number) => {
+      expect(count()).toHaveTextContent(`${unread} open and unread`)
+      expect(bell()).toHaveAccessibleName(bellName(unread))
+    }
+
+    it("agrees with the page count while a read, a resolve and Mark all read are pending, and rolls back with them", async () => {
+      const server = steppedServer([first, other])
+      mountScoped(OWNER, true)
+      await screen.findByText("Publishing failed")
+      await waitFor(() => agree(2))
+      // A read.
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      )
+      agree(1)
+      // A resolve of the other incident.
+      fireEvent.click(
+        screen.getByRole("button", { name: "Resolve: Listing access lost" })
+      )
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Yes, resolve: Listing access lost",
+        })
+      )
+      agree(0)
+      // Both refused: both back, together.
+      server.holdLists()
+      ;(await server.write(0)).refuse()
+      await waitFor(() => agree(1))
+      ;(await server.write(1)).refuse()
+      await waitFor(() => agree(2))
+      expect(screen.getAllByText(/\(unread\)/)).toHaveLength(2)
+      // Mark all read, then refused.
+      fireEvent.click(screen.getByRole("button", { name: "Mark all read" }))
+      agree(0)
+      ;(await server.write(2)).refuse()
+      await waitFor(() => agree(2))
+      server.releaseLists()
+    })
+
+    it("holds the committed value in the badge cache once a change is accepted", async () => {
+      const server = steppedServer([first, other])
+      const client = mountScoped(OWNER, true)
+      await screen.findByText("Publishing failed")
+      await waitFor(() => agree(2))
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      )
+      agree(1)
+      // The reconciliation GET is held: what shows is the committed cache.
+      server.holdLists()
+      ;(await server.write(0)).accept()
+      await waitFor(() =>
+        expect(
+          client.getQueryData<{ unreadCount: number }>(
+            queryKeys.notifications("badge")
+          )?.unreadCount
+        ).toBe(1)
+      )
+      await tick()
+      // Neither double counted nor dropped to zero.
+      agree(1)
+      fireEvent.click(
+        screen.getByRole("button", { name: "Resolve: Listing access lost" })
+      )
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Yes, resolve: Listing access lost",
+        })
+      )
+      agree(0)
+      ;(await server.write(1)).accept()
+      await waitFor(() =>
+        expect(
+          client.getQueryData<{ unreadCount: number }>(
+            queryKeys.notifications("badge")
+          )?.unreadCount
+        ).toBe(0)
+      )
+      await tick()
+      agree(0)
+      server.releaseLists()
+      await waitFor(() => agree(0))
+    })
+  })
+
+  describe("keyboard focus", () => {
+    const pressMarkAllRead = async () => {
+      const button = await screen.findByRole("button", {
+        name: "Mark all read",
+      })
+      button.focus()
+      expect(button).toHaveFocus()
+      await userEvent.keyboard("{Enter}")
+      return button
+    }
+
+    it("stays on the active filter tab when Mark all read goes", async () => {
+      const server = steppedServer([first, other])
+      renderView()
+      const button = await pressMarkAllRead()
+      expect(button).not.toBeInTheDocument()
+      expect(screen.getByRole("tab", { name: "All" })).toHaveFocus()
+      expect(document.activeElement).not.toBe(document.body)
+      ;(await server.write(0)).accept()
+      await tick()
+      expect(screen.getByRole("tab", { name: "All" })).toHaveFocus()
+    })
+
+    it("stays there when the request is refused and the button comes back", async () => {
+      const server = steppedServer([first, other])
+      renderView()
+      await pressMarkAllRead()
+      ;(await server.write(0)).refuse()
+      expect(
+        await screen.findByText("Your change wasn’t saved")
+      ).toBeInTheDocument()
+      expect(
+        await screen.findByRole("button", { name: "Mark all read" })
+      ).toBeInTheDocument()
+      expect(screen.getByRole("tab", { name: "All" })).toHaveFocus()
+    })
+
+    it("goes to the tab of the filter being shown", async () => {
+      nav.set("filter=unread")
+      steppedServer([first, other])
+      renderView()
+      await pressMarkAllRead()
+      expect(screen.getByRole("tab", { name: "Unread" })).toHaveFocus()
+    })
   })
 })
 

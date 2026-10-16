@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Bell } from "lucide-react"
 
 import { fetchNotifications } from "@/lib/api/operational-notifications"
+import { usePendingUnreadDelta } from "@/lib/notifications/pending-changes"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { SEEDED_BY_SHELL } from "@/lib/queries/use-shell-status"
@@ -16,9 +17,12 @@ import { ShellLink } from "./shell-link"
  * This person's open-and-unread notification count. One query key, so the
  * app bar's bell, the desk toolbar's bell and the More sheet's row share it
  * however many of them are mounted; the shell's one poll refreshes it
- * (useShellStatus).
+ * (useShellStatus). A read or resolve still on its way to the server is
+ * added to it (the notifications page adds the same one to its own count), so
+ * the bell and the page agree and a refused change takes both back.
  */
 export function useUnreadNotificationCount(enabled = true): number {
+  const pending = usePendingUnreadDelta(queryKeys.notifications("badge"))
   const query = useQuery({
     enabled,
     queryKey: queryKeys.notifications("badge"),
@@ -29,7 +33,7 @@ export function useUnreadNotificationCount(enabled = true): number {
       }),
     ...SEEDED_BY_SHELL,
   })
-  return query.data?.unreadCount ?? 0
+  return query.data ? Math.max(0, query.data.unreadCount + pending) : 0
 }
 
 /** "Notifications, 3 unread": the count is part of the name. */

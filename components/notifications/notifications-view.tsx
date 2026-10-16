@@ -1,6 +1,6 @@
 "use client"
 
-import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query"
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BadgeCheck,
   Bell,
@@ -22,7 +22,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -32,27 +32,26 @@ import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
-import { showToast } from "@/components/ui/toast"
 import { ViewHeader } from "@/components/ui/view-header"
 import {
   fetchNotifications,
-  markNotificationsRead,
-  resolveNotification,
   type NotificationFilter,
 } from "@/lib/api/operational-notifications"
-import type {
-  NotificationItem,
-  NotificationListResponse,
-} from "@/lib/contracts/operational-notifications"
+import type { NotificationItem } from "@/lib/contracts/operational-notifications"
 import {
   NOTIFICATION_EVENT_LABELS,
   type NotificationEventKind,
 } from "@/lib/domain/notification-preferences"
-import { describeActionError } from "@/lib/errors/action-errors"
+import {
+  applyPendingChanges,
+  cachedRowStates,
+  usePendingNotificationChanges,
+} from "@/lib/notifications/pending-changes"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
-import { useOptimisticMutation } from "@/lib/queries/use-optimistic-mutation"
 import { cn } from "@/lib/utils"
+
+import { useNotificationChanges } from "./use-notification-changes"
 
 const FILTERS: Array<{ value: NotificationFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -94,57 +93,6 @@ function isFilter(value: string | null): value is NotificationFilter {
   return FILTERS.some((option) => option.value === value)
 }
 
-type NotificationPages = InfiniteData<NotificationListResponse, string>
-
-/** The endpoint takes at most 100 ids at once; a long list is sent in turns. */
-const READ_BATCH = 100
-
-/**
- * Read and resolve share one mutation key and one queue. They then see each
- * other's pending changes (so neither refetches, or rolls back, over the
- * other's optimistic change) and reach the server in the order they were made.
- */
-const CHANGE_KEY = ["notifications", "change"] as const
-const CHANGE_SCOPE = { id: "notifications-change" }
-
-/** What a read request reports: null, or why a later turn was refused. */
-type ReadResult = { failure: unknown }
-
-/** What the header count counts: open, and not yet read by this person. */
-const countsAsUnread = (item: NotificationItem) =>
-  item.status === "open" && !item.readAt
-
-/**
- * The list as it will look once a change succeeds, for the optimistic
- * update. `change` returns the row unchanged (the same object) to leave it
- * alone, a new row to replace it, or null to take it out of this filter's
- * list. The "open and unread" count follows the rows that moved.
- */
-function revise(
-  current: NotificationPages | undefined,
-  change: (item: NotificationItem) => NotificationItem | null
-): NotificationPages | undefined {
-  if (!current) return undefined
-  let delta = 0
-  const pages = current.pages.map((page) => ({
-    ...page,
-    items: page.items.flatMap((item) => {
-      const next = change(item)
-      if (next === item) return [item]
-      delta +=
-        (next ? Number(countsAsUnread(next)) : 0) - Number(countsAsUnread(item))
-      return next ? [next] : []
-    }),
-  }))
-  return {
-    ...current,
-    pages: pages.map((page) => ({
-      ...page,
-      unreadCount: Math.max(0, page.unreadCount + delta),
-    })),
-  }
-}
-
 /**
  * Operational notifications for the signed-in person. Read state is theirs
  * alone and never resolves anything: a condition clears itself when fixed,
@@ -152,7 +100,11 @@ function revise(
  * for everyone and there is no reopening, so it asks first.
  *
  * Read and resolve show at once and put themselves back, with an error
- * toast, if the server refuses (the list's optimistic recipe, P07).
+ * toast, if the server refuses. They are pending changes laid over the cached
+ * rows, not written into them, so a refusal takes back only its own change and
+ * a change from an earlier session scope never shows (see
+ * lib/notifications/pending-changes.ts). The page count and the shell's bell
+ * add the same pending change to the server's count, so they always agree.
  *
  * The filter lives in the address (`?filter=`, "all" by default), so Back
  * from a listing returns to the same list.
@@ -175,84 +127,40 @@ export function NotificationsView() {
       ),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
-  // Read and resolve show at once and put themselves right, with an error
-  // toast, if the server says no. The variables carry the filter so a late
-  // answer settles the list it was made from.
-  const read = useOptimisticMutation<
-    ReadResult,
-    { ids: string[]; read: boolean; filter: NotificationFilter },
-    NotificationPages
-  >({
-    mutationKey: CHANGE_KEY,
-    scope: CHANGE_SCOPE,
-    // Sends in turns of 100. A turn refused after an earlier one saved is
-    // not a failure of the whole change: it reports what is left instead of
-    // throwing, so the saved rows stay read and the list is refetched.
-    mutationFn: async ({ ids, read: value }) => {
-      for (let from = 0; from < ids.length; from += READ_BATCH) {
-        try {
-          await markNotificationsRead(ids.slice(from, from + READ_BATCH), value)
-        } catch (error) {
-          if (from === 0) throw error
-          return { failure: error }
-        }
-      }
-      return { failure: null }
-    },
-    onSuccess: ({ failure }) => {
-      if (failure === null) return
-      showToast({
-        id: "notifications-read-partial",
-        type: "error",
-        title: "Some notifications weren’t marked as read",
-        description: describeActionError(failure),
-      })
-    },
-    queryKey: (variables) => queryKeys.notifications(variables.filter),
-    alsoInvalidate: [queryKeys.notificationsAll],
-    update: (current, { ids, read: value, filter: shown }) =>
-      revise(current, (item) => {
-        if (!ids.includes(item.id) || Boolean(item.readAt) === value)
-          return item
-        // The unread filter only lists unread rows: a read one leaves it.
-        if (value && shown === "unread") return null
-        return { ...item, readAt: value ? new Date().toISOString() : null }
-      }),
-    errorTitle: "Your change wasn’t saved",
-    errorDescription: (error) => describeActionError(error),
-  })
-  const resolve = useOptimisticMutation<
-    unknown,
-    { id: string; filter: NotificationFilter },
-    NotificationPages
-  >({
-    mutationKey: CHANGE_KEY,
-    scope: CHANGE_SCOPE,
-    mutationFn: ({ id }) => resolveNotification(id),
-    queryKey: (variables) => queryKeys.notifications(variables.filter),
-    alsoInvalidate: [queryKeys.notificationsAll],
-    update: (current, { id, filter: shown }) =>
-      revise(current, (item) => {
-        if (item.id !== id || item.status !== "open") return item
-        // The open filter only lists open rows: a resolved one leaves it.
-        if (shown === "open") return null
-        return {
-          ...item,
-          status: "resolved",
-          resolvedAt: new Date().toISOString(),
-          canResolve: false,
-        }
-      }),
-    errorTitle: "The notification wasn’t resolved",
-    errorDescription: (error) => describeActionError(error),
-  })
-  const items = query.data?.pages.flatMap((page) => page.items) ?? []
+  const client = useQueryClient()
+  const changes = useNotificationChanges()
+  const pending = usePendingNotificationChanges()
+  // The cached rows with every pending change laid over them. Where a row is
+  // in another cached list but not this one, that list says what it was.
+  const shown = useMemo(
+    () =>
+      query.data
+        ? applyPendingChanges(
+            query.data.pages,
+            pending,
+            filter,
+            pending.length ? cachedRowStates(client) : undefined
+          )
+        : null,
+    [client, filter, pending, query.data]
+  )
+  const items = shown?.pages.flatMap((page) => page.items) ?? []
   // Unknown until the first page arrives: a failed or pending load shows no
   // count at all rather than "0 open and unread" as if it were a fact.
-  const unread = query.data ? (query.data.pages[0]?.unreadCount ?? 0) : null
+  const unread = shown ? (shown.unreadCount ?? 0) : null
   const unreadShown = items
     .filter((item) => !item.readAt)
     .map((item) => item.id)
+  // "Mark all read" goes once nothing shown is unread, and takes keyboard
+  // focus with it: the change starts, then focus moves to the current filter
+  // tab, so the person keeps their place even if the change is then refused.
+  const tabs = useRef<HTMLDivElement>(null)
+  function markShownRead() {
+    changes.markRead(unreadShown, true)
+    tabs.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.focus()
+  }
 
   function setFilter(value: string) {
     const next = new URLSearchParams(searchParams.toString())
@@ -301,6 +209,7 @@ export function NotificationsView() {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs
+          ref={tabs}
           value={filter}
           onValueChange={(value) => setFilter(String(value))}
           className="w-full sm:w-auto"
@@ -322,12 +231,7 @@ export function NotificationsView() {
               {unread} open and unread
             </p>
             {unreadShown.length ? (
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  read.mutate({ ids: unreadShown, read: true, filter })
-                }
-              >
+              <Button variant="secondary" onClick={markShownRead}>
                 {query.hasNextPage ? "Mark shown as read" : "Mark all read"}
               </Button>
             ) : null}
@@ -392,14 +296,12 @@ export function NotificationsView() {
               key={item.id}
               item={item}
               confirming={confirming === item.id}
-              onRead={(value) =>
-                read.mutate({ ids: [item.id], read: value, filter })
-              }
+              onRead={(value) => changes.markRead([item.id], value)}
               onAskResolve={() => setConfirming(item.id)}
               onCancelResolve={() => setConfirming(null)}
               onResolve={() => {
                 setConfirming(null)
-                resolve.mutate({ id: item.id, filter })
+                changes.resolve(item.id)
               }}
             />
           ))}
