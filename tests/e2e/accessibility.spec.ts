@@ -507,7 +507,7 @@ for (const theme of themes) {
           })
           .click()
         await expect(
-          page.getByRole("listitem", { name: /Between 12 and 128 characters/ })
+          page.getByRole("listitem", { name: /Between 15 and 128 characters/ })
         ).toBeVisible()
         await expect(page.getByLabel("Confirm password")).toHaveCount(0)
         await page.waitForTimeout(250)

@@ -71,7 +71,10 @@ of the password's SHA-1 are sent to the range API, with `Add-Padding: true`
 and a 2.5-second timeout; the suffix is compared on the server, and padding
 entries (count 0) never match. When the service does not answer the check
 fails open and logs `auth.breached_password_check_unavailable` with nothing
-derived from the password. `BREACHED_PASSWORD_CHECK_ENABLED` (default on when
+derived from the password. The request opts out of `@vercel/otel`'s fetch
+span, but Next.js's own fetch span records the URL, prefix included, if a
+trace exporter is configured (`NEXT_OTEL_FETCH_DISABLED=1` hides that span
+for every fetch). `BREACHED_PASSWORD_CHECK_ENABLED` (default on when
 unset; `"false"` turns it off) is the kill switch; the check is also skipped
 while `PASSWORD_AUTH_ENABLED` is off. A breached password comes back as a 400
 `invalid_request` field error on `password`, which the forms already show.
@@ -83,9 +86,9 @@ What the code shows about hosted Supabase Auth, to confirm before release
   `weak_password`, if the hosted project sets a minimum above 15 or requires
   character classes (`supabase/config.toml` sets neither, so the local stack
   uses the provider defaults and cannot show this). On sign-up,
-  `lib/server/password-auth.ts:311-313` turns every 400/422 into "check your
+  `lib/server/password-auth.ts` (lines 311-313) turns every 400/422 into "check your
   email" so as not to reveal existing accounts: the person is told to confirm
-  an account that was never created. On reset, `:465` turns every 4xx into
+  an account that was never created. On reset, line 465 turns every 4xx into
   "The reset session is invalid or expired", after the link has been spent.
   So hosted Auth must require no character classes and a minimum of 15 or
   less, or letters-only passphrases will fail in those two misleading ways.

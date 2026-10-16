@@ -55,6 +55,7 @@ describe("checkBreachedPassword", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal)
     expect(init.method).toBe("GET")
     expect(init.body).toBeUndefined()
+    expect(init).toMatchObject({ opentelemetry: { ignore: true } })
     // Neither the password nor the full hash nor the suffix goes anywhere.
     const sent = JSON.stringify([url, init])
     expect(sent).not.toContain(PASSWORD)

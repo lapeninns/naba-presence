@@ -44,13 +44,18 @@ export async function checkBreachedPassword(
   const suffix = hash.slice(PREFIX_LENGTH)
   let body: string
   try {
-    const response = await fetch(`${RANGE_URL}${prefix}`, {
+    const init: RequestInit & { opentelemetry?: { ignore: boolean } } = {
       method: "GET",
       headers: { "Add-Padding": "true" },
       cache: "no-store",
       // Covers reading the body too, not just the headers.
       signal: AbortSignal.timeout(BREACHED_PASSWORD_TIMEOUT_MS),
-    })
+      // Keeps the URL, and so the prefix, out of @vercel/otel's fetch span
+      // (instrumentation.ts). Next.js's own fetch span still records it; see
+      // "Password policy" in docs/architecture.md.
+      opentelemetry: { ignore: true },
+    }
+    const response = await fetch(`${RANGE_URL}${prefix}`, init)
     if (!response.ok) return unavailable()
     body = await response.text()
   } catch {
