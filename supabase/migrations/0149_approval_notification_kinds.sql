@@ -20,9 +20,10 @@ begin;
 --                       ADDRESSED_KINDS). A person's rows go with their
 --                       app_user row, and with the incident.
 --
--- Expand only. The new check is added NOT VALID and validated separately, so
--- the scan of existing rows does not hold the table's exclusive lock; every
--- existing row already satisfies it, because the set only grows.
+-- Expand only. Every existing row already satisfies the new check, because
+-- the set only grows. It is added NOT VALID and then validated as its own
+-- step; in this one transaction the drop's lock is held until commit either
+-- way, which is brief on a table this size.
 -- ---------------------------------------------------------------------------
 
 alter table notification_incident
@@ -59,8 +60,9 @@ create table notification_incident_recipient (
   user_id uuid not null references app_user(id) on delete cascade,
   primary key (incident_id, user_id)
 );
+-- Reads go through the primary key; this serves the cascade from app_user.
 create index notification_incident_recipient_user_idx
-  on notification_incident_recipient (organisation_id, user_id);
+  on notification_incident_recipient (user_id);
 alter table notification_incident_recipient enable row level security;
 alter table notification_incident_recipient force row level security;
 create policy tenant_isolation on notification_incident_recipient

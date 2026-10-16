@@ -294,4 +294,106 @@ describeDatabase("approval notifications", { timeout: 60_000 }, () => {
       { kind: "reply_sent_back", userId: f.people.requester.userId },
     ])
   })
+
+  const tick = async () => {
+    const response = await fetch(`${server.baseUrl}/api/cron/health`, {
+      method: "POST",
+      headers: CRON,
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+  }
+  const optIn = async (
+    cookie: string,
+    kind: "approval_requested" | "reply_sent_back"
+  ) =>
+    expect(
+      (
+        await api(cookie, "/api/notifications/preferences", {
+          method: "PUT",
+          body: JSON.stringify({
+            changes: [{ kind, channel: "email", mode: "immediate" }],
+          }),
+        })
+      ).status
+    ).toBe(200)
+
+  it("opens a new request when an edited reply is submitted again", async () => {
+    const f = await fixture()
+    await optIn(f.people.publisher.cookie, "approval_requested")
+    expect((await publish(f, f.people.requester.cookie)).status).toBe(202)
+    // Editing the draft takes the reply out of approval without a decision.
+    const edited = await saveHumanDraft(
+      server.baseUrl,
+      f.people.requester.cookie,
+      f.review.reviewId,
+      "Thank you, we have passed this on to the kitchen."
+    )
+    const resubmitted = await api(
+      f.people.requester.cookie,
+      `/api/reviews/${f.review.reviewId}/publish`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          draftId: edited.draftId,
+          expectedReviewUpdateTime: edited.expectedReviewUpdateTime,
+        }),
+      }
+    )
+    expect(resubmitted.status, await resubmitted.clone().text()).toBe(202)
+    expect(
+      (await incidents(f)).map((row) => `${row.kind}:${row.status}`)
+    ).toEqual(["approval_requested:resolved", "approval_requested:open"])
+    // One email per park; the first is never sent because it was superseded.
+    await tick()
+    const sent = await admin<{ status: string; code: string | null }[]>`
+      select d.status, d.last_error_code as code
+      from notification_delivery d join notification_incident i on i.id = d.incident_id
+      where d.recipient_user_id = ${f.people.publisher.userId}
+        and i.kind = 'approval_requested'
+      order by i.opened_at`
+    expect(sent).toHaveLength(2)
+    expect(sent[0]).toEqual({ status: "suppressed", code: "incident_resolved" })
+    expect(sent[1].code).not.toBe("incident_resolved")
+  })
+
+  it("does not email a request that was decided before the email went out", async () => {
+    const f = await fixture()
+    await optIn(f.people.publisher.cookie, "approval_requested")
+    expect((await publish(f, f.people.requester.cookie)).status).toBe(202)
+    expect((await decide(f, f.owner.cookie, "approve")).status).toBe(200)
+    await tick()
+    const [delivery] = await admin<{ status: string; code: string | null }[]>`
+      select d.status, d.last_error_code as code
+      from notification_delivery d join notification_incident i on i.id = d.incident_id
+      where d.recipient_user_id = ${f.people.publisher.userId}
+        and i.kind = 'approval_requested'`
+    expect(delivery).toEqual({ status: "suppressed", code: "incident_resolved" })
+  })
+
+  it("resolves a send-back once the review no longer needs a reply", async () => {
+    const f = await fixture()
+    expect((await publish(f, f.people.requester.cookie)).status).toBe(202)
+    expect((await decide(f, f.owner.cookie, "reject")).status).toBe(200)
+    await admin`update review set triaged_at = now() where id = ${f.review.reviewId}`
+    await tick()
+    expect(
+      (await incidents(f)).map((row) => `${row.kind}:${row.status}`)
+    ).toEqual(["approval_requested:resolved", "reply_sent_back:resolved"])
+  })
+
+  it("lets nobody but a recipient mark an addressed notification read", async () => {
+    const f = await fixture()
+    expect((await publish(f, f.people.requester.cookie)).status).toBe(202)
+    expect((await decide(f, f.owner.cookie, "reject")).status).toBe(200)
+    const [sentBack] = await admin<{ id: string }[]>`
+      select id::text as id from notification_incident
+      where organisation_id = ${f.owner.organisationId} and kind = 'reply_sent_back'`
+    const mark = (cookie: string) =>
+      api(cookie, "/api/notifications/read", {
+        method: "POST",
+        body: JSON.stringify({ incidentIds: [sentBack.id], read: true }),
+      }).then((response) => response.json())
+    expect(await mark(f.owner.cookie)).toEqual({ updated: 0 })
+    expect(await mark(f.people.requester.cookie)).toEqual({ updated: 1 })
+  })
 })

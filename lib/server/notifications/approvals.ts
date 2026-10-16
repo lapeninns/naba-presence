@@ -24,7 +24,7 @@ import { queueDeliveries } from "./evaluate"
  *
  * Both are keyed by the review, so one review has at most one open incident
  * of each kind. A decision resolves the request, a new request resolves the
- * send-back, and evaluateOrganisation (evaluate.ts) resolves whichever the
+ * send-back and any earlier request, and evaluateOrganisation (evaluate.ts) resolves whichever the
  * reply has moved past by any other route. The summary holds the listing title and ids only:
  * never the review, the reply or a person's name.
  */
@@ -155,8 +155,12 @@ export async function notifyApprovalRequested(
   const context = await reviewContext(sql, input.reviewId)
   if (!context) return null
   const subjectId = approvalSubjectId(input.organisationId, input.reviewId)
-  // Submitting again answers the send-back.
+  // Submitting again answers the send-back. A request still open from an
+  // earlier park (the draft was edited, which leaves approval without a
+  // decision) is closed too, so each park is a new request that its
+  // approvers see as unread and are emailed about.
   await resolveOpen(sql, "reply_sent_back", subjectId)
+  await resolveOpen(sql, "approval_requested", subjectId)
   const [draft] = context.twoPerson
     ? await sql<{ createdBy: string | null }[]>`
         select created_by::text as "createdBy" from draft where id = ${input.draftId}`

@@ -30,7 +30,7 @@ describe("Approval notification kinds migration (0149)", () => {
     for (const kind of ADDRESSED_KINDS) expect(allowed).toContain(kind)
   })
 
-  it("widens the check without holding the table's lock for the scan", () => {
+  it("widens the check as an expand-only change, validated as its own step", () => {
     expect(migration).toContain(
       "alter table notification_incident\n  validate constraint notification_incident_kind_check;"
     )

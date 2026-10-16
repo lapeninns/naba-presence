@@ -76,7 +76,7 @@ describe("notification email links", () => {
     }
     const request = renderIncidentEmail("approval_requested", summary, APP)
     expect(request.subject).toBe(
-      "Reply waiting for your approval: The White Horse"
+      "Approval requested: The White Horse"
     )
     expect(linkLine(request.text, "Open")).toBe(
       `${APP}/inbox?queue=approval&selected=${reviewId}`

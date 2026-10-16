@@ -118,8 +118,8 @@ export const NOTIFICATION_EVENT_LABELS: Record<
     description: "A review of three stars or fewer arrived.",
   },
   approval_requested: {
-    label: "Reply waiting for your approval",
-    description: "Someone submitted a reply to a review for approval.",
+    label: "Approval requested",
+    description: "Someone submitted a reply to a review for your approval.",
   },
   reply_sent_back: {
     label: "Reply sent back",
