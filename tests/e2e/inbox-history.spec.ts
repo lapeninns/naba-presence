@@ -74,4 +74,36 @@ historyTest.describe("inbox history", () => {
       expect(await page.evaluate(() => window.history.length)).toBe(before)
     }
   )
+
+  // R08: the steps now sit on the review's own name row (the head band is
+  // gone). They still replace, never push, so stepping through a queue on a
+  // phone leaves one entry for Back, not one per review.
+  historyTest(
+    "stepping through reviews from the review adds no history entries on a phone",
+    async ({ baseURL, cookie, page }) => {
+      const [name, value] = cookie.split("=", 2)
+      await page.context().addCookies([{ name, value, url: baseURL! }])
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto("/inbox?queue=all")
+      const rows = page.locator('[data-slot="review-row"]')
+      await expect(rows).toHaveCount(3)
+      await rows.first().click()
+      await expect(page).toHaveURL(/selected=/)
+      const position = page.locator('[data-slot="review-position"]')
+      await expect(position).toContainText("1 of 3")
+      await page.waitForLoadState("networkidle")
+
+      const before = await page.evaluate(() => window.history.length)
+      const next = page.getByRole("button", { name: "Next review" })
+      const previous = page.getByRole("button", { name: "Previous review" })
+      await next.click()
+      await expect(position).toContainText("2 of 3")
+      await next.click()
+      await expect(position).toContainText("3 of 3")
+      await expect(next).toBeDisabled()
+      await previous.click()
+      await expect(position).toContainText("2 of 3")
+      expect(await page.evaluate(() => window.history.length)).toBe(before)
+    }
+  )
 })

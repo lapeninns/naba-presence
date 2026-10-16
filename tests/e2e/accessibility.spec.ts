@@ -1013,6 +1013,12 @@ for (const theme of themes) {
         await expect(
           page.getByRole("group", { name: "Filter reviews" })
         ).toBeVisible()
+        // Rating is one-tap chips above the list, not part of the sheet. Read
+        // before the sheet opens: a modal sheet hides the page behind it from
+        // the accessibility tree.
+        await expect(
+          page.getByRole("group", { name: "Quick filters" })
+        ).toBeVisible()
         // Every narrowing opens from one Filters button (a side sheet, or a
         // bottom sheet on a phone), and Escape dismisses it.
         const filtersButton = page.getByRole("button", { name: /^Filters/ })
@@ -1020,15 +1026,12 @@ for (const theme of themes) {
         await filtersButton.click()
         const filtersSheet = page.getByRole("dialog", { name: "Filters" })
         await expect(filtersSheet).toBeVisible()
-        await expect(
-          filtersSheet.getByRole("checkbox", { name: "5 stars" })
-        ).toBeVisible()
         // Every filter keeps an accessible group name. The sheet's sections
         // were named regions (a dozen landmarks); they are now groups named
         // by their headings, and where the control is itself the named group
-        // (Reply status is a radio group) that control carries the name.
+        // (Written review is a radio group) that control carries the name.
         await expect(
-          filtersSheet.getByRole("radiogroup", { name: "Reply status" })
+          filtersSheet.getByRole("radiogroup", { name: "Written review" })
         ).toBeVisible()
         await expect(
           filtersSheet.getByRole("group", { name: "Date range" })
@@ -1066,7 +1069,8 @@ for (const theme of themes) {
               .filter({ hasText: "Jordan Lee" })
           ).toHaveAttribute("aria-current", "true")
           // The pushed review's one labelled way back: the app bar's
-          // "‹ Inbox" link (PageChrome back); the review head draws none.
+          // "‹ Inbox" link (PageChrome back); the review draws none, and
+          // has no head band above its first line.
           const backButton = page.getByRole("link", {
             name: "Back to Inbox",
           })
@@ -1081,9 +1085,17 @@ for (const theme of themes) {
         await expect(selectedReview).toBeVisible()
         // The pane leads with the reviewer, then the customer's words, then
         // the reply — one reading order, with no five-stage tracker above it.
+        // On a phone the review has replaced the list, so the name is the
+        // page's h1; from lg "Inbox" is, and the name is an h2.
         await expect(
-          selectedReview.getByRole("heading", { name: "Jordan Lee", level: 2 })
+          selectedReview.getByRole("heading", {
+            name: "Jordan Lee",
+            level: viewport.name === "mobile" ? 1 : 2,
+          })
         ).toBeVisible()
+        await expect(
+          selectedReview.locator('[data-slot="review-head"]')
+        ).toHaveCount(0)
         // The customer's words open the thread, above the reply.
         await expect(
           selectedReview.getByRole("article", {
@@ -1112,14 +1124,15 @@ for (const theme of themes) {
           })
         ).toBeHidden()
 
-        // AI generate is manual: Regenerate (there is text) + tone are
-        // available, but nothing calls the LLM until the operator clicks.
+        // AI generate is manual: Regenerate (there is text) is available, with
+        // the tone chosen inside it, but nothing calls the LLM until the
+        // operator picks one.
         await expect(
           selectedReview.getByRole("button", { name: "Regenerate" })
         ).toBeVisible()
         await expect(
           selectedReview.getByRole("radiogroup", { name: "Reply tone" })
-        ).toBeVisible()
+        ).toHaveCount(0)
         // Checks are said under the editor only when they fail or warn; a
         // passed check draws nothing, and there is no checks panel.
         await expect(
