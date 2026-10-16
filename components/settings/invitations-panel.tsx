@@ -93,14 +93,20 @@ import {
   describeInvitationDelivery,
 } from "@/lib/settings/invitation-delivery"
 import { formatDay } from "@/lib/settings/roles"
+import { useFormatDay } from "@/lib/settings/use-format-day"
 import { shareLink } from "@/lib/setup/share-link"
+import { useNow } from "@/lib/time/server-now"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
-function isExpired(invitation: Invitation): boolean {
+/**
+ * `now` comes from `useNow` (lib/time/server-now.tsx): the server's clock
+ * while the browser hydrates the server-rendered list, so a link expiring
+ * between the two renders never changes the markup React checks.
+ */
+function isExpired(invitation: Invitation, now: number): boolean {
   return (
-    !invitation.acceptedAt &&
-    new Date(invitation.expiresAt).getTime() <= Date.now()
+    !invitation.acceptedAt && new Date(invitation.expiresAt).getTime() <= now
   )
 }
 
@@ -209,7 +215,7 @@ function DeliveryState({
   delivery: InvitationDelivery | null | undefined
   id?: string
 }) {
-  const view = describeInvitationDelivery(delivery, formatDay)
+  const view = describeInvitationDelivery(delivery, useFormatDay())
   return (
     <span
       className="flex flex-col items-start gap-1"
@@ -919,6 +925,8 @@ function InvitationActions({
  */
 export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   const query = useInvitations()
+  const now = useNow()
+  const formatListDay = useFormatDay()
   const business = useWorkspaceMode() === "business"
   const emailDelivery = query.data?.emailDelivery === true
   const client = useQueryClient()
@@ -1021,7 +1029,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
         </TableHeader>
         <TableBody>
           {query.data.items.map((invitation) => {
-            const expired = isExpired(invitation)
+            const expired = isExpired(invitation, now)
             return (
               <TableRow key={invitation.id}>
                 <TableCell label="Invited" priority="primary">
@@ -1036,7 +1044,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                         {invitation.email}
                       </span>
                       <span className="text-caption text-ink-muted">
-                        Created {formatDay(invitation.createdAt)}
+                        Created {formatListDay(invitation.createdAt)}
                       </span>
                     </span>
                   </span>
@@ -1083,7 +1091,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                     )}
                     <span className="text-caption text-ink-muted">
                       {expired ? "Expired" : "Expires"}{" "}
-                      {formatDay(invitation.expiresAt)}
+                      {formatListDay(invitation.expiresAt)}
                     </span>
                   </span>
                 </TableCell>

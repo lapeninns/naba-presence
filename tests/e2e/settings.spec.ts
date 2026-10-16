@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page, test } from "@playwright/test"
 
 import { readJourneyState } from "./helpers/stub-bridge"
+import { seedTeamTenant } from "./helpers/team-tenant"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
@@ -160,6 +161,12 @@ async function roleRows(scope: Locator) {
 }
 
 test.describe("team roles", () => {
+  // Tenants seeded by a test, destroyed after it whatever the outcome.
+  const cleanups: (() => Promise<void>)[] = []
+  test.afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup()
+  })
+
   test("the invite sheet lists roles as rows and shows Client access above the button on a phone", async ({
     baseURL,
     page,
@@ -297,36 +304,24 @@ test.describe("team roles", () => {
     baseURL,
     page,
   }) => {
-    const state = await readJourneyState()
-    await applyCookie(page, baseURL, state.cookie)
-    const BEN = "00000000-0000-4000-8000-0000000000b2"
-    let patched: unknown
-    const member = (userId: string, displayName: string, role: string) => ({
-      userId,
-      email: `${displayName.split(" ")[0]!.toLowerCase()}@example.test`,
-      displayName,
-      role,
-      canPublish: role === "owner" || role === "admin",
-      locationScope: "all",
-      createdAt: "2026-07-01T09:00:00.000Z",
-      locations: [],
+    // /team reads its members on the server (P20), so Ben is a real member
+    // of a throwaway tenant; the stub answers only the role change.
+    const team = await seedTeamTenant({
+      members: [
+        {
+          displayName: "Ben Member",
+          email: "ben.{id}@example.test",
+          role: "member",
+          canPublish: false,
+        },
+      ],
     })
+    cleanups.push(team.destroy)
+    await applyCookie(page, baseURL, team.cookie)
+    const BEN = team.members[0]!.userId
+    let patched: unknown
     await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
       const request = route.request()
-      if (request.method() === "GET") {
-        return route.fulfill({
-          json: {
-            members: [
-              member(
-                "00000000-0000-4000-8000-0000000000b1",
-                "Olive Owner",
-                "owner"
-              ),
-              member(BEN, "Ben Member", "member"),
-            ],
-          },
-        })
-      }
       if (request.method() === "PATCH") {
         const body = request.postDataJSON() as {
           userId: string
@@ -384,43 +379,68 @@ test.describe("team roles", () => {
     baseURL,
     page,
   }) => {
-    const state = await readJourneyState()
-    await applyCookie(page, baseURL, state.cookie)
-    const BEN = "00000000-0000-4000-8000-0000000000b2"
+    // /team reads its members on the server (P20), so Ben is a real member
+    // of a throwaway tenant. The stub answers the publishing change and
+    // keeps the refetch after it showing that change.
+    const team = await seedTeamTenant({
+      members: [
+        {
+          displayName: "Ben Member",
+          email: "ben.member.with.a.long.{id}@example.test",
+          role: "member",
+          canPublish: false,
+        },
+      ],
+    })
+    cleanups.push(team.destroy)
+    await applyCookie(page, baseURL, team.cookie)
+    const seeded = team.members[0]!
+    const BEN = seeded.userId
     let patched: unknown
-    let ben = {
-      userId: BEN,
-      email: "ben.member.with.a.long.address@example.test",
-      displayName: "Ben Member",
-      role: "member",
-      canPublish: false,
-      locationScope: "all",
-      createdAt: "2026-07-01T09:00:00.000Z",
-      locations: [],
-    }
+    let ben: Record<string, unknown> | null = null
     await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
       const request = route.request()
       if (request.method() === "GET") {
-        return route.fulfill({ json: { members: [ben] } })
+        const response = await route.fetch()
+        const json = (await response.json()) as {
+          members: { userId: string }[]
+        }
+        if (ben) {
+          const changed = ben
+          json.members = json.members.map((m) =>
+            m.userId === BEN ? { ...m, ...changed } : m
+          )
+        }
+        return route.fulfill({ response, json })
       }
       if (request.method() === "PATCH") {
         patched = request.postDataJSON()
-        ben = { ...ben, ...(patched as object) }
-        return route.fulfill({ json: { member: ben } })
+        ben = { ...(ben ?? {}), ...(patched as object) }
+        return route.fulfill({
+          json: {
+            member: {
+              ...(patched as object),
+              locationScope: "all",
+              createdAt: "2026-07-01T09:00:00.000Z",
+            },
+          },
+        })
       }
       return route.fallback()
     })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/team")
     const list = page.getByRole("list", { name: "Members" })
-    const row = list.getByRole("button", {
-      name: "Ben Member, ben.member.with.a.long.address@example.test",
-    })
+    const rowName = `Ben Member, ${seeded.email}`
+    const row = list.getByRole("button", { name: rowName })
     await expect(row).toBeVisible()
     // SET-02: one row (name, the full email, the role chip and its line),
     // not the record card (about 178px). Measured on the whole list item,
     // footer included: 132px at 390.
-    const box = await list.getByRole("listitem").first().boundingBox()
+    const box = await list
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("button", { name: rowName }) })
+      .boundingBox()
     expect(box!.height).toBeLessThanOrEqual(140)
     await expect(list.getByText("All clients · Drafts only")).toBeVisible()
     await expect(page.getByRole("table", { name: "Members" })).toHaveCount(0)
@@ -451,5 +471,214 @@ test.describe("team roles", () => {
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
     await expect(row).toBeFocused()
+  })
+})
+
+// P20 Release & QA repro: Reply policy is prefetched on the server, so
+// Next's router cache keeps the page's old payload. Back after a save must
+// still show the saved policy, not the snapshot the page was first read
+// with (it used to: the old payload was re-dated on every mount and won).
+test.describe("reply policy after Back", () => {
+  const cleanups: (() => Promise<void>)[] = []
+  test.afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup()
+  })
+
+  test("save, leave by an in-app link, press Back: the form shows what was saved", async ({
+    baseURL,
+    page,
+  }) => {
+    // A throwaway tenant, so the shared journey tenant's policy is untouched.
+    const tenant = await seedTeamTenant({
+      settings: { approvalRequired: false, rawContentRetentionDays: 30 },
+    })
+    cleanups.push(tenant.destroy)
+    await applyCookie(page, baseURL, tenant.cookie)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto("/settings")
+    await expect(page.getByRole("heading", { name: "Reply policy", level: 1 })).toBeVisible()
+
+    const approval = page.getByRole("switch", { name: "Require approval before replies publish" })
+    const secondPerson = page.getByRole("switch", { name: /Require a second person/ })
+    await expect(approval).not.toBeChecked()
+    await approval.click()
+    await expect(secondPerson).not.toBeChecked()
+    await secondPerson.click()
+    const saveBar = page.getByRole("region", { name: "Save reply policy" })
+    await saveBar.getByRole("button", { name: "Save changes" }).click()
+    // The toast comes only after every write and the refetch succeed; the
+    // bar goes only when nothing is unsaved or saving, so the leave guard
+    // is off before the Inbox click.
+    await expect(page.getByText("Settings saved")).toBeVisible()
+    await expect(saveBar).toBeHidden()
+    await expect(approval).toBeChecked()
+    await expect(secondPerson).toBeChecked()
+
+    // A marker that only a full page load clears: Back must be a soft
+    // navigation from Next's router cache, the path that went wrong.
+    await page.evaluate(() => {
+      ;(window as unknown as { __p20Soft?: boolean }).__p20Soft = true
+    })
+    await page
+      .locator('aside[aria-label="Sidebar"]')
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: /^Inbox/ })
+      .click()
+    await expect(page).toHaveURL(/\/inbox/)
+    await expect(page.getByRole("heading", { name: "Inbox", level: 1 })).toBeVisible()
+    expect(
+      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+    ).toBe(true)
+    // The leave guard pushed a same-address entry while the form was dirty,
+    // so one Back lands on /settings.
+    await page.goBack()
+    await expect(page).toHaveURL(/\/settings$/)
+    await expect(page.getByRole("heading", { name: "Reply policy", level: 1 })).toBeVisible()
+    expect(
+      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+    ).toBe(true)
+
+    await expect(approval).toBeChecked()
+    await expect(secondPerson).toBeChecked()
+    // Nothing looks unsaved, so a later save can't send the old values.
+    await expect(saveBar).toBeHidden()
+
+    // And the server holds the saved policy.
+    await page.reload()
+    await expect(approval).toBeChecked()
+    await expect(secondPerson).toBeChecked()
+  })
+})
+
+test.describe("team after a downgrade and Back", () => {
+  const cleanups: (() => Promise<void>)[] = []
+  test.afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup()
+  })
+
+  // #195 security review (P1): /team hands owners and admins the members and
+  // the pending invitations, invite links included, with the page. After a
+  // downgrade, Back must not show that payload again: the server answers
+  // for the role as it is now.
+  test("an admin made a viewer presses Back to /team: the server answers, and no invite link is shown", async ({
+    baseURL,
+    page,
+  }) => {
+    test.setTimeout(90_000)
+    const now = Date.now()
+    const tenant = await seedTeamTenant({
+      invitations: [
+        {
+          email: "pending@example.test",
+          role: "member",
+          canPublish: false,
+          createdAt: new Date(now - 60_000),
+          expiresAt: new Date(now + 7 * 86_400_000),
+        },
+      ],
+    })
+    cleanups.push(tenant.destroy)
+    const [inviteToken] = tenant.invitationTokens
+    const admin = await tenant.signIn("admin")
+    await applyCookie(page, baseURL, admin.cookie)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const main = page.locator("main")
+    // The page holds an invitation's link for its Copy button, which exists
+    // only while the link is in the page's cache.
+    const copyLabel = "Copy invite link for pending@example.test"
+    const copyLink = main.getByRole("button", { name: copyLabel })
+
+    await page.goto("/team")
+    await expect(page.getByRole("heading", { name: "Team", level: 1 })).toBeVisible()
+    await expect(copyLink).toBeVisible()
+
+    // The owner makes them a viewer.
+    await tenant.setRole(admin.userId, "viewer", false)
+    await page.evaluate(() => {
+      ;(window as unknown as { __p20Soft?: boolean }).__p20Soft = true
+    })
+    // Everything the browser is sent from here on: the token is the
+    // secret an invite link carries, and must reach no response.
+    const bodies: Promise<{ url: string; status: number; leaks: boolean }>[] = []
+    page.on("response", (response) => {
+      const path = new URL(response.url()).pathname
+      if (!["/team", "/api/members", "/api/invitations"].includes(path)) return
+      bodies.push(
+        response
+          .text()
+          .catch(() => "")
+          .then((body) => ({ url: path, status: response.status(), leaks: body.includes(inviteToken) }))
+      )
+    })
+    const learnt = page.waitForResponse(
+      async (response) =>
+        new URL(response.url()).pathname === "/api/session" &&
+        response.ok() &&
+        (await response.json()).session?.role === "viewer",
+      { timeout: 60_000 }
+    )
+    await page
+      .locator('aside[aria-label="Sidebar"]')
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: /^Inbox/ })
+      .click()
+    await expect(page).toHaveURL(/\/inbox/)
+    // The tab learns of the downgrade. The Inbox's payload is stamped for
+    // the viewer, so the boundary refuses it and asks at once. Failing that
+    // (a build without the stamp), the shell asks on focus once its session
+    // is 30 s old, as a tab always has.
+    const quick = await Promise.race([
+      learnt.then(() => true),
+      page.waitForTimeout(5_000).then(() => false),
+    ])
+    if (!quick) {
+      await page.waitForTimeout(27_000)
+      await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+    }
+    await learnt
+    test.info().annotations.push({
+      type: "learnt",
+      description: quick ? "refused Inbox payload" : "focus refetch",
+    })
+
+    // Any render from here on that shows the link.
+    const shown: boolean[] = []
+    await page.exposeFunction("__p20Seen", (seen: boolean) => shown.push(seen))
+    await page.evaluate((label) => {
+      const report = () =>
+        (window as unknown as { __p20Seen: (seen: boolean) => void }).__p20Seen(
+          Boolean(document.querySelector(`main [aria-label="${label}"]`))
+        )
+      new MutationObserver(report).observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+      })
+    }, copyLabel)
+
+    await page.goBack()
+    await expect(page).toHaveURL(/\/team$/)
+    // Back was the router's own navigation, not a page load.
+    expect(
+      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+    ).toBe(true)
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+    await expect(copyLink).toHaveCount(0)
+    // Let the last observer reports land.
+    await page.evaluate(() => new Promise((done) => setTimeout(done, 100)))
+    expect(shown).not.toContain(true)
+    // The server ran the page again for the viewer and refused it.
+    await expect(
+      page.getByRole("heading", { name: "You don’t have access to this page", level: 1 })
+    ).toBeVisible()
+
+    const answers = await Promise.all(bodies)
+    // Back asked the server for /team (the RSC request) ...
+    expect(answers.some((answer) => answer.url === "/team" && answer.status === 200)).toBe(true)
+    // ... and nothing sent after the downgrade carries the link.
+    expect(answers.filter((answer) => answer.leaks)).toEqual([])
+    // Any members or invitations read is answered for the viewer.
+    for (const answer of answers.filter((answer) => answer.url.startsWith("/api/")))
+      expect(answer.status).toBe(403)
   })
 })

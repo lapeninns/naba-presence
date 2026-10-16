@@ -224,13 +224,18 @@ export function publishingState(
   }
 }
 
-/** "12 Sep 2026", for joined and sent dates. */
-export function formatDay(iso: string): string {
+/**
+ * "12 Sep 2026", for joined and sent dates: in `timeZone`, or the viewer's
+ * own zone without one. A server-rendered list uses `useFormatDay`
+ * (lib/settings/use-format-day.ts) so it hydrates cleanly.
+ */
+export function formatDay(iso: string, timeZone?: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ""
   return date.toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
     year: "numeric",
+    ...(timeZone ? { timeZone } : {}),
   })
 }

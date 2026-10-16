@@ -723,3 +723,57 @@ test.describe("listings", () => {
     await expect(review).toHaveCount(0)
   })
 })
+
+// #195 (Listings peer review note A) and GF-7: a document load of a
+// streamed listing tab with the device clock ahead of the server. The tab's
+// stamped payload hydrates under the layout's session: the editor asks
+// Google nothing and React accepts the server's HTML. 60 s puts the session
+// past its 30 s staleTime by an unaligned clock; 6 minutes the hours past
+// their 5.
+for (const skew of [60_000, 360_000]) {
+  test(`the hours tab loads with the device clock ${skew / 1000} s ahead: no hours GET, no #418`, async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.addInitScript((skew) => {
+      const RealDate = Date
+      // Date() and new Date() read the skewed clock; Date(x), parse, UTC
+      // and instanceof behave as ever.
+      globalThis.Date = new Proxy(RealDate, {
+        construct: (target, args) =>
+          args.length === 0 ? new target(target.now() + skew) : new target(...(args as [string])),
+        apply: () => new RealDate(RealDate.now() + skew).toString(),
+        get: (target, key) =>
+          key === "now" ? () => target.now() + skew : Reflect.get(target, key),
+      })
+      // The device's wall clock dates the navigation too.
+      const origin = performance.timeOrigin + skew
+      Object.defineProperty(performance, "timeOrigin", { get: () => origin })
+    }, skew)
+    const hoursReads: string[] = []
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === `/api/locations/${state.primaryLocationId}/hours`)
+        hoursReads.push(request.method())
+    })
+    const problems: string[] = []
+    page.on("pageerror", (error) => problems.push(error.message))
+    page.on("console", (message) => {
+      if (message.type() === "error" && /#418|hydrat/i.test(message.text()))
+        problems.push(message.text())
+    })
+
+    await page.goto(`/listings/${state.primaryLocationId}/hours`)
+    // The page's clock is the skewed one.
+    const ahead = (await page.evaluate(() => Date.now())) - Date.now()
+    expect(ahead).toBeGreaterThan(skew - 5_000)
+    expect(ahead).toBeLessThan(skew + 5_000)
+    await expect(page.getByRole("heading", { name: "Opening hours", level: 1 })).toBeVisible()
+    // The editor itself, from the streamed read: not the tab's pending line.
+    await expect(page.getByRole("switch", { name: "Monday open" })).toBeVisible()
+    await page.waitForLoadState("networkidle")
+    expect(hoursReads).toEqual([])
+    expect(problems).toEqual([])
+  })
+}
