@@ -59,6 +59,10 @@ async function send(
   }
   const saved: string[] = []
   for (let from = 0; from < change.ids.length; from += READ_BATCH) {
+    // Between turns the scope may have moved on: the rest is not sent.
+    if (from > 0 && !isChangeLive(client, change)) {
+      return { saved, failure: null }
+    }
     const turn = change.ids.slice(from, from + READ_BATCH)
     try {
       await markNotificationsRead(turn, change.read ?? true)

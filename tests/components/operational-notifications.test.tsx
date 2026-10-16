@@ -1155,6 +1155,34 @@ describe("NotificationsView pending changes", () => {
     })
   })
 
+  describe("when the scope moves between the turns of one change", () => {
+    it("sends no later turn once the scope has dropped the change", async () => {
+      const many = Array.from({ length: 101 }, (_, index) =>
+        item({
+          id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        })
+      )
+      const server = steppedServer(many)
+      const client = mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Mark all read" })
+      )
+      const turnOne = await server.write(0)
+      // The role changes while turn one is in flight: the change is dropped.
+      await act(async () => {
+        client.setQueryData<SessionResponse>(queryKeys.session, {
+          session: MEMBER,
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      turnOne.accept()
+      await waitFor(() => expect(server.listCalls("all")).toBeGreaterThan(1))
+      await tick()
+      // Turn two (the 101st row) never went out.
+      expect(server.writes).toHaveLength(1)
+    })
+  })
+
   describe("when changes overlap", () => {
     it("takes back only the refused change, then the other, in either order", async () => {
       const server = steppedServer([first, other])
