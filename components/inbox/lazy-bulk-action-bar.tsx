@@ -56,7 +56,8 @@ function LoadFailedNotice({ onRetry }: { onRetry: () => void }) {
     if (active === document.body || active === parked) retryRef.current?.focus()
   }, [])
   return (
-    // Plain markup in the list's own "More reviews below" strip, not the
+    // Plain markup in the list's own "More reviews below" strip (pinned to the
+    // bottom edge on a phone, as the bar it stands in for is), not the
     // SelectionBar: that module belongs to the bar's chunk, and importing it
     // here for a notice most people never see would put it back in the
     // Inbox's first load.
@@ -64,7 +65,7 @@ function LoadFailedNotice({ onRetry }: { onRetry: () => void }) {
       role="region"
       aria-label="Selection actions"
       data-slot="bulk-action-bar-failed"
-      className="flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle py-1 pr-1 pl-(--np-page-pad-x)"
+      className="z-chrome flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle bg-surface py-1 pr-1 pl-(--np-page-pad-x) max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:pb-[max(--spacing(1),var(--np-dock-bottom))]"
     >
       <p role="alert" className="text-caption text-ink-muted">
         The selection actions could not load.

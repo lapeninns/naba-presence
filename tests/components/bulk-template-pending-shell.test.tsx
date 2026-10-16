@@ -22,6 +22,13 @@ describe("the template batch while its code is on the way", () => {
     // already a modal question.
     const shell = await settledDialog()
     expect(shell).toHaveTextContent("Loading…")
+    // Modal: focus is inside it, and the page behind is out of reach.
+    await waitFor(() =>
+      expect(shell).toContainElement(document.activeElement as HTMLElement)
+    )
+    expect(
+      screen.queryByRole("button", { name: "clear the selection" })
+    ).not.toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Cancel" }))
     await waitFor(() => expect(batch()).not.toBeInTheDocument())

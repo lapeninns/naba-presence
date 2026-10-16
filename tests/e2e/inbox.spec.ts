@@ -522,6 +522,8 @@ test.describe("inbox", () => {
 
       const notice = page.locator('[data-slot="bulk-action-bar-failed"]')
       await expect(notice).toBeVisible()
+      // Pinned to the bottom edge of the phone, not lost under the rows.
+      await expect(notice).toBeInViewport({ ratio: 1 })
       await expect(notice).toContainText(
         "The selection actions could not load."
       )
