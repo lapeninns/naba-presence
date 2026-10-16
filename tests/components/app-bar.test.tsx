@@ -88,12 +88,14 @@ function renderBar({
   page,
   onOpenClientScope = vi.fn(),
   needsReply,
+  awaitingMyApproval = 0,
   unread,
 }: {
   mode?: WorkspaceMode
   page?: React.ReactNode
   onOpenClientScope?: () => void
   needsReply?: number
+  awaitingMyApproval?: number
   unread?: number
 } = {}) {
   const queryClient = new QueryClient({
@@ -104,7 +106,10 @@ function renderBar({
   })
   if (needsReply !== undefined) {
     queryClient.setQueryData(queryKeys.reviewCounts("organisation"), {
-      byQueue: { needs_reply: needsReply },
+      byQueue: {
+        needs_reply: needsReply,
+        awaiting_my_approval: awaitingMyApproval,
+      },
     })
   }
   if (unread !== undefined) {
@@ -410,6 +415,14 @@ describe("AppBar view count", () => {
     renderBar({ needsReply: 12 })
     expect(
       await screen.findByText("12", { selector: '[data-slot="app-bar-count"]' })
+    ).toBeInTheDocument()
+  })
+
+  it("adds the replies awaiting this person's approval to the Inbox count (R03)", async () => {
+    pathname.current = "/inbox"
+    renderBar({ needsReply: 12, awaitingMyApproval: 3 })
+    expect(
+      await screen.findByText("15", { selector: '[data-slot="app-bar-count"]' })
     ).toBeInTheDocument()
   })
 

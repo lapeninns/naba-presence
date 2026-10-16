@@ -180,7 +180,9 @@ test("a phone's tabs have no Clients, and More holds Team and Settings", async (
     ).toBeVisible()
   }
   await expect(
-    tabs.getByRole("link", { name: /^Inbox(, \d+ needs? a reply)?$/ })
+    tabs.getByRole("link", {
+      name: /^Inbox(, \d+ (?:needs? a reply|awaiting your approval|needs? your attention: \d+ to reply, \d+ to approve))?$/,
+    })
   ).toBeVisible()
   // The app bar names the business; there is no client chip to change.
   const bar = page.locator('header[data-slot="app-bar"]')

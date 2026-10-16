@@ -67,7 +67,8 @@ import type { MembersResponse } from "@/lib/contracts/members"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { memberRowGate } from "@/lib/settings/gating"
-import { accessSummary, formatDay, publishingState } from "@/lib/settings/roles"
+import { accessSummary, publishingState } from "@/lib/settings/roles"
+import { useFormatDay } from "@/lib/settings/use-format-day"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms, type WorkspaceTerms } from "@/lib/workspace/terms"
@@ -203,6 +204,7 @@ function MemberRows({
   const toast = useToastManager()
   // Null in the server and hydration renders: both faces, switched in CSS.
   const wide = useHydratedBreakpoint("md")
+  const formatDay = useFormatDay()
   const [roleTarget, setRoleTarget] = useState<Member | null>(null)
   const [roleOpen, setRoleOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null)

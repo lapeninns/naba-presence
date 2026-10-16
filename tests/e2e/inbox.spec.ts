@@ -269,9 +269,9 @@ test.describe("inbox", () => {
   })
 
   // INB-08: one review is triaged where the reader is, not through Select
-  // mode. These only open menus and cancel: the journey tenant's reviews are
-  // shared with other specs, so nothing is marked or assigned here (the touch
-  // spec runs the confirmed action on a tenant of its own).
+  // mode. These only open menus: the journey tenant's reviews are shared with
+  // other specs, so nothing is marked or assigned here (the touch spec runs
+  // the action, and its Undo, on a tenant of its own).
   test.describe("triage from the review", () => {
     test("the review's ⋯ carries Assign… and No reply needed", async ({
       baseURL,
@@ -296,31 +296,6 @@ test.describe("inbox", () => {
       await expect(
         page.getByRole("menuitem", { name: "History" })
       ).toBeVisible()
-    })
-
-    test("a row's ⋯ asks before marking, and Cancel leaves the review alone", async ({
-      baseURL,
-      page,
-    }) => {
-      const state = await readJourneyState()
-      await applyCookie(page, baseURL, state.cookie)
-      await page.goto("/inbox")
-      const rows = page.locator('[data-slot="review-row"]')
-      await expect(rows.first()).toBeVisible()
-      const count = await rows.count()
-
-      await page
-        .getByRole("button", { name: /^Actions for / })
-        .first()
-        .click()
-      await page.getByRole("menuitem", { name: "No reply needed" }).click()
-      const confirm = page.getByRole("alertdialog", {
-        name: "Mark 1 review as no reply needed?",
-      })
-      await expect(confirm).toBeVisible()
-      await confirm.getByRole("button", { name: "Cancel" }).click()
-      await expect(confirm).toBeHidden()
-      await expect(rows).toHaveCount(count)
     })
 
     test("a viewer is offered neither", async ({ baseURL, page }) => {

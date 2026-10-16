@@ -75,9 +75,9 @@ export function ZonedTime({
 /**
  * Where a Google figure comes from: the last day Google has reported
  * (Google's own daily dates, never shifted into another zone), when we last
- * fetched successfully, and how many locations in scope are reporting.
- * "Data through" and "last fetched" are different facts: a fetch today can
- * still only carry data through last week.
+ * fetched successfully, and what state each location in scope is in.
+ * "Figures up to" and "last fetched" are different facts: a fetch today can
+ * still only carry figures up to last week.
  *
  * `timeZone` writes the fetch times in that zone (the public report passes
  * the organisation's); without it they are the viewer's, after hydration.
@@ -93,8 +93,8 @@ export function PresenceProvenance({
   const oldest = data.fetchedAt?.oldest ?? null
   const newest = data.fetchedAt?.newest ?? oldest
   const dataThrough = data.freshThrough
-    ? `Data through ${formatDate(data.freshThrough, "UTC")} (Google’s daily dates)`
-    : "No Google data in this window"
+    ? `Figures up to ${formatDate(data.freshThrough, "UTC")}`
+    : "No Google figures in this window"
   // The oldest per-location watermark, when it trails the newest date: every
   // location is complete up to it, only some beyond it.
   const completeThrough = data.completeness?.completeThrough
@@ -102,12 +102,21 @@ export function PresenceProvenance({
     completeThrough && data.freshThrough && completeThrough < data.freshThrough
       ? `All reporting locations complete through ${formatDate(completeThrough, "UTC")}`
       : null
+  // One state per location, so the parts add up to the locations in scope.
   const coverageParts = coverage
     ? [
-        `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} reporting`,
-        coverage.unavailable ? `${coverage.unavailable} unavailable` : null,
-        coverage.stale ? `${coverage.stale} stale` : null,
-        coverage.pending ? `${coverage.pending} not fetched yet` : null,
+        `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`,
+        coverage.unconfirmed
+          ? `${coverage.unconfirmed} with figures but no recorded fetch`
+          : null,
+        coverage.pending
+          ? `${coverage.pending} waiting for a first fetch`
+          : null,
+        coverage.unavailable
+          ? `refresh failed for ${coverage.unavailable}`
+          : null,
+        coverage.stale ? `${coverage.stale} out of date` : null,
+        coverage.noData ? `${coverage.noData} sent no figures` : null,
       ].filter((part): part is string => part !== null)
     : []
   return (
@@ -117,7 +126,7 @@ export function PresenceProvenance({
         {completeLine ? ` · ${completeLine}` : null}
         {" · "}
         {oldest === null ? (
-          "Not fetched successfully yet"
+          "Nothing fetched from Google yet"
         ) : oldest === newest || newest === null ? (
           <>
             Last fetched <ZonedTime iso={oldest} timeZone={timeZone} />
@@ -139,10 +148,10 @@ export function PresenceProvenance({
 }
 
 /**
- * Provenance in one caption line ("Through 14 Oct · 1 of 2 locations") with
+ * Provenance in one caption line ("Through 14 Oct · 1 of 2 locations up to date") with
  * an info button whose sheet holds the detail ({@link PresenceProvenance}):
  * the last day Google has reported, when we last fetched and how many
- * locations are reporting. The two-line block it replaces took the first
+ * locations are up to date. The two-line block it replaces took the first
  * figure of the report off a phone's first screen.
  */
 export function PresenceCaption({
@@ -155,9 +164,9 @@ export function PresenceCaption({
   const coverage = data.coverage
   const through = data.freshThrough
     ? `Through ${formatDate(data.freshThrough, "UTC")}`
-    : "No Google data in this window"
+    : "No Google figures in this window"
   const reporting = coverage
-    ? `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"}`
+    ? `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`
     : null
   return (
     <div

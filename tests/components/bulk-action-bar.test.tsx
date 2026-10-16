@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import * as React from "react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -355,11 +355,25 @@ describe("BulkActionBar", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it("marks reviews as needing nothing, once confirmed", async () => {
+  it("marks reviews as needing nothing at once, and Undo puts them back", async () => {
     // A five-star review with no text needs no reply; before triage the only
-    // way to clear it from the queue was to publish something. There is no
-    // way to put it back, so it asks first.
+    // way to clear it from the queue was to publish something. It is local
+    // and reversible, so there is no question first: Undo is in the toast.
     const user = userEvent.setup()
+    mutateAsync.mockResolvedValueOnce({
+      results: [
+        {
+          reviewId: "a",
+          status: "ok",
+          triagedAt: "2026-10-16T07:00:00.000001Z",
+        },
+        {
+          reviewId: "b",
+          status: "ok",
+          triagedAt: "2026-10-16T07:00:00.000002Z",
+        },
+      ],
+    })
     renderBar([row("a"), row("b")], ["a", "b"])
     await user.click(
       await screen.findByRole("button", { name: "More actions" })
@@ -367,29 +381,57 @@ describe("BulkActionBar", () => {
     await user.click(
       await screen.findByRole("menuitem", { name: "No reply needed" })
     )
-    const dialog = await screen.findByRole("alertdialog", {
-      name: "Mark 2 reviews as no reply needed?",
-    })
-    expect(dialog).toHaveTextContent(
-      "They leave Needs reply. Nothing is posted to Google."
-    )
-    expect(mutateAsync).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Mark 2 reviews" }))
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
     expect(mutateAsync).toHaveBeenCalledWith({
       action: "mark_reviewed",
       reviewIds: ["a", "b"],
     })
+    expect(
+      await screen.findByText("2 reviews marked as no reply needed")
+    ).toBeInTheDocument()
+    mutateAsync.mockResolvedValueOnce({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "ok" },
+      ],
+    })
+    await user.click(await screen.findByRole("button", { name: "Undo" }))
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      action: "mark_unreviewed",
+      marks: [
+        { reviewId: "a", triagedAt: "2026-10-16T07:00:00.000001Z" },
+        { reviewId: "b", triagedAt: "2026-10-16T07:00:00.000002Z" },
+      ],
+    })
   })
 
-  it("sends nothing when No reply needed is cancelled", async () => {
-    // Nothing approvable: No reply needed is the primary itself.
+  it("offers Undo only for the reviews that were marked", async () => {
     const user = userEvent.setup()
-    renderBar([row("a", { workflowStatus: "new", draftId: null })], ["a"])
+    mutateAsync.mockResolvedValueOnce({
+      results: [
+        {
+          reviewId: "a",
+          status: "ok",
+          triagedAt: "2026-10-16T07:00:00.000001Z",
+        },
+        { reviewId: "b", status: "skipped", code: "review_not_found" },
+      ],
+    })
+    renderBar([row("a"), row("b")], ["a", "b"])
     await user.click(
-      await screen.findByRole("button", { name: "No reply needed" })
+      await screen.findByRole("button", { name: "More actions" })
     )
-    await user.click(await screen.findByRole("button", { name: "Cancel" }))
-    expect(mutateAsync).not.toHaveBeenCalled()
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Undo" }))
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      action: "mark_unreviewed",
+      marks: [{ reviewId: "a", triagedAt: "2026-10-16T07:00:00.000001Z" }],
+    })
   })
 
   it("reports per-row outcomes instead of failing the batch", async () => {

@@ -519,6 +519,75 @@ export async function saveHumanDraft(
   }
 }
 
+/**
+ * Another member of `organisationId`, with their own user. Their email is
+ * the caller's (keep it unique: app_user.email is). Not removed with the
+ * tenant (destroyTenants only removes harness-* users); pass the id to
+ * `destroyUsers`.
+ */
+export async function seedMember(
+  admin: ReturnType<typeof postgres>,
+  options: {
+    organisationId: string
+    email: string
+    displayName: string
+    role: "owner" | "admin" | "member" | "viewer"
+    canPublish: boolean
+  }
+) {
+  const userId = randomUUID()
+  await admin`
+    insert into app_user (id, email, display_name, default_organisation_id)
+    values (${userId}, ${options.email}, ${options.displayName}, ${options.organisationId})
+  `
+  await admin`
+    insert into member (organisation_id, user_id, role, can_publish)
+    values (${options.organisationId}, ${userId}, ${options.role}, ${options.canPublish})
+  `
+  return userId
+}
+
+/**
+ * A pending invitation, stored as POST /api/invitations stores one (hashed
+ * and encrypted token), so GET /api/invitations lists it with its link.
+ */
+export async function seedInvitation(
+  admin: ReturnType<typeof postgres>,
+  options: {
+    organisationId: string
+    invitedBy: string
+    email: string
+    role: "owner" | "admin" | "member" | "viewer"
+    canPublish: boolean
+    createdAt: Date
+    expiresAt: Date
+  }
+) {
+  const token = randomBytes(32).toString("base64url")
+  const [row] = await admin<{ id: string }[]>`
+    insert into invitation (
+      organisation_id, email, role, can_publish, token_hash,
+      token_ciphertext, invited_by, created_at, expires_at
+    )
+    values (
+      ${options.organisationId}, ${options.email}, ${options.role},
+      ${options.canPublish}, ${sha256(token)}, ${encryptHarnessSecret(token)},
+      ${options.invitedBy}, ${options.createdAt}, ${options.expiresAt}
+    )
+    returning id::text as id
+  `
+  return { id: row!.id, token }
+}
+
+/** Removes users made by `seedMember`, once their tenant is destroyed. */
+export async function destroyUsers(
+  admin: ReturnType<typeof postgres>,
+  userIds: string[]
+) {
+  if (userIds.length === 0) return
+  await admin`delete from app_user where id in ${admin(userIds)}`
+}
+
 export async function destroyTenants(
   admin: ReturnType<typeof postgres>,
   organisationIds: string[]

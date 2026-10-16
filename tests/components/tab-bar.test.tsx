@@ -31,6 +31,7 @@ function renderTabBar({
   context = { role: "owner", mode: "agency" },
   scopeClientId = null,
   needsReply,
+  awaitingMyApproval = 0,
   unread,
   moreOpen = false,
   onOpenMore = vi.fn(),
@@ -38,6 +39,7 @@ function renderTabBar({
   context?: NavigationContext
   scopeClientId?: string | null
   needsReply?: number
+  awaitingMyApproval?: number
   unread?: number
   moreOpen?: boolean
   onOpenMore?: () => void
@@ -47,7 +49,10 @@ function renderTabBar({
   })
   if (needsReply !== undefined) {
     client.setQueryData(queryKeys.reviewCounts("organisation"), {
-      byQueue: { needs_reply: needsReply },
+      byQueue: {
+        needs_reply: needsReply,
+        awaiting_my_approval: awaitingMyApproval,
+      },
     })
   }
   if (unread !== undefined) {
@@ -157,6 +162,23 @@ describe("TabBar", () => {
     const { tabs } = renderTabBar({ needsReply: 1 })
     expect(
       tabs.getByRole("link", { name: "Inbox, 1 needs a reply" })
+    ).toBeInTheDocument()
+  })
+
+  it("counts replies awaiting this person's approval in the Inbox tab (R03)", () => {
+    const only = renderTabBar({ needsReply: 0, awaitingMyApproval: 1 })
+    expect(
+      only.tabs.getByRole("link", { name: "Inbox, 1 awaiting your approval" })
+    ).toBeInTheDocument()
+    expect(
+      only.container.querySelector("[data-slot='tab-count']")
+    ).toHaveTextContent("1")
+    only.unmount()
+    const both = renderTabBar({ needsReply: 2, awaitingMyApproval: 3 })
+    expect(
+      both.tabs.getByRole("link", {
+        name: "Inbox, 5 need your attention: 2 to reply, 3 to approve",
+      })
     ).toBeInTheDocument()
   })
 

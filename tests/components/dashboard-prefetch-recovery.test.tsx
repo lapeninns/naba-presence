@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const stubs = vi.hoisted(() => ({ session: vi.fn(), clients: vi.fn(), connections: vi.fn(), directory: vi.fn(), counts: vi.fn(), shell: vi.fn() }))
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }), headers: async () => new Headers() }))
-vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }))
+// The dashboard provider refreshes the router on a scope change (#195).
+vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn(), useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }) }))
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: ComponentProps<"a">) => <a href={href} {...rest}>{children}</a> }))
 vi.mock("@/components/app-shell/app-shell", () => ({ AppShell: ({ children, ...props }: { children: ReactNode }) => { stubs.shell(props); return <section aria-label="Dashboard shell">{children}</section> } }))
 vi.mock("@/lib/server/session", () => ({ getSession: stubs.session, isLocalBootstrapEnabled: () => false }))

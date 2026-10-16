@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/settings-row"
 import type { Member } from "@/lib/api/members"
 import { roleLabel } from "@/lib/settings/forms/invitation"
-import { formatDay } from "@/lib/settings/roles"
+import { useFormatDay } from "@/lib/settings/use-format-day"
 
 /** Everything the sheet says about one member, worked out by the list. */
 export type MemberSheetDetail = {
@@ -95,6 +95,7 @@ function MemberSheetBody({
 }) {
   const { member } = detail
   const role = roleLabel(member.role)
+  const formatDay = useFormatDay()
   return (
     <>
       <DialogHeader>

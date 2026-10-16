@@ -97,7 +97,7 @@ test("dashboard pages mark their tab, or More, as current on a phone", async ({
         tabs.getByRole("link", {
           name:
             route.label === "Inbox"
-              ? /^Inbox(, \d+ needs? a reply)?$/
+              ? /^Inbox(, \d+ (?:needs? a reply|awaiting your approval|needs? your attention: \d+ to reply, \d+ to approve))?$/
               : route.label,
           exact: route.label === "Inbox" ? undefined : true,
         })
