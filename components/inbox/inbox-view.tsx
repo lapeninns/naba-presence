@@ -232,18 +232,14 @@ function InboxViewInner({
     [state]
   )
 
-  // One change of client scope for every control that makes it: the top-bar
-  // switcher (through the shell's handler), the Filters sheet's Client field
-  // and the chip that removes it. The queue and the other filters stay (see
+  // One change of client scope, made by the top-bar switcher (through the
+  // shell's handler). The queue and the other filters stay (see
   // `scopeInboxState`); an open review of another client closes, and if it
   // holds an unsaved reply the operator is asked first. Resolves false when
   // they kept editing, so the switcher leaves its preference alone.
   const applyClientScope = useCallback(
-    async (
-      clientId: string | undefined,
-      base: InboxState = state
-    ): Promise<boolean> => {
-      const next = scopeInboxState(base, clientId, {
+    async (clientId: string | undefined): Promise<boolean> => {
+      const next = scopeInboxState(state, clientId, {
         locationClientIds: new Map(
           (locationsQuery.data ?? []).map((location) => [
             location.id,
@@ -251,10 +247,10 @@ function InboxViewInner({
           ])
         ),
         selectedClientId:
-          reviews.find((review) => review.id === base.selected)?.location
+          reviews.find((review) => review.id === state.selected)?.location
             .clientId ?? null,
       })
-      if (base.selected && !next.selected && !(await dirtyGate())) return false
+      if (state.selected && !next.selected && !(await dirtyGate())) return false
       updateState(next, "replace")
       return true
     },
@@ -268,22 +264,15 @@ function InboxViewInner({
   // after each debounced keystroke in the search, for an edit the search had
   // no reason to touch. The review is fetched by id, so it keeps rendering
   // whether or not the narrowed list still contains it.
-  //
-  // A change of client is the exception: it goes through `applyClientScope`,
-  // the same path the top-bar switcher takes.
   const onFilterChange = useCallback(
     (partial: Partial<InboxState>) => {
-      if ("clientId" in partial && partial.clientId !== state.clientId) {
-        void applyClientScope(partial.clientId, { ...state, ...partial })
-        return
-      }
       if (readIsDirty()) {
         updateState(partial, "replace")
         return
       }
       updateState({ ...partial, selected: undefined }, "replace")
     },
-    [applyClientScope, readIsDirty, state, updateState]
+    [readIsDirty, updateState]
   )
   const onQueueChange = useCallback(
     (queue: Queue) => {
@@ -335,10 +324,12 @@ function InboxViewInner({
         ratings: [],
         search: "",
         sort: "updated_desc",
+        // The client scope is the app bar's, not a filter: it stays.
+        clientId: state.clientId,
         selected: readIsDirty() ? state.selected : undefined,
       }).toString()}`
     )
-  }, [readIsDirty, state.queue, state.selected])
+  }, [readIsDirty, state.clientId, state.queue, state.selected])
   // Same gate as the handlers above: returning to the list also drops
   // `selected`, which would otherwise silently unmount a dirty composer.
   // When the review was pushed over the list, Back to Inbox pops that entry
@@ -729,11 +720,17 @@ function InboxViewInner({
     [canBatch, onAdjacentReview, reviews, selection, state.selected]
   )
 
-  const clientName = state.clientId
-    ? clientsQuery.data?.items.find((client) => client.id === state.clientId)
-        ?.name
-    : undefined
-
+  // The app bar's switcher only appears with more than one client. Without it
+  // nothing there shows or clears a `?clientId=` scope, so the chip row does.
+  const clientChip =
+    state.clientId && clientsQuery.data && clientsQuery.data.items.length <= 1
+      ? {
+          name: clientsQuery.data.items.find(
+            (client) => client.id === state.clientId
+          )?.name,
+          onRemove: () => void applyClientScope(undefined),
+        }
+      : undefined
   const loaded = !reviewsQuery.isPending && !reviewsQuery.isError
   // In the viewer's own clock, which the server rendering a prefetched list
   // does not share: held back until hydration so the two renders agree.
@@ -785,7 +782,7 @@ function InboxViewInner({
       <ActiveFilterChips
         state={state}
         locations={locationsQuery.data ?? []}
-        clientName={clientName}
+        clientChip={clientChip}
         onChange={onFilterChange}
         onClear={onClearFilters}
       />

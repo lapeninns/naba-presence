@@ -184,6 +184,13 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
     ).toBeInTheDocument()
   })
 
+  it("does not count the client scope, which lives in the app bar", () => {
+    renderToolbar({ clientId: "c1" })
+    const button = screen.getByRole("button", { name: /^Filters/ })
+    expect(button).toHaveAccessibleName("Filters")
+    expect(button).not.toHaveAttribute("data-active")
+  })
+
   it("does not count what is one tap away above the list", () => {
     // Rating and "With text" are chips of their own and show their state
     // there, so the button would only repeat them as a number.
@@ -426,6 +433,16 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
         screen.queryByRole("heading", { name: title })
       ).not.toBeInTheDocument()
     }
+  })
+
+  it("has no client select: the scope lives only in the app bar", async () => {
+    await openPanel({ clientId: "c1" })
+    expect(
+      screen.queryByRole("combobox", { name: "Filter by client" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "Client" })
+    ).not.toBeInTheDocument()
   })
 
   it("reflects an already-active date range from the URL in the inputs", async () => {

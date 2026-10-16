@@ -451,19 +451,20 @@ describe("InboxView — client scope", () => {
     expect(replace.mock.calls[0][0]).not.toContain("clientId=")
   })
 
-  it("takes the Client chip through the same guarded path", async () => {
+  it("draws the scope as no chip, and Clear all filters keeps it", async () => {
     const user = userEvent.setup()
-    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1&rating=5")
     renderInbox()
     await dirtyComposer(user)
 
-    await user.click(
-      screen.getByRole("button", { name: /^Remove filter: Client/ })
-    )
-    // Widening keeps the review, so nothing is asked.
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
-    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
-    expect(replace.mock.calls[0][0]).not.toContain("clientId=")
+    expect(
+      screen.queryByRole("button", { name: /^Remove filter: Client/ })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
+    const href = replace.mock.calls[0][0] as string
+    expect(href).toContain("clientId=c1")
+    expect(href).toContain("selected=rev-1")
+    expect(href).not.toContain("rating=")
   })
 
   it("scopes the queue counts to the client in view", () => {

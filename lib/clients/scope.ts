@@ -15,9 +15,9 @@
  * The address wins. The preference only fills in when the operator ARRIVES on
  * a scoped page with no `?clientId=` of its own (a bookmark, the sign-in
  * redirect, a notification link), and it follows every change the address
- * makes, whichever control made it: the top-bar switcher, the Inbox filter
- * sheet, the board's client chips or the Reports client field. Removing the
- * scope on a page ("All clients") clears the preference too.
+ * makes, whichever control made it: the top-bar switcher, the board's client
+ * chips or the Reports client field. Removing the scope on a page ("All
+ * clients") clears the preference too.
  *
  * Pure and client-safe: the shell, the switcher and the tests share it.
  */
