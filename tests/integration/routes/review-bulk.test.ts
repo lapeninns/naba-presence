@@ -446,15 +446,42 @@ describeDatabase("bulk review actions", () => {
     expect(audited.map((entry) => entry.action)).toEqual(["review.triaged", "review.untriaged"])
   })
 
-  it("leaves a review that was never marked as it is when its undo arrives", async () => {
+  it("says so, and records nothing, when an undo arrives for a review that is not marked", async () => {
     const owner = await fixture()
     const seeded = await seedReview(admin, { organisationId: owner.organisationId })
     const response = await post(owner.cookie, { action: "mark_unreviewed", reviewIds: [seeded.reviewId] })
     expect(response.status).toBe(200)
-    const [row] = await admin<{ triagedAt: Date | null }[]>`
-      select triaged_at as "triagedAt" from review where id = ${seeded.reviewId}
+    expect(((await response.json()) as { results: unknown[] }).results).toEqual([
+      { reviewId: seeded.reviewId, status: "skipped", code: "review_not_triaged" },
+    ])
+    const audited = await admin<{ action: string }[]>`
+      select action from audit_log where subject_id = ${seeded.reviewId} and action = 'review.untriaged'
     `
-    expect(row.triagedAt).toBeNull()
+    expect(audited).toEqual([])
+  })
+
+  it("keeps an earlier mark, and who made it, when the review is marked again", async () => {
+    // Otherwise an Undo of the second press would clear the first person's decision.
+    const owner = await fixture()
+    const seeded = await seedReview(admin, { organisationId: owner.organisationId })
+    const colleague = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      role: "member",
+      assignLocationId: seeded.locationId,
+    })
+    expect((await post(colleague.cookie, { action: "mark_reviewed", reviewIds: [seeded.reviewId] })).status).toBe(200)
+    const [first] = await admin<{ triagedAt: Date; triagedBy: string }[]>`
+      select triaged_at as "triagedAt", triaged_by::text as "triagedBy" from review where id = ${seeded.reviewId}
+    `
+    const again = await post(owner.cookie, { action: "mark_reviewed", reviewIds: [seeded.reviewId] })
+    expect(((await again.json()) as { results: unknown[] }).results).toEqual([
+      { reviewId: seeded.reviewId, status: "skipped", code: "review_already_triaged" },
+    ])
+    const [after] = await admin<{ triagedAt: Date; triagedBy: string }[]>`
+      select triaged_at as "triagedAt", triaged_by::text as "triagedBy" from review where id = ${seeded.reviewId}
+    `
+    expect(after).toEqual(first)
+    expect(after.triagedBy).toBe(colleague.userId)
   })
 
   it("refuses the undo to a viewer, and skips a review outside a member's locations", async () => {

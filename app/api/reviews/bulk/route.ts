@@ -152,7 +152,8 @@ export const POST = route({
 
     for (const reviewId of body.reviewIds) {
       try {
-        await tenant(async (sql) => {
+        // The code of a row left as it was, or null when it was changed.
+        const unchanged = await tenant(async (sql): Promise<string | null> => {
           const [review] = await sql<{ locationId: string }[]>`
             select location_id::text as "locationId" from review where id = ${reviewId}
           `
@@ -183,21 +184,28 @@ export const POST = route({
             `
           } else if (body.action === "mark_unreviewed") {
             // The way back from "no reply needed": the same two columns,
-            // cleared. A review that is not triaged is left as it is.
-            await sql`
+            // cleared. A review that is not marked is left as it is, and
+            // said to be, so the Undo never claims what it did not do.
+            const cleared = await sql`
               update review
                  set triaged_at = null, triaged_by = null
                where id = ${reviewId} and triaged_at is not null
+               returning id
             `
+            if (cleared.length === 0) return "review_not_triaged"
           } else {
             // "Reviewed, nothing to say." A five-star review with no text
             // needs no reply, and before this the only way to clear it from
-            // the queue was to publish something.
-            await sql`
+            // the queue was to publish something. A review already marked
+            // keeps the mark (and who made it) and is said to be, so an Undo
+            // never clears a decision this press did not make.
+            const marked = await sql`
               update review
                  set triaged_at = now(), triaged_by = ${session.userId}
-               where id = ${reviewId}
+               where id = ${reviewId} and triaged_at is null
+               returning id
             `
+            if (marked.length === 0) return "review_already_triaged"
           }
 
           await writeAudit(sql, {
@@ -217,8 +225,13 @@ export const POST = route({
               clientRequestId,
             },
           })
+          return null
         })
-        results.push({ reviewId, status: "ok" })
+        results.push(
+          unchanged
+            ? { reviewId, status: "skipped", code: unchanged }
+            : { reviewId, status: "ok" }
+        )
       } catch (error) {
         // The row's transaction rolled back, so nothing changed for it.
         results.push(

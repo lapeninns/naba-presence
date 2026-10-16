@@ -70,6 +70,16 @@ export function useReviewTriage() {
         })
         return result
       }
+      const only = result.results.length === 1 ? result.results[0] : null
+      if (only?.status === "skipped" && only.code) {
+        // One review that was left as it was: say why, in its own words.
+        toast.add({
+          title: "Nothing changed",
+          description: describeErrorCode(only.code),
+          type: "warning",
+        })
+        return result
+      }
       toast.add({
         title: summary.title,
         description: summary.description,

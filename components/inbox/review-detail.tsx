@@ -331,8 +331,8 @@ function ReviewMenu({ review }: { review: Review }) {
                 </DropdownMenuSub>
               )}
               {/* Triage, not a reply: it clears the review from Needs
-                  reply and sends nothing to Google. Confirmed, because
-                  there is no way back. */}
+                  reply and sends nothing to Google. Done at once, with
+                  Undo in its toast. */}
               <DropdownMenuItem
                 onClick={() => void triage.run(markNoReplyNeeded([review.id]))}
               >

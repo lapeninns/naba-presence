@@ -552,8 +552,11 @@ function ReviewList({
       </ListRows>
       {noReplyFor ? (
         <RowNoReplyNeeded
+          key={noReplyFor}
           reviewId={noReplyFor}
-          onDone={() => setNoReplyFor(null)}
+          onDone={() =>
+            setNoReplyFor((current) => (current === noReplyFor ? null : current))
+          }
         />
       ) : null}
       {onReachEnd ? (

@@ -692,6 +692,30 @@ describe("ReviewDetail", () => {
       })
     })
 
+    it("says why nothing changed when the review was already marked, with no Undo", async () => {
+      const user = userEvent.setup()
+      mutateAsync.mockResolvedValueOnce({
+        results: [
+          { reviewId: "rev-1", status: "skipped", code: "review_already_triaged" },
+        ],
+      })
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(
+        <Toaster>
+          <ReviewDetail reviewId="rev-1" />
+        </Toaster>
+      )
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(
+        await screen.findByRole("menuitem", { name: "No reply needed" })
+      )
+      expect(await screen.findByText("Nothing changed")).toBeInTheDocument()
+      expect(
+        screen.getByText("That review was already marked as no reply needed.")
+      ).toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument()
+    })
+
     it("assigns the review from ⋯ → Assign…, to people it could be offered to", async () => {
       const user = userEvent.setup()
       fakeDetail({ isPending: false, isError: false, data: detail })

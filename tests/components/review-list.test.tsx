@@ -793,6 +793,31 @@ describe("ReviewList — triage from the row", () => {
     })
   })
 
+  it("sends a second row pressed while the first is still sending", async () => {
+    const user = userEvent.setup()
+    let release: () => void = () => {}
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ results: [{ reviewId: "a", status: "ok" }] })
+        })
+    )
+    renderRows()
+    const [first, second] = screen.getAllByRole("button", { name: /^Actions for / })
+    await user.click(first)
+    await user.click(await screen.findByRole("menuitem", { name: "No reply needed" }))
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
+    // The first is still in flight when the second row is acted on.
+    await user.click(second)
+    await user.click(await screen.findByRole("menuitem", { name: "No reply needed" }))
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      action: "mark_reviewed",
+      reviewIds: ["b"],
+    })
+    release()
+  })
+
   it("names each row's ⋯ after its reviewer", () => {
     renderRows()
     const [first] = screen.getAllByRole("button", { name: /^Actions for / })

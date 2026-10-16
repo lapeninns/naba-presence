@@ -330,7 +330,7 @@ function BulkActionBar({
             )}
             {/* Triage, not a reply: it clears the reviews from Needs reply
               and sends nothing to Google. "Mark reviewed" read as though it
-              might do either. Confirmed, because there is no way back. */}
+              might do either. Done at once, with Undo in its toast. */}
             {primary !== "mark_reviewed" ? (
               <DropdownMenuItem onClick={() => void run("mark_reviewed")}>
                 <CircleSlash aria-hidden />
