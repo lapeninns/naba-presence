@@ -89,7 +89,15 @@ function ListHeader({
   return (
     <div
       data-slot="inbox-list-header"
-      className="flex min-h-11 shrink-0 items-center gap-3 px-(--np-page-pad-x) text-caption text-ink-muted"
+      className={cn(
+        "flex min-h-11 shrink-0 items-center gap-3 px-(--np-page-pad-x) text-caption text-ink-muted",
+        // Below the desk the page scrolls, not the list: while rows are
+        // ticked the header (the count and the one Cancel) stays at the top,
+        // under the app bar where there is one (phones), so the way out is
+        // never scrolled off a long backlog.
+        selecting &&
+          "max-lg:sticky max-lg:top-0 max-lg:z-sticky max-lg:bg-surface max-md:top-[calc(var(--np-appbar-h)+var(--np-safe-top))]"
+      )}
     >
       {canBatch ? (
         // The rows' leading column (ListRow's `--np-avatar-list`, at the
