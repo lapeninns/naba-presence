@@ -3,22 +3,32 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
+import { QuickFilters } from "@/components/inbox/filter-controls"
 import { FilterToolbar } from "@/components/inbox/filter-toolbar"
 import { QueueTabs } from "@/components/inbox/queue-tabs"
 import { useReviewSearch } from "@/components/inbox/review-filters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toolbar } from "@/components/ui/toolbar"
 import { ViewHeader } from "@/components/ui/view-header"
-import { REVIEW_QUEUE_LABELS, type ReviewCounts } from "@/lib/contracts/reviews"
+import {
+  DEFAULT_REVIEW_SORT,
+  REVIEW_QUEUE_LABELS,
+  type ReviewCounts,
+} from "@/lib/contracts/reviews"
 import { formatNumber } from "@/lib/format"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
-import type { InboxState, Queue } from "@/lib/inbox/url-state"
+import {
+  hasActiveFilters,
+  type InboxState,
+  type Queue,
+} from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 
 /**
- * The count after the title (Notion Mail's "Inbox 99+"): how many reviews
- * need a reply, for `ViewHeader`'s count slot, which draws it beside the h1
+ * The inbox's one count, after the title (Notion Mail's "Inbox 99+"): how
+ * many reviews need a reply in the client scope in view (the navigation
+ * badge reads the same scope), for `ViewHeader`'s count slot, which draws it beside the h1
  * (never inside it, so the heading's name stays "Inbox" whatever the number
  * is) and says it to a screen reader in words ("12 need a reply", the tab
  * bar's own wording).
@@ -51,6 +61,8 @@ function headerCount(
  * - `Toolbar`: the review search (Notion Mail's filled pill, "Search
  *   reviews") with the filter end of the band in its filter slot.
  * - The queue strip under it, across the full width.
+ * - The quick filters under that: star ratings and "With text" as chips,
+ *   one tap each, above the list they narrow.
  *
  * The search is always there rather than folded behind an icon: it is the
  * inbox's one search, and an icon beside the shell's own would be a second
@@ -233,10 +245,23 @@ function InboxToolbar({
         queue={state.queue}
         counts={counts}
         countsPending={countsPending}
+        // The counts cover a whole queue, so any narrowing of the list (the
+        // client scope and the sort do not narrow them) hides them.
+        filtered={hasActiveFilters({
+          ...state,
+          clientId: undefined,
+          sort: DEFAULT_REVIEW_SORT,
+        })}
         // Stays in search mode (R2b P2-S2): a search runs inside a queue,
         // so the queue is named above and can still be changed without
         // losing the words typed.
         onQueueChange={onQueueChange}
+      />
+
+      <QuickFilters
+        ratings={state.ratings}
+        written={state.written}
+        onChange={onFilterChange}
       />
     </div>
   )

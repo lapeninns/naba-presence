@@ -40,18 +40,17 @@ const OWNER_ITEMS: Record<ApprovalOwner, string> = {
 }
 
 /**
- * How many narrowings are on, for the count on the Filters button. Search is
- * in the toolbar where it can be read, sort only orders the rows, and the
- * approval owner is a queue, so none of those count.
+ * How many of the narrowings in the Filters sheet are on, for the count on
+ * the Filters button. Rating and "With text" are chips of their own above the
+ * list, search is in the toolbar where it can be read, sort only orders the
+ * rows, and the approval owner is a queue, so none of those count.
  */
 export function activeFilterCount(state: InboxState): number {
   return (
-    (state.ratings.length > 0 ? 1 : 0) +
-    (state.written ? 1 : 0) +
+    (state.written === "rating_only" ? 1 : 0) +
     (state.locationIds.length > 0 ? 1 : 0) +
     (state.assignee ? 1 : 0) +
     (state.age ? 1 : 0) +
-    (state.replyState ? 1 : 0) +
     (state.dateFrom || state.dateTo ? 1 : 0)
   )
 }
@@ -153,8 +152,8 @@ function OwnerSelect({
  * allows, and everything behind one Filters sheet.
  *
  * - `xl` and up: age, "waiting on" (Approval only) and sort stay on screen
- *   beside the button. Rating is in the sheet, where its five toggles have
- *   room, and its chip shows above the list once it is on.
+ *   beside the button. Rating and "With text" are chips above the list at
+ *   every width, so they are not here or in the sheet.
  * - `lg` to `xl`: sort and the button.
  * - Below `lg`: the button alone; beside a narrow search a sort select has
  *   no room to say what it sorts by.

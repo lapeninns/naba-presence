@@ -50,6 +50,14 @@ function revealInStrip(strip: HTMLElement, item: HTMLElement) {
  * non-zero Failed count in the danger ink, because that number is itself
  * the exception.
  *
+ * Each number is drawn once. Needs reply is the "Inbox N" title's count, and
+ * the current queue's is the list header's ("4 reviews"), so neither tab
+ * repeats it; the other queues show theirs, and a queue with nothing in it
+ * shows no figure (`TabCount`'s zero rule, said aloud in its name). The
+ * counts cover every review in the queue and know nothing of the filters, so
+ * while `filtered` is on they are not drawn rather than disagreeing with the
+ * rows beneath them. The one exception is a non-zero Failed count, which stays.
+ *
  * The strip is the primitive chip row (one row that scrolls sideways with
  * faded edges); the SEMANTICS are navigation, not `TextTabs`' links nor a
  * tablist. Each queue is a guarded URL change
@@ -69,12 +77,15 @@ function QueueTabs({
   queue,
   counts,
   countsPending,
+  filtered = false,
   onQueueChange,
   className,
 }: {
   queue: ReviewQueue
   counts: ReviewCounts | undefined
   countsPending: boolean
+  /** A filter narrows the list, so the queue counts would not match it. */
+  filtered?: boolean
   onQueueChange: (queue: VisibleQueue) => void
   className?: string
 }) {
@@ -96,7 +107,7 @@ function QueueTabs({
   return (
     <nav
       aria-label="Review queues"
-      aria-describedby={noteId}
+      aria-describedby={filtered ? undefined : noteId}
       className={cn("flex max-w-full min-w-0", className)}
     >
       <ChipRow ref={stripRef} data-slot="queue-strip" className="gap-0.5">
@@ -104,6 +115,12 @@ function QueueTabs({
           const count = counts?.byQueue?.[item] ?? 0
           const active = current === item
           const alert = item === "failed" && count > 0
+          // A filter hides the figures, but not a non-zero Failed count: it is
+          // the exception (see above), and an operator should never lose sight
+          // of a failure behind a filter. The current queue and Needs reply
+          // still carry none.
+          const figure =
+            !active && item !== "needs_reply" && (!filtered || alert)
           return (
             <button
               key={item}
@@ -117,7 +134,7 @@ function QueueTabs({
               // "Needs reply12".
               aria-label={[
                 REVIEW_QUEUE_LABELS[item],
-                countsPending
+                !figure || countsPending
                   ? null
                   : `${count} ${count === 1 ? "review" : "reviews"}`,
               ]
@@ -130,18 +147,14 @@ function QueueTabs({
               className={textTabItemClassName}
             >
               <span>{REVIEW_QUEUE_LABELS[item]}</span>
-              {countsPending ? (
+              {!figure ? null : countsPending ? (
                 // A skeleton, never a zero: "0" before the count lands tells
                 // the operator there is nothing to do when there may be plenty.
                 <Skeleton className="h-3 w-4" />
               ) : (
                 <TabCount
                   aria-hidden
-                  className={cn(
-                    alert
-                      ? "font-semibold text-danger-ink"
-                      : active && "text-ink-secondary"
-                  )}
+                  className={cn(alert && "font-semibold text-danger-ink")}
                 >
                   {formatNumber(count)}
                 </TabCount>
@@ -152,14 +165,15 @@ function QueueTabs({
       </ChipRow>
       {/* Counts come from GET /api/reviews/counts, which is scoped by client
           but knows nothing about the rating, search, age or assignee filters
-          the list applies. Saying so is cheaper than a number that quietly
-          disagrees with the rows underneath it. */}
-      <span id={noteId} className="sr-only">
-        {business
-          ? "Counts cover every review in each queue."
-          : "Counts cover every review in each queue for the current client scope."}{" "}
-        The list below also applies your filters, so it can show fewer.
-      </span>
+          the list applies, so they are left off while any is on (see
+          `filtered`) and this says what they cover the rest of the time. */}
+      {filtered ? null : (
+        <span id={noteId} className="sr-only">
+          {business
+            ? "Counts cover every review in each queue."
+            : "Counts cover every review in each queue for the current client scope."}
+        </span>
+      )}
     </nav>
   )
 }

@@ -56,7 +56,8 @@ describe("ActiveFilterChips", () => {
     // Each chip names its filter as the Filters sheet heads it ("Venue",
     // not "Location"), and the whole chip is the remove control.
     expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
-    expect(screen.getByText("Rating: 5 stars")).toBeInTheDocument()
+    // Rating is a pressed chip above the list, so it is not drawn twice.
+    expect(screen.queryByText(/^Rating:/)).not.toBeInTheDocument()
     expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
     await user.click(
       screen.getByRole("button", { name: "Remove filter: Venue: Riverside" })
@@ -158,26 +159,30 @@ describe("ActiveFilterChips", () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it("humanizes a multi-value rating chip", () => {
-    const { rerender } = render(
+  it("leaves rating and With text to the chips above the list", () => {
+    // They are pressed chips where they are set (QuickFilters), so this strip
+    // does not name them a second time. "Clear all filters" still resets them.
+    render(
       <ActiveFilterChips
-        state={{ ...state, locationIds: [], ratings: [1, 2], search: "" }}
+        state={{
+          ...state,
+          locationIds: [],
+          ratings: [1, 2],
+          search: "",
+          written: "with_text",
+          assignee: "me",
+        }}
         locations={[]}
         onChange={() => {}}
         onClear={() => {}}
       />
     )
-    // A run reads as a range, anything else as a list.
-    expect(screen.getByText("Rating: 1–2 stars")).toBeInTheDocument()
-    rerender(
-      <ActiveFilterChips
-        state={{ ...state, locationIds: [], ratings: [5, 1, 3], search: "" }}
-        locations={[]}
-        onChange={() => {}}
-        onClear={() => {}}
-      />
-    )
-    expect(screen.getByText("Rating: 1, 3, 5 stars")).toBeInTheDocument()
+    expect(screen.getByText("Assigned to: Me")).toBeInTheDocument()
+    expect(screen.queryByText(/^Rating:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/With text/)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear all filters" })
+    ).toBeInTheDocument()
   })
 
   it("keeps the chip that clears a venue a single-location org cannot choose", async () => {
@@ -262,7 +267,7 @@ describe("ActiveFilterChips", () => {
     expect(row?.lastElementChild).toHaveAccessibleName("Clear all filters")
     // The primitive FilterChip, applied: the whole chip removes it.
     const chips = row!.querySelectorAll('[data-slot="filter-chip"]')
-    expect(chips.length).toBe(3)
+    expect(chips.length).toBe(2)
     for (const chip of Array.from(chips)) {
       expect(chip.tagName).toBe("BUTTON")
       expect(chip).toHaveAccessibleName(/^Remove filter: /)

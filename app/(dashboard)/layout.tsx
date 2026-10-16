@@ -79,12 +79,16 @@ export default async function DashboardLayout({
     hideCalendar = scheduling.status === "fulfilled" && !scheduling.value
 
     // The Inbox badge on the tab bar, rail and sidebar (useNeedsReplyCount).
-    // Its key is the organisation-wide one in every mode and whatever client
-    // is remembered, and it is the key the Inbox's queue controls read when
-    // no client filter is set. Hydrated here, above the shell, the badge is
-    // drawn in the first HTML, no page pays a /api/reviews/counts request on
-    // load, and the shell no longer registers the key empty before the
-    // Inbox page's own boundary could fill it (which made it fetch anyway).
+    // This is the organisation-wide key: the one the badge reads in a
+    // business, wherever no client is in scope, and on Inbox, Listings and
+    // Reports with no `?clientId=`, and the one the Inbox's queue controls
+    // read when no client filter is set. Hydrated here, above the shell, the
+    // badge is drawn in the first HTML on those, and the shell no longer
+    // registers the key empty before the Inbox page's own boundary could fill
+    // it (which made it fetch anyway). With a client in scope (a remembered
+    // one on other pages, or `?clientId=` on the three) the badge reads that
+    // client's own key, which is not hydrated, so it costs one background
+    // /api/reviews/counts request on load.
     if (reviewCounts.status === "fulfilled") {
       queryClient.setQueryData(
         queryKeys.reviewCountsFor(),

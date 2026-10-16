@@ -9,7 +9,6 @@ import {
   REPLY_STATE_LABELS,
   WRITTEN_LABELS,
   formatDateRangeChip,
-  formatRatingsChip,
   formatSortChip,
   removeFilterLabel,
 } from "@/lib/inbox/filter-labels"
@@ -48,14 +47,10 @@ function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
       clear: { assignee: undefined },
     })
   }
-  if (state.ratings.length) {
-    chips.push({
-      key: "rating",
-      label: formatRatingsChip(state.ratings),
-      clear: { ratings: [] },
-    })
-  }
-  if (state.written) {
+  // Rating and "With text" are pressed chips above the list (QuickFilters),
+  // so they are not drawn a second time here. "Rating only" has no chip
+  // there, so it is.
+  if (state.written === "rating_only") {
     chips.push({
       key: "written",
       label: `${FILTER_NAMES.written}: ${WRITTEN_LABELS[state.written]}`,
