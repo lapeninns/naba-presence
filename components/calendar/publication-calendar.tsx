@@ -38,6 +38,7 @@ import { ApiClientError } from "@/lib/api/client"
 import { withClientScope } from "@/lib/clients/scope"
 import { fetchScheduleOccurrences } from "@/lib/api/publication-schedules"
 import type { ScheduleOccurrence } from "@/lib/contracts/publication-schedules"
+import { formatTimeZoneLabel } from "@/lib/format"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -174,7 +175,7 @@ export function PublicationCalendar({
   // One line that names the zones in play: each entry's time is its
   // listing's own, and "today" is the organisation's date.
   const description = timeZone
-    ? `Scheduled post publications across the listings you can see. Each time is in its listing’s local time; today is marked in the workspace time zone (${timeZone}).`
+    ? `Scheduled post publications across the listings you can see. Each time is in its listing’s local time; today is marked in the workspace time zone (${formatTimeZoneLabel(timeZone) ?? timeZone}).`
     : "Scheduled post publications across the listings you can see. Each time is in its listing’s local time."
   const header = (
     <div className="flex flex-col gap-1">
