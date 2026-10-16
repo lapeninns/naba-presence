@@ -46,6 +46,12 @@ export function LabelRow({
  * heading); the scroll margin keeps the section clear of the phone's
  * sticky section tabs.
  *
+ * Where the phone's sticky tab strip already names the section, the first
+ * group on the page drops its visible heading row and caption below `desk`
+ * so its first field starts straight under the tabs (the heading stays in the
+ * outline as screen-reader text, still the section nav's focus target, and
+ * the caption still describes the group); a "Changed" mark keeps its row.
+ *
  * `bare`: no card, for a section made of its own groups (attributes).
  * `info`: an information card on every screen (the sunken surface), for a
  * note rather than fields, such as the Google details NabaPresence can't edit.
@@ -92,6 +98,11 @@ export function SectionCard({
         // The page's column gap spaces the groups; clear of the phone's
         // sticky section tabs, a desk has a rail.
         "mt-0 min-w-0 scroll-mt-18 desk:scroll-mt-4",
+        // The first group, below `desk` (a custom variant has no `max-`
+        // form, so `desk:` puts it back): the tab strip above already names
+        // it, so its heading row and caption become screen-reader text.
+        "first-of-type:[&>[data-slot=settings-group-caption]]:sr-only first-of-type:[&>div:first-child]:min-h-0 first-of-type:[&>div:first-child>[data-slot=settings-group-label]]:sr-only",
+        "desk:first-of-type:[&>[data-slot=settings-group-caption]]:not-sr-only desk:first-of-type:[&>[data-slot=settings-group-caption]]:mb-1 desk:first-of-type:[&>div:first-child]:min-h-8 desk:first-of-type:[&>div:first-child>[data-slot=settings-group-label]]:not-sr-only",
         className
       )}
     >
