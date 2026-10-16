@@ -34,6 +34,14 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -63,28 +71,84 @@ import { isRatingOnly } from "@/lib/inbox/template-batch"
 // it is not part of the Inbox's first load. It is fetched as soon as a
 // selection that offers it exists (the click that follows then finds it
 // loaded) and mounted only once asked for. It is closed on the server.
+type TemplateReplyDialogComponent =
+  typeof import("@/components/inbox/template-reply-dialog").TemplateReplyDialog
 const loadTemplateReplyDialog = () =>
-  import("@/components/inbox/template-reply-dialog")
+  import("@/components/inbox/template-reply-dialog").then((module) => {
+    // Once it is here the component is used as it is, with no Suspense
+    // beat between the click and the dialog; and "has it arrived" is what
+    // tells a pending open (cancellable) from an open dialog (not).
+    lazyTemplate.Loaded = module.TemplateReplyDialog
+    return module.TemplateReplyDialog
+  })
 // A preload that fails is not an error yet: the dialog's own load, when it
 // is asked for, retries and reports.
 const preloadTemplateReplyDialog = () =>
   void loadTemplateReplyDialog().catch(() => {})
+
+/** What the loading shell needs from the bar that asked for the batch. */
+const TemplateShellContext = React.createContext<{
+  close: () => void
+  finalFocus: React.RefObject<HTMLElement | null>
+} | null>(null)
+
+/**
+ * The modal that stands in while the template dialog's code is on the way.
+ * The batch is already a modal question, so it is one from the click: focus
+ * is held, and nothing behind it (the selection, the bulk actions, the
+ * client switcher) can be reached until it is answered or cancelled. It is
+ * the same size and wording as the real dialog, which replaces it.
+ */
+function TemplateLoadingShell() {
+  const shell = React.useContext(TemplateShellContext)
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) shell?.close()
+      }}
+    >
+      <DialogContent size="wide" finalFocus={shell?.finalFocus}>
+        <DialogHeader>
+          <DialogTitle>Reply with the rating template</DialogTitle>
+          <DialogDescription>
+            For reviews with stars and no words. Each reply is checked before it
+            can be published, exactly as one you write yourself.
+          </DialogDescription>
+        </DialogHeader>
+        <p role="status" className="text-ui text-ink-secondary">
+          Loading…
+        </p>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => shell?.close()}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // A failed load is cached by React for the life of the component, so after a
 // failure (see LazyDialogBoundary) a fresh one replaces it for the next open.
 const createTemplateReplyDialog = () =>
-  dynamic(
-    () =>
-      loadTemplateReplyDialog().then((module) => module.TemplateReplyDialog),
-    {
-      ssr: false,
-      loading: whileLoading(
-        <span role="status" className="sr-only">
-          Loading the template reply…
-        </span>
-      ),
-    }
-  )
-const lazyTemplate = { Dialog: createTemplateReplyDialog() }
+  dynamic(loadTemplateReplyDialog, {
+    ssr: false,
+    loading: whileLoading(<TemplateLoadingShell />),
+  })
+const lazyTemplate: {
+  Dialog: ReturnType<typeof createTemplateReplyDialog>
+  /** The real component, once its code has arrived. */
+  Loaded: TemplateReplyDialogComponent | null
+} = { Dialog: createTemplateReplyDialog(), Loaded: null }
+
+/** The real dialog as soon as it is here, the lazy one (and its shell) until. */
+function TemplateDialogSlot(
+  props: React.ComponentProps<TemplateReplyDialogComponent>
+) {
+  const Loaded = lazyTemplate.Loaded
+  return Loaded ? <Loaded {...props} /> : <lazyTemplate.Dialog {...props} />
+}
 
 /**
  * Actions over a selection: the shared SelectionBar, docked to the bottom
@@ -125,6 +189,11 @@ function BulkActionBar({
   const [templateRows, setTemplateRows] = React.useState<ReviewRow[] | null>(
     null
   )
+  // Focus returns to the control that asked for the batch (the primary tile,
+  // or the ⋯ trigger when it came from the menu), never to the page.
+  const moreRef = React.useRef<HTMLButtonElement>(null)
+  const primaryRef = React.useRef<HTMLButtonElement>(null)
+  const templateOpenerRef = React.useRef<HTMLElement | null>(null)
 
   const chosen = rows.filter((row) => selected.has(row.id))
   // The member list is only needed to assign, so it is fetched when a
@@ -139,28 +208,55 @@ function BulkActionBar({
     if (offersTemplate) preloadTemplateReplyDialog()
   }, [offersTemplate])
 
-  const templateDialog = templateRows ? (
-    <LazyDialogBoundary
-      what="the template reply"
-      onFail={() => {
-        setTemplateRows(null)
-        lazyTemplate.Dialog = createTemplateReplyDialog()
-      }}
-    >
-      <lazyTemplate.Dialog
-        open
-        rows={templateRows}
-        bulkEngine={bulkEngine}
-        onOpenChange={(open) => {
-          if (!open) setTemplateRows(null)
-        }}
-        onFinished={(sentIds) => {
-          const sent = new Set(sentIds)
-          replace([...selected].filter((id) => !sent.has(id)))
-        }}
-      />
-    </LazyDialogBoundary>
-  ) : null
+  const openTemplate = (from: "primary" | "more") => {
+    templateOpenerRef.current =
+      from === "primary" ? primaryRef.current : moreRef.current
+    setTemplateRows(chosen)
+  }
+  const closeTemplate = () => setTemplateRows(null)
+
+  // An open that is still waiting for the dialog's code is cancelled with the
+  // selection it was made on (cleared, or a scope that moved the rows), so a
+  // batch the operator walked away from cannot appear later, over something
+  // else. Once the dialog has arrived it is a different matter: it keeps its
+  // own copy of the rows on purpose, to show its summary after replies have
+  // left the list.
+  const chosenIds = new Set(chosen.map((row) => row.id))
+  const templateStale =
+    templateRows !== null &&
+    !lazyTemplate.Loaded &&
+    templateRows.some((row) => !chosenIds.has(row.id))
+  if (templateStale) setTemplateRows(null)
+
+  const templateDialog =
+    templateRows && !templateStale ? (
+      <TemplateShellContext.Provider
+        value={{ close: closeTemplate, finalFocus: templateOpenerRef }}
+      >
+        <LazyDialogBoundary
+          what="the template reply"
+          onFail={() => {
+            setTemplateRows(null)
+            lazyTemplate.Loaded = null
+            lazyTemplate.Dialog = createTemplateReplyDialog()
+          }}
+        >
+          <TemplateDialogSlot
+            open
+            rows={templateRows}
+            bulkEngine={bulkEngine}
+            finalFocus={templateOpenerRef}
+            onOpenChange={(open) => {
+              if (!open) closeTemplate()
+            }}
+            onFinished={(sentIds) => {
+              const sent = new Set(sentIds)
+              replace([...selected].filter((id) => !sent.has(id)))
+            }}
+          />
+        </LazyDialogBoundary>
+      </TemplateShellContext.Provider>
+    ) : null
 
   if (chosen.length === 0) return templateDialog
 
@@ -264,11 +360,12 @@ function BulkActionBar({
       />
     ) : primary === "template" ? (
       <SelectionBarTile
+        ref={primaryRef}
         tone="charcoal"
         icon={<MessageSquareText aria-hidden />}
         label="Reply with template"
         disabled={bulk.isPending}
-        onClick={() => setTemplateRows(chosen)}
+        onClick={() => openTemplate("primary")}
       />
     ) : (
       <SelectionBarTile
@@ -345,6 +442,7 @@ function BulkActionBar({
       >
         <DropdownMenu>
           <DropdownMenuTrigger
+            ref={moreRef}
             disabled={bulk.isPending}
             render={
               <SelectionBarTile
@@ -383,7 +481,7 @@ function BulkActionBar({
               published (or submitted) as a batch. Offered only when the
               selection has some. */}
             {offersTemplate && primary !== "template" ? (
-              <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
+              <DropdownMenuItem onClick={() => openTemplate("more")}>
                 <MessageSquareText aria-hidden />
                 Reply with template
               </DropdownMenuItem>
