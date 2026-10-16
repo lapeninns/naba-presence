@@ -71,8 +71,12 @@ function ReplyStatusLine({
         {status.text}
         {status.note ? (
           <span
+            // On a phone the bar is one row beside its button, and the
+            // sentence is what must read whole: a long note used to push it
+            // into "Sent · waiting…". The note stays for screen readers and
+            // from md up.
             className={cn(
-              "font-normal",
+              "font-normal max-md:sr-only",
               onCharcoal ? "text-ink-muted-on-charcoal" : "text-ink-muted"
             )}
           >
