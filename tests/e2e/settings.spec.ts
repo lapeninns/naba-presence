@@ -431,16 +431,15 @@ test.describe("team roles", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/team")
     const list = page.getByRole("list", { name: "Members" })
-    const row = list.getByRole("button", {
-      name: `Ben Member, ${seeded.email}`,
-    })
+    const rowName = `Ben Member, ${seeded.email}`
+    const row = list.getByRole("button", { name: rowName })
     await expect(row).toBeVisible()
     // SET-02: one row (name, the full email, the role chip and its line),
     // not the record card (about 178px). Measured on the whole list item,
     // footer included: 132px at 390.
     const box = await list
       .getByRole("listitem")
-      .filter({ has: row })
+      .filter({ has: page.getByRole("button", { name: rowName }) })
       .boundingBox()
     expect(box!.height).toBeLessThanOrEqual(140)
     await expect(list.getByText("All clients · Drafts only")).toBeVisible()
