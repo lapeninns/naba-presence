@@ -529,15 +529,24 @@ test.describe("inbox", () => {
       // cannot see another fixed bar painted over it).
       await expect(page.locator('[data-slot="tab-bar"]')).toBeHidden()
       const retryButton = notice.getByRole("button", { name: "Try again" })
-      const hit = await retryButton.evaluate((button) => {
-        const box = button.getBoundingClientRect()
-        const top = document.elementFromPoint(
-          box.left + box.width / 2,
-          box.top + box.height / 2
-        )
-        return top !== null && button.contains(top)
-      })
-      expect(hit).toBe(true)
+      // What a tap at the control's centre would reach ("" when it is the
+      // control itself), named so a failure says what is in the way.
+      const whatCovers = () =>
+        retryButton.evaluate((button) => {
+          const box = button.getBoundingClientRect()
+          const top = document.elementFromPoint(
+            box.left + box.width / 2,
+            box.top + box.height / 2
+          )
+          if (top !== null && button.contains(top)) return ""
+          return top
+            ? `${top.tagName.toLowerCase()}[data-slot=${top.getAttribute("data-slot")}] in ${
+                top.closest("[data-slot]")?.getAttribute("data-slot") ?? "?"
+              }`
+            : "nothing"
+        })
+      // The toast that reports the failure settles above the dock; wait for it.
+      await expect.poll(whatCovers, { timeout: 5000 }).toBe("")
       await expect(notice).toContainText(
         "The selection actions could not load."
       )
