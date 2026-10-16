@@ -9,7 +9,7 @@ import {
   whileLoading,
 } from "@/components/inbox/lazy-dialog-boundary"
 import { useSelection } from "@/components/inbox/selection-context"
-import { SelectionBar, SelectionBarTile } from "@/components/ui/selection-bar"
+import { Button } from "@/components/ui/button"
 import type { ReviewRow } from "@/lib/contracts/reviews"
 
 // The bulk bar brings the bulk menus, the confirmations and the triage
@@ -56,19 +56,24 @@ function LoadFailedNotice({ onRetry }: { onRetry: () => void }) {
     if (active === document.body || active === parked) retryRef.current?.focus()
   }, [])
   return (
-    <SelectionBar
+    // Plain markup in the list's own "More reviews below" strip, not the
+    // SelectionBar: that module belongs to the bar's chunk, and importing it
+    // here for a notice most people never see would put it back in the
+    // Inbox's first load.
+    <div
+      role="region"
+      aria-label="Selection actions"
       data-slot="bulk-action-bar-failed"
-      label="Selection actions"
-      notes={<p role="alert">The selection actions could not load.</p>}
-      className="shrink-0"
+      className="flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle py-1 pr-1 pl-(--np-page-pad-x)"
     >
-      <SelectionBarTile
-        ref={retryRef}
-        icon={<RefreshCwIcon aria-hidden />}
-        label="Try again"
-        onClick={onRetry}
-      />
-    </SelectionBar>
+      <p role="alert" className="text-caption text-ink-muted">
+        The selection actions could not load.
+      </p>
+      <Button ref={retryRef} variant="ghost" onClick={onRetry}>
+        <RefreshCwIcon aria-hidden />
+        Try again
+      </Button>
+    </div>
   )
 }
 
