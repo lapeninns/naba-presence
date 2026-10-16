@@ -106,8 +106,12 @@ export function PresenceProvenance({
   const coverageParts = coverage
     ? [
         `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`,
-        coverage.pending ? `${coverage.pending} waiting for a first fetch` : null,
-        coverage.unavailable ? `refresh failed for ${coverage.unavailable}` : null,
+        coverage.pending
+          ? `${coverage.pending} waiting for a first fetch`
+          : null,
+        coverage.unavailable
+          ? `refresh failed for ${coverage.unavailable}`
+          : null,
         coverage.stale ? `${coverage.stale} out of date` : null,
         coverage.noData ? `${coverage.noData} sent no figures` : null,
       ].filter((part): part is string => part !== null)

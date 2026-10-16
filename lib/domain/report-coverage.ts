@@ -126,7 +126,11 @@ export type LocationCoverageOptions = CoverageOptions & {
 export function classifyLocationCoverage(
   locations: readonly CoverageLocation[],
   checkpoints: readonly CoverageCheckpoint[],
-  { windowStart, latestStored = new Map(), staleBefore }: LocationCoverageOptions
+  {
+    windowStart,
+    latestStored = new Map(),
+    staleBefore,
+  }: LocationCoverageOptions
 ): Array<{ id: string; status: LocationCoverageStatus }> {
   const byLocation = new Map(
     checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint])
@@ -145,7 +149,8 @@ export function classifyLocationCoverage(
     // No figures at all. One fetched long ago is out of date, not empty; one
     // never fetched is waiting for its first (a `running` claim on a fetched
     // location does not make it a first fetch again).
-    if (fetchedAt !== null) return { id, status: oldFetch ? "stale" : "no_data" }
+    if (fetchedAt !== null)
+      return { id, status: oldFetch ? "stale" : "no_data" }
     return {
       id,
       status:

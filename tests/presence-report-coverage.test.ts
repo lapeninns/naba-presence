@@ -207,10 +207,30 @@ describe("classifyLocationCoverage", () => {
     const statuses = classifyLocationCoverage(
       FIVE,
       [
-        { locationId: "a", status: "succeeded", watermark: "2026-10-08", lastSucceededAt: fresh },
-        { locationId: "b", status: "failed", watermark: "2026-09-20", lastSucceededAt: fresh },
-        { locationId: "c", status: "succeeded", watermark: "2026-10-08", lastSucceededAt: old },
-        { locationId: "d", status: "succeeded", watermark: null, lastSucceededAt: fresh },
+        {
+          locationId: "a",
+          status: "succeeded",
+          watermark: "2026-10-08",
+          lastSucceededAt: fresh,
+        },
+        {
+          locationId: "b",
+          status: "failed",
+          watermark: "2026-09-20",
+          lastSucceededAt: fresh,
+        },
+        {
+          locationId: "c",
+          status: "succeeded",
+          watermark: "2026-10-08",
+          lastSucceededAt: old,
+        },
+        {
+          locationId: "d",
+          status: "succeeded",
+          watermark: null,
+          lastSucceededAt: fresh,
+        },
       ],
       { ...WINDOW, staleBefore }
     )
@@ -231,7 +251,11 @@ describe("classifyLocationCoverage", () => {
       noData: 1,
     })
     expect(
-      counts.reporting + counts.unavailable + counts.stale + counts.pending + counts.noData
+      counts.reporting +
+        counts.unavailable +
+        counts.stale +
+        counts.pending +
+        counts.noData
     ).toBe(counts.eligible)
   })
 
@@ -240,7 +264,14 @@ describe("classifyLocationCoverage", () => {
     // said "1 reporting" and "1 not fetched yet" for the same location.
     const statuses = classifyLocationCoverage(
       [LOCATIONS[0]],
-      [{ locationId: "a", status: "pending", watermark: null, lastSucceededAt: null }],
+      [
+        {
+          locationId: "a",
+          status: "pending",
+          watermark: null,
+          lastSucceededAt: null,
+        },
+      ],
       { ...WINDOW, staleBefore, latestStored: new Map([["a", "2026-10-08"]]) }
     )
     expect(statuses).toEqual([{ id: "a", status: "reporting" }])
@@ -250,8 +281,18 @@ describe("classifyLocationCoverage", () => {
     const statuses = classifyLocationCoverage(
       LOCATIONS.slice(0, 2),
       [
-        { locationId: "a", status: "succeeded", watermark: "2026-08-01", lastSucceededAt: fresh },
-        { locationId: "b", status: "failed", watermark: null, lastSucceededAt: null },
+        {
+          locationId: "a",
+          status: "succeeded",
+          watermark: "2026-08-01",
+          lastSucceededAt: fresh,
+        },
+        {
+          locationId: "b",
+          status: "failed",
+          watermark: null,
+          lastSucceededAt: null,
+        },
       ],
       { ...WINDOW, staleBefore }
     )
@@ -263,30 +304,67 @@ describe("classifyLocationCoverage", () => {
       FIVE.slice(0, 4),
       [
         // Fetched long ago, nothing stored: out of date, not "sent nothing".
-        { locationId: "a", status: "succeeded", watermark: null, lastSucceededAt: old },
+        {
+          locationId: "a",
+          status: "succeeded",
+          watermark: null,
+          lastSucceededAt: old,
+        },
         // Fetched an hour ago, nothing stored: Google sent nothing.
-        { locationId: "b", status: "succeeded", watermark: null, lastSucceededAt: fresh },
+        {
+          locationId: "b",
+          status: "succeeded",
+          watermark: null,
+          lastSucceededAt: fresh,
+        },
         // A sync claimed a location that has been fetched before: still not a first fetch.
-        { locationId: "c", status: "running", watermark: null, lastSucceededAt: fresh },
+        {
+          locationId: "c",
+          status: "running",
+          watermark: null,
+          lastSucceededAt: fresh,
+        },
         // A claim on a location never fetched is waiting for its first fetch.
-        { locationId: "d", status: "running", watermark: null, lastSucceededAt: null },
+        {
+          locationId: "d",
+          status: "running",
+          watermark: null,
+          lastSucceededAt: null,
+        },
       ],
       { ...WINDOW, staleBefore }
     )
-    expect(statuses.map((row) => row.status)).toEqual(["stale", "no_data", "no_data", "pending"])
+    expect(statuses.map((row) => row.status)).toEqual([
+      "stale",
+      "no_data",
+      "no_data",
+      "pending",
+    ])
   })
 
   it("keeps a location with figures in the totals out of `reporting` when its refresh failed", () => {
     // Its figures are in the totals, so the completeness summary does not call
     // it missing; the status still says its refresh failed.
     const checkpoints = [
-      { locationId: "a", status: "failed", watermark: "2026-10-08", lastSucceededAt: fresh },
+      {
+        locationId: "a",
+        status: "failed",
+        watermark: "2026-10-08",
+        lastSucceededAt: fresh,
+      },
     ]
-    const summary = summariseReportCoverage(LOCATIONS.slice(0, 1), checkpoints, WINDOW)
+    const summary = summariseReportCoverage(
+      LOCATIONS.slice(0, 1),
+      checkpoints,
+      WINDOW
+    )
     expect(summary.missing).toEqual([])
     expect(summary.refreshFailed).toEqual([{ id: "a", name: "Alpha" }])
     expect(
-      classifyLocationCoverage(LOCATIONS.slice(0, 1), checkpoints, { ...WINDOW, staleBefore })
+      classifyLocationCoverage(LOCATIONS.slice(0, 1), checkpoints, {
+        ...WINDOW,
+        staleBefore,
+      })
     ).toEqual([{ id: "a", status: "unavailable" }])
   })
 
@@ -298,12 +376,20 @@ describe("classifyLocationCoverage", () => {
       state: "ready",
       freshThrough: null,
       locations: [],
-      totals: Object.fromEntries(GOOGLE_PERFORMANCE_METRICS.map((metric) => [metric, null])),
+      totals: Object.fromEntries(
+        GOOGLE_PERFORMANCE_METRICS.map((metric) => [metric, null])
+      ),
       series: [],
       unavailableReasons: [],
       keywordsEnabled: false,
       ingestionEnabled: true,
-      coverage: { eligible: 1, reporting: 1, unavailable: 0, stale: 0, pending: 0 },
+      coverage: {
+        eligible: 1,
+        reporting: 1,
+        unavailable: 0,
+        stale: 0,
+        pending: 0,
+      },
     })
     expect(parsed.coverage?.noData).toBe(0)
   })
