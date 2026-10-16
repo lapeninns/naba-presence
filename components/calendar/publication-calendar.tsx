@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { CalendarOffIcon, ChevronLeft, ChevronRight } from "lucide-react"
+import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 
@@ -22,9 +23,10 @@ import {
   windowFor,
   type CalendarView,
 } from "@/components/calendar/calendar-dates"
+import { useRememberedClient } from "@/components/app-shell/client-context"
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationSelect } from "@/components/performance/location-select"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import {
@@ -33,6 +35,7 @@ import {
 } from "@/components/ui/segmented-control"
 import { ViewHeader } from "@/components/ui/view-header"
 import { ApiClientError } from "@/lib/api/client"
+import { withClientScope } from "@/lib/clients/scope"
 import { fetchScheduleOccurrences } from "@/lib/api/publication-schedules"
 import type { ScheduleOccurrence } from "@/lib/contracts/publication-schedules"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
@@ -41,6 +44,7 @@ import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
+import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
@@ -72,6 +76,7 @@ export function PublicationCalendar({
   const searchParams = useSearchParams()
   const role = useSessionRole()
   const business = useWorkspaceMode() === "business"
+  const { remembered } = useRememberedClient()
   const hydrated = useHydrated()
   const [now] = useState(() => new Date())
   // Without the organisation's zone, the browser's own, once it is known:
@@ -184,8 +189,11 @@ export function PublicationCalendar({
     const manager = role === "owner" || role === "admin"
     return (
       <>
-        {header}
-        {/* The state is the page: no toolbar, no buttons, nothing to retry. */}
+        {/* No description above the state: it described scheduled posts on
+            a calendar that is not there. */}
+        <ViewHeader title="Publication calendar" />
+        {/* The state is the page: no toolbar, nothing to retry. Its one
+            action is the way back to where posts are written. */}
         <Empty
           variant="not-enabled"
           placement="page"
@@ -199,6 +207,20 @@ export function PublicationCalendar({
                 ? " It is turned on per workspace by NabaPresence support; ask them when you are ready to schedule posts."
                 : " Ask an owner or admin if you need it."}
             </>
+          }
+          action={
+            <Link
+              // Listings keeps the client in scope (agency only), as the
+              // navigation's own link does, so it opens already narrowed.
+              href={
+                business
+                  ? "/listings"
+                  : withClientScope("/listings", remembered)
+              }
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              Go to Listings
+            </Link>
           }
         />
       </>

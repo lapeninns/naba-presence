@@ -86,7 +86,7 @@ function expectEnabled(item: HTMLElement) {
 describe("PostsActionBar", () => {
   it("publishes a draft, toasts the outcome and invalidates the posts list", async () => {
     api.publishPost.mockResolvedValue({ status: "published", postId: "p1", googlePostName: "locations/1/localPosts/9" })
-    const client = renderBar()
+    const client = renderBar({ post: post({ contentRevision: 5 }) })
 
     await userEvent.click(screen.getByRole("button", { name: "Publish" }))
     // Nothing is sent until the post has been shown and confirmed.
@@ -101,7 +101,19 @@ describe("PostsActionBar", () => {
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull()
     expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
       intentId: expect.any(String),
+      expectedRevision: 5,
     })
+    expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
+  })
+
+  it("reads the list again when the server refuses a publish because the post changed", async () => {
+    api.publishPost.mockRejectedValue(new ApiClientError(409, "post_changed_since_saved", "raw server text"))
+    const client = renderBar({ post: post({ contentRevision: 5 }) })
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }))
+    const confirm = await screen.findByRole("alertdialog")
+    await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
+    expect(await screen.findByText(/This post changed after it was saved or opened/)).toBeInTheDocument()
+    expect(screen.queryByText("raw server text")).toBeNull()
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
   })
 
