@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -20,7 +20,10 @@ vi.mock("@/components/performance/location-performance", () => ({
 }))
 
 import { PerformanceView } from "@/components/performance/performance-view"
-import { ReportToolbar } from "@/components/reporting/report-toolbar"
+import {
+  ReportPeriodStrip,
+  ReportToolbar,
+} from "@/components/reporting/report-toolbar"
 import { ToastProvider } from "@/components/ui/toast"
 
 afterEach(() => {
@@ -32,74 +35,103 @@ afterEach(() => {
 })
 
 describe("ReportToolbar", () => {
-  it("names the scope with the words on screen and opens the fields in a sheet", async () => {
+  it("draws the fields inline from md and no second scope control for a phone", () => {
     render(
       <ReportToolbar
         summary={["Old Crown Group", "3 locations", "Last 28 days"]}
-        fields={(placement) => <p>{`fields in the ${placement}`}</p>}
-        actions={<button type="button">Share report</button>}
+        fields={() => <p>the fields</p>}
+        meta="3 locations · 4 Aug – 31 Aug"
       />
     )
-    const summary = screen.getByRole("button", {
-      name: /^Old Crown Group.*3 locations.*Last 28 days$/,
-    })
-    // The inline (bar) copy is always present; the sheet copy only when open.
-    expect(screen.getByText("fields in the bar")).toBeInTheDocument()
-    expect(screen.queryByText("fields in the sheet")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Share report" })).toBeVisible()
-
-    await userEvent.click(summary)
-    expect(
-      await screen.findByRole("dialog", { name: "Report scope" })
-    ).toBeInTheDocument()
-    expect(screen.getByText("fields in the sheet")).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole("button", { name: "Done" }))
-    await waitFor(() =>
-      expect(screen.queryByText("fields in the sheet")).not.toBeInTheDocument()
-    )
+    const toolbar = screen.getByRole("region", { name: "Report scope" })
+    expect(toolbar).toHaveClass("hidden", "md:block")
+    expect(screen.getByText("the fields")).toBeInTheDocument()
+    expect(screen.getByText("3 locations · 4 Aug – 31 Aug")).toBeInTheDocument()
+    // The scope pill and its sheet of selects are gone: the app bar's chip is
+    // the scope control, and the period is the strip under the tabs.
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
-  // RC3 #9: on a phone the pill wrapped to three lines, cut the client's
-  // name and left a "·" hanging at a line end ("· 0 locations ·").
-  it("keeps the client's name on its own line and the rest on one line with no stray separator", () => {
+  it("draws the fields on a phone too when the app bar has no scope chip", () => {
     render(
       <ReportToolbar
-        summary={["Harbour Collective", "0 locations", "Last 28 days"]}
+        phone
+        summary={["Old Crown Group", "Last 28 days"]}
+        fields={() => <p>the fields</p>}
+        meta="4 Aug – 31 Aug"
+        extras={<a href="/x">Open listing</a>}
+      />
+    )
+    const toolbar = screen.getByRole("region", { name: "Report scope" })
+    expect(toolbar).toHaveClass("block")
+    expect(toolbar).not.toHaveClass("hidden")
+    // The caption and the links stay desk-only (the links are in the menu).
+    expect(screen.getByText("4 Aug – 31 Aug")).toHaveClass("max-md:hidden")
+    expect(
+      screen.getByRole("link", { name: "Open listing" }).parentElement
+    ).toHaveClass("max-md:hidden")
+  })
+
+  it("keeps a printed report saying what it covers", () => {
+    render(
+      <ReportToolbar
+        summary={["Old Crown Group", "3 locations", "Last 28 days"]}
         fields={() => null}
       />
     )
-    const pill = screen.getByRole("button", {
-      name: /^Harbour Collective.*0 locations.*Last 28 days$/,
-    })
-    const name = within(pill).getByText("Harbour Collective")
-    const rest = within(pill).getByText("0 locations").parentElement!
-    // Two single lines, never a wrapping row.
-    expect(name.parentElement).toHaveClass("flex-col")
-    expect(name.parentElement).not.toHaveClass("flex-wrap")
-    expect(rest).not.toHaveClass("flex-wrap")
-    expect(name).toHaveClass("truncate")
-    expect(name).not.toContainElement(within(pill).getByText("0 locations"))
-    // The lesser parts truncate first; the period never does.
-    expect(within(pill).getByText("0 locations")).toHaveClass(
-      "min-w-0",
-      "truncate"
+    expect(
+      screen.getByText("Old Crown Group · 3 locations · Last 28 days")
+    ).toHaveClass("print:block")
+  })
+})
+
+describe("ReportPeriodStrip", () => {
+  const OPTIONS = [
+    { id: "28d", label: "Last 28 days" },
+    { id: "90d", label: "Last 90 days" },
+    { id: "12m", label: "Last 12 months" },
+  ]
+
+  it("offers every period as one chip and marks the current one", async () => {
+    const onChange = vi.fn()
+    render(
+      <ReportPeriodStrip value="90d" options={OPTIONS} onChange={onChange} />
     )
-    expect(within(pill).getByText("Last 28 days")).toHaveClass(
-      "shrink-0",
-      "whitespace-nowrap"
+    const group = screen.getByRole("group", { name: "Period" })
+    expect(within(group).getAllByRole("button")).toHaveLength(3)
+    expect(
+      within(group).getByRole("button", { name: "Last 90 days" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      within(group).getByRole("button", { name: "Last 28 days" })
+    ).toHaveAttribute("aria-pressed", "false")
+    // One tap, nothing to confirm.
+    await userEvent.click(
+      within(group).getByRole("button", { name: "Last 12 months" })
     )
-    // Exactly one visible separator, between the two parts of that line.
-    const dots = within(pill).getAllByText("·")
-    expect(dots).toHaveLength(1)
-    const visible = (rest.textContent ?? "").replace(/,/g, "").trim()
-    expect(visible).toMatch(/^0 locations\s+·\s+Last 28 days$/)
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("12m")
   })
 
-  it("draws a lone part with no separator", () => {
-    render(<ReportToolbar summary={["Last 28 days"]} fields={() => null} />)
-    const pill = screen.getByRole("button", { name: "Last 28 days" })
-    expect(within(pill).queryByText("·")).not.toBeInTheDocument()
+  it("says when the period shown was carried over from another tab", () => {
+    render(
+      <ReportPeriodStrip
+        value="1m"
+        options={OPTIONS}
+        onChange={() => {}}
+        note="Keywords count whole months: showing the last month."
+      />
+    )
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Keywords count whole months: showing the last month."
+    )
+  })
+
+  it("draws no note when nothing was carried over", () => {
+    render(
+      <ReportPeriodStrip value="28d" options={OPTIONS} onChange={() => {}} />
+    )
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
   })
 })
 
@@ -171,13 +203,92 @@ describe("PerformanceView toolbar", () => {
     }
   })
 
-  it("summarises the active tab's period in the scope button", () => {
+  it("offers the active tab's period as one-tap chips, not a scope pill", () => {
     stubDirectory()
     search = "tab=keywords"
     renderView()
+    const group = screen.getByRole("group", { name: "Period" })
     expect(
-      screen.getByRole("button", { name: /^All clients.*Last 6 months$/ })
+      within(group).getByRole("button", { name: "Last 6 months" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      within(group)
+        .getAllByRole("button")
+        .map((chip) => chip.textContent)
+    ).toEqual([
+      "Last month",
+      "Last 6 months",
+      "Last 12 months",
+      "Last 18 months",
+    ])
+    // The old second scope control (a pill opening a sheet of selects).
+    expect(
+      screen.queryByRole("button", { name: /^All clients.*Last 6 months$/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("changes the period in one tap and writes it to the tab's own parameter", async () => {
+    stubDirectory()
+    search = "tab=google"
+    renderView()
+    await userEvent.click(
+      within(screen.getByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: "Last 90 days" }
+      )
+    )
+    expect(replace).toHaveBeenCalledExactlyOnceWith(
+      "/reports?tab=google&range=90d",
+      { scroll: false }
+    )
+  })
+
+  it("writes Keywords' period to ?range_kw= and leaves the Google period alone", async () => {
+    stubDirectory()
+    search = "tab=keywords&range=90d"
+    renderView()
+    await userEvent.click(
+      within(screen.getByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: "Last 12 months" }
+      )
+    )
+    expect(replace).toHaveBeenCalledExactlyOnceWith(
+      "/reports?tab=keywords&range=90d&range_kw=12m",
+      { scroll: false }
+    )
+  })
+
+  it("says so when Keywords takes the nearest months to the Google period", () => {
+    stubDirectory()
+    search = "tab=keywords&range=90d"
+    renderView()
+    expect(
+      within(screen.getByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: "Last 6 months" }
+      )
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      screen.getByText(
+        "Keywords count whole months: showing the last 6 months."
+      )
     ).toBeInTheDocument()
+  })
+
+  it("brings each tab's own period back when returning to it", () => {
+    stubDirectory()
+    search = "tab=google&range=12m&range_kw=1m"
+    renderView()
+    expect(
+      within(screen.getByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: "Last 12 months" }
+      )
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      screen.queryByText(/count whole months|counts in days/)
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -185,8 +296,10 @@ describe("LocationReport period", () => {
   it.each([
     ["locationId=l1&range=90d", "90d"],
     ["locationId=l1", "28d"],
-    // Keywords' months are not a location period: the default, not a guess.
-    ["locationId=l1&range=6m", "28d"],
+    // The location report shows what the Reply tab would: Keywords' months
+    // carry to the nearest days, with the note.
+    ["locationId=l1&range=6m", "90d"],
+    ["locationId=l1&range_kw=6m", "90d"],
   ])("reads %s as %s", async (query, rangeId) => {
     stubDirectory()
     search = query
@@ -197,8 +310,12 @@ describe("LocationReport period", () => {
     expect(locationPerformance).toHaveBeenLastCalledWith(
       expect.objectContaining({ locationId: "l1", rangeId })
     )
+    // The period is the phone's chip strip; the location is named in words.
     expect(
-      await screen.findByRole("button", { name: /^Girton.*Last \d+ days$/ })
+      within(await screen.findByRole("group", { name: "Period" })).getByRole(
+        "button",
+        { name: `Last ${rangeId.replace("d", "")} days`, pressed: true }
+      )
     ).toBeInTheDocument()
   })
 

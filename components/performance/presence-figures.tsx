@@ -90,14 +90,6 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      <div className="-mb-3 flex justify-end print:hidden">
-        <CsvDownloadButton
-          filename={csvFilename("google profile totals", data.from, data.to)}
-          rows={() => presenceTotalsCsv(data)}
-          label="Download totals CSV"
-          subject="the Google profile"
-        />
-      </div>
       <div className={reportTileGridClassName(5)}>
         {HEADLINE_METRICS.map((metric) => (
           <KpiTile
@@ -116,6 +108,15 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
             }
           />
         ))}
+      </div>
+      {/* Under the tiles it exports, not above them. */}
+      <div className="-mt-3 flex justify-end print:hidden">
+        <CsvDownloadButton
+          filename={csvFilename("google profile totals", data.from, data.to)}
+          rows={() => presenceTotalsCsv(data)}
+          label="Download totals CSV"
+          subject="the Google profile"
+        />
       </div>
 
       <Card

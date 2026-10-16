@@ -4,13 +4,14 @@ import { cn } from "@/lib/utils"
 
 /**
  * The caption line at the top of a report tab: when the figures are from
- * ("As at 12 Oct") on the left, a tab-specific action such as "Refresh from
- * Google" at the end. The scope and the period are not here: they live once,
- * above the tabs, in `ReportToolbar` (components/reporting/report-toolbar).
+ * ("Through 14 Oct · 1 of 2 locations") on the left, the report's actions
+ * menu (Share, Refresh from Google) at the end, on one line. The scope and
+ * the period are not here: the scope is the app bar's chip (a phone) or
+ * `ReportToolbar`'s fields (from `md`), and the period is
+ * `ReportPeriodStrip` (components/reporting/report-toolbar).
  *
- * `controls` is kept for actions only; a period select belongs in the
- * toolbar. Draws nothing when it has neither, so a loading tab has no empty
- * row.
+ * `controls` is for actions only. Draws nothing when it has neither, so a
+ * loading tab has no empty row.
  */
 export function ReportTabHead({
   caption,

@@ -115,12 +115,15 @@ describe("tab loading", () => {
     expect(
       container.querySelector("[data-slot=report-tab-head]")
     ).toBeInTheDocument()
-    // The refresh button is there from the first paint, and says what it says.
+    // The report's actions menu is there from the first paint, and Refresh
+    // from Google is its row.
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }))
     expect(
-      screen.getByRole("button", { name: "Refresh from Google" })
+      await screen.findByRole("menuitem", { name: "Refresh from Google" })
     ).toBeInTheDocument()
+    await userEvent.keyboard("{Escape}")
     await act(async () => answer(json(presence("2026-08-30T06:00:00.000Z"))))
-    expect(await screen.findByText(/Data through/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Through 29 Aug/)).toBeInTheDocument()
     expect(container.querySelectorAll("[data-skeleton=tile]")).toHaveLength(0)
   })
 
@@ -159,15 +162,16 @@ describe("refreshing from Google", () => {
         </Toaster>
       </QueryClientProvider>
     )
-    await screen.findByText(/Data through/)
+    await screen.findByText(/^Through 29 Aug/)
     const reads = () =>
       fetchMock.mock.calls.filter(
         ([url, init]) =>
           String(url).startsWith("/api/analytics/presence") &&
           init?.method !== "POST"
       ).length
+    await user.click(screen.getByRole("button", { name: "More actions" }))
     await user.click(
-      screen.getByRole("button", { name: "Refresh from Google" })
+      await screen.findByRole("menuitem", { name: "Refresh from Google" })
     )
     // One invalidate, no second explicit refetch: the figures are read twice
     // in all (the load, then the press).
@@ -232,8 +236,9 @@ describe("refreshing from Google", () => {
       </QueryClientProvider>
     )
     await screen.findByText("riverside hotel bath")
+    await user.click(screen.getByRole("button", { name: "More actions" }))
     await user.click(
-      screen.getByRole("button", { name: "Refresh from Google" })
+      await screen.findByRole("menuitem", { name: "Refresh from Google" })
     )
     expect(await screen.findByText("Refreshing…")).toBeInTheDocument()
     await act(async () => {
@@ -268,9 +273,10 @@ describe("refreshing from Google", () => {
         </Toaster>
       </QueryClientProvider>
     )
-    await screen.findByText(/Data through/)
+    await screen.findByText(/^Through 29 Aug/)
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }))
     await userEvent.click(
-      screen.getByRole("button", { name: "Refresh from Google" })
+      await screen.findByRole("menuitem", { name: "Refresh from Google" })
     )
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /already running/

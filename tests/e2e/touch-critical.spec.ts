@@ -1006,6 +1006,14 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(page).toHaveURL(/[?&]tab=keywords/)
     await expect(keywords).toHaveAttribute("aria-selected", "true")
     await expect(page.getByText("riverside hotel bath")).toBeVisible()
+    // Keywords carries Google's one month, where the term's suppressed month
+    // falls outside the window and it reads as an exact 1,000. One tap on the
+    // longer period brings the honest "1,000+" back.
+    await tap(
+      page
+        .getByRole("group", { name: "Period" })
+        .getByRole("button", { name: "Last 6 months" })
+    )
     await expect(page.getByText("1,000+")).toBeVisible()
   })
 })

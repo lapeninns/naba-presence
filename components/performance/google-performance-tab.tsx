@@ -8,13 +8,16 @@ import {
   PartialCoverageAlert,
   RefreshFailedNote,
 } from "@/components/reporting/partial-coverage-alert"
-import { PresenceProvenance } from "@/components/reporting/presence-provenance"
+import { PresenceCaption } from "@/components/reporting/presence-provenance"
+import {
+  ReportActionsMenu,
+  type ReportShareTarget,
+} from "@/components/reporting/report-actions-menu"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
 import { PresenceFigures } from "@/components/performance/presence-figures"
 import {
-  RefreshGoogleButton,
   RefreshStatus,
   useRefreshWatch,
 } from "@/components/performance/refresh-google-button"
@@ -35,15 +38,18 @@ import { cn } from "@/lib/utils"
 
 /**
  * Google performance for the page's scope and period. The period is chosen
- * in the page's ReportToolbar (`?range=`); `onRangeChange` is still used for
- * the "Show the last 12 months" shortcut on an empty window.
+ * in the page's period strip or toolbar (`?range=`); `onRangeChange` is
+ * still used for the "Show the last 12 months" shortcut on an empty window.
  */
 export function GooglePerformanceTab({
   clientId,
   range,
   onRangeChange,
+  share,
 }: {
   clientId?: string
+  /** What the report's menu shares; none when the viewer may not share. */
+  share?: ReportShareTarget | null
   /** The period, when the page keeps it (in `?range=`); else kept here. */
   range?: PresenceRangeId
   onRangeChange?: (range: PresenceRangeId) => void
@@ -77,38 +83,42 @@ export function GooglePerformanceTab({
     "UTC"
   )
 
+  const canRefresh = canTriggerSync(role)
   const header = (
     <ReportTabHead
       caption={
         presence.isPending ? (
-          // The provenance is two lines once it arrives: keep their room so
-          // the tiles do not drop when it appears.
-          <div aria-hidden className="flex flex-col gap-1">
-            <Skeleton className="h-4 w-72 max-w-full" />
-            <Skeleton className="h-4 w-40 max-w-full" />
-          </div>
+          // One caption line once it arrives: keep its room so the tiles do
+          // not drop when it appears.
+          <Skeleton aria-hidden className="h-4 w-56 max-w-full" />
         ) : !presence.data?.freshThrough && !refresh.refreshing ? null : (
           // Only a real "as at" date: with nothing collected the panel below
           // already says so, and the caption would repeat it word for word.
           <>
             {presence.data?.freshThrough ? (
-              <PresenceProvenance data={presence.data} />
+              <PresenceCaption data={presence.data} />
             ) : null}
             {refresh.refreshing ? <RefreshStatus /> : null}
           </>
         )
       }
       controls={
-        // Owners and admins only (lib/reporting/sync-permission); for
-        // everyone else the button is not rendered at all.
-        canTriggerSync(role) ? (
-          <RefreshGoogleButton
-            kind="performance"
-            canTrigger
-            onStart={refresh.onStart}
-            onFailed={refresh.onFailed}
+        // Refresh is owners' and admins' only (lib/reporting/sync-permission);
+        // for everyone else it is not in the menu at all.
+        share || canRefresh ? (
+          <ReportActionsMenu
+            share={share}
+            refresh={
+              canRefresh
+                ? {
+                    kind: "performance",
+                    onStart: refresh.onStart,
+                    onFailed: refresh.onFailed,
+                  }
+                : null
+            }
           />
-        ) : null
+        ) : undefined
       }
     />
   )
@@ -175,7 +185,7 @@ export function GooglePerformanceTab({
     return frame(
       <>
         {/* No figures yet: still name each location and why. */}
-        <PartialCoverageAlert completeness={data.completeness} />
+        <PartialCoverageAlert compact completeness={data.completeness} />
         <ReportingPanel framed titleAs="h3" variant="collecting" />
       </>
     )
@@ -193,6 +203,7 @@ export function GooglePerformanceTab({
           <RefreshFailedNote completeness={data.completeness} />
         </UnavailableAlert>
         <PartialCoverageAlert
+          compact
           completeness={data.completeness}
           refreshFailedShownElsewhere
         />
@@ -209,7 +220,7 @@ export function GooglePerformanceTab({
   if (data.state === "empty")
     return frame(
       <>
-        <PartialCoverageAlert completeness={data.completeness} />
+        <PartialCoverageAlert compact completeness={data.completeness} />
         <ReportingPanel
           framed
           titleAs="h3"
@@ -244,6 +255,7 @@ export function GooglePerformanceTab({
       </UnavailableAlert>
       {/* Expected vs covered: missing locations are named, never zero. */}
       <PartialCoverageAlert
+        compact
         completeness={data.completeness}
         refreshFailedShownElsewhere={failureExplained}
       />

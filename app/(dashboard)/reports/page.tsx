@@ -13,14 +13,14 @@ export default async function ReportsPage() {
   return (
     <PageFrame width="wide">
       {/* The page's one h1, server-rendered so it is there before the report
-          streams in. The scope is NOT a header action here: it is three
-          fields and Share report on a desk and a wrapping summary pill on a
-          phone, and the header's action slot keeps its content at full
-          width (it never shrinks), so the scope stays the row directly
-          under the title (ReportToolbar, in PerformanceView). */}
+          streams in. The scope is NOT a header action here: on a desk it is
+          three fields in the row under the title (ReportToolbar, in
+          PerformanceView), and on a phone it is the app bar's scope chip.
+          The description is for a desk: on a phone it would sit between the
+          title and the first figure. */}
       <div className="flex flex-col gap-1">
         <ViewHeader title="Reports" />
-        <p className="max-w-prose text-body text-pretty text-ink-muted">
+        <p className="hidden max-w-prose text-body text-pretty text-ink-muted md:block">
           {terms.reportsDescription}
         </p>
       </div>
