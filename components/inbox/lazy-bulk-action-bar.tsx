@@ -9,6 +9,7 @@ import {
   whileLoading,
 } from "@/components/inbox/lazy-dialog-boundary"
 import { useSelection } from "@/components/inbox/selection-context"
+import { DockSpacer } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
 import type { ReviewRow } from "@/lib/contracts/reviews"
 
@@ -61,22 +62,28 @@ function LoadFailedNotice({ onRetry }: { onRetry: () => void }) {
     // SelectionBar: that module belongs to the bar's chunk, and importing it
     // here for a notice most people never see would put it back in the
     // Inbox's first load.
-    <div
-      role="region"
-      aria-label="Selection actions"
-      data-slot="bulk-action-bar-failed"
-      // The tab bar steps aside for a docked bar (globals.css), phone only.
-      data-docked="bottom"
-      className="z-chrome flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle bg-surface py-1 pr-1 pl-(--np-page-pad-x) max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:pb-[max(--spacing(1),var(--np-dock-bottom))]"
-    >
-      <p role="alert" className="text-caption text-ink-muted">
-        The selection actions could not load.
-      </p>
-      <Button ref={retryRef} variant="ghost" onClick={onRetry}>
-        <RefreshCwIcon aria-hidden />
-        Try again
-      </Button>
-    </div>
+    <>
+      {/* Keeps the last row reachable above the fixed notice (phone only), and
+          moves the toasts and scroll padding clear of it, as for any docked
+          bar. The ActionBar's spacer, already in the Inbox's first load. */}
+      <DockSpacer data-slot="bulk-action-bar-failed-spacer" />
+      <div
+        role="region"
+        aria-label="Selection actions"
+        data-slot="bulk-action-bar-failed"
+        // The tab bar steps aside for a docked bar (globals.css), phone only.
+        data-docked="bottom"
+        className="z-chrome flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle bg-surface py-1 pr-1 pl-(--np-page-pad-x) max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:pb-[max(--spacing(1),var(--np-dock-bottom))]"
+      >
+        <p role="alert" className="text-caption text-ink-muted">
+          The selection actions could not load.
+        </p>
+        <Button ref={retryRef} variant="ghost" onClick={onRetry}>
+          <RefreshCwIcon aria-hidden />
+          Try again
+        </Button>
+      </div>
+    </>
   )
 }
 

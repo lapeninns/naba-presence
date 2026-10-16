@@ -524,6 +524,20 @@ test.describe("inbox", () => {
       await expect(notice).toBeVisible()
       // Pinned to the bottom edge of the phone, not lost under the rows.
       await expect(notice).toBeInViewport({ ratio: 1 })
+      // Nothing covers "Try again": the phone navigation has stepped aside and
+      // the control's centre is what a tap would hit (a viewport check alone
+      // cannot see another fixed bar painted over it).
+      await expect(page.locator('[data-slot="tab-bar"]')).toBeHidden()
+      const retryButton = notice.getByRole("button", { name: "Try again" })
+      const hit = await retryButton.evaluate((button) => {
+        const box = button.getBoundingClientRect()
+        const top = document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2
+        )
+        return top !== null && button.contains(top)
+      })
+      expect(hit).toBe(true)
       await expect(notice).toContainText(
         "The selection actions could not load."
       )
