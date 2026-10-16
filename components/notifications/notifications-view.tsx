@@ -32,6 +32,7 @@ import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
+import { showToast } from "@/components/ui/toast"
 import { ViewHeader } from "@/components/ui/view-header"
 import {
   fetchNotifications,
@@ -95,8 +96,19 @@ function isFilter(value: string | null): value is NotificationFilter {
 
 type NotificationPages = InfiniteData<NotificationListResponse, string>
 
-/** The endpoint takes at most 100 ids at once; "Mark all read" sends in turns. */
+/** The endpoint takes at most 100 ids at once; a long list is sent in turns. */
 const READ_BATCH = 100
+
+/**
+ * Read and resolve share one mutation key and one queue. They then see each
+ * other's pending changes (so neither refetches, or rolls back, over the
+ * other's optimistic change) and reach the server in the order they were made.
+ */
+const CHANGE_KEY = ["notifications", "change"] as const
+const CHANGE_SCOPE = { id: "notifications-change" }
+
+/** What a read request reports: null, or why a later turn was refused. */
+type ReadResult = { failure: unknown }
 
 /** What the header count counts: open, and not yet read by this person. */
 const countsAsUnread = (item: NotificationItem) =>
@@ -167,21 +179,34 @@ export function NotificationsView() {
   // toast, if the server says no. The variables carry the filter so a late
   // answer settles the list it was made from.
   const read = useOptimisticMutation<
-    unknown,
+    ReadResult,
     { ids: string[]; read: boolean; filter: NotificationFilter },
     NotificationPages
   >({
-    // One write at a time, in the order tapped: Mark read then Mark unread
-    // on one row can never arrive the other way round.
-    scope: { id: "notifications-read" },
+    mutationKey: CHANGE_KEY,
+    scope: CHANGE_SCOPE,
+    // Sends in turns of 100. A turn refused after an earlier one saved is
+    // not a failure of the whole change: it reports what is left instead of
+    // throwing, so the saved rows stay read and the list is refetched.
     mutationFn: async ({ ids, read: value }) => {
-      let result: unknown
-      for (let from = 0; from < ids.length; from += READ_BATCH)
-        result = await markNotificationsRead(
-          ids.slice(from, from + READ_BATCH),
-          value
-        )
-      return result
+      for (let from = 0; from < ids.length; from += READ_BATCH) {
+        try {
+          await markNotificationsRead(ids.slice(from, from + READ_BATCH), value)
+        } catch (error) {
+          if (from === 0) throw error
+          return { failure: error }
+        }
+      }
+      return { failure: null }
+    },
+    onSuccess: ({ failure }) => {
+      if (failure === null) return
+      showToast({
+        id: "notifications-read-partial",
+        type: "error",
+        title: "Some notifications weren’t marked as read",
+        description: describeActionError(failure),
+      })
     },
     queryKey: (variables) => queryKeys.notifications(variables.filter),
     alsoInvalidate: [queryKeys.notificationsAll],
@@ -201,6 +226,8 @@ export function NotificationsView() {
     { id: string; filter: NotificationFilter },
     NotificationPages
   >({
+    mutationKey: CHANGE_KEY,
+    scope: CHANGE_SCOPE,
     mutationFn: ({ id }) => resolveNotification(id),
     queryKey: (variables) => queryKeys.notifications(variables.filter),
     alsoInvalidate: [queryKeys.notificationsAll],
@@ -301,7 +328,7 @@ export function NotificationsView() {
                   read.mutate({ ids: unreadShown, read: true, filter })
                 }
               >
-                Mark all read
+                {query.hasNextPage ? "Mark shown as read" : "Mark all read"}
               </Button>
             ) : null}
           </div>

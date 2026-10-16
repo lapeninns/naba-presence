@@ -104,13 +104,24 @@ type ServerOptions = {
   fail?: "read" | "resolve"
   /** A path held until `release()`. */
   hold?: "read" | "resolve"
+  /** The first list call returns this cursor: more pages exist. */
+  nextCursor?: string | null
+  /** Read calls after this many succeed are refused (a failed later batch). */
+  failReadAfter?: number
 }
 /**
  * A server that keeps the notifications: read and resolve change what the
  * next list returns, so a refetch after a change shows the real answer.
  */
-function notificationServer({ items, fail, hold }: ServerOptions) {
+function notificationServer({
+  items,
+  fail,
+  hold,
+  nextCursor = null,
+  failReadAfter,
+}: ServerOptions) {
   let state = items
+  let readCalls = 0
   let release = () => {}
   const gate = new Promise<void>((resolve) => (release = resolve))
   const calls: Call[] = []
@@ -144,13 +155,19 @@ function notificationServer({ items, fail, hold }: ServerOptions) {
         )
         return json({
           items: shown,
-          nextCursor: null,
+          nextCursor,
           unreadCount: state.filter(
             (row) => row.status === "open" && !row.readAt
           ).length,
         })
       }
       if (hold === path) await gate
+      if (path === "read" && failReadAfter !== undefined)
+        if (readCalls++ >= failReadAfter)
+          return json(
+            { error: "internal_error", message: "Something broke." },
+            500
+          )
       if (fail === path)
         return json(
           { error: "internal_error", message: 'relation "x" does not exist' },
@@ -436,6 +453,50 @@ describe("NotificationsView interactions", () => {
     expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
   })
 
+  it("keeps a resolve showing while another change settles", async () => {
+    const { calls, release } = notificationServer({
+      items: [item({}), second],
+      hold: "resolve",
+    })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+    )
+    await screen.findByText("Resolved")
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark read: Listing access lost" })
+    )
+    expect(
+      await screen.findByRole("button", {
+        name: "Mark unread: Listing access lost",
+      })
+    ).toBeInTheDocument()
+    // Time for a refetch from the read to land, were it to run too early.
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(screen.getByText("Resolved")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Resolve: Publishing failed" })
+    ).not.toBeInTheDocument()
+    release()
+    await waitFor(() => expect(readCalls(calls)).toHaveLength(1))
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("0 open and unread")
+    )
+    expect(screen.getByText("Resolved")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Mark unread: Listing access lost" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("The notification wasn’t resolved")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Your change wasn’t saved")
+    ).not.toBeInTheDocument()
+  })
+
   it("takes a row out of the Unread filter the moment it is read", async () => {
     nav.set("filter=unread")
     const { release } = notificationServer({
@@ -476,6 +537,42 @@ describe("NotificationsView interactions", () => {
 })
 
 describe("NotificationsView Mark all read", () => {
+  it("says Mark shown as read while more notifications are still to load", async () => {
+    notificationServer({ items: [item({})], nextCursor: "next" })
+    renderView()
+    expect(
+      await screen.findByRole("button", { name: "Mark shown as read" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Mark all read" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps what saved and says so when a later batch is refused", async () => {
+    const many = Array.from({ length: 101 }, (_, index) =>
+      item({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      })
+    )
+    const { calls } = notificationServer({ items: many, failReadAfter: 1 })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark all read" })
+    )
+    expect(
+      await screen.findByText("Some notifications weren’t marked as read")
+    ).toBeInTheDocument()
+    expect(readCalls(calls)).toHaveLength(2)
+    // The hundred that saved stay read; only the one that failed is unread.
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
+    )
+    expect(screen.getAllByText(/\(unread\)/)).toHaveLength(1)
+    expect(
+      screen.queryByText("Your change wasn’t saved")
+    ).not.toBeInTheDocument()
+  })
+
   const read = item({
     id: "44444444-4444-4444-8444-444444444444",
     kind: "listing_access_lost",
