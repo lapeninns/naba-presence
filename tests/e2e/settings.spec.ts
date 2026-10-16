@@ -473,3 +473,67 @@ test.describe("team roles", () => {
     await expect(row).toBeFocused()
   })
 })
+
+// P20 Release & QA repro: Reply policy is prefetched on the server, so
+// Next's router cache keeps the page's old payload. Back after a save must
+// still show the saved policy, not the snapshot the page was first read
+// with (it used to: the old payload was re-dated on every mount and won).
+test.describe("reply policy after Back", () => {
+  const cleanups: (() => Promise<void>)[] = []
+  test.afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup()
+  })
+
+  test("save, leave by an in-app link, press Back: the form shows what was saved", async ({
+    baseURL,
+    page,
+  }) => {
+    // A throwaway tenant, so the shared journey tenant's policy is untouched.
+    const tenant = await seedTeamTenant({
+      settings: { approvalRequired: false, rawContentRetentionDays: 30 },
+    })
+    cleanups.push(tenant.destroy)
+    await applyCookie(page, baseURL, tenant.cookie)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto("/settings")
+    await expect(page.getByRole("heading", { name: "Reply policy", level: 1 })).toBeVisible()
+
+    const approval = page.getByRole("switch", { name: "Require approval before replies publish" })
+    const secondPerson = page.getByRole("switch", { name: /Require a second person/ })
+    await expect(approval).not.toBeChecked()
+    await approval.click()
+    await secondPerson.click()
+    await page.getByRole("button", { name: "Save changes" }).click()
+    await expect(page.getByRole("button", { name: "Save changes" })).toBeHidden()
+    await expect(approval).toBeChecked()
+    await expect(secondPerson).toBeChecked()
+
+    // A marker that only a full page load clears: Back must be a soft
+    // navigation from Next's router cache, the path that went wrong.
+    await page.evaluate(() => {
+      ;(window as unknown as { __p20Soft?: boolean }).__p20Soft = true
+    })
+    await page
+      .locator('aside[aria-label="Sidebar"]')
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: /^Inbox/ })
+      .click()
+    await expect(page).not.toHaveURL(/\/settings$/)
+    await page.goBack()
+    await expect(page).toHaveURL(/\/settings$/)
+    await expect(page.getByRole("heading", { name: "Reply policy", level: 1 })).toBeVisible()
+    expect(
+      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+    ).toBe(true)
+
+    await expect(approval).toBeChecked()
+    await expect(secondPerson).toBeChecked()
+    // Nothing looks unsaved, so a later save can't send the old values.
+    await expect(page.getByRole("button", { name: "Save changes" })).toBeHidden()
+
+    // And the server holds the saved policy.
+    await page.reload()
+    await expect(approval).toBeChecked()
+    await expect(secondPerson).toBeChecked()
+  })
+})
