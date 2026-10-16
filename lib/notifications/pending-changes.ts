@@ -268,6 +268,30 @@ function snapshotOf(
 }
 
 /**
+ * `change` with the snapshots of the rows `saved` has since made permanent
+ * taken as they are after it, not before.
+ */
+function rebaseOnto(
+  saved: PendingChange,
+  change: PendingChange
+): PendingChange {
+  const fold = makeFold([saved])
+  let snapshots: Record<string, KnownRow> | null = null
+  for (const [id, snapshot] of Object.entries(change.snapshots)) {
+    if (!fold.touched.has(id)) continue
+    const { status, readAt } = fold.state(snapshot, id)
+    if (
+      status === snapshot.status &&
+      Boolean(readAt) === Boolean(snapshot.readAt)
+    )
+      continue
+    snapshots ??= { ...change.snapshots }
+    snapshots[id] = { ...snapshot, status, readAt }
+  }
+  return snapshots ? { ...change, snapshots } : change
+}
+
+/**
  * How far the "open and unread" count moves once `changes` are applied. For
  * every touched row it is unread(final) minus unread(raw), so it does not
  * matter whether the cache has meanwhile caught up with a change: a row the
@@ -515,7 +539,10 @@ export function commitPendingChange(
   const live = isChangeLive(client, change)
   notifyManager.batch(() => {
     if (live) {
-      const applied = saved ? { ...change, ids: saved } : change
+      // The store's copy of the change: an earlier save may have rebased its
+      // snapshots since the caller took the one it holds.
+      const current = store.changes.find((other) => other.id === change.id)
+      const applied = { ...(current ?? change), ...(saved && { ids: saved }) }
       // Read before any write: each list's delta is judged against the cache
       // as it was, not as the previous list's write left it.
       const rows = cachedRowStates(client)
@@ -532,8 +559,19 @@ export function commitPendingChange(
             held.map((other) => (other.id === change.id ? applied : other))
           )
         : null
+      // A change still out for a row this one saved took its snapshot before
+      // the save: measured against that, it would move nothing. It is
+      // measured against the row as saved, so the pin rests on the committed
+      // count and a later refusal of it leaves the bell where the cache is.
+      const rebased = new Map(
+        others.map((other) => [other.id, rebaseOnto(applied, other)])
+      )
+      const rest = others.map((other) => rebased.get(other.id)!)
       if (pin && total !== null)
-        store.pin = { ...pin, count: total - snapshotDelta(others) }
+        store.pin = { ...pin, count: total - snapshotDelta(rest) }
+      store.changes = store.changes.map(
+        (other) => rebased.get(other.id) ?? other
+      )
       for (const list of cachedLists(client)) {
         const filter: ListFilter =
           list.filter === "all" || list.filter === "open"

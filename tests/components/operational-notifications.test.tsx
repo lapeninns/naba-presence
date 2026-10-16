@@ -68,6 +68,7 @@ const item = (overrides: Record<string, unknown>) => ({
   canResolve: true,
   ...overrides,
 })
+const READ_AT = "2026-09-30T11:00:00.000Z"
 type Call = { url: string; method: string; body: unknown }
 function stub(routes: (call: Call) => unknown) {
   const calls: Call[] = []
@@ -1557,6 +1558,104 @@ describe("NotificationsView pending changes", () => {
       agree(1)
       server.releaseLists()
       await waitFor(() => agree(1))
+    })
+
+    describe("when the opposite change on the same row is refused after the first is saved", () => {
+      const badgeOf = (client: QueryClient) =>
+        client.getQueryData<{ unreadCount: number }>(
+          queryKeys.notifications("badge")
+        )?.unreadCount
+
+      it("leaves page, bell and badge cache at the saved read", async () => {
+        const server = steppedServer([first, other])
+        const client = mountScoped(OWNER, true)
+        await screen.findByText("Publishing failed")
+        await waitFor(() => agree(2))
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark read: Publishing failed" })
+        )
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+        )
+        agree(2)
+        server.holdLists()
+        ;(await server.write(0)).accept()
+        await waitFor(() => expect(badgeOf(client)).toBe(1))
+        ;(await server.write(1)).refuse()
+        await waitFor(() => agree(1))
+        await tick()
+        expect(badgeOf(client)).toBe(1)
+        agree(1)
+        server.releaseLists()
+        await waitFor(() => agree(1))
+      })
+
+      it("leaves page, bell and badge cache at the saved unread", async () => {
+        const server = steppedServer([{ ...first, readAt: READ_AT }, other])
+        const client = mountScoped(OWNER, true)
+        await screen.findByText("Publishing failed")
+        await waitFor(() => agree(1))
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+        )
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark read: Publishing failed" })
+        )
+        agree(1)
+        server.holdLists()
+        ;(await server.write(0)).accept()
+        await waitFor(() => expect(badgeOf(client)).toBe(2))
+        ;(await server.write(1)).refuse()
+        await waitFor(() => agree(2))
+        await tick()
+        expect(badgeOf(client)).toBe(2)
+        agree(2)
+        server.releaseLists()
+        await waitFor(() => agree(2))
+      })
+
+      it("holds when both opposite changes save", async () => {
+        const both = steppedServer([first, other])
+        const client = mountScoped(OWNER, true)
+        await screen.findByText("Publishing failed")
+        await waitFor(() => agree(2))
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark read: Publishing failed" })
+        )
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+        )
+        both.holdLists()
+        ;(await both.write(0)).accept()
+        await waitFor(() => expect(badgeOf(client)).toBe(1))
+        ;(await both.write(1)).accept()
+        await waitFor(() => expect(badgeOf(client)).toBe(2))
+        agree(2)
+        both.releaseLists()
+        await waitFor(() => agree(2))
+      })
+
+      it("holds when the first is refused and the second saved", async () => {
+        const server = steppedServer([first, other])
+        const client = mountScoped(OWNER, true)
+        await screen.findByText("Publishing failed")
+        await waitFor(() => agree(2))
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark read: Publishing failed" })
+        )
+        fireEvent.click(
+          screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+        )
+        server.holdLists()
+        ;(await server.write(0)).refuse()
+        ;(await server.write(1)).accept()
+        await waitFor(() => agree(2))
+        await tick()
+        expect(badgeOf(client)).toBe(2)
+        agree(2)
+        server.releaseLists()
+        await waitFor(() => agree(2))
+      })
     })
 
     describe("when the shell's unread page has more to load", () => {
