@@ -1,11 +1,14 @@
 "use client"
 
+import { useEffect, useRef } from "react"
+
 import { GoogleFreshness } from "@/components/inbox/google-freshness"
 import { useSelection } from "@/components/inbox/selection-context"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import type { ReviewRow } from "@/lib/contracts/reviews"
 import { formatNumber } from "@/lib/format"
+import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { cn } from "@/lib/utils"
 
 /**
@@ -15,10 +18,16 @@ import { cn } from "@/lib/utils"
  * On a desk the select-all box is always there, beside the rows' own
  * boxes. On touch the boxes would cost every row 44px of width for a tool
  * used now and then, so they wait for select mode: "Select" turns it on.
- * While select mode is on, or anything is ticked (at any width), the band
- * reads "N selected" with the one "Cancel", which ends the mode and clears
- * the selection. The selection bar below holds only the actions, so there
- * is a single way out. Viewers have no bulk tools, so they get neither.
+ * While select mode is on (touch), or anything is ticked (at any width),
+ * the band reads "N selected" with the one "Cancel", which ends the mode and
+ * clears the selection. The selection bar below holds only the actions, so
+ * there is a single way out. On a desk the band lasts only while something
+ * is ticked: select mode is not a mode there (ticking a box sets it only so
+ * a resize to touch is not left with invisible ticks), so unticking the last
+ * row or pressing Escape returns the band to normal. Cancel hides itself
+ * when it ends the selection, so focus is handed to the control that starts
+ * one again (the select-all box on a desk, "Select" on touch). Viewers have
+ * no bulk tools, so they get neither.
  */
 function ListHeader({
   canBatch,
@@ -42,13 +51,40 @@ function ListHeader({
   clientId?: string
 }) {
   const selection = useSelection()
+  const desk = useHydratedBreakpoint("desk")
+  const selectButtonRef = useRef<HTMLButtonElement>(null)
+  const selectAllRef = useRef<HTMLSpanElement>(null)
+  const refocus = useRef(false)
   const ticked = reviews.filter((review) => selection.selected.has(review.id))
   const allTicked = reviews.length > 0 && ticked.length === reviews.length
   // Only a viewer who can batch ever enters select mode.
   const selectMode = canBatch && selection.selectMode
   // Selecting, by the touch mode or by ticks (a desk's boxes, select all):
   // the band says how many and offers the one Cancel.
-  const selecting = canBatch && (selection.selectMode || ticked.length > 0)
+  const selecting =
+    canBatch && (ticked.length > 0 || (selection.selectMode && desk !== true))
+  const mustLeaveMode =
+    canBatch &&
+    desk === true &&
+    selection.selectMode &&
+    selection.selected.size === 0
+  const { setSelectMode } = selection
+
+  // A desk has no select mode to sit in with nothing ticked (Escape and
+  // unticking the last row leave it set): put the header back to normal.
+  useEffect(() => {
+    if (mustLeaveMode) setSelectMode(false)
+  }, [mustLeaveMode, setSelectMode])
+
+  // Cancel is drawn only while selecting, so it takes keyboard focus with
+  // it. Hand it to the control that starts a selection again.
+  useEffect(() => {
+    if (selecting || !refocus.current) return
+    refocus.current = false
+    const target =
+      desk === true ? selectAllRef.current : selectButtonRef.current
+    ;(target ?? selectButtonRef.current)?.focus()
+  }, [selecting, desk])
 
   return (
     <div
@@ -68,6 +104,7 @@ function ListHeader({
           )}
         >
           <Checkbox
+            ref={selectAllRef}
             checked={allTicked}
             indeterminate={ticked.length > 0 && !allTicked}
             disabled={!loaded || reviews.length === 0}
@@ -137,6 +174,7 @@ function ListHeader({
       ) : null}
       {canBatch ? (
         <Button
+          ref={selectButtonRef}
           variant="ghost"
           // Touch: "Select" turns select mode on. On a desk the boxes are
           // always showing, so the button is there only to cancel a
@@ -146,7 +184,10 @@ function ListHeader({
           className={cn("-mr-2 px-3", !selecting && "desk:hidden")}
           aria-label={selecting ? "Cancel selection" : undefined}
           disabled={!selecting && (!loaded || reviews.length === 0)}
-          onClick={() => selection.setSelectMode(!selecting)}
+          onClick={() => {
+            if (selecting) refocus.current = true
+            selection.setSelectMode(!selecting)
+          }}
         >
           {selecting ? "Cancel" : "Select"}
         </Button>

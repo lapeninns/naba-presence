@@ -19,6 +19,10 @@ import {
   useAssignees,
   useReviewTriage,
 } from "@/components/inbox/review-triage"
+import {
+  LazyDialogBoundary,
+  whileLoading,
+} from "@/components/inbox/lazy-dialog-boundary"
 import { useSelection } from "@/components/inbox/selection-context"
 import {
   AlertDialog,
@@ -61,17 +65,26 @@ import { isRatingOnly } from "@/lib/inbox/template-batch"
 // loaded) and mounted only once asked for. It is closed on the server.
 const loadTemplateReplyDialog = () =>
   import("@/components/inbox/template-reply-dialog")
-const TemplateReplyDialog = dynamic(
-  () => loadTemplateReplyDialog().then((module) => module.TemplateReplyDialog),
-  {
-    ssr: false,
-    loading: () => (
-      <span role="status" className="sr-only">
-        Loading the template reply…
-      </span>
-    ),
-  }
-)
+// A preload that fails is not an error yet: the dialog's own load, when it
+// is asked for, retries and reports.
+const preloadTemplateReplyDialog = () =>
+  void loadTemplateReplyDialog().catch(() => {})
+// A failed load is cached by React for the life of the component, so after a
+// failure (see LazyDialogBoundary) a fresh one replaces it for the next open.
+const createTemplateReplyDialog = () =>
+  dynamic(
+    () =>
+      loadTemplateReplyDialog().then((module) => module.TemplateReplyDialog),
+    {
+      ssr: false,
+      loading: whileLoading(
+        <span role="status" className="sr-only">
+          Loading the template reply…
+        </span>
+      ),
+    }
+  )
+const lazyTemplate = { Dialog: createTemplateReplyDialog() }
 
 /**
  * Actions over a selection: the shared SelectionBar, docked to the bottom
@@ -123,22 +136,30 @@ function BulkActionBar({
 
   const offersTemplate = chosen.some(isRatingOnly)
   React.useEffect(() => {
-    if (offersTemplate) void loadTemplateReplyDialog()
+    if (offersTemplate) preloadTemplateReplyDialog()
   }, [offersTemplate])
 
   const templateDialog = templateRows ? (
-    <TemplateReplyDialog
-      open
-      rows={templateRows}
-      bulkEngine={bulkEngine}
-      onOpenChange={(open) => {
-        if (!open) setTemplateRows(null)
+    <LazyDialogBoundary
+      what="the template reply"
+      onFail={() => {
+        setTemplateRows(null)
+        lazyTemplate.Dialog = createTemplateReplyDialog()
       }}
-      onFinished={(sentIds) => {
-        const sent = new Set(sentIds)
-        replace([...selected].filter((id) => !sent.has(id)))
-      }}
-    />
+    >
+      <lazyTemplate.Dialog
+        open
+        rows={templateRows}
+        bulkEngine={bulkEngine}
+        onOpenChange={(open) => {
+          if (!open) setTemplateRows(null)
+        }}
+        onFinished={(sentIds) => {
+          const sent = new Set(sentIds)
+          replace([...selected].filter((id) => !sent.has(id)))
+        }}
+      />
+    </LazyDialogBoundary>
   ) : null
 
   if (chosen.length === 0) return templateDialog

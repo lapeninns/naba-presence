@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, render, renderHook, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import * as React from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ListHeader } from "@/components/inbox/list-header"
 import { selectionHitAreaClassName } from "@/components/ui/checkbox"
@@ -11,6 +11,7 @@ import {
   useSelection,
 } from "@/components/inbox/selection-context"
 import type { ReviewRow } from "@/lib/contracts/reviews"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 
 vi.mock("@/components/inbox/google-freshness", () => ({
   GoogleFreshness: ({ className }: { className?: string }) => (
@@ -22,6 +23,35 @@ vi.mock("@/components/inbox/google-freshness", () => ({
 
 function row(id: string): ReviewRow {
   return { id } as ReviewRow
+}
+
+/** A pointer and width that reach (or do not reach) the desk breakpoint. */
+function stubDesk(desk: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: desk && query === mediaQuery("desk"),
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }))
+}
+
+/** Ticks and clears the way the rows and Escape do. */
+function Controls() {
+  const { toggle, clear } = useSelection()
+  return (
+    <>
+      <button type="button" onClick={() => toggle("a")}>
+        tick a
+      </button>
+      <button type="button" onClick={() => clear()}>
+        escape
+      </button>
+    </>
+  )
 }
 
 /** Shows what the selection holds, so a test can read it back. */
@@ -50,6 +80,7 @@ function renderHeader(
           {...props}
         />
         <Readout />
+        <Controls />
       </SelectionProvider>
     </QueryClientProvider>
   )
@@ -57,8 +88,12 @@ function renderHeader(
 
 const readout = () => screen.getByTestId("readout").textContent
 
+// Touch unless a test says otherwise: select mode is a touch tool.
+beforeEach(() => stubDesk(false))
+
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("freshness", () => {
@@ -224,6 +259,7 @@ describe("ListHeader", () => {
   })
 
   it("offers Cancel on a desk once something is ticked, without select mode", async () => {
+    stubDesk(true)
     const user = userEvent.setup()
     const { container } = renderHeader()
     // A desk's boxes are always there: no Select button, no Cancel to start.
@@ -247,6 +283,79 @@ describe("ListHeader", () => {
     expect(screen.getByRole("button", { name: "Select" })).toHaveClass(
       "desk:hidden"
     )
+  })
+
+  it("returns a desk's header to normal when the last tick goes (Escape or unticking)", async () => {
+    stubDesk(true)
+    const user = userEvent.setup()
+    const { container } = renderHeader()
+    const count = () =>
+      container.querySelector("[data-slot=inbox-selected-count]")
+    // Ticking a row sets select mode in the context, so a desk's band must
+    // not read "0 selected · Cancel" once the ticks are gone.
+    await user.click(screen.getByRole("button", { name: "tick a" }))
+    expect(count()).toHaveTextContent("1 selected")
+    await user.click(screen.getByRole("button", { name: "escape" }))
+    expect(count()).toBeNull()
+    expect(
+      screen.getByText("2 reviews", { selector: "span:not([role=status])" })
+    ).toBeInTheDocument()
+    // The leftover mode is dropped with it.
+    expect(readout()).toBe("none · off")
+    expect(screen.getByRole("button", { name: "Select" })).toHaveClass(
+      "desk:hidden"
+    )
+
+    // The same by unticking the one row.
+    await user.click(screen.getByRole("button", { name: "tick a" }))
+    expect(count()).toHaveTextContent("1 selected")
+    await user.click(screen.getByRole("button", { name: "tick a" }))
+    expect(count()).toBeNull()
+    expect(readout()).toBe("none · off")
+  })
+
+  it("keeps touch select mode, '0 selected' and all, when the last tick goes", async () => {
+    const user = userEvent.setup()
+    const { container } = renderHeader()
+    await user.click(screen.getByRole("button", { name: "Select" }))
+    await user.click(screen.getByRole("button", { name: "tick a" }))
+    await user.click(screen.getByRole("button", { name: "escape" }))
+    // The operator chose this mode; Escape empties the set and leaves it.
+    expect(
+      container.querySelector("[data-slot=inbox-selected-count]")
+    ).toHaveTextContent("0 selected")
+    expect(readout()).toBe("none · on")
+    expect(
+      screen.getByRole("button", { name: "Cancel selection" })
+    ).toBeVisible()
+  })
+
+  it("hands keyboard focus to Select when Cancel ends touch select mode", async () => {
+    const user = userEvent.setup()
+    renderHeader()
+    await user.click(screen.getByRole("button", { name: "Select" }))
+    await user.click(screen.getByRole("button", { name: "Cancel selection" }))
+    // Not left on a control that has just left the page.
+    expect(screen.getByRole("button", { name: "Select" })).toHaveFocus()
+  })
+
+  it("hands keyboard focus to the select-all box when Cancel ends a desk selection", async () => {
+    stubDesk(true)
+    const user = userEvent.setup()
+    renderHeader()
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select every review in this view" })
+    )
+    const cancel = screen.getByRole("button", { name: "Cancel selection" })
+    cancel.focus()
+    await user.keyboard("{Enter}")
+    expect(readout()).toBe("none · off")
+    // Cancel is folded away on a desk once nothing is ticked; focus does
+    // not fall to <body> with it.
+    expect(
+      screen.getByRole("checkbox", { name: "Select every review in this view" })
+    ).toHaveFocus()
+    expect(document.body).not.toHaveFocus()
   })
 
   it("shows the select-all box on touch only in select mode", async () => {

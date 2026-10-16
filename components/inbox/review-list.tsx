@@ -478,7 +478,10 @@ function ReviewList({
                 // used to wrap every row to three lines. When it does not
                 // fit, the client gives way first and the listing, which is
                 // what tells two venues of one client apart (QA #2), keeps
-                // its width; the whole text is the title.
+                // its width (up to two thirds of the line, so a very long
+                // listing still leaves the client a few letters); the whole
+                // text is the title. Shrink is proportional, so the listing
+                // is `shrink-0` rather than weighted: the client alone gives.
                 // The status pill rides this line, at its end, only where
                 // the line is at least sm (24rem) wide, a desk's list; on a
                 // phone (390px leaves ~19rem) it drops under the venue, as
@@ -512,14 +515,21 @@ function ReviewList({
                         <>
                           <span
                             data-slot="review-row-client"
-                            className="min-w-0 shrink-[4] truncate"
+                            className="min-w-0 truncate"
                           >
                             {venueClient}
                           </span>
                           <span className="shrink-0 whitespace-pre"> · </span>
                         </>
                       ) : null}
-                      <span className="min-w-0 truncate">
+                      <span
+                        data-slot="review-row-listing"
+                        className={cn(
+                          "truncate",
+                          // Alone (a business, no client), it takes the line.
+                          venueClient ? "max-w-2/3 shrink-0" : "min-w-0"
+                        )}
+                      >
                         {review.location.name}
                       </span>
                     </span>

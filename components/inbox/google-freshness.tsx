@@ -42,9 +42,10 @@ export function GoogleFreshness({
       className={cn(
         "text-caption tabular-nums",
         delayed ? "text-warning-ink" : "text-ink-muted",
-        // A delay is a warning, so it shows wherever the caller would have
-        // folded the routine "checked 5 minutes ago" away.
-        !delayed && className
+        // The caller's layout (truncation, where it steps aside) applies to
+        // the warning too: a delay is drawn in the warning ink but is not
+        // allowed to overflow a header that has no room for it.
+        className
       )}
     >
       {oldest ? (

@@ -1027,7 +1027,18 @@ describe("ReviewList row anatomy", () => {
     expect(client).toHaveClass("truncate", "min-w-0")
     expect(client).toHaveTextContent("Old Crown Group")
     expect(client.nextElementSibling).toHaveTextContent("·")
-    expect(location.lastElementChild).toHaveClass("truncate")
+    // Shrink is proportional, so the listing does not shrink at all (it is
+    // capped instead) and the client alone gives way.
+    expect(location.lastElementChild).toHaveAttribute(
+      "data-slot",
+      "review-row-listing"
+    )
+    expect(location.lastElementChild).toHaveClass(
+      "truncate",
+      "shrink-0",
+      "max-w-2/3"
+    )
+    expect(client.className).not.toMatch(/shrink-\[/)
     expect(location.lastElementChild).toHaveTextContent("Riverside")
     expect(button.querySelector('[data-slot="list-row-trailing"]')).toBeNull()
 

@@ -14,6 +14,7 @@ import * as sessionHook from "@/lib/queries/use-session"
 import * as bulkHook from "@/lib/queries/use-bulk-review-action"
 import * as membersHook from "@/lib/queries/use-members"
 import { PHONE_OVERLAY_QUERY } from "@/components/ui/overlay"
+import { Toaster } from "@/components/ui/toast"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
 function stubSession(role: string, isError = false) {
@@ -39,7 +40,11 @@ function renderPane(ui: ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  return render(
+    <QueryClientProvider client={client}>
+      <Toaster>{ui}</Toaster>
+    </QueryClientProvider>
+  )
 }
 
 const detail: ReviewDetailData = {

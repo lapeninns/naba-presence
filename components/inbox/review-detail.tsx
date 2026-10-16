@@ -47,6 +47,10 @@ import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Stars } from "@/components/ui/stars"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
+import {
+  LazyDialogBoundary,
+  whileLoading,
+} from "@/components/inbox/lazy-dialog-boundary"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import {
@@ -353,39 +357,47 @@ function ReviewAssignItems({
 // the menu opens (the click that follows then finds them already loaded) and,
 // failing that, when the dialog is asked for. Both are closed on the server,
 // so neither renders there.
+// React caches a failed load for the life of a lazy component, so after one
+// (see LazyDialogBoundary) a fresh component replaces it for the next open.
 const loadActivityTimeline = () =>
   import("@/components/inbox/activity-timeline")
 const loadReviewMetadata = () =>
   import("@/components/inbox/detail/review-metadata")
-const ActivityTimeline = dynamic(
-  () => loadActivityTimeline().then((module) => module.ActivityTimeline),
-  {
+const createActivityTimeline = () =>
+  dynamic(
+    () => loadActivityTimeline().then((module) => module.ActivityTimeline),
+    {
+      ssr: false,
+      // Inside the History dialog that is already open: rows where the
+      // events will be, so nothing moves when they arrive.
+      loading: whileLoading(
+        <div role="status" className="grid gap-3">
+          <span className="sr-only">Loading history…</span>
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-4 w-3/5" />
+        </div>
+      ),
+    }
+  )
+const createReviewMetadata = () =>
+  dynamic(() => loadReviewMetadata().then((module) => module.ReviewMetadata), {
     ssr: false,
-    // Inside the History dialog that is already open: rows where the events
-    // will be, so nothing moves when they arrive.
-    loading: () => (
-      <div role="status" aria-label="Loading history" className="grid gap-3">
-        <Skeleton className="h-4 w-2/3" />
-        <Skeleton className="h-4 w-1/2" />
-        <Skeleton className="h-4 w-3/5" />
-      </div>
-    ),
-  }
-)
-const ReviewMetadata = dynamic(
-  () => loadReviewMetadata().then((module) => module.ReviewMetadata),
-  {
-    ssr: false,
-    loading: () => (
+    loading: whileLoading(
       <span role="status" className="sr-only">
         Loading review details…
       </span>
     ),
-  }
-)
+  })
+const lazyReview = {
+  Timeline: createActivityTimeline(),
+  Metadata: createReviewMetadata(),
+}
+// A preload that fails is not an error yet: the dialog's own load, when it
+// is asked for, retries and reports.
 function preloadReviewDialogs() {
-  void loadActivityTimeline()
-  void loadReviewMetadata()
+  void loadActivityTimeline().catch(() => {})
+  void loadReviewMetadata().catch(() => {})
 }
 
 /**
@@ -523,19 +535,36 @@ function ReviewMenu({ review }: { review: Review }) {
           </DialogHeader>
           {/* The dialog is its own scroller (a sheet on a phone), so the
               timeline is not boxed into a second one inside it. */}
-          <ActivityTimeline
-            timeline={review.timeline}
-            timezone={review.timezone}
-          />
+          <LazyDialogBoundary
+            what="History"
+            onFail={() => {
+              setHistoryOpen(false)
+              lazyReview.Timeline = createActivityTimeline()
+            }}
+          >
+            <lazyReview.Timeline
+              timeline={review.timeline}
+              timezone={review.timezone}
+            />
+          </LazyDialogBoundary>
         </DialogContent>
       </Dialog>
       {detailsMounted ? (
-        <ReviewMetadata
-          review={review}
-          open={detailsOpen}
-          onOpenChange={setDetailsOpen}
-          finalFocus={moreRef}
-        />
+        <LazyDialogBoundary
+          what="review details"
+          onFail={() => {
+            setDetailsOpen(false)
+            setDetailsMounted(false)
+            lazyReview.Metadata = createReviewMetadata()
+          }}
+        >
+          <lazyReview.Metadata
+            review={review}
+            open={detailsOpen}
+            onOpenChange={setDetailsOpen}
+            finalFocus={moreRef}
+          />
+        </LazyDialogBoundary>
       ) : null}
     </>
   )
