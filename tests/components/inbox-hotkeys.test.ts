@@ -84,4 +84,14 @@ describe("isTypingTarget", () => {
     expect(isTypingTarget(button)).toBe(true)
     dialog.remove()
   })
+
+  it("stands off an alertdialog, whose question owns every key", () => {
+    const dialog = document.createElement("div")
+    dialog.setAttribute("role", "alertdialog")
+    const button = document.createElement("button")
+    dialog.append(button)
+    document.body.append(dialog)
+    expect(isTypingTarget(button)).toBe(true)
+    dialog.remove()
+  })
 })

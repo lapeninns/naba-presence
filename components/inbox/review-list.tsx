@@ -1,9 +1,14 @@
 "use client"
 
-import { useEffect, useRef } from "react"
-import { GlobeIcon, ImageIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { CircleSlashIcon, GlobeIcon, ImageIcon } from "lucide-react"
 
 import { ReviewAvatar } from "@/components/inbox/review-avatar"
+import {
+  markNoReplyNeeded,
+  NoReplyNeededDialog,
+  useReviewTriage,
+} from "@/components/inbox/review-triage"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { RelativeTime } from "@/components/ui/relative-time"
@@ -146,6 +151,27 @@ function ReviewList({
   const business = useWorkspaceMode() === "business"
   const desk = useHydratedBreakpoint("desk")
   const containerRef = useRef<HTMLUListElement>(null)
+  // The row whose "No reply needed" is waiting on its confirmation.
+  const [noReplyFor, setNoReplyFor] = useState<ReviewRow | null>(null)
+  // Closing is separate from unmounting: the dialog stays mounted until its
+  // exit animation has finished (`onOpenChangeComplete`).
+  const [noReplyOpen, setNoReplyOpen] = useState(false)
+
+  // Where focus goes back to when the row's confirmation closes: that row's
+  // "⋯" button, or nothing (the default) once the row has left the list.
+  function rowActionsTrigger(id: string) {
+    const index = reviews.findIndex((review) => review.id === id)
+    const row = containerRef.current?.querySelectorAll<HTMLElement>(
+      '[data-slot="review-row"]'
+    )[index]
+    return (
+      row
+        ?.closest<HTMLElement>('[data-slot="list-row-swipe"]')
+        ?.querySelector<HTMLElement>(
+          '[data-slot="list-row-actions-trigger"]'
+        ) ?? null
+    )
+  }
 
   function focusRow(index: number) {
     const buttons = containerRef.current?.querySelectorAll<HTMLButtonElement>(
@@ -335,6 +361,29 @@ function ReviewList({
                 void onSelect(review.id)
               }}
               onKeyDown={(event) => onKeyDown(event, index)}
+              // Triage from the row: a swipe on touch, the ⋯ button for
+              // everyone else. Offered where the tick boxes are (not to a
+              // viewer), and not while select mode is ticking rows.
+              swipeActions={
+                selection && !selection.selectMode
+                  ? [
+                      {
+                        label: "No reply needed",
+                        icon: <CircleSlashIcon aria-hidden />,
+                        onAction: () => {
+                          setNoReplyFor(review)
+                          setNoReplyOpen(true)
+                        },
+                      },
+                    ]
+                  : undefined
+              }
+              // Named per row, so a screen reader's list of buttons does not
+              // repeat one name. It starts "Actions for", while the row's own
+              // button starts with the reviewer's name, so a lookup by that
+              // name must be anchored (/^Jordan Lee/) or it matches both. It
+              // stays a tab stop: the keyboard has no other way to this menu.
+              actionsLabel={`Actions for ${displayName}`}
               emphasis={needsReply ? "unread" : "read"}
               unreadLabel={pillSpokenByTitle ? status.text : "Needs reply"}
               // The non-colour half of the selection cue beside the fill
@@ -524,6 +573,15 @@ function ReviewList({
           )
         })}
       </ListRows>
+      {noReplyFor ? (
+        <RowNoReplyNeeded
+          review={noReplyFor}
+          open={noReplyOpen}
+          onOpenChange={setNoReplyOpen}
+          onClosed={() => setNoReplyFor(null)}
+          finalFocus={() => rowActionsTrigger(noReplyFor.id)}
+        />
+      ) : null}
       {onReachEnd ? (
         <div ref={sentinelRef} aria-hidden className="h-px shrink-0" />
       ) : null}
@@ -536,6 +594,41 @@ function ReviewList({
         </p>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * The confirmation behind a row's "No reply needed": the same dialog and
+ * action as the bulk bar and the review's ⋯ menu (review-triage.tsx), for
+ * this one row. Mounted only while a row is waiting on it.
+ */
+function RowNoReplyNeeded({
+  review,
+  open,
+  onOpenChange,
+  onClosed,
+  finalFocus,
+}: {
+  review: ReviewRow
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** The exit animation has finished: safe to unmount. */
+  onClosed: () => void
+  finalFocus: () => HTMLElement | null
+}) {
+  const triage = useReviewTriage()
+  return (
+    <NoReplyNeededDialog
+      count={1}
+      open={open}
+      onOpenChange={onOpenChange}
+      onOpenChangeComplete={(isOpen) => {
+        if (!isOpen) onClosed()
+      }}
+      finalFocus={finalFocus}
+      pending={triage.isPending}
+      onConfirm={() => void triage.run(markNoReplyNeeded([review.id]))}
+    />
   )
 }
 
