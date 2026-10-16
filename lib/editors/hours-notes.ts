@@ -34,7 +34,7 @@ const RECONCILIATION_WARNING = /no confirmed closing day/i
  * the hours page shows it only where services are edited (`serviceNote`).
  */
 export const SERVICE_OPTIONS_WARNING =
-  "Some service options couldn’t load, so adding services is unavailable. Try again later. Your existing services are safe."
+  "Some service options couldn’t load, so adding services is unavailable. Try again later."
 
 /** The service-options note when the read carried it, for the service group. */
 export function serviceNote(warnings: readonly string[]): string | null {
@@ -63,7 +63,7 @@ export function hoursNotes(
       tone: "info",
       title: "No hours on Google",
       description:
-        "Google shows no hours yet, so customers see “Hours not available”. Switch on the days the business opens, set the times, then publish.",
+        "Google shows no hours yet, so customers see “Hours not available”. Switch on your open days.",
     })
   }
   if (hours.reconciliationRequired) {
