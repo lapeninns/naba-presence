@@ -24,6 +24,7 @@ import {
   whileLoading,
 } from "@/components/inbox/lazy-dialog-boundary"
 import { useSelection } from "@/components/inbox/selection-context"
+import { importTemplateReplyDialog } from "@/components/inbox/template-dialog-loader"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -74,7 +75,7 @@ import { isRatingOnly } from "@/lib/inbox/template-batch"
 type TemplateReplyDialogComponent =
   typeof import("@/components/inbox/template-reply-dialog").TemplateReplyDialog
 const loadTemplateReplyDialog = () =>
-  import("@/components/inbox/template-reply-dialog").then((module) => {
+  importTemplateReplyDialog().then((module) => {
     // Once it is here the component is used as it is, with no Suspense
     // beat between the click and the dialog; and "has it arrived" is what
     // tells a pending open (cancellable) from an open dialog (not).
@@ -142,12 +143,21 @@ const lazyTemplate: {
   Loaded: TemplateReplyDialogComponent | null
 } = { Dialog: createTemplateReplyDialog(), Loaded: null }
 
-/** The real dialog as soon as it is here, the lazy one (and its shell) until. */
+/**
+ * The real dialog if its code is already here, the lazy one (whose fallback is
+ * the shell) if not. Chosen once, when the batch is opened: a component's type
+ * must not change while it is open, or a re-render after the code arrives
+ * (a refetch, a window refocus) would unmount the dialog and mount a new one,
+ * losing its outcomes and its retry intent. The shell-to-dialog swap happens
+ * inside the one lazy component instead.
+ */
 function TemplateDialogSlot(
   props: React.ComponentProps<TemplateReplyDialogComponent>
 ) {
-  const Loaded = lazyTemplate.Loaded
-  return Loaded ? <Loaded {...props} /> : <lazyTemplate.Dialog {...props} />
+  const [Dialog] = React.useState(
+    () => lazyTemplate.Loaded ?? lazyTemplate.Dialog
+  )
+  return <Dialog {...props} />
 }
 
 /**
@@ -231,6 +241,9 @@ function BulkActionBar({
   const templateDialog =
     templateRows && !templateStale ? (
       <TemplateShellContext.Provider
+        // Keyed, so the dialog is the same one whether the bar is drawn
+        // beside it or (nothing selected any more) it stands alone.
+        key="template-batch"
         value={{ close: closeTemplate, finalFocus: templateOpenerRef }}
       >
         <LazyDialogBoundary
@@ -258,7 +271,7 @@ function BulkActionBar({
       </TemplateShellContext.Provider>
     ) : null
 
-  if (chosen.length === 0) return templateDialog
+  if (chosen.length === 0) return <>{templateDialog}</>
 
   // Approval is bound to the draft the list showed: the parked one (what the
   // server approves and single approve names), not the newest. A row with no

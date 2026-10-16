@@ -31,6 +31,48 @@ const createBulkActionBar = () =>
 const lazyBar = { Bar: createBulkActionBar() }
 
 /**
+ * Where "Try again" parked focus while the retry runs, for the notice to
+ * claim if the load fails once more. Only one bar exists, so one place.
+ */
+const parkedFocus: { element: HTMLElement | null } = { element: null }
+
+/** The list header's one way out of a selection: always there while the bar is. */
+function selectionCancelButton(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    '[data-slot="inbox-list-header"] button[aria-label="Cancel selection"]'
+  )
+}
+
+/** "Try again" on the notice; takes focus back if it was parked while retrying. */
+function LoadFailedNotice({ onRetry }: { onRetry: () => void }) {
+  const retryRef = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    const parked = parkedFocus.element
+    if (!parked) return
+    parkedFocus.element = null
+    const active = document.activeElement
+    // Only if focus is still where the retry left it: not if the operator
+    // has since gone elsewhere.
+    if (active === document.body || active === parked) retryRef.current?.focus()
+  }, [])
+  return (
+    <SelectionBar
+      data-slot="bulk-action-bar-failed"
+      label="Selection actions"
+      notes={<p role="alert">The selection actions could not load.</p>}
+      className="shrink-0"
+    >
+      <SelectionBarTile
+        ref={retryRef}
+        icon={<RefreshCwIcon aria-hidden />}
+        label="Try again"
+        onClick={onRetry}
+      />
+    </SelectionBar>
+  )
+}
+
+/**
  * Once the browser is idle, fetch the bar's code so that the first tick finds
  * it. Nothing depends on this: a failure, or a browser that never goes idle,
  * only means the bar is fetched on the first tick instead.
@@ -50,14 +92,20 @@ function useIdlePreload() {
 /**
  * The bulk bar, loaded when it is first needed.
  *
- * - Nothing selected, nothing drawn and nothing downloaded. Once the bar has
- *   been shown it stays mounted: it owns the template batch's dialog, which
- *   outlives the selection (sent replies leave the list under it).
+ * - Nothing selected, nothing drawn, and the code is not required: it is
+ *   asked for when the first row is ticked. (The browser's idle time is used
+ *   to fetch it ahead, which only warms the cache and never mounts the bar.)
+ *   Once the bar has been shown it stays mounted: it owns the template
+ *   batch's dialog, which outlives the selection (sent replies leave the list
+ *   under it).
  * - If its code cannot be fetched the Inbox carries on: the list, the open
  *   review and the selection are untouched. A toast says so and the bar's
  *   place holds a short notice with "Try again", which asks for the code
  *   afresh. The notice goes when the selection is emptied, and the next
- *   selection tries again by itself.
+ *   selection tries again by itself. Focus never drops to the page: "Try
+ *   again" parks it on the list header's "Cancel selection" (which outlives
+ *   the notice) and brings it back to the new "Try again" if the load fails
+ *   once more.
  */
 function LazyBulkActionBar({
   rows,
@@ -72,27 +120,26 @@ function LazyBulkActionBar({
   const [armed, setArmed] = React.useState(false)
   const [failed, setFailed] = React.useState(false)
 
+  React.useEffect(() => {
+    if (!hasSelection) parkedFocus.element = null
+  }, [hasSelection])
+
   if (hasSelection && !armed && !failed) setArmed(true)
   if (!hasSelection && failed) setFailed(false)
 
   if (failed) {
     return (
-      <SelectionBar
-        data-slot="bulk-action-bar-failed"
-        label="Selection actions"
-        notes={<p role="alert">The selection actions could not load.</p>}
-        className="shrink-0"
-      >
-        <SelectionBarTile
-          icon={<RefreshCwIcon aria-hidden />}
-          label="Try again"
-          onClick={() => {
-            lazyBar.Bar = createBulkActionBar()
-            setFailed(false)
-            setArmed(true)
-          }}
-        />
-      </SelectionBar>
+      <LoadFailedNotice
+        onRetry={() => {
+          // The notice is about to go: park focus on something that stays.
+          const parked = selectionCancelButton()
+          parked?.focus()
+          parkedFocus.element = parked
+          lazyBar.Bar = createBulkActionBar()
+          setFailed(false)
+          setArmed(true)
+        }}
+      />
     )
   }
   if (!armed) return null
