@@ -48,6 +48,39 @@ import {
   type ReviewsFilters,
   type ReviewsPage,
 } from "@/lib/contracts/reviews"
+import {
+  administrationResponseSchema,
+  type AdministrationResponse,
+  type AdministrationState,
+} from "@/lib/contracts/location-administration"
+import {
+  businessInformationResponseSchema,
+  type BusinessInformationResponse,
+  type BusinessInformationState,
+} from "@/lib/contracts/location-business-information"
+import {
+  foodMenusResponseSchema,
+  type FoodMenusResponse,
+  type FoodMenusState,
+} from "@/lib/contracts/location-food-menus"
+import {
+  importReviewListResponseSchema,
+  type ImportReviewListResponse,
+} from "@/lib/contracts/location-import-review"
+import {
+  placeActionsResponseSchema,
+  type PlaceActionsResponse,
+  type PlaceActionsState,
+} from "@/lib/contracts/location-place-actions"
+import {
+  profileResponseSchema,
+  type ProfileResponse,
+  type ProfileState,
+} from "@/lib/contracts/location-profile"
+import {
+  verificationStateResponseSchema,
+  type VerificationStateResponse,
+} from "@/lib/contracts/google-verification-state"
 import { parseInboxState, toReviewsFilters } from "@/lib/inbox/url-state"
 import {
   parsePhotosState,
@@ -64,14 +97,22 @@ import {
   settingsFeaturesApply,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
+import { getServerEnv } from "@/lib/server/env"
+import { loadBusinessInformation } from "@/lib/server/business-information"
+import { getFoodMenusState } from "@/lib/server/food-menus"
+import { loadGoogleVerificationState } from "@/lib/server/google-verification-state"
+import { listImportProposals } from "@/lib/server/import-review"
 import {
   readHoursResponse,
   readMediaListResponse,
   readPostsListResponse,
 } from "@/lib/server/listing-reads"
+import { loadLocationAdministration } from "@/lib/server/location-administration"
 import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
 import { loadPauseSnapshot } from "@/lib/server/pause-controls"
+import { loadPlaceActions } from "@/lib/server/place-actions"
+import { getProfileState } from "@/lib/server/profile"
 import {
   readReviewCounts as loadReviewCounts,
   type ReviewCountsScope,
@@ -318,6 +359,109 @@ export async function readPostsFirstPage(
   }
 }
 
+/** What `useProfile(id)` fetches: `GET /api/locations/{id}/profile`. */
+export async function readProfile(
+  session: Session,
+  locationId: string
+): Promise<ProfileState> {
+  const payload = {
+    profile: await getProfileState(session, locationId),
+  } satisfies ProfileResponse
+  return throughWire(profileResponseSchema, payload).profile
+}
+
+/**
+ * What `useBusinessInformation(id)` fetches: `GET
+ * /api/locations/{id}/business-information` with no `type`.
+ */
+export async function readBusinessInformation(
+  session: Session,
+  locationId: string
+): Promise<BusinessInformationState> {
+  const payload = {
+    businessInformation: await loadBusinessInformation(session, locationId),
+  } satisfies BusinessInformationResponse
+  return throughWire(businessInformationResponseSchema, payload)
+    .businessInformation
+}
+
+/** What `useFoodMenus(id)` fetches: `GET /api/locations/{id}/food-menus`. */
+export async function readFoodMenus(
+  session: Session,
+  locationId: string
+): Promise<FoodMenusState> {
+  const payload = {
+    foodMenus: await getFoodMenusState(session, locationId),
+  } satisfies FoodMenusResponse
+  return throughWire(foodMenusResponseSchema, payload).foodMenus
+}
+
+/** What `usePlaceActions(id)` fetches: `GET /api/locations/{id}/place-actions`. */
+export async function readPlaceActions(
+  session: Session,
+  locationId: string
+): Promise<PlaceActionsState> {
+  const payload = {
+    placeActions: await loadPlaceActions(
+      session.organisationId,
+      session,
+      locationId
+    ),
+  } satisfies PlaceActionsResponse
+  return throughWire(placeActionsResponseSchema, payload).placeActions
+}
+
+/**
+ * What `useImportReview(id, resourceType)` fetches: `GET
+ * /api/locations/{id}/import-review?resourceType=…`, open proposals only.
+ */
+export async function readImportReview(
+  session: Session,
+  locationId: string,
+  resourceType: "profile" | "food_menus"
+): Promise<ImportReviewListResponse> {
+  const result = await listImportProposals({
+    session,
+    locationId,
+    resourceType,
+    includeDecided: false,
+  })
+  const payload = {
+    ...result,
+    importReviewEnabled: getServerEnv().IMPORT_REVIEW_ENABLED,
+  } satisfies ImportReviewListResponse
+  return throughWire(importReviewListResponseSchema, payload)
+}
+
+/**
+ * What `useAdministration(id)` fetches: `GET
+ * /api/locations/{id}/administration` (owners and admins only).
+ */
+export async function readAdministration(
+  session: Session,
+  locationId: string
+): Promise<AdministrationState> {
+  const payload = {
+    administration: await loadLocationAdministration(session, locationId),
+  } satisfies AdministrationResponse
+  return throughWire(administrationResponseSchema, payload).administration
+}
+
+/**
+ * What `useGoogleVerificationState(id)` fetches: `GET
+ * /api/locations/{id}/verification-state` (owners and admins only).
+ */
+export async function readVerificationState(
+  session: Session,
+  locationId: string
+): Promise<VerificationStateResponse> {
+  const payload = (await loadGoogleVerificationState(
+    session,
+    locationId
+  )) satisfies VerificationStateResponse
+  return throughWire(verificationStateResponseSchema, payload)
+}
+
 // ---------------------------------------------------------------------------
 // Page composers
 // ---------------------------------------------------------------------------
@@ -517,6 +661,159 @@ export function postsTabPrefetch(
         queryKey: queryKeys.locationPostsView(locationId, "all"),
         load: () => readPostsFirstPage(session, locationId),
       },
+    ]
+  }
+}
+
+/**
+ * The listing summary again, once `read` has settled, for an editor whose
+ * live read refreshes what the summary holds (its hook invalidates the
+ * summary after one). `skip` says when the read changed nothing, so the
+ * layout's own summary read stands.
+ */
+function summaryAfter<T>(
+  session: Session,
+  locationId: string,
+  read: () => Promise<T>,
+  skip: (value: T) => boolean = () => false
+): PrefetchEntry {
+  return {
+    queryKey: queryKeys.listingSummary(locationId),
+    load: async () => {
+      const value = await read().catch(() => undefined)
+      if (value !== undefined && skip(value)) return PREFETCH_SKIP
+      return readListingSummary(session, locationId)
+    },
+  }
+}
+
+/** Owners and admins: the only roles the console routes answer. */
+function managesConsoles(session: Session): boolean {
+  return session.role === "owner" || session.role === "admin"
+}
+
+/**
+ * /listings/{id}/profile: `useProfile(id)` and the business information
+ * the editor reads once the profile lands, read side by side. Both serve
+ * the stored observation within the same staleness budget, so the second
+ * rarely costs more than the first. Left to the browser, the business half
+ * of the editor (labels, categories, attributes) painted seconds after the
+ * rest, after hydration, and became the page's largest paint (L16 LCP).
+ * A live profile read refreshes the summary, as with hours.
+ */
+export function profileTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    let profile: Promise<ProfileState> | undefined
+    const loadProfile = () => (profile ??= readProfile(session, locationId))
+    return [
+      { queryKey: queryKeys.locationProfile(locationId), load: loadProfile },
+      {
+        queryKey: queryKeys.locationBusinessInformation(locationId),
+        load: () => readBusinessInformation(session, locationId),
+      },
+      summaryAfter(
+        session,
+        locationId,
+        loadProfile,
+        (read) => read.source === "stored"
+      ),
+    ]
+  }
+}
+
+/**
+ * /listings/{id}/menu: `useFoodMenus(id)`. Its hook refreshes the summary
+ * after every read, so the summary is read again once the menus settle.
+ */
+export function menuTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    let menus: Promise<FoodMenusState> | undefined
+    const loadMenus = () => (menus ??= readFoodMenus(session, locationId))
+    return [
+      { queryKey: queryKeys.locationMenu(locationId), load: loadMenus },
+      summaryAfter(session, locationId, loadMenus),
+    ]
+  }
+}
+
+/** /listings/{id}/booking: `usePlaceActions(id)`. */
+export function bookingTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    return [
+      {
+        queryKey: queryKeys.locationBooking(locationId),
+        load: () => readPlaceActions(session, locationId),
+      },
+    ]
+  }
+}
+
+/** /listings/{id}/people: `useAdministration(id)`, for owners and admins. */
+export function peopleTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId) || !managesConsoles(session)) return []
+    return [
+      {
+        queryKey: queryKeys.locationAdministration(locationId),
+        load: () => readAdministration(session, locationId),
+      },
+    ]
+  }
+}
+
+/**
+ * /listings/{id}/verification: `useGoogleVerificationState(id)`, for owners
+ * and admins.
+ */
+export function verificationTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId) || !managesConsoles(session)) return []
+    return [
+      {
+        queryKey: queryKeys.locationVerificationState(locationId),
+        load: () => readVerificationState(session, locationId),
+      },
+    ]
+  }
+}
+
+/**
+ * /listings/{id}/suggestions: the profile the page waits on (`useProfile`,
+ * shared with the profile editor) and both proposal lists
+ * (`useImportReview(id, "profile" | "food_menus")`).
+ */
+export function suggestionsTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    let profile: Promise<ProfileState> | undefined
+    const loadProfile = () => (profile ??= readProfile(session, locationId))
+    return [
+      { queryKey: queryKeys.locationProfile(locationId), load: loadProfile },
+      ...(["profile", "food_menus"] as const).map((type) => ({
+        queryKey: [...queryKeys.locationImportReview(locationId), type],
+        load: () => readImportReview(session, locationId, type),
+      })),
+      summaryAfter(
+        session,
+        locationId,
+        loadProfile,
+        (read) => read.source === "stored"
+      ),
     ]
   }
 }

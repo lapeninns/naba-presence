@@ -5,6 +5,7 @@ import { CheckIcon, ChevronDownIcon, LockIcon } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { isZeroCount } from "@/components/ui/count-text"
 import {
   DropdownMenu,
@@ -395,6 +396,13 @@ function TabNavContent({ item }: { item: TabNavItem }) {
   )
 }
 
+/**
+ * When a TabNav's links prefetch their routes: `viewport` (next/link's
+ * default) or `intent` (ShellLink: a pointer over it, focus or a touch).
+ */
+type TabNavPrefetch = "viewport" | "intent"
+const TabNavPrefetchContext = React.createContext<TabNavPrefetch>("viewport")
+
 /** Whether a tab is drawn as a dead (disabled) link rather than a link. */
 const isDeadTab = (item: TabNavItem) => Boolean(item.disabled && !item.current)
 
@@ -406,6 +414,8 @@ function TabNavLink({
   itemClassName: string
 }) {
   const content = <TabNavContent item={item} />
+  const LinkComponent =
+    React.useContext(TabNavPrefetchContext) === "intent" ? ShellLink : Link
   return isDeadTab(item) ? (
     // No href: not focusable, not followable. The explicit role
     // keeps it announced as a (disabled) link among its siblings.
@@ -420,7 +430,7 @@ function TabNavLink({
       {content}
     </a>
   ) : (
-    <Link
+    <LinkComponent
       href={item.href}
       aria-current={item.current ? "page" : undefined}
       data-unavailable={item.unavailableReason ? true : undefined}
@@ -428,7 +438,7 @@ function TabNavLink({
       className={cn(itemClassName, item.unavailableReason && "font-normal")}
     >
       {content}
-    </Link>
+    </LinkComponent>
   )
 }
 
@@ -743,6 +753,7 @@ function TabNav({
   variant = "line",
   overflow = "scroll",
   moreLabel = "More",
+  prefetch = "viewport",
   className,
   ...props
 }: Omit<React.ComponentProps<"nav">, "children"> & {
@@ -753,32 +764,39 @@ function TabNav({
   overflow?: "scroll" | "more"
   /** The overflow menu's trigger. Default "More". */
   moreLabel?: string
+  /**
+   * When the tabs' routes prefetch. `intent` for a row on every page of an
+   * area, where viewport prefetch would fetch each tab's route on each load.
+   */
+  prefetch?: TabNavPrefetch
 }) {
   const itemClassName =
     variant === "text" ? textTabItemClassName : tabItemClassName
   const desk = useMediaQuery(mediaQuery("desk"), false)
   return (
-    <nav
-      data-slot="tab-nav"
-      data-variant={variant === "line" ? undefined : variant}
-      className={cn("min-w-0", className)}
-      {...props}
-    >
-      {overflow === "more" && desk ? (
-        <TabNavMoreRow
-          items={items}
-          itemClassName={itemClassName}
-          variant={variant}
-          moreLabel={moreLabel}
-        />
-      ) : (
-        <TabNavScrollRow
-          items={items}
-          itemClassName={itemClassName}
-          variant={variant}
-        />
-      )}
-    </nav>
+    <TabNavPrefetchContext.Provider value={prefetch}>
+      <nav
+        data-slot="tab-nav"
+        data-variant={variant === "line" ? undefined : variant}
+        className={cn("min-w-0", className)}
+        {...props}
+      >
+        {overflow === "more" && desk ? (
+          <TabNavMoreRow
+            items={items}
+            itemClassName={itemClassName}
+            variant={variant}
+            moreLabel={moreLabel}
+          />
+        ) : (
+          <TabNavScrollRow
+            items={items}
+            itemClassName={itemClassName}
+            variant={variant}
+          />
+        )}
+      </nav>
+    </TabNavPrefetchContext.Provider>
   )
 }
 

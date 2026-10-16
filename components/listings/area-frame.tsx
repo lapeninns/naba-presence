@@ -15,6 +15,8 @@ import {
   UploadIcon,
 } from "lucide-react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
+import { useSelectedLayoutSegment } from "next/navigation"
 import * as React from "react"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
@@ -34,6 +36,7 @@ import {
   editorStatusPill,
   useEditorStatus,
 } from "@/components/editors/editor-status"
+import { InAreaFrameContext } from "@/components/listings/area-frame-context"
 import { ListingGate } from "@/components/listings/listing-gate"
 import { SiblingSwitcher } from "@/components/listings/sibling-switcher"
 import { Badge } from "@/components/ui/badge"
@@ -63,6 +66,7 @@ import {
 import { areaState } from "@/lib/listings/area-state"
 import { googleUnreachable, unpublishedCount } from "@/lib/listings/health"
 import {
+  areaForSegment,
   listingArea,
   listingHref,
   modelNote,
@@ -149,6 +153,9 @@ function ListingAreaTabs({ items }: { items: ListingAreaNavItem[] }) {
       aria-label="Listing areas"
       overflow="more"
       moreLabel="More areas"
+      // On every page of the listing: viewport prefetch fetched each area's
+      // route on each load (MEA-04). Intent only, as the shell's links do.
+      prefetch="intent"
       items={items
         .filter((item) => item.key !== "changes")
         .map((item) => ({
@@ -705,11 +712,13 @@ function AreaFrame(props: {
   children: React.ReactNode
 }) {
   return (
-    <EditorStatusProvider>
-      <GoogleFreshnessSlot>
-        <AreaFrameBody {...props} />
-      </GoogleFreshnessSlot>
-    </EditorStatusProvider>
+    <InAreaFrameContext.Provider value>
+      <EditorStatusProvider>
+        <GoogleFreshnessSlot>
+          <AreaFrameBody {...props} />
+        </GoogleFreshnessSlot>
+      </EditorStatusProvider>
+    </InAreaFrameContext.Provider>
   )
 }
 
@@ -762,6 +771,13 @@ function AreaFrameBody({
     })
   }, [editorSignature, locationId, queryClient])
 
+  // The frame lives in the listing's layout, so the pane outlives an area
+  // switch: start the new area at its top, as a fresh page would.
+  const paneRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    paneRef.current?.scrollTo?.({ top: 0 })
+  }, [areaKey])
+
   const pill =
     status !== undefined ? (
       status
@@ -801,6 +817,7 @@ function AreaFrameBody({
               phone) it is no Tab stop. The halo is drawn inside the box:
               PageFrame clips anything outside the full-bleed pane. */}
           <div
+            ref={paneRef}
             role="region"
             aria-label={listingArea(areaKey).label}
             tabIndex={paneScrolls ? 0 : undefined}
@@ -817,4 +834,122 @@ function AreaFrameBody({
   )
 }
 
-export { AreaFrame, AreaStatusPill, ListingAreaHeader, ReviewPublishLink }
+/**
+ * The listing layout's frame (`app/(dashboard)/listings/[id]/layout.tsx`):
+ * an area route renders inside one `AreaFrame` that survives switching to
+ * another area, so the header never remounts; the overview and Review &
+ * publish render their own header and pass through.
+ */
+/** The editor's placeholder while its code loads on an in-app area switch. */
+function AreaEditorLoading() {
+  return (
+    <Skeleton
+      aria-busy="true"
+      className="h-40 w-full rounded-(--np-radius-card)"
+    />
+  )
+}
+
+/**
+ * Each area's editor, loaded from here rather than imported by its page.
+ * Every App Router segment is its own client entry, so when the layout drew
+ * this frame and each page imported its editor, the two entries carried
+ * their own copies of every small module they share (L16 first-load JS).
+ * With the editors as dynamic imports of the frame's own module, and every
+ * area page importing `AreaEditor` from it, each editor's chunk has the
+ * frame's modules already loaded beside it and carries only its own. They
+ * still render on the server (`next/dynamic` keeps SSR and preloads the
+ * chunk), so a document load paints the editor as before.
+ */
+const AREA_EDITORS: Record<
+  ListingAreaKey,
+  React.ComponentType<{ locationId: string }>
+> = {
+  profile: dynamic(
+    () =>
+      import("@/components/locations/profile/profile-editor").then(
+        (m) => m.ProfileTab
+      ),
+    { loading: AreaEditorLoading }
+  ),
+  hours: dynamic(
+    () => import("@/components/locations/hours-tab").then((m) => m.HoursTab),
+    { loading: AreaEditorLoading }
+  ),
+  booking: dynamic(
+    () =>
+      import("@/components/locations/booking-tab").then((m) => m.BookingTab),
+    { loading: AreaEditorLoading }
+  ),
+  photos: dynamic(
+    () => import("@/components/locations/photos-tab").then((m) => m.PhotosTab),
+    { loading: AreaEditorLoading }
+  ),
+  posts: dynamic(
+    () => import("@/components/locations/posts-tab").then((m) => m.PostsTab),
+    { loading: AreaEditorLoading }
+  ),
+  menu: dynamic(
+    () => import("@/components/locations/menu-tab").then((m) => m.MenuTab),
+    { loading: AreaEditorLoading }
+  ),
+  people: dynamic(
+    () =>
+      import("@/components/locations/administration").then((m) => m.AccessTab),
+    { loading: AreaEditorLoading }
+  ),
+  verification: dynamic(
+    () =>
+      import("@/components/locations/administration").then(
+        (m) => m.VerificationTab
+      ),
+    { loading: AreaEditorLoading }
+  ),
+  suggestions: dynamic(
+    () =>
+      import("@/components/locations/suggestions/suggestions-page").then(
+        (m) => m.SuggestionsTab
+      ),
+    { loading: AreaEditorLoading }
+  ),
+}
+
+/** One area's editor, for that area's page (see `AREA_EDITORS`). */
+function AreaEditor({
+  area,
+  locationId,
+}: {
+  area: ListingAreaKey
+  locationId: string
+}) {
+  const Editor = AREA_EDITORS[area]
+  return <Editor locationId={locationId} />
+}
+
+function ListingAreaLayout({
+  locationId,
+  role,
+  children,
+}: {
+  locationId: string
+  role: string | null
+  children: React.ReactNode
+}) {
+  const segment = useSelectedLayoutSegment()
+  const area = segment ? areaForSegment(segment) : undefined
+  if (!area) return children
+  return (
+    <AreaFrame locationId={locationId} role={role} area={area.key}>
+      {children}
+    </AreaFrame>
+  )
+}
+
+export {
+  AreaEditor,
+  AreaFrame,
+  AreaStatusPill,
+  ListingAreaHeader,
+  ListingAreaLayout,
+  ReviewPublishLink,
+}

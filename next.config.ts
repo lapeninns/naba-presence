@@ -123,12 +123,27 @@ export const SHARE_HEADERS: { key: string; value: string }[] = [
  */
 const CLIENT_MAX_INITIAL_REQUESTS = 50
 
+/**
+ * The smallest shared chunk webpack splits out of the client entries (Next
+ * sets 20000). Every App Router segment is its own client entry, so a
+ * layout with client UI (the listing header, L16) shares many small modules
+ * with each page's editor; below this size those groups are copied into
+ * both entries instead of split. Measured with perf-lab (mobile, first-load
+ * JS transfer against main, 2026-10-15): 8000 removes the copies (decoded
+ * JS falls on every listing route) but adds about 30 chunk requests a
+ * route, +24..31 KB on the wire; 12000 gives +18..29 KB; 16000 gives
+ * +14..19 KB on the listing areas and +3 KB on /listings. Measure again with
+ * route-js and perf-lab before changing.
+ */
+const CLIENT_MIN_SHARED_CHUNK = 16000
+
 const nextConfig: NextConfig = {
   output: "standalone",
   webpack(config, { dev, isServer }) {
     if (!dev && !isServer && config.optimization?.splitChunks) {
       config.optimization.splitChunks.maxInitialRequests =
         CLIENT_MAX_INITIAL_REQUESTS
+      config.optimization.splitChunks.minSize = CLIENT_MIN_SHARED_CHUNK
     }
     return config
   },
