@@ -267,7 +267,7 @@ test.describe("sharing a client report", () => {
       const footer = shared.getByRole("contentinfo")
       await expect(footer.getByText("Prepared by", { exact: true })).toBeVisible()
       await expect(footer.getByText("Generated")).toBeVisible()
-      await expect(footer.getByText(/Venues?/).first()).toBeVisible()
+      await expect(footer.getByText(/Listings?/).first()).toBeVisible()
 
       // Switching period lands on the figures (#main), not the top.
       const ninety = header.getByRole("link", { name: "Last 90 days" })

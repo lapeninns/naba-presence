@@ -101,8 +101,8 @@ test.describe("clients index", () => {
       ).toBeVisible()
       await expect(strip.getByRole("button")).toHaveText([
         "All 2",
-        "In sync 1",
         "Some listings not checked yet 1",
+        "In sync 1",
       ])
       // The empty near-synonyms are not drawn.
       await expect(
