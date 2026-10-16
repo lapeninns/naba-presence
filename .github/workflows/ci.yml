@@ -193,7 +193,7 @@ jobs:
       # upload-artifact would flatten. postbuild already copied static/public.
       - name: Pack standalone build
         run: tar -czf standalone.tgz .next/standalone
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: standalone-${{ runner.os }}-${{ runner.arch }}
           path: standalone.tgz
@@ -294,7 +294,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           cache: ${{ needs.plan.outputs.lane == 'hosted' && 'pnpm' || '' }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: standalone-${{ runner.os }}-${{ runner.arch }}
       - name: Unpack standalone build
@@ -328,7 +328,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           cache: ${{ needs.plan.outputs.lane == 'hosted' && 'pnpm' || '' }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: standalone-${{ runner.os }}-${{ runner.arch }}
       - name: Unpack standalone build
@@ -367,7 +367,7 @@ jobs:
       - run: pnpm test:e2e --shard="$SHARD/2"
       - name: Upload traces and screenshots
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-traces-shard-${{ matrix.shard }}
           path: test-results/
@@ -462,7 +462,7 @@ jobs:
           sparse-checkout-cone-mode: true
       # The Mac lane has no Node on the runner's PATH; cone mode keeps the
       # root .nvmrc in the sparse checkout.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
       # Strict: every job that applies to the change must succeed. Skips pass
