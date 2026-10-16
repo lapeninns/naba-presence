@@ -214,7 +214,9 @@ describe("BulkActionBar", () => {
       ],
       ["a", "b", "c"]
     )
-    expect(await screen.findByText("3 selected")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("region", { name: "Selected reviews" })
+    ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Approve 1 of 3" })
     ).toBeInTheDocument()
@@ -301,7 +303,9 @@ describe("BulkActionBar", () => {
 
   it("offers no Approve when every selected reply is the user's own", async () => {
     renderBar([row("own", { canApprove: false })], ["own"])
-    expect(await screen.findByText("1 selected")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("region", { name: "Selected reviews" })
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /^Approve/ })
     ).not.toBeInTheDocument()
@@ -530,33 +534,27 @@ describe("BulkActionBar", () => {
     ).toBeInTheDocument()
   })
 
-  it("keeps the touch row to the count, the overflow and one primary", async () => {
-    const user = userEvent.setup()
+  it("holds only actions: the count and the Cancel are the list header's", async () => {
     renderBar([row("a")], ["a"])
     const bar = await screen.findByRole("region", { name: "Selected reviews" })
-    // Clear is the bar header's own 44px text button at every width, beside
-    // "1 selected"; the tiles are only the overflow and one primary.
-    const clearButton = within(bar).getByRole("button", {
-      name: "Clear selection",
-    })
-    expect(clearButton).toHaveAttribute("data-slot", "selection-bar-cancel")
-    expect(clearButton).toHaveClass("min-h-(--np-touch)", "min-w-(--np-touch)")
+    // One way out, in the list header (list-header.tsx); the bar has no
+    // second "Clear selection" and does not say "1 selected" again.
+    expect(
+      within(bar).queryByRole("button", { name: /clear selection|cancel/i })
+    ).toBeNull()
+    expect(bar.querySelector("[data-slot=selection-bar-header]")).toBeNull()
+    expect(within(bar).queryByText(/selected$/)).toBeNull()
     expect(
       within(within(bar).getByRole("toolbar")).getAllByRole("button")
     ).toHaveLength(2)
-    await user.click(clearButton)
-    expect(
-      screen.queryByRole("region", { name: "Selected reviews" })
-    ).not.toBeInTheDocument()
   })
 
   // SelectionBar look: below md the overflow and the primary are 64px tiles,
   // an icon over a caption (inline buttons from md); the Approve that
-  // publishes to Google is the charcoal tile; "N selected" stays in it.
+  // publishes to Google is the charcoal tile.
   it("draws the phone's actions as 64px tiles, icon over label", async () => {
     renderBar([row("a")], ["a"])
     const bar = await screen.findByRole("region", { name: "Selected reviews" })
-    expect(within(bar).getByText("1 selected")).toBeInTheDocument()
     expect(
       within(bar).getByRole("button", { name: "Approve 1" })
     ).toHaveAttribute("data-tone", "charcoal")
@@ -592,7 +590,7 @@ describe("BulkActionBar", () => {
     expect(
       await screen.findByRole("menuitem", { name: "No reply needed" })
     ).toBeInTheDocument()
-    // Clear is the bar's own button now, not repeated in the sheet.
+    // Clearing is the list header's Cancel, not repeated in the sheet.
     expect(
       screen.queryByRole("menuitem", { name: "Clear selection" })
     ).not.toBeInTheDocument()

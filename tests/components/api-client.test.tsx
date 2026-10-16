@@ -59,6 +59,18 @@ describe("apiFetch", () => {
     expect(error.code).toBe("http_error")
   })
 
+  it("keeps the intent when the schema loader fails after a 2xx answer", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { count: 1 })))
+    const error = (await apiFetch("/api/probe", {
+      method: "POST",
+      intentId: "intent-1",
+      schema: () => Promise.reject(new Error("Loading chunk 42 failed")),
+    }).catch((e) => e)) as ApiClientError
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect(error.code).toBe("malformed_response")
+    expect(error.intentId).toBe("intent-1")
+  })
+
   it("validates with a schema and flags malformed responses", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { count: "x" })))
     const error = await apiFetch("/api/probe", {

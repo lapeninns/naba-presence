@@ -11,8 +11,8 @@ import {
   type ReviewReplyState,
   type ReviewSort,
   type ReviewWritten,
-  type ReviewsFilters,
-} from "@/lib/contracts/reviews"
+} from "@/lib/contracts/review-values"
+import type { ReviewsFilters } from "@/lib/contracts/reviews"
 
 export { DEFAULT_REVIEW_QUEUE as DEFAULT_QUEUE, REVIEW_QUEUES as QUEUES }
 export type Queue = ReviewQueue

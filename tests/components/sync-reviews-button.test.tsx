@@ -106,8 +106,120 @@ describe("SyncReviewsButton", () => {
     )
     renderButton(true)
     await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "A sync is already running"
+    // A toast, like the success, not a caption that stays under the icon.
+    expect(
+      await screen.findByText(
+        "A sync is already running. Try again in a moment."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText("Could not sync reviews")).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+      "data-type",
+      "error"
     )
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sync reviews" })).toBeEnabled()
+  })
+
+  it("reports a failed sync as a toast", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({ error: { code: "internal_error", message: "x" } }, 500)
+      )
+    )
+    renderButton(true)
+    await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
+    expect(
+      await screen.findByText("Could not sync reviews")
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("reports a Google failure inside a finished sync as a toast", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({
+          processed: 0,
+          nextCursor: null,
+          failures: [{ errorCode: "google_unavailable" }],
+        })
+      )
+    )
+    renderButton(true)
+    await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
+    expect(
+      await screen.findByText("Could not sync reviews")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Reviews synced")).not.toBeInTheDocument()
+  })
+
+  // One toast id for every outcome: a result replaces the one before it.
+  describe("one toast at a time", () => {
+    /** Reconcile answers from `outcomes` in turn; the counts read answers 12. */
+    function stubOutcomes(outcomes: Response[]) {
+      const queue = [...outcomes]
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(async (input) =>
+          String(input).startsWith("/api/reviews/counts")
+            ? json(counts(12))
+            : (queue.shift() ??
+              json({ error: { code: "internal_error" } }, 500))
+        )
+      )
+    }
+    const skipped = () =>
+      json({ skipped: true, processed: 0, nextCursor: null, failures: [] })
+    const succeeded = () =>
+      json({ processed: 1, nextCursor: null, failures: [] })
+    const failed = () => json({ error: { code: "internal_error" } }, 500)
+
+    it("replaces a skipped sync's toast with the retry's success", async () => {
+      stubOutcomes([skipped(), succeeded()])
+      renderButton(true, 12)
+      const sync = screen.getByRole("button", { name: "Sync reviews" })
+
+      await userEvent.click(sync)
+      expect(
+        await screen.findByText(
+          "A sync is already running. Try again in a moment."
+        )
+      ).toBeInTheDocument()
+
+      await waitFor(() => expect(sync).toBeEnabled())
+      await userEvent.click(sync)
+      expect(await screen.findByText("Up to date")).toBeInTheDocument()
+      await waitFor(() =>
+        expect(screen.queryByText("Could not sync reviews")).toBeNull()
+      )
+      expect(screen.getAllByText("Up to date")).toHaveLength(1)
+      expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(1)
+    })
+
+    it("replaces a success with a later failure", async () => {
+      stubOutcomes([succeeded(), failed()])
+      renderButton(true, 12)
+      const sync = screen.getByRole("button", { name: "Sync reviews" })
+
+      await userEvent.click(sync)
+      expect(await screen.findByText("Up to date")).toBeInTheDocument()
+
+      await waitFor(() => expect(sync).toBeEnabled())
+      await userEvent.click(sync)
+      expect(
+        await screen.findByText("Could not sync reviews")
+      ).toBeInTheDocument()
+      await waitFor(() => expect(screen.queryByText("Up to date")).toBeNull())
+      expect(
+        screen.queryByText("Google has no reviews newer than these.")
+      ).toBeNull()
+      expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(1)
+      expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+        "data-type",
+        "error"
+      )
+    })
   })
 })

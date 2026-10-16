@@ -14,9 +14,9 @@ import {
 import { useClientScopeHandler } from "@/components/app-shell/client-context"
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
-import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
 import { InboxToolbar } from "@/components/inbox/inbox-toolbar"
+import { LazyBulkActionBar } from "@/components/inbox/lazy-bulk-action-bar"
 import { ListHeader } from "@/components/inbox/list-header"
 import {
   SelectionProvider,
@@ -52,7 +52,7 @@ import {
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
-import { REVIEW_QUEUE_LABELS } from "@/lib/contracts/reviews"
+import { REVIEW_QUEUE_LABELS } from "@/lib/contracts/review-values"
 import { INBOX_SPLIT_STYLE } from "@/lib/inbox/layout"
 import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
 import {
@@ -831,7 +831,11 @@ function InboxViewInner({
         </div>
       ) : null}
       {canBatch ? (
-        <BulkActionBar rows={reviews} bulkEngine={bulkEngine} />
+        <LazyBulkActionBar
+          rows={reviews}
+          bulkEngine={bulkEngine}
+          scopeKey={state.clientId ?? ""}
+        />
       ) : null}
     </section>
   )

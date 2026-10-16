@@ -8,9 +8,9 @@ import { TabCount, textTabItemClassName } from "@/components/ui/tabs"
 import { formatNumber } from "@/lib/format"
 import {
   REVIEW_QUEUE_LABELS,
-  type ReviewCounts,
   type ReviewQueue,
-} from "@/lib/contracts/reviews"
+} from "@/lib/contracts/review-values"
+import type { ReviewCounts } from "@/lib/contracts/reviews"
 import {
   VISIBLE_QUEUES,
   visibleQueue,

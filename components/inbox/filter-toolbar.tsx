@@ -3,7 +3,6 @@
 import { useState } from "react"
 
 import { FiltersSheet } from "@/components/inbox/more-filters"
-import { ReviewSortSelect } from "@/components/inbox/review-filters"
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import {
   Select,
@@ -151,15 +150,14 @@ function OwnerSelect({
  * primitive's filter slot beside the search: as few controls as the width
  * allows, and everything behind one Filters sheet.
  *
- * - `xl` and up: age, "waiting on" (Approval only) and sort stay on screen
- *   beside the button. Rating and "With text" are chips above the list at
- *   every width, so they are not here or in the sheet.
- * - `lg` to `xl`: sort and the button.
- * - Below `lg`: the button alone; beside a narrow search a sort select has
- *   no room to say what it sorts by.
+ * - `xl` and up: "waiting on" (Approval only) stays on screen beside the
+ *   button.
+ * - Below `xl`: the button alone; beside a narrow search a select has no
+ *   room to say what it sets.
  *
- * The sheet always holds every control, so nothing is out of reach at any
- * width; the inline copies are shortcuts to the ones used most.
+ * Age and sort live only in the sheet (they used to be mounted a second time
+ * here, hidden at every width). Rating and "With text" are chips above the
+ * list at every width, so they are not here or in the sheet.
  */
 function FilterToolbar({
   state,
@@ -192,8 +190,6 @@ function FilterToolbar({
       aria-label="Filter reviews"
       className={cn("flex min-w-0 items-center justify-end gap-2", className)}
     >
-      <AgeSelect state={state} onChange={onChange} className="hidden" />
-
       {isApproval ? (
         <OwnerSelect
           state={state}
@@ -201,8 +197,6 @@ function FilterToolbar({
           className="w-auto shrink-0 max-xl:hidden"
         />
       ) : null}
-
-      <ReviewSortSelect state={state} onChange={onChange} className="hidden" />
 
       {/* The Toolbar's Filter button (Notion Mail's circle): 44px on
           touch, the control height at the desk. Its name says how many are
