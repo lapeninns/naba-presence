@@ -189,3 +189,120 @@ test.describe("reports", () => {
     })
   }
 })
+
+// Sharing a client's report (R14): the owner's share sheet on the client hub,
+// and the public, tokenised /share/report/<token> page it hands out. Kept in
+// its own block, after the reports suite, so it stands on its own. The link
+// is created through the real sheet (the shown-once URL is read from the
+// field) and revoked at the end of the test that made it.
+test.describe("sharing a client report", () => {
+  test.beforeEach(async ({ page, baseURL }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+  })
+
+  async function openShareSheet(page: Page, clientId: string) {
+    await page.goto(`/clients/${clientId}`)
+    await page.getByRole("button", { name: "More actions", exact: true }).click()
+    await page.getByRole("menuitem", { name: "Share report" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByRole("heading", { name: /^Share .*report$/ })).toBeVisible()
+    return dialog
+  }
+
+  test("the share sheet keeps its action in the footer and its lengths as radio rows", async ({ page }) => {
+    const state = await readJourneyState()
+    const dialog = await openShareSheet(page, state.clientId)
+    const group = dialog.getByRole("radiogroup", { name: "Link works for" })
+    await expect(group.getByRole("radio")).toHaveCount(3)
+    await expect(group.getByRole("radio", { name: "90 days" })).toHaveAttribute("aria-checked", "true")
+    await group.getByRole("radio", { name: "30 days" }).click()
+    await expect(group.getByRole("radio", { name: "30 days" })).toHaveAttribute("aria-checked", "true")
+    // Create link sits in the sheet's footer, not mid-sheet.
+    const footer = dialog.locator('[data-slot="dialog-footer"]')
+    await expect(footer.getByRole("button", { name: "Create link" })).toBeVisible()
+    await expect(dialog.locator('[data-slot="dialog-body"]').getByRole("button", { name: "Create link" })).toHaveCount(0)
+  })
+
+  test("creates a link, shows it once with Copy in the footer, lists it and revokes it", async ({ page }) => {
+    const state = await readJourneyState()
+    const dialog = await openShareSheet(page, state.clientId)
+    await dialog.locator('[data-slot="dialog-footer"]').getByRole("button", { name: "Create link" }).click()
+
+    const field = dialog.getByRole("textbox", { name: "Report link" })
+    await expect(field).toHaveValue(/\/share\/report\/[\w-]{20,}$/)
+    const footer = dialog.locator('[data-slot="dialog-footer"]')
+    await expect(footer.getByRole("button", { name: "Copy link" })).toBeVisible()
+    await expect(footer.getByRole("button", { name: "Create link" })).toHaveCount(0)
+    await expect(dialog.getByText(/shown only this once/)).toBeVisible()
+
+    // It is listed under the sheet as a live link, with a Revoke beside it.
+    await expect(dialog.getByRole("listitem").filter({ hasText: "Active" }).first()).toContainText(/Expires /)
+    await dialog.getByRole("button", { name: /^Revoke the link/ }).first().click()
+    const confirm = page.getByRole("alertdialog", { name: "Revoke this link?" })
+    await confirm.getByRole("button", { name: "Revoke link" }).click()
+    await expect(page.getByText("Link revoked")).toBeVisible()
+  })
+
+  test("the public report leads with the name and period, keeps metadata in the footer, and period links return to the figures", async ({ browser, page, baseURL }) => {
+    const state = await readJourneyState()
+    const dialog = await openShareSheet(page, state.clientId)
+    await dialog.locator('[data-slot="dialog-footer"]').getByRole("button", { name: "Create link" }).click()
+    const url = await dialog.getByRole("textbox", { name: "Report link" }).inputValue()
+    const path = new URL(url).pathname
+
+    // A reader with no account and no cookie.
+    const reader = await browser.newContext({ baseURL })
+    try {
+      const shared = await reader.newPage()
+      await shared.goto(path)
+      await expect(shared.getByRole("heading", { name: state.clientName, level: 1 })).toBeVisible()
+
+      const header = shared.getByRole("banner")
+      await expect(header.getByText(/Last 28 days/).first()).toBeVisible()
+      await expect(header.getByRole("navigation", { name: "Report period" })).toBeVisible()
+      // The four metadata rows are not up there any more.
+      await expect(header.locator("dl")).toHaveCount(0)
+
+      const footer = shared.getByRole("contentinfo")
+      await expect(footer.getByText("Prepared by", { exact: true })).toBeVisible()
+      await expect(footer.getByText("Generated")).toBeVisible()
+      await expect(footer.getByText(/Venues?/).first()).toBeVisible()
+
+      // Switching period lands on the figures (#main), not the top.
+      const ninety = header.getByRole("link", { name: "Last 90 days" })
+      await expect(ninety).toHaveAttribute("href", "?period=90d#main")
+      await ninety.click()
+      await expect(shared).toHaveURL(/\?period=90d#main$/)
+      await expect(shared.getByRole("link", { name: "Last 90 days" })).toHaveAttribute("aria-current", "page")
+      await expect(shared.getByRole("main")).toBeInViewport()
+    } finally {
+      await reader.close()
+    }
+
+    // Tidy up: revoke the link this test made, from the same sheet.
+    await dialog.getByRole("button", { name: /^Revoke the link/ }).first().click()
+    await page.getByRole("alertdialog", { name: "Revoke this link?" }).getByRole("button", { name: "Revoke link" }).click()
+    await expect(page.getByText("Link revoked")).toBeVisible()
+  })
+
+  test("a revoked link is the same plain 'isn't available' page", async ({ browser, page, baseURL }) => {
+    const state = await readJourneyState()
+    const dialog = await openShareSheet(page, state.clientId)
+    await dialog.locator('[data-slot="dialog-footer"]').getByRole("button", { name: "Create link" }).click()
+    const path = new URL(await dialog.getByRole("textbox", { name: "Report link" }).inputValue()).pathname
+    await dialog.getByRole("button", { name: /^Revoke the link/ }).first().click()
+    await page.getByRole("alertdialog", { name: "Revoke this link?" }).getByRole("button", { name: "Revoke link" }).click()
+    await expect(page.getByText("Link revoked")).toBeVisible()
+
+    const reader = await browser.newContext({ baseURL })
+    try {
+      const shared = await reader.newPage()
+      await shared.goto(path)
+      await expect(shared.getByRole("heading", { level: 1, name: "This report link isn’t available" })).toBeVisible()
+      await expect(shared.getByRole("link")).toHaveCount(0)
+    } finally {
+      await reader.close()
+    }
+  })
+})
