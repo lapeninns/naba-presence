@@ -32,6 +32,7 @@ import { formatZonedTime, usableZone } from "@/lib/operations/zoned-time"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useSettings } from "@/lib/queries/use-settings"
+import { useNow } from "@/lib/time/server-now"
 import { describeNotificationType } from "@/lib/settings/gating"
 
 const FAMILY_LABEL: Record<string, string> = {
@@ -161,6 +162,9 @@ export function OperationsView() {
   })
 
   const zone = usableZone(timeZone)
+  // The server's clock while hydrating (lib/time/server-now.tsx), so a label
+  // that falls back to a relative age reads the same on both sides.
+  const now = new Date(useNow())
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
       <QueryStates
@@ -223,7 +227,7 @@ export function OperationsView() {
                     disabled={replay.isPending}
                     pending={replay.isPending && replay.variables === item.id}
                     onClick={() => replay.mutate(item.id)}
-                    aria-label={`Replay ${type} received ${formatZonedTime(item.receivedAt, zone)}`}
+                    aria-label={`Replay ${type} received ${formatZonedTime(item.receivedAt, zone, now)}`}
                   >
                     Replay
                   </Button>
@@ -259,7 +263,10 @@ function HealthSections({
   const stale = data.schedulerHeartbeatStale
   const deliveries = data.notificationDeliveries
   const zone = usableZone(timeZone)
-  const now = new Date()
+  // Overdue is decided during render, and the page is now server-rendered
+  // (SET-22): the server's clock while hydrating, so a device clock that is
+  // off can't flip "On schedule" to "Overdue" mid-hydration (#418).
+  const now = new Date(useNow())
   const summary = summariseScheduler(data.schedulerTicks, stale, now)
   return (
     <>
