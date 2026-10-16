@@ -726,13 +726,21 @@ describe("ReviewList", () => {
 // the same action for a mouse, a keyboard or a finger that does not swipe.
 describe("ReviewList — triage from the row", () => {
   const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(
-    async (input) => ({
-      results: (input as { reviewIds: string[] }).reviewIds.map((reviewId) => ({
-        reviewId,
-        status: "ok",
-        triagedAt: "2026-10-16T07:00:00.000001Z",
-      })),
-    })
+    async (input) => {
+      const { reviewIds, marks } = input as {
+        reviewIds?: string[]
+        marks?: { reviewId: string }[]
+      }
+      return {
+        results: (reviewIds ?? marks?.map((mark) => mark.reviewId) ?? []).map(
+          (reviewId) => ({
+            reviewId,
+            status: "ok",
+            triagedAt: "2026-10-16T07:00:00.000001Z",
+          })
+        ),
+      }
+    }
   )
 
   beforeEach(() => {
@@ -792,6 +800,9 @@ describe("ReviewList — triage from the row", () => {
       action: "mark_unreviewed",
       marks: [{ reviewId: "b", triagedAt: "2026-10-16T07:00:00.000001Z" }],
     })
+    expect(
+      await screen.findByText("Review back in Needs reply")
+    ).toBeInTheDocument()
   })
 
   it("sends a second row pressed while the first is still sending", async () => {
