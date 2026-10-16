@@ -7,22 +7,55 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/listings/l1",
 }))
 
+vi.mock("@/components/listings/listing-gate", () => ({
+  ListingGate: ({
+    children,
+  }: {
+    children: (entry: unknown) => React.ReactNode
+  }) => children({ id: "l1", name: "Riverside", clientId: null, linked: true }),
+}))
+vi.mock("@/components/editors/activity-drawer", () => ({
+  ActivityDrawer: () => null,
+}))
+vi.mock("@/lib/queries/use-locations", () => ({
+  useLocationDirectory: () => ({ data: [] }),
+}))
+vi.mock("@/lib/queries/use-listing-summary", () => ({
+  useListingSummary: () => ({ data: undefined, isError: false }),
+}))
+vi.mock("@/lib/queries/use-location-capabilities", () => ({
+  useLocationCapabilities: () => ({ data: undefined }),
+}))
+
 import ListingLoading from "@/app/(dashboard)/listings/[id]/loading"
 import { ListingAreaLayout } from "@/components/listings/area-frame"
 import { InAreaFrameContext } from "@/components/listings/area-frame-context"
+import { renderWithProviders } from "../helpers/render"
 
 describe("the listing layout's frame", () => {
-  it("passes the overview and Review & publish straight through (they draw their own header)", () => {
-    for (const value of [null, "changes"]) {
-      segment.value = value
-      const { container, unmount } = render(
-        <ListingAreaLayout locationId="l1" role="owner">
-          <p>page</p>
-        </ListingAreaLayout>
-      )
-      expect(container.innerHTML).toBe("<p>page</p>")
-      unmount()
-    }
+  it("passes the overview straight through (it draws its own header)", () => {
+    segment.value = null
+    const { container } = render(
+      <ListingAreaLayout locationId="l1" role="owner">
+        <p>page</p>
+      </ListingAreaLayout>
+    )
+    expect(container.innerHTML).toBe("<p>page</p>")
+  })
+
+  it("wraps Review & publish in the shared frame, as an area (LST-14)", () => {
+    segment.value = "changes"
+    renderWithProviders(
+      <ListingAreaLayout locationId="l1" role="owner">
+        <p>page</p>
+      </ListingAreaLayout>
+    )
+    expect(
+      document.querySelector('[data-slot="listing-area-header"]')
+    ).not.toBeNull()
+    expect(
+      screen.getByRole("region", { name: "Review & publish" })
+    ).toHaveTextContent("page")
   })
 })
 

@@ -20,12 +20,6 @@ vi.mock("@/components/listings/listing-gate", () => ({
     children: (entry: { name: string; clientId: null }) => ReactNode
   }) => children({ name: "Riverside", clientId: null }),
 }))
-vi.mock("@/components/listings/area-frame", () => ({
-  ListingAreaHeader: () => null,
-}))
-vi.mock("@/components/editors/activity-drawer", () => ({
-  ActivityDrawer: () => null,
-}))
 vi.mock("@/lib/queries/use-listing-summary", () => ({
   useListingSummary: () => ({
     data: {
@@ -201,7 +195,9 @@ describe("publish failure and read-only views", () => {
       screen.getAllByText(/Google couldn’t find that account or listing/)
     ).toHaveLength(1)
     expect(screen.queryByText(/Earlier steps were sent/)).toBeNull()
-    expect(screen.queryByText(/did not finish with a confirmed result/)).toBeNull()
+    expect(
+      screen.queryByText(/did not finish with a confirmed result/)
+    ).toBeNull()
     // The toast is short, and there is no second Retry on the step.
     const toasts = screen.getByRole("region", { name: "Notifications" })
     expect(
