@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page, test } from "@playwright/test"
 
 import { readJourneyState } from "./helpers/stub-bridge"
+import { seedTeamTenant } from "./helpers/team-tenant"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
@@ -160,6 +161,12 @@ async function roleRows(scope: Locator) {
 }
 
 test.describe("team roles", () => {
+  // Tenants seeded by a test, destroyed after it whatever the outcome.
+  const cleanups: (() => Promise<void>)[] = []
+  test.afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup()
+  })
+
   test("the invite sheet lists roles as rows and shows Client access above the button on a phone", async ({
     baseURL,
     page,
@@ -297,36 +304,24 @@ test.describe("team roles", () => {
     baseURL,
     page,
   }) => {
-    const state = await readJourneyState()
-    await applyCookie(page, baseURL, state.cookie)
-    const BEN = "00000000-0000-4000-8000-0000000000b2"
-    let patched: unknown
-    const member = (userId: string, displayName: string, role: string) => ({
-      userId,
-      email: `${displayName.split(" ")[0]!.toLowerCase()}@example.test`,
-      displayName,
-      role,
-      canPublish: role === "owner" || role === "admin",
-      locationScope: "all",
-      createdAt: "2026-07-01T09:00:00.000Z",
-      locations: [],
+    // /team reads its members on the server (P20), so Ben is a real member
+    // of a throwaway tenant; the stub answers only the role change.
+    const team = await seedTeamTenant({
+      members: [
+        {
+          displayName: "Ben Member",
+          email: "ben.{id}@example.test",
+          role: "member",
+          canPublish: false,
+        },
+      ],
     })
+    cleanups.push(team.destroy)
+    await applyCookie(page, baseURL, team.cookie)
+    const BEN = team.members[0]!.userId
+    let patched: unknown
     await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
       const request = route.request()
-      if (request.method() === "GET") {
-        return route.fulfill({
-          json: {
-            members: [
-              member(
-                "00000000-0000-4000-8000-0000000000b1",
-                "Olive Owner",
-                "owner"
-              ),
-              member(BEN, "Ben Member", "member"),
-            ],
-          },
-        })
-      }
       if (request.method() === "PATCH") {
         const body = request.postDataJSON() as {
           userId: string
@@ -384,29 +379,52 @@ test.describe("team roles", () => {
     baseURL,
     page,
   }) => {
-    const state = await readJourneyState()
-    await applyCookie(page, baseURL, state.cookie)
-    const BEN = "00000000-0000-4000-8000-0000000000b2"
+    // /team reads its members on the server (P20), so Ben is a real member
+    // of a throwaway tenant. The stub answers the publishing change and
+    // keeps the refetch after it showing that change.
+    const team = await seedTeamTenant({
+      members: [
+        {
+          displayName: "Ben Member",
+          email: "ben.member.with.a.long.{id}@example.test",
+          role: "member",
+          canPublish: false,
+        },
+      ],
+    })
+    cleanups.push(team.destroy)
+    await applyCookie(page, baseURL, team.cookie)
+    const seeded = team.members[0]!
+    const BEN = seeded.userId
     let patched: unknown
-    let ben = {
-      userId: BEN,
-      email: "ben.member.with.a.long.address@example.test",
-      displayName: "Ben Member",
-      role: "member",
-      canPublish: false,
-      locationScope: "all",
-      createdAt: "2026-07-01T09:00:00.000Z",
-      locations: [],
-    }
+    let ben: Record<string, unknown> | null = null
     await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
       const request = route.request()
       if (request.method() === "GET") {
-        return route.fulfill({ json: { members: [ben] } })
+        const response = await route.fetch()
+        const json = (await response.json()) as {
+          members: { userId: string }[]
+        }
+        if (ben) {
+          const changed = ben
+          json.members = json.members.map((m) =>
+            m.userId === BEN ? { ...m, ...changed } : m
+          )
+        }
+        return route.fulfill({ response, json })
       }
       if (request.method() === "PATCH") {
         patched = request.postDataJSON()
-        ben = { ...ben, ...(patched as object) }
-        return route.fulfill({ json: { member: ben } })
+        ben = { ...(ben ?? {}), ...(patched as object) }
+        return route.fulfill({
+          json: {
+            member: {
+              ...(patched as object),
+              locationScope: "all",
+              createdAt: "2026-07-01T09:00:00.000Z",
+            },
+          },
+        })
       }
       return route.fallback()
     })
@@ -414,13 +432,16 @@ test.describe("team roles", () => {
     await page.goto("/team")
     const list = page.getByRole("list", { name: "Members" })
     const row = list.getByRole("button", {
-      name: "Ben Member, ben.member.with.a.long.address@example.test",
+      name: `Ben Member, ${seeded.email}`,
     })
     await expect(row).toBeVisible()
     // SET-02: one row (name, the full email, the role chip and its line),
     // not the record card (about 178px). Measured on the whole list item,
     // footer included: 132px at 390.
-    const box = await list.getByRole("listitem").first().boundingBox()
+    const box = await list
+      .getByRole("listitem")
+      .filter({ has: row })
+      .boundingBox()
     expect(box!.height).toBeLessThanOrEqual(140)
     await expect(list.getByText("All clients · Drafts only")).toBeVisible()
     await expect(page.getByRole("table", { name: "Members" })).toHaveCount(0)
