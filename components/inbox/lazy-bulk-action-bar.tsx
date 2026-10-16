@@ -65,6 +65,8 @@ function LoadFailedNotice({ onRetry }: { onRetry: () => void }) {
       role="region"
       aria-label="Selection actions"
       data-slot="bulk-action-bar-failed"
+      // The tab bar steps aside for a docked bar (globals.css), phone only.
+      data-docked="bottom"
       className="z-chrome flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle bg-surface py-1 pr-1 pl-(--np-page-pad-x) max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:pb-[max(--spacing(1),var(--np-dock-bottom))]"
     >
       <p role="alert" className="text-caption text-ink-muted">
