@@ -799,17 +799,24 @@ describe("ReviewList — triage from the row", () => {
     mutateAsync.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          release = () => resolve({ results: [{ reviewId: "a", status: "ok" }] })
+          release = () =>
+            resolve({ results: [{ reviewId: "a", status: "ok" }] })
         })
     )
     renderRows()
-    const [first, second] = screen.getAllByRole("button", { name: /^Actions for / })
+    const [first, second] = screen.getAllByRole("button", {
+      name: /^Actions for /,
+    })
     await user.click(first)
-    await user.click(await screen.findByRole("menuitem", { name: "No reply needed" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
     // The first is still in flight when the second row is acted on.
     await user.click(second)
-    await user.click(await screen.findByRole("menuitem", { name: "No reply needed" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
     expect(mutateAsync).toHaveBeenLastCalledWith({
       action: "mark_reviewed",

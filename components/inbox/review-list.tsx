@@ -555,7 +555,9 @@ function ReviewList({
           key={noReplyFor}
           reviewId={noReplyFor}
           onDone={() =>
-            setNoReplyFor((current) => (current === noReplyFor ? null : current))
+            setNoReplyFor((current) =>
+              current === noReplyFor ? null : current
+            )
           }
         />
       ) : null}

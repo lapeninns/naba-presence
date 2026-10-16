@@ -696,7 +696,11 @@ describe("ReviewDetail", () => {
       const user = userEvent.setup()
       mutateAsync.mockResolvedValueOnce({
         results: [
-          { reviewId: "rev-1", status: "skipped", code: "review_already_triaged" },
+          {
+            reviewId: "rev-1",
+            status: "skipped",
+            code: "review_already_triaged",
+          },
         ],
       })
       fakeDetail({ isPending: false, isError: false, data: detail })
@@ -713,7 +717,9 @@ describe("ReviewDetail", () => {
       expect(
         screen.getByText("That review was already marked as no reply needed.")
       ).toBeInTheDocument()
-      expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Undo" })
+      ).not.toBeInTheDocument()
     })
 
     it("assigns the review from ⋯ → Assign…, to people it could be offered to", async () => {
