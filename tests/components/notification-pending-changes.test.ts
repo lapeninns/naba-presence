@@ -16,9 +16,9 @@ import {
   currentScopeToken,
   removePendingChange,
   usePendingNotificationChanges,
-  usePendingUnreadDelta,
-  type PendingChange,
 } from "@/lib/notifications/pending-changes"
+import { usePendingUnreadDelta } from "@/lib/api/operational-notifications"
+import type { PendingChange } from "@/lib/notifications/pending-store"
 import { queryKeys } from "@/lib/queries/keys"
 
 const row = (id: string, overrides: Partial<NotificationItem> = {}) =>
@@ -291,10 +291,9 @@ describe("pending changes and the session scope", () => {
 
   it("adds the same delta for the page and the bell, and drops it with the change", () => {
     const { client, wrapper } = setup()
-    const { result } = renderHook(
-      () => usePendingUnreadDelta(queryKeys.notifications("badge")),
-      { wrapper }
-    )
+    const { result } = renderHook(() => usePendingUnreadDelta("badge"), {
+      wrapper,
+    })
     expect(result.current).toBe(0)
     let made!: PendingChange
     act(() => {

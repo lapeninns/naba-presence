@@ -22,10 +22,10 @@
  * lists in one synchronous step with removing it, so the screen never
  * shows it twice or not at all.
  *
- * Zod-free: the shell bell imports this, and only types come from contracts.
+ * The shell bell imports only lib/notifications/pending-store.ts; this module
+ * (the overlay, making, ending and committing a change) is the page's.
  */
 import {
-  hashKey,
   notifyManager,
   useQueryClient,
   type QueryClient,
@@ -33,74 +33,56 @@ import {
 } from "@tanstack/react-query"
 import * as React from "react"
 
-import type { SessionResponse } from "@/lib/contracts/session"
 import type {
   NotificationItem,
   NotificationListResponse,
 } from "@/lib/contracts/operational-notifications"
 import { queryKeys } from "@/lib/queries/keys"
+
+import type { SessionResponse } from "@/lib/contracts/session"
 import { sessionScopeToken } from "@/lib/queries/scope-reset"
 
-/** The part of a row that decides whether it counts as "open and unread". */
-export type RowState = Pick<NotificationItem, "status" | "readAt">
+import { storeFor } from "@/lib/api/operational-notifications"
+
+import { type PendingChange, type RowState, type Store } from "./pending-store"
+
+/** The scope the session in the cache stands for right now. */
+export function currentScopeToken(client: QueryClient): string {
+  return sessionScopeToken(
+    client.getQueryData<SessionResponse>(queryKeys.session)?.session
+  )
+}
 
 type FoldRow = RowState & Pick<NotificationItem, "resolvedAt" | "canResolve">
-
-export type PendingChange = {
-  id: string
-  /** `sessionScopeToken` when the change was made. */
-  scope: string
-  kind: "read" | "resolve"
-  ids: readonly string[]
-  /** For `read`: true marks read, false marks unread. */
-  read?: boolean
-  /** When the change was made: what the row shows as its read or resolved time. */
-  at: string
-  /**
-   * Each row's state in the cache when the change was made. Only a fallback,
-   * for a row no cached list holds any more; the cache is the first witness.
-   */
-  snapshots: Readonly<Record<string, RowState>>
-}
 
 /** The lists a change touches, as the filter each one applies. */
 export type ListFilter = "all" | "unread" | "open"
 
-// ---------------------------------------------------------------------------
-// The store
-// ---------------------------------------------------------------------------
-
-type Store = {
-  /** The truth, for code that is not rendering. */
-  changes: readonly PendingChange[]
-  /** What subscribers read: it moves with the cache's own notifications. */
-  published: readonly PendingChange[]
-  listeners: Set<() => void>
-}
-
-const stores = new WeakMap<QueryClient, Store>()
 let sequence = 0
 
-function storeFor(client: QueryClient): Store {
-  let store = stores.get(client)
-  if (!store) {
-    const created: Store = { changes: [], published: [], listeners: new Set() }
-    store = created
-    stores.set(client, created)
-    // A change made in one session scope is dropped the moment the session
-    // in the cache is another scope, even if it later comes back to the first
-    // (A to B to A): what was pending in A's first stretch is not A's second.
-    // Published in step with the cache's other notifications.
-    client.getQueryCache().subscribe(() => {
-      if (created.changes.length === 0) return
-      const token = currentScopeToken(client)
-      const kept = created.changes.filter((change) => change.scope === token)
-      if (kept.length === created.changes.length) return
-      created.changes = kept
-      publish(created, true)
-    })
-  }
-  return store
+/**
+ * A change made in one session scope is dropped the moment the session in the
+ * cache is another scope, even if it later comes back to the first (A to B to
+ * A): what was pending in A's first stretch is not A's second. Watched from
+ * the first change a client makes, published in step with the cache's other
+ * notifications.
+ */
+const watched = new WeakSet<QueryClient>()
+function watchScope(client: QueryClient, store: Store) {
+  if (watched.has(client)) return
+  watched.add(client)
+  client.getQueryCache().subscribe(() => {
+    if (store.changes.length === 0) return
+    const token = currentScopeToken(client)
+    const kept = store.changes.filter((change) => change.scope === token)
+    if (kept.length === store.changes.length) {
+      // The rows the count leans on may have moved: tell the bell.
+      notifyManager.schedule(() => store.listeners.forEach((l) => l()))
+      return
+    }
+    store.changes = kept
+    publish(store, true)
+  })
 }
 
 /**
@@ -117,18 +99,11 @@ function publish(store: Store, deferred = false) {
   else run()
 }
 
-/** The scope the session in the cache stands for right now. */
-export function currentScopeToken(client: QueryClient): string {
-  return sessionScopeToken(
-    client.getQueryData<SessionResponse>(queryKeys.session)?.session
-  )
-}
-
 // ---------------------------------------------------------------------------
-// Reading the cached lists
+// Reading the cache and counting
 // ---------------------------------------------------------------------------
 
-type CachedList = {
+export type CachedList = {
   key: QueryKey
   /** "badge" is the shell's unread page; the rest are the list's filters. */
   filter: string
@@ -141,7 +116,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null
 
 /** Every cached notifications list: the three filters and the shell badge. */
-function cachedLists(client: QueryClient): CachedList[] {
+export function cachedLists(client: QueryClient): CachedList[] {
   const lists: CachedList[] = []
   for (const [key, data] of client.getQueriesData<unknown>({
     queryKey: queryKeys.notificationsAll,
@@ -170,7 +145,7 @@ function cachedLists(client: QueryClient): CachedList[] {
 
 /**
  * Each row's state as the server last said it, across every cached list.
- * The list whose key hashes to `preferred` wins where lists differ: it is the one on screen.
+ * The list named `preferred` ("all", "badge"...) wins where lists differ.
  */
 export function cachedRowStates(
   client: QueryClient,
@@ -179,9 +154,7 @@ export function cachedRowStates(
   const rows = new Map<string, RowState>()
   const lists = cachedLists(client)
   lists.sort(
-    (a, b) =>
-      Number(hashKey(a.key) === preferred) -
-      Number(hashKey(b.key) === preferred)
+    (a, b) => Number(a.filter === preferred) - Number(b.filter === preferred)
   )
   for (const list of lists)
     for (const page of list.pages)
@@ -189,10 +162,6 @@ export function cachedRowStates(
         rows.set(item.id, { status: item.status, readAt: item.readAt })
   return rows
 }
-
-// ---------------------------------------------------------------------------
-// The overlay
-// ---------------------------------------------------------------------------
 
 const countsAsUnread = (row: RowState) => row.status === "open" && !row.readAt
 
@@ -270,6 +239,10 @@ function unreadDelta(
   }
   return delta
 }
+
+// ---------------------------------------------------------------------------
+// The overlay
+// ---------------------------------------------------------------------------
 
 export type AppliedChanges = {
   /** The pages as they are displayed (the same array when nothing changed). */
@@ -364,6 +337,14 @@ export function addPendingChange(
     snapshots,
   }
   const store = storeFor(client)
+  watchScope(client, store)
+  store.delta ??= (cache, prefer) => {
+    const token = currentScopeToken(cache)
+    const changes = store.published.filter((change) => change.scope === token)
+    if (changes.length === 0) return 0
+    const rows = cachedRowStates(cache, prefer)
+    return unreadDelta(changes, (id) => rows.get(id))
+  }
   store.changes = [...store.changes, change]
   publish(store)
   return change
@@ -425,7 +406,7 @@ export function commitPendingChange(
 }
 
 // ---------------------------------------------------------------------------
-// Hooks
+// Hook
 // ---------------------------------------------------------------------------
 
 /** The session scope in the cache, following it as the cache changes. */
@@ -450,13 +431,7 @@ export function usePendingNotificationChanges(): readonly PendingChange[] {
   const store = storeFor(client)
   const token = useScopeToken(client)
   const all = React.useSyncExternalStore(
-    React.useCallback(
-      (onChange: () => void) => {
-        store.listeners.add(onChange)
-        return () => void store.listeners.delete(onChange)
-      },
-      [store]
-    ),
+    store.subscribe,
     () => store.published,
     () => store.published
   )
@@ -464,37 +439,4 @@ export function usePendingNotificationChanges(): readonly PendingChange[] {
     () => all.filter((change) => change.scope === token),
     [all, token]
   )
-}
-
-/**
- * How far this session's pending changes move the "open and unread" count.
- * The page's list and the shell's bell both add it to what the server last
- * said, so they agree while a change is out and roll back together. `prefer`
- * is the cached list whose rows are read first (the badge, for the bell).
- */
-export function usePendingUnreadDelta(prefer?: QueryKey): number {
-  const client = useQueryClient()
-  const store = storeFor(client)
-  const subscribe = React.useCallback(
-    (onChange: () => void) => {
-      store.listeners.add(onChange)
-      const unsubscribe = client
-        .getQueryCache()
-        .subscribe(notifyManager.batchCalls(onChange))
-      return () => {
-        store.listeners.delete(onChange)
-        unsubscribe()
-      }
-    },
-    [client, store]
-  )
-  const preferred = prefer ? hashKey(prefer) : undefined
-  const read = React.useCallback(() => {
-    const token = currentScopeToken(client)
-    const changes = store.published.filter((change) => change.scope === token)
-    if (changes.length === 0) return 0
-    const rows = cachedRowStates(client, preferred)
-    return unreadDelta(changes, (id) => rows.get(id))
-  }, [client, preferred, store])
-  return React.useSyncExternalStore(subscribe, read, read)
 }

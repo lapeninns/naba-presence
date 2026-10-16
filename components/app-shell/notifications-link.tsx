@@ -3,8 +3,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { Bell } from "lucide-react"
 
-import { fetchNotifications } from "@/lib/api/operational-notifications"
-import { usePendingUnreadDelta } from "@/lib/notifications/pending-changes"
+import {
+  fetchNotifications,
+  usePendingUnreadDelta,
+} from "@/lib/api/operational-notifications"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { SEEDED_BY_SHELL } from "@/lib/queries/use-shell-status"
@@ -22,7 +24,7 @@ import { ShellLink } from "./shell-link"
  * the bell and the page agree and a refused change takes both back.
  */
 export function useUnreadNotificationCount(enabled = true): number {
-  const pending = usePendingUnreadDelta(queryKeys.notifications("badge"))
+  const pending = usePendingUnreadDelta("badge")
   const query = useQuery({
     enabled,
     queryKey: queryKeys.notifications("badge"),

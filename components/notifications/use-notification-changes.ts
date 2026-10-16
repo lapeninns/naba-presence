@@ -12,8 +12,8 @@ import {
   addPendingChange,
   commitPendingChange,
   removePendingChange,
-  type PendingChange,
 } from "@/lib/notifications/pending-changes"
+import type { PendingChange } from "@/lib/notifications/pending-store"
 import { queryKeys } from "@/lib/queries/keys"
 
 /** The endpoint takes at most 100 ids at once; a long list is sent in turns. */
