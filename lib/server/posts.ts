@@ -1724,6 +1724,11 @@ export async function requestOrPublishLocalPost(input: {
         }
       }
 
+      // On both passes. The reconcile between them runs outside this
+      // transaction, so an edit can land there, and the second pass must not
+      // publish what the person did not see. Settling from Google's own copy
+      // can also move the revision, and then the 409 is a recoverable false
+      // positive: the client re-reads the list and publishes again.
       if (
         input.expectedRevision !== undefined &&
         input.expectedRevision !== post.contentRevision
@@ -1731,7 +1736,7 @@ export async function requestOrPublishLocalPost(input: {
         throw new ApiError(
           409,
           "post_changed_since_saved",
-          "This post was changed by someone else after you saved it. Nothing was sent to Google. Open it again to see the current version."
+          "This post changed after it was saved or opened, so nothing was sent to Google. Open it again to see the current version."
         )
       }
       if (post.status === "publishing") throw postPublishInProgress()

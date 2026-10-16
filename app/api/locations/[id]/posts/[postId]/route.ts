@@ -48,6 +48,9 @@ export const PATCH = route({
         locationId: id,
         postId,
         requestId,
+        // The edit just committed: publish exactly that revision, not
+        // whatever another editor saves before the decision locks the row.
+        expectedRevision: post.contentRevision,
       })) satisfies PostUpdateResponse
     }
     return { post } satisfies PostUpdateResponse

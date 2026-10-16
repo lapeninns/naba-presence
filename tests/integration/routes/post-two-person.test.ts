@@ -324,7 +324,7 @@ describeDatabase(
     it("refuses a publish bound to a revision the post has moved past, and sends nothing", async () => {
       const { owner, locationId } = await twoPersonTenant()
       const postId = await createDraft(owner.cookie, locationId, "Quiz night")
-      // Someone else edits after the composer saved revision 1.
+      // An edit lands after the composer saved revision 1.
       const edited = await send(
         owner.cookie,
         "PATCH",
