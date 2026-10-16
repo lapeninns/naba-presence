@@ -565,6 +565,13 @@ export const reviewCountsSchema = z.object({
    * promise rows the queue does not contain.
    */
   byQueue: z.record(reviewQueueSchema, z.number()),
+  /**
+   * Replies parked for approval that this person could approve: the
+   * `awaiting_my_approval` queue without, under two-person approval, the
+   * ones whose parked draft they wrote (the route would refuse them). What
+   * the Inbox badge and title count; absent from a server that predates it.
+   */
+  approvableByMe: z.number().optional(),
   /** Per-client breakdown, present only when the caller asks to group. */
   groups: z
     .array(

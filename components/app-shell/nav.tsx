@@ -14,6 +14,7 @@ import {
   type Destination,
 } from "@/lib/navigation/destinations"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
+import { type InboxWaiting, waitingPhrase } from "@/lib/inbox/waiting"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
@@ -155,7 +156,7 @@ function NavRow({
 function Nav({
   onNavigate,
   clients = [],
-  needsReply,
+  waiting,
   role,
   scopeClientId = null,
   mode = "agency",
@@ -169,8 +170,8 @@ function Nav({
    * links to every client.
    */
   scopeClientId?: string | null
-  /** The Inbox's needs-reply count, when the app has it. */
-  needsReply?: number
+  /** What the Inbox has waiting on this person (replies and approvals), when the app has it. */
+  waiting?: InboxWaiting
   /**
    * The session's role. Team is for owners and admins (the page answers
    * everyone else with Access denied), so it is left out for the rest, and
@@ -226,10 +227,10 @@ function Nav({
                   active={active}
                   containsCurrent={containsCurrent}
                   onNavigate={onNavigate}
-                  count={item.id === "inbox" ? needsReply : undefined}
+                  count={item.id === "inbox" ? waiting?.total : undefined}
                   countLabel={
-                    item.id === "inbox" && needsReply
-                      ? `${needsReply} ${needsReply === 1 ? "review needs" : "reviews need"} a reply`
+                    item.id === "inbox" && waiting?.total
+                      ? waitingPhrase(waiting, { reviews: true })
                       : undefined
                   }
                 />

@@ -9,8 +9,11 @@ import {
   type ReviewQueue,
   type ReviewWorkflowState,
 } from "@/lib/contracts/reviews"
-import { requireLocationAccess, visibilityPredicate } from "@/lib/server/permissions"
-import { queuePredicate } from "@/lib/server/review-queues"
+import {
+  requireLocationAccess,
+  visibilityPredicate,
+} from "@/lib/server/permissions"
+import { approvablePredicate, queuePredicate } from "@/lib/server/review-queues"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -75,6 +78,7 @@ export async function readReviewCounts(
       (queue) =>
         sql`count(*) filter (where ${queuePredicate(sql, actor, queue, options)})::integer as ${sql(queue)}`
     ),
+    sql`count(*) filter (where ${approvablePredicate(sql, actor, options)})::integer as "approvableByMe"`,
   ].reduce((left, right) => sql`${left}, ${right}`)
 
   // One pass over the visible reviews (W4-06). Totals, statuses and queues
@@ -82,13 +86,11 @@ export async function readReviewCounts(
   // grand totals are the sum of the client rows, because every review
   // belongs to exactly one location and so to exactly one group.
   type CountRow = Record<
-    ReviewQueue | `status:${ReviewWorkflowState}` | "total",
+    ReviewQueue | `status:${ReviewWorkflowState}` | "total" | "approvableByMe",
     number
   >
   const groups = scope.groupBy
-    ? await sql<
-        (CountRow & { clientId: string | null; clientName: string })[]
-      >`
+    ? await sql<(CountRow & { clientId: string | null; clientName: string })[]>`
         select
           c.id::text as "clientId",
           coalesce(c.name, 'Unassigned locations') as "clientName",
@@ -116,8 +118,10 @@ export async function readReviewCounts(
   ) as Record<ReviewWorkflowState, number>
   const byQueue = zeroQueues()
   let total = 0
+  let approvableByMe = 0
   for (const row of rows) {
     total += row.total
+    approvableByMe += row.approvableByMe
     for (const status of REVIEW_WORKFLOW_STATES) {
       byStatus[status] += row[`status:${status}`]
     }
@@ -128,6 +132,7 @@ export async function readReviewCounts(
     total,
     byStatus,
     byQueue,
+    approvableByMe,
     groups: groups?.map((group) => {
       const counts = zeroQueues()
       for (const queue of REVIEW_QUEUES) counts[queue] = group[queue] ?? 0

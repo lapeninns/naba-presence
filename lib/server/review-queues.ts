@@ -103,3 +103,52 @@ function canApproveHere(
 ): Fragment {
   return publishPredicate(sql, session, sql`r.location_id`)
 }
+
+/**
+ * Replies parked for approval that THIS person could actually approve: the
+ * `awaiting_my_approval` queue (publish permission here, not the person who
+ * asked) minus, under two-person approval, the parked draft's own author.
+ * That is the approval route's rule (review-approval.ts refuses the author
+ * with `second_approver_required`), and the list row's `canApprove`
+ * (reviews-query.ts). The parked draft is resolved as they resolve it: the
+ * reply's `pending_draft_id`, else the newest verified draft for a reply
+ * parked before that column existed.
+ *
+ * Only the badge and title count this. The queue itself keeps the author in
+ * "awaiting my approval" on purpose: they can still open it and reject.
+ */
+export function approvablePredicate(
+  sql: TransactionSql,
+  session: Pick<Session, "userId" | "role" | "canPublish">,
+  options: { requireTwoPersonApproval: boolean }
+): Fragment {
+  return sql`(
+    ${queuePredicate(sql, session, "awaiting_my_approval", options)}
+    and ${
+      options.requireTwoPersonApproval
+        ? sql`not coalesce(
+            (
+              select pd.created_by = ${session.userId}
+              from review_reply rr
+              join draft pd
+                on pd.id = coalesce(
+                  rr.pending_draft_id,
+                  (
+                    select vd.id
+                    from draft vd
+                    where vd.review_id = r.id
+                      and vd.verification_status in ('pass', 'warn')
+                    order by vd.created_at desc
+                    limit 1
+                  )
+                )
+              where rr.review_id = r.id
+              order by rr.updated_at desc
+              limit 1
+            ),
+            false
+          )`
+        : sql`true`
+    }
+  )`
+}

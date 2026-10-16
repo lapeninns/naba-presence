@@ -7,8 +7,8 @@ import { pageWorkspaceMode } from "./helpers/workspace-mode"
 const HEALTH_WORDS =
   /All clients up to date|clients? needs? (?:action|attention)|data delayed|Importing reviews|No clients yet|Not connected yet|Needs action|Needs attention|All in sync/
 
-/** "Inbox", or "Inbox, 2 need a reply" (components/app-shell/use-needs-reply-count.ts). */
-const INBOX_TAB = /^Inbox(, \d+ needs? a reply)?$/
+/** "Inbox", or "Inbox, 2 need a reply" / "Inbox, 1 awaiting your approval" (components/app-shell/use-needs-reply-count.ts). */
+const INBOX_TAB = /^Inbox(, \d+ (?:needs? a reply|awaiting your approval|needs? your attention: \d+ to reply, \d+ to approve))?$/
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 
