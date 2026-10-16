@@ -268,7 +268,13 @@ describeDatabase("counts, search and metric write shape", () => {
             const current = await asTenant(organisationId, (sql) =>
               readReviewCounts(sql, session, scope())
             )
-            expect(current.result).toEqual(legacy.result)
+            // `approvableByMe` is newer than the old queries: it narrows the
+            // awaiting_my_approval queue, never widens it.
+            const { approvableByMe, ...rest } = current.result
+            expect(rest).toEqual(legacy.result)
+            expect(approvableByMe).toBeLessThanOrEqual(
+              current.result.byQueue.awaiting_my_approval
+            )
           }
         })
       }
@@ -473,7 +479,9 @@ describeDatabase("counts, search and metric write shape", () => {
         )
         expect(reviewScans).toHaveLength(1)
         const conditions = JSON.stringify(reviewScans[0])
-        expect(conditions).toMatch(/organisation_id = \(NULLIF\(current_setting/)
+        expect(conditions).toMatch(
+          /organisation_id = \(NULLIF\(current_setting/
+        )
         expect(conditions).toContain("search_document @@")
         expect(conditions.includes("id = ANY")).toBe(listed)
       }
@@ -481,8 +489,10 @@ describeDatabase("counts, search and metric write shape", () => {
 
     it("refuses a bounded search for a different tenant", async () => {
       await expect(
-        asTenant(organisationId, (sql) =>
-          sql`
+        asTenant(
+          organisationId,
+          (sql) =>
+            sql`
             select review_id
             from search_review_ids_bounded(
               ${otherOrganisationId}, 'breakfast', 'not-a-real-hash', 10

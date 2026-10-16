@@ -25,7 +25,47 @@ describe("inboxWaiting", () => {
   })
 })
 
+describe("inboxWaiting approvals the person could approve", () => {
+  it("counts approvableByMe, not the wider awaiting_my_approval queue", () => {
+    // The queue still holds the draft's author's own parked reply (they can
+    // reject it); the badge counts only what they could approve.
+    const withField = {
+      ...counts({ needs_reply: 1, awaiting_my_approval: 1 }),
+      approvableByMe: 0,
+    } as ReviewCounts
+    expect(inboxWaiting(withField)).toEqual({
+      needsReply: 1,
+      awaitingMyApproval: 0,
+      total: 1,
+    })
+  })
+
+  it("falls back to the queue only for a payload without the field", () => {
+    expect(
+      inboxWaiting(counts({ needs_reply: 0, awaiting_my_approval: 2 }))
+    ).toMatchObject({ awaitingMyApproval: 2 })
+  })
+})
+
 describe("waitingPhrase", () => {
+  it("writes grouped figures, matching the visible count, from 1,000 up", () => {
+    expect(waitingPhrase({ needsReply: 999, awaitingMyApproval: 1 })).toBe(
+      "1,000 need your attention: 999 to reply, 1 to approve"
+    )
+    expect(waitingPhrase({ needsReply: 1000, awaitingMyApproval: 0 })).toBe(
+      "1,000 need a reply"
+    )
+    expect(
+      waitingPhrase(
+        { needsReply: 1200, awaitingMyApproval: 0 },
+        { reviews: true }
+      )
+    ).toBe("1,200 reviews need a reply")
+    expect(waitingPhrase({ needsReply: 0, awaitingMyApproval: 2500 })).toBe(
+      "2,500 awaiting your approval"
+    )
+  })
+
   it("keeps the old wording while only replies wait", () => {
     expect(waitingPhrase({ needsReply: 1, awaitingMyApproval: 0 })).toBe(
       "1 needs a reply"

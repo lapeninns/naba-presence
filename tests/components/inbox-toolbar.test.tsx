@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -207,6 +214,27 @@ describe("InboxToolbar", () => {
     expect(
       within(header()).getByText("(1 awaiting your approval)")
     ).toBeInTheDocument()
+  })
+
+  it("says a total of 1,000 or more once, grouped like the figure (mixed and reply-only)", () => {
+    renderToolbar("7 reviews", {
+      counts: counts(999, 1),
+      countsPending: false,
+    })
+    const count = header().querySelector('[data-slot="view-header-count"]')
+    expect(count).toHaveTextContent(/^1,000/)
+    expect(count?.textContent).toContain(
+      "(1,000 need your attention: 999 to reply, 1 to approve)"
+    )
+    expect(count?.textContent).not.toContain("1,0001000")
+    cleanup()
+    renderToolbar("7 reviews", {
+      counts: counts(1000, 0),
+      countsPending: false,
+    })
+    const reply = header().querySelector('[data-slot="view-header-count"]')
+    expect(reply?.textContent).toContain("(1,000 need a reply)")
+    expect(reply?.textContent).not.toContain("1,0001000")
   })
 
   it("shows a skeleton, never a zero, while the counts are in flight", () => {
