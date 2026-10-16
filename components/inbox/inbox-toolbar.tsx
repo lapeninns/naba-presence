@@ -18,6 +18,7 @@ import {
 import { formatNumber } from "@/lib/format"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
+import { inboxWaiting, waitingPhrase } from "@/lib/inbox/waiting"
 import {
   hasActiveFilters,
   type InboxState,
@@ -27,11 +28,12 @@ import { cn } from "@/lib/utils"
 
 /**
  * The inbox's one count, after the title (Notion Mail's "Inbox 99+"): how
- * many reviews need a reply in the client scope in view (the navigation
- * badge reads the same scope), for `ViewHeader`'s count slot, which draws it beside the h1
+ * many reviews wait on this person in the client scope in view (a reply to
+ * write, or a reply parked for their approval; the navigation badge reads the
+ * same scope and the same sum), for `ViewHeader`'s count slot, which draws it beside the h1
  * (never inside it, so the heading's name stays "Inbox" whatever the number
- * is) and says it to a screen reader in words ("12 need a reply", the tab
- * bar's own wording).
+ * is) and says it to a screen reader in words ("12 need a reply", or "1
+ * awaiting your approval", the tab bar's own wording).
  *
  * A skeleton while the counts are in flight, never a "0": a zero before the
  * number lands says there is nothing to do when there may be plenty. A
@@ -44,11 +46,11 @@ function headerCount(
   if (countsPending) {
     return { count: <Skeleton className="inline-block h-5 w-8 align-middle" /> }
   }
-  const needsReply = counts?.byQueue?.needs_reply ?? 0
-  if (needsReply <= 0) return {}
+  const waiting = inboxWaiting(counts)
+  if (!waiting || waiting.total <= 0) return {}
   return {
-    count: formatNumber(needsReply),
-    countLabel: `${formatNumber(needsReply)} ${needsReply === 1 ? "needs" : "need"} a reply`,
+    count: formatNumber(waiting.total),
+    countLabel: waitingPhrase(waiting),
   }
 }
 

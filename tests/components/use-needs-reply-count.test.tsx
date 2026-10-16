@@ -20,19 +20,19 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigation.search),
 }))
 
-function counts(needsReply: number) {
+function counts(needsReply: number, awaitingMyApproval = 0) {
   return {
-    total: needsReply,
+    total: needsReply + awaitingMyApproval,
     byStatus: {},
     byQueue: {
       needs_reply: needsReply,
       approval: 0,
-      awaiting_my_approval: 0,
+      awaiting_my_approval: awaitingMyApproval,
       awaiting_others: 0,
       publishing: 0,
       failed: 0,
       done: 0,
-      all: needsReply,
+      all: needsReply + awaitingMyApproval,
     },
   }
 }
@@ -81,6 +81,16 @@ describe("useNeedsReplyCount", () => {
     })
     await waitFor(() => expect(result.current).toBe(9))
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("adds the replies awaiting this person's approval to the badge (R03)", async () => {
+    const client = newClient()
+    client.setQueryData(queryKeys.reviewCountsFor(), counts(4, 2))
+    vi.stubGlobal("fetch", vi.fn())
+    const { result } = renderHook(() => useNeedsReplyCount(), {
+      wrapper: wrapperWith(client, null),
+    })
+    await waitFor(() => expect(result.current).toBe(6))
   })
 
   it("follows the client scope, so the badge agrees with the scoped title", async () => {
@@ -164,10 +174,21 @@ describe("useNeedsReplyCount", () => {
 })
 
 describe("inboxName", () => {
+  const waiting = (needsReply: number, approval = 0) => ({
+    needsReply,
+    awaitingMyApproval: approval,
+    total: needsReply + approval,
+  })
   it("carries the count in the tab's name", () => {
     expect(inboxName(undefined)).toBe("Inbox")
-    expect(inboxName(0)).toBe("Inbox")
-    expect(inboxName(1)).toBe("Inbox, 1 needs a reply")
-    expect(inboxName(2)).toBe("Inbox, 2 need a reply")
+    expect(inboxName(waiting(0))).toBe("Inbox")
+    expect(inboxName(waiting(1))).toBe("Inbox, 1 needs a reply")
+    expect(inboxName(waiting(2))).toBe("Inbox, 2 need a reply")
+  })
+  it("names replies awaiting this person's approval too", () => {
+    expect(inboxName(waiting(0, 1))).toBe("Inbox, 1 awaiting your approval")
+    expect(inboxName(waiting(2, 3))).toBe(
+      "Inbox, 5 need your attention: 2 to reply, 3 to approve"
+    )
   })
 })

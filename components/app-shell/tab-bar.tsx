@@ -21,7 +21,7 @@ import {
   useUnreadNotificationCount,
 } from "./notifications-link"
 import { ShellLink } from "./shell-link"
-import { inboxName, useNeedsReplyCount } from "./use-needs-reply-count"
+import { inboxName, useInboxWaiting } from "./use-needs-reply-count"
 
 /**
  * A tab: the icon above a visible label, the whole 56px cell the target.
@@ -72,7 +72,7 @@ function TabBar({
   // Setup reads as the destination it lives under (Clients, or Listings
   // in a business), so a tab is current there too.
   const pathname = navigationPath(usePathname(), context.mode)
-  const needsReply = useNeedsReplyCount(sessionReady)
+  const waiting = useInboxWaiting(sessionReady)
   const unread = useUnreadNotificationCount(sessionReady)
   const tabs = tabDestinations(context)
   const moreCurrentId = React.useId()
@@ -99,13 +99,13 @@ function TabBar({
 
   const countFor = (destination: Destination) =>
     destination.id === "inbox"
-      ? (needsReply ?? 0)
+      ? (waiting?.total ?? 0)
       : destination.id === "notifications"
         ? unread
         : 0
   const nameFor = (destination: Destination) =>
     destination.id === "inbox"
-      ? inboxName(needsReply)
+      ? inboxName(waiting)
       : destination.id === "notifications"
         ? notificationsName(unread)
         : undefined

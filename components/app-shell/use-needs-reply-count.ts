@@ -6,16 +6,22 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { useRememberedClient } from "@/components/app-shell/client-context"
 import { fetchReviewCounts } from "@/lib/api/review-counts"
 import { clientPageKind, isClientIdToken } from "@/lib/clients/scope"
+import {
+  inboxWaiting,
+  type InboxWaiting,
+  waitingPhrase,
+} from "@/lib/inbox/waiting"
 import { queryKeys } from "@/lib/queries/keys"
 import { SEEDED_BY_SHELL, SHELL_POLL_MS } from "@/lib/queries/use-shell-status"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
- * The Inbox's needs-reply count for the navigation badges (tab bar, rail,
- * sidebar).
+ * What the Inbox has waiting on this person, for the navigation badges (tab
+ * bar, rail, sidebar): reviews that need a reply plus replies awaiting their
+ * approval (R03), so an approver is called to the Inbox too.
  *
  * It follows the client scope, so the badge and the Inbox title (which
- * counts the scoped Needs reply queue) never disagree. On the pages whose
+ * counts the same scoped sum) never disagree. On the pages whose
  * `?clientId=` is the scope (Inbox, Listings, Reports) the scope is the
  * address's, exactly as the Inbox reads it, whatever is remembered; on every
  * other page it is the remembered client. With a client in scope it reads
@@ -28,7 +34,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * is not worth a sign-in redirect, so a 401 here just leaves the badge off.
  * `enabled` waits for the session bootstrap (see AppShell's useSessionReady).
  */
-export function useNeedsReplyCount(enabled = true): number | undefined {
+export function useInboxWaiting(enabled = true): InboxWaiting | undefined {
   const { remembered } = useRememberedClient()
   const pathname = usePathname()
   const searchClientId = useSearchParams()?.get("clientId") ?? null
@@ -49,11 +55,16 @@ export function useNeedsReplyCount(enabled = true): number | undefined {
     refetchInterval: clientId ? SHELL_POLL_MS : false,
     retry: false,
   })
-  return counts.data?.byQueue.needs_reply
+  return inboxWaiting(counts.data)
+}
+
+/** The badge's number: reviews waiting on this person, replies and approvals. */
+export function useNeedsReplyCount(enabled = true): number | undefined {
+  return useInboxWaiting(enabled)?.total
 }
 
 /** "Inbox, 2 need a reply": the tab's name carries the count. */
-export function inboxName(needsReply: number | undefined) {
-  if (!needsReply) return "Inbox"
-  return `Inbox, ${needsReply} ${needsReply === 1 ? "needs" : "need"} a reply`
+export function inboxName(waiting: InboxWaiting | undefined) {
+  if (!waiting?.total) return "Inbox"
+  return `Inbox, ${waitingPhrase(waiting)}`
 }

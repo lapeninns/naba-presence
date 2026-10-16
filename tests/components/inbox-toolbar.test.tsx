@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -34,14 +41,14 @@ function renderToolbar(
   return { ...render(<InboxToolbar {...props} />), props }
 }
 
-function counts(needsReply: number): ReviewCounts {
+function counts(needsReply: number, awaitingMyApproval = 0): ReviewCounts {
   return {
     total: needsReply + 3,
     byStatus: {},
     byQueue: {
       needs_reply: needsReply,
       approval: 1,
-      awaiting_my_approval: 1,
+      awaiting_my_approval: awaitingMyApproval,
       awaiting_others: 0,
       publishing: 0,
       failed: 2,
@@ -189,6 +196,45 @@ describe("InboxToolbar", () => {
   it("says one review needs a reply in the singular", () => {
     renderToolbar("7 reviews", { counts: counts(1), countsPending: false })
     expect(within(header()).getByText("(1 needs a reply)")).toBeInTheDocument()
+  })
+
+  it("counts the replies awaiting this person's approval with the reviews to reply to (R03)", () => {
+    renderToolbar("7 reviews", { counts: counts(3, 2), countsPending: false })
+    const count = header().querySelector('[data-slot="view-header-count"]')
+    expect(count).toHaveTextContent("5")
+    expect(
+      within(header()).getByText(
+        "(5 need your attention: 3 to reply, 2 to approve)"
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("shows an approver with no replies to write the approvals waiting on them", () => {
+    renderToolbar("7 reviews", { counts: counts(0, 1), countsPending: false })
+    expect(
+      within(header()).getByText("(1 awaiting your approval)")
+    ).toBeInTheDocument()
+  })
+
+  it("says a total of 1,000 or more once, grouped like the figure (mixed and reply-only)", () => {
+    renderToolbar("7 reviews", {
+      counts: counts(999, 1),
+      countsPending: false,
+    })
+    const count = header().querySelector('[data-slot="view-header-count"]')
+    expect(count).toHaveTextContent(/^1,000/)
+    expect(count?.textContent).toContain(
+      "(1,000 need your attention: 999 to reply, 1 to approve)"
+    )
+    expect(count?.textContent).not.toContain("1,000 1000")
+    cleanup()
+    renderToolbar("7 reviews", {
+      counts: counts(1000, 0),
+      countsPending: false,
+    })
+    const reply = header().querySelector('[data-slot="view-header-count"]')
+    expect(reply?.textContent).toContain("(1,000 need a reply)")
+    expect(reply?.textContent).not.toContain("1,000 1000")
   })
 
   it("shows a skeleton, never a zero, while the counts are in flight", () => {
