@@ -1668,6 +1668,35 @@ describe("NotificationsView pending changes", () => {
         await waitFor(() => agree(21))
       })
 
+      it("counts a row the badge page left out as already read when a stale page still shows it unread", async () => {
+        // The first row was read on another device. The badge page and count
+        // have it (21 unread, the row gone), but this page's list is older and
+        // still shows it unread. Marking it read here changes nothing in the
+        // count the bell holds.
+        const server = steppedServer(rows)
+        const client = mountScoped(OWNER, true)
+        await waitFor(() => expect(count()).toHaveTextContent("22 open"))
+        act(() => seedShellKeys(client, shellPage(1, 21)))
+        await tick()
+        await waitFor(() => expect(bell()).toHaveAccessibleName(bellName(21)))
+        fireEvent.click(
+          screen.getAllByRole("button", {
+            name: "Mark read: Publishing failed",
+          })[0]!
+        )
+        // The page's own count falls (it still held the row as unread); the
+        // bell does not.
+        expect(count()).toHaveTextContent("21 open and unread")
+        expect(bell()).toHaveAccessibleName(bellName(21))
+        server.holdLists()
+        ;(await server.write(0)).accept()
+        await waitFor(() => expect(badgeCount(client)).toBe(21))
+        await tick()
+        expect(badgeCount(client)).toBe(21)
+        expect(bell()).toHaveAccessibleName(bellName(21))
+        server.releaseLists()
+      })
+
       it("keeps the bell on the pinned total while one change commits and another is still out", async () => {
         const { server, client } = await markRead(21)
         // A second change, queued behind the first.

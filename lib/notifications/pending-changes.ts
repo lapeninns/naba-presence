@@ -400,11 +400,24 @@ export function addPendingChange(
   client: QueryClient,
   input: { kind: "read" | "resolve"; ids: readonly string[]; read?: boolean }
 ): PendingChange {
-  const rows = cachedRowStates(client)
+  // Each row as the shell badge saw it: the pinned count below came from that
+  // badge answer, so a row it leaves out is not counted in it, whatever an
+  // older page list still shows. Rows the badge does not reach keep the state
+  // the other lists last gave.
+  const rows = cachedRowStates(client, "badge")
+  const badge = cachedLists(client).find((list) => list.filter === "badge")
+  const leftOut = badge && unreadListProof(badge.filter, badge.pages)
   const snapshots: Record<string, KnownRow> = {}
   for (const id of input.ids) {
     const row = rows.get(id)
-    if (row) snapshots[id] = row
+    if (!row) continue
+    const inBadge = badge?.pages.some((page) =>
+      page.items.some((entry) => entry.id === id)
+    )
+    snapshots[id] =
+      !inBadge && leftOut?.(row.openedAt)
+        ? { ...row, ...leftOutOfUnreadList(row) }
+        : row
   }
   const change: PendingChange = {
     id: `notification-change-${++sequence}`,
