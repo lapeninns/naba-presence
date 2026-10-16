@@ -184,7 +184,7 @@ test.describe("sharing a client report", () => {
       await expect(header.locator("dl")).toHaveCount(0)
 
       const footer = shared.getByRole("contentinfo")
-      await expect(footer.getByText("Prepared by")).toBeVisible()
+      await expect(footer.getByText("Prepared by", { exact: true })).toBeVisible()
       await expect(footer.getByText("Generated")).toBeVisible()
       await expect(footer.getByText(/Venues?/).first()).toBeVisible()
 
