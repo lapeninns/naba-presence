@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -91,11 +92,13 @@ const DRAFT_RESULT = {
 // useGenerateOrSaveDraft's exact mutation-result type (verified against
 // `never`/`unknown`, which tsc rejects here). The eslint-disable is scoped to
 // this one generic pair only.
+// Set by a test that wants the mutation reported as in flight.
+let generating = false
 function mockMutation(mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)) {
   return {
     mutate: vi.fn(),
     mutateAsync,
-    isPending: false,
+    isPending: generating,
     isError: false,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see comment above
   } as unknown as UseMutationResult<any, Error, any>
@@ -606,6 +609,19 @@ describe("ReplyComposer — the editor", () => {
     ).toBeInTheDocument()
   })
 
+  it("holds the box read-only while a reply is being written, so nothing typed meanwhile is lost", () => {
+    generating = true
+    try {
+      mount(EXISTING)
+      expect(textbox()).toHaveAttribute("readonly")
+    } finally {
+      generating = false
+    }
+    cleanup()
+    mount(EXISTING)
+    expect(textbox()).not.toHaveAttribute("readonly")
+  })
+
   it("regenerates in a new tone over unsaved edits without asking", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
@@ -683,6 +699,22 @@ describe("ReplyComposer — the editor", () => {
       expect(screen.queryByText(/credits left/)).not.toBeInTheDocument()
       window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
       expect(mutateAsync).not.toHaveBeenCalled()
+    })
+
+    // A rating-only review is answered from a template: no model, so no AI
+    // is needed and Generate stays.
+    it("keeps Generate for a review with no text, which needs no AI", () => {
+      mount({ text: null }, undefined, {
+        used: 0,
+        remaining: 100,
+        aiConfigured: false,
+      })
+      expect(
+        screen.getByRole("button", { name: "Generate reply" })
+      ).toBeInTheDocument()
+      expect(
+        document.querySelector('[data-slot="ai-unavailable"]')
+      ).not.toBeInTheDocument()
     })
 
     it("still offers Generate when the credits read does not say", () => {

@@ -502,6 +502,9 @@ describe("deriveReplyStatus — what counts as published", () => {
       outcome: "sent",
     })
     expect(status.text).not.toMatch(/live/i)
+    // The sentence already says it is waiting, so no note follows it: on a
+    // phone the docked bar cut that note's line to "Sent · waiting…".
+    expect(status.note).toBeUndefined()
   })
 
   it("says Live on Google once Google has approved the reply", () => {

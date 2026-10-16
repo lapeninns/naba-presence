@@ -259,8 +259,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // Known from the credits read, before any failed attempt. Only an explicit
   // false counts: absent (older server, or still loading) leaves it to the
   // draft route's 503, which is still handled below.
+  // Only a review with text needs a model: a rating-only one is answered
+  // from a template, which needs no AI (lib/server/review-drafts.ts).
   const aiUnavailable =
-    aiUnavailableLearned || aiCredits.data?.aiConfigured === false
+    aiUnavailableLearned ||
+    (aiCredits.data?.aiConfigured === false && Boolean(review?.text?.trim()))
   // Only a loaded balance turns Generate off (none left, an unknown
   // allowance, or read-only billing); while it loads, or if it cannot load,
   // the server still decides (it answers 402).
@@ -268,6 +271,18 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     ? aiCreditsBlocked(aiCredits.data)
     : false
   const toasts = useToastManager()
+  // The "Reply ready" toast that carries Undo. Opening another review
+  // unmounts this composer, and an Undo that no longer reaches the text it
+  // would restore is taken down with it rather than left to do nothing.
+  const undoToastId = useRef<string | null>(null)
+  useEffect(
+    () => () => {
+      if (undoToastId.current) toasts.close(undoToastId.current)
+    },
+    // The manager is stable; this runs once, on unmount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
 
   // The publish bar's Publish runs this composer's own save first, through
   // the dirty store it already reads, then publishes the draft it returns.
@@ -359,7 +374,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       setVerdictStale(false)
       const restorable =
         previous.trim() !== "" && previous !== result.body ? previous : null
-      toasts.add({
+      undoToastId.current = toasts.add({
         title: "Reply ready",
         description: restorable
           ? "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit."
@@ -505,8 +520,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     )
   }
 
-  // Said where it happened. Spent credits and a workspace with no AI have
-  // nothing to retry, so only "Write my own" is offered for them.
+  // Said where it happened. Spent credits have nothing to retry, so only
+  // "Write my own" is offered for them.
   const generateErrorNote = generateError ? (
     <Alert variant="destructive" data-slot="generate-error">
       <AlertDescription>
@@ -541,6 +556,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const generateLabel = empty ? "Generate reply" : "Regenerate"
   const generateControl = aiUnavailable ? (
     <p
+      role="status"
       data-slot="ai-unavailable"
       className="m-0 min-w-0 flex-1 text-caption text-ink-muted"
     >
@@ -620,7 +636,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           lang={review.detectedLanguageCode ?? undefined}
           dir="auto"
           value={body}
-          readOnly={!editable}
+          // Not while a reply is being written: it would replace what was
+          // typed meanwhile, and Undo only brings back the text from before.
+          readOnly={!editable || (generateOrSave.isPending && !saving)}
           aria-invalid={overLimit || showFail || undefined}
           aria-describedby={
             [

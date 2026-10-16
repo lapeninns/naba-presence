@@ -407,14 +407,10 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
     // "PENDING"): customers cannot see it yet, so say that instead of "Live
     // on Google". This is the same words the toast and the reply subline use.
     if (isAwaitingGoogleCheck(publishStatus, input.reply?.googleReplyState)) {
+      // No note: the sentence already says it is waiting, and on a phone
+      // the docked bar clipped it to "Sent · waiting…" behind a longer line.
       return {
-        ...status(
-          WAITING_FOR_GOOGLE_CHECK,
-          "Sent",
-          "neutral",
-          "cloud",
-          "not live until Google confirms"
-        ),
+        ...status(WAITING_FOR_GOOGLE_CHECK, "Sent", "neutral", "cloud"),
         outcome: "sent",
       }
     }
