@@ -102,10 +102,11 @@ function missingReason(
  * The one state a location is in for a report. Every location in scope has
  * exactly one, so the counts of the states add up to the locations in scope.
  *
- * - `reporting`: has figures in the window and was fetched recently.
+ * - `reporting`: has figures in the window, fetched recently, no failed refresh.
  * - `pending`: no figures yet and the first fetch has not finished.
  * - `unavailable`: the latest refresh failed (figures it has may stop early).
- * - `stale`: its figures end before the window, or its last fetch is old.
+ * - `stale`: its figures end before the window, or its last fetch is old
+ *   (a location with figures in the window is still in the totals).
  * - `no_data`: fetched, and Google had nothing to report.
  */
 export const LOCATION_COVERAGE_STATUSES = [
@@ -130,27 +131,27 @@ export function classifyLocationCoverage(
   const byLocation = new Map(
     checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint])
   )
-  return locations.map((location) => {
-    const checkpoint = byLocation.get(location.id)
-    const watermark =
-      checkpoint?.watermark ?? latestStored.get(location.id) ?? null
-    const covered = Boolean(watermark) && (watermark as string) >= windowStart
-    if (!covered) {
-      return {
-        id: location.id,
-        status: missingReason(checkpoint?.status ?? null, Boolean(watermark)),
-      }
-    }
-    if (checkpoint?.status === "failed") {
-      return { id: location.id, status: "unavailable" }
-    }
-    const fetchedAt = checkpoint?.lastSucceededAt
+  return locations.map(({ id }) => {
+    const checkpoint = byLocation.get(id)
+    const status = checkpoint?.status ?? null
+    const watermark = checkpoint?.watermark ?? latestStored.get(id) ?? null
+    const fetchedAt = checkpoint?.lastSucceededAt ?? null
+    const oldFetch = fetchedAt !== null && fetchedAt < staleBefore
+    const covered = watermark !== null && watermark >= windowStart
+    if (status === "failed") return { id, status: "unavailable" }
+    if (covered) return { id, status: oldFetch ? "stale" : "reporting" }
+    // Not covered: Google's figures end before the window, or there are none.
+    if (watermark !== null) return { id, status: "stale" }
+    // No figures at all. One fetched long ago is out of date, not empty; one
+    // never fetched is waiting for its first (a `running` claim on a fetched
+    // location does not make it a first fetch again).
+    if (fetchedAt !== null) return { id, status: oldFetch ? "stale" : "no_data" }
     return {
-      id: location.id,
+      id,
       status:
-        fetchedAt && fetchedAt.getTime() < staleBefore.getTime()
-          ? "stale"
-          : "reporting",
+        status === null || status === "pending" || status === "running"
+          ? "pending"
+          : "no_data",
     }
   })
 }

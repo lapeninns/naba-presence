@@ -63,11 +63,11 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
     expect(within(await tileFor("Website clicks")).getByText(/\+10|10/)).toBeInTheDocument()
     // Provenance is one caption line; the detail is behind its info button.
-    expect(screen.getByText("Through 29 Aug · 1 of 2 locations")).toBeInTheDocument()
+    expect(screen.getByText("Through 29 Aug · 1 of 2 locations up to date")).toBeInTheDocument()
     expect(screen.queryByText(/Google’s daily dates/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "About these figures" }))
     const about = await screen.findByRole("dialog", { name: "About these figures" })
-    expect(within(about).getByText(/1 of 2 locations have figures · 1 waiting for a first fetch/)).toBeInTheDocument()
+    expect(within(about).getByText(/1 of 2 locations up to date · 1 waiting for a first fetch/)).toBeInTheDocument()
     expect(within(about).getByText(/Figures up to /)).toBeInTheDocument()
     await userEvent.keyboard("{Escape}")
     expect(screen.getByRole("button", { name: "Download totals CSV of the Google profile" })).toBeInTheDocument()

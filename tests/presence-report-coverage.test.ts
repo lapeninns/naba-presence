@@ -258,15 +258,53 @@ describe("classifyLocationCoverage", () => {
     expect(statuses.map((row) => row.status)).toEqual(["stale", "unavailable"])
   })
 
-  it("agrees with the completeness summary on which locations are missing", () => {
+  it("calls a fetched location with no figures stale once its fetch is old, and never waiting for a first fetch", () => {
+    const statuses = classifyLocationCoverage(
+      FIVE.slice(0, 4),
+      [
+        // Fetched long ago, nothing stored: out of date, not "sent nothing".
+        { locationId: "a", status: "succeeded", watermark: null, lastSucceededAt: old },
+        // Fetched an hour ago, nothing stored: Google sent nothing.
+        { locationId: "b", status: "succeeded", watermark: null, lastSucceededAt: fresh },
+        // A sync claimed a location that has been fetched before: still not a first fetch.
+        { locationId: "c", status: "running", watermark: null, lastSucceededAt: fresh },
+        // A claim on a location never fetched is waiting for its first fetch.
+        { locationId: "d", status: "running", watermark: null, lastSucceededAt: null },
+      ],
+      { ...WINDOW, staleBefore }
+    )
+    expect(statuses.map((row) => row.status)).toEqual(["stale", "no_data", "no_data", "pending"])
+  })
+
+  it("keeps a location with figures in the totals out of `reporting` when its refresh failed", () => {
+    // Its figures are in the totals, so the completeness summary does not call
+    // it missing; the status still says its refresh failed.
     const checkpoints = [
-      { locationId: "a", status: "succeeded", watermark: "2026-10-08", lastSucceededAt: fresh },
-      { locationId: "b", status: "failed", watermark: "2026-08-01", lastSucceededAt: fresh },
+      { locationId: "a", status: "failed", watermark: "2026-10-08", lastSucceededAt: fresh },
     ]
-    const summary = summariseReportCoverage(LOCATIONS, checkpoints, WINDOW)
-    const statuses = classifyLocationCoverage(LOCATIONS, checkpoints, { ...WINDOW, staleBefore })
-    const missingIds = summary.missing.map((row) => row.id).sort()
-    const notReporting = statuses.filter((row) => row.status !== "reporting").map((row) => row.id).sort()
-    expect(notReporting).toEqual(missingIds)
+    const summary = summariseReportCoverage(LOCATIONS.slice(0, 1), checkpoints, WINDOW)
+    expect(summary.missing).toEqual([])
+    expect(summary.refreshFailed).toEqual([{ id: "a", name: "Alpha" }])
+    expect(
+      classifyLocationCoverage(LOCATIONS.slice(0, 1), checkpoints, { ...WINDOW, staleBefore })
+    ).toEqual([{ id: "a", status: "unavailable" }])
+  })
+
+  it("reads a payload from a server that predates noData as 0", () => {
+    const parsed = presenceResponseSchema.parse({
+      range: "28d",
+      from: "2026-09-01",
+      to: "2026-09-28",
+      state: "ready",
+      freshThrough: null,
+      locations: [],
+      totals: Object.fromEntries(GOOGLE_PERFORMANCE_METRICS.map((metric) => [metric, null])),
+      series: [],
+      unavailableReasons: [],
+      keywordsEnabled: false,
+      ingestionEnabled: true,
+      coverage: { eligible: 1, reporting: 1, unavailable: 0, stale: 0, pending: 0 },
+    })
+    expect(parsed.coverage?.noData).toBe(0)
   })
 })

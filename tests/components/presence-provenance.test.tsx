@@ -55,3 +55,30 @@ describe("PresenceProvenance", () => {
     )
   })
 })
+
+describe("PresenceProvenance coverage", () => {
+  it("says each location's one state in plain words, adding up to the locations in scope", () => {
+    const html = renderToString(
+      <PresenceProvenance
+        data={
+          {
+            ...DATA,
+            coverage: {
+              eligible: 5,
+              reporting: 1,
+              unavailable: 1,
+              stale: 1,
+              pending: 1,
+              noData: 1,
+            },
+          } as unknown as PresenceResponse
+        }
+        timeZone="Europe/London"
+      />
+    )
+    expect(html).toContain(
+      "1 of 5 locations up to date · 1 waiting for a first fetch · refresh failed for 1 · 1 out of date · 1 sent no figures"
+    )
+    expect(html).toContain("Figures up to 11 Oct")
+  })
+})

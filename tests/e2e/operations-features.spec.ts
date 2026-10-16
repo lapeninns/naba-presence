@@ -685,7 +685,7 @@ for (const width of [375, 768, 1280])
       ).toBeVisible()
       await page.getByRole("button", { name: "About these figures" }).click()
       const about = page.getByRole("dialog", { name: "About these figures" })
-      await expect(about.getByText(/1 of 2 locations have figures/)).toBeVisible()
+      await expect(about.getByText(/1 of 2 locations up to date/)).toBeVisible()
       await expect(
         about.getByText(/Figures up to /)
       ).toBeVisible()

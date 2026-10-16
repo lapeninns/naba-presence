@@ -105,9 +105,9 @@ export function PresenceProvenance({
   // One state per location, so the parts add up to the locations in scope.
   const coverageParts = coverage
     ? [
-        `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location has" : "locations have"} figures`,
+        `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`,
         coverage.pending ? `${coverage.pending} waiting for a first fetch` : null,
-        coverage.unavailable ? `${coverage.unavailable} refresh failed` : null,
+        coverage.unavailable ? `refresh failed for ${coverage.unavailable}` : null,
         coverage.stale ? `${coverage.stale} out of date` : null,
         coverage.noData ? `${coverage.noData} sent no figures` : null,
       ].filter((part): part is string => part !== null)
@@ -141,10 +141,10 @@ export function PresenceProvenance({
 }
 
 /**
- * Provenance in one caption line ("Through 14 Oct · 1 of 2 locations") with
+ * Provenance in one caption line ("Through 14 Oct · 1 of 2 locations up to date") with
  * an info button whose sheet holds the detail ({@link PresenceProvenance}):
  * the last day Google has reported, when we last fetched and how many
- * locations are reporting. The two-line block it replaces took the first
+ * locations are up to date. The two-line block it replaces took the first
  * figure of the report off a phone's first screen.
  */
 export function PresenceCaption({
@@ -157,9 +157,9 @@ export function PresenceCaption({
   const coverage = data.coverage
   const through = data.freshThrough
     ? `Through ${formatDate(data.freshThrough, "UTC")}`
-    : "No Google data in this window"
+    : "No Google figures in this window"
   const reporting = coverage
-    ? `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"}`
+    ? `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`
     : null
   return (
     <div
