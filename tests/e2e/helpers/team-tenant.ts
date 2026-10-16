@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 
 import postgres from "postgres"
 
@@ -65,12 +65,14 @@ export async function seedTeamTenant(options: {
       userIds.push(userId)
       members.push({ ...member, userId, email })
     }
+    const invitationTokens: string[] = []
     for (const invitation of options.invitations ?? []) {
-      await seedInvitation(admin, {
+      const { token } = await seedInvitation(admin, {
         organisationId: tenant.organisationId,
         invitedBy: tenant.userId,
         ...invitation,
       })
+      invitationTokens.push(token)
     }
     if (options.settings) {
       await admin`
@@ -86,6 +88,46 @@ export async function seedTeamTenant(options: {
       ownerUserId: tenant.userId,
       ownerEmail: tenant.email,
       members,
+      /** Each seeded invitation's token, the secret its invite link carries. */
+      invitationTokens,
+      /**
+       * Another person in this tenant with a signed-in session, as the
+       * application stores one.
+       */
+      async signIn(
+        role: Role,
+        canPublish = role === "owner" || role === "admin"
+      ) {
+        const userId = await seedMember(admin, {
+          organisationId: tenant.organisationId,
+          email: `harness-${randomUUID().slice(0, 8)}@nabapresence.test`,
+          displayName: `Harness ${role}`,
+          role,
+          canPublish,
+        })
+        userIds.push(userId)
+        const token = randomBytes(32).toString("base64url")
+        const hash = createHash("sha256").update(token).digest("hex")
+        await admin`
+          insert into app_session (token_hash, user_id, organisation_id, expires_at)
+          values (${hash}, ${userId}, ${tenant.organisationId}, now() + interval '1 hour')
+        `
+        return { userId, cookie: `naba_session=${token}` }
+      },
+      /** A role change as PATCH /api/members writes it, for someone with no assigned listings. */
+      async setRole(userId: string, role: Role, canPublish: boolean) {
+        await admin`
+          update member
+          set
+            role = ${role},
+            can_publish = ${canPublish},
+            location_scope = case
+              when ${role} in ('owner', 'admin') then 'all'
+              else member.location_scope
+            end
+          where organisation_id = ${tenant.organisationId} and user_id = ${userId}
+        `
+      },
       async destroy() {
         try {
           await destroyTenants(admin, [tenant.organisationId])

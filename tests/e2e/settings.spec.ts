@@ -549,3 +549,136 @@ test.describe("reply policy after Back", () => {
     await expect(secondPerson).toBeChecked()
   })
 })
+
+test.describe("team after a downgrade and Back", () => {
+  const cleanups: (() => Promise<void>)[] = []
+  test.afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup()
+  })
+
+  // #195 security review (P1): /team hands owners and admins the members and
+  // the pending invitations, invite links included, with the page. After a
+  // downgrade, Back must not show that payload again: the server answers
+  // for the role as it is now.
+  test("an admin made a viewer presses Back to /team: the server answers, and no invite link is shown", async ({
+    baseURL,
+    page,
+  }) => {
+    test.setTimeout(90_000)
+    const now = Date.now()
+    const tenant = await seedTeamTenant({
+      invitations: [
+        {
+          email: "pending@example.test",
+          role: "member",
+          canPublish: false,
+          createdAt: new Date(now - 60_000),
+          expiresAt: new Date(now + 7 * 86_400_000),
+        },
+      ],
+    })
+    cleanups.push(tenant.destroy)
+    const [inviteToken] = tenant.invitationTokens
+    const admin = await tenant.signIn("admin")
+    await applyCookie(page, baseURL, admin.cookie)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const main = page.locator("main")
+    // The page holds an invitation's link for its Copy button, which exists
+    // only while the link is in the page's cache.
+    const copyLabel = "Copy invite link for pending@example.test"
+    const copyLink = main.getByRole("button", { name: copyLabel })
+
+    await page.goto("/team")
+    await expect(page.getByRole("heading", { name: "Team", level: 1 })).toBeVisible()
+    await expect(copyLink).toBeVisible()
+
+    // The owner makes them a viewer.
+    await tenant.setRole(admin.userId, "viewer", false)
+    await page.evaluate(() => {
+      ;(window as unknown as { __p20Soft?: boolean }).__p20Soft = true
+    })
+    // Everything the browser is sent from here on: the token is the
+    // secret an invite link carries, and must reach no response.
+    const bodies: Promise<{ url: string; status: number; leaks: boolean }>[] = []
+    page.on("response", (response) => {
+      const path = new URL(response.url()).pathname
+      if (!["/team", "/api/members", "/api/invitations"].includes(path)) return
+      bodies.push(
+        response
+          .text()
+          .catch(() => "")
+          .then((body) => ({ url: path, status: response.status(), leaks: body.includes(inviteToken) }))
+      )
+    })
+    const learnt = page.waitForResponse(
+      async (response) =>
+        new URL(response.url()).pathname === "/api/session" &&
+        response.ok() &&
+        (await response.json()).session?.role === "viewer",
+      { timeout: 60_000 }
+    )
+    await page
+      .locator('aside[aria-label="Sidebar"]')
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: /^Inbox/ })
+      .click()
+    await expect(page).toHaveURL(/\/inbox/)
+    // The tab learns of the downgrade. The Inbox's payload is stamped for
+    // the viewer, so the boundary refuses it and asks at once. Failing that
+    // (a build without the stamp), the shell asks on focus once its session
+    // is 30 s old, as a tab always has.
+    const quick = await Promise.race([
+      learnt.then(() => true),
+      page.waitForTimeout(5_000).then(() => false),
+    ])
+    if (!quick) {
+      await page.waitForTimeout(27_000)
+      await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+    }
+    await learnt
+    test.info().annotations.push({
+      type: "learnt",
+      description: quick ? "refused Inbox payload" : "focus refetch",
+    })
+
+    // Any render from here on that shows the link.
+    const shown: boolean[] = []
+    await page.exposeFunction("__p20Seen", (seen: boolean) => shown.push(seen))
+    await page.evaluate((label) => {
+      const report = () =>
+        (window as unknown as { __p20Seen: (seen: boolean) => void }).__p20Seen(
+          Boolean(document.querySelector(`main [aria-label="${label}"]`))
+        )
+      new MutationObserver(report).observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+      })
+    }, copyLabel)
+
+    await page.goBack()
+    await expect(page).toHaveURL(/\/team$/)
+    // Back was the router's own navigation, not a page load.
+    expect(
+      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+    ).toBe(true)
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+    await expect(copyLink).toHaveCount(0)
+    // Let the last observer reports land.
+    await page.evaluate(() => new Promise((done) => setTimeout(done, 100)))
+    expect(shown).not.toContain(true)
+    // The server ran the page again for the viewer and refused it.
+    await expect(
+      page.getByRole("heading", { name: "You don’t have access to this page", level: 1 })
+    ).toBeVisible()
+
+    const answers = await Promise.all(bodies)
+    // Back asked the server for /team (the RSC request) ...
+    expect(answers.some((answer) => answer.url === "/team" && answer.status === 200)).toBe(true)
+    // ... and nothing sent after the downgrade carries the link.
+    expect(answers.filter((answer) => answer.leaks)).toEqual([])
+    // Any members or invitations read is answered for the viewer.
+    for (const answer of answers.filter((answer) => answer.url.startsWith("/api/")))
+      expect(answer.status).toBe(403)
+  })
+})
