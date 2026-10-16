@@ -11,8 +11,11 @@ import { cn } from "@/lib/utils"
  * The bar of a multi-select (NM 03/02, brief §4.3 `SelectionBar`, D4): while
  * anything is ticked it owns the bottom edge instead of the tab bar.
  *
- *   header   "N selected" (announced politely as it changes) and a 44px
- *            "Cancel" that ends select mode.
+ *   header   optional: "N selected" (announced politely as it changes) and
+ *            a 44px "Cancel" that ends select mode. Pass neither `count` nor
+ *            `onCancel` and the bar holds only its actions, for a screen
+ *            whose own header already says how many and how to leave (the
+ *            Inbox: one count and one Cancel in the list header).
  *   tiles    `SelectionBarTile`s in a toolbar (one Tab stop, arrow keys move
  *            between tiles): icon over a `text-caption` label, 64px, on a
  *            phone; an inline icon-and-label button from `md`.
@@ -41,7 +44,7 @@ import { cn } from "@/lib/utils"
  * that slot.
  *
  * Adopting it from a bulk bar: pass the count and `onCancel` (clear and leave
- * select mode), one `SelectionBarTile` per action, and a tile as the render
+ * select mode) unless the screen already has them, one `SelectionBarTile` per action, and a tile as the render
  * of a menu trigger for an overflow:
  *
  *   <DropdownMenuTrigger render={<SelectionBarTile icon={<Ellipsis />} label="More" />} />
@@ -60,12 +63,12 @@ function SelectionBar({
   children,
   ...props
 }: Omit<React.ComponentProps<"div">, "children"> & {
-  /** How many items are selected. */
-  count: number
+  /** How many items are selected. Omit it, with `onCancel`, for an actions-only bar. */
+  count?: number
   /** Replaces "{count} selected" ("3 reviews selected"). */
   countLabel?: React.ReactNode
-  /** Ends select mode (clear the selection). */
-  onCancel: () => void
+  /** Ends select mode (clear the selection). Omit it for no Cancel button. */
+  onCancel?: () => void
   cancelLabel?: string
   /** Names the toolbar of tiles (default "Selection actions"). */
   label?: string
@@ -85,6 +88,8 @@ function SelectionBar({
   children?: React.ReactNode
 }) {
   if (!visible) return null
+  const hasHeader =
+    count !== undefined || Boolean(countLabel) || Boolean(onCancel)
   const bar = (
     <div
       role="region"
@@ -109,27 +114,35 @@ function SelectionBar({
           {notes}
         </div>
       ) : null}
-      <div
-        data-slot="selection-bar-header"
-        className="flex min-h-(--np-touch) items-center gap-3 md:contents"
-      >
-        <p
-          data-slot="selection-bar-count"
-          aria-live="polite"
-          aria-atomic="true"
-          className="min-w-0 flex-1 truncate text-title font-semibold tabular-nums md:order-1 md:flex-none md:text-ui"
+      {hasHeader ? (
+        <div
+          data-slot="selection-bar-header"
+          className="flex min-h-(--np-touch) items-center gap-3 md:contents"
         >
-          {countLabel ?? `${count} selected`}
-        </p>
-        <button
-          type="button"
-          data-slot="selection-bar-cancel"
-          onClick={onCancel}
-          className="-mr-2 inline-flex min-h-(--np-touch) min-w-(--np-touch) shrink-0 items-center justify-center rounded-(--np-radius-control) px-2 text-body text-ink-secondary focus-halo md:order-3 md:mr-0 md:text-ui md:font-medium hover-fine:hover:bg-fill hover-fine:hover:text-ink desk:min-h-(--np-control-h)"
-        >
-          {cancelLabel}
-        </button>
-      </div>
+          {count !== undefined || countLabel ? (
+            <p
+              data-slot="selection-bar-count"
+              aria-live="polite"
+              aria-atomic="true"
+              className="min-w-0 flex-1 truncate text-title font-semibold tabular-nums md:order-1 md:flex-none md:text-ui"
+            >
+              {countLabel ?? `${count} selected`}
+            </p>
+          ) : (
+            <span aria-hidden className="flex-1" />
+          )}
+          {onCancel ? (
+            <button
+              type="button"
+              data-slot="selection-bar-cancel"
+              onClick={onCancel}
+              className="-mr-2 inline-flex min-h-(--np-touch) min-w-(--np-touch) shrink-0 items-center justify-center rounded-(--np-radius-control) px-2 text-body text-ink-secondary focus-halo md:order-3 md:mr-0 md:text-ui md:font-medium hover-fine:hover:bg-fill hover-fine:hover:text-ink desk:min-h-(--np-control-h)"
+            >
+              {cancelLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <ToolbarPrimitive.Root
         aria-label="Actions"
         data-slot="selection-bar-actions"

@@ -10,7 +10,7 @@ import {
   creditPeriodNoun,
   describeCreditsLeft,
   formatResetDate,
-} from "@/lib/contracts/ai-credits"
+} from "@/lib/contracts/ai-credits-format"
 import { useAiCredits, useAiCreditsDaily } from "@/lib/queries/use-ai-credits"
 
 /**

@@ -49,6 +49,22 @@ describe("SelectionBar", () => {
     expect(count.className).toContain("text-title")
   })
 
+  it("holds only its actions when given neither a count nor a Cancel", () => {
+    render(
+      <SelectionBar label="Selected reviews">
+        <SelectionBarTile label="Done" />
+      </SelectionBar>
+    )
+    const bar = screen.getByRole("region", { name: "Selected reviews" })
+    expect(bar.querySelector('[data-slot="selection-bar-header"]')).toBeNull()
+    expect(bar.querySelector('[data-slot="selection-bar-cancel"]')).toBeNull()
+    expect(
+      within(screen.getByRole("toolbar", { name: "Actions" })).getAllByRole(
+        "button"
+      )
+    ).toHaveLength(1)
+  })
+
   it("takes a custom count label and hides when not visible", () => {
     const { rerender } = render(
       <SelectionBar

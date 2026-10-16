@@ -14,6 +14,11 @@ import { formatNumber } from "@/lib/format"
 import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 import { queryKeys } from "@/lib/queries/keys"
 
+// Every outcome of this control is "the latest sync result": one id, so a
+// toast replaces the one before it instead of stacking beside it ("Could not
+// sync reviews" and "Up to date" together after a retry).
+const SYNC_TOAST_ID = "sync-reviews"
+
 /**
  * Pulls the newest reviews from Google for this organisation.
  *
@@ -25,12 +30,20 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
   const queryClient = useQueryClient()
   const toasts = useToastManager()
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   if (!canSync) return null
+
+  // Failures go where success goes: a toast that dismisses itself, rather
+  // than a caption under the icon that stayed until the next sync.
+  const fail = (description: string) =>
+    toasts.add({
+      id: SYNC_TOAST_ID,
+      title: "Could not sync reviews",
+      description,
+      type: "error",
+    })
 
   async function run() {
     setPending(true)
-    setError(null)
     // The organisation's review total as this page last had it. The sync
     // route reports what it wrote, which includes every unchanged review on
     // Google's newest page, so "new" is the difference in the total instead.
@@ -39,7 +52,7 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
     try {
       const result = await triggerReviewSync()
       if (result.skipped) {
-        setError("A sync is already running. Try again in a moment.")
+        fail("A sync is already running. Try again in a moment.")
         return
       }
       // In the background: the toast waits only on the counts read below,
@@ -48,7 +61,7 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
       invalidateReviewBatch(queryClient)
       const failure = result.failures?.[0]?.errorCode
       if (failure) {
-        setError(describeActionError(new ApiClientError(502, failure, failure)))
+        fail(describeActionError(new ApiClientError(502, failure, failure)))
         return
       }
       const after = await queryClient
@@ -63,8 +76,9 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         before !== undefined && after !== undefined
           ? Math.max(0, after - before)
           : null
-      toasts.add(
-        added === null
+      toasts.add({
+        id: SYNC_TOAST_ID,
+        ...(added === null
           ? { title: "Reviews synced", type: "success" }
           : added === 0
             ? {
@@ -76,37 +90,27 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
                 title: `${formatNumber(added)} new ${added === 1 ? "review" : "reviews"}`,
                 description: "They are in the list now.",
                 type: "success",
-              }
-      )
+              }),
+      })
     } catch (caught) {
-      setError(describeActionError(caught))
+      fail(describeActionError(caught))
     } finally {
       setPending(false)
     }
   }
 
   return (
-    <div className="relative flex flex-col items-end gap-1">
-      <Button
-        variant="ghost"
-        onClick={() => void run()}
-        pending={pending}
-        // The words fold away on a phone, where it is a square 44px icon
-        // button; they stay its name, and "Syncing…" its name while it runs.
-        pendingLabel={<span className="sr-only">Syncing…</span>}
-        className="min-w-(--np-touch) rounded-full px-0"
-      >
-        <RefreshCwIcon aria-hidden data-icon="inline-start" />
-        <span className="sr-only">Sync reviews</span>
-      </Button>
-      {error ? (
-        <span
-          role="alert"
-          className="max-w-72 text-caption text-danger-ink max-md:absolute max-md:top-full max-md:right-0 max-md:z-sticky max-md:w-60 max-md:rounded-(--np-radius-control) max-md:bg-surface max-md:p-2 max-md:shadow-np-pop sm:text-right"
-        >
-          {error}
-        </span>
-      ) : null}
-    </div>
+    <Button
+      variant="ghost"
+      onClick={() => void run()}
+      pending={pending}
+      // The words fold away on a phone, where it is a square 44px icon
+      // button; they stay its name, and "Syncing…" its name while it runs.
+      pendingLabel={<span className="sr-only">Syncing…</span>}
+      className="min-w-(--np-touch) rounded-full px-0"
+    >
+      <RefreshCwIcon aria-hidden data-icon="inline-start" />
+      <span className="sr-only">Sync reviews</span>
+    </Button>
   )
 }

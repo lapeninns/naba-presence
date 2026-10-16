@@ -34,7 +34,7 @@ import {
   useRegisterDirtyGuard,
   type ComposerSaveResult,
 } from "@/components/inbox/dirty-context"
-import { isReviewWorkflowState } from "@/lib/contracts/reviews"
+import { isReviewWorkflowState } from "@/lib/contracts/review-values"
 import { isAllowedReviewTransition } from "@/lib/domain/workflow"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
@@ -52,7 +52,7 @@ import { replyWork } from "@/lib/inbox/review-situation"
 import {
   aiCreditsBlocked,
   describeCreditsLeft,
-} from "@/lib/contracts/ai-credits"
+} from "@/lib/contracts/ai-credits-format"
 import { isAiCreditsExhausted } from "@/lib/api/ai-credits"
 import { ApiClientError } from "@/lib/api/client"
 import { useAiCredits } from "@/lib/queries/use-ai-credits"

@@ -6,7 +6,6 @@ import type { ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
-import { Toaster } from "@/components/ui/toast"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
@@ -15,6 +14,7 @@ import * as sessionHook from "@/lib/queries/use-session"
 import * as bulkHook from "@/lib/queries/use-bulk-review-action"
 import * as membersHook from "@/lib/queries/use-members"
 import { PHONE_OVERLAY_QUERY } from "@/components/ui/overlay"
+import { Toaster } from "@/components/ui/toast"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
 function stubSession(role: string, isError = false) {
@@ -40,7 +40,11 @@ function renderPane(ui: ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  return render(
+    <QueryClientProvider client={client}>
+      <Toaster>{ui}</Toaster>
+    </QueryClientProvider>
+  )
 }
 
 const detail: ReviewDetailData = {
@@ -584,8 +588,12 @@ describe("ReviewDetail", () => {
     await user.click(
       await screen.findByRole("menuitem", { name: "Review details" })
     )
-    const dialog = await screen.findByRole("dialog", { name: "Review details" })
-    expect(within(dialog).getByText("Review received")).toBeInTheDocument()
+    // The loading shell shares the loaded dialog's name, so wait for the
+    // loaded content and re-acquire the dialog rather than keep the shell.
+    await waitFor(() => {
+      const dialog = screen.getByRole("dialog", { name: "Review details" })
+      expect(within(dialog).getByText("Review received")).toBeInTheDocument()
+    })
     expect(screen.getByText("30 Jul, 11:00")).toBeInTheDocument()
     expect(screen.getByText("Google profile")).toBeInTheDocument()
     expect(screen.getByText("Riverside · verified")).toBeInTheDocument()
@@ -675,11 +683,7 @@ describe("ReviewDetail", () => {
     it("marks the review as needing no reply from ⋯ at once, and Undo puts it back", async () => {
       const user = userEvent.setup()
       fakeDetail({ isPending: false, isError: false, data: detail })
-      renderPane(
-        <Toaster>
-          <ReviewDetail reviewId="rev-1" />
-        </Toaster>
-      )
+      renderPane(<ReviewDetail reviewId="rev-1" />)
 
       await user.click(screen.getByRole("button", { name: "More actions" }))
       await user.click(
@@ -714,11 +718,7 @@ describe("ReviewDetail", () => {
         ],
       })
       fakeDetail({ isPending: false, isError: false, data: detail })
-      renderPane(
-        <Toaster>
-          <ReviewDetail reviewId="rev-1" />
-        </Toaster>
-      )
+      renderPane(<ReviewDetail reviewId="rev-1" />)
       await user.click(screen.getByRole("button", { name: "More actions" }))
       await user.click(
         await screen.findByRole("menuitem", { name: "No reply needed" })

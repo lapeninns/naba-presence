@@ -27,6 +27,37 @@ async function applyCookie(
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
+/**
+ * The one Cancel stays reachable however far a long backlog is scrolled: the
+ * header sticks under the app bar while rows are ticked. A tall spacer inside the list pane stands in for the rows;
+ * the control must be wholly in view and be what a tap at its centre reaches.
+ */
+async function expectCancelStaysReachable(page: Page) {
+  await page.evaluate(() => {
+    const spacer = document.createElement("div")
+    spacer.dataset.testid = "scroll-spacer"
+    spacer.style.height = "4000px"
+    // Inside the list pane, as a long backlog of rows would be.
+    document.querySelector('[data-slot="inbox-list-pane"]')?.append(spacer)
+    // The page scrolls on a phone.
+    window.scrollTo(0, 2500)
+  })
+  const cancel = page.getByRole("button", { name: "Cancel selection" })
+  await expect(cancel).toBeInViewport({ ratio: 1 })
+  const reached = await cancel.evaluate((button) => {
+    const box = button.getBoundingClientRect()
+    const top = document.elementFromPoint(
+      box.left + box.width / 2,
+      box.top + box.height / 2
+    )
+    return top !== null && button.contains(top)
+  })
+  expect(reached).toBe(true)
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="scroll-spacer"]')?.remove()
+  })
+}
+
 test.describe("inbox", () => {
   test("renders the review queue", async ({ page }) => {
     await page.goto("/inbox")
@@ -134,8 +165,10 @@ test.describe("inbox", () => {
   // R3 F2-S2 / RC3 QA #2: on a phone the venue line keeps the client ·
   // location readable. Beside the stars, a status pill used to squeeze it to
   // an ellipsis, and at 390 the line truncated even without one ("Stub
-  // locat…"). The pill now drops under the venue below sm (24rem), and the
-  // venue wraps (two lines at most) instead of truncating.
+  // locat…"). The pill now drops under the venue below sm (24rem). R09
+  // (DSK-12): the venue is one line, so a long "client · listing" no longer
+  // wraps a row to three lines; the client truncates before the listing, and
+  // the whole text is the title.
   for (const width of [320, 360, 390]) {
     test(`keeps the venue readable on a ${width}px phone`, async ({
       baseURL,
@@ -159,13 +192,15 @@ test.describe("inbox", () => {
         // of it, and never a sliver.
         expect(box?.width ?? 0).toBeGreaterThanOrEqual(96)
         expect(box!.width).toBeGreaterThan(line!.width * 0.55)
-        // Every word of the client · location is drawn: nothing is cut off.
-        const clipped = await location.evaluate(
+        // One line: the venue is never taller than a line and a half, and
+        // its full text stays available as the title.
+        const lineHeight = await location.evaluate(
           (node) =>
-            node.scrollWidth > node.clientWidth + 1 ||
-            node.scrollHeight > node.clientHeight + 1
+            parseFloat(getComputedStyle(node).lineHeight) ||
+            parseFloat(getComputedStyle(node).fontSize) * 1.5
         )
-        expect(clipped).toBe(false)
+        expect(box!.height).toBeLessThanOrEqual(lineHeight * 1.5)
+        await expect(location).toHaveAttribute("title", /\S/)
         const status = venue.locator('[data-slot="review-row-status"]')
         if ((await status.count()) > 0) {
           const pill = await status.boundingBox()
@@ -203,17 +238,22 @@ test.describe("inbox", () => {
       await expect(boxes.first()).toHaveAttribute("aria-checked", "true")
       // Ticking does not open the review.
       expect(new URL(page.url()).searchParams.get("selected")).toBeNull()
-      // QA #11: the selection bar says how many once, with its one "Clear
-      // selection"; the band keeps its one "Cancel selection".
+      // R09 (INB-17): the list header says how many once, beside the one
+      // "Cancel selection"; the selection bar holds the actions alone and
+      // has no second "Clear selection".
       const bar = page.locator('[data-slot="bulk-action-bar"]')
-      await expect(bar).toContainText("1 selected")
-      await expect(page.getByText(/\d+ selected$/)).toHaveCount(1)
+      await expect(bar).toBeVisible()
+      await expect(bar).not.toContainText("selected")
+      await expect(
+        page.locator('[data-slot="inbox-selected-count"]')
+      ).toHaveText("1 selected")
       await expect(
         page.getByRole("button", { name: "Clear selection" })
-      ).toHaveCount(1)
+      ).toHaveCount(0)
       await expect(
         page.getByRole("button", { name: "Cancel selection" })
       ).toHaveCount(1)
+      await expectCancelStaysReachable(page)
       // Untick from the box again.
       await boxes.first().tap()
       await expect(boxes.first()).toHaveAttribute("aria-checked", "false")
@@ -470,6 +510,107 @@ test.describe("inbox", () => {
       .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth))
       .toBeGreaterThan(0)
     expect(cspViolations).toEqual([])
+  })
+
+  test.describe("on a touch phone, offline for new code", () => {
+    test.use({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+    })
+
+    // R09: the bulk bar's code is fetched when the first row is ticked. If that
+    // download fails, the Inbox carries on: the list and the selection stay, a
+    // notice offers "Try again", and the route's error boundary is never reached.
+    test("a bulk bar that fails to download keeps the list and the selection, and Try again recovers", async ({
+      baseURL,
+      page,
+    }) => {
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.cookie)
+      // No idle preload, so the bar's code is first asked for by the tick.
+      await page.addInitScript(() => {
+        Object.defineProperty(window, "requestIdleCallback", {
+          configurable: true,
+          value: () => 0,
+        })
+      })
+      await page.goto("/inbox")
+      const boxes = page.getByRole("checkbox", {
+        name: /^Select the review from /,
+      })
+      await page.getByRole("button", { name: "Select", exact: true }).tap()
+      await expect(boxes.first()).toBeVisible()
+      // Every script the page has not already fetched is refused from here on.
+      const refused: string[] = []
+      let offline = true
+      await page.route(/\/_next\/static\/chunks\/.*\.js/, (route) => {
+        if (!offline) return route.continue()
+        refused.push(route.request().url())
+        return route.abort()
+      })
+      await boxes.first().tap()
+      await expect(boxes.first()).toHaveAttribute("aria-checked", "true")
+
+      const notice = page.locator('[data-slot="bulk-action-bar-failed"]')
+      await expect(notice).toBeVisible()
+      // Pinned to the bottom edge of the phone, not lost under the rows.
+      await expect(notice).toBeInViewport({ ratio: 1 })
+      // Nothing covers "Try again": the phone navigation has stepped aside and
+      // the control's centre is what a tap would hit (a viewport check alone
+      // cannot see another fixed bar painted over it).
+      await expect(page.locator('[data-slot="tab-bar"]')).toBeHidden()
+      const retryButton = notice.getByRole("button", { name: "Try again" })
+      // What a tap at the control's centre would reach ("" when it is the
+      // control itself), named so a failure says what is in the way.
+      const whatCovers = () =>
+        retryButton.evaluate((button) => {
+          const box = button.getBoundingClientRect()
+          const top = document.elementFromPoint(
+            box.left + box.width / 2,
+            box.top + box.height / 2
+          )
+          if (top !== null && button.contains(top)) return ""
+          return top
+            ? `${top.tagName.toLowerCase()}[data-slot=${top.getAttribute("data-slot")}] in ${
+                top.closest("[data-slot]")?.getAttribute("data-slot") ?? "?"
+              }`
+            : "nothing"
+        })
+      // The toast that reports the failure settles above the dock; wait for it.
+      await expect.poll(whatCovers, { timeout: 5000 }).toBe("")
+      await expect(notice).toContainText(
+        "The selection actions could not load."
+      )
+      expect(refused.length).toBeGreaterThan(0)
+      // The view and the selection are untouched, and the route did not fail.
+      await expect(
+        page.getByRole("heading", { name: "Inbox", level: 1 })
+      ).toBeVisible()
+      await expect(
+        page.locator('[data-slot="inbox-selected-count"]')
+      ).toHaveText("1 selected")
+      await expect(boxes.first()).toHaveAttribute("aria-checked", "true")
+      await expect(
+        page.locator('[data-slot="boundary-error-state"]')
+      ).toHaveCount(0)
+
+      // The connection is back: Try again brings the real bar, and focus stays
+      // on the page rather than dropping to the body.
+      offline = false
+      await notice.getByRole("button", { name: "Try again" }).tap()
+      const bar = page.locator('[data-slot="bulk-action-bar"]')
+      await expect(bar).toBeVisible()
+      await expect(notice).toHaveCount(0)
+      await expect(
+        page.locator('[data-slot="inbox-selected-count"]')
+      ).toHaveText("1 selected")
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.activeElement !== document.body)
+        )
+        .toBe(true)
+    })
   })
 
   // R08 (DSK-22): a thumbnail that will not load (an expired Google CDN link,

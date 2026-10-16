@@ -11,6 +11,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { RelativeTime } from "@/components/ui/relative-time"
+import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -267,12 +268,13 @@ function ReviewList({
       )}
     >
       {isRefreshing ? (
-        <div
-          aria-hidden
-          className="pointer-events-none sticky inset-x-0 top-0 z-sticky h-0.5 shrink-0 overflow-hidden bg-line"
-        >
-          <div className="h-full w-1/3 animate-pulse bg-primary" />
-        </div>
+        // Indeterminate: the length of a refetch is unknown. The shared
+        // Progress stops its travelling highlight under reduced motion and
+        // is named, so the refresh is also said, not only drawn.
+        <Progress
+          label="Refreshing reviews"
+          className="pointer-events-none sticky inset-x-0 top-0 z-sticky h-0.5 shrink-0 rounded-none"
+        />
       ) : null}
       {/* ListRows is a native <ul>/<li> (list/listitem roles); each row
           stays a real <button> (role button, `data-slot="review-row"`) so
@@ -303,10 +305,13 @@ function ReviewList({
           const exactTime = edited
             ? `Written ${formatDateTime(review.createTime, timezone)}, edited ${formatDateTime(review.updateTime, timezone)}`
             : `Written ${formatDateTime(review.createTime, timezone)}`
-          const venue =
+          const venueClient =
             review.location.clientName && !business
-              ? `${review.location.clientName} · ${review.location.name}`
-              : review.location.name
+              ? review.location.clientName
+              : null
+          const venue = venueClient
+            ? `${venueClient} · ${review.location.name}`
+            : review.location.name
 
           // Needs a reply is this inbox's "unread": the primitive's weight,
           // full ink and dot. Everything already handled drops back to the
@@ -446,11 +451,14 @@ function ReviewList({
                 // agency inbox the location name alone ("High Street") does
                 // not say whose business this is, and replying in the wrong
                 // voice is the mistake this line exists to prevent.
-                // The venue wraps onto more lines rather than truncating
-                // (QA #2): two venues of one client often share a long
-                // prefix ("Journey Hospitality · Stub location …"), and an
-                // ellipsis made them look the same. The line overrides the
-                // subtitle slot's nowrap.
+                // The venue is one line (DSK-12): a long "client · listing"
+                // used to wrap every row to three lines. When it does not
+                // fit, the client gives way first and the listing, which is
+                // what tells two venues of one client apart (QA #2), keeps
+                // its width (up to two thirds of the line, so a very long
+                // listing still leaves the client a few letters); the whole
+                // text is the title. Shrink is proportional, so the listing
+                // is `shrink-0` rather than weighted: the client alone gives.
                 // The status pill rides this line, at its end, only where
                 // the line is at least sm (24rem) wide, a desk's list; on a
                 // phone (390px leaves ~19rem) it drops under the venue, as
@@ -459,7 +467,7 @@ function ReviewList({
                 // a zero basis, so it never pushes the pill down on its own.
                 <span
                   data-slot="review-row-venue"
-                  className="@container/venue block min-w-0 whitespace-normal"
+                  className="@container/venue block min-w-0"
                 >
                   {/* Start-aligned, each item centred in one line's height,
                       so the stars sit on the venue's first line when it
@@ -478,9 +486,29 @@ function ReviewList({
                     <span
                       data-slot="review-row-location"
                       title={venue}
-                      className="min-w-0 flex-1 basis-0 wrap-break-word"
+                      className="flex min-w-0 flex-1 basis-0 whitespace-nowrap"
                     >
-                      {venue}
+                      {venueClient ? (
+                        <>
+                          <span
+                            data-slot="review-row-client"
+                            className="min-w-0 truncate"
+                          >
+                            {venueClient}
+                          </span>
+                          <span className="shrink-0 whitespace-pre"> · </span>
+                        </>
+                      ) : null}
+                      <span
+                        data-slot="review-row-listing"
+                        className={cn(
+                          "truncate",
+                          // Alone (a business, no client), it takes the line.
+                          venueClient ? "max-w-2/3 shrink-0" : "min-w-0"
+                        )}
+                      >
+                        {review.location.name}
+                      </span>
                     </span>
                     {review.hasMedia ? (
                       <span className="flex h-lh shrink-0 items-center">

@@ -7,6 +7,7 @@ import {
   Ellipsis,
   UserPlus,
 } from "lucide-react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import * as React from "react"
 
@@ -17,8 +18,12 @@ import {
   useAssignees,
   useReviewTriage,
 } from "@/components/inbox/review-triage"
+import {
+  LazyDialogBoundary,
+  whileLoading,
+} from "@/components/inbox/lazy-dialog-boundary"
 import { useSelection } from "@/components/inbox/selection-context"
-import { TemplateReplyDialog } from "@/components/inbox/template-reply-dialog"
+import { importTemplateReplyDialog } from "@/components/inbox/template-dialog-loader"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -28,6 +33,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,12 +66,138 @@ import {
   summariseBulkOutcome,
 } from "@/lib/inbox/bulk-outcome"
 import { isRatingOnly } from "@/lib/inbox/template-batch"
+import { sessionScopeToken } from "@/lib/queries/session-scope"
+import { useSession } from "@/lib/queries/use-session"
+
+// The template batch is a 580-line dialog used on rating-only selections, so
+// it is not part of the Inbox's first load. It is fetched as soon as a
+// selection that offers it exists (the click that follows then finds it
+// loaded) and mounted only once asked for. It is closed on the server.
+type TemplateReplyDialogComponent =
+  typeof import("@/components/inbox/template-reply-dialog").TemplateReplyDialog
+const loadTemplateReplyDialog = () =>
+  importTemplateReplyDialog().then((module) => {
+    // Once it is here the component is used as it is, with no Suspense
+    // beat between the click and the dialog; and "has it arrived" is what
+    // tells a pending open (cancellable) from an open dialog (not).
+    lazyTemplate.Loaded = module.TemplateReplyDialog
+    return module.TemplateReplyDialog
+  })
+// A preload that fails is not an error yet: the dialog's own load, when it
+// is asked for, retries and reports.
+const preloadTemplateReplyDialog = () =>
+  void loadTemplateReplyDialog().catch(() => {})
+
+/** What the loading shell needs from the bar that asked for the batch. */
+const TemplateShellContext = React.createContext<{
+  close: () => void
+  finalFocus: React.RefObject<HTMLElement | null>
+} | null>(null)
+
+/**
+ * The modal that stands in while the template dialog's code is on the way.
+ * The batch is already a modal question, so it is one from the click: focus
+ * is held, and nothing behind it (the selection, the bulk actions, the
+ * client switcher) can be reached until it is answered or cancelled. It is
+ * the same size and wording as the real dialog, which replaces it.
+ */
+function TemplateLoadingShell() {
+  const shell = React.useContext(TemplateShellContext)
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) shell?.close()
+      }}
+    >
+      <DialogContent size="wide" finalFocus={shell?.finalFocus}>
+        <DialogHeader>
+          <DialogTitle>Reply with the rating template</DialogTitle>
+          <DialogDescription>
+            For reviews with stars and no words. Each reply is checked before it
+            can be published, exactly as one you write yourself.
+          </DialogDescription>
+        </DialogHeader>
+        <p role="status" className="text-ui text-ink-secondary">
+          Loading…
+        </p>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => shell?.close()}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// A failed load is cached by React for the life of the component, so after a
+// failure (see LazyDialogBoundary) a fresh one replaces it for the next open.
+const createTemplateReplyDialog = () =>
+  dynamic(loadTemplateReplyDialog, {
+    ssr: false,
+    loading: whileLoading(<TemplateLoadingShell />),
+  })
+const lazyTemplate: {
+  Dialog: ReturnType<typeof createTemplateReplyDialog>
+  /** The real component, once its code has arrived. */
+  Loaded: TemplateReplyDialogComponent | null
+} = { Dialog: createTemplateReplyDialog(), Loaded: null }
+
+/**
+ * The real dialog if its code is already here, the lazy one (whose fallback is
+ * the shell) if not. Chosen once, when the batch is opened: a component's type
+ * must not change while it is open, or a re-render after the code arrives
+ * (a refetch, a window refocus) would unmount the dialog and mount a new one,
+ * losing its outcomes and its retry intent. The shell-to-dialog swap happens
+ * inside the one lazy component instead.
+ */
+function TemplateDialogSlot(
+  props: React.ComponentProps<TemplateReplyDialogComponent>
+) {
+  const [Dialog] = React.useState(
+    () => lazyTemplate.Loaded ?? lazyTemplate.Dialog
+  )
+  return <Dialog {...props} />
+}
+
+/**
+ * Where focus goes when the open that held it is cancelled by a change of
+ * scope: the opener is gone with the rows, so the list header's control that
+ * starts a selection (the select-all box on a desk, "Select" on a phone), or
+ * failing that the list itself. Only if focus has been left on the page.
+ */
+function focusSurvivor(leaving: HTMLElement | null) {
+  const settle = () => {
+    // Only from the page, or from the opener the dialog handed focus back to
+    // (it goes with the old rows); never from where the operator has moved.
+    const active = document.activeElement
+    if (active && active !== document.body && active !== leaving) return
+    const candidates = document.querySelectorAll<HTMLElement>(
+      '[data-slot="inbox-list-header"] [role="checkbox"], [data-slot="inbox-list-header"] button'
+    )
+    for (const candidate of candidates) {
+      // Not the one a breakpoint hides (jsdom has no layout: it answers true).
+      if (
+        candidate.hasAttribute("disabled") ||
+        candidate.checkVisibility?.() === false
+      )
+        continue
+      candidate.focus()
+      if (document.activeElement === candidate) return
+    }
+  }
+  settle()
+  // The dialog's own focus return runs as it unmounts; look again after it.
+  requestAnimationFrame(() => requestAnimationFrame(settle))
+}
 
 /**
  * Actions over a selection: the shared SelectionBar, docked to the bottom
  * of a phone while anything is ticked, where it takes the tab bar's slot
- * (D4), and sticky at the foot of the list from md. Its header is "N
- * selected" and "Clear selection"; its tiles are an overflow (⋯) for the
+ * (D4), and sticky at the foot of the list from md. It holds only actions:
+ * "N selected" and the one "Cancel" are in the list header (list-header.tsx),
+ * so there is a single way out. Its tiles are an overflow (⋯) for the
  * rarer actions and one primary — 64px tiles, icon over label, on a phone,
  * inline buttons from md. The primary is the charcoal tile when it leads to
  * Google (approve and publish, the template batch), the plain tile when it
@@ -72,12 +211,15 @@ import { isRatingOnly } from "@/lib/inbox/template-batch"
 function BulkActionBar({
   rows,
   bulkEngine = false,
+  scopeKey = "",
 }: {
   rows: ReviewRow[]
   /** Approve and template replies run as a bulk batch (the job runner sends them). */
   bulkEngine?: boolean
+  /** The client the list is scoped to; a change of it is a change of scope. */
+  scopeKey?: string
 }) {
-  const { selected, clear, replace, setSelectMode } = useSelection()
+  const { selected, replace, setSelectMode } = useSelection()
   const bulk = useReviewTriage()
   // On a phone the overflow is a bottom action sheet, where a flyout
   // submenu has nowhere to fly to; the assignees are listed in the sheet.
@@ -91,6 +233,15 @@ function BulkActionBar({
   const [templateRows, setTemplateRows] = React.useState<ReviewRow[] | null>(
     null
   )
+  // The scope it was opened under, and a count of opens dropped by a change
+  // of scope (each is a reason to find focus a new home).
+  const [templateScope, setTemplateScope] = React.useState("")
+  const [templateDropped, setTemplateDropped] = React.useState(0)
+  // Focus returns to the control that asked for the batch (the primary tile,
+  // or the ⋯ trigger when it came from the menu), never to the page.
+  const moreRef = React.useRef<HTMLButtonElement>(null)
+  const primaryRef = React.useRef<HTMLButtonElement>(null)
+  const templateOpenerRef = React.useRef<HTMLElement | null>(null)
 
   const chosen = rows.filter((row) => selected.has(row.id))
   // The member list is only needed to assign, so it is fetched when a
@@ -100,22 +251,87 @@ function BulkActionBar({
     { enabled: chosen.length > 0 }
   )
 
-  const templateDialog = templateRows ? (
-    <TemplateReplyDialog
-      open
-      rows={templateRows}
-      bulkEngine={bulkEngine}
-      onOpenChange={(open) => {
-        if (!open) setTemplateRows(null)
-      }}
-      onFinished={(sentIds) => {
-        const sent = new Set(sentIds)
-        replace([...selected].filter((id) => !sent.has(id)))
-      }}
-    />
-  ) : null
+  const offersTemplate = chosen.some(isRatingOnly)
+  React.useEffect(() => {
+    if (offersTemplate) preloadTemplateReplyDialog()
+  }, [offersTemplate])
 
-  if (chosen.length === 0) return templateDialog
+  // What the list is scoped to (the client, and the session's own scope): the
+  // template batch belongs to the one it was opened under. Read when it opens.
+  const session = useSession()
+  const scope = `${scopeKey}\n${sessionScopeToken(session.data?.session)}`
+  const openTemplate = (from: "primary" | "more") => {
+    templateOpenerRef.current =
+      from === "primary" ? primaryRef.current : moreRef.current
+    setTemplateScope(scope)
+    setTemplateRows(chosen)
+  }
+  const closeTemplate = () => setTemplateRows(null)
+
+  // An open that is still waiting for the dialog's code is cancelled with the
+  // selection it was made on (cleared, or a scope that moved the rows), so a
+  // batch the operator walked away from cannot appear later, over something
+  // else. Once the dialog has arrived it is a different matter: it keeps its
+  // own copy of the rows on purpose, to show its summary after replies have
+  // left the list.
+  //
+  // A change of scope cancels it whatever has arrived: it is judged on the
+  // scope the batch was opened under, not on whether the new client's rows
+  // have come in yet (the list keeps the old rows until they do) or whether
+  // the code is here, so another client's reviews are never left open.
+  const chosenIds = new Set(chosen.map((row) => row.id))
+  const templateStale =
+    templateRows !== null &&
+    (templateScope !== scope ||
+      (!lazyTemplate.Loaded &&
+        templateRows.some((row) => !chosenIds.has(row.id))))
+  // Nothing is drawn for it from this render, and the open is dropped; focus
+  // goes somewhere that is still there (its opener may be gone with the rows).
+  if (templateStale) {
+    setTemplateRows(null)
+    setTemplateDropped((count) => count + 1)
+  }
+  React.useEffect(() => {
+    if (templateDropped === 0) return
+    const opener = templateOpenerRef.current
+    templateOpenerRef.current = null
+    focusSurvivor(opener)
+  }, [templateDropped])
+
+  const templateDialog =
+    templateRows && !templateStale ? (
+      <TemplateShellContext.Provider
+        // Keyed, so the dialog is the same one whether the bar is drawn
+        // beside it or (nothing selected any more) it stands alone.
+        key="template-batch"
+        value={{ close: closeTemplate, finalFocus: templateOpenerRef }}
+      >
+        <LazyDialogBoundary
+          what="the template reply"
+          onFail={() => {
+            setTemplateRows(null)
+            lazyTemplate.Loaded = null
+            lazyTemplate.Dialog = createTemplateReplyDialog()
+          }}
+        >
+          <TemplateDialogSlot
+            open
+            rows={templateRows}
+            bulkEngine={bulkEngine}
+            finalFocus={templateOpenerRef}
+            onOpenChange={(open) => {
+              if (!open) closeTemplate()
+            }}
+            onFinished={(sentIds) => {
+              const sent = new Set(sentIds)
+              replace([...selected].filter((id) => !sent.has(id)))
+            }}
+          />
+        </LazyDialogBoundary>
+      </TemplateShellContext.Provider>
+    ) : null
+
+  if (chosen.length === 0) return <>{templateDialog}</>
 
   // Approval is bound to the draft the list showed: the parked one (what the
   // server approves and single approve names), not the newest. A row with no
@@ -181,7 +397,6 @@ function BulkActionBar({
   }
 
   const partial = approvable.length < chosen.length && approvable.length > 0
-  const ratingOnly = chosen.some(isRatingOnly)
   const failures = outcome
     ? outcome.results.filter(
         (row) => row.status !== "ok" && row.status !== "queued"
@@ -193,7 +408,7 @@ function BulkActionBar({
   const primary: "approve" | "template" | "mark_reviewed" =
     approvable.length > 0
       ? "approve"
-      : ratingOnly
+      : offersTemplate
         ? "template"
         : "mark_reviewed"
   const assigneeItems = (
@@ -218,11 +433,12 @@ function BulkActionBar({
       />
     ) : primary === "template" ? (
       <SelectionBarTile
+        ref={primaryRef}
         tone="charcoal"
         icon={<MessageSquareText aria-hidden />}
         label="Reply with template"
         disabled={bulk.isPending}
-        onClick={() => setTemplateRows(chosen)}
+        onClick={() => openTemplate("primary")}
       />
     ) : (
       <SelectionBarTile
@@ -289,20 +505,17 @@ function BulkActionBar({
           phone it is fixed to the bottom of the screen (the chrome contract
           in globals.css steps the tab bar aside for it, and it rides the
           keyboard); from md it sticks to the foot of the list. Only on the
-          page while something is ticked (the early return above). Its
-          "Clear selection" empties the selection and leaves select mode as
-          it is; the list header's Cancel/Done leaves select mode. */}
+          page while something is ticked (the early return above). The count
+          and the Cancel are the list header's. */}
       <SelectionBar
         data-slot="bulk-action-bar"
         label="Selected reviews"
-        count={chosen.length}
-        onCancel={clear}
-        cancelLabel="Clear selection"
         notes={notes}
         className="shrink-0"
       >
         <DropdownMenu>
           <DropdownMenuTrigger
+            ref={moreRef}
             disabled={bulk.isPending}
             render={
               <SelectionBarTile
@@ -340,8 +553,8 @@ function BulkActionBar({
             {/* Stars with no words: one standard reply each, checked and then
               published (or submitted) as a batch. Offered only when the
               selection has some. */}
-            {ratingOnly && primary !== "template" ? (
-              <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
+            {offersTemplate && primary !== "template" ? (
+              <DropdownMenuItem onClick={() => openTemplate("more")}>
                 <MessageSquareText aria-hidden />
                 Reply with template
               </DropdownMenuItem>

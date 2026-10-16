@@ -83,6 +83,7 @@ function TemplateReplyDialog({
   rows,
   onFinished,
   bulkEngine = false,
+  finalFocus,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -96,6 +97,8 @@ function TemplateReplyDialog({
   bulkEngine?: boolean
   /** Called with the ids that were sent, so the selection can drop them. */
   onFinished: (sentIds: string[]) => void
+  /** Where focus returns on close: the control that opened the batch. */
+  finalFocus?: React.ComponentProps<typeof DialogContent>["finalFocus"]
 }) {
   const queryClient = useQueryClient()
   const [phase, setPhase] = React.useState<Phase>("setup")
@@ -314,7 +317,11 @@ function TemplateReplyDialog({
         onOpenChange(next)
       }}
     >
-      <DialogContent size="wide" showCloseButton={!running}>
+      <DialogContent
+        size="wide"
+        showCloseButton={!running}
+        finalFocus={finalFocus}
+      >
         <DialogHeader>
           <DialogTitle>Reply with the rating template</DialogTitle>
           <DialogDescription>

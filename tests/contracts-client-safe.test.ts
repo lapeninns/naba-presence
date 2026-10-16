@@ -102,6 +102,40 @@ describe("lib/contracts stay client-safe", () => {
   )
 })
 
+/**
+ * The Inbox's first load must not carry zod: these two modules hold the plain
+ * values client code needs from the reviews and AI-credit contracts, so they
+ * must never reach `zod` (or a contract module that imports it) by a value
+ * import. A schema belongs in the contract file, not here.
+ */
+function reachesZod(entry: string): string[] {
+  const hits: string[] = []
+  const seen = new Set<string>()
+  const walk = (file: string, via: string[]) => {
+    if (seen.has(file)) return
+    seen.add(file)
+    for (const specifier of valueImportSpecifiers(readFileSync(file, "utf8"))) {
+      if (specifier === "zod" || specifier.startsWith("zod/")) {
+        hits.push([...via, relative(ROOT, file)].join(" > "))
+        continue
+      }
+      const next = resolveSpecifier(file, specifier)
+      if (next) walk(next, [...via, relative(ROOT, file)])
+    }
+  }
+  walk(entry, [])
+  return hits
+}
+
+describe("zod-free contract value modules", () => {
+  it.each(["review-values.ts", "ai-credits-format.ts"])(
+    "lib/contracts/%s reaches no zod import",
+    (name) => {
+      expect(reachesZod(join(CONTRACTS_DIR, name))).toEqual([])
+    }
+  )
+})
+
 describe("the walker itself", () => {
   it("follows value imports and skips erased type-only imports", () => {
     expect(
