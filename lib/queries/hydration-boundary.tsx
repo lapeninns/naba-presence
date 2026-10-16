@@ -69,8 +69,16 @@ export function serverNowOf(state: unknown): number | null {
   return latest
 }
 
-/** The earliest `dehydratedAt` each cache has been handed, by the server's clock. */
-const firstServerTimes = new WeakMap<QueryClient, number>()
+/**
+ * The earliest `dehydratedAt` this page load has been handed, by the
+ * server's clock. Per page load, not per cache: a QueryClient made later
+ * (the dashboard layout remounted by a soft navigation) would otherwise
+ * start from a much later render and loosen the bound below by the whole
+ * time since the page loaded. Browser only; on the server it would be
+ * shared by every request.
+ */
+type PageClock = { first: number }
+const browserPage: PageClock = { first: Number.POSITIVE_INFINITY }
 
 /**
  * `alignToClientClock` for a payload arriving in `client`'s cache.
@@ -83,8 +91,8 @@ const firstServerTimes = new WeakMap<QueryClient, number>()
  * value back (#195).
  *
  * So a held query is dated by a lower bound on the clocks' offset instead:
- * the page's first server render came after this document's navigation
- * started, so (navigation start - its `dehydratedAt`) is never more than the
+ * the first server render this page load received came after its
+ * navigation started, so (navigation start - its `dehydratedAt`) is never more than the
  * offset. Dated that way a snapshot is never later than the moment it was
  * read on the server, and anything the browser fetched after that read
  * keeps its place. A refresh read within the first page's own load time of
@@ -93,17 +101,21 @@ const firstServerTimes = new WeakMap<QueryClient, number>()
 export function alignForCache<T>(
   state: T,
   client: QueryClient,
-  now = Date.now(),
-  navigationStart = globalThis.performance?.timeOrigin
+  {
+    now = Date.now(),
+    navigationStart = globalThis.performance?.timeOrigin,
+    page = typeof window === "undefined"
+      ? { first: Number.POSITIVE_INFINITY }
+      : browserPage,
+  }: { now?: number; navigationStart?: number; page?: PageClock } = {}
 ): T {
   if (!state || typeof state !== "object" || !("queries" in state)) return state
   const queries = (state as { queries: DehydratedQueryTimes[] }).queries
   if (!Array.isArray(queries)) return state
-  let first = firstServerTimes.get(client) ?? Number.POSITIVE_INFINITY
   for (const query of queries)
     if (typeof query.dehydratedAt === "number")
-      first = Math.min(first, query.dehydratedAt)
-  if (Number.isFinite(first)) firstServerTimes.set(client, first)
+      page.first = Math.min(page.first, query.dehydratedAt)
+  const first = page.first
   const cache = client.getQueryCache()
   return alignToClientClock(state, now, (query, skew) =>
     navigationStart !== undefined &&

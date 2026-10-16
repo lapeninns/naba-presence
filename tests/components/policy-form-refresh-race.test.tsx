@@ -13,7 +13,15 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { PolicyForm } from "@/components/settings/policy-form"
 import { Toaster } from "@/components/ui/toast"
@@ -102,8 +110,9 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-// The real clock, so the first render comes after this document's
-// navigation started, as it does in a browser; only Date is faked.
+// This page load started half a second before the first test's render, as
+// a browser's would; only Date is faked from there.
+const NAVIGATION_START = Date.now() - 500
 let clock = 0
 function tick(ms: number) {
   clock += ms
@@ -128,7 +137,17 @@ function mount() {
     </QueryClientProvider>
   )
   const { rerender } = render(page(serverSnapshot()))
-  return { client, deliver: (state: DehydratedState) => rerender(page(state)) }
+  return {
+    client,
+    // TanStack hydrates a query the cache already holds in an effect, so
+    // the cache is the thing to check; the form reads it on its next
+    // render (the edits and saves below).
+    deliver: async (state: DehydratedState) => {
+      await act(async () => {
+        rerender(page(state))
+      })
+    },
+  }
 }
 
 const twoPerson = () =>
@@ -137,6 +156,10 @@ const twoPerson = () =>
   })
 const saveBar = () =>
   screen.queryByRole("region", { name: "Save reply policy" })
+
+beforeAll(() => {
+  vi.spyOn(performance, "timeOrigin", "get").mockReturnValue(NAVIGATION_START)
+})
 
 beforeEach(() => {
   clock = Date.now()
@@ -194,7 +217,7 @@ describe("Reply policy: a rename and a policy save together (#195)", () => {
 
     // 4. The old snapshot arrives after all that.
     tick(1_000)
-    await act(async () => deliver(readBeforeSave))
+    await deliver(readBeforeSave)
     expect(
       client.getQueryData<OrgSettings>(queryKeys.settings)
         ?.requireTwoPersonApproval
@@ -204,7 +227,7 @@ describe("Reply policy: a rename and a policy save together (#195)", () => {
 
     // And the refresh's own read is the saved policy.
     tick(100)
-    await act(async () => deliver(refreshReads[0]!))
+    await deliver(refreshReads[0]!)
     expect(twoPerson()).toBeChecked()
     expect(saveBar()).not.toBeInTheDocument()
 
@@ -240,7 +263,38 @@ describe("Reply policy: a rename and a policy save together (#195)", () => {
     })
   })
 
-  it("doesn't refresh when the rename is refused", async () => {
+  it("still takes a newer server read over the cached settings", async () => {
+    const { client, deliver } = mount()
+    // Someone else turns the two-person rule on; a later refresh reads it.
+    tick(60_000)
+    db.settings = makeSettings({ requireTwoPersonApproval: true })
+    const later = serverSnapshot()
+    tick(300)
+    await deliver(later)
+    expect(
+      client.getQueryData<OrgSettings>(queryKeys.settings)
+        ?.requireTwoPersonApproval
+    ).toBe(true)
+    // The form saves from it: an unrelated edit keeps the rule on.
+    await userEvent.click(
+      screen.getByRole("combobox", { name: "How long we keep review text" })
+    )
+    await userEvent.click(await screen.findByRole("option", { name: "7 days" }))
+    saveSettingsMock.mockResolvedValueOnce(
+      makeSettings({
+        requireTwoPersonApproval: true,
+        rawContentRetentionDays: 7,
+      })
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledTimes(1))
+    expect(saveSettingsMock.mock.calls[0]![0]).toMatchObject({
+      requireTwoPersonApproval: true,
+      rawContentRetentionDays: 7,
+    })
+  })
+
+  it("doesn't refresh when nothing was saved", async () => {
     mount()
     renameMock.mockRejectedValue(new Error("boom"))
     fireEvent.change(screen.getByRole("textbox", { name: "Agency name" }), {
@@ -275,27 +329,32 @@ describe("alignForCache", () => {
     const client = new QueryClient()
     const state = stateAt(SERVER_NOW)
     const arrival = SERVER_NOW + OFFSET + 2_000
-    expect(updatedAt(alignForCache(state, client, arrival, NAVIGATION))).toBe(
-      arrival
-    )
+    expect(
+      updatedAt(
+        alignForCache(state, client, {
+          now: arrival,
+          navigationStart: NAVIGATION,
+          page: { first: Number.POSITIVE_INFINITY },
+        })
+      )
+    ).toBe(arrival)
   })
 
   it("dates a held query no later than its server read, however late it arrives", () => {
     const client = new QueryClient()
-    alignForCache(
-      stateAt(SERVER_NOW),
-      client,
-      SERVER_NOW + OFFSET + 2_000,
-      NAVIGATION
-    )
+    const page = { first: Number.POSITIVE_INFINITY }
+    alignForCache(stateAt(SERVER_NOW), client, {
+      now: SERVER_NOW + OFFSET + 2_000,
+      navigationStart: NAVIGATION,
+      page,
+    })
     client.setQueryData(queryKeys.settings, makeSettings())
     const readAt = SERVER_NOW + 10_000
-    const late = alignForCache(
-      stateAt(readAt),
-      client,
-      readAt + OFFSET + 5_000,
-      NAVIGATION
-    )
+    const late = alignForCache(stateAt(readAt), client, {
+      now: readAt + OFFSET + 5_000,
+      navigationStart: NAVIGATION,
+      page,
+    })
     expect(updatedAt(late)).toBeLessThanOrEqual(readAt + OFFSET)
     // Still newer than anything the browser fetched before that read.
     expect(updatedAt(late)).toBeGreaterThan(SERVER_NOW + OFFSET + 2_000)
