@@ -284,12 +284,19 @@ describe("primary navigation", () => {
   })
 
   it("shows the needs-reply count without renaming the Inbox link", () => {
-    render(<Nav needsReply={5} />)
+    render(<Nav waiting={{ needsReply: 5, approval: 0, total: 5 }} />)
     const inbox = screen.getByRole("link", { name: "Inbox" })
     // The count describes the row; "Inbox" stays its exact name for every
     // locator and screen-reader link list.
     expect(inbox).toHaveAccessibleName("Inbox")
     expect(inbox).toHaveAccessibleDescription("5 reviews need a reply")
+  })
+
+  it("counts replies awaiting this person's approval in the Inbox row (R03)", () => {
+    render(<Nav waiting={{ needsReply: 2, approval: 1, total: 3 }} />)
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAccessibleDescription(
+      "3 reviews need your attention: 2 to reply, 1 to approve"
+    )
   })
 
   it("names each pinned client's health in words, not only a dot", () => {
@@ -306,7 +313,7 @@ describe("primary navigation", () => {
   })
 
   it("carries the needs-reply count onto the rail icon as a badge", () => {
-    const { container } = render(<Nav needsReply={140} />)
+    const { container } = render(<Nav waiting={{ needsReply: 140, approval: 0, total: 140 }} />)
     const badge = container.querySelector("[data-slot='rail-count']")
     expect(badge).toHaveTextContent("99+")
     expect(badge).toHaveAttribute("aria-hidden")
