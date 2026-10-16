@@ -11,14 +11,6 @@ import {
   SparklesIcon,
 } from "lucide-react"
 
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -126,20 +118,16 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const fieldId = useId()
   const [body, setBody] = useState("")
   const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
-  // The tone a regenerate over unsaved edits is waiting to be confirmed in;
-  // null while no confirmation is open.
-  const [confirmTone, setConfirmTone] = useState<Tone | null>(null)
   // A failed generation, said where it happened, with the two ways on.
   const [generateError, setGenerateError] = useState<{
     message: string
     tone: Tone
     creditsOut?: boolean
-    unavailable?: boolean
   } | null>(null)
-  // AI is not set up for this workspace: learned from the first answer, and
-  // kept for the review on screen, so Generate stays away rather than
-  // offering the same dead end again.
-  const [aiUnavailable, setAiUnavailable] = useState(false)
+  // AI is not set up: learned from a 503 on an older server, and kept for the
+  // review on screen. The credits route now says so up front (`aiConfigured`,
+  // below), so Generate never offers the dead end once.
+  const [aiUnavailableLearned, setAiUnavailable] = useState(false)
   // Verification produced by THIS session's latest save or generate; until
   // then the persisted review.latestVerification stands.
   const [mutationVerification, setMutationVerification] =
@@ -268,6 +256,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
   const aiCredits = useAiCredits()
+  // Known from the credits read, before any failed attempt. Only an explicit
+  // false counts: absent (older server, or still loading) leaves it to the
+  // draft route's 503, which is still handled below.
+  const aiUnavailable =
+    aiUnavailableLearned || aiCredits.data?.aiConfigured === false
   // Only a loaded balance turns Generate off (none left, an unknown
   // allowance, or read-only billing); while it loads, or if it cannot load,
   // the server still decides (it answers 402).
@@ -396,12 +389,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         return
       }
       if (isAiNotConfigured(error)) {
+        // The note that replaces Generate says it; an alert as well would
+        // say it twice.
         setAiUnavailable(true)
-        setGenerateError({
-          message: describeActionError(error),
-          tone: withTone,
-          unavailable: true,
-        })
         return
       }
       setGenerateError({ message: describeActionError(error), tone: withTone })
@@ -410,14 +400,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   // The tone is chosen inside Generate: opening its menu is the look at the
   // options, and picking a tone is the deliberate act that writes (and
-  // spends a credit). Over unsaved edits it first asks, as ever.
+  // spends a credit). Over unsaved edits it does not ask: the "Reply ready"
+  // toast carries Undo, which puts the replaced text back (D3).
   function onGenerateIn(next: Tone) {
     if (generateOrSave.isPending) return
-    if (isDirty && body.trim() !== "") {
-      // The tone is kept only once the discard is confirmed.
-      setConfirmTone(next)
-      return
-    }
     setTone(next)
     void runGenerate(next)
   }
@@ -519,38 +505,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     )
   }
 
-  const discardDialog = (
-    <AlertDialog
-      open={confirmTone !== null}
-      onOpenChange={(open) => {
-        if (!open) setConfirmTone(null)
-      }}
-    >
-      <AlertDialogContent aria-label="Discard your edits?">
-        <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
-        <AlertDialogDescription>
-          Regenerating replaces your unsaved changes with a new reply. You can
-          undo it straight afterwards.
-        </AlertDialogDescription>
-        <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="secondary" />}>
-            Keep editing
-          </AlertDialogClose>
-          <Button
-            onClick={() => {
-              const next = confirmTone ?? tone
-              setConfirmTone(null)
-              setTone(next)
-              void runGenerate(next)
-            }}
-          >
-            Discard and regenerate
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-
   // Said where it happened. Spent credits and a workspace with no AI have
   // nothing to retry, so only "Write my own" is offered for them.
   const generateErrorNote = generateError ? (
@@ -564,7 +518,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           : generateError.message}
       </AlertDescription>
       <AlertActions>
-        {generateError.creditsOut || generateError.unavailable ? null : (
+        {generateError.creditsOut ? null : (
           <Button
             variant="secondary"
             disabled={generateOrSave.isPending}
@@ -858,8 +812,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           <span>{warnings.map((reason) => reason.message).join(" ")}</span>
         </p>
       ) : null}
-
-      {discardDialog}
     </div>
   )
 }
