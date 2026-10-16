@@ -348,14 +348,20 @@ for (const width of [375, 768, 1280])
       expect(count).toBe(3)
       await f.goto("/calendar")
       await page.getByRole("tab", { name: "Agenda", exact: true }).click()
+      const agenda = page.getByRole("list", { name: "Scheduled publications" })
+      const nothingHere = page.getByText(
+        "No scheduled publications in this period"
+      )
       for (let step = 0; step < 14; step += 1) {
-        // Wait for this period's answer before deciding to move on.
-        await expect(
-          page
-            .getByText(/No scheduled publications in this period|Fixture Inn 1/)
-            .first()
-        ).toBeVisible()
-        if (await page.getByText("Fixture Inn 1").first().isVisible()) break
+        // Wait for this period's answer before deciding to move on: the
+        // agenda's list or its empty message, which exist only in the Agenda
+        // view once the period has loaded. The listing's name is no answer:
+        // at 768 px and up the Month grid, still on screen just after the
+        // tab is clicked, names it too, and the check below then ran on the
+        // Agenda's loading state and stepped past the period that had the
+        // publications.
+        await expect(agenda.or(nothingHere)).toBeVisible()
+        if (await agenda.isVisible()) break
         // The period heading changes in the same render that swaps the old
         // period's answer for the loading state; wait for it so the next
         // check never reads the previous period's stale answer.
@@ -364,9 +370,8 @@ for (const width of [375, 768, 1280])
         await page.getByRole("button", { name: "Next period" }).click()
         await expect(periodHeading).not.toHaveText(before)
       }
-      await expect(
-        page.getByRole("list", { name: "Scheduled publications" })
-      ).toBeVisible()
+      await expect(agenda).toBeVisible()
+      await expect(agenda.getByText("Fixture Inn 1").first()).toBeVisible()
       await capture(page, info, "calendar-agenda")
       await page.getByRole("tab", { name: "Month", exact: true }).click()
       await expect(page.getByRole("table")).toBeVisible()
