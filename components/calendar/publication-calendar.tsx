@@ -174,8 +174,11 @@ export function PublicationCalendar({
     .map((entry) => ({ id: entry.id, name: entry.name }))
   // One line that names the zones in play: each entry's time is its
   // listing's own, and "today" is the organisation's date.
-  const description = timeZone
-    ? `Scheduled post publications across the listings you can see. Each time is in its listing’s local time; today is marked in the workspace time zone (${formatTimeZoneLabel(timeZone) ?? timeZone}).`
+  // Named after hydration: a zone with no fixed name reads from Intl, whose
+  // data the server and the browser can hold differently.
+  const zoneName = hydrated && timeZone ? formatTimeZoneLabel(timeZone) : null
+  const description = zoneName
+    ? `Scheduled post publications across the listings you can see. Each time is in its listing’s local time; today is marked in the workspace time zone (${zoneName}).`
     : "Scheduled post publications across the listings you can see. Each time is in its listing’s local time."
   const header = (
     <div className="flex flex-col gap-1">
