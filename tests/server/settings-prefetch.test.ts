@@ -171,7 +171,7 @@ describe("readers", () => {
     vi.mocked(loadOrgSettings).mockResolvedValueOnce({
       approvalRequired: true,
       requireTwoPersonApproval: false,
-      rawContentRetentionDays: 90,
+      rawContentRetentionDays: 30,
       defaultLanguageCode: "en",
       defaultTimezone: "Europe/London",
       directPublishConsentAt: AT,

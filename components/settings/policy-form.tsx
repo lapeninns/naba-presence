@@ -76,7 +76,9 @@ import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { StashedEditsNotice } from "@/components/editors/stashed-edits-notice"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
+import { HYDRATION_DAY_ZONE } from "@/lib/settings/use-format-day"
 
 type FormState = {
   approvalRequired: boolean
@@ -212,6 +214,7 @@ function PolicySkeleton() {
  */
 export function PolicyForm({ role }: { role: string | null }) {
   const query = useSettings()
+  const hydrated = useHydrated()
   const caps = useSettingsCapabilities()
   const session = useSession()
   const client = useQueryClient()
@@ -451,11 +454,15 @@ export function PolicyForm({ role }: { role: string | null }) {
   const barError =
     formError ?? (nameError ? `${terms.orgName}: ${nameError}` : null)
   const showBar = !readOnly && (isDirty || saving || barError !== null)
+  // The settings are server-rendered (P20), so the day is written in one
+  // pinned zone until hydration is done, then in the viewer's own
+  // (lib/settings/use-format-day.ts).
   const consentedOn = query.data?.directPublishConsentAt
     ? new Date(query.data.directPublishConsentAt).toLocaleDateString("en-GB", {
         day: "numeric",
         month: "long",
         year: "numeric",
+        ...(hydrated ? {} : { timeZone: HYDRATION_DAY_ZONE }),
       })
     : null
 
