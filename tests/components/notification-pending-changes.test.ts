@@ -459,4 +459,168 @@ describe("pending changes and the session scope", () => {
       applyPendingChanges(all.pages, [], "all").pages[0]!.items[1]!.readAt
     ).toBeNull()
   })
+
+  describe("when a change that may have reached the server is removed", () => {
+    const READ = "2026-09-30T11:00:00.000Z"
+    const resolved = (id: string, overrides: Partial<NotificationItem> = {}) =>
+      row(id, {
+        status: "resolved",
+        resolvedAt: READ,
+        canResolve: false,
+        ...overrides,
+      })
+    /** What the page shows and what the bell shows, from the real helpers. */
+    function views() {
+      const client = new QueryClient()
+      client.setQueryData<SessionResponse>(queryKeys.session, {
+        session: OWNER,
+      })
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children)
+      const pending = renderHook(() => usePendingNotificationChanges(), {
+        wrapper,
+      })
+      const delta = renderHook(() => usePendingUnreadDelta("badge"), {
+        wrapper,
+      })
+      const all = () =>
+        client.getQueryData<{ pages: NotificationListResponse[] }>(
+          queryKeys.notifications("all")
+        )!
+      const badge = () =>
+        client.getQueryData<NotificationListResponse>(
+          queryKeys.notifications("badge")
+        )!
+      return {
+        client,
+        seed(rows: NotificationItem[], unread: NotificationItem[]) {
+          client.setQueryData(queryKeys.notifications("all"), {
+            pages: [page(rows)],
+            pageParams: [""],
+          })
+          client.setQueryData(queryKeys.notifications("badge"), page(unread))
+        },
+        /** A poll and a list refresh: what the server says now. */
+        refresh: (
+          rows: NotificationItem[],
+          unread: NotificationItem[],
+          count = unread.length
+        ) =>
+          act(async () => {
+            client.setQueryData(queryKeys.notifications("all"), {
+              pages: [page(rows, count)],
+              pageParams: [""],
+            })
+            client.setQueryData(
+              queryKeys.notifications("badge"),
+              page(unread, count)
+            )
+            await Promise.resolve()
+          }),
+        poll: (unread: NotificationItem[], count = unread.length) =>
+          act(async () => {
+            client.setQueryData(
+              queryKeys.notifications("badge"),
+              page(unread, count)
+            )
+            await Promise.resolve()
+          }),
+        make: (input: Parameters<typeof addPendingChange>[1]) => {
+          let made!: PendingChange
+          act(() => {
+            made = addPendingChange(client, input)
+          })
+          return made
+        },
+        remove: (made: PendingChange) =>
+          act(async () => {
+            removePendingChange(client, made.id)
+            await Promise.resolve()
+          }),
+        commit: (made: PendingChange) =>
+          act(async () => {
+            commitPendingChange(client, made)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+          }),
+        pageCount: () =>
+          applyPendingChanges(
+            all().pages,
+            pending.result.current,
+            "all",
+            cachedRowStates(client)
+          ).unreadCount,
+        bellCount: () =>
+          Math.max(0, badge().unreadCount + delta.result.current),
+        rawBadge: () => badge().unreadCount,
+        xStatus: () =>
+          all().pages[0]!.items.find((item) => item.id === "x")!.status,
+      }
+    }
+
+    it("keeps a resolve a poll confirmed when the lost resolve is removed and read and unread survive", async () => {
+      const v = views()
+      v.seed([row("x"), row("y")], [row("x"), row("y")])
+      const lost = v.make({ kind: "resolve", ids: ["x"] })
+      // The server saved it and the answer was lost; a poll and a refresh
+      // have it: X resolved (still unread), Y open and unread, count 1.
+      await v.refresh([resolved("x"), row("y")], [row("y")])
+      const read = v.make({ kind: "read", ids: ["x"], read: true })
+      const unread = v.make({ kind: "read", ids: ["x"], read: false })
+      await v.remove(lost)
+      await v.commit(read)
+      await v.commit(unread)
+      expect(v.xStatus()).toBe("resolved")
+      expect(v.pageCount()).toBe(1)
+      expect(v.bellCount()).toBe(1)
+      expect(v.rawBadge()).toBe(1)
+    })
+
+    it("does the same when the row started read and the last change is refused", async () => {
+      const v = views()
+      const start = row("x", { readAt: READ })
+      v.seed([start, row("y")], [row("y")])
+      const lost = v.make({ kind: "resolve", ids: ["x"] })
+      await v.refresh([resolved("x", { readAt: READ }), row("y")], [row("y")])
+      const unread = v.make({ kind: "read", ids: ["x"], read: false })
+      const read = v.make({ kind: "read", ids: ["x"], read: true })
+      await v.remove(lost)
+      await v.commit(unread)
+      await v.remove(read)
+      expect(v.xStatus()).toBe("resolved")
+      expect(v.pageCount()).toBe(1)
+      expect(v.bellCount()).toBe(1)
+      expect(v.rawBadge()).toBe(1)
+    })
+
+    it("follows a lost read on one row when the change that survives is on another, and keeps a fresh zero", async () => {
+      const v = views()
+      v.seed([row("x"), row("y")], [row("x"), row("y")])
+      const lost = v.make({ kind: "read", ids: ["x"], read: true })
+      const survivor = v.make({ kind: "read", ids: ["y"], read: true })
+      // X saved with its answer lost; a refresh shows X read, Y unread, count 1.
+      await v.refresh([row("x", { readAt: READ }), row("y")], [row("y")])
+      await v.remove(lost)
+      expect(v.pageCount()).toBe(0)
+      expect(v.bellCount()).toBe(0)
+      // Y saves; a poll brings the fresh count of 0 before its answer.
+      await v.poll([])
+      expect(v.rawBadge()).toBe(0)
+      await v.commit(survivor)
+      expect(v.rawBadge()).toBe(0)
+      expect(v.bellCount()).toBe(0)
+      expect(v.pageCount()).toBe(0)
+    })
+
+    it("still counts a refused change that never reached the server as not made", async () => {
+      const v = views()
+      v.seed([row("x"), row("y")], [row("x"), row("y")])
+      const refused = v.make({ kind: "read", ids: ["x"], read: true })
+      const survivor = v.make({ kind: "read", ids: ["y"], read: true })
+      await v.remove(refused)
+      expect(v.bellCount()).toBe(1)
+      expect(v.pageCount()).toBe(1)
+      await v.commit(survivor)
+      expect(v.rawBadge()).toBe(1)
+    })
+  })
 })

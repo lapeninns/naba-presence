@@ -417,22 +417,20 @@ export function applyPendingChanges(
 // ---------------------------------------------------------------------------
 
 /**
- * Puts a change on the screen at once, before the request goes. Nothing is
- * written to the cache.
+ * Each row as the shell badge saw it: the pinned count came from that badge
+ * answer, so a row it leaves out is not counted in it, whatever an older page
+ * list still shows. Rows the badge does not reach keep the state the other
+ * lists last gave.
  */
-export function addPendingChange(
+function rowSnapshots(
   client: QueryClient,
-  input: { kind: "read" | "resolve"; ids: readonly string[]; read?: boolean }
-): PendingChange {
-  // Each row as the shell badge saw it: the pinned count below came from that
-  // badge answer, so a row it leaves out is not counted in it, whatever an
-  // older page list still shows. Rows the badge does not reach keep the state
-  // the other lists last gave.
+  ids: readonly string[]
+): Record<string, KnownRow> {
   const rows = cachedRowStates(client, "badge")
   const badge = cachedLists(client).find((list) => list.filter === "badge")
   const leftOut = badge && unreadListProof(badge.filter, badge.pages)
   const snapshots: Record<string, KnownRow> = {}
-  for (const id of input.ids) {
+  for (const id of ids) {
     const row = rows.get(id)
     if (!row) continue
     const inBadge = badge?.pages.some((page) =>
@@ -443,6 +441,18 @@ export function addPendingChange(
         ? { ...row, ...leftOutOfUnreadList(row) }
         : row
   }
+  return snapshots
+}
+
+/**
+ * Puts a change on the screen at once, before the request goes. Nothing is
+ * written to the cache.
+ */
+export function addPendingChange(
+  client: QueryClient,
+  input: { kind: "read" | "resolve"; ids: readonly string[]; read?: boolean }
+): PendingChange {
+  const snapshots = rowSnapshots(client, input.ids)
   const change: PendingChange = {
     id: `notification-change-${++sequence}`,
     scope: currentScopeToken(client),
@@ -511,37 +521,34 @@ export function isChangeLive(
 }
 
 /**
- * `change`, made after `removed`, with its snapshots of the rows `removed`
- * touched put back to what `removed` took of them, as they were before it.
+ * Takes back one change, and only that one.
+ *
+ * A removed change may still have reached the server (its answer was lost),
+ * and a poll or refetch since may have shown it. The pin was taken before
+ * either, so it still counts every row the change touched as it was then.
+ * It moves to count each such row as it is known now: as the changes still
+ * out took it, or, for a row none of them touches, as the cache shows it. The
+ * survivors' snapshots are left as they are, whatever they say about the
+ * row's read or resolved state.
  */
-function restoreSnapshots(
-  removed: PendingChange,
-  change: PendingChange
-): PendingChange {
-  let snapshots: Record<string, KnownRow> | null = null
-  for (const [id, before] of Object.entries(removed.snapshots)) {
-    if (!(id in change.snapshots)) continue
-    snapshots ??= { ...change.snapshots }
-    snapshots[id] = before
-  }
-  return snapshots ? { ...change, snapshots } : change
-}
-
-/** Takes back one change, and only that one. */
 export function removePendingChange(client: QueryClient, id: string): void {
   const store = storeFor(client)
   const removed = store.changes.find((change) => change.id === id)
   if (!removed) return
-  // What a change still out took of a row the removed one also touched may
-  // come from after the removed one reached the server (a poll saw it), which
-  // the pin, taken before, does not hold. Measured against the row as it was
-  // before the removed change, the pin and the survivor agree again.
-  const at = store.changes.indexOf(removed)
-  store.changes = store.changes
-    .filter((change) => change.id !== id)
-    .map((change, index) =>
-      index >= at ? restoreSnapshots(removed, change) : change
-    )
+  const survivors = store.changes.filter((change) => change.id !== id)
+  const pin = store.pin
+  if (pin && pin.scope === currentScopeToken(client) && survivors.length > 0) {
+    const now = rowSnapshots(client, removed.ids)
+    let moved = 0
+    for (const rowId of removed.ids) {
+      const before = snapshotOf(store.changes, rowId)
+      const after = snapshotOf(survivors, rowId) ?? now[rowId]
+      if (!before || !after) continue
+      moved += Number(countsAsUnread(after)) - Number(countsAsUnread(before))
+    }
+    if (moved) store.pin = { ...pin, count: pin.count + moved }
+  }
+  store.changes = survivors
   publish(store)
 }
 
