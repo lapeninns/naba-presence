@@ -681,7 +681,7 @@ for (const width of [375, 768, 1280])
       ).toBeVisible()
       // Provenance is one caption line; its detail is behind the info button.
       await expect(
-        page.getByText(/^Through \d+ \w+ · 1 of 2 locations$/)
+        page.getByText(/^Through \d+ \w+ · 1 of 2 locations up to date$/)
       ).toBeVisible()
       await page.getByRole("button", { name: "About these figures" }).click()
       const about = page.getByRole("dialog", { name: "About these figures" })
