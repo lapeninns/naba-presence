@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 
+import { act } from "@testing-library/react"
+
 import { queryKeys } from "@/lib/queries/keys"
 
 import { page, read, resolved, row, views } from "./notification-count-harness"
@@ -106,6 +108,51 @@ describe("no initial pin", () => {
     await v.commit(change)
     expect(v.rawBadge()).toBe(1)
     expect(v.bellCount()).toBe(1)
+    v.unmount()
+  })
+})
+
+describe("one number without a pin", () => {
+  it("shows the page and the bell the same total when the badge that arrives cannot say where a changed row stands", async () => {
+    const v = views()
+    // The list is older than the badge: it says 119, the badge says 120 (a
+    // review arrived) and has more pages; X sorts after its last row, so the
+    // badge cannot say whether it has seen X's change, and no pin forms.
+    v.client.setQueryData(queryKeys.notifications("all"), {
+      pages: [page([row("x")], 119)],
+      pageParams: [""],
+    })
+    const change = v.make({ kind: "read", ids: ["x"], read: true })
+    await v.pollPage(
+      [row("n", { openedAt: "2026-09-30T12:00:00.000Z" })],
+      120,
+      "more"
+    )
+    expect(v.pageCount()).toBe(v.bellCount())
+    // Once it saves, each list holds its own answer until the refetch that
+    // follows: the page's older than the badge's, so they may differ then.
+    await v.commit(change)
+    v.unmount()
+  })
+})
+
+describe("a poll after a scope reset", () => {
+  it("rests on a real answer even when the badge's update count has come round to the commit's", async () => {
+    const v = views()
+    v.seed([row("x"), row("y")], [row("x"), row("y")])
+    const first = v.make({ kind: "read", ids: ["x"], read: true })
+    const second = v.make({ kind: "read", ids: ["y"], read: true })
+    await v.commit(first)
+    // The query is reset and its update count starts again; the poll that
+    // follows brings a review that arrived.
+    await act(async () => {
+      v.client.resetQueries({ queryKey: queryKeys.notifications("badge") })
+      await Promise.resolve()
+    })
+    await v.poll([row("n"), row("y")])
+    expect(v.bellCount()).toBe(1)
+    await v.commit(second)
+    expect(v.rawBadge()).toBe(1)
     v.unmount()
   })
 })
