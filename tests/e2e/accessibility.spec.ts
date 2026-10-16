@@ -731,6 +731,36 @@ for (const theme of themes) {
             },
           })
         })
+        // The review's triage menu lists who it can be assigned to. Unstubbed
+        // it answers 401 and the page navigates to /sign-in.
+        await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
+          await route.fulfill({
+            json: {
+              members: [
+                {
+                  userId: "user-reviews-a11y",
+                  email: "alex@example.com",
+                  displayName: "Alex Morgan",
+                  role: "owner",
+                  canPublish: true,
+                  locationScope: "all",
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                  locations: [],
+                },
+                {
+                  userId: "user-reviews-a11y-2",
+                  email: "sam@example.com",
+                  displayName: "Sam Patel",
+                  role: "member",
+                  canPublish: true,
+                  locationScope: "all",
+                  createdAt: "2026-07-01T09:00:00.000Z",
+                  locations: [],
+                },
+              ],
+            },
+          })
+        })
         // The shell reads the client list for its sidebar, breadcrumbs and
         // health chip. Unstubbed it answers 401, and lib/api/client.ts treats
         // that as "sign in again" and navigates the whole page away.
