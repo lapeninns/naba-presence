@@ -14,6 +14,7 @@ import { Toaster } from "@/components/ui/toast"
 import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import * as bulkHook from "@/lib/queries/use-bulk-review-action"
 import * as membersHook from "@/lib/queries/use-members"
+import * as sessionHook from "@/lib/queries/use-session"
 
 function row(id: string, overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
@@ -59,6 +60,11 @@ function stub() {
     mutateAsync,
     isPending: false,
   } as unknown as ReturnType<typeof bulkHook.useBulkReviewAction>)
+  // The team list is only for an owner or admin to read.
+  vi.spyOn(sessionHook, "useSession").mockReturnValue({
+    data: { session: { userId: "me-1", role: "owner" } },
+    isError: false,
+  } as unknown as ReturnType<typeof sessionHook.useSession>)
   vi.spyOn(membersHook, "useMembers").mockReturnValue({
     data: {
       members: [
