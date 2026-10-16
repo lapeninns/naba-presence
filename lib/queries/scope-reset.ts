@@ -9,29 +9,12 @@ import * as React from "react"
 
 import { setAccessLostHandler, type AccessLost } from "@/lib/api/client"
 import { purgeForeignDrafts } from "@/lib/api/draft-stash"
-import type { SessionResponse, SessionUser } from "@/lib/contracts/session"
+import type { SessionResponse } from "@/lib/contracts/session"
 
 import { queryKeys } from "./keys"
+import { sessionScopeToken } from "./session-scope"
 
-/**
- * Everything about a session that decides what its cached data may show:
- * who, in which organisation, with which role and publish right, and the
- * server's scope fingerprint (location scope and grants; the membership's
- * security version once it exists). Two sessions with the same token may
- * share a cache; any difference resets it.
- */
-export function sessionScopeToken(
-  session: SessionUser | null | undefined
-): string {
-  if (!session) return ""
-  return [
-    session.userId,
-    session.organisationId,
-    session.role,
-    session.canPublish ? "publish" : "no-publish",
-    session.scopeFingerprint ?? "",
-  ].join("\n")
-}
+export { sessionScopeToken }
 
 function isSessionKey(key: QueryKey): boolean {
   return key[0] === queryKeys.session[0]

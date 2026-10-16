@@ -297,6 +297,60 @@ describe("Reply policy: a rename and a policy save together (#195)", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
   })
 
+  // The release review's browser repro: save, leave through an in-app link,
+  // press Back. Next mounts the first load's payload again; aligned anew it
+  // looked as fresh as the Back and showed the policy from before the save.
+  for (const [when, dropped] of [
+    ["while the settings are still cached", false],
+    ["after TanStack has dropped the unused settings", true],
+  ] as const) {
+    it(`shows the saved policy on Back after a save, ${when}`, async () => {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+      })
+      const page = (state: DehydratedState | null) => (
+        <QueryClientProvider client={client}>
+          <Toaster>
+            {state ? (
+              <HydrationBoundary state={state}>
+                <PolicyForm role="owner" />
+              </HydrationBoundary>
+            ) : (
+              <p>Inbox</p>
+            )}
+          </Toaster>
+        </QueryClientProvider>
+      )
+      const firstLoad = serverSnapshot()
+      const view = render(page(firstLoad))
+      saveSettingsMock.mockImplementationOnce(
+        async (input: { requireTwoPersonApproval: boolean }) =>
+          (db.settings = makeSettings({
+            requireTwoPersonApproval: input.requireTwoPersonApproval,
+          }))
+      )
+      tick(1_000)
+      fireEvent.click(twoPerson())
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+      expect(await screen.findByText("Settings saved")).toBeInTheDocument()
+      expect(twoPerson()).toBeChecked()
+
+      tick(5_000)
+      await act(async () => view.rerender(page(null)))
+      if (dropped) client.removeQueries({ queryKey: queryKeys.settings })
+      tick(60_000)
+      await act(async () => view.rerender(page(firstLoad)))
+      await act(() => new Promise((done) => setTimeout(done, 0)))
+
+      await waitFor(() => expect(twoPerson()).toBeChecked())
+      expect(saveBar()).not.toBeInTheDocument()
+      expect(
+        client.getQueryData<OrgSettings>(queryKeys.settings)
+          ?.requireTwoPersonApproval
+      ).toBe(true)
+    })
+  }
+
   it("doesn't refresh when nothing was saved", async () => {
     mount()
     renameMock.mockRejectedValue(new Error("boom"))

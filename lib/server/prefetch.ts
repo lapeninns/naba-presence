@@ -103,8 +103,10 @@ import {
   toMediaQuery,
 } from "@/lib/locations/photos-url-state"
 import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
+import { sessionSchema } from "@/lib/contracts/session"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
+import { sessionScopeToken } from "@/lib/queries/session-scope"
 import {
   NO_SETTINGS_FEATURES,
   locationCapabilities,
@@ -169,6 +171,12 @@ import type { Session } from "@/lib/server/session"
  *
  * Nothing here runs without a session: `prefetch(null, …)` returns an empty
  * dehydrated state, which `<HydrationBoundary>` treats as a no-op.
+ *
+ * Every payload carries the scope it was read under (`scope`: the session's
+ * `sessionScopeToken`). Next can hand an old payload back without running
+ * the page again (Back, the router cache), and `<HydrationBoundary>` only
+ * hydrates one whose scope is the live session's: a payload read for an
+ * admin is never put back into the cache of someone since made a viewer.
  */
 
 // ---------------------------------------------------------------------------
@@ -192,6 +200,21 @@ export type PrefetchEntry = {
 /** What an entry's `load` returns when it has nothing to hydrate. */
 export const PREFETCH_SKIP: unique symbol = Symbol("prefetch-skip")
 
+/** A prefetched payload and the scope it was read under (see above). */
+export type ScopedDehydratedState = DehydratedState & { scope: string }
+
+/**
+ * The scope a payload read for `session` belongs to: the token the browser
+ * computes from the same session after `sessionSchema` (the dashboard
+ * layout hydrates it that way). A session that doesn't parse gets a scope
+ * no live session has, so its payload is never hydrated.
+ */
+function scopeOf(session: Session | null): string {
+  if (!session) return ""
+  const parsed = sessionSchema.safeParse(session)
+  return parsed.success ? sessionScopeToken(parsed.data) : "unscoped"
+}
+
 /**
  * Runs every entry concurrently, stores the successful ones under their
  * keys and returns the dehydrated state for a `<HydrationBoundary>`.
@@ -201,8 +224,9 @@ export async function prefetch(
   session: Session | null,
   entries: PrefetchEntry[] | ((session: Session) => PrefetchEntry[]),
   client: QueryClient = makeQueryClient()
-): Promise<DehydratedState> {
-  if (!session) return dehydrate(client)
+): Promise<ScopedDehydratedState> {
+  const scope = scopeOf(session)
+  if (!session) return { ...dehydrate(client), scope }
   const list = typeof entries === "function" ? entries(session) : entries
   const results = await Promise.allSettled(list.map((entry) => entry.load()))
   results.forEach((result, index) => {
@@ -222,7 +246,7 @@ export async function prefetch(
           : undefined,
     })
   })
-  return dehydrate(client)
+  return { ...dehydrate(client), scope }
 }
 
 // ---------------------------------------------------------------------------

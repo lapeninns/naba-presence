@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from "vitest"
 import { invitationsResponseSchema } from "@/lib/contracts/invitations"
 import { membersResponseSchema } from "@/lib/contracts/members"
 import { notificationPreferencesResponseSchema } from "@/lib/contracts/operational-notifications"
+import { sessionSchema } from "@/lib/contracts/session"
 import { orgSettingsSchema } from "@/lib/contracts/settings"
 import { NOTIFICATION_EVENT_KINDS } from "@/lib/domain/notification-preferences"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
+import { sessionScopeToken } from "@/lib/queries/session-scope"
 import {
   notificationSettingsPrefetch,
   prefetch,
@@ -118,6 +120,48 @@ describe("teamPrefetch", () => {
       members: [{ userId: USER }],
     })
     expect(client.getQueryData(queryKeys.invitations)).toBeUndefined()
+  })
+})
+
+// #195 (P1): the browser hydrates a payload only into the scope it was read
+// under (lib/queries/hydration-boundary.tsx `inLiveScope`), so a payload
+// replayed by Back after a role change is refused. The stamp must be the
+// token the browser computes from the same session.
+describe("the scope stamp on every payload", () => {
+  const composers = [
+    ["Team", teamPrefetch()],
+    ["Notifications", notificationSettingsPrefetch()],
+    ["Reply policy", replyPolicyPrefetch()],
+  ] as const
+
+  for (const [name, composer] of composers) {
+    it(`stamps the ${name} payload with the session's scope token`, async () => {
+      for (const role of ["owner", "admin", "member", "viewer"] as const) {
+        const reader = { ...owner, role }
+        const state = await prefetch(reader, composer)
+        expect(state.scope).toBe(sessionScopeToken(sessionSchema.parse(reader)))
+        expect(state.scope).toContain(`\n${role}\n`)
+      }
+    })
+  }
+
+  it("differs for another person, organisation or scope fingerprint", async () => {
+    const base = (await prefetch(owner, replyPolicyPrefetch())).scope
+    for (const other of [
+      { ...owner, userId: "00000000-0000-4000-8000-000000000003" },
+      { ...owner, organisationId: "00000000-0000-4000-8000-000000000009" },
+      { ...owner, scopeFingerprint: "narrower" },
+      { ...owner, canPublish: false },
+    ]) {
+      expect((await prefetch(other, replyPolicyPrefetch())).scope).not.toBe(
+        base
+      )
+    }
+  })
+
+  it("is empty without a session, whose payload is empty too", async () => {
+    const state = await prefetch(null, teamPrefetch())
+    expect(state).toMatchObject({ queries: [], scope: "" })
   })
 })
 

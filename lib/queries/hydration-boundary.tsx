@@ -8,7 +8,11 @@ import {
 } from "@tanstack/react-query"
 import { useMemo } from "react"
 
+import type { SessionResponse } from "@/lib/contracts/session"
 import { ServerNowProvider } from "@/lib/time/server-now"
+
+import { queryKeys } from "./keys"
+import { sessionScopeToken } from "./session-scope"
 
 type DehydratedQueryTimes = {
   queryHash?: string
@@ -127,16 +131,62 @@ export function alignForCache<T>(
 }
 
 /**
+ * `state` if it may be hydrated into `client`, otherwise nothing.
+ *
+ * `prefetch` (lib/server/prefetch.ts) stamps each payload with the scope it
+ * was read under: who, in which organisation, with which role and grants.
+ * Next can hand an old payload back without running the page again (Back
+ * restores it from the router cache), so an admin's Team payload could
+ * reach the same browser after a downgrade to viewer, once useScopeReset
+ * had emptied the cache, and be shown with no request to check the role
+ * (#195). A stamped payload is hydrated only into a cache whose session has
+ * exactly that scope; otherwise the page's hooks fetch, and the server
+ * answers for the session as it is now. A payload without a stamp (the
+ * dashboard layout's, which carries the session itself) is left as it is.
+ */
+export function inLiveScope<T>(state: T, client: QueryClient): T | undefined {
+  if (!state || typeof state !== "object" || !("scope" in state)) return state
+  const live = sessionScopeToken(
+    client.getQueryData<SessionResponse>(queryKeys.session)?.session
+  )
+  return live !== "" && live === state.scope ? state : undefined
+}
+
+/**
+ * Each payload aligned once per cache, by the clock when it first arrived.
+ * Back mounts the same payload again from the router cache; aligned anew
+ * it would look as fresh as the moment of the Back, and win over (or, once
+ * the query was dropped, stand in for) anything saved since.
+ */
+const alignedPayloads = new WeakMap<QueryClient, WeakMap<object, unknown>>()
+
+function alignOnce<T>(state: T, client: QueryClient): T {
+  if (!state || typeof state !== "object") return state
+  let seen = alignedPayloads.get(client)
+  if (!seen) alignedPayloads.set(client, (seen = new WeakMap()))
+  if (seen.has(state)) return seen.get(state) as T
+  const aligned = alignForCache(state, client)
+  seen.set(state, aligned)
+  return aligned
+}
+
+/**
  * TanStack's `HydrationBoundary`, hydration-stable under clock skew: the
  * prefetched queries are aligned to the browser's clock (above), and the
- * server's clock is handed down for render-time thresholds (`useNow`).
+ * server's clock is handed down for render-time thresholds (`useNow`). A
+ * payload read for another scope is not hydrated at all (`inLiveScope`).
  * Use it instead of the TanStack export everywhere a page hands
  * prefetched data to the browser.
  */
 export function HydrationBoundary({ state, ...props }: HydrationBoundaryProps) {
   const client = useQueryClient(props.queryClient)
   const serverNow = useMemo(() => serverNowOf(state), [state])
-  const aligned = useMemo(() => alignForCache(state, client), [state, client])
+  // Checked on every mount (the session may have changed since the payload
+  // was last shown); aligned once per payload.
+  const aligned = useMemo(() => {
+    const scoped = inLiveScope(state, client)
+    return scoped ? alignOnce(scoped, client) : undefined
+  }, [state, client])
   return (
     <ServerNowProvider value={serverNow}>
       <TanStackHydrationBoundary state={aligned} {...props} />
