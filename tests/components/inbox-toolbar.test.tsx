@@ -196,7 +196,9 @@ describe("InboxToolbar", () => {
     const count = header().querySelector('[data-slot="view-header-count"]')
     expect(count).toHaveTextContent("5")
     expect(
-      within(header()).getByText("(5 need your attention: 3 to reply, 2 to approve)")
+      within(header()).getByText(
+        "(5 need your attention: 3 to reply, 2 to approve)"
+      )
     ).toBeInTheDocument()
   })
 

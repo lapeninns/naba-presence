@@ -6,7 +6,11 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { useRememberedClient } from "@/components/app-shell/client-context"
 import { fetchReviewCounts } from "@/lib/api/review-counts"
 import { clientPageKind, isClientIdToken } from "@/lib/clients/scope"
-import { inboxWaiting, type InboxWaiting, waitingPhrase } from "@/lib/inbox/waiting"
+import {
+  inboxWaiting,
+  type InboxWaiting,
+  waitingPhrase,
+} from "@/lib/inbox/waiting"
 import { queryKeys } from "@/lib/queries/keys"
 import { SEEDED_BY_SHELL, SHELL_POLL_MS } from "@/lib/queries/use-shell-status"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -17,7 +21,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * approval (R03), so an approver is called to the Inbox too.
  *
  * It follows the client scope, so the badge and the Inbox title (which
- * counts the scoped Needs reply queue) never disagree. On the pages whose
+ * counts the same scoped sum) never disagree. On the pages whose
  * `?clientId=` is the scope (Inbox, Listings, Reports) the scope is the
  * address's, exactly as the Inbox reads it, whatever is remembered; on every
  * other page it is the remembered client. With a client in scope it reads

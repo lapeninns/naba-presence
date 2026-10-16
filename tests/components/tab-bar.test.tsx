@@ -170,7 +170,9 @@ describe("TabBar", () => {
     expect(
       only.tabs.getByRole("link", { name: "Inbox, 1 awaiting your approval" })
     ).toBeInTheDocument()
-    expect(only.container.querySelector("[data-slot='tab-count']")).toHaveTextContent("1")
+    expect(
+      only.container.querySelector("[data-slot='tab-count']")
+    ).toHaveTextContent("1")
     only.unmount()
     const both = renderTabBar({ needsReply: 2, awaitingMyApproval: 3 })
     expect(

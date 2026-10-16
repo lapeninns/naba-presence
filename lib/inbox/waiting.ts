@@ -8,7 +8,7 @@ import type { ReviewCounts } from "@/lib/contracts/reviews"
  */
 export type InboxWaiting = {
   needsReply: number
-  approval: number
+  awaitingMyApproval: number
   total: number
 }
 
@@ -17,8 +17,12 @@ export function inboxWaiting(
 ): InboxWaiting | undefined {
   if (!counts) return undefined
   const needsReply = counts.byQueue.needs_reply ?? 0
-  const approval = counts.byQueue.awaiting_my_approval ?? 0
-  return { needsReply, approval, total: needsReply + approval }
+  const awaitingMyApproval = counts.byQueue.awaiting_my_approval ?? 0
+  return {
+    needsReply,
+    awaitingMyApproval,
+    total: needsReply + awaitingMyApproval,
+  }
 }
 
 /**
@@ -28,9 +32,13 @@ export function inboxWaiting(
  * sidebar's own label carries ("2 reviews need a reply").
  */
 export function waitingPhrase(
-  { needsReply, approval }: Pick<InboxWaiting, "needsReply" | "approval">,
+  {
+    needsReply,
+    awaitingMyApproval,
+  }: Pick<InboxWaiting, "needsReply" | "awaitingMyApproval">,
   { reviews = false }: { reviews?: boolean } = {}
 ): string {
+  const approval = awaitingMyApproval
   const total = needsReply + approval
   if (approval === 0) {
     const subject = reviews ? (needsReply === 1 ? "review" : "reviews") : null

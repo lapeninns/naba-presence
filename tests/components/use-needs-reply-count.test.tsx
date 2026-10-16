@@ -176,7 +176,7 @@ describe("useNeedsReplyCount", () => {
 describe("inboxName", () => {
   const waiting = (needsReply: number, approval = 0) => ({
     needsReply,
-    approval,
+    awaitingMyApproval: approval,
     total: needsReply + approval,
   })
   it("carries the count in the tab's name", () => {
