@@ -1,12 +1,12 @@
-import {
-  draftResultSchema,
-  verifyResultSchema,
-  type DraftInput,
-} from "@/lib/contracts/reviews"
+import type { DraftInput } from "@/lib/contracts/reviews"
 
 import { apiFetch, type MutationOptions } from "./client"
 
-export type { DraftInput, DraftResult, VerifyResult } from "@/lib/contracts/reviews"
+export type {
+  DraftInput,
+  DraftResult,
+  VerifyResult,
+} from "@/lib/contracts/reviews"
 
 // One endpoint is Generate / Regenerate / Save (see draftInputSchema). The
 // intent is the generation id: resent unchanged on a retry, the server
@@ -19,7 +19,8 @@ export function generateOrSaveDraft(
   return apiFetch(`/api/reviews/${reviewId}/drafts`, {
     method: "POST",
     body: input,
-    schema: draftResultSchema,
+    schema: () =>
+      import("@/lib/contracts/reviews").then((m) => m.draftResultSchema),
     intentId: options.intentId,
   })
 }
@@ -27,6 +28,7 @@ export function generateOrSaveDraft(
 export function verifyDraft(draftId: string) {
   return apiFetch(`/api/drafts/${draftId}/verify`, {
     method: "POST",
-    schema: verifyResultSchema,
+    schema: () =>
+      import("@/lib/contracts/reviews").then((m) => m.verifyResultSchema),
   })
 }

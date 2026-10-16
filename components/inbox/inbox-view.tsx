@@ -52,7 +52,7 @@ import {
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
-import { REVIEW_QUEUE_LABELS } from "@/lib/contracts/reviews"
+import { REVIEW_QUEUE_LABELS } from "@/lib/contracts/review-values"
 import { INBOX_SPLIT_STYLE } from "@/lib/inbox/layout"
 import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
 import {

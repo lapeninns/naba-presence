@@ -1,4 +1,4 @@
-import { publishResultSchema, type PublishInput } from "@/lib/contracts/reviews"
+import type { PublishInput } from "@/lib/contracts/reviews"
 
 import { apiFetch } from "./client"
 
@@ -8,6 +8,7 @@ export function publishReview(reviewId: string, input: PublishInput) {
   return apiFetch(`/api/reviews/${reviewId}/publish`, {
     method: "POST",
     body: input,
-    schema: publishResultSchema,
+    schema: () =>
+      import("@/lib/contracts/reviews").then((m) => m.publishResultSchema),
   })
 }

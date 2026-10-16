@@ -14,7 +14,7 @@ import {
   REVIEW_SORT_LABELS,
   REVIEW_SORTS,
   isReviewSort,
-} from "@/lib/contracts/reviews"
+} from "@/lib/contracts/review-values"
 import type { InboxState } from "@/lib/inbox/url-state"
 
 // `<Select.Value>` resolves its displayed label from the root's `items` map

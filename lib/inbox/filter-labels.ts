@@ -3,7 +3,10 @@
 // filter: a chip that reads "Location" above a sheet group called "Venue"
 // makes an operator wonder whether they are two filters.
 
-import { REVIEW_SORT_LABELS, type ReviewSort } from "@/lib/contracts/reviews"
+import {
+  REVIEW_SORT_LABELS,
+  type ReviewSort,
+} from "@/lib/contracts/review-values"
 
 /**
  * What each filter is called, wherever it is named: the sheet's group

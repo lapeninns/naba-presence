@@ -1,7 +1,4 @@
-import {
-  bulkReviewResultSchema,
-  type BulkReviewActionInput,
-} from "@/lib/contracts/reviews"
+import type { BulkReviewActionInput } from "@/lib/contracts/reviews"
 
 import { apiFetch, type MutationOptions } from "./client"
 
@@ -14,7 +11,8 @@ export function runBulkReviewAction(
   return apiFetch("/api/reviews/bulk", {
     method: "POST",
     body: input,
-    schema: bulkReviewResultSchema,
+    schema: () =>
+      import("@/lib/contracts/reviews").then((m) => m.bulkReviewResultSchema),
     intentId: options.intentId,
   })
 }

@@ -13,8 +13,8 @@ import { ViewHeader } from "@/components/ui/view-header"
 import {
   DEFAULT_REVIEW_SORT,
   REVIEW_QUEUE_LABELS,
-  type ReviewCounts,
-} from "@/lib/contracts/reviews"
+} from "@/lib/contracts/review-values"
+import type { ReviewCounts } from "@/lib/contracts/reviews"
 import { formatNumber } from "@/lib/format"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"

@@ -8,84 +8,53 @@
 import { z } from "zod"
 
 import { fromBase64Url, toBase64Url } from "@/lib/contracts/cursor"
-import type { VerificationReason as DomainVerificationReason } from "@/lib/domain/verification"
 import {
+  DEFAULT_REVIEW_SORT,
+  REVIEW_QUEUES,
+  REVIEW_REPLY_STATES,
+  REVIEW_SORTS,
   REVIEW_WORKFLOW_STATES,
+  REVIEW_WRITTEN,
+  WIRE,
+  isRatingSort,
+} from "@/lib/contracts/review-values"
+import type { VerificationReason as DomainVerificationReason } from "@/lib/domain/verification"
+
+// The runtime vocabulary lives in `review-values` (zod-free, so client code
+// can import it without the schemas below). Re-exported under the same names
+// so every existing importer keeps this path.
+export {
+  DEFAULT_REVIEW_QUEUE,
+  DEFAULT_REVIEW_SORT,
+  REVIEW_QUEUES,
+  REVIEW_QUEUE_LABELS,
+  REVIEW_REPLY_STATES,
+  REVIEW_SORTS,
+  REVIEW_SORT_LABELS,
+  REVIEW_WORKFLOW_STATES,
+  REVIEW_WRITTEN,
+  encodeReviewsQuery,
+  isRatingSort,
+  isReviewReplyState,
+  isReviewSort,
+  isReviewWorkflowState,
+  isReviewWritten,
+  type ReviewQueue,
+  type ReviewReplyState,
+  type ReviewSort,
   type ReviewWorkflowState,
-} from "@/lib/domain/workflow"
+  type ReviewWritten,
+} from "@/lib/contracts/review-values"
 
 // ---------------------------------------------------------------------------
 // Vocabularies
 // ---------------------------------------------------------------------------
 
-/**
- * Sort vocabulary. The record is the single source: the wire enum, the URL
- * parser, the `<Select>` items, the chip label and the server query all
- * derive from it, so adding a sort is one line here (plus the SQL ordering
- * in `lib/server/reviews-query.ts`, which is a `Record<ReviewSort, …>` and
- * therefore fails to typecheck until it is filled in).
- */
-export const REVIEW_SORT_LABELS = {
-  updated_desc: "Most recent",
-  updated_asc: "Oldest first",
-  rating_desc: "Highest rated",
-  rating_asc: "Lowest rated",
-} as const satisfies Record<string, string>
-
-export type ReviewSort = keyof typeof REVIEW_SORT_LABELS
-export const REVIEW_SORTS = Object.keys(REVIEW_SORT_LABELS) as [
-  ReviewSort,
-  ...ReviewSort[],
-]
-export const DEFAULT_REVIEW_SORT = "updated_desc" satisfies ReviewSort
 export const reviewSortSchema = z.enum(REVIEW_SORTS)
 
-/** Sorts whose cursor must carry the boundary row's rating. */
-export function isRatingSort(sort: string | null | undefined): boolean {
-  return sort === "rating_desc" || sort === "rating_asc"
-}
-
-/**
- * Inbox queues. A queue is not a list of workflow states — "awaiting my
- * approval" also depends on who requested the approval and who may publish —
- * so membership is decided server-side by lib/server/review-queues.ts and the
- * browser only ever names the queue.
- */
-export const REVIEW_QUEUES = [
-  "needs_reply",
-  // The aggregate the Inbox's five queue controls present as "Approval": every
-  // reply parked at `awaiting_approval`, whoever it is waiting on. It is a
-  // presentation union, not a new record state — `awaiting_my_approval` and
-  // `awaiting_others` partition it and keep their own, narrower scopes, so
-  // every existing deep link still means exactly what it always meant.
-  "approval",
-  "awaiting_my_approval",
-  "awaiting_others",
-  "publishing",
-  "failed",
-  "done",
-  "all",
-] as const
-export type ReviewQueue = (typeof REVIEW_QUEUES)[number]
 export const reviewQueueSchema = z.enum(REVIEW_QUEUES)
-export const DEFAULT_REVIEW_QUEUE = "needs_reply" satisfies ReviewQueue
-
-export const REVIEW_QUEUE_LABELS: Record<ReviewQueue, string> = {
-  needs_reply: "Needs reply",
-  approval: "Approval",
-  awaiting_my_approval: "Awaiting my approval",
-  awaiting_others: "Awaiting others",
-  publishing: "Publishing",
-  failed: "Failed",
-  done: "Done",
-  all: "All reviews",
-}
-
-export { REVIEW_WORKFLOW_STATES, type ReviewWorkflowState }
 export const reviewWorkflowStateSchema = z.enum(REVIEW_WORKFLOW_STATES)
 
-export const REVIEW_REPLY_STATES = ["replied", "unreplied"] as const
-export type ReviewReplyState = (typeof REVIEW_REPLY_STATES)[number]
 export const reviewReplyStateSchema = z.enum(REVIEW_REPLY_STATES)
 
 /**
@@ -102,16 +71,6 @@ export const VERIFICATION_VERDICTS = [
   "pending",
 ] as const
 export type VerificationVerdict = (typeof VERIFICATION_VERDICTS)[number]
-
-function includes<const T extends readonly string[]>(
-  values: T
-): (value: string) => value is T[number] {
-  return (value): value is T[number] =>
-    (values as readonly string[]).includes(value)
-}
-export const isReviewSort = includes(REVIEW_SORTS)
-export const isReviewWorkflowState = includes(REVIEW_WORKFLOW_STATES)
-export const isReviewReplyState = includes(REVIEW_REPLY_STATES)
 
 // ---------------------------------------------------------------------------
 // Capabilities / verification
@@ -193,17 +152,12 @@ export const reviewsCursorSchema = z.object({
 })
 export type ReviewsCursor = z.infer<typeof reviewsCursorSchema>
 
+export const reviewWrittenSchema = z.enum(REVIEW_WRITTEN)
+
 /**
  * Decoded (server-side) query. `replyState` arrives as a comma list on the
  * wire; exactly one value filters, anything else means "no reply filter".
  */
-export const REVIEW_WRITTEN = ["with_text", "rating_only"] as const
-export const reviewWrittenSchema = z.enum(REVIEW_WRITTEN)
-export type ReviewWritten = z.infer<typeof reviewWrittenSchema>
-export function isReviewWritten(value: unknown): value is ReviewWritten {
-  return (REVIEW_WRITTEN as readonly unknown[]).includes(value)
-}
-
 export const reviewsQuerySchema = z.object({
   /**
    * Kept alongside `locationIds` because Home's attention list and every
@@ -264,25 +218,6 @@ export type ReviewsFilters = Partial<
   >
 >
 
-// Wire param names (snake_case). Declared once so encode and decode cannot
-// drift; tests/integration/routes and tests/e2e depend on these names.
-const WIRE = {
-  locationId: "location_id",
-  clientId: "client_id",
-  queue: "queue",
-  assignee: "assignee",
-  ratings: "rating",
-  written: "written",
-  statuses: "status",
-  replyState: "reply_state",
-  dateFrom: "date_from",
-  dateTo: "date_to",
-  search: "search",
-  sort: "sort",
-  pageSize: "page_size",
-  cursor: "cursor",
-} as const
-
 export function encodeReviewsCursor(cursor: ReviewsCursor): string {
   return toBase64Url(
     JSON.stringify({
@@ -309,38 +244,6 @@ export class InvalidReviewsCursorError extends Error {
     super("Rating cursors must include a rating.")
     this.name = "InvalidReviewsCursorError"
   }
-}
-
-function csv(values: readonly (string | number)[] | undefined): string | null {
-  return values && values.length > 0 ? values.join(",") : null
-}
-
-export function encodeReviewsQuery(
-  filters: ReviewsFilters & { cursor?: string | null; pageSize?: number }
-): URLSearchParams {
-  const params = new URLSearchParams()
-  const set = (key: string, value: string | number | null | undefined) => {
-    if (value !== null && value !== undefined && value !== "") {
-      params.set(key, String(value))
-    }
-  }
-  // One param carries both shapes: a single id stays `location_id=<uuid>`,
-  // several become a comma list, so old links keep working unchanged.
-  set(WIRE.locationId, csv(filters.locationIds) ?? filters.locationId ?? null)
-  set(WIRE.clientId, filters.clientId)
-  set(WIRE.queue, filters.queue)
-  set(WIRE.assignee, filters.assignee)
-  set(WIRE.ratings, csv(filters.ratings))
-  set(WIRE.written, filters.written)
-  set(WIRE.statuses, csv(filters.statuses))
-  set(WIRE.replyState, filters.replyState)
-  set(WIRE.dateFrom, filters.dateFrom)
-  set(WIRE.dateTo, filters.dateTo)
-  set(WIRE.search, filters.search)
-  set(WIRE.sort, filters.sort)
-  set(WIRE.pageSize, filters.pageSize)
-  set(WIRE.cursor, filters.cursor)
-  return params
 }
 
 function commaNumbers(value: string | null): number[] | undefined {
