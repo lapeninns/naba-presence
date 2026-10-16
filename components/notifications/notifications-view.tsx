@@ -232,7 +232,9 @@ export function NotificationsView() {
             </p>
             {unreadShown.length ? (
               <Button variant="secondary" onClick={markShownRead}>
-                {query.hasNextPage ? "Mark shown as read" : "Mark all read"}
+                {query.hasNextPage || filter === "open"
+                  ? "Mark shown as read"
+                  : "Mark all read"}
               </Button>
             ) : null}
           </div>

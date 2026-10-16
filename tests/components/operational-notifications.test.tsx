@@ -612,6 +612,35 @@ describe("NotificationsView Mark all read", () => {
     release()
   })
 
+  it("says Mark shown as read under Open, which leaves resolved unread rows out", async () => {
+    const resolvedUnread = item({
+      id: "55555555-5555-4555-8555-555555555555",
+      kind: "listing_access_lost",
+      status: "resolved",
+      resolvedAt: "2026-09-30T12:00:00.000Z",
+    })
+    const { calls } = notificationServer({ items: [item({}), resolvedUnread] })
+    renderView()
+    // End of the list under All: everything unread is in it.
+    expect(
+      await screen.findByRole("button", { name: "Mark all read" })
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("tab", { name: "Open" }))
+    // Under Open the resolved one is not shown, so "all" would be untrue.
+    expect(
+      await screen.findByRole("button", { name: "Mark shown as read" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Mark all read" })
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Mark shown as read" }))
+    await waitFor(() => expect(readCalls(calls)).toHaveLength(1))
+    expect(readCalls(calls)[0]?.body).toEqual({
+      incidentIds: [item({}).id],
+      read: true,
+    })
+  })
+
   it("is hidden when nothing shown is unread", async () => {
     notificationServer({ items: [read] })
     renderView()
@@ -1441,6 +1470,49 @@ describe("NotificationsView pending changes", () => {
       agree(0)
       server.releaseLists()
       await waitFor(() => agree(0))
+    })
+
+    it("does not take a saved read off the badge twice when a poll has already seen it", async () => {
+      const server = steppedServer([first, other])
+      const client = mountScoped(OWNER, true)
+      await screen.findByText("Publishing failed")
+      await waitFor(() => agree(2))
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      )
+      agree(1)
+      // A shell poll that went out after the save reaches the server answers
+      // before the change's own response does: the unread page it brings
+      // (read to its end) no longer holds the incident, and its count is 1.
+      // The list the page shows still holds the incident as unread.
+      act(() => {
+        seedShellKeys(client, {
+          counts: {},
+          connections: [],
+          notifications: {
+            items: [other],
+            nextCursor: null,
+            unreadCount: 1,
+          },
+        } as unknown as ShellStatusResponse)
+      })
+      // The count already has the read: neither the bell nor the page takes
+      // it off again.
+      agree(1)
+      server.holdLists()
+      ;(await server.write(0)).accept()
+      await waitFor(() =>
+        expect(count()).toHaveTextContent("1 open and unread")
+      )
+      await tick()
+      expect(
+        client.getQueryData<{ unreadCount: number }>(
+          queryKeys.notifications("badge")
+        )?.unreadCount
+      ).toBe(1)
+      agree(1)
+      server.releaseLists()
+      await waitFor(() => agree(1))
     })
 
     it("is not overwritten by a shell poll that left before the change was saved", async () => {

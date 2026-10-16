@@ -165,6 +165,31 @@ export function cachedRowStates(
 
 const countsAsUnread = (row: RowState) => row.status === "open" && !row.readAt
 
+/** What a row is when the unread list that was fetched whole does not hold it. */
+const NOT_UNREAD: RowState = {
+  status: "open",
+  readAt: "1970-01-01T00:00:00.000Z",
+}
+
+/**
+ * Whether `pages` are an Unread list read to its end (the shell's badge page,
+ * or the Unread filter with nothing more to load). Its count and its rows came
+ * from one answer, so a row it does not hold was not unread when the server
+ * gave that count: the count has already absorbed any change to it. Rows from
+ * a list fetched earlier must not say otherwise, or the change is taken off a
+ * count that never had the row (a poll that saw a saved read, then the commit).
+ */
+function isCompleteUnreadList(
+  filter: string | undefined,
+  pages: readonly NotificationListResponse[]
+): boolean {
+  return (
+    (filter === "unread" || filter === "badge") &&
+    pages.length > 0 &&
+    pages[pages.length - 1]!.nextCursor === null
+  )
+}
+
 /**
  * The rows `changes` touch, and each row's state once they are applied in
  * the order they were made. A row a change would not alter (read already, or
@@ -292,9 +317,10 @@ export function applyPendingChanges(
     moved = true
     return { ...page, items }
   })
+  const wholeUnreadList = isCompleteUnreadList(filter, pages)
   const delta = unreadDelta(
     changes,
-    (id) => shown.get(id) ?? otherRows?.get(id)
+    (id) => shown.get(id) ?? (wholeUnreadList ? NOT_UNREAD : otherRows?.get(id))
   )
   const result = delta
     ? next.map((page) => ({
@@ -343,6 +369,19 @@ export function addPendingChange(
     const changes = store.published.filter((change) => change.scope === token)
     if (changes.length === 0) return 0
     const rows = cachedRowStates(cache, prefer)
+    // The count the bell adds this to came from `prefer`'s own answer: when
+    // that answer is a whole unread list, its rows (and their absence) are the
+    // truth for the count, whatever older lists still hold.
+    const own = prefer
+      ? cachedLists(cache).find((list) => list.filter === prefer)
+      : undefined
+    if (own && isCompleteUnreadList(own.filter, own.pages)) {
+      const ownRows = new Map<string, RowState>()
+      for (const page of own.pages)
+        for (const item of page.items)
+          ownRows.set(item.id, { status: item.status, readAt: item.readAt })
+      return unreadDelta(changes, (id) => ownRows.get(id) ?? NOT_UNREAD)
+    }
     return unreadDelta(changes, (id) => rows.get(id))
   }
   store.changes = [...store.changes, change]
