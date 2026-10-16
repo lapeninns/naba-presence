@@ -251,6 +251,61 @@ describe("ClientHub", () => {
     }
   })
 
+  // DSK-10: the listings board's Health and Waiting, read from the client
+  // payload. A state the Google and Verified cells already say is not said
+  // again as a pill.
+  it("shows each listing's Health and what is waiting, from the payload", async () => {
+    stub({
+      locations: [
+        { ...location, health: "healthy", waiting: 0 },
+        {
+          ...location,
+          locationId: "l2",
+          name: "Old Crown Histon",
+          linkId: "ll2",
+          health: "unpublished",
+          waiting: 3,
+        },
+        {
+          ...location,
+          locationId: "l3",
+          name: "Old Crown Ely",
+          linkId: "ll3",
+          verified: false,
+          health: "pending_verification",
+          waiting: 0,
+        },
+      ],
+    })
+    renderHub()
+    await screen.findByRole("link", { name: "Old Crown Girton" })
+    expect(
+      screen.getByRole("columnheader", { name: "Health" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("columnheader", { name: "Waiting" })
+    ).toBeInTheDocument()
+    const rowOf = (name: string) =>
+      screen.getByRole("link", { name }).closest("tr")!
+    expect(within(rowOf("Old Crown Girton")).getByText("In sync")).toBeTruthy()
+    const histon = within(rowOf("Old Crown Histon"))
+    expect(histon.getByText("Changes to publish")).toBeTruthy()
+    expect(histon.getByText("3 waiting")).toBeTruthy()
+    // "Not verified" is already the Verified cell's pill.
+    expect(screen.queryByText("Pending verification")).toBeNull()
+  })
+
+  it("leaves the Health and Waiting cells empty for an older response without them", async () => {
+    stub()
+    renderHub()
+    await screen.findByRole("link", { name: "Old Crown Girton" })
+    const row = screen
+      .getByRole("link", { name: "Old Crown Girton" })
+      .closest("tr")!
+    expect(within(row).queryByText("In sync")).toBeNull()
+    expect(within(row).queryByText(/^\d+ waiting$/)).toBeNull()
+  })
+
   it("does not repeat the linked and verified counts above the table", async () => {
     stub()
     renderHub()

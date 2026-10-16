@@ -10,6 +10,7 @@ import { z } from "zod"
 
 import { CLIENT_HEALTH } from "@/lib/clients/health"
 import { directoryRowSchema } from "@/lib/contracts/location-links"
+import { LISTING_HEALTH } from "@/lib/listings/health"
 
 export const clientHealthSchema = z.enum(CLIENT_HEALTH)
 
@@ -122,6 +123,15 @@ export const clientResponseSchema = z.object({
        * manager. Optional so an older response still parses.
        */
       accessLost: z.boolean().optional(),
+      /**
+       * The listing board's Health and Waiting words for this listing (DSK-10):
+       * derived on the server from the same DB-only summary the board reads.
+       * Optional so an older response still parses, and a row without them
+       * simply shows no such column cell.
+       */
+      health: z.enum(LISTING_HEALTH).optional(),
+      /** Edits not yet on Google, changes Google made, and posts to approve. */
+      waiting: z.number().int().nonnegative().optional(),
     })
   ),
 })

@@ -56,6 +56,7 @@ import {
 import type { ClientResponse } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
+import { listingHealthLabel, listingHealthTone } from "@/lib/listings/health"
 import { formatAddressLine } from "@/lib/locations/address"
 import { useClient } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
@@ -572,7 +573,7 @@ function ListingsSection({
         // actions. A healthy row shows plain text at the desk and nothing on
         // a phone; a pill appears only for a state that needs a look.
         <DataTable
-          caption={`${client.name}'s listings with their Google link and verification`}
+          caption={`${client.name}'s listings with their Google link, health, work waiting and verification`}
           rows={listings}
           rowId={(listing) => listing.locationId}
           surface
@@ -625,6 +626,54 @@ function ListingsSection({
                   <StatusPill tone="neutral" dashed>
                     Not linked
                   </StatusPill>
+                ),
+            },
+            {
+              // The listings board's Health word (DSK-10). The states the
+              // Google and Verified cells already say are not said twice: a
+              // paused login, no manager access, not linked, not verified.
+              id: "health",
+              header: "Health",
+              priority: "trailing",
+              cell: (listing) => {
+                const health = listing.health
+                if (!health) return null
+                const said =
+                  health === "not_linked" ||
+                  health === "pending_verification" ||
+                  health === "access_lost" ||
+                  health === "disconnected"
+                if (said)
+                  return (
+                    <span className="text-ui text-ink-muted @max-3xl/table:hidden">
+                      —
+                    </span>
+                  )
+                return health === "healthy" ? (
+                  <span className="text-ui text-ink-secondary @max-3xl/table:hidden">
+                    {listingHealthLabel(health)}
+                  </span>
+                ) : (
+                  <StatusPill tone={listingHealthTone(health)}>
+                    {listingHealthLabel(health)}
+                  </StatusPill>
+                )
+              },
+            },
+            {
+              id: "waiting",
+              header: "Waiting",
+              priority: "meta",
+              label: "",
+              cell: (listing) =>
+                listing.waiting ? (
+                  <span className="text-ui text-ink-secondary">
+                    {formatNumber(listing.waiting)} waiting
+                  </span>
+                ) : (
+                  <span className="text-ui text-ink-muted @max-3xl/table:hidden">
+                    —
+                  </span>
                 ),
             },
             {
