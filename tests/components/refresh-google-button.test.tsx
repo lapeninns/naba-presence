@@ -40,13 +40,13 @@ describe("Refresh from Google in the report's actions menu", () => {
       screen.queryByRole("menuitem", { name: /refresh from google/i })
     ).not.toBeInTheDocument()
   })
-  it("says it refreshes all clients on a report scoped to one client (D7), and keeps the same request", async () => {
+  it("says it checks across clients on a report scoped to one client (D7), and keeps the same request", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ organisations: [], skipped: false, nextCursor: null }), { headers: { "content-type": "application/json" } }))
     vi.stubGlobal("fetch", fetchMock)
     renderMenu(true, true)
     await openMenu()
     expect(screen.queryByRole("menuitem", { name: "Refresh from Google" })).not.toBeInTheDocument()
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh all clients" }))
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Check for new data across clients" }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     expect(fetchMock.mock.calls[0][0]).toBe("/api/sync/performance")
   })

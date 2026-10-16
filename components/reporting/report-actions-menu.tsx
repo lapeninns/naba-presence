@@ -40,7 +40,9 @@ export type ReportRefresh = {
   kind: "performance" | "keywords"
   /**
    * The report is scoped to one client. The sync endpoints take no client
-   * scope, so the press still refreshes every client: say so in the label.
+   * scope and only claim the checkpoints that are due, in a bounded batch, so
+   * the press looks for new data across clients rather than refreshing one
+   * client or promising every client was refreshed: say so in the label.
    */
   scopedToClient?: boolean
   /** The press began: the tab starts following the refresh. */
@@ -157,7 +159,7 @@ function MenuView({
               {refresh.pending
                 ? "Refreshing…"
                 : refresh.scopedToClient
-                  ? "Refresh all clients"
+                  ? "Check for new data across clients"
                   : "Refresh from Google"}
             </DropdownMenuItem>
           ) : null}
