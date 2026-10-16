@@ -44,7 +44,12 @@ import { sessionScopeToken } from "@/lib/queries/scope-reset"
 
 import { storeFor } from "@/lib/api/operational-notifications"
 
-import { type PendingChange, type RowState, type Store } from "./pending-store"
+import {
+  type KnownRow,
+  type PendingChange,
+  type RowState,
+  type Store,
+} from "./pending-store"
 
 /** The scope the session in the cache stands for right now. */
 export function currentScopeToken(client: QueryClient): string {
@@ -150,8 +155,8 @@ export function cachedLists(client: QueryClient): CachedList[] {
 export function cachedRowStates(
   client: QueryClient,
   preferred?: string
-): Map<string, RowState> {
-  const rows = new Map<string, RowState>()
+): Map<string, KnownRow> {
+  const rows = new Map<string, KnownRow>()
   const lists = cachedLists(client)
   lists.sort(
     (a, b) => Number(a.filter === preferred) - Number(b.filter === preferred)
@@ -159,7 +164,11 @@ export function cachedRowStates(
   for (const list of lists)
     for (const page of list.pages)
       for (const item of page.items)
-        rows.set(item.id, { status: item.status, readAt: item.readAt })
+        rows.set(item.id, {
+          status: item.status,
+          readAt: item.readAt,
+          openedAt: item.openedAt,
+        })
   return rows
 }
 
@@ -174,31 +183,40 @@ const READ_MARK = "1970-01-01T00:00:00.000Z"
  * lists know (a resolved row stays resolved, so marking it unread does not
  * make it count); a row nobody knows is not counted.
  */
-function leftOutOfWholeUnreadList(
-  base: RowState | undefined
-): RowState | undefined {
+function leftOutOfUnreadList(base: RowState | undefined): RowState | undefined {
   return base
     ? { status: base.status, readAt: base.readAt ?? READ_MARK }
     : undefined
 }
 
 /**
- * Whether `pages` are an Unread list read to its end (the shell's badge page,
- * or the Unread filter with nothing more to load). Its count and its rows came
- * from one answer, so a row it does not hold was not unread when the server
- * gave that count: the count has already absorbed any change to it. Rows from
- * a list fetched earlier must not say otherwise, or the change is taken off a
+ * What an Unread list (the shell's badge page, or the Unread filter) proves
+ * about a row it does not hold: that the row was not unread when the server
+ * gave that list and its count. Its count and its rows came from one answer,
+ * so the count has already absorbed any change to such a row. Rows from a
+ * list fetched earlier must not say otherwise, or the change is taken off a
  * count that never had the row (a poll that saw a saved read, then the commit).
+ *
+ * A list read to its end proves it for every row. A list with more to load
+ * proves it only for a row that sorts before its last row (the server orders
+ * by `openedAt`, newest first): such a row would be on the page had it been
+ * unread. A row that sorts after the last row, or one whose `openedAt` is
+ * not known, proves nothing: it is off the page whatever its state, so its
+ * absence says nothing about the count. The comparison is strict because
+ * `openedAt` is only exact to the millisecond.
  */
-function isCompleteUnreadList(
+function unreadListProof(
   filter: string | undefined,
   pages: readonly NotificationListResponse[]
-): boolean {
-  return (
-    (filter === "unread" || filter === "badge") &&
-    pages.length > 0 &&
-    pages[pages.length - 1]!.nextCursor === null
-  )
+): (openedAt: string | undefined) => boolean {
+  if ((filter !== "unread" && filter !== "badge") || pages.length === 0)
+    return () => false
+  const last = pages[pages.length - 1]!
+  if (last.nextCursor === null) return () => true
+  const edge = last.items.at(-1)?.openedAt
+  if (!edge) return () => false
+  const edgeAt = Date.parse(edge)
+  return (openedAt) => openedAt !== undefined && Date.parse(openedAt) > edgeAt
 }
 
 /**
@@ -239,7 +257,7 @@ function makeFold(changes: readonly PendingChange[]) {
 function snapshotOf(
   changes: readonly PendingChange[],
   id: string
-): RowState | undefined {
+): KnownRow | undefined {
   for (const change of changes) {
     const snapshot = change.snapshots[id]
     if (snapshot) return snapshot
@@ -301,7 +319,7 @@ export function applyPendingChanges(
   pages: NotificationListResponse[],
   changes: readonly PendingChange[],
   filter: ListFilter,
-  otherRows?: ReadonlyMap<string, RowState>
+  otherRows?: ReadonlyMap<string, KnownRow>
 ): AppliedChanges {
   if (changes.length === 0)
     return { pages, delta: 0, unreadCount: pages[0]?.unreadCount ?? null }
@@ -328,12 +346,13 @@ export function applyPendingChanges(
     moved = true
     return { ...page, items }
   })
-  const wholeUnreadList = isCompleteUnreadList(filter, pages)
+  const proves = unreadListProof(filter, pages)
   const delta = unreadDelta(changes, (id) => {
     const held = shown.get(id)
     if (held) return held
-    return wholeUnreadList
-      ? leftOutOfWholeUnreadList(otherRows?.get(id) ?? snapshotOf(changes, id))
+    const base = otherRows?.get(id) ?? snapshotOf(changes, id)
+    return proves(base?.openedAt)
+      ? leftOutOfUnreadList(base)
       : otherRows?.get(id)
   })
   const result = delta
@@ -362,7 +381,7 @@ export function addPendingChange(
   input: { kind: "read" | "resolve"; ids: readonly string[]; read?: boolean }
 ): PendingChange {
   const rows = cachedRowStates(client)
-  const snapshots: Record<string, RowState> = {}
+  const snapshots: Record<string, KnownRow> = {}
   for (const id of input.ids) {
     const row = rows.get(id)
     if (row) snapshots[id] = row
@@ -389,17 +408,18 @@ export function addPendingChange(
     const own = prefer
       ? cachedLists(cache).find((list) => list.filter === prefer)
       : undefined
-    if (own && isCompleteUnreadList(own.filter, own.pages)) {
+    if (own) {
+      const proves = unreadListProof(own.filter, own.pages)
       const ownRows = new Map<string, RowState>()
       for (const page of own.pages)
         for (const item of page.items)
           ownRows.set(item.id, { status: item.status, readAt: item.readAt })
-      return unreadDelta(
-        changes,
-        (id) =>
-          ownRows.get(id) ??
-          leftOutOfWholeUnreadList(rows.get(id) ?? snapshotOf(changes, id))
-      )
+      return unreadDelta(changes, (id) => {
+        const held = ownRows.get(id)
+        if (held) return held
+        const base = rows.get(id) ?? snapshotOf(changes, id)
+        return proves(base?.openedAt) ? leftOutOfUnreadList(base) : rows.get(id)
+      })
     }
     return unreadDelta(changes, (id) => rows.get(id))
   }

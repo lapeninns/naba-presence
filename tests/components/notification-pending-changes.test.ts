@@ -271,7 +271,11 @@ describe("pending changes and the session scope", () => {
       read: true,
     })
     expect(made.scope).toBe(currentScopeToken(client))
-    expect(made.snapshots).toEqual({ a: { status: "open", readAt: null } })
+    // The snapshot keeps where the row sorts, so the count can tell whether an
+    // unread page that has more to load reaches it.
+    expect(made.snapshots).toEqual({
+      a: { status: "open", readAt: null, openedAt: "2026-09-30T10:00:00.000Z" },
+    })
     const { result } = renderHook(() => usePendingNotificationChanges(), {
       wrapper,
     })

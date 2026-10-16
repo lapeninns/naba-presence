@@ -19,6 +19,9 @@ import type { NotificationItem } from "@/lib/contracts/operational-notifications
 /** The part of a row that decides whether it counts as "open and unread". */
 export type RowState = Pick<NotificationItem, "status" | "readAt">
 
+/** A row as the cache knows it: its state, and where it sorts in the lists. */
+export type KnownRow = RowState & { openedAt?: string }
+
 export type PendingChange = {
   id: string
   /** `sessionScopeToken` when the change was made. */
@@ -33,7 +36,7 @@ export type PendingChange = {
    * Each row's state in the cache when the change was made. Only a fallback,
    * for a row no cached list holds any more; the cache is the first witness.
    */
-  snapshots: Readonly<Record<string, RowState>>
+  snapshots: Readonly<Record<string, KnownRow>>
 }
 
 // ---------------------------------------------------------------------------

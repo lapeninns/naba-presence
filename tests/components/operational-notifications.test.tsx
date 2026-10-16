@@ -1559,6 +1559,102 @@ describe("NotificationsView pending changes", () => {
       await waitFor(() => agree(1))
     })
 
+    describe("when the shell's unread page has more to load", () => {
+      // The shell asks for the first 20 unread rows; the person has 22. Rows
+      // are newest first, as the server sends them.
+      const rows = Array.from({ length: 22 }, (_, index) =>
+        item({
+          id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+          openedAt: new Date(
+            Date.UTC(2026, 8, 30, 10, 0) - index * 60_000
+          ).toISOString(),
+        })
+      )
+      const shellPage = (from: number, unreadCount: number) =>
+        ({
+          counts: {},
+          connections: [],
+          notifications: {
+            items: rows.slice(from, from + 20),
+            nextCursor: "more",
+            unreadCount,
+          },
+        }) as unknown as ShellStatusResponse
+      const badgeCount = (client: QueryClient) =>
+        client.getQueryData<{ unreadCount: number }>(
+          queryKeys.notifications("badge")
+        )?.unreadCount
+
+      async function markFirstRead() {
+        const server = steppedServer(rows)
+        const client = mountScoped(OWNER, true)
+        await waitFor(() => expect(count()).toHaveTextContent("22 open"))
+        act(() => seedShellKeys(client, shellPage(0, 22)))
+        await tick()
+        fireEvent.click(
+          screen.getAllByRole("button", {
+            name: "Mark read: Publishing failed",
+          })[0]!
+        )
+        agree(21)
+        return { server, client }
+      }
+
+      it("does not take a saved read off the badge twice when a poll has already seen it", async () => {
+        const { server, client } = await markFirstRead()
+        // The save has reached the server and its answer is held. A shell
+        // poll answers first: the first 20 unread rows without the saved row
+        // (the 21st has moved up) and a count that already has the read.
+        act(() => seedShellKeys(client, shellPage(1, 21)))
+        await tick()
+        agree(21)
+        server.holdLists()
+        ;(await server.write(0)).accept()
+        await waitFor(() => expect(badgeCount(client)).toBe(21))
+        await tick()
+        // Committed before any reconciliation: neither 20 nor 22.
+        expect(badgeCount(client)).toBe(21)
+        agree(21)
+        server.releaseLists()
+        await waitFor(() => agree(21))
+      })
+
+      it("still takes the read off a count from a poll that left before the save", async () => {
+        const { server, client } = await markFirstRead()
+        // The poll's page still holds the row as unread: it left before the
+        // save reached the server, and its count of 22 does not have the read.
+        act(() => seedShellKeys(client, shellPage(0, 22)))
+        await tick()
+        agree(21)
+        server.holdLists()
+        ;(await server.write(0)).accept()
+        await waitFor(() => expect(badgeCount(client)).toBe(21))
+        await tick()
+        agree(21)
+        server.releaseLists()
+        await waitFor(() => agree(21))
+      })
+
+      it("still takes a read of a row beyond the page off the count", async () => {
+        const { server, client } = await markFirstRead()
+        // Marking the 22nd row, which the page never reached: it cannot be on
+        // the page whatever its state, so the page's absence proves nothing
+        // and the count (22, with the row) is lowered for it.
+        fireEvent.click(
+          screen.getAllByRole("button", {
+            name: "Mark read: Publishing failed",
+          })[20]!
+        )
+        agree(20)
+        act(() => seedShellKeys(client, shellPage(0, 22)))
+        await tick()
+        agree(20)
+        ;(await server.write(0)).accept()
+        ;(await server.write(1)).accept()
+        await waitFor(() => expect(badgeCount(client)).toBe(20))
+      })
+    })
+
     it("is not overwritten by a shell poll that left before the change was saved", async () => {
       const server = steppedServer([first, other])
       const client = mountScoped(OWNER, true)
