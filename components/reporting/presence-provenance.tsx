@@ -100,7 +100,7 @@ export function PresenceProvenance({
   const completeThrough = data.completeness?.completeThrough
   const completeLine =
     completeThrough && data.freshThrough && completeThrough < data.freshThrough
-      ? `Every location with figures is complete through ${formatDate(completeThrough, "UTC")}`
+      ? `All reporting locations complete through ${formatDate(completeThrough, "UTC")}`
       : null
   // One state per location, so the parts add up to the locations in scope.
   const coverageParts = coverage
