@@ -409,7 +409,7 @@ function HubActions({
  * The chip never says all is well while a listing is unreachable: a login
  * can be connected and still have lost manager access to one of the
  * client's listings, and "Connected · refreshed a minute ago" beside an
- * "Google login disconnected" alert read as a contradiction.
+ * "Can’t reach Google" alert read as a contradiction.
  */
 function LoginLine({
   client,
@@ -629,9 +629,11 @@ function ListingsSection({
                 ),
             },
             {
-              // The listings board's Health word (DSK-10). The states the
-              // Google and Verified cells already say are not said twice: a
-              // paused login, no manager access, not linked, not verified.
+              // The listings board's Health word (DSK-10). A state the Google
+              // or Verified cell already says is not said twice: a paused
+              // login, no manager access, not linked, not verified. A token
+              // that has only expired is not "paused" there, so it keeps its
+              // word here.
               id: "health",
               header: "Health",
               priority: "trailing",
@@ -639,10 +641,11 @@ function ListingsSection({
                 const health = listing.health
                 if (!health) return null
                 const said =
-                  health === "not_linked" ||
-                  health === "pending_verification" ||
-                  health === "access_lost" ||
-                  health === "disconnected"
+                  (health === "not_linked" && !listing.linkId) ||
+                  (health === "pending_verification" &&
+                    listing.verified === false) ||
+                  (health === "access_lost" && listing.accessLost) ||
+                  (health === "disconnected" && loginBroken)
                 if (said)
                   return (
                     <span className="text-ui text-ink-muted @max-3xl/table:hidden">

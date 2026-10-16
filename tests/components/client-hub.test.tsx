@@ -295,6 +295,19 @@ describe("ClientHub", () => {
     expect(screen.queryByText("Pending verification")).toBeNull()
   })
 
+  // An expired token is not "Linked · paused" in the Google cell, so a
+  // disconnected listing keeps its word in Health rather than a bare dash.
+  it("keeps a listing's Disconnected in Health when the Google cell does not say it", async () => {
+    stub({
+      locations: [{ ...location, health: "disconnected", waiting: 0 }],
+    })
+    renderHub()
+    const row = (
+      await screen.findByRole("link", { name: "Old Crown Girton" })
+    ).closest("tr")!
+    expect(within(row).getByText("Disconnected")).toBeTruthy()
+  })
+
   it("leaves the Health and Waiting cells empty for an older response without them", async () => {
     stub()
     renderHub()

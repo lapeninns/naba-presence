@@ -193,8 +193,11 @@ export function clientFreshness(input: ClientHealthInput): ClientFreshness {
  * setup states that are not health at all (nothing linked yet; the first
  * import still running).
  *
- * `disconnected` reads "Google login disconnected" and `attention` is Needs attention; the
+ * `disconnected` reads "Can’t reach Google" and `attention` is Needs attention; the
  * values keep their names so saved `?health=` filters and links still work.
+ * The words cover both causes of `action_needed` — the login is gone, or it
+ * works but has lost manager access to a listing — so neither is described as
+ * the other; the hub's login line says which.
  * Freshness comes from successful checks, never from token refreshes: a
  * quiet client whose checks succeed is up to date however long it has been
  * since a refresh.
@@ -252,7 +255,7 @@ const LABELS: Record<ClientHealth, string> = {
   healthy: "In sync",
   syncing: "Importing",
   attention: "Needs attention",
-  disconnected: "Google login disconnected",
+  disconnected: "Can’t reach Google",
   not_connected: "Not set up",
 }
 

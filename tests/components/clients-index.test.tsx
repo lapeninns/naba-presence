@@ -114,7 +114,7 @@ describe("ClientsIndex", () => {
       name: "Clients, with their Google health and open review work",
     })
     expect(
-      within(table).getByText("Google login disconnected")
+      within(table).getByText("Can’t reach Google")
     ).toBeInTheDocument()
   })
 
@@ -178,7 +178,7 @@ describe("ClientsIndex", () => {
     // "All" plus every bucket; no bucket is left out of the counts.
     expect(chips.map((chip) => chip.textContent)).toEqual([
       "All 8",
-      "Google login disconnected 1",
+      "Can’t reach Google 1",
       "Needs attention 1",
       "Changes to publish 1",
       "Some listings not checked yet 1",
@@ -200,7 +200,7 @@ describe("ClientsIndex", () => {
     ])
     renderIndex()
     const strip = await screen.findByRole("group", { name: "Filter by health" })
-    // No "Google login disconnected 0" or "Needs attention 0" ahead of the one that
+    // No "Can’t reach Google 0" or "Needs attention 0" ahead of the one that
     // matters, and nothing past the edge of the strip to scroll to.
     expect(
       within(strip)
@@ -216,8 +216,8 @@ describe("ClientsIndex", () => {
     const strip = await screen.findByRole("group", { name: "Filter by health" })
     const chosen = within(strip).getByRole("button", { pressed: true })
     // Zero draws no figure, but the name still says it.
-    expect(chosen).toHaveAccessibleName("Google login disconnected, 0")
-    expect(chosen).toHaveTextContent(/^Google login disconnected$/)
+    expect(chosen).toHaveAccessibleName("Can’t reach Google, 0")
+    expect(chosen).toHaveTextContent(/^Can’t reach Google$/)
     fireEvent.click(chosen)
     expect(replace).toHaveBeenCalledWith("/clients", { scroll: false })
   })
@@ -324,7 +324,7 @@ describe("ClientsIndex", () => {
     const name = within(cell("primary")[0] as HTMLElement).getByRole("link")
     expect(name).toHaveAccessibleName("Old Crown Group")
     expect(name).toHaveAttribute("href", "/clients/c1")
-    expect(cell("secondary")[0]).toHaveTextContent("Google login disconnected")
+    expect(cell("secondary")[0]).toHaveTextContent("Can’t reach Google")
     expect(cell("trailing")[0]).toHaveTextContent("2 to reply· 1 approval")
     // The meta line is two sentences, not a label joined to a bare value.
     expect(cell("meta").map((td) => td.getAttribute("data-label"))).toEqual([

@@ -129,7 +129,7 @@ describe("ClientSwitcher", () => {
     // The mark is decoration; the health word is read after the name.
     expect(options[1]).toHaveAccessibleName("Old Crown, In sync")
     expect(options[2]).toHaveAccessibleName(
-      "Harbour Kitchen, Google login disconnected"
+      "Harbour Kitchen, Can’t reach Google"
     )
   })
 
@@ -157,7 +157,7 @@ describe("ClientSwitcher", () => {
     const trigger = screen.getByRole("button", {
       name: "Client: Harbour Kitchen",
     })
-    expect(trigger).toHaveAccessibleDescription("Google login disconnected")
+    expect(trigger).toHaveAccessibleDescription("Can’t reach Google")
   })
 
   it("swaps the Inbox's client in place and remembers it", async () => {
@@ -398,10 +398,10 @@ describe("ClientScopeSheet", () => {
     // Health is printed as words in the row, not only announced.
     expect(within(options[1]).getByText("In sync")).toBeVisible()
     expect(
-      within(options[2]).getByText("Google login disconnected")
+      within(options[2]).getByText("Can’t reach Google")
     ).toBeVisible()
     expect(options[1]).toHaveAccessibleDescription("In sync")
-    expect(options[2]).toHaveAccessibleDescription("Google login disconnected")
+    expect(options[2]).toHaveAccessibleDescription("Can’t reach Google")
     expect(options[2]).toHaveAttribute("aria-selected", "true")
     expect(options[0]).toHaveAttribute("aria-selected", "false")
     // One Tab stop for the group: the checked row.
@@ -564,7 +564,7 @@ describe("useClientScopeLabel", () => {
     ).toEqual({
       visible: true,
       label: "Harbour Kitchen",
-      healthWords: "Google login disconnected",
+      healthWords: "Can’t reach Google",
       id: "c2",
     })
   })

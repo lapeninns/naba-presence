@@ -305,7 +305,7 @@ describe("primary navigation", () => {
     render(<Nav clients={clients} />)
     expect(
       screen.getByRole("link", {
-        name: /Harbour Kitchen, Google login disconnected/i,
+        name: /Harbour Kitchen, Can’t reach Google/i,
       })
     ).toBeInTheDocument()
   })

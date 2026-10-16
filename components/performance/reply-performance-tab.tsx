@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useSyncExternalStore } from "react"
 
+import { readClock, subscribeClock } from "@/lib/time/clock"
 import { SectionHeader } from "@/components/ui/section-header"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReplyFigures } from "@/components/reporting/reply-figures"
@@ -27,6 +28,9 @@ import {
 } from "@/lib/reporting/ranges"
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
 import { LISTING_TERMS } from "@/lib/workspace/terms"
+
+/** How old a prefetched window's `now` may be before the browser's clock replaces it. */
+const WINDOW_NOW_MAX_AGE_MS = 10 * 60_000
 
 function ReplyPerformanceLoading() {
   return <ReportsSkeleton variant="tab" label="Loading reply performance…" />
@@ -58,10 +62,27 @@ export function ReplyPerformanceTab({
   // -> a new useAnalyticsOverview query key -> refetch -> re-render -> an
   // infinite fetch loop (72 requests in 5s, observed). Capture the window once
   // per rangeId change so the query keys stay stable.
+  // The server's `now` stands for the render that hydrates (so the keys match
+  // the prefetched ones). A page restored later from the router cache (Back)
+  // brings its old `windowNow` with it: past this age it is dropped after
+  // hydration and the windows are resolved from the browser's clock, as a
+  // fresh mount would have.
+  // Read through the shared clock like `useNow`: the server snapshot (and so
+  // the hydrating render) is "not stale", a later render reads the browser.
+  const windowStale = useSyncExternalStore(
+    subscribeClock,
+    () =>
+      Boolean(windowNow) &&
+      readClock() - Date.parse(windowNow!) > WINDOW_NOW_MAX_AGE_MS,
+    () => false
+  )
   const { current, previous } = useMemo(
     () =>
-      resolveReplyRange(rangeId, windowNow ? new Date(windowNow) : undefined),
-    [rangeId, windowNow]
+      resolveReplyRange(
+        rangeId,
+        windowNow && !windowStale ? new Date(windowNow) : undefined
+      ),
+    [rangeId, windowNow, windowStale]
   )
   const now = useAnalyticsOverview({ ...current, clientId })
   const prior = useAnalyticsOverview({ ...previous, clientId })
