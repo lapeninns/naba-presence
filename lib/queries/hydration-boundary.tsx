@@ -6,7 +6,7 @@ import {
   type QueryClient,
   useQueryClient,
 } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 
 import type { SessionResponse } from "@/lib/contracts/session"
 import { ServerNowProvider } from "@/lib/time/server-now"
@@ -153,20 +153,24 @@ export function inLiveScope<T>(state: T, client: QueryClient): T | undefined {
 }
 
 /**
- * Each payload aligned once per cache, by the clock when it first arrived.
- * Back mounts the same payload again from the router cache; aligned anew
- * it would look as fresh as the moment of the Back, and win over (or, once
- * the query was dropped, stand in for) anything saved since.
+ * Each payload aligned once per page load, by the clock when it first
+ * arrived. Back and Forward mount the same payload again from the router
+ * cache; aligned anew it would look as fresh as the moment of the Back.
+ * It would then win over (or, once the query was dropped, stand in for)
+ * anything saved since. And once the dashboard has been left and entered
+ * again, the layout's old session would look freshly fetched in the new
+ * cache, so no refetch would tell the shell its scope had changed. Kept as
+ * first aligned, both look as old as they are and are fetched again.
+ * Browser only: on the server every request's payload is new.
  */
-const alignedPayloads = new WeakMap<QueryClient, WeakMap<object, unknown>>()
+const alignedPayloads = new WeakMap<object, unknown>()
 
 function alignOnce<T>(state: T, client: QueryClient): T {
-  if (!state || typeof state !== "object") return state
-  let seen = alignedPayloads.get(client)
-  if (!seen) alignedPayloads.set(client, (seen = new WeakMap()))
-  if (seen.has(state)) return seen.get(state) as T
+  if (!state || typeof state !== "object" || typeof window === "undefined")
+    return alignForCache(state, client)
+  if (alignedPayloads.has(state)) return alignedPayloads.get(state) as T
   const aligned = alignForCache(state, client)
-  seen.set(state, aligned)
+  alignedPayloads.set(state, aligned)
   return aligned
 }
 
@@ -183,10 +187,21 @@ export function HydrationBoundary({ state, ...props }: HydrationBoundaryProps) {
   const serverNow = useMemo(() => serverNowOf(state), [state])
   // Checked on every mount (the session may have changed since the payload
   // was last shown); aligned once per payload.
-  const aligned = useMemo(() => {
-    const scoped = inLiveScope(state, client)
-    return scoped ? alignOnce(scoped, client) : undefined
-  }, [state, client])
+  const scoped = useMemo(() => inLiveScope(state, client), [state, client])
+  const aligned = useMemo(
+    () => (scoped ? alignOnce(scoped, client) : undefined),
+    [scoped, client]
+  )
+  // A payload for another scope means this cache's session is out of date
+  // (or the payload is): ask the server who this is now, which resets the
+  // cache if the scope has changed (useScopeReset).
+  const refused = Boolean(state) && !scoped
+  useEffect(() => {
+    if (refused)
+      void client
+        .invalidateQueries({ queryKey: queryKeys.session })
+        .catch(() => undefined)
+  }, [refused, client])
   return (
     <ServerNowProvider value={serverNow}>
       <TanStackHydrationBoundary state={aligned} {...props} />

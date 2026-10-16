@@ -136,7 +136,19 @@ export function dropResourceQueries(
  * commit in which the editors switch to their new draft keys, so a draft an
  * editor stashes on that switch is already in storage when the purge runs.
  */
-export function useScopeReset(client: QueryClient): void {
+export function useScopeReset(
+  client: QueryClient,
+  /**
+   * Called once the cache has been reset for a new scope (or for no
+   * session). The dashboard's provider refreshes the router with it, so
+   * no page payload the old scope read can come back on Back (#195).
+   */
+  onScopeChange?: () => void
+): void {
+  const scopeChanged = React.useRef(onScopeChange)
+  React.useEffect(() => {
+    scopeChanged.current = onScopeChange
+  })
   // The cache notifies synchronously, including while another component
   // renders and builds a new query; batching defers the check to after that
   // render (as TanStack's own useIsFetching does), so the provider is never
@@ -162,12 +174,16 @@ export function useScopeReset(client: QueryClient): void {
     const previous = last.current
     last.current = token
     if (!token) {
-      if (previous) void resetScopedQueries(client)
+      if (previous) {
+        void resetScopedQueries(client)
+        scopeChanged.current?.()
+      }
       return
     }
     const [userId, organisationId] = token.split("\n")
     if (known.current !== null && known.current !== token) {
       void resetScopedQueries(client)
+      scopeChanged.current?.()
     }
     if (known.current !== token) purgeForeignDrafts({ userId, organisationId })
     known.current = token

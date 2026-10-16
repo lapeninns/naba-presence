@@ -90,10 +90,7 @@ export default async function DashboardLayout({
     // client's own key, which is not hydrated, so it costs one background
     // /api/reviews/counts request on load.
     if (reviewCounts.status === "fulfilled") {
-      queryClient.setQueryData(
-        queryKeys.reviewCountsFor(),
-        reviewCounts.value
-      )
+      queryClient.setQueryData(queryKeys.reviewCountsFor(), reviewCounts.value)
     }
 
     // Failed optional prefetches leave their cache empty so the client can
@@ -148,7 +145,7 @@ export default async function DashboardLayout({
   }
 
   return (
-    <QueryProvider>
+    <QueryProvider refreshRouterOnScopeChange>
       <HydrationBoundary state={dehydrate(queryClient)}>
         <AppShell
           session={session ? toShellSession(session) : null}

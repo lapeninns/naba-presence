@@ -6,7 +6,7 @@ import {
   type QueryKey,
   useQuery,
 } from "@tanstack/react-query"
-import { act, render, screen } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { SessionUser } from "@/lib/contracts/session"
@@ -15,10 +15,12 @@ import {
   inLiveScope,
 } from "@/lib/queries/hydration-boundary"
 import { queryKeys } from "@/lib/queries/keys"
+import { QueryProvider } from "@/lib/queries/provider"
 import { resetScopedQueries } from "@/lib/queries/scope-reset"
 import { sessionScopeToken } from "@/lib/queries/session-scope"
 import { useInvitations } from "@/lib/queries/use-invitations"
 import { useMembers } from "@/lib/queries/use-members"
+import { useSession } from "@/lib/queries/use-session"
 
 // #195 security review (P1): /team is server-rendered with the members and
 // the pending invitations (their invite links included) for owners and
@@ -34,6 +36,13 @@ vi.mock("@/lib/api/members", () => ({ fetchMembers: fetchMembersMock }))
 const fetchInvitationsMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/invitations", () => ({
   fetchInvitations: fetchInvitationsMock,
+}))
+
+const fetchSessionMock = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/session", () => ({ fetchSession: fetchSessionMock }))
+const refresh = vi.hoisted(() => vi.fn())
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn() }),
 }))
 
 const INVITE_URL = "https://app.example.test/invite/secret-token"
@@ -118,7 +127,112 @@ function signedIn(as: SessionUser) {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.clearAllMocks()
+})
+
+/** What the dashboard layout sends: the session, unstamped. */
+function layoutPayload(readFor: SessionUser) {
+  const server = new QueryClient()
+  server.setQueryData(queryKeys.session, { session: readFor })
+  return dehydrate(server)
+}
+
+/**
+ * The shell, which reads the session (app-shell.tsx). Its button stands in
+ * for the shell's own session refetches (polls, focus, access lost).
+ */
+function ShellProbe() {
+  const { data, refetch } = useSession()
+  return (
+    <>
+      <p data-testid="role">{data?.session?.role ?? "none"}</p>
+      <button type="button" onClick={() => void refetch()}>
+        Check session
+      </button>
+    </>
+  )
+}
+
+/**
+ * The dashboard as Next mounts it: the provider (one cache per visit to the
+ * dashboard), the layout's boundary, the page's boundary.
+ */
+function dashboard(layout: DehydratedState, team: DehydratedState) {
+  return (
+    <QueryProvider refreshRouterOnScopeChange>
+      <HydrationBoundary state={layout}>
+        <ShellProbe />
+        <HydrationBoundary state={team}>
+          <TeamProbe />
+        </HydrationBoundary>
+      </HydrationBoundary>
+    </QueryProvider>
+  )
+}
+
+describe("Back and Forward after a downgrade, through the real provider (#195)", () => {
+  const refused = Object.assign(new Error("Forbidden"), { status: 403 })
+
+  it("refreshes the router as soon as the tab learns of it, and refuses the old Team payload", async () => {
+    fetchSessionMock.mockResolvedValue({ session: admin })
+    fetchMembersMock.mockRejectedValue(refused)
+    fetchInvitationsMock.mockRejectedValue(refused)
+    const layout = layoutPayload(admin)
+    const team = teamPayload(admin)
+    const view = render(dashboard(layout, team))
+    expect(screen.getByTestId("invite")).toHaveTextContent(INVITE_URL)
+
+    // The shell's next session read says viewer.
+    fetchSessionMock.mockResolvedValue({ session: viewer })
+    await act(async () =>
+      screen.getByRole("button", { name: "Check session" }).click()
+    )
+    // The cache resets and the router is refreshed: Next drops every page
+    // payload it kept for Back and Forward.
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.getByTestId("role")).toHaveTextContent("viewer")
+    )
+    expect(screen.getByTestId("invite")).toHaveTextContent("none")
+
+    // And if Next did mount the old payload again, it is refused.
+    view.rerender(dashboard(layout, { ...team }))
+    await act(() => new Promise((done) => setTimeout(done, 0)))
+    expect(screen.queryByText(INVITE_URL)).not.toBeInTheDocument()
+  })
+
+  it("asks the server again when Forward brings back a visit the tab never saw downgraded", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(Date.now())
+    fetchSessionMock.mockResolvedValue({ session: admin })
+    const layout = layoutPayload(admin)
+    const team = teamPayload(admin)
+    const first = render(dashboard(layout, team))
+    expect(screen.getByTestId("invite")).toHaveTextContent(INVITE_URL)
+    expect(fetchSessionMock).not.toHaveBeenCalled()
+
+    // Leaves the dashboard by a soft link (/privacy), so its cache goes.
+    first.unmount()
+    // Meanwhile the account is made a viewer; this tab hears nothing.
+    fetchSessionMock.mockResolvedValue({ session: viewer })
+    fetchMembersMock.mockRejectedValue(refused)
+    fetchInvitationsMock.mockRejectedValue(refused)
+    vi.setSystemTime(Date.now() + 60_000)
+
+    // Forward: Next mounts the same layout and Team payloads again, into a
+    // new cache. They keep the age they had, so nothing passes as fresh.
+    render(dashboard(layout, team))
+    await waitFor(() => expect(fetchSessionMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.getByTestId("role")).toHaveTextContent("viewer")
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId("invite")).toHaveTextContent("none")
+    )
+    expect(fetchMembersMock).toHaveBeenCalled()
+    expect(refresh).toHaveBeenCalled()
+  })
 })
 
 describe("a prefetched payload only reaches the scope it was read for (#195)", () => {
