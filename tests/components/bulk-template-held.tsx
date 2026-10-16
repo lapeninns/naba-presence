@@ -60,6 +60,7 @@ function review(id: string, clientId: string): ReviewRow {
 function Harness() {
   const selection = useSelection()
   const [rows, setRows] = React.useState([review("a", "crown")])
+  const [scopeKey, setScopeKey] = React.useState("crown")
   const applied = React.useRef(false)
   React.useEffect(() => {
     if (applied.current) return
@@ -68,8 +69,24 @@ function Harness() {
   }, [selection])
   return (
     <>
+      {/* What the list header keeps while nothing is selected. */}
+      <div data-slot="inbox-list-header">
+        <button type="button">Select</button>
+      </div>
       <button type="button" onClick={() => selection.clear()}>
         clear the selection
+      </button>
+      {/* The client changes while the list still holds the previous rows (it
+          keeps them until the new ones arrive). */}
+      <button type="button" onClick={() => setScopeKey("old-school")}>
+        change the client, keep the rows
+      </button>
+      {/* The new client's rows arrive at last. */}
+      <button
+        type="button"
+        onClick={() => setRows([review("z", "old-school")])}
+      >
+        new rows arrive
       </button>
       {/* A refetch: the same reviews, a new array. */}
       <button type="button" onClick={() => setRows((now) => [...now])}>
@@ -83,7 +100,7 @@ function Harness() {
       >
         switch client
       </button>
-      <BulkActionBar rows={rows} />
+      <BulkActionBar rows={rows} scopeKey={scopeKey} />
     </>
   )
 }

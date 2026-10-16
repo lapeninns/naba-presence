@@ -831,7 +831,11 @@ function InboxViewInner({
         </div>
       ) : null}
       {canBatch ? (
-        <LazyBulkActionBar rows={reviews} bulkEngine={bulkEngine} />
+        <LazyBulkActionBar
+          rows={reviews}
+          bulkEngine={bulkEngine}
+          scopeKey={state.clientId ?? ""}
+        />
       ) : null}
     </section>
   )

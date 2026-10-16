@@ -66,6 +66,8 @@ import {
   summariseBulkOutcome,
 } from "@/lib/inbox/bulk-outcome"
 import { isRatingOnly } from "@/lib/inbox/template-batch"
+import { sessionScopeToken } from "@/lib/queries/session-scope"
+import { useSession } from "@/lib/queries/use-session"
 
 // The template batch is a 580-line dialog used on rating-only selections, so
 // it is not part of the Inbox's first load. It is fetched as soon as a
@@ -160,6 +162,37 @@ function TemplateDialogSlot(
 }
 
 /**
+ * Where focus goes when the open that held it is cancelled by a change of
+ * scope: the opener is gone with the rows, so the list header's control that
+ * starts a selection (the select-all box on a desk, "Select" on a phone), or
+ * failing that the list itself. Only if focus has been left on the page.
+ */
+function focusSurvivor(leaving: HTMLElement | null) {
+  const settle = () => {
+    // Only from the page, or from the opener the dialog handed focus back to
+    // (it goes with the old rows); never from where the operator has moved.
+    const active = document.activeElement
+    if (active && active !== document.body && active !== leaving) return
+    const candidates = document.querySelectorAll<HTMLElement>(
+      '[data-slot="inbox-list-header"] [role="checkbox"], [data-slot="inbox-list-header"] button'
+    )
+    for (const candidate of candidates) {
+      // Not the one a breakpoint hides (jsdom has no layout: it answers true).
+      if (
+        candidate.hasAttribute("disabled") ||
+        candidate.checkVisibility?.() === false
+      )
+        continue
+      candidate.focus()
+      if (document.activeElement === candidate) return
+    }
+  }
+  settle()
+  // The dialog's own focus return runs as it unmounts; look again after it.
+  requestAnimationFrame(() => requestAnimationFrame(settle))
+}
+
+/**
  * Actions over a selection: the shared SelectionBar, docked to the bottom
  * of a phone while anything is ticked, where it takes the tab bar's slot
  * (D4), and sticky at the foot of the list from md. It holds only actions:
@@ -178,10 +211,13 @@ function TemplateDialogSlot(
 function BulkActionBar({
   rows,
   bulkEngine = false,
+  scopeKey = "",
 }: {
   rows: ReviewRow[]
   /** Approve and template replies run as a bulk batch (the job runner sends them). */
   bulkEngine?: boolean
+  /** The client the list is scoped to; a change of it is a change of scope. */
+  scopeKey?: string
 }) {
   const { selected, replace, setSelectMode } = useSelection()
   const bulk = useReviewTriage()
@@ -197,6 +233,10 @@ function BulkActionBar({
   const [templateRows, setTemplateRows] = React.useState<ReviewRow[] | null>(
     null
   )
+  // The scope it was opened under, and a count of opens dropped by a change
+  // of scope (each is a reason to find focus a new home).
+  const [templateScope, setTemplateScope] = React.useState("")
+  const [templateDropped, setTemplateDropped] = React.useState(0)
   // Focus returns to the control that asked for the batch (the primary tile,
   // or the ⋯ trigger when it came from the menu), never to the page.
   const moreRef = React.useRef<HTMLButtonElement>(null)
@@ -216,9 +256,14 @@ function BulkActionBar({
     if (offersTemplate) preloadTemplateReplyDialog()
   }, [offersTemplate])
 
+  // What the list is scoped to (the client, and the session's own scope): the
+  // template batch belongs to the one it was opened under. Read when it opens.
+  const session = useSession()
+  const scope = `${scopeKey}\n${sessionScopeToken(session.data?.session)}`
   const openTemplate = (from: "primary" | "more") => {
     templateOpenerRef.current =
       from === "primary" ? primaryRef.current : moreRef.current
+    setTemplateScope(scope)
     setTemplateRows(chosen)
   }
   const closeTemplate = () => setTemplateRows(null)
@@ -229,12 +274,29 @@ function BulkActionBar({
   // else. Once the dialog has arrived it is a different matter: it keeps its
   // own copy of the rows on purpose, to show its summary after replies have
   // left the list.
+  //
+  // A change of scope cancels it whatever has arrived: it is judged on the
+  // scope the batch was opened under, not on whether the new client's rows
+  // have come in yet (the list keeps the old rows until they do) or whether
+  // the code is here, so another client's reviews are never left open.
   const chosenIds = new Set(chosen.map((row) => row.id))
   const templateStale =
     templateRows !== null &&
-    !lazyTemplate.Loaded &&
-    templateRows.some((row) => !chosenIds.has(row.id))
-  if (templateStale) setTemplateRows(null)
+    (templateScope !== scope ||
+      (!lazyTemplate.Loaded &&
+        templateRows.some((row) => !chosenIds.has(row.id))))
+  // Nothing is drawn for it from this render, and the open is dropped; focus
+  // goes somewhere that is still there (its opener may be gone with the rows).
+  if (templateStale) {
+    setTemplateRows(null)
+    setTemplateDropped((count) => count + 1)
+  }
+  React.useEffect(() => {
+    if (templateDropped === 0) return
+    const opener = templateOpenerRef.current
+    templateOpenerRef.current = null
+    focusSurvivor(opener)
+  }, [templateDropped])
 
   const templateDialog =
     templateRows && !templateStale ? (

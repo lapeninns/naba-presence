@@ -125,9 +125,12 @@ function useIdlePreload() {
 function LazyBulkActionBar({
   rows,
   bulkEngine,
+  scopeKey,
 }: {
   rows: ReviewRow[]
   bulkEngine?: boolean
+  /** The client the list is scoped to (see BulkActionBar). */
+  scopeKey?: string
 }) {
   useIdlePreload()
   const { selected } = useSelection()
@@ -167,7 +170,7 @@ function LazyBulkActionBar({
         setFailed(true)
       }}
     >
-      <lazyBar.Bar rows={rows} bulkEngine={bulkEngine} />
+      <lazyBar.Bar rows={rows} bulkEngine={bulkEngine} scopeKey={scopeKey} />
     </LazyDialogBoundary>
   )
 }
