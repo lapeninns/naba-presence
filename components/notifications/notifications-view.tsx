@@ -46,6 +46,7 @@ import {
   applyPendingChanges,
   cachedRowStates,
   usePendingNotificationChanges,
+  usePinnedUnreadCount,
 } from "@/lib/notifications/pending-changes"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -59,6 +60,13 @@ const FILTERS: Array<{ value: NotificationFilter; label: string }> = [
   { value: "open", label: "Open" },
 ]
 const DEFAULT_FILTER: NotificationFilter = "all"
+
+/** What each filter holds, said under the tabs: "Open" is not "Unread". */
+const FILTER_HINTS: Record<NotificationFilter, string> = {
+  all: "Everything sent to you, newest first.",
+  unread: "Notifications you have not marked read.",
+  open: "Problems nobody has resolved yet, whether read or not.",
+}
 
 /** Why a filtered view is empty, said as what the filter looks for. */
 const FILTERED_EMPTY: Record<NotificationFilter, string> = {
@@ -130,6 +138,8 @@ export function NotificationsView() {
   const client = useQueryClient()
   const changes = useNotificationChanges()
   const pending = usePendingNotificationChanges()
+  // The total the bell shows while changes are pending: one number for both.
+  const pinned = usePinnedUnreadCount()
   // The cached rows with every pending change laid over them. Where a row is
   // in another cached list but not this one, that list says what it was.
   const shown = useMemo(
@@ -139,10 +149,11 @@ export function NotificationsView() {
             query.data.pages,
             pending,
             filter,
-            pending.length ? cachedRowStates(client) : undefined
+            pending.length ? cachedRowStates(client) : undefined,
+            pinned
           )
         : null,
-    [client, filter, pending, query.data]
+    [client, filter, pending, pinned, query.data]
   )
   const items = shown?.pages.flatMap((page) => page.items) ?? []
   // Unknown until the first page arrives: a failed or pending load shows no
@@ -197,17 +208,21 @@ export function NotificationsView() {
           // carry the number (PageChrome's label above is a suffix).
           countLabel={`${unread} open and unread`}
           actions={
-            // The words show from sm; on a narrow phone the glyph alone
-            // keeps the title whole, and the name stays the same words.
+            // "Settings" on a narrow phone, so the glyph is never alone and
+            // the title stays whole; the full words from sm. The name is the
+            // full words at every width and holds what is shown.
             <Link
               href="/settings/notifications"
-              className={cn(
-                buttonVariants({ variant: "ghost" }),
-                "max-sm:w-(--np-control-h) max-sm:px-0"
-              )}
+              aria-label="Notification settings"
+              className={buttonVariants({ variant: "ghost" })}
             >
               <Settings2Icon aria-hidden />
-              <span className="max-sm:sr-only">Notification settings</span>
+              <span aria-hidden className="sm:hidden">
+                Settings
+              </span>
+              <span aria-hidden className="max-sm:hidden">
+                Notification settings
+              </span>
             </Link>
           }
         />
@@ -217,20 +232,23 @@ export function NotificationsView() {
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs
-          ref={tabs}
-          value={filter}
-          onValueChange={(value) => setFilter(String(value))}
-          className="w-full sm:w-auto"
-        >
-          <TabsList variant="text" aria-label="Show notifications">
-            {FILTERS.map((option) => (
-              <TabsTab key={option.value} value={option.value}>
-                {option.label}
-              </TabsTab>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
+          <Tabs
+            ref={tabs}
+            value={filter}
+            onValueChange={(value) => setFilter(String(value))}
+            className="w-full sm:w-auto"
+          >
+            <TabsList variant="text" aria-label="Show notifications">
+              {FILTERS.map((option) => (
+                <TabsTab key={option.value} value={option.value}>
+                  {option.label}
+                </TabsTab>
+              ))}
+            </TabsList>
+          </Tabs>
+          <p className="text-caption text-ink-muted">{FILTER_HINTS[filter]}</p>
+        </div>
         {unread !== null ? (
           <div className="flex w-full items-center justify-between gap-3 sm:w-auto">
             <p
@@ -242,13 +260,37 @@ export function NotificationsView() {
             {unreadShown.length ? (
               <Button variant="secondary" onClick={markShownRead}>
                 {query.hasNextPage || filter === "open"
-                  ? "Mark shown as read"
+                  ? `Mark ${unreadShown.length} shown as read`
                   : "Mark all read"}
               </Button>
             ) : null}
           </div>
         ) : null}
       </div>
+      {query.isError && query.data ? (
+        // Above the list and the empty state alike: an empty list that could
+        // not be refreshed is not known to be empty.
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 text-body text-ink-secondary"
+        >
+          <p>
+            {query.isFetchNextPageError
+              ? "More notifications could not be loaded."
+              : "Notifications could not be refreshed. This list may be out of date."}
+          </p>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              void (query.isFetchNextPageError
+                ? query.fetchNextPage()
+                : query.refetch())
+            }
+          >
+            Try again
+          </Button>
+        </div>
+      ) : null}
       <QueryStates
         // Empty only when nothing is shown and nothing more can be loaded: the
         // rows a pending change took off the page must not hide "Load more".
@@ -303,20 +345,6 @@ export function NotificationsView() {
         {/* Full-bleed on a phone (the list is the page, as in Notion Mail's
             inbox), a bordered card from md. ListRow draws the inset divider
             from the text column. */}
-        {query.isError && query.data ? (
-          <div
-            role="alert"
-            className="flex flex-wrap items-center justify-between gap-3 text-body text-ink-secondary"
-          >
-            <p>
-              Notifications could not be refreshed. This list may be out of
-              date.
-            </p>
-            <Button variant="secondary" onClick={() => void query.refetch()}>
-              Try again
-            </Button>
-          </div>
-        ) : null}
         {items.length ? (
           <ListRows
             bleed
@@ -390,10 +418,25 @@ function NotificationRow({
     typeof item.summary.title === "string"
       ? item.summary.title
       : item.locationName
-  // The Resolve button goes when the question appears: focus follows it.
+  // The Resolve button goes when the question appears: focus follows it. And
+  // when the question goes (answered or cancelled) its buttons go with it, so
+  // focus returns to one of the row's own actions rather than the page: back
+  // to Resolve after Cancel, and to the read button after "Yes, resolve" (a
+  // resolved row has no Resolve any more). A row that leaves the filtered list
+  // is not here to take it: the page moves focus to the filter tab.
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const resolveRef = useRef<HTMLButtonElement>(null)
+  const readRef = useRef<HTMLButtonElement>(null)
+  const returnTo = useRef<"resolve" | "read" | null>(null)
   useEffect(() => {
-    if (confirming) confirmRef.current?.focus()
+    if (confirming) {
+      confirmRef.current?.focus()
+      return
+    }
+    const target = returnTo.current
+    returnTo.current = null
+    if (target === "resolve") resolveRef.current?.focus()
+    else if (target === "read") readRef.current?.focus()
   }, [confirming])
   return (
     <ListRow
@@ -448,13 +491,22 @@ function NotificationRow({
             <Button
               ref={confirmRef}
               variant="default"
-              onClick={onResolve}
+              onClick={() => {
+                returnTo.current = "read"
+                onResolve()
+              }}
               // The name starts with the words on the button (WCAG 2.5.3).
               aria-label={`Yes, resolve: ${copy.label}`}
             >
               Yes, resolve
             </Button>
-            <Button variant="ghost" onClick={onCancelResolve}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                returnTo.current = "resolve"
+                onCancelResolve()
+              }}
+            >
               Cancel
             </Button>
           </div>
@@ -472,6 +524,7 @@ function NotificationRow({
               </Link>
             ) : null}
             <Button
+              ref={readRef}
               variant="ghost"
               onClick={() => onRead(unread)}
               aria-label={`${unread ? "Mark read" : "Mark unread"}: ${copy.label}`}
@@ -480,6 +533,7 @@ function NotificationRow({
             </Button>
             {item.canResolve ? (
               <Button
+                ref={resolveRef}
                 variant="ghost"
                 onClick={onAskResolve}
                 aria-label={`Resolve: ${copy.label}`}
