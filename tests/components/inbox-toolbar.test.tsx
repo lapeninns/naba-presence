@@ -226,7 +226,7 @@ describe("InboxToolbar", () => {
     expect(count?.textContent).toContain(
       "(1,000 need your attention: 999 to reply, 1 to approve)"
     )
-    expect(count?.textContent).not.toContain("1,0001000")
+    expect(count?.textContent).not.toContain("1,000 1000")
     cleanup()
     renderToolbar("7 reviews", {
       counts: counts(1000, 0),
@@ -234,7 +234,7 @@ describe("InboxToolbar", () => {
     })
     const reply = header().querySelector('[data-slot="view-header-count"]')
     expect(reply?.textContent).toContain("(1,000 need a reply)")
-    expect(reply?.textContent).not.toContain("1,0001000")
+    expect(reply?.textContent).not.toContain("1,000 1000")
   })
 
   it("shows a skeleton, never a zero, while the counts are in flight", () => {

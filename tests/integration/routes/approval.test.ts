@@ -780,27 +780,45 @@ describeDatabase("reply approval", () => {
       approvable: 1,
     })
 
-    // A reply parked before `pending_draft_id` existed: the newest verified
-    // draft is the parked one, and its author is still excluded.
-    await admin`
-      update review_reply set pending_draft_id = null
-      where review_id = ${fixture.review.reviewId}
-    `
-    expect(await badge(fixture.owner.cookie)).toEqual({
-      queue: 1,
-      approvable: 0,
-    })
-    expect(await badge(secondAdmin.cookie)).toEqual({
-      queue: 1,
-      approvable: 1,
-    })
-
     // The count is the route's rule: it refuses the author, accepts the other.
     const refused = await decide(fixture, fixture.owner.cookie, {
       decision: "approve",
     })
     expect(refused.status).toBe(403)
     expect((await refused.json()).error).toBe("second_approver_required")
+
+    // A reply parked before `pending_draft_id` existed: no id and a body that
+    // matches no draft, so the trigger leaves it null and the newest verified
+    // draft is the parked one. Here that is the second admin's, so the owner
+    // (author of the older draft) may approve it and the second admin may not.
+    await admin`
+      update review_reply
+      set current_body = 'Parked before pending_draft_id existed',
+          pending_draft_id = null
+      where review_id = ${fixture.review.reviewId}
+    `
+    await admin`
+      insert into draft (
+        organisation_id, review_id, source, body, body_bytes, evidence_hash,
+        verification_status, created_by, created_at
+      )
+      select organisation_id, review_id, source, 'A newer verified draft', 22,
+        evidence_hash, 'pass', ${secondAdmin.userId}, now() + interval '1 minute'
+      from draft where id = ${fixture.draft.draftId}
+    `
+    const [legacy] = await admin<{ pending_draft_id: string | null }[]>`
+      select pending_draft_id::text as pending_draft_id from review_reply
+      where review_id = ${fixture.review.reviewId}
+    `
+    expect(legacy.pending_draft_id).toBeNull()
+    expect(await badge(fixture.owner.cookie)).toEqual({
+      queue: 1,
+      approvable: 1,
+    })
+    expect(await badge(secondAdmin.cookie)).toEqual({
+      queue: 1,
+      approvable: 0,
+    })
 
     // With the two-person rule off, the author may approve, so it counts.
     await admin`

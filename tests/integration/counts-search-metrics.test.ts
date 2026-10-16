@@ -268,11 +268,11 @@ describeDatabase("counts, search and metric write shape", () => {
             const current = await asTenant(organisationId, (sql) =>
               readReviewCounts(sql, session, scope())
             )
-            // `approvableByMe` is newer than the old queries: it narrows the
-            // awaiting_my_approval queue, never widens it.
+            // `approvableByMe` is newer than the old queries. This fixture has
+            // no drafts, so nothing narrows the queue and the two agree.
             const { approvableByMe, ...rest } = current.result
             expect(rest).toEqual(legacy.result)
-            expect(approvableByMe).toBeLessThanOrEqual(
+            expect(approvableByMe).toBe(
               current.result.byQueue.awaiting_my_approval
             )
           }
