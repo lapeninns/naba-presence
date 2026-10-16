@@ -81,10 +81,15 @@ describe("replyGuidance", () => {
     ).not.toContain("next-step")
   })
 
-  it("counts an empty or over-long reply as not meeting the length", () => {
-    expect(
-      byId(replyGuidance({ body: "  ", reviewerName: null, rating: 5 })).length
-    ).toBe(false)
+  it("gives no guidance until there is a reply to measure", () => {
+    for (const body of ["", "  ", "\n"]) {
+      expect(replyGuidance({ body, reviewerName: "Sarah", rating: 2 })).toEqual(
+        []
+      )
+    }
+  })
+
+  it("counts an over-long reply as not meeting the length", () => {
     expect(
       byId(
         replyGuidance({

@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode, type Ref } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
   GlobeIcon,
   HistoryIcon,
+  ImageOffIcon,
   InfoIcon,
   MoreHorizontalIcon,
   PlayIcon,
@@ -85,10 +86,11 @@ function languageName(code: string | null): string | null {
 /**
  * The review as the status ladder sees it.
  *
- * `approvalScope` follows `canPublish` here and nowhere else: this pane offers
- * a specific action, `evaluateApproval` gates that action on `canPublish`, and
- * the status must describe the action actually on screen. A list row has no
- * action and therefore does not guess — see `replyStateFromRow`.
+ * Who a parked reply waits on comes from the server
+ * (`capabilities.approvalScope`) and wins inside `lib/inbox/reply-state.ts`;
+ * the `canPublish` reading below is only the fallback for an older server. The
+ * client does not re-derive the scope or `canApprove`. A list row has no action
+ * and therefore does not guess — see `replyStateFromRow`.
  */
 function replyStateFor(
   review: Review,
@@ -164,16 +166,28 @@ function ReviewerAvatar({ review }: { review: Review }) {
  * Whose review this is — the name and one meta line (stars, when, and that
  * it is a Google review) — at the head of the thread. It says nothing about
  * the reply; that is said once, at the head of the reply row.
+ *
+ * Below lg the review is the whole screen, so the name is the page's h1 and
+ * the one place it is written: there is no head band above it repeating it.
+ * `actions` sit at the end of the name's row (the steps, the ⋯ menu), and
+ * `nav` says where the review sits in the list, beside the venue.
  */
 function ReviewerIdentity({
   review,
   clientName,
   focusHeading = false,
+  titleIsHeading = false,
+  nav,
+  actions,
 }: {
   review: Review
   clientName?: string | null
   focusHeading?: boolean
+  titleIsHeading?: boolean
+  nav?: ReviewDetailNav
+  actions?: ReactNode
 }) {
+  const Heading = titleIsHeading ? "h1" : "h2"
   const displayName = reviewerName(review)
   // Focus lands on the name once, when this review is where an advance
   // arrived. The pane is keyed on the review, so "once" is once per review.
@@ -187,14 +201,17 @@ function ReviewerIdentity({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <h2
-        ref={headingRef}
-        tabIndex={-1}
-        data-slot="review-heading"
-        className="line-clamp-2 min-w-0 text-section font-medium break-words text-ink focus-visible:outline-none"
-      >
-        {displayName}
-      </h2>
+      <div className="flex min-w-0 items-start gap-1">
+        <Heading
+          ref={headingRef}
+          tabIndex={-1}
+          data-slot="review-heading"
+          className="line-clamp-2 min-w-0 flex-1 text-section font-medium break-words text-ink focus-visible:outline-none"
+        >
+          {displayName}
+        </Heading>
+        {actions}
+      </div>
       <p
         data-slot="review-meta"
         className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-caption text-ink-muted"
@@ -229,12 +246,63 @@ function ReviewerIdentity({
           agency, the location alone for a business. It wraps rather than
           truncates, as the inbox row does (QA #2): two venues of one client
           often differ only at the end. */}
-      <p
-        data-slot="review-venue"
-        className="min-w-0 text-caption wrap-break-word text-ink-secondary"
+      <div className="flex min-w-0 items-baseline justify-between gap-3">
+        <p
+          data-slot="review-venue"
+          className="min-w-0 text-caption wrap-break-word text-ink-secondary"
+        >
+          {venueLabel(review, clientName)}
+        </p>
+        {nav ? <ReviewPosition nav={nav} /> : null}
+      </div>
+    </div>
+  )
+}
+
+/** "2 of 5": where the review sits in the list. Not drawn from lg. */
+function ReviewPosition({ nav }: { nav: ReviewDetailNav }) {
+  return (
+    <p
+      data-slot="review-position"
+      className="shrink-0 text-caption whitespace-nowrap text-ink-muted tabular-nums lg:hidden"
+    >
+      <span className="sr-only">Review </span>
+      {nav.position} of {nav.total}
+      {nav.more ? "+" : ""}
+    </p>
+  )
+}
+
+/**
+ * The step to the previous and next review in the list, at the end of the
+ * name's row beside the ⋯ menu. From lg the list is beside the review, so
+ * the steps are not drawn there.
+ */
+function ReviewSteps({ nav }: { nav: ReviewDetailNav }) {
+  return (
+    <div data-slot="review-steps" className="flex shrink-0 lg:hidden">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Previous review"
+        data-nav="previous"
+        disabled={!nav.onPrevious}
+        onClick={nav.onPrevious}
+        className="-mt-1 max-md:size-11"
       >
-        {venueLabel(review, clientName)}
-      </p>
+        <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Next review"
+        data-nav="next"
+        disabled={!nav.onNext}
+        onClick={nav.onNext}
+        className="-mt-1 max-md:size-11"
+      >
+        <ChevronRightIcon aria-hidden strokeWidth={1.75} />
+      </Button>
     </div>
   )
 }
@@ -332,21 +400,6 @@ function ReviewMenu({ review }: { review: Review }) {
   )
 }
 
-/** The return-to-list control of the phone head (below lg). */
-export type ReviewDetailBack = {
-  /** Where it goes, drawn beside the chevron: "Inbox". */
-  label: string
-  onBack: () => void
-  ref: Ref<HTMLButtonElement>
-  /**
-   * The shell's app bar already draws this way back ("‹ Inbox", the
-   * inbox's `<PageChrome back>` on a pushed review), so the head leaves its
-   * own button out: one back control on the screen. The title, position
-   * and steps stay.
-   */
-  inAppBar?: boolean
-}
-
 /** Where this review sits in the loaded list, and the steps either side. */
 export type ReviewDetailNav = {
   /** 1-based. */
@@ -357,95 +410,6 @@ export type ReviewDetailNav = {
   /** Undefined at that end of the list: the button is drawn but off. */
   onPrevious?: () => void
   onNext?: () => void
-}
-
-/**
- * The phone head (below lg): back to the list (unless the app bar already
- * draws it, `back.inAppBar`), whose review this is, where
- * it sits in the queue and a step either way. Shared by the loading, error
- * and loaded pane so the back control is the SAME element throughout: it
- * takes focus when a review opens from the list, and a control swapped for
- * a new one when the review arrived would drop that focus. From lg the list
- * is beside the review, so the row (and its h1) is not drawn there; the
- * toolbar's "Inbox" is the page's h1 instead.
- */
-function HeadFrame({
-  back,
-  nav,
-  title,
-  titleIsHeading,
-}: {
-  back?: ReviewDetailBack
-  nav?: ReviewDetailNav
-  title: string
-  titleIsHeading: boolean
-}) {
-  if (!back) return null
-  const Title = titleIsHeading ? "h1" : "p"
-  const { ref: backRef, label: backLabel, onBack, inAppBar = false } = back
-  const total = `${nav?.total ?? 0}${nav?.more ? "+" : ""}`
-  return (
-    <div
-      data-slot="review-head"
-      className={cn(
-        "flex min-w-0 shrink-0 items-center gap-1 border-b border-line px-1 py-1 lg:hidden",
-        // Without the back button the title starts at the page gutter.
-        inAppBar && "pl-3"
-      )}
-    >
-      {/* The visible word is part of the name ("Back to Inbox" contains
-          "Inbox"), so a voice user can say what they see. */}
-      {inAppBar ? null : (
-        <Button
-          ref={backRef}
-          variant="ghost"
-          aria-label={`Back to ${backLabel}`}
-          onClick={onBack}
-          className="h-11 shrink-0 gap-0.5 pr-2.5 pl-1.5 text-ui"
-        >
-          <ChevronLeftIcon aria-hidden strokeWidth={1.75} className="size-5" />
-          {backLabel}
-        </Button>
-      )}
-      <Title
-        data-slot="review-title"
-        className="min-w-0 flex-1 truncate px-1 text-title font-semibold text-ink"
-      >
-        {title}
-      </Title>
-      {nav ? (
-        <>
-          <p
-            data-slot="review-position"
-            className="shrink-0 px-1 text-caption whitespace-nowrap text-ink-muted tabular-nums"
-          >
-            <span className="sr-only">Review </span>
-            {nav.position} of {total}
-          </p>
-          <Button
-            variant="ghost"
-            size="icon-lg"
-            aria-label="Previous review"
-            data-nav="previous"
-            disabled={!nav.onPrevious}
-            onClick={nav.onPrevious}
-          >
-            <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-lg"
-            aria-label="Next review"
-            data-nav="next"
-            disabled={!nav.onNext}
-            onClick={nav.onNext}
-          >
-            <ChevronRightIcon aria-hidden strokeWidth={1.75} />
-          </Button>
-        </>
-      ) : null}
-    </div>
-  )
 }
 
 /**
@@ -522,7 +486,16 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
   // the old grid emitted an empty <li> for each one, leaving phantom gaps.
   const items = media.filter((item) => item.thumbnailUrl ?? item.videoUrl)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  // Thumbnails that would not load (an expired Google CDN link): the tile
+  // says so in its own words instead of the browser's broken-image glyph.
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set())
   if (items.length === 0) return null
+
+  function markFailed(id: string) {
+    setFailed((previous) =>
+      previous.has(id) ? previous : new Set(previous).add(id)
+    )
+  }
 
   const active = activeIndex !== null ? (items[activeIndex] ?? null) : null
   const activeLabel = active
@@ -554,6 +527,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
           const label =
             item.thumbnailLabel ??
             (item.videoUrl ? "Review video" : "Review photo")
+          const unavailable = failed.has(item.id)
           return (
             <li key={item.id} className="relative">
               <button
@@ -562,7 +536,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                 onClick={() => setActiveIndex(index)}
                 className="relative block w-full overflow-hidden rounded-(--np-radius-control) bg-fill focus-halo hairline transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:scale-[0.98]"
               >
-                {item.thumbnailUrl ? (
+                {item.thumbnailUrl && !unavailable ? (
                   // Remote Google CDN thumbnails, not project assets — next/image
                   // cannot optimise them and would need every host allowlisted.
                   // eslint-disable-next-line @next/next/no-img-element
@@ -570,15 +544,42 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                     src={item.thumbnailUrl}
                     alt=""
                     loading="lazy"
+                    // A server-rendered page can fail the request before React
+                    // attaches `onError` (and React does not replay it), so a
+                    // finished load with no pixels is read as failed here. A
+                    // lazy image that has not been asked for yet is not
+                    // `complete` and has no `currentSrc`, so it is left alone.
+                    ref={(image) => {
+                      if (
+                        image?.complete &&
+                        image.naturalWidth === 0 &&
+                        image.currentSrc
+                      ) {
+                        markFailed(item.id)
+                      }
+                    }}
+                    onError={() => markFailed(item.id)}
                     className="aspect-square w-full object-cover"
                   />
                 ) : (
-                  <span className="flex aspect-square w-full items-center justify-center text-ink-muted">
-                    <PlayIcon
-                      aria-hidden
-                      strokeWidth={1.75}
-                      className="size-4"
-                    />
+                  <span
+                    data-slot={unavailable ? "media-unavailable" : undefined}
+                    title={unavailable ? "Photo unavailable" : undefined}
+                    className="flex aspect-square w-full items-center justify-center text-ink-muted"
+                  >
+                    {unavailable && !item.videoUrl ? (
+                      <ImageOffIcon
+                        aria-hidden
+                        strokeWidth={1.75}
+                        className="size-4"
+                      />
+                    ) : (
+                      <PlayIcon
+                        aria-hidden
+                        strokeWidth={1.75}
+                        className="size-4"
+                      />
+                    )}
                   </span>
                 )}
                 {item.videoUrl ? (
@@ -633,13 +634,18 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                 poster={active.thumbnailUrl ?? undefined}
                 className="max-h-[70svh] w-full rounded-(--np-radius-control) bg-black"
               />
-            ) : active?.thumbnailUrl ? (
+            ) : active?.thumbnailUrl && !failed.has(active.id) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={active.thumbnailUrl}
                 alt={activeLabel}
+                onError={() => markFailed(active.id)}
                 className="max-h-[70svh] w-full rounded-(--np-radius-control) object-contain"
               />
+            ) : active ? (
+              <p className="py-10 text-center text-body text-ink-muted">
+                Photo unavailable
+              </p>
             ) : null}
             {hasMultiple ? (
               <>
@@ -864,12 +870,16 @@ function ReviewThread({
   clientName,
   composer,
   focusHeading,
+  titleIsHeading,
+  nav,
   viewOnly = false,
 }: {
   review: Review
   clientName?: string | null
   composer?: ReactNode
   focusHeading?: boolean
+  titleIsHeading?: boolean
+  nav?: ReviewDetailNav
   viewOnly?: boolean
 }) {
   const displayName = reviewerName(review)
@@ -894,8 +904,15 @@ function ReviewThread({
             review={review}
             clientName={clientName}
             focusHeading={focusHeading}
+            titleIsHeading={titleIsHeading}
+            nav={nav}
+            actions={
+              <>
+                {nav ? <ReviewSteps nav={nav} /> : null}
+                <ReviewMenu review={review} />
+              </>
+            }
           />
-          <ReviewMenu review={review} />
         </div>
         <div className={THREAD_BODY_CLASS}>
           <ReviewBody review={review} />
@@ -923,12 +940,12 @@ function ReviewThread({
         {/* The composer's header row: who the reply is written as, and
             where it will be seen. */}
         <div className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 @max-[480px]/detail:min-h-8">
-          <h3
+          <h2
             data-slot="reply-heading"
             className="min-w-0 text-ui font-semibold break-words text-ink"
           >
             Reply as {review.locationName}
-          </h3>
+          </h2>
           <p className="text-caption text-ink-muted">
             {replyVisibility(review)}
           </p>
@@ -989,13 +1006,13 @@ const COLUMN_CLASS =
 function ReviewDetail({
   reviewId,
   clientName,
-  back,
+  onBack,
   nav,
   heading,
   composer,
   actions,
   focusHeading = false,
-  titleIsHeading = true,
+  titleIsHeading = false,
 }: {
   reviewId: string
   /**
@@ -1003,11 +1020,15 @@ function ReviewDetail({
    * agency (from the list row). Drawn before the location in the head.
    */
   clientName?: string | null
-  /** The phone head's return-to-list control (drawn below lg only). */
-  back?: ReviewDetailBack
-  /** The phone head's position and previous / next steps. */
+  /**
+   * Back to the list, for a pane that failed while rendering. The way back
+   * of a healthy review is the shell's app bar ("‹ Inbox"), not a control
+   * here.
+   */
+  onBack?: () => void
+  /** Where the review sits in the list, with the steps either side. */
   nav?: ReviewDetailNav
-  /** The reviewer's name as the list knows it, for the head until it loads. */
+  /** The reviewer's name as the list knows it, until the review loads. */
   heading?: string
   /** The reply workspace — preview or composer — inside the reading column. */
   composer?: ReactNode
@@ -1016,8 +1037,9 @@ function ReviewDetail({
   /** Move focus to the reviewer's name once it loads (after an advance). */
   focusHeading?: boolean
   /**
-   * Whether the phone head's title is the page's h1. Not where the list is
-   * beside the review: the head is hidden there and "Inbox" is the h1.
+   * Whether the reviewer's name is the page's h1: below lg, where the review
+   * has replaced the list. Not where the list is beside the review, and
+   * "Inbox" is the h1.
    */
   titleIsHeading?: boolean
 }) {
@@ -1030,6 +1052,25 @@ function ReviewDetail({
   const review = query.data?.review
   const pending = query.isPending
   const failed = !pending && (query.isError || !review)
+
+  // The steps row is drawn while loading, failed and loaded, but not as the
+  // same element: when the review lands the loading row is replaced and the
+  // button the operator pressed unmounts, dropping focus to <body>. So the
+  // step last focused is remembered, and handed back to its twin when the
+  // pane changes state. (A real blur — the operator moved on — forgets it;
+  // an unmount does not blur.)
+  const stepFocusRef = useRef<string | null>(null)
+  const phase = review ? "loaded" : failed ? "failed" : "loading"
+  useEffect(() => {
+    const nav = stepFocusRef.current
+    if (!nav) return
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    const button = paneRef.current?.querySelector<HTMLButtonElement>(
+      `[data-slot="review-steps"] [data-nav="${nav}"]`
+    )
+    if (button && !button.disabled) button.focus({ preventScroll: true })
+  }, [phase, reviewId])
   // Someone who can neither edit, publish nor ask for approval has nothing
   // to press: no publish bar (so no docked bar either; the tab bar stays).
   const caps = review?.capabilities
@@ -1042,22 +1083,26 @@ function ReviewDetail({
     <div
       ref={paneRef}
       aria-busy={pending || undefined}
+      onFocus={(event) => {
+        const target = event.target as HTMLElement
+        stepFocusRef.current = target.closest('[data-slot="review-steps"]')
+          ? (target.dataset.nav ?? null)
+          : null
+      }}
+      onBlur={(event) => {
+        if ((event.target as HTMLElement).isConnected) {
+          stepFocusRef.current = null
+        }
+      }}
       // Below lg the review is the whole screen, at least as tall as the
       // window under the app bar, so the publish bar is pinned to the foot
       // of the screen from the first paint — loading, short review or long —
       // rather than sitting under a skeleton and dropping when it fills in.
       className="group/pane @container/detail flex flex-1 flex-col max-lg:min-h-[calc(100svh-var(--np-appbar-h))] lg:min-h-0"
     >
-      <HeadFrame
-        back={back}
-        nav={nav}
-        title={title}
-        titleIsHeading={titleIsHeading}
-      />
-
-      {/* Inside the head, so a review that throws while rendering keeps the
-          way back to the list. */}
-      <DetailErrorBoundary onBack={back?.onBack}>
+      {/* A review that throws while rendering keeps the way back to the
+          list. */}
+      <DetailErrorBoundary onBack={onBack}>
         {/* One reading order, one scroll region: what is in the way, then
             the customer's words and the reply — with the publish bar pinned
             beneath. */}
@@ -1070,25 +1115,71 @@ function ReviewDetail({
                 clientName={clientName}
                 composer={composer}
                 focusHeading={focusHeading}
+                titleIsHeading={titleIsHeading}
+                nav={nav}
                 viewOnly={viewOnly}
               />
             </div>
           </div>
         ) : failed ? (
-          <QueryError
-            title="We could not load this review."
-            cause={query.error}
-            onRetry={() => void query.refetch()}
-            className="p-(--np-card-pad)"
-          />
+          <>
+            {nav ? (
+              // The steps stay while the review is out of reach, so the
+              // operator can move on and focus stays on the step pressed.
+              <div className="px-8 pt-8 max-md:px-(--np-page-pad-x) @max-[480px]/detail:pt-5">
+                <div className={COLUMN_CLASS}>
+                  <div className="flex min-w-0 items-start gap-1">
+                    <LoadingHeading
+                      titleIsHeading={titleIsHeading}
+                      className="flex-1"
+                    >
+                      {title}
+                    </LoadingHeading>
+                    <ReviewSteps nav={nav} />
+                  </div>
+                  <ReviewPosition nav={nav} />
+                </div>
+              </div>
+            ) : titleIsHeading ? (
+              <h1 className="sr-only">{title}</h1>
+            ) : null}
+            <QueryError
+              title="We could not load this review."
+              cause={query.error}
+              onRetry={() => void query.refetch()}
+              className="p-(--np-card-pad)"
+            />
+          </>
         ) : (
           <div className={SCROLL_CLASS}>
             <div className={COLUMN_CLASS}>
+              {titleIsHeading && !heading ? (
+                <h1 className="sr-only">{title}</h1>
+              ) : null}
               <div className={THREAD_ITEM_CLASS}>
                 <Skeleton className="size-11 rounded-(--np-radius-pill) @max-[480px]/detail:size-8" />
-                <div className="flex flex-col gap-1.5 pt-1">
-                  <Skeleton className="h-5 w-40" />
-                  <Skeleton className="h-3 w-56 max-w-full" />
+                <div className="flex min-w-0 flex-col gap-1.5 pt-1">
+                  <div className="flex min-w-0 items-start gap-1">
+                    {heading ? (
+                      // The name the list already knows, so the heading is
+                      // there from the first paint and does not jump.
+                      <LoadingHeading
+                        titleIsHeading={titleIsHeading}
+                        className="flex-1"
+                      >
+                        {heading}
+                      </LoadingHeading>
+                    ) : (
+                      <Skeleton className="h-5 w-40" />
+                    )}
+                    {/* The steps are there while the next review loads, so
+                        focus stays on the one pressed. */}
+                    {nav ? <ReviewSteps nav={nav} /> : null}
+                  </div>
+                  <div className="flex min-w-0 items-baseline justify-between gap-3">
+                    <Skeleton className="h-3 w-56 max-w-full" />
+                    {nav ? <ReviewPosition nav={nav} /> : null}
+                  </div>
                 </div>
               </div>
               <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
@@ -1142,6 +1233,29 @@ function ReviewDetail({
         ) : null}
       </DetailErrorBoundary>
     </div>
+  )
+}
+
+/** The reviewer's name while the rest of the review loads. */
+function LoadingHeading({
+  titleIsHeading,
+  className,
+  children,
+}: {
+  titleIsHeading: boolean
+  className?: string
+  children: ReactNode
+}) {
+  const Heading = titleIsHeading ? "h1" : "h2"
+  return (
+    <Heading
+      className={cn(
+        "line-clamp-2 min-w-0 text-section font-medium break-words text-ink",
+        className
+      )}
+    >
+      {children}
+    </Heading>
   )
 }
 

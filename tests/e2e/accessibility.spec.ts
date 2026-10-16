@@ -1069,7 +1069,8 @@ for (const theme of themes) {
               .filter({ hasText: "Jordan Lee" })
           ).toHaveAttribute("aria-current", "true")
           // The pushed review's one labelled way back: the app bar's
-          // "‹ Inbox" link (PageChrome back); the review head draws none.
+          // "‹ Inbox" link (PageChrome back); the review draws none, and
+          // has no head band above its first line.
           const backButton = page.getByRole("link", {
             name: "Back to Inbox",
           })
@@ -1084,9 +1085,17 @@ for (const theme of themes) {
         await expect(selectedReview).toBeVisible()
         // The pane leads with the reviewer, then the customer's words, then
         // the reply — one reading order, with no five-stage tracker above it.
+        // On a phone the review has replaced the list, so the name is the
+        // page's h1; from lg "Inbox" is, and the name is an h2.
         await expect(
-          selectedReview.getByRole("heading", { name: "Jordan Lee", level: 2 })
+          selectedReview.getByRole("heading", {
+            name: "Jordan Lee",
+            level: viewport.name === "mobile" ? 1 : 2,
+          })
         ).toBeVisible()
+        await expect(
+          selectedReview.locator('[data-slot="review-head"]')
+        ).toHaveCount(0)
         // The customer's words open the thread, above the reply.
         await expect(
           selectedReview.getByRole("article", {
@@ -1115,14 +1124,15 @@ for (const theme of themes) {
           })
         ).toBeHidden()
 
-        // AI generate is manual: Regenerate (there is text) + tone are
-        // available, but nothing calls the LLM until the operator clicks.
+        // AI generate is manual: Regenerate (there is text) is available, with
+        // the tone chosen inside it, but nothing calls the LLM until the
+        // operator picks one.
         await expect(
           selectedReview.getByRole("button", { name: "Regenerate" })
         ).toBeVisible()
         await expect(
           selectedReview.getByRole("radiogroup", { name: "Reply tone" })
-        ).toBeVisible()
+        ).toHaveCount(0)
         // Checks are said under the editor only when they fail or warn; a
         // passed check draws nothing, and there is no checks panel.
         await expect(
