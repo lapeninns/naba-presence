@@ -783,7 +783,7 @@ test.describe("touch: critical journeys at 390x844", () => {
     await tap(monday)
     await expect(monday).toBeChecked()
 
-    await tap(page.getByRole("button", { name: "Copy to… (Monday’s hours)" }))
+    await tap(page.getByRole("button", { name: "Copy Monday to…" }))
     const sheet = page.getByRole("dialog", { name: "Copy Monday’s hours" })
     await expect(sheet).toBeVisible()
     const tuesdayPick = sheet.getByRole("checkbox", { name: /^Tuesday/ })

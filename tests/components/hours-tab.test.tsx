@@ -55,6 +55,42 @@ function makeHours(overrides: Partial<HoursState> = {}): HoursState {
   }
 }
 
+type User = ReturnType<typeof userEvent.setup>
+
+/** A weekday's fields live in its sheet: open it from its row. */
+async function openDay(user: User, name = "Monday") {
+  await user.click(screen.getByRole("button", { name: new RegExp(`^${name}`) }))
+  return screen.findByRole("dialog", { name: new RegExp(`^${name} hours$`) })
+}
+
+async function closeDay(user: User, dialog: HTMLElement) {
+  await user.click(within(dialog).getByRole("button", { name: "Done" }))
+  await waitFor(() => expect(dialog).not.toBeInTheDocument())
+}
+
+/** Type a new Monday opening time through the day's sheet, then close it. */
+async function setMondayOpens(user: User, time: string) {
+  const dialog = await openDay(user)
+  const opens = within(dialog).getByLabelText("Monday period 1 opens")
+  await user.clear(opens)
+  await user.type(opens, time)
+  await closeDay(user, dialog)
+}
+
+/** Read Monday's opening time back from its sheet. */
+async function expectMondayOpens(user: User, time: string) {
+  // A review or publish sheet left open hides the day rows: close it first.
+  if (!screen.queryByRole("button", { name: /^Monday/ })) {
+    await user.keyboard("{Escape}")
+    await screen.findByRole("button", { name: /^Monday/ })
+  }
+  const dialog = await openDay(user)
+  expect(within(dialog).getByLabelText("Monday period 1 opens")).toHaveValue(
+    time
+  )
+  await closeDay(user, dialog)
+}
+
 function renderTab() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -101,8 +137,9 @@ describe("HoursTab", () => {
     const notices = Array.from(
       container.querySelectorAll<HTMLElement>('[data-slot="alert"]')
     )
-    // The weekly notice, and the service-options note in the service group.
-    expect(notices).toHaveLength(2)
+    // One notice for the weekly schedule; the service-options note is a plain
+    // line in the service group, not another alert.
+    expect(notices).toHaveLength(1)
     const notice = notices[0]!
     expect(["alert", "status"]).toContain(notice.getAttribute("role"))
     // Google is empty and the boundaries need confirming: two notes, one
@@ -116,7 +153,7 @@ describe("HoursTab", () => {
     expect(notice).toHaveTextContent("No hours on Google")
     expect(
       screen.getByText(SERVICE_OPTIONS_WARNING).closest('[data-slot="alert"]')
-    ).not.toBe(notice)
+    ).toBeNull()
     expect(
       within(notice).getByRole("button", {
         name: "Match Google closing boundaries",
@@ -159,13 +196,15 @@ describe("HoursTab", () => {
     expect(screen.queryByText(/Times are in/)).not.toBeInTheDocument()
   })
 
-  it("names every Copy to… control with its visible text", () => {
+  it("names every Copy to… control with its visible text", async () => {
+    const user = userEvent.setup()
     useHoursMock.mockReturnValue({ data: makeHours(), isPending: false })
     useCapsMock.mockReturnValue({
       data: { canEditCanonical: true, canPublish: true },
     })
     renderTab()
-    const copy = screen.getAllByRole("button", { name: /^Copy to…/ })
+    const dialog = await openDay(user)
+    const copy = within(dialog).getAllByRole("button", { name: /^Copy to…/ })
     expect(copy.length).toBeGreaterThan(0)
     for (const button of copy)
       expect(button.getAttribute("aria-label")).toContain(
@@ -229,9 +268,7 @@ describe("HoursTab", () => {
 
     // Dirty the draft: close Monday, which Google currently has as closed too,
     // so open it a different way — change the opening time.
-    const opensAt = screen.getByLabelText(/Monday.*opens/i)
-    await user.clear(opensAt)
-    await user.type(opensAt, "08:00")
+    await setMondayOpens(user, "08:00")
 
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     const sheet = await screen.findByRole("dialog")
@@ -301,8 +338,7 @@ describe("HoursTab", () => {
     ).toBeDisabled()
     // Saving here is not publishing: with an edit to keep it stays
     // available for an owner (there is no bar, or no Save here, until then).
-    await user.clear(screen.getByLabelText("Monday period 1 opens"))
-    await user.type(screen.getByLabelText("Monday period 1 opens"), "08:00")
+    await setMondayOpens(user, "08:00")
     expect(screen.getByRole("button", { name: "Save here" })).toBeEnabled()
     expect(
       screen.getByRole("button", { name: "Review changes" })
@@ -322,9 +358,11 @@ describe("HoursTab", () => {
       data: { canEditCanonical: true, canPublish: true },
     })
     renderTab()
-    const closes = screen.getByLabelText("Monday period 1 closes")
+    const edit = await openDay(user)
+    const closes = within(edit).getByLabelText("Monday period 1 closes")
     await user.clear(closes)
     await user.type(closes, "09:00")
+    await closeDay(user, edit)
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     const summary = await screen.findByRole("alert", {
       name: /problem to fix/i,
@@ -335,12 +373,23 @@ describe("HoursTab", () => {
         name: /Monday: Opening and closing times are the same/,
       })
     ).toHaveAttribute("href", "#hours-1-0-opens")
-    expect(screen.getByLabelText("Monday period 1 opens")).toHaveAttribute(
+    // Nothing is offered for publishing while the draft is invalid.
+    expect(screen.queryByRole("dialog", { name: /review/i })).toBeNull()
+    // The row says what is wrong without opening the day.
+    expect(
+      screen.getByRole("button", { name: /^Monday/ })
+    ).toHaveAccessibleDescription(/Opening and closing times are the same/)
+    // The link opens the day's sheet on the field that needs fixing.
+    await user.click(
+      within(summary).getByRole("link", {
+        name: /Monday: Opening and closing times are the same/,
+      })
+    )
+    const fix = await screen.findByRole("dialog")
+    expect(within(fix).getByLabelText("Monday period 1 opens")).toHaveAttribute(
       "aria-invalid",
       "true"
     )
-    // No sheet: nothing is offered for publishing while the draft is invalid.
-    expect(screen.queryByRole("dialog")).toBeNull()
   })
 
   it("opens a special day's sheet before the summary moves focus to its field", async () => {
@@ -423,8 +472,7 @@ describe("HoursTab reviewed snapshots", () => {
         )
       )
     const view = setup(state)
-    await user.clear(screen.getByLabelText("Monday period 1 opens"))
-    await user.type(screen.getByLabelText("Monday period 1 opens"), "08:00")
+    await setMondayOpens(user, "08:00")
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
@@ -437,7 +485,7 @@ describe("HoursTab reviewed snapshots", () => {
     expect(fetchSpy.mock.calls.map((call) => call[1]?.method ?? "GET")).toEqual(
       ["PUT", "GET"]
     )
-    expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("08:00")
+    await expectMondayOpens(user, "08:00")
     useHoursMock.mockReturnValue({
       data: makeHours({
         canonicalResource: { revision: "4", updatedAt: "later" },
@@ -447,7 +495,7 @@ describe("HoursTab reviewed snapshots", () => {
       refetch: vi.fn(),
     })
     view.rerenderTab()
-    expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("08:00")
+    await expectMondayOpens(user, "08:00")
     expect(
       screen.getByText(/Someone else saved these hours/)
     ).toBeInTheDocument()
@@ -524,8 +572,7 @@ describe("HoursTab reviewed snapshots", () => {
       )
     )
     setup(state)
-    await user.clear(screen.getByLabelText("Monday period 1 opens"))
-    await user.type(screen.getByLabelText("Monday period 1 opens"), "08:00")
+    await setMondayOpens(user, "08:00")
     await user.click(screen.getByRole("button", { name: "Save here" }))
     await screen.findAllByText(
       "Google or our service is temporarily unavailable. Try again shortly."
@@ -533,12 +580,14 @@ describe("HoursTab reviewed snapshots", () => {
     expect(
       JSON.parse(String(fetchSpy.mock.calls[0][1]?.body)).hours.moreHours
     ).toEqual(state.canonical.moreHours)
-    expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("08:00")
+    await expectMondayOpens(user, "08:00")
+    const unknownDay = await openDay(user, "UNKNOWN Sunday")
     expect(
-      screen.getByRole("combobox", {
+      within(unknownDay).getByRole("combobox", {
         name: "UNKNOWN Sunday period 1 closing day",
       })
     ).toHaveTextContent("Next day (Monday)")
+    await closeDay(user, unknownDay)
     fetchSpy.mockRestore()
   })
   it("cleans a dirty draft after its verified save and successful publish", async () => {
@@ -556,8 +605,7 @@ describe("HoursTab reviewed snapshots", () => {
       .spyOn(hoursApi, "publishHours")
       .mockResolvedValue({ status: "published" })
     const view = setup(makeHours())
-    await user.clear(screen.getByLabelText("Monday period 1 opens"))
-    await user.type(screen.getByLabelText("Monday period 1 opens"), "08:00")
+    await setMondayOpens(user, "08:00")
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
@@ -579,7 +627,7 @@ describe("HoursTab reviewed snapshots", () => {
     expect(
       screen.queryByText(/Someone else saved these hours/)
     ).not.toBeInTheDocument()
-    expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("08:00")
+    await expectMondayOpens(user, "08:00")
   })
 })
 
