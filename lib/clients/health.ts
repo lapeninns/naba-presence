@@ -247,7 +247,7 @@ export function healthTone(health: ClientHealth): HealthTone {
 /** Short label for a chip or a table cell. */
 const LABELS: Record<ClientHealth, string> = {
   unchecked: "Not checked",
-  partially_checked: "Partially checked",
+  partially_checked: "Some listings not checked yet",
   unpublished: "Changes to publish",
   healthy: "In sync",
   syncing: "Importing",

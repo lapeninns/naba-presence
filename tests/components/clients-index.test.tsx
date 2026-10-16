@@ -180,7 +180,7 @@ describe("ClientsIndex", () => {
       "Needs attention 1",
       "In sync 2",
       "Not checked 1",
-      "Partially checked 1",
+      "Some listings not checked yet 1",
       "Changes to publish 1",
       "Not set up 1",
     ])
@@ -191,8 +191,57 @@ describe("ClientsIndex", () => {
     })
   })
 
+  it("draws only the health buckets that have clients, with All first", async () => {
+    stub([
+      { ...base, id: "a", name: "A", health: "partially_checked" },
+      { ...base, id: "b", name: "B", health: "healthy" },
+    ])
+    renderIndex()
+    const strip = await screen.findByRole("group", { name: "Filter by health" })
+    // No "Action needed 0" or "Needs attention 0" ahead of the one that
+    // matters, and nothing past the edge of the strip to scroll to.
+    expect(
+      within(strip)
+        .getAllByRole("button")
+        .map((chip) => chip.textContent)
+    ).toEqual(["All 2", "In sync 1", "Some listings not checked yet 1"])
+  })
+
+  it("keeps an empty bucket's chip while it is the chosen filter", async () => {
+    search = new URLSearchParams("health=disconnected")
+    stub([{ ...base, id: "a", name: "A", health: "healthy" }])
+    renderIndex()
+    const strip = await screen.findByRole("group", { name: "Filter by health" })
+    const chosen = within(strip).getByRole("button", { pressed: true })
+    // Zero draws no figure, but the name still says it.
+    expect(chosen).toHaveAccessibleName("Action needed, 0")
+    expect(chosen).toHaveTextContent(/^Action needed$/)
+    fireEvent.click(chosen)
+    expect(replace).toHaveBeenCalledWith("/clients", { scroll: false })
+  })
+
+  it("wraps the chips from md and puts search on a row of its own", async () => {
+    stub([base])
+    renderIndex()
+    const strip = await screen.findByRole("group", { name: "Filter by health" })
+    expect(strip).toHaveClass("md:flex-wrap")
+    const search = screen.getByRole("search")
+    // The chips are not inside the search row, and the pair stack at every
+    // width (no `md:flex-row`), so 1280px never clips a chip.
+    expect(search.contains(strip)).toBe(false)
+    expect(search.parentElement).toBe(strip.parentElement)
+    expect(search.parentElement).not.toHaveClass("md:flex-row")
+  })
+
+  it("says a client has never synced in words", async () => {
+    stub([{ ...base, lastSyncAt: null }])
+    renderIndex()
+    expect(await screen.findByText("Not synced yet")).toBeInTheDocument()
+    expect(screen.queryByText("Not yet")).not.toBeInTheDocument()
+  })
+
   it("never shows a card whose health contradicts the chosen chip's count", async () => {
-    // The old tiles said 0/0/0/0 beside a client marked Partially checked.
+    // The old tiles said 0/0/0/0 beside a client marked as partly checked.
     search = new URLSearchParams("health=partially_checked")
     stub([
       { ...base, id: "a", name: "Alpha", health: "partially_checked" },
@@ -202,14 +251,14 @@ describe("ClientsIndex", () => {
     renderIndex()
     const strip = await screen.findByRole("group", { name: "Filter by health" })
     const chosen = within(strip).getByRole("button", { pressed: true })
-    expect(chosen).toHaveTextContent("Partially checked 2")
+    expect(chosen).toHaveTextContent("Some listings not checked yet 2")
     const table = screen.getByRole("table", {
       name: "Clients, with their Google health and open review work",
     })
     const cards = within(table).getAllByRole("row").slice(1)
     expect(cards).toHaveLength(2)
     for (const card of cards)
-      expect(card).toHaveTextContent("Partially checked")
+      expect(card).toHaveTextContent("Some listings not checked yet")
     expect(screen.getByText(/2 of 3 clients/)).toBeInTheDocument()
   })
 
@@ -275,10 +324,19 @@ describe("ClientsIndex", () => {
     expect(name).toHaveAttribute("href", "/clients/c1")
     expect(cell("secondary")[0]).toHaveTextContent("Action needed")
     expect(cell("trailing")[0]).toHaveTextContent("2 to reply· 1 approval")
+    // The meta line is two sentences, not a label joined to a bare value.
     expect(cell("meta").map((td) => td.getAttribute("data-label"))).toEqual([
-      "Linked",
-      "Synced",
+      null,
+      null,
     ])
+    expect(cell("meta")[0]).toHaveTextContent("3 of 3 listings linked")
+    expect(cell("meta")[1]).toHaveTextContent(/^Synced /)
+    // One target: the only link in the card is the client's own name, and
+    // the open work beside it is text, not a second link to the Inbox.
+    expect(within(row).getAllByRole("link")).toEqual([name])
+    expect(
+      within(cell("trailing")[0] as HTMLElement).queryByRole("link")
+    ).toBeNull()
     // A tap anywhere on the card opens the client.
     fireEvent.click(row)
     expect(push).toHaveBeenCalledWith("/clients/c1")

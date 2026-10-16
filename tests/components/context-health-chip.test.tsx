@@ -52,11 +52,11 @@ describe("ContextHealthChip", () => {
     scope.clientId = "c1"
     render(<ContextHealthChip />)
     const chip = screen.getByRole("link", {
-      name: "Journey Hospitality: Partially checked",
+      name: "Journey Hospitality: Some listings not checked yet",
     })
     expect(chip).toHaveAttribute(
       "title",
-      "Journey Hospitality: Partially checked"
+      "Journey Hospitality: Some listings not checked yet"
     )
     expect(chip).toHaveAttribute("href", "/clients/c1")
   })

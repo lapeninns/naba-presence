@@ -1,8 +1,6 @@
 "use client"
 
-import * as React from "react"
-
-import { ChipRow, FilterChip } from "@/components/ui/chip"
+import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
 import {
   HEALTH_FILTERS,
   healthBucket,
@@ -35,11 +33,12 @@ const ALERT_BUCKETS: ReadonlySet<HealthBucket> = new Set([
 ])
 
 /**
- * The Clients list's one health filter: "All" and every bucket, each with
- * its count, as a sideways-scrolling chip strip. A chip is never truncated;
- * the strip fades at whichever edge has more chips beyond it, and the chosen
- * chip is scrolled into view when it changes (and on load, for a shared
- * `?health=` link).
+ * The Clients list's one health filter: "All" and the buckets that have
+ * clients in them, each with its count, on the shared filter chip (the
+ * Listings board's strip). A bucket with no clients is not drawn, unless it
+ * is the one chosen (an old `?health=` link keeps its chip, so the filter
+ * never vanishes from under the reader). A phone scrolls the strip sideways
+ * with an edge fade; from `md` the chips wrap, so none is ever clipped.
  */
 export function HealthFilterStrip({
   value,
@@ -50,57 +49,14 @@ export function HealthFilterStrip({
   counts: Record<HealthFilter, number>
   onValueChange: (next: HealthFilter) => void
 }) {
-  const rowRef = React.useRef<HTMLDivElement>(null)
-  const [fade, setFade] = React.useState({ start: false, end: false })
-
-  const measure = React.useCallback(() => {
-    const row = rowRef.current
-    if (!row) return
-    const start = row.scrollLeft > 1
-    const end = row.scrollLeft + row.clientWidth < row.scrollWidth - 1
-    setFade((current) =>
-      current.start === start && current.end === end ? current : { start, end }
-    )
-  }, [])
-
-  React.useEffect(() => {
-    const row = rowRef.current
-    if (!row) return
-    measure()
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(measure)
-    observer.observe(row)
-    return () => observer.disconnect()
-  }, [measure])
-
-  // Keep the chosen chip in view: sideways only, so a filter change never
-  // moves the page itself.
-  React.useEffect(() => {
-    const row = rowRef.current
-    const chip = row?.querySelector<HTMLElement>('[aria-pressed="true"]')
-    if (!row || !chip) return
-    const rowBox = row.getBoundingClientRect()
-    const chipBox = chip.getBoundingClientRect()
-    const gutter = 24
-    if (chipBox.left < rowBox.left) {
-      row.scrollLeft -= rowBox.left - chipBox.left + gutter
-    } else if (chipBox.right > rowBox.right) {
-      row.scrollLeft += chipBox.right - rowBox.right + gutter
-    }
-    measure()
-  }, [value, measure])
-
   return (
-    <ChipRow
-      ref={rowRef}
+    <FilterChipStrip
       role="group"
       aria-label="Filter by health"
-      onScroll={measure}
-      data-fade-start={fade.start || undefined}
-      data-fade-end={fade.end || undefined}
       // Full bleed on a phone: the strip runs to the screen edges and its
-      // first chip lines up with the page gutter.
-      className="data-fade-end:mask-r-from-85% data-fade-start:mask-l-from-85% max-md:scroll-px-5 max-md:px-5"
+      // first chip lines up with the page gutter. From md it wraps; the row
+      // gap leaves room for the 44px touch extension of each chip.
+      className="max-md:-mx-5 max-md:scroll-px-5 max-md:px-5 md:flex-wrap md:gap-y-4 desk:gap-y-1.5"
     >
       {HEALTH_FILTERS.map((filter) => {
         const count = counts[filter.value]
@@ -110,6 +66,7 @@ export function HealthFilterStrip({
             key={filter.value}
             pressed={pressed}
             count={formatNumber(count)}
+            hideWhenZero={filter.value !== "all"}
             countTone={
               filter.value !== "all" &&
               ALERT_BUCKETS.has(filter.value) &&
@@ -128,6 +85,6 @@ export function HealthFilterStrip({
           </FilterChip>
         )
       })}
-    </ChipRow>
+    </FilterChipStrip>
   )
 }
