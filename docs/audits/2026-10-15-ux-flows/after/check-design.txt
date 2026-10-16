@@ -1,0 +1,31 @@
+                          R1    R2    R3    R4    R5    R6    R7  total
+components/ui              5     ·    21     9     ·     ·     ·     35
+components/app-shell       2     1    20     ·     ·     ·     2     25
+app/design-system          5     ·     8     3     ·     2     ·     18
+components/inbox           ·     1     ·     ·     ·     ·     9     10
+lib/clients                ·     6     ·     ·     ·     ·     ·      6
+components/listings        ·     ·     ·     ·     ·     ·     3      3
+components/setup           ·     ·     2     ·     ·     ·     ·      2
+app/(auth)                 ·     ·     1     ·     ·     ·     ·      1
+app/(dashboard)/setup      ·     ·     1     ·     ·     ·     ·      1
+components/locations       ·     ·     1     ·     ·     ·     ·      1
+components/settings        ·     1     ·     ·     ·     ·     ·      1
+lib/hooks                  ·     ·     ·     ·     1     ·     ·      1
+total                     12     9    54    12     1     2    14    104
+
+R1 Arbitrary type size (12): text-[11px] ×3, text-base ×3, text-[11.5px] ×2, text-[17px] ×1, leading-[18px] ×1, leading-5 ×1
+   fix: Use text-caption / count / ui / body / title / section / page-title / display / reading, or add a role to globals.css.
+R2 Literal colour (9): bg-white ×2, bg-black ×1, #7A4E3B ×1, #3F5E52 ×1, #4A4C7A ×1, #6B4A6B ×1
+   fix: Use a semantic role utility (text-ink-muted, bg-surface, border-line, bg-danger-tint…); add a role in layer 2 if none fits.
+R3 Arbitrary spacing or size (54): grid-cols-[13.75rem_minmax(0,1fr)] ×3, h-[34px] ×3, grid-cols-[12rem_1fr] ×2, flex-[1_1_12rem] ×2, pl-[11px] ×2, grid-cols-[minmax(0,1fr)_minmax(22.5rem,32.5rem)] ×1
+   fix: Use the spacing scale or a --np-* token (h-(--np-control-h), px-(--np-page-pad-x)); add a token for a repeated value.
+R4 Arbitrary radius, shadow or z-index (12): z-10 ×3, rounded-[7px] ×2, rounded-[2px] ×1, rounded-t-[3px] ×1, rounded-[3px] ×1, rounded-[5px] ×1
+   fix: Use rounded-sm/md/lg/xl/2xl/full and shadow-np-raised/pop/modal/hairline; z-index waits for the shared scale.
+R5 Raw primitive in feature code (1): window.confirm() ×1
+   fix: Use the components/ui primitive (Select, Dialog/AlertDialog, Table/DataTable, Checkbox, RadioGroup).
+R6 Inline style (2): style={{…}} ×2
+   fix: Use utilities; for a runtime value set a custom property (style={{ '--x': v }}) and read it with a utility.
+R7 Literal breakpoint (14): [@media(min-height:620px)]: ×14
+   fix: Use sm/md/lg/xl, the controls/capsules variants, or a container query (@max-*); share JS queries from one module.
+
+42 files with findings. Details: --json <file>. Gate: --ratchet.
