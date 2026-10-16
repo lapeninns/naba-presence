@@ -407,7 +407,22 @@ export async function apiFetch<T = unknown>(
     }
   }
 
-  const responseSchema = await schemaReady
+  let responseSchema: Awaited<typeof schemaReady>
+  try {
+    responseSchema = await schemaReady
+  } catch {
+    // The server answered 2xx, so a write behind it was applied; only the
+    // check of its answer could not run (the schema's chunk failed to load).
+    // Treat it like a malformed answer: the intent is kept, so a retry is
+    // answered from the receipt instead of writing again.
+    throw new ApiClientError(
+      500,
+      "malformed_response",
+      "The server response could not be checked.",
+      undefined,
+      { intentId }
+    )
+  }
   if (!responseSchema) return payload.raw as T
   const parsed = responseSchema.safeParse(payload.raw)
   if (!parsed.success) {

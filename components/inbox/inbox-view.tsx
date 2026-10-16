@@ -1,5 +1,6 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   useCallback,
@@ -14,7 +15,6 @@ import {
 import { useClientScopeHandler } from "@/components/app-shell/client-context"
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
-import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
 import { InboxToolbar } from "@/components/inbox/inbox-toolbar"
 import { ListHeader } from "@/components/inbox/list-header"
@@ -81,6 +81,19 @@ import { pushUrl, replaceUrl } from "@/lib/navigation/shallow-url"
  * page's phone gutter (`max-md:px-4`, app/(dashboard)/inbox/page.tsx) is
  * cancelled, so a row's hairline and fill reach the screen's edges.
  */
+// The bar only matters once something is ticked, and it brings the bulk
+// menus, the confirmations and the triage helpers with it, so it is not part
+// of the first load. It loads right after hydration (a separate chunk, not
+// first-load JS) and renders nothing until a selection exists. Client-only:
+// there is never a selection on the server.
+const BulkActionBar = dynamic(
+  () =>
+    import("@/components/inbox/bulk-action-bar").then(
+      (module) => module.BulkActionBar
+    ),
+  { ssr: false }
+)
+
 const PHONE_BLEED = "max-md:-mx-4"
 
 /** The nearest ancestor that scrolls: the shell's column, or the document. */
