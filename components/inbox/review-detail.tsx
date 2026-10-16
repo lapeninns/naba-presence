@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  CircleSlashIcon,
   ExternalLinkIcon,
   GlobeIcon,
   HistoryIcon,
@@ -12,6 +13,7 @@ import {
   MoreHorizontalIcon,
   PlayIcon,
   TriangleAlertIcon,
+  UserPlusIcon,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -30,9 +32,16 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useMenuSheet } from "@/components/ui/menu-surface"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Stars } from "@/components/ui/stars"
@@ -41,6 +50,14 @@ import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
+import {
+  AssigneeItems,
+  assignReviews,
+  markNoReplyNeeded,
+  NoReplyNeededDialog,
+  useAssignees,
+  useReviewTriage,
+} from "@/components/inbox/review-triage"
 import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
@@ -65,6 +82,7 @@ import { parseReviewText } from "@/lib/inbox/review-text"
 import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { useReplyPending } from "@/lib/queries/use-reply-pending"
+import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
@@ -316,8 +334,26 @@ function venueLabel(review: Review, clientName?: string | null): string {
 }
 
 /**
- * The ⋯ menu beside the reviewer: everything that is true but not part of
- * replying — the listing, the history and the review's details.
+ * The people this review can be assigned to. A component of its own so the
+ * member list is fetched when the menu (or its Assign… submenu) opens, not
+ * for every review that is read.
+ */
+function ReviewAssignItems({
+  review,
+  onAssign,
+}: {
+  review: Review
+  onAssign: (assigneeId: string | null) => void
+}) {
+  const assignees = useAssignees([review.locationId])
+  return <AssigneeItems {...assignees} onAssign={onAssign} />
+}
+
+/**
+ * The ⋯ menu beside the reviewer: the triage that needs no reply (No reply
+ * needed, Assign…) where the reader already is, then everything that is
+ * true but not part of replying — the listing, the history and the review's
+ * details. Triage is offered to everyone but a viewer, as in the bulk bar.
  */
 function ReviewMenu({ review }: { review: Review }) {
   // The dialogs open from menu items that unmount with the menu, so focus
@@ -325,6 +361,14 @@ function ReviewMenu({ review }: { review: Review }) {
   const moreRef = useRef<HTMLButtonElement>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [confirmReviewed, setConfirmReviewed] = useState(false)
+  const canTriage = useSessionRole() !== "viewer"
+  const triage = useReviewTriage()
+  // On a phone the menu is a bottom sheet, where a flyout submenu has
+  // nowhere to fly to; the people are listed in the sheet.
+  const menuIsSheet = useMenuSheet()
+  const assign = (assigneeId: string | null) =>
+    void triage.run(assignReviews([review.id], assigneeId))
 
   return (
     <>
@@ -342,7 +386,30 @@ function ReviewMenu({ review }: { review: Review }) {
         >
           <MoreHorizontalIcon aria-hidden strokeWidth={1.75} />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" title={reviewerName(review)}>
+          {canTriage ? (
+            <>
+              {menuIsSheet ? null : (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <UserPlusIcon aria-hidden />
+                    Assign…
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <ReviewAssignItems review={review} onAssign={assign} />
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              {/* Triage, not a reply: it clears the review from Needs
+                  reply and sends nothing to Google. Confirmed, because
+                  there is no way back. */}
+              <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
+                <CircleSlashIcon aria-hidden />
+                No reply needed
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem
             render={<Link href={`/listings/${review.locationId}`} />}
           >
@@ -371,8 +438,28 @@ function ReviewMenu({ review }: { review: Review }) {
             <InfoIcon aria-hidden />
             Review details
           </DropdownMenuItem>
+          {/* The people come last in the sheet: a long team would
+              otherwise push the actions out of reach. */}
+          {canTriage && menuIsSheet ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                <ReviewAssignItems review={review} onAssign={assign} />
+              </DropdownMenuGroup>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <NoReplyNeededDialog
+        count={1}
+        open={confirmReviewed}
+        onOpenChange={setConfirmReviewed}
+        finalFocus={moreRef}
+        pending={triage.isPending}
+        onConfirm={() => void triage.run(markNoReplyNeeded([review.id]))}
+      />
 
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="sm:max-w-lg" finalFocus={moreRef}>

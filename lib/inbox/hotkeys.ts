@@ -71,9 +71,13 @@ export function isTypingTarget(target: EventTarget | null): boolean {
     tag === "TEXTAREA" ||
     tag === "SELECT" ||
     element.isContentEditable === true ||
-    // A listbox or menu is driving its own arrow keys and letters.
+    // A listbox or menu is driving its own arrow keys and letters. An
+    // alertdialog is a modal question (Cancel is focused), so nothing behind
+    // it may act on a letter: `a` would otherwise publish the draft under it.
     element.getAttribute?.("role") === "listbox" ||
-    element.closest("[role='dialog'],[role='menu'],[role='listbox']") !== null
+    element.closest(
+      "[role='dialog'],[role='alertdialog'],[role='menu'],[role='listbox']"
+    ) !== null
   )
 }
 
