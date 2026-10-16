@@ -116,6 +116,140 @@ export function parseRange<T extends ReportTab>(
 }
 
 /**
+ * The period one tab shows when the reader last chose on another. Reply and
+ * Google count in days, Keywords in whole months, so a choice made in one
+ * unit has to be carried to the nearest period in the other, never dropped.
+ *
+ * Days to months take the shortest whole-month window that still covers the
+ * days (28 days is last month, 90 days is 6 months, as there is no 3-month
+ * window); months to days take the closest (a month is 28 days, 6 months is
+ * 90 days). 12 and 18 months are the same in both.
+ */
+const KEYWORD_FOR_DAYS: Record<ReplyRangeId, KeywordRangeId> = {
+  "28d": "1m",
+  "90d": "6m",
+  "12m": "12m",
+  "18m": "18m",
+}
+
+const DAYS_FOR_KEYWORD: Record<KeywordRangeId, ReplyRangeId> = {
+  "1m": "28d",
+  "6m": "90d",
+  "12m": "12m",
+  "18m": "18m",
+}
+
+function isReplyRange(value: string | null | undefined): value is ReplyRangeId {
+  return REPLY_RANGES.some((option) => option.id === value)
+}
+
+function isKeywordRange(
+  value: string | null | undefined
+): value is KeywordRangeId {
+  return KEYWORD_RANGES.some((option) => option.id === value)
+}
+
+/** "Last 6 months" as it reads inside a sentence: "the last 6 months". */
+function inSentence(label: string) {
+  return `the ${label.charAt(0).toLowerCase()}${label.slice(1)}`
+}
+
+/**
+ * The period a tab shows, from the address.
+ *
+ * `range` is the period for Reply and Google (they share it) and `rangeKw`
+ * is Keywords' own, so each remembers its last choice while the other is
+ * used. A tab with no choice of its own takes the nearest equivalent of the
+ * other's and says so in `note` (null when nothing was carried over). With
+ * no period in the address at all, nothing was carried over, so each tab
+ * opens on its own default with no note. An older link that put a month
+ * period in `range` still opens on it.
+ */
+export function resolveTabRange<T extends ReportTab>(
+  tab: T,
+  params: { range?: string | null; rangeKw?: string | null }
+): { id: RangeFor<T>; note: string | null } {
+  const { range, rangeKw } = params
+  if (tab === "keywords") {
+    const own = isKeywordRange(rangeKw)
+      ? rangeKw
+      : isKeywordRange(range)
+        ? range
+        : null
+    if (own) return { id: own as RangeFor<T>, note: null }
+    if (isReplyRange(range)) {
+      const id = KEYWORD_FOR_DAYS[range]
+      const label = KEYWORD_RANGES.find((option) => option.id === id)!.label
+      return {
+        id: id as RangeFor<T>,
+        note: `Keywords count whole months: showing ${inSentence(label)}.`,
+      }
+    }
+    // Nothing in the address: a direct landing on Keywords, with nothing
+    // carried over, so it opens on its own default and says nothing. (Leaving
+    // Reply or Google for Keywords writes their period first, see
+    // `periodToWriteOnTabSwitch`, so the same visible period always gives the
+    // same Keywords period whatever the click history.)
+    return { id: DEFAULT_RANGES.keywords as RangeFor<T>, note: null }
+  }
+  if (isReplyRange(range)) return { id: range as RangeFor<T>, note: null }
+  const source = isKeywordRange(rangeKw)
+    ? rangeKw
+    : isKeywordRange(range)
+      ? range
+      : null
+  if (source) {
+    const id = DAYS_FOR_KEYWORD[source]
+    const label = REPLY_RANGES.find((option) => option.id === id)!.label
+    return {
+      id: id as RangeFor<T>,
+      // 12 and 18 months mean the same in both units: nothing was changed.
+      note:
+        id === source
+          ? null
+          : `This tab counts in days: showing ${inSentence(label)}.`,
+    }
+  }
+  return { id: DEFAULT_RANGES[tab] as RangeFor<T>, note: null }
+}
+
+/**
+ * What to add to the address when the reader moves between tabs, so the
+ * period they can see on the tab they leave is the one the next tab carries.
+ *
+ * Reply and Google show 28 days when `range` is absent, but absent means
+ * "nothing carried" to Keywords, which would open on its own 6 months while
+ * an explicit `range=28d` opens on 1 month: the same visible period with a
+ * different result, by click history. So leaving Reply or Google for
+ * Keywords with no period anywhere writes the period just shown as `range`.
+ * The reverse, leaving Keywords on its own default, writes `range_kw` so a
+ * round trip comes back to the window it left. A direct landing with no
+ * period (no tab to leave) is untouched. Null when nothing needs writing.
+ */
+export function periodToWriteOnTabSwitch(
+  from: ReportTab,
+  to: ReportTab,
+  params: { range?: string | null; rangeKw?: string | null }
+): { name: "range" | "range_kw"; value: string } | null {
+  const { range, rangeKw } = params
+  if (
+    isKeywordRange(rangeKw) ||
+    isReplyRange(range) ||
+    isKeywordRange(range) ||
+    from === to
+  ) {
+    return null
+  }
+  if (to === "keywords") {
+    return { name: "range", value: resolveTabRange(from, params).id }
+  }
+  if (from === "keywords") {
+    return { name: "range_kw", value: resolveTabRange(from, params).id }
+  }
+  return null
+}
+
+/**
  * The dates a period covers, as the endpoints resolve it, so the page can
  * say "4 Aug – 31 Aug" instead of only "Last 28 days".
  *

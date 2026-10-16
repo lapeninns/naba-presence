@@ -679,10 +679,18 @@ for (const width of [375, 768, 1280])
       await expect(
         page.getByText("No data", { exact: true }).first()
       ).toBeVisible()
-      await expect(page.getByText(/1 of 2 locations reporting/)).toBeVisible()
+      // Provenance is one caption line; its detail is behind the info button.
       await expect(
-        page.getByText(/Data through .*Google’s daily dates/)
+        page.getByText(/^Through \d+ \w+ · 1 of 2 locations$/)
       ).toBeVisible()
+      await page.getByRole("button", { name: "About these figures" }).click()
+      const about = page.getByRole("dialog", { name: "About these figures" })
+      await expect(about.getByText(/1 of 2 locations reporting/)).toBeVisible()
+      await expect(
+        about.getByText(/Data through .*Google’s daily dates/)
+      ).toBeVisible()
+      await page.keyboard.press("Escape")
+      await expect(about).toBeHidden()
       await expect(
         // The visible "Download totals CSV" starts the accessible name
         // (WCAG 2.5.3, label in name); the subject follows it.

@@ -1,5 +1,6 @@
 import "server-only"
 
+import { headers } from "next/headers"
 import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 import { Suspense, type ReactNode } from "react"
 
@@ -25,6 +26,12 @@ type Entries = (session: Session) => PrefetchEntry[]
  * A failed read is left out by `prefetch` (logged, never thrown): the editor
  * then renders pending, fetches in the browser and shows its error and
  * retry as it always has. Never a page error.
+ *
+ * Only a document load streams the read. A client-side navigation (an RSC
+ * request: the `rsc` header the App Router sends, prefetches included)
+ * already runs the editor's bundle and holds its query cache, so the editor
+ * renders at once and reads through its hooks: a revisit within the cache's
+ * budget asks Google nothing, and a router prefetch never reads Google.
  */
 export function StreamedTab({
   session,
@@ -47,7 +54,8 @@ export function StreamedTab({
   )
 }
 
-async function Prefetched({
+/** Exported for tests. */
+export async function Prefetched({
   session,
   entries,
   children,
@@ -56,6 +64,7 @@ async function Prefetched({
   entries: Entries
   children: ReactNode
 }) {
+  if ((await headers()).get("rsc") === "1") return <>{children}</>
   const state = await prefetch(session, entries)
   return <HydrationBoundary state={state}>{children}</HydrationBoundary>
 }

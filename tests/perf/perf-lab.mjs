@@ -113,6 +113,15 @@ const DEFAULT_ROUTES = [
   ["/listings/{loc}/hours", "listing"],
   ["/listings/{loc}/photos", "listing"],
   ["/listings/{loc}/posts", "listing"],
+  // The listing areas perf-lab skipped until L16 (LST-14): six now stream
+  // their first read; Review & publish still reads in the browser.
+  ["/listings/{loc}/profile", "listing"],
+  ["/listings/{loc}/menu", "listing"],
+  ["/listings/{loc}/booking", "listing"],
+  ["/listings/{loc}/people", "listing"],
+  ["/listings/{loc}/verification", "listing"],
+  ["/listings/{loc}/suggestions", "listing"],
+  ["/listings/{loc}/changes", "listing"],
   ["/reports", "reports"],
   ["/calendar", "calendar"],
   ["/clients", "clients"],

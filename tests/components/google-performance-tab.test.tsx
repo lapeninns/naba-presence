@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }), usePathname: () => "/performance", useSearchParams: () => new URLSearchParams("tab=google") }))
@@ -61,8 +62,14 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(within(await tileFor("Call button taps")).getByText("0")).toBeInTheDocument()
     expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
     expect(within(await tileFor("Website clicks")).getByText(/\+10|10/)).toBeInTheDocument()
-    expect(screen.getByText(/1 of 2 locations reporting · 1 not fetched yet/)).toBeInTheDocument()
-    expect(screen.getByText(/Data through .*Google’s daily dates/)).toBeInTheDocument()
+    // Provenance is one caption line; the detail is behind its info button.
+    expect(screen.getByText("Through 29 Aug · 1 of 2 locations")).toBeInTheDocument()
+    expect(screen.queryByText(/Google’s daily dates/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "About these figures" }))
+    const about = await screen.findByRole("dialog", { name: "About these figures" })
+    expect(within(about).getByText(/1 of 2 locations reporting · 1 not fetched yet/)).toBeInTheDocument()
+    expect(within(about).getByText(/Data through .*Google’s daily dates/)).toBeInTheDocument()
+    await userEvent.keyboard("{Escape}")
     expect(screen.getByRole("button", { name: "Download totals CSV of the Google profile" })).toBeInTheDocument()
   })
   it("states expected vs covered locations and leaves a missing location out of the tiles", async () => {
@@ -73,11 +80,16 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
       completeness: { state: "partial", expected: 3, covered: 2, completeThrough: "2026-08-20",
         missing: [{ id: "n", name: "Nags Head", reason: "pending" }], refreshFailed: [{ id: "m", name: "Mitre" }] } })
     renderTab()
+    // One line in the report; the names and reasons are behind Details.
     const banner = (await screen.findByText("Showing 2 of 3 locations")).closest("[data-slot=partial-coverage]") as HTMLElement
-    expect(within(banner).getByText(/Not fetched from Google yet: Nags Head/)).toBeInTheDocument()
-    expect(within(banner).getByText(/Latest refresh failed.*Mitre/)).toBeInTheDocument()
-    expect(within(banner).getByText(/not counted as zero/)).toBeInTheDocument()
-    expect(within(banner).getByText(/through 20 Aug/)).toBeInTheDocument()
+    expect(within(banner).queryByText(/Nags Head/)).not.toBeInTheDocument()
+    await userEvent.click(within(banner).getByRole("button", { name: /^Details/ }))
+    const details = await screen.findByRole("dialog", { name: "Showing 2 of 3 locations" })
+    expect(within(details).getByText(/Not fetched from Google yet: Nags Head/)).toBeInTheDocument()
+    expect(within(details).getByText(/Latest refresh failed.*Mitre/)).toBeInTheDocument()
+    expect(within(details).getByText(/not counted as zero/)).toBeInTheDocument()
+    expect(within(details).getByText(/through 20 Aug/)).toBeInTheDocument()
+    await userEvent.keyboard("{Escape}")
     const tileFor = async (label: string) => (await screen.findAllByText(label)).find((node) => node.closest("[data-slot=kpi-tile]"))!.closest("[data-slot=kpi-tile]") as HTMLElement
     expect(within(await tileFor("Call button taps")).getByText("9")).toBeInTheDocument()
     expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
@@ -89,9 +101,12 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
         missing: [{ id: "l", name: "Lamb", reason: "stale" }, { id: "m", name: "Mitre", reason: "pending" }], refreshFailed: [] } })
     renderTab()
     const banner = (await screen.findByText("Showing 0 of 2 locations")).closest("[data-slot=partial-coverage]") as HTMLElement
-    expect(within(banner).getByText(/latest figures end before this period: Lamb/)).toBeInTheDocument()
-    expect(within(banner).getByText(/Not fetched from Google yet: Mitre/)).toBeInTheDocument()
-    expect(within(banner).getByText(/none is counted as zero/)).toBeInTheDocument()
+    await userEvent.click(within(banner).getByRole("button", { name: /^Details/ }))
+    const details = await screen.findByRole("dialog", { name: "Showing 0 of 2 locations" })
+    expect(within(details).getByText(/latest figures end before this period: Lamb/)).toBeInTheDocument()
+    expect(within(details).getByText(/Not fetched from Google yet: Mitre/)).toBeInTheDocument()
+    expect(within(details).getByText(/none is counted as zero/)).toBeInTheDocument()
+    await userEvent.keyboard("{Escape}")
     expect(screen.getByText("No activity yet")).toBeInTheDocument()
   })
   it("names a failed refresh once, inside the alert that says why", async () => {

@@ -1,188 +1,129 @@
 "use client"
 
-import { ChevronDownIcon, SlidersHorizontalIcon } from "lucide-react"
 import * as React from "react"
 
-import { Button } from "@/components/ui/button"
-import {
-  Sheet,
-  SheetBody,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
+import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
 import { cn } from "@/lib/utils"
 
-/** Where the toolbar is drawing its fields. */
-export type ReportToolbarPlacement = "bar" | "sheet"
-
 /**
- * The one row above a report: who the figures are for, which locations, and
- * the period, with the report's actions (Share report) at the end.
+ * The scope row above a report, from `md`: who the figures are for, which
+ * locations and the period, as inline fields, with a caption beside them
+ * (`meta`) and secondary links after them (`extras`).
  *
- * On a phone the scope is a single summary button ("All clients · 12
- * locations · Last 28 days") that opens a bottom sheet holding the fields,
- * so the first screen is figures rather than controls. From `md` the same
- * fields sit inline in the row. Layout is CSS only: the inline fields are
- * always in the document and hidden below `md`; the sheet copy exists only
- * while it is open.
+ * On a phone it draws nothing. The scope there is the app bar's scope chip
+ * (the one place a client or location is chosen, on every page that has a
+ * scope), and the period is the one-tap `ReportPeriodStrip` under the
+ * tabs, so the first screen is figures rather than a second scope control
+ * and a sheet of selects. `summary` is read by nobody on screen: it is the
+ * printed or saved-PDF report's one line saying what it covers.
  *
- * `fields` is called once per placement so a field can fill the sheet and
- * keep its toolbar width in the bar. `extras` (secondary links) follow the
- * fields: inline from `md`, at the foot of the sheet on a phone. `actions`
- * stay in the row at every width.
+ * The exception is `phone`: the app bar hides its chip when there is only
+ * one client (or location) to switch between, and the report would then
+ * have no way left to choose a client or narrow to a location. The caller
+ * sets `phone` in that case and the fields stack full width on a phone. It
+ * marks a field that stays desk-only (the period, which the strip already
+ * covers) with `max-md:hidden`; the caption and `extras` are desk-only too.
+ *
+ * Layout is CSS only, so the server HTML is the same at every width.
  */
 export function ReportToolbar({
   summary,
   fields,
   extras,
-  actions,
   meta,
+  phone = false,
   label = "Report scope",
-  sheetDescription = "Choose whose figures to show and for which period.",
   className,
 }: {
-  /**
-   * Short phrases naming the scope, in order. On a phone the first has its
-   * own line; the rest share a second, where the last never truncates.
-   */
+  /** Short phrases naming the scope, in order; printed as one line. */
   summary: ReadonlyArray<string>
-  fields: (placement: ReportToolbarPlacement) => React.ReactNode
+  fields: () => React.ReactNode
   extras?: React.ReactNode
-  actions?: React.ReactNode
-  /** A caption beside the inline fields (e.g. "12 locations"); `md` and up. */
+  /** A caption beside the inline fields (e.g. "12 locations"). */
   meta?: React.ReactNode
+  /** Also draw the fields on a phone: the app bar has no scope chip to use. */
+  phone?: boolean
   label?: string
-  sheetDescription?: string
   className?: string
 }) {
-  const [open, setOpen] = React.useState(false)
   const parts = summary.filter(Boolean)
-  const [first, ...rest] = parts
-
   return (
     <section
       aria-label={label}
       data-slot="report-toolbar"
-      className={cn(
-        "flex items-center gap-2 md:flex-wrap md:items-end md:gap-3",
-        className
-      )}
+      className={cn(phone ? "block" : "hidden md:block print:block", className)}
     >
-      {/* Phone: the scope in one tappable pill. The visible words are the
-          start of the accessible name (WCAG 2.5.3); truncation is CSS only,
-          so the full scope is still what a screen reader hears. At most two
-          lines: the first part, then the rest. */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger
-          render={
-            // One quiet pill row (the scope switcher): the grey fill, not a
-            // bordered control, so the figures stay the loudest thing.
-            <Button
-              variant="ghost"
-              pill
-              className="h-auto min-h-(--np-touch) min-w-0 flex-1 justify-start bg-fill-secondary py-2 font-normal md:hidden print:hidden"
-            />
-          }
-        >
-          <SlidersHorizontalIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className="text-ink-secondary"
-          />
-          <span className="flex min-w-0 flex-1 flex-col text-left">
-            {/* The first part (whose figures: the client, or the location)
-                has a line of its own and keeps all of it, so it is never
-                the part that is cut. */}
-            <span className="truncate">
-              {first}
-              {rest.length ? <span className="sr-only">,</span> : null}
-            </span>
-            {rest.length ? (
-              // The rest on one quiet line: the middle parts truncate first
-              // and the last (the period) never does. A separator only ever
-              // sits between two parts on this line, never at a line end.
-              <span className="flex min-w-0 items-center gap-x-1 text-caption text-ink-muted">
-                {rest.map((part, index) => (
-                  <React.Fragment key={`${index}-${part}`}>
-                    {index > 0 ? (
-                      <>
-                        {" "}
-                        <span aria-hidden className="shrink-0">
-                          ·
-                        </span>
-                        <span className="sr-only">,</span>{" "}
-                      </>
-                    ) : null}
-                    <span
-                      className={cn(
-                        index === rest.length - 1
-                          ? "shrink-0 whitespace-nowrap"
-                          : "min-w-0 truncate"
-                      )}
-                    >
-                      {part}
-                    </span>
-                  </React.Fragment>
-                ))}
-              </span>
-            ) : null}
-          </span>
-          <ChevronDownIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className="ml-auto text-ink-muted"
-          />
-        </SheetTrigger>
-        <SheetContent side="bottom">
-          <SheetHeader>
-            <SheetTitle>{label}</SheetTitle>
-            <SheetDescription>{sheetDescription}</SheetDescription>
-          </SheetHeader>
-          <SheetBody>
-            {fields("sheet")}
-            {extras ? (
-              <div className="flex flex-col gap-2 *:w-full">{extras}</div>
-            ) : null}
-          </SheetBody>
-          <SheetFooter>
-            <SheetClose render={<Button block className="sm:w-auto" />}>
-              Done
-            </SheetClose>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-
-      {/* What the summary says, for a printed or saved PDF report. */}
+      {/* What the scope is, for a printed or saved PDF report. */}
       <p className="hidden text-caption text-ink-muted print:block">
         {parts.join(" · ")}
       </p>
-
-      {/* From md: the fields themselves, inline. */}
-      <div className="hidden min-w-0 flex-wrap items-end gap-3 md:flex">
-        {fields("bar")}
+      <div className="flex min-w-0 flex-wrap items-end gap-3 print:hidden">
+        {fields()}
         {meta ? (
-          <p className="pb-2.5 text-caption text-ink-muted">{meta}</p>
+          <p className="pb-2.5 text-caption text-ink-muted max-md:hidden">
+            {meta}
+          </p>
         ) : null}
-        {extras}
+        {extras ? <div className="contents max-md:hidden">{extras}</div> : null}
       </div>
-
-      {actions ? (
-        <div className="flex shrink-0 items-center gap-2 md:ml-auto">
-          {actions}
-        </div>
-      ) : null}
     </section>
   )
 }
 
+/**
+ * The period on a phone: every choice a chip, so changing it is one tap
+ * (the old way was a scope pill, a sheet, a select and its own action
+ * sheet). The row scrolls sideways rather than truncating a label, and the
+ * chosen period is kept in view. From `md` the toolbar's Period field takes
+ * over, so the chips are `md:hidden`; the note shows at every width.
+ *
+ * `note` says when the period shown is not the one chosen elsewhere
+ * ("Keywords count whole months: showing the last 6 months."), so a tab
+ * never changes the period without saying.
+ */
+export function ReportPeriodStrip({
+  value,
+  options,
+  onChange,
+  note,
+  className,
+}: {
+  value: string
+  options: ReadonlyArray<{ id: string; label: string }>
+  onChange: (id: string) => void
+  note?: string | null
+  className?: string
+}) {
+  return (
+    <div
+      data-slot="report-period-strip"
+      className={cn("flex flex-col gap-1.5 print:hidden", className)}
+    >
+      <FilterChipStrip role="group" aria-label="Period" className="md:hidden">
+        {options.map((option) => (
+          <FilterChip
+            key={option.id}
+            pressed={option.id === value}
+            onClick={() => onChange(option.id)}
+          >
+            {option.label}
+          </FilterChip>
+        ))}
+      </FilterChipStrip>
+      {note ? (
+        <p
+          role="status"
+          data-slot="report-period-note"
+          className="text-caption text-ink-muted"
+        >
+          {note}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 /** Field and trigger classes for a field drawn in the toolbar. */
-export function reportToolbarFieldProps(placement: ReportToolbarPlacement) {
-  return placement === "sheet"
-    ? { className: "w-full", triggerClassName: "w-full" }
-    : { className: "w-56", triggerClassName: "w-full" }
+export function reportToolbarFieldProps() {
+  return { className: "w-full md:w-56", triggerClassName: "w-full" }
 }

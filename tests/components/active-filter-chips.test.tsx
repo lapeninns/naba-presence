@@ -65,6 +65,100 @@ describe("ActiveFilterChips", () => {
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
 
+  it("draws no chip and no Clear all for the client scope alone", () => {
+    const { container } = render(
+      <ActiveFilterChips
+        state={{
+          ...state,
+          clientId: "c1",
+          locationIds: [],
+          ratings: [],
+          search: "",
+        }}
+        locations={[]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it("draws no client chip beside the filters that are on", () => {
+    render(
+      <ActiveFilterChips
+        state={{ ...state, clientId: "c1" }}
+        locations={[{ id: "loc-1", name: "Riverside" }]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
+    expect(screen.queryByText(/Client/)).not.toBeInTheDocument()
+  })
+
+  it("draws a removable client chip when no switcher is shown", async () => {
+    const user = userEvent.setup()
+    const onRemove = vi.fn()
+    const onClear = vi.fn()
+    render(
+      <ActiveFilterChips
+        state={{
+          ...state,
+          clientId: "c1",
+          locationIds: [],
+          ratings: [],
+          search: "",
+        }}
+        locations={[]}
+        clientChip={{ name: "Riverside Group", onRemove }}
+        onChange={() => {}}
+        onClear={onClear}
+      />
+    )
+    expect(screen.getByText("Client: Riverside Group")).toBeInTheDocument()
+    // The scope alone is not a filter, so there is nothing to "clear all" of.
+    expect(
+      screen.queryByRole("button", { name: "Clear all filters" })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove filter: Client: Riverside Group",
+      })
+    )
+    expect(onRemove).toHaveBeenCalledTimes(1)
+    expect(onClear).not.toHaveBeenCalled()
+  })
+
+  it("keeps Clear all beside the client chip when filters are on too", () => {
+    render(
+      <ActiveFilterChips
+        state={{ ...state, clientId: "c1" }}
+        locations={[{ id: "loc-1", name: "Riverside" }]}
+        clientChip={{ onRemove: () => {} }}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Client: selected")).toBeInTheDocument()
+    expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear all filters" })
+    ).toBeInTheDocument()
+  })
+
+  it("draws no client chip without a scope, whatever the caller passes", () => {
+    const { container } = render(
+      <ActiveFilterChips
+        state={{ ...state, locationIds: [], ratings: [], search: "" }}
+        locations={[]}
+        clientChip={{ name: "Riverside Group", onRemove: () => {} }}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it("leaves rating and With text to the chips above the list", () => {
     // They are pressed chips where they are set (QuickFilters), so this strip
     // does not name them a second time. "Clear all filters" still resets them.

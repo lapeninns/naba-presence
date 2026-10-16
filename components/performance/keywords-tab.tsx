@@ -4,7 +4,6 @@ import { Link2OffIcon, SearchIcon } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { buttonVariants } from "@/components/ui/button"
 import { EmptyIllustration } from "@/components/ui/empty"
 import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
@@ -21,10 +20,13 @@ import {
   KeywordsTable,
 } from "@/components/performance/keywords-table"
 import {
-  RefreshGoogleButton,
   RefreshStatus,
   useRefreshWatch,
 } from "@/components/performance/refresh-google-button"
+import {
+  ReportActionsMenu,
+  type ReportShareTarget,
+} from "@/components/reporting/report-actions-menu"
 import { ReportsSkeleton } from "@/components/reporting/reports-skeleton"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
@@ -43,13 +45,16 @@ import { cn } from "@/lib/utils"
 
 /**
  * Search keywords for the page's scope and period. The period is chosen in
- * the page's ReportToolbar (`?range=`).
+ * the page's period strip or toolbar (`?range_kw=`).
  */
 export function KeywordsTab({
   clientId,
   range,
+  share,
 }: {
   clientId?: string
+  /** What the report's menu shares; none when the viewer may not share. */
+  share?: ReportShareTarget | null
   /** The period (from `?range=`); the keywords default when absent. */
   range?: KeywordRangeId
 }) {
@@ -73,6 +78,7 @@ export function KeywordsTab({
   const rangeLabel =
     KEYWORD_RANGES.find((option) => option.id === rangeId)?.label ?? ""
 
+  const canRefresh = canTriggerSync(role) && !paused
   const header = (
     <ReportTabHead
       caption={
@@ -91,16 +97,22 @@ export function KeywordsTab({
         )
       }
       controls={
-        // Owners and admins only; and not while paused, which is switched
-        // off on purpose, so a refresh cannot help.
-        canTriggerSync(role) && !paused ? (
-          <RefreshGoogleButton
-            kind="keywords"
-            canTrigger
-            onStart={refresh.onStart}
-            onFailed={refresh.onFailed}
+        // Refresh is for owners and admins only, and not while paused, which
+        // is switched off on purpose, so a refresh cannot help.
+        share || canRefresh ? (
+          <ReportActionsMenu
+            share={share}
+            refresh={
+              canRefresh
+                ? {
+                    kind: "keywords",
+                    onStart: refresh.onStart,
+                    onFailed: refresh.onFailed,
+                  }
+                : null
+            }
           />
-        ) : null
+        ) : undefined
       }
     />
   )
@@ -142,14 +154,13 @@ export function KeywordsTab({
   }
 
   const data = keywords.data
+  // How the figures are counted: a footnote under the table, not a box above
+  // it that pushes the first search term off a phone's first screen.
   const note = (
-    <Alert variant="info">
-      <AlertTitle>How Google counts these</AlertTitle>
-      <AlertDescription>
-        A “+” means Google reports at least this many impressions (it gives a
-        range for lower-volume terms).
-      </AlertDescription>
-    </Alert>
+    <p className="text-caption text-ink-muted">
+      How Google counts these: a “+” means Google reports at least this many
+      impressions (it gives a range for lower-volume terms).
+    </p>
   )
 
   if (data.state === "no_link")
@@ -179,7 +190,7 @@ export function KeywordsTab({
     return frame(
       <>
         {/* No keywords yet: still name each location and why. */}
-        <PartialCoverageAlert completeness={data.completeness} />
+        <PartialCoverageAlert compact completeness={data.completeness} />
         <ReportingPanel framed titleAs="h3" variant="collecting" />
       </>
     )
@@ -197,6 +208,7 @@ export function KeywordsTab({
           <RefreshFailedNote completeness={data.completeness} />
         </UnavailableAlert>
         <PartialCoverageAlert
+          compact
           completeness={data.completeness}
           refreshFailedShownElsewhere
         />
@@ -208,8 +220,7 @@ export function KeywordsTab({
   if (data.keywords.length === 0)
     return frame(
       <>
-        {note}
-        <PartialCoverageAlert completeness={data.completeness} />
+        <PartialCoverageAlert compact completeness={data.completeness} />
         <ReportingPanel
           framed
           titleAs="h3"
@@ -230,7 +241,6 @@ export function KeywordsTab({
 
   return frame(
     <>
-      {note}
       {/* Partial data: ready, with some locations' last refresh failing. */}
       <UnavailableAlert
         codes={data.unavailableReasons}
@@ -239,6 +249,7 @@ export function KeywordsTab({
         <RefreshFailedNote completeness={data.completeness} />
       </UnavailableAlert>
       <PartialCoverageAlert
+        compact
         completeness={data.completeness}
         refreshFailedShownElsewhere={failureExplained}
       />
@@ -281,6 +292,7 @@ export function KeywordsTab({
       ) : (
         <KeywordsTable keywords={shown} />
       )}
+      {note}
     </>
   )
 }

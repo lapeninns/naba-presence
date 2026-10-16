@@ -22,19 +22,8 @@ export type LocationOption = { id: string; name: string }
 
 type Chip = { key: string; label: string; clear: Partial<InboxState> }
 
-function buildChips(
-  state: InboxState,
-  locations: LocationOption[],
-  clientName?: string
-): Chip[] {
+function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
   const chips: Chip[] = []
-  if (state.clientId) {
-    chips.push({
-      key: "client",
-      label: `${FILTER_NAMES.client}: ${clientName ?? "selected"}`,
-      clear: { clientId: undefined },
-    })
-  }
   if (state.locationIds.length === 1) {
     const name =
       locations.find((location) => location.id === state.locationIds[0])
@@ -123,21 +112,41 @@ function buildChips(
 function ActiveFilterChips({
   state,
   locations,
-  clientName,
+  clientChip,
   onChange,
   onClear,
 }: {
   state: InboxState
   locations: LocationOption[]
-  /** Resolved by the caller, which already holds the client list. */
-  clientName?: string
+  /**
+   * Passed only when the app bar shows no client switcher (the agency has one
+   * client or none): then the scope gets a removable chip here, since nothing
+   * else shows or clears it. Resolved by the caller, which holds the clients.
+   */
+  clientChip?: { name?: string; onRemove: () => void }
   onChange: (partial: Partial<InboxState>) => void
   onClear: () => void
 }) {
-  if (!hasActiveFilters(state)) return null
-  const chips = buildChips(state, locations, clientName)
+  // The client scope lives in the app bar, so it is not a filter here: a
+  // scoped inbox with nothing narrowed shows no chip row and no "Clear all".
+  const filtered = hasActiveFilters({ ...state, clientId: undefined })
+  // The one exception: with no switcher to show or clear it (an agency with a
+  // single client), the scope would otherwise narrow the list with no sign.
+  const scope = clientChip && state.clientId ? clientChip : null
+  if (!filtered && !scope) return null
+  const chips = buildChips(state, locations)
   return (
     <FilterChipStrip data-slot="active-filter-chips" className="items-center">
+      {scope ? (
+        <FilterChip
+          removeLabel={removeFilterLabel(
+            `${FILTER_NAMES.client}: ${scope.name ?? "selected"}`
+          )}
+          onRemove={scope.onRemove}
+        >
+          {`${FILTER_NAMES.client}: ${scope.name ?? "selected"}`}
+        </FilterChip>
+      ) : null}
       {chips.map((chip) => (
         <FilterChip
           key={chip.key}
@@ -147,13 +156,15 @@ function ActiveFilterChips({
           {chip.label}
         </FilterChip>
       ))}
-      <Button
-        variant="link"
-        onClick={onClear}
-        className="min-h-(--np-touch) shrink-0 desk:min-h-0"
-      >
-        {CLEAR_FILTERS_LABEL}
-      </Button>
+      {filtered ? (
+        <Button
+          variant="link"
+          onClick={onClear}
+          className="min-h-(--np-touch) shrink-0 desk:min-h-0"
+        >
+          {CLEAR_FILTERS_LABEL}
+        </Button>
+      ) : null}
     </FilterChipStrip>
   )
 }

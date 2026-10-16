@@ -1,4 +1,19 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import type {
   ReportCompleteness,
   ReportMissingReason,
@@ -79,15 +94,22 @@ export function RefreshFailedNote({
  * leaves covered-but-failed locations to a {@link RefreshFailedNote} in the
  * unavailable-reasons alert. Renders nothing for a complete report, or for a
  * server that predates the completeness field.
+ *
+ * `compact` (the report tabs) is one line, "Showing 1 of 2 locations", with
+ * a Details button that opens the same list in a sheet, so a partial report
+ * does not push its first figure down by a screen. The shared client report
+ * keeps the list inline.
  */
 export function PartialCoverageAlert({
   completeness,
   nouns = LOCATION_NOUNS,
   refreshFailedShownElsewhere = false,
+  compact = false,
 }: {
   completeness: Completeness | null | undefined
   nouns?: Nouns
   refreshFailedShownElsewhere?: boolean
+  compact?: boolean
 }) {
   if (!completeness || completeness.state === "complete") return null
   const behind = refreshFailedShownElsewhere
@@ -104,36 +126,63 @@ export function PartialCoverageAlert({
     }
   )
   const through = completeThroughLine(completeness, nouns)
+  const title = completeness.missing.length
+    ? `Showing ${completeness.covered} of ${completeness.expected} ${noun(completeness.expected)}`
+    : `Some ${nouns.many} could not be refreshed`
+  const list = (
+    <ul className="flex list-disc flex-col gap-1 pl-4.5">
+      {groups.map((group) => (
+        <li key={group.reason}>
+          {MISSING_LABEL[group.reason]}: {group.names.join(", ")}
+        </li>
+      ))}
+      {behind.length ? (
+        <li>
+          Latest refresh failed, so figures may stop early: {behind.join(", ")}
+        </li>
+      ) : null}
+      {completeness.missing.length ? (
+        <li>
+          {completeness.covered
+            ? `Totals include only the ${noun(completeness.covered)} shown; a missing ${nouns.one} is not counted as zero.`
+            : `No ${nouns.one} has figures for this period; none is counted as zero.`}
+        </li>
+      ) : null}
+      {through ? <li>{through}</li> : null}
+    </ul>
+  )
+  if (compact) {
+    return (
+      <Alert variant="warning" data-slot="partial-coverage">
+        <AlertTitle>{title}</AlertTitle>
+        <Sheet>
+          <AlertAction>
+            <SheetTrigger
+              render={<Button variant="ghost" size="sm" />}
+              aria-label={`Details: ${title}`}
+            >
+              Details
+            </SheetTrigger>
+          </AlertAction>
+          <SheetContent side="bottom">
+            <SheetHeader>
+              <SheetTitle>{title}</SheetTitle>
+              <SheetDescription>
+                Which {nouns.many} are missing from these figures, and why.
+              </SheetDescription>
+            </SheetHeader>
+            <SheetBody>
+              <div className="text-ui text-ink">{list}</div>
+            </SheetBody>
+          </SheetContent>
+        </Sheet>
+      </Alert>
+    )
+  }
   return (
     <Alert variant="warning" data-slot="partial-coverage">
-      <AlertTitle>
-        {completeness.missing.length
-          ? `Showing ${completeness.covered} of ${completeness.expected} ${noun(completeness.expected)}`
-          : `Some ${nouns.many} could not be refreshed`}
-      </AlertTitle>
-      <AlertDescription>
-        <ul className="flex list-disc flex-col gap-1 pl-4.5">
-          {groups.map((group) => (
-            <li key={group.reason}>
-              {MISSING_LABEL[group.reason]}: {group.names.join(", ")}
-            </li>
-          ))}
-          {behind.length ? (
-            <li>
-              Latest refresh failed, so figures may stop early:{" "}
-              {behind.join(", ")}
-            </li>
-          ) : null}
-          {completeness.missing.length ? (
-            <li>
-              {completeness.covered
-                ? `Totals include only the ${noun(completeness.covered)} shown; a missing ${nouns.one} is not counted as zero.`
-                : `No ${nouns.one} has figures for this period; none is counted as zero.`}
-            </li>
-          ) : null}
-          {through ? <li>{through}</li> : null}
-        </ul>
-      </AlertDescription>
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{list}</AlertDescription>
     </Alert>
   )
 }
