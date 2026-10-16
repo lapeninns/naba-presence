@@ -136,6 +136,27 @@ describe("bulk review contract", () => {
     ).toBe(false)
   })
 
+  it("makes an Undo name the mark it clears", () => {
+    const mark = { reviewId: item.reviewId, triagedAt: "2026-10-16T07:00:00.123456Z" }
+    expect(bulkReviewActionSchema.safeParse({ action: "mark_unreviewed", marks: [mark] }).success).toBe(true)
+    // The old id-only shape could clear a later mark, so it is refused.
+    expect(
+      bulkReviewActionSchema.safeParse({ action: "mark_unreviewed", reviewIds: [item.reviewId] }).success
+    ).toBe(false)
+    expect(
+      bulkReviewActionSchema.safeParse({
+        action: "mark_unreviewed",
+        marks: [{ reviewId: item.reviewId }],
+      }).success
+    ).toBe(false)
+    expect(
+      bulkReviewActionSchema.safeParse({
+        action: "mark_unreviewed",
+        marks: [{ reviewId: item.reviewId, triagedAt: "yesterday" }],
+      }).success
+    ).toBe(false)
+  })
+
   it("refuses the same review twice in one approve batch", () => {
     expect(
       bulkReviewActionSchema.safeParse({ action: "approve", approvals: [item, item] }).success

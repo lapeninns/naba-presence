@@ -480,6 +480,9 @@ const COPY: Record<string, string> = {
     "The reply could not be withdrawn from Google yet. The local records were erased and the request stays open — the withdrawal is retried automatically.",
   legal_hold_not_found: "There’s no active legal hold for that review.",
   review_not_found: "That review no longer exists.",
+  review_already_triaged: "That review was already marked as no reply needed.",
+  review_not_triaged:
+    "That review is no longer marked as no reply needed, or was marked again since.",
 
   // ---- Settings: connections (OAuth) --------------------------------------
   google_oauth_denied: "Google sign-in was cancelled before it finished.",

@@ -1,21 +1,10 @@
 "use client"
 
-import * as React from "react"
-
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { toast } from "@/components/ui/toast"
+import { showToast, toast } from "@/components/ui/toast"
 import type {
   BulkReviewActionInput,
   BulkReviewResult,
@@ -29,12 +18,16 @@ import { useSession } from "@/lib/queries/use-session"
 /**
  * Triage over one review or many, shared by the bulk bar, the review's own
  * ⋯ menu and a list row's swipe: one mutation, one outcome toast, one
- * confirmation, one list of people who can be assigned. Each surface says
+ * Undo for "No reply needed", one list of people who can be assigned. Each surface says
  * where the reviews come from; what happens to them is said here once.
  */
 
 const reviewCount = (input: BulkReviewActionInput) =>
-  input.action === "approve" ? input.approvals.length : input.reviewIds.length
+  input.action === "approve"
+    ? input.approvals.length
+    : input.action === "mark_unreviewed"
+      ? input.marks.length
+      : input.reviewIds.length
 
 /**
  * Runs a bulk action and says how it went. Resolves with the per-row
@@ -51,6 +44,50 @@ export function useReviewTriage() {
     try {
       const result = await bulk.mutateAsync(input)
       const summary = summariseBulkOutcome(result)
+      // The marks this press made, each as the server recorded it, so Undo
+      // can name them: a review marked again since is then left alone.
+      const marked =
+        input.action === "mark_reviewed"
+          ? result.results.flatMap((row) =>
+              row.status === "ok" && row.triagedAt
+                ? [{ reviewId: row.reviewId, triagedAt: row.triagedAt }]
+                : []
+            )
+          : []
+      if (marked.length > 0) {
+        // Local and reversible, so it is done at once and Undo is the way
+        // back, not a confirmation first (the P07 recipe). Undo puts back
+        // only the reviews this press marked.
+        showToast({
+          title:
+            summary.allOk && marked.length === 1
+              ? "Marked as no reply needed"
+              : summary.allOk
+                ? `${marked.length} reviews marked as no reply needed`
+                : summary.title,
+          description: summary.allOk ? undefined : summary.description,
+          type: summary.tone,
+          undo: { onUndo: () => void undoNoReplyNeeded(marked) },
+        })
+        return result
+      }
+      if (input.action === "mark_unreviewed" && summary.allOk) {
+        toast.add({
+          title: `${reviewCount(input) === 1 ? "Review" : "Reviews"} back in Needs reply`,
+          type: "success",
+        })
+        return result
+      }
+      const only = result.results.length === 1 ? result.results[0] : null
+      if (only?.status === "skipped" && only.code) {
+        // One review that was left as it was: say why, in its own words.
+        toast.add({
+          title: "Nothing changed",
+          description: describeErrorCode(only.code),
+          type: "warning",
+        })
+        return result
+      }
       toast.add({
         title: summary.title,
         description: summary.description,
@@ -69,6 +106,9 @@ export function useReviewTriage() {
       return null
     }
   }
+  const undoNoReplyNeeded = (
+    marks: { reviewId: string; triagedAt: string }[]
+  ) => run({ action: "mark_unreviewed", marks })
   return { run, isPending: bulk.isPending }
 }
 
@@ -173,67 +213,5 @@ export function AssigneeItems({
         Unassign
       </DropdownMenuItem>
     </>
-  )
-}
-
-const plural = (count: number) => (count === 1 ? "review" : "reviews")
-
-/**
- * Asks before clearing reviews from Needs reply. There is no API to put a
- * review back, so this asks first rather than offering an Undo it could not
- * keep. Nothing is posted to Google.
- */
-export function NoReplyNeededDialog({
-  count,
-  open,
-  onOpenChange,
-  pending,
-  onConfirm,
-  onOpenChangeComplete,
-  finalFocus,
-}: {
-  count: number
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  /** After the exit animation: a surface that mounts it only while needed unmounts here. */
-  onOpenChangeComplete?: (open: boolean) => void
-  /** Where focus returns on close; the opener's button, as the other overlays do. */
-  finalFocus?: React.ComponentProps<typeof AlertDialogContent>["finalFocus"]
-  pending: boolean
-  onConfirm: () => void
-}) {
-  return (
-    <AlertDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      onOpenChangeComplete={onOpenChangeComplete}
-    >
-      <AlertDialogContent
-        finalFocus={finalFocus}
-        aria-label={`Mark ${count} ${plural(count)} as no reply needed?`}
-      >
-        <AlertDialogTitle>
-          Mark {count} {plural(count)} as no reply needed?
-        </AlertDialogTitle>
-        <AlertDialogDescription>
-          {count === 1 ? "It leaves" : "They leave"} Needs reply. Nothing is
-          posted to Google.
-        </AlertDialogDescription>
-        <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="secondary" />}>
-            Cancel
-          </AlertDialogClose>
-          <Button
-            disabled={pending}
-            onClick={() => {
-              onOpenChange(false)
-              onConfirm()
-            }}
-          >
-            Mark {count} {plural(count)}
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   )
 }

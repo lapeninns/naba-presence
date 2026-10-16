@@ -106,6 +106,7 @@ export function KeywordsTab({
               canRefresh
                 ? {
                     kind: "keywords",
+                    scopedToClient: Boolean(clientId),
                     onStart: refresh.onStart,
                     onFailed: refresh.onFailed,
                   }
