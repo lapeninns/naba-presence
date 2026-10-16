@@ -3,7 +3,6 @@
 import { CalendarPlus, CircleAlert, Copy, Plus, Trash2, X } from "lucide-react"
 import { useId, useImperativeHandle, useRef, useState, type Ref } from "react"
 
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -36,7 +35,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { SettingsGroup } from "@/components/ui/settings-row"
+import {
+  SettingsGroup,
+  SettingsGroupAction,
+} from "@/components/ui/settings-row"
 import { Switch } from "@/components/ui/switch"
 import { TimeField } from "@/components/ui/time-field"
 import type { NormalizedHours } from "@/lib/api/location-hours"
@@ -497,10 +499,16 @@ export function HoursEditor({
         label={scheduleName}
         headingAs={serviceId ? "h3" : "h2"}
         headingId={headingId}
-        caption={
-          serviceId
-            ? undefined
-            : "Use 24-hour times. Choose the closing day explicitly for overnight hours; 24:00 means midnight at the end of that day."
+        action={
+          disabled ? undefined : (
+            <SettingsGroupAction
+              aria-haspopup="dialog"
+              onClick={() => setCopyFrom(WEEK_ORDER[0])}
+            >
+              Copy {serviceId ? `${scheduleName} ` : ""}
+              {DAY_LABELS[WEEK_ORDER[0]]} to…
+            </SettingsGroupAction>
+          )
         }
         card
         className="mt-0"
@@ -508,24 +516,6 @@ export function HoursEditor({
           className: "divide-y divide-line-subtle",
         }}
       >
-        {!disabled ? (
-          <li className="py-1 desk:px-1">
-            <div className="-ml-2.5 flex desk:ml-0">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-accent-ink"
-                aria-haspopup="dialog"
-                onClick={() => setCopyFrom(WEEK_ORDER[0])}
-              >
-                <Copy aria-hidden />
-                Copy {serviceId ? `${scheduleName} ` : ""}
-                {DAY_LABELS[WEEK_ORDER[0]]} to…
-              </Button>
-            </div>
-          </li>
-        ) : null}
         {WEEK_ORDER.map((dayOfWeek) => {
           const day = dayOf(value, dayOfWeek)
           const label = serviceId
@@ -562,9 +552,7 @@ export function HoursEditor({
                 wrapperClassName="min-w-0 flex-1"
                 onClick={() => openDay(dayOfWeek)}
                 title={label}
-                subtitle={
-                  <span className="tabular-nums">{describeDay(day)}</span>
-                }
+                meta={<span className="tabular-nums">{describeDay(day)}</span>}
                 trailing={changed ? <ChangedMark /> : undefined}
                 footer={
                   dayProblem ? (
@@ -587,17 +575,10 @@ export function HoursEditor({
       </SettingsGroup>
 
       {!weeklyOnly ? (
-        <SettingsGroup
-          label="Service hours"
-          caption="Separate schedules for the services this listing supports. Special dates below apply to the venue, not individual services."
-          bodyAs="div"
-          className="mt-0"
-        >
+        <SettingsGroup label="Service hours" bodyAs="div" className="mt-0">
           <div className="flex flex-col gap-4">
             {serviceNote ? (
-              <Alert variant="info">
-                <AlertDescription>{serviceNote}</AlertDescription>
-              </Alert>
+              <p className="text-ui text-ink-secondary">{serviceNote}</p>
             ) : null}
             {value.moreHours.length === 0 ? (
               <p className="text-ui text-ink-muted">
@@ -757,13 +738,13 @@ export function HoursEditor({
         <SettingsGroup
           label="Special hours"
           headingId={specialHeadingId}
-          caption="Bank holidays, Christmas and one-off closures. These override the regular week on that date."
+          caption="Holidays and one-off closures. They override the regular week."
           card
           className="mt-0"
         >
           {value.special.length === 0 ? (
             <li className="py-2 text-ui text-ink-muted desk:px-2">
-              No special days yet. Holidays and one-off closures go here.
+              No special days yet.
             </li>
           ) : null}
           {specialOrder(value.special).map((index) => {

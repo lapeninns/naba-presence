@@ -137,8 +137,9 @@ describe("HoursTab", () => {
     const notices = Array.from(
       container.querySelectorAll<HTMLElement>('[data-slot="alert"]')
     )
-    // The weekly notice, and the service-options note in the service group.
-    expect(notices).toHaveLength(2)
+    // One notice for the weekly schedule; the service-options note is a plain
+    // line in the service group, not another alert.
+    expect(notices).toHaveLength(1)
     const notice = notices[0]!
     expect(["alert", "status"]).toContain(notice.getAttribute("role"))
     // Google is empty and the boundaries need confirming: two notes, one
@@ -152,7 +153,7 @@ describe("HoursTab", () => {
     expect(notice).toHaveTextContent("No hours on Google")
     expect(
       screen.getByText(SERVICE_OPTIONS_WARNING).closest('[data-slot="alert"]')
-    ).not.toBe(notice)
+    ).toBeNull()
     expect(
       within(notice).getByRole("button", {
         name: "Match Google closing boundaries",
