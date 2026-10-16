@@ -1210,6 +1210,48 @@ describe("NotificationsView pending changes", () => {
       // Turn two (the 101st row) never went out.
       expect(server.writes).toHaveLength(1)
     })
+
+    // A different person, and A→B→A back to the original scope: the change
+    // was dropped when the scope left, so coming back does not revive it.
+    const OTHER_USER: SessionUser = {
+      ...OWNER,
+      userId: "u2",
+      email: "other@example.com",
+      scopeFingerprint: "fp-other",
+    }
+    async function markAll101Through(moves: SessionUser[]) {
+      const many = Array.from({ length: 101 }, (_, index) =>
+        item({
+          id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        })
+      )
+      const server = steppedServer(many)
+      const client = mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Mark all read" })
+      )
+      const turnOne = await server.write(0)
+      for (const session of moves) {
+        await act(async () => {
+          client.setQueryData<SessionResponse>(queryKeys.session, { session })
+          await new Promise((resolve) => setTimeout(resolve, 0))
+        })
+      }
+      turnOne.accept()
+      await waitFor(() => expect(server.listCalls("all")).toBeGreaterThan(1))
+      await tick()
+      return server
+    }
+
+    it("sends no later turn when another user takes over mid-change", async () => {
+      const server = await markAll101Through([OTHER_USER])
+      expect(server.writes).toHaveLength(1)
+    })
+
+    it("sends no later turn when the scope goes A→B→A mid-change", async () => {
+      const server = await markAll101Through([MEMBER, OWNER])
+      expect(server.writes).toHaveLength(1)
+    })
   })
 
   describe("when changes overlap", () => {
