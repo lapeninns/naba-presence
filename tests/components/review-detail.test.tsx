@@ -588,8 +588,12 @@ describe("ReviewDetail", () => {
     await user.click(
       await screen.findByRole("menuitem", { name: "Review details" })
     )
-    const dialog = await screen.findByRole("dialog", { name: "Review details" })
-    expect(within(dialog).getByText("Review received")).toBeInTheDocument()
+    // The loading shell shares the loaded dialog's name, so wait for the
+    // loaded content and re-acquire the dialog rather than keep the shell.
+    await waitFor(() => {
+      const dialog = screen.getByRole("dialog", { name: "Review details" })
+      expect(within(dialog).getByText("Review received")).toBeInTheDocument()
+    })
     expect(screen.getByText("30 Jul, 11:00")).toBeInTheDocument()
     expect(screen.getByText("Google profile")).toBeInTheDocument()
     expect(screen.getByText("Riverside · verified")).toBeInTheDocument()
