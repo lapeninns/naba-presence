@@ -6,14 +6,40 @@ function yearIn(timeZone: string, date: Date): number {
   )
 }
 
+/**
+ * The UK short months, as the en-GB data in Node and Chromium spell them.
+ * Safari's en-GB data says "Sep", so a page rendered on the server and
+ * hydrated in WebKit disagreed on the text ("18 Sept – 16 Oct" against "18
+ * Sep – 16 Oct") and React rejected it (#418 on /reports). The month comes
+ * from its number, so every engine writes the same words.
+ */
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sept",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const
+
 function datePart(date: Date, timeZone: string): string {
   const withYear = yearIn(timeZone, date) !== yearIn(timeZone, new Date())
-  return new Intl.DateTimeFormat(LOCALE, {
+  const parts = new Intl.DateTimeFormat(LOCALE, {
     timeZone,
     day: "numeric",
-    month: "short",
-    ...(withYear ? { year: "numeric" } : {}),
-  }).format(date)
+    month: "numeric",
+    year: "numeric",
+  }).formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value ?? ""
+  const month = MONTHS[Number(part("month")) - 1] ?? part("month")
+  return `${Number(part("day"))} ${month}${withYear ? ` ${part("year")}` : ""}`
 }
 
 export function formatDate(iso: string, timeZone: string): string {
