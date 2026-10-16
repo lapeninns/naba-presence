@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { selectionHitAreaClassName } from "@/components/ui/checkbox"
+import { Toaster } from "@/components/ui/toast"
 import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
@@ -724,9 +725,14 @@ describe("ReviewList", () => {
 // swipe on touch reveals "No reply needed", and the visible ⋯ button reaches
 // the same action for a mouse, a keyboard or a finger that does not swipe.
 describe("ReviewList — triage from the row", () => {
-  const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(async () => ({
-    results: [{ reviewId: "a", status: "ok" }],
-  }))
+  const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(
+    async (input) => ({
+      results: (input as { reviewIds: string[] }).reviewIds.map((reviewId) => ({
+        reviewId,
+        status: "ok",
+      })),
+    })
+  )
 
   beforeEach(() => {
     mutateAsync.mockClear()
@@ -739,26 +745,28 @@ describe("ReviewList — triage from the row", () => {
   function renderRows(selectMode = false, withSelection = true) {
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <ReviewList
-          reviews={[row({ id: "a" }), row({ id: "b" })]}
-          selectedId={undefined}
-          onSelect={() => true}
-          selection={
-            withSelection
-              ? {
-                  selected: new Set(),
-                  toggle: vi.fn(),
-                  extendTo: vi.fn(),
-                  selectMode,
-                }
-              : undefined
-          }
-        />
+        <Toaster>
+          <ReviewList
+            reviews={[row({ id: "a" }), row({ id: "b" })]}
+            selectedId={undefined}
+            onSelect={() => true}
+            selection={
+              withSelection
+                ? {
+                    selected: new Set(),
+                    toggle: vi.fn(),
+                    extendTo: vi.fn(),
+                    selectMode,
+                  }
+                : undefined
+            }
+          />
+        </Toaster>
       </QueryClientProvider>
     )
   }
 
-  it("marks a review as needing no reply from the row's ⋯, once confirmed", async () => {
+  it("marks a review as needing no reply from the row's ⋯ at once, with Undo", async () => {
     const user = userEvent.setup()
     renderRows()
     const buttons = screen.getAllByRole("button", {
@@ -770,36 +778,61 @@ describe("ReviewList — triage from the row", () => {
     await user.click(
       await screen.findByRole("menuitem", { name: "No reply needed" })
     )
-    expect(
-      await screen.findByRole("alertdialog", {
-        name: "Mark 1 review as no reply needed?",
-      })
-    ).toBeInTheDocument()
-    expect(mutateAsync).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Mark 1 review" }))
-    expect(mutateAsync).toHaveBeenCalledTimes(1)
+    // Nothing to confirm: it is done, and Undo is the way back.
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
     expect(mutateAsync).toHaveBeenCalledWith({
       action: "mark_reviewed",
       reviewIds: ["b"],
     })
+    await user.click(await screen.findByRole("button", { name: "Undo" }))
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      action: "mark_unreviewed",
+      reviewIds: ["b"],
+    })
   })
 
-  it("names each row's ⋯ after its reviewer and returns focus to it after Cancel", async () => {
+  it("sends a second row pressed while the first is still sending", async () => {
     const user = userEvent.setup()
+    let release: () => void = () => {}
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({ results: [{ reviewId: "a", status: "ok" }] })
+        })
+    )
     renderRows()
-    const [first] = screen.getAllByRole("button", { name: /^Actions for / })
-    expect(first).toHaveAccessibleName(/^Actions for \S/)
-    expect(first).not.toHaveAccessibleName("Actions for this review")
-
+    const [first, second] = screen.getAllByRole("button", {
+      name: /^Actions for /,
+    })
     await user.click(first)
     await user.click(
       await screen.findByRole("menuitem", { name: "No reply needed" })
     )
-    await user.click(await screen.findByRole("button", { name: "Cancel" }))
-    await waitFor(() => expect(first).toHaveFocus())
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
+    // The first is still in flight when the second row is acted on.
+    await user.click(second)
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      action: "mark_reviewed",
+      reviewIds: ["b"],
+    })
+    release()
   })
 
-  it("reaches the same action by a left swipe, and still asks first", async () => {
+  it("names each row's ⋯ after its reviewer", () => {
+    renderRows()
+    const [first] = screen.getAllByRole("button", { name: /^Actions for / })
+    expect(first).toHaveAccessibleName(/^Actions for \S/)
+    expect(first).not.toHaveAccessibleName("Actions for this review")
+  })
+
+  it("reaches the same action by a left swipe, with no question first", async () => {
     const user = userEvent.setup()
     renderRows()
     const slide = document.querySelector<HTMLElement>(
@@ -821,29 +854,17 @@ describe("ReviewList — triage from the row", () => {
     )!
     expect(open).not.toBeNull()
     // The swipe alone neither opened the review nor sent anything.
+    expect(mutateAsync).not.toHaveBeenCalled()
     await user.click(
       open.querySelector<HTMLElement>('[data-slot="list-row-swipe-action"]')!
     )
-    await user.click(
-      await screen.findByRole("button", { name: "Mark 1 review" })
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        action: "mark_reviewed",
+        reviewIds: ["a"],
+      })
     )
-    expect(mutateAsync).toHaveBeenCalledWith({
-      action: "mark_reviewed",
-      reviewIds: ["a"],
-    })
-  })
-
-  it("sends nothing when the row's confirmation is cancelled", async () => {
-    const user = userEvent.setup()
-    renderRows()
-    await user.click(
-      screen.getAllByRole("button", { name: /^Actions for / })[0]
-    )
-    await user.click(
-      await screen.findByRole("menuitem", { name: "No reply needed" })
-    )
-    await user.click(await screen.findByRole("button", { name: "Cancel" }))
-    expect(mutateAsync).not.toHaveBeenCalled()
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
   })
 
   // The same gate as the tick boxes, which a viewer is not given.

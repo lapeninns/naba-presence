@@ -6,7 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ActionBar } from "@/components/inbox/action-bar"
 import { DirtyGuardProvider } from "@/components/inbox/dirty-context"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
-import { NoReplyNeededDialog } from "@/components/inbox/review-triage"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail } from "@/lib/api/reviews"
 import { PRIMARY_ACTION_EVENT } from "@/lib/inbox/events"
@@ -18,7 +26,7 @@ import * as detailHook from "@/lib/queries/use-review-detail"
 
 // The real overlay, the real document-level hotkeys and the real action bar,
 // with only the network (the mutations) stubbed: the `a` shortcut must never
-// publish behind a modal question about triage.
+// publish behind a modal confirmation.
 
 const detail = {
   review: {
@@ -92,13 +100,20 @@ function setup({ dialogOpen }: { dialogOpen: boolean }) {
           }}
         />
         <ActionBar reviewId="rev-1" />
-        <NoReplyNeededDialog
-          count={1}
-          open={dialogOpen}
-          onOpenChange={() => {}}
-          pending={false}
-          onConfirm={onConfirm}
-        />
+        <AlertDialog open={dialogOpen} onOpenChange={() => {}}>
+          <AlertDialogContent aria-label="Approve and publish 1 reply?">
+            <AlertDialogTitle>Approve and publish 1 reply?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A confirmation question, like the approve batch’s.
+            </AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogClose render={<Button variant="secondary" />}>
+                Cancel
+              </AlertDialogClose>
+              <Button onClick={onConfirm}>Approve</Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DirtyGuardProvider>
     </Toaster>
   )
@@ -107,7 +122,7 @@ function setup({ dialogOpen }: { dialogOpen: boolean }) {
 
 afterEach(() => vi.restoreAllMocks())
 
-describe("a shortcut behind the No reply needed question", () => {
+describe("a shortcut behind a confirmation question", () => {
   it("does not publish when `a` is pressed with Cancel focused", async () => {
     const user = userEvent.setup()
     const { publish, onConfirm } = setup({ dialogOpen: true })
