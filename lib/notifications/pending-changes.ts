@@ -510,11 +510,38 @@ export function isChangeLive(
   )
 }
 
+/**
+ * `change`, made after `removed`, with its snapshots of the rows `removed`
+ * touched put back to what `removed` took of them, as they were before it.
+ */
+function restoreSnapshots(
+  removed: PendingChange,
+  change: PendingChange
+): PendingChange {
+  let snapshots: Record<string, KnownRow> | null = null
+  for (const [id, before] of Object.entries(removed.snapshots)) {
+    if (!(id in change.snapshots)) continue
+    snapshots ??= { ...change.snapshots }
+    snapshots[id] = before
+  }
+  return snapshots ? { ...change, snapshots } : change
+}
+
 /** Takes back one change, and only that one. */
 export function removePendingChange(client: QueryClient, id: string): void {
   const store = storeFor(client)
-  if (!store.changes.some((change) => change.id === id)) return
-  store.changes = store.changes.filter((change) => change.id !== id)
+  const removed = store.changes.find((change) => change.id === id)
+  if (!removed) return
+  // What a change still out took of a row the removed one also touched may
+  // come from after the removed one reached the server (a poll saw it), which
+  // the pin, taken before, does not hold. Measured against the row as it was
+  // before the removed change, the pin and the survivor agree again.
+  const at = store.changes.indexOf(removed)
+  store.changes = store.changes
+    .filter((change) => change.id !== id)
+    .map((change, index) =>
+      index >= at ? restoreSnapshots(removed, change) : change
+    )
   publish(store)
 }
 

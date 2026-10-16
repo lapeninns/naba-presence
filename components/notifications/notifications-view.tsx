@@ -155,12 +155,21 @@ export function NotificationsView() {
   // focus with it: the change starts, then focus moves to the current filter
   // tab, so the person keeps their place even if the change is then refused.
   const tabs = useRef<HTMLDivElement>(null)
-  function markShownRead() {
-    changes.markRead(unreadShown, true)
+  function focusFilterTab() {
     tabs.current
       ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
       ?.focus()
   }
+  function markShownRead() {
+    changes.markRead(unreadShown, true)
+    focusFilterTab()
+  }
+  // A row that leaves the filtered list takes the focused button with it, so
+  // focus goes to the filter tab first, as for "Mark all read", and stays
+  // there if the change is then refused.
+  const leavesFilter = (action: "read" | "resolve") =>
+    (filter === "unread" && action === "read") ||
+    (filter === "open" && action === "resolve")
 
   function setFilter(value: string) {
     const next = new URLSearchParams(searchParams.toString())
@@ -241,7 +250,13 @@ export function NotificationsView() {
         ) : null}
       </div>
       <QueryStates
-        status={queryStatus(query, { isEmpty: items.length === 0 })}
+        // Empty only when nothing is shown and nothing more can be loaded: the
+        // rows a pending change took off the page must not hide "Load more".
+        // A failed refetch keeps the rows already loaded (see the notice).
+        status={queryStatus(
+          { isPending: query.isPending, isError: query.isError && !query.data },
+          { isEmpty: items.length === 0 && !query.hasNextPage }
+        )}
         pendingLabel="Loading notifications"
         error={{
           title: "Notifications could not be loaded",
@@ -288,26 +303,46 @@ export function NotificationsView() {
         {/* Full-bleed on a phone (the list is the page, as in Notion Mail's
             inbox), a bordered card from md. ListRow draws the inset divider
             from the text column. */}
-        <ListRows
-          bleed
-          aria-label="Notifications"
-          className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
-        >
-          {items.map((item) => (
-            <NotificationRow
-              key={item.id}
-              item={item}
-              confirming={confirming === item.id}
-              onRead={(value) => changes.markRead([item.id], value)}
-              onAskResolve={() => setConfirming(item.id)}
-              onCancelResolve={() => setConfirming(null)}
-              onResolve={() => {
-                setConfirming(null)
-                changes.resolve(item.id)
-              }}
-            />
-          ))}
-        </ListRows>
+        {query.isError && query.data ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 text-body text-ink-secondary"
+          >
+            <p>
+              Notifications could not be refreshed. This list may be out of
+              date.
+            </p>
+            <Button variant="secondary" onClick={() => void query.refetch()}>
+              Try again
+            </Button>
+          </div>
+        ) : null}
+        {items.length ? (
+          <ListRows
+            bleed
+            aria-label="Notifications"
+            className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
+          >
+            {items.map((item) => (
+              <NotificationRow
+                key={item.id}
+                item={item}
+                confirming={confirming === item.id}
+                onRead={(value) => {
+                  changes.markRead([item.id], value)
+                  if (value && leavesFilter("read")) focusFilterTab()
+                }}
+                onAskResolve={() => setConfirming(item.id)}
+                onCancelResolve={() => setConfirming(null)}
+                onResolve={() => {
+                  setConfirming(null)
+                  changes.resolve(item.id)
+                  if (leavesFilter("resolve")) focusFilterTab()
+                }}
+              />
+            ))}
+          </ListRows>
+        ) : null}
         {query.hasNextPage ? (
           <Button
             variant="secondary"

@@ -64,13 +64,19 @@ async function send(
       return { saved, failure: null }
     }
     const turn = change.ids.slice(from, from + READ_BATCH)
+    let accepted: number
     try {
-      await markNotificationsRead(turn, change.read ?? true)
+      accepted = (await markNotificationsRead(turn, change.read ?? true))
+        .updated
     } catch (error) {
       if (from === 0) throw error
       return { saved, failure: error }
     }
-    saved.push(...turn)
+    // The server drops ids it can no longer change (a row that became
+    // invisible or was deleted) and answers with how many it saved, not which.
+    // A turn that did not save every row is not taken as saved: nothing in it
+    // is made permanent, and the refetch that follows shows what really is.
+    if (accepted >= turn.length) saved.push(...turn)
   }
   return { saved, failure: null }
 }

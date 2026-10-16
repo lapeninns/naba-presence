@@ -815,13 +815,14 @@ describe("NotificationsView rows and empty states", () => {
  */
 type Write = {
   call: Call
-  accept: () => void
+  accept: (updated?: number) => void
   refuse: (status?: number) => void
 }
 function steppedServer(initial: (Record<string, unknown> & { id: string })[]) {
   let state = initial
   let gate: Promise<void> | null = null
   let openGate = () => {}
+  let listsFail = false
   const calls: Call[] = []
   const writes: Write[] = []
   const json = (body: unknown, status = 200) =>
@@ -840,6 +841,11 @@ function steppedServer(initial: (Record<string, unknown> & { id: string })[]) {
       calls.push(call)
       if (call.method === "GET") {
         if (gate) await gate
+        if (listsFail)
+          return json(
+            { error: "internal_error", message: "Something broke." },
+            500
+          )
         const filter = new URL(call.url, "http://x").searchParams.get("filter")
         return json({
           items: state.filter((row) =>
@@ -858,18 +864,24 @@ function steppedServer(initial: (Record<string, unknown> & { id: string })[]) {
       return new Promise<Response>((resolve) => {
         writes.push({
           call,
-          accept: () => {
+          accept: (updated?: number) => {
             if (call.url.endsWith("/api/notifications/read")) {
               const { incidentIds, read } = call.body as {
                 incidentIds: string[]
                 read: boolean
               }
-              state = state.map((row) =>
-                incidentIds.includes(row.id)
-                  ? { ...row, readAt: read ? "2026-10-01T09:00:00.000Z" : null }
-                  : row
-              )
-              resolve(json({ updated: incidentIds.length }))
+              // `updated` below the batch: the server dropped some ids (and,
+              // at 0, all of them) without telling which.
+              if (updated !== 0)
+                state = state.map((row) =>
+                  incidentIds.includes(row.id)
+                    ? {
+                        ...row,
+                        readAt: read ? "2026-10-01T09:00:00.000Z" : null,
+                      }
+                    : row
+                )
+              resolve(json({ updated: updated ?? incidentIds.length }))
               return
             }
             state = state.map((row) =>
@@ -909,6 +921,8 @@ function steppedServer(initial: (Record<string, unknown> & { id: string })[]) {
     },
     /** What the server holds from now on (for example another scope's rows). */
     set: (next: typeof initial) => void (state = next),
+    /** Every list request from now on is answered with a server error. */
+    failLists: () => void (listsFail = true),
     holdLists: () => {
       gate = new Promise<void>((resolve) => (openGate = resolve))
     },
@@ -2010,6 +2024,203 @@ const renderPreferences = (role: string | null = "member") =>
     </Toaster>
   )
 const puts = (calls: Call[]) => calls.filter((call) => call.method === "PUT")
+
+describe("NotificationsView review findings", () => {
+  const first = item({})
+  const other = item({
+    id: "33333333-3333-4333-8333-333333333333",
+    kind: "listing_access_lost",
+  })
+  const badgeOf = (client: QueryClient) =>
+    client.getQueryData<{ unreadCount: number }>(
+      queryKeys.notifications("badge")
+    )?.unreadCount
+  const selectedTab = () => screen.getByRole("tab", { selected: true })
+
+  it("keeps Load more reachable when a pending change takes every loaded row off the page", async () => {
+    nav.set("filter=unread")
+    notificationServer({
+      items: [item({})],
+      nextCursor: "next",
+      hold: "read",
+    })
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark shown as read" })
+    )
+    expect(
+      await screen.findByRole("button", { name: "Load more notifications" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Nothing matches this filter")
+    ).not.toBeInTheDocument()
+  })
+
+  describe("when the server saves fewer rows than were sent", () => {
+    it("does not commit the batch as read when it saved none", async () => {
+      const server = steppedServer([first, other])
+      const client = mountScoped(OWNER, true)
+      await screen.findByText("Publishing failed")
+      await waitFor(() => expect(badgeOf(client)).toBe(2))
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      )
+      expect(bell()).toHaveAccessibleName("Notifications, 1 unread")
+      server.holdLists()
+      ;(await server.write(0)).accept(0)
+      await waitFor(() =>
+        expect(bell()).toHaveAccessibleName("Notifications, 2 unread")
+      )
+      await tick()
+      expect(badgeOf(client)).toBe(2)
+      expect(count()).toHaveTextContent("2 open and unread")
+      expect(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      ).toBeInTheDocument()
+      server.releaseLists()
+    })
+
+    it("commits it when the server saved every row", async () => {
+      const server = steppedServer([first, other])
+      const client = mountScoped(OWNER, true)
+      await screen.findByText("Publishing failed")
+      await waitFor(() => expect(badgeOf(client)).toBe(2))
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      )
+      server.holdLists()
+      ;(await server.write(0)).accept(1)
+      await waitFor(() => expect(badgeOf(client)).toBe(1))
+      await tick()
+      expect(badgeOf(client)).toBe(1)
+      expect(bell()).toHaveAccessibleName("Notifications, 1 unread")
+      server.releaseLists()
+    })
+  })
+
+  describe("keyboard focus when a row leaves the filtered list", () => {
+    it("moves to the filter tab at once and stays there when the change is refused", async () => {
+      nav.set("filter=unread")
+      const server = steppedServer([first, other])
+      mountScoped(OWNER)
+      const button = await screen.findByRole("button", {
+        name: "Mark read: Publishing failed",
+      })
+      button.focus()
+      fireEvent.click(button)
+      expect(selectedTab()).toHaveFocus()
+      ;(await server.write(0)).refuse()
+      expect(
+        await screen.findByText("Your change wasn’t saved")
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      ).toBeInTheDocument()
+      expect(selectedTab()).toHaveFocus()
+    })
+
+    it("does the same for a resolve in the Open filter", async () => {
+      nav.set("filter=open")
+      const server = steppedServer([first, other])
+      mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Resolve: Publishing failed",
+        })
+      )
+      const yes = screen.getByRole("button", {
+        name: "Yes, resolve: Publishing failed",
+      })
+      yes.focus()
+      fireEvent.click(yes)
+      expect(selectedTab()).toHaveFocus()
+      ;(await server.write(0)).refuse()
+      await screen.findByText("The notification wasn’t resolved")
+      expect(selectedTab()).toHaveFocus()
+    })
+
+    it("leaves focus alone when the row stays in the list", async () => {
+      const server = steppedServer([first, other])
+      mountScoped(OWNER)
+      const button = await screen.findByRole("button", {
+        name: "Mark read: Publishing failed",
+      })
+      button.focus()
+      fireEvent.click(button)
+      expect(
+        screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+      ).toBeInTheDocument()
+      expect(selectedTab()).not.toHaveFocus()
+      ;(await server.write(0)).accept()
+    })
+  })
+
+  it("rebases the pin when the first of two changes on a row is removed after a poll saw it saved", async () => {
+    const server = steppedServer([first, other])
+    const client = mountScoped(OWNER, true)
+    await screen.findByText("Publishing failed")
+    await waitFor(() => expect(badgeOf(client)).toBe(2))
+    // Read X: the server saves it but the answer is lost.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark read: Publishing failed" })
+    )
+    // A shell poll now has the read: count 1, X not among the unread rows.
+    act(() =>
+      seedShellKeys(client, {
+        counts: {},
+        connections: [],
+        notifications: { items: [other], nextCursor: null, unreadCount: 1 },
+      } as unknown as ShellStatusResponse)
+    )
+    await tick()
+    // Then unread X, queued behind it.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark unread: Publishing failed" })
+    )
+    expect(bell()).toHaveAccessibleName("Notifications, 2 unread")
+    server.holdLists()
+    ;(await server.write(0)).refuse()
+    await screen.findByText("Your change wasn’t saved")
+    // The survivor is measured against X as it was before the lost change.
+    await waitFor(() =>
+      expect(bell()).toHaveAccessibleName("Notifications, 2 unread")
+    )
+    expect(count()).toHaveTextContent("2 open and unread")
+    ;(await server.write(1)).accept()
+    await waitFor(() => expect(badgeOf(client)).toBe(2))
+    await tick()
+    expect(badgeOf(client)).toBe(2)
+    expect(bell()).toHaveAccessibleName("Notifications, 2 unread")
+    server.releaseLists()
+  })
+
+  it("keeps the loaded rows, with a way to try again, when the refetch after a failed action also fails", async () => {
+    const server = steppedServer([first, other])
+    mountScoped(OWNER)
+    await screen.findByText("Publishing failed")
+    server.failLists()
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark read: Publishing failed" })
+    )
+    ;(await server.write(0)).refuse()
+    expect(
+      await screen.findByText("Your change wasn’t saved")
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText(/could not be refreshed/)
+    ).toBeInTheDocument()
+    expect(screen.getByText("Publishing failed")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Mark read: Publishing failed" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Notifications could not be loaded")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Try again" })
+    ).toBeInTheDocument()
+  })
+})
 
 describe("NotificationPreferences", () => {
   const publishing = [
