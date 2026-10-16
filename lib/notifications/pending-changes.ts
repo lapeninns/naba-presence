@@ -84,8 +84,21 @@ let sequence = 0
 function storeFor(client: QueryClient): Store {
   let store = stores.get(client)
   if (!store) {
-    store = { changes: [], published: [], listeners: new Set() }
-    stores.set(client, store)
+    const created: Store = { changes: [], published: [], listeners: new Set() }
+    store = created
+    stores.set(client, created)
+    // A change made in one session scope is dropped the moment the session
+    // in the cache is another scope, even if it later comes back to the first
+    // (A to B to A): what was pending in A's first stretch is not A's second.
+    // Published in step with the cache's other notifications.
+    client.getQueryCache().subscribe(() => {
+      if (created.changes.length === 0) return
+      const token = currentScopeToken(client)
+      const kept = created.changes.filter((change) => change.scope === token)
+      if (kept.length === created.changes.length) return
+      created.changes = kept
+      publish(created, true)
+    })
   }
   return store
 }
@@ -236,6 +249,11 @@ function snapshotOf(
  * server already shows read adds nothing. `known` says what the cache holds
  * for a row; a row it does not hold falls back to the snapshot taken when the
  * change was made, and a row with neither is not counted.
+ *
+ * Known limitation: where the cache does not hold a row, so the count leans
+ * on a snapshot, and the server's count has already absorbed that row's
+ * change, the row can be counted twice for a short while. The reconcile
+ * refetch that follows every change corrects it.
  */
 function unreadDelta(
   changes: readonly PendingChange[],
@@ -359,32 +377,30 @@ export function removePendingChange(client: QueryClient, id: string): void {
   publish(store)
 }
 
-/** Drops every change made in a scope other than `token`. */
-function discardOutsideScope(client: QueryClient, token: string): void {
-  const store = storeFor(client)
-  const kept = store.changes.filter((change) => change.scope === token)
-  if (kept.length === store.changes.length) return
-  store.changes = kept
-  publish(store)
-}
-
 /**
- * The server accepted the change: make it permanent in every cached list
- * (each by its own filter, the count moved by the rows that moved) and in the
- * shell badge, and drop it from the store in the same synchronous step. The
- * caller refetches afterwards to take the server's word for the rest.
+ * The server accepted the change (or, with `saved`, only those of its rows):
+ * make it permanent in every cached list (each by its own filter, the count
+ * moved by the rows that moved) and in the shell badge, and drop it from the
+ * store in the same synchronous step. The caller refetches afterwards to take
+ * the server's word for the rest.
  *
- * Does nothing to the cache when the session scope has changed since the
- * change was made (it only drops the change): those rows are not this
- * session's to show.
+ * Writes nothing unless the change is still in the store and its session
+ * scope is still the current one. A change the store has dropped (the scope
+ * moved on, even if it came back) is not this session's to show; it is only
+ * removed.
  */
 export function commitPendingChange(
   client: QueryClient,
-  change: PendingChange
+  change: PendingChange,
+  saved?: readonly string[]
 ): void {
   const store = storeFor(client)
+  const live =
+    store.changes.some((other) => other.id === change.id) &&
+    currentScopeToken(client) === change.scope
   notifyManager.batch(() => {
-    if (currentScopeToken(client) === change.scope) {
+    if (live) {
+      const applied = saved ? { ...change, ids: saved } : change
       // Read before any write: each list's delta is judged against the cache
       // as it was, not as the previous list's write left it.
       const rows = cachedRowStates(client)
@@ -393,13 +409,13 @@ export function commitPendingChange(
           list.filter === "all" || list.filter === "open"
             ? list.filter
             : "unread"
-        const applied = applyPendingChanges(list.pages, [change], filter, rows)
-        if (applied.pages === list.pages) continue
+        const result = applyPendingChanges(list.pages, [applied], filter, rows)
+        if (result.pages === list.pages) continue
         client.setQueryData(
           list.key,
           list.infinite
-            ? { ...list.data, pages: applied.pages }
-            : applied.pages[0]
+            ? { ...list.data, pages: result.pages }
+            : result.pages[0]
         )
       }
     }
@@ -427,7 +443,7 @@ function useScopeToken(client: QueryClient): string {
 
 /**
  * The changes still pending in this session's scope. A change made in
- * another scope is never returned, and is discarded.
+ * another scope is never returned (and the store has dropped it).
  */
 export function usePendingNotificationChanges(): readonly PendingChange[] {
   const client = useQueryClient()
@@ -444,9 +460,6 @@ export function usePendingNotificationChanges(): readonly PendingChange[] {
     () => store.published,
     () => store.published
   )
-  React.useEffect(() => {
-    discardOutsideScope(client, token)
-  }, [client, token, all])
   return React.useMemo(
     () => all.filter((change) => change.scope === token),
     [all, token]

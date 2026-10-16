@@ -354,4 +354,55 @@ describe("pending changes and the session scope", () => {
     commitPendingChange(client, made)
     expect(client.getQueryData(queryKeys.notifications("all"))).toBe(before)
   })
+
+  it("drops a change when the scope leaves and comes back, from the store and for the commit", async () => {
+    const { client, wrapper } = setup()
+    const made = addPendingChange(client, {
+      kind: "read",
+      ids: ["a"],
+      read: true,
+    })
+    const { result } = renderHook(() => usePendingNotificationChanges(), {
+      wrapper,
+    })
+    expect(result.current).toEqual([made])
+    // Away and back with nothing in between to notice: the token is the same
+    // as when the change was made.
+    client.setQueryData<SessionResponse>(queryKeys.session, {
+      session: { ...OWNER, role: "member", scopeFingerprint: "fp-2" },
+    })
+    client.setQueryData<SessionResponse>(queryKeys.session, { session: OWNER })
+    expect(currentScopeToken(client)).toBe(made.scope)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(result.current).toEqual([])
+    const before = client.getQueryData(queryKeys.notifications("all"))
+    const badge = client.getQueryData(queryKeys.notifications("badge"))
+    commitPendingChange(client, made)
+    expect(client.getQueryData(queryKeys.notifications("all"))).toBe(before)
+    expect(client.getQueryData(queryKeys.notifications("badge"))).toBe(badge)
+  })
+
+  it("commits only the rows that saved when told which they were", () => {
+    const { client } = setup()
+    const made = addPendingChange(client, {
+      kind: "read",
+      ids: ["a", "b"],
+      read: true,
+    })
+    commitPendingChange(client, made, ["a"])
+    const all = client.getQueryData<{ pages: NotificationListResponse[] }>(
+      queryKeys.notifications("all")
+    )!
+    expect(all.pages[0]!.items.map((i) => Boolean(i.readAt))).toEqual([
+      true,
+      false,
+    ])
+    expect(all.pages[0]!.unreadCount).toBe(1)
+    // The whole change is no longer pending: the rest is the server's to say.
+    expect(
+      applyPendingChanges(all.pages, [], "all").pages[0]!.items[1]!.readAt
+    ).toBeNull()
+  })
 })

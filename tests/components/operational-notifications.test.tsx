@@ -45,8 +45,10 @@ import { NotificationsView } from "@/components/notifications/notifications-view
 import { NotificationPreferences } from "@/components/settings/notification-preferences"
 import { Toaster } from "@/components/ui/toast"
 import type { SessionResponse, SessionUser } from "@/lib/contracts/session"
+import type { ShellStatusResponse } from "@/lib/contracts/shell-status"
 import { queryKeys } from "@/lib/queries/keys"
 import { useScopeReset } from "@/lib/queries/scope-reset"
+import { seedShellKeys } from "@/lib/queries/use-shell-status"
 
 const LOCATION = "11111111-1111-4111-8111-111111111111"
 const item = (overrides: Record<string, unknown>) => ({
@@ -969,7 +971,10 @@ describe("NotificationsView pending changes", () => {
         })
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
-      expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+      // The scope reset has run: nothing of the owner's is on screen.
+      await waitFor(() =>
+        expect(screen.queryByText("Publishing failed")).not.toBeInTheDocument()
+      )
       write.refuse(403)
       expect(
         await screen.findByText("The notification wasn’t resolved")
@@ -1046,14 +1051,70 @@ describe("NotificationsView pending changes", () => {
       })
       await screen.findByText("Publishing failed")
       server.holdLists()
+      const reconciles = server.listCalls("all")
       write.accept()
-      await tick()
+      // The reconciliation GET has gone out (and is held): the change has
+      // been handled, and what shows is what the cache holds.
+      await waitFor(() =>
+        expect(server.listCalls("all")).toBeGreaterThan(reconciles)
+      )
       await tick()
       // Not committed: the member's row is still unread.
       expect(
         screen.getByRole("button", { name: "Mark read: Publishing failed" })
       ).toBeInTheDocument()
       expect(count()).toHaveTextContent("1 open and unread")
+      expect(
+        client.getQueryData<{
+          pages: { items: { readAt: string | null }[] }[]
+        }>(queryKeys.notifications("all"))?.pages[0]?.items[0]?.readAt
+      ).toBeNull()
+      server.releaseLists()
+    })
+
+    it("does not commit a change the scope dropped, even when the scope comes back", async () => {
+      const server = steppedServer([first])
+      const client = mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Mark read: Publishing failed",
+        })
+      )
+      await screen.findByRole("button", {
+        name: "Mark unread: Publishing failed",
+      })
+      const write = await server.write(0)
+      // Owner, then member, then the owner's scope again: the token is the
+      // same as when the change was made, but the change is not the owner's
+      // second stretch's.
+      for (const session of [MEMBER, OWNER])
+        await act(async () => {
+          client.setQueryData<SessionResponse>(queryKeys.session, { session })
+          await new Promise((resolve) => setTimeout(resolve, 0))
+        })
+      expect(
+        await screen.findByRole("button", {
+          name: "Mark read: Publishing failed",
+        })
+      ).toBeInTheDocument()
+      server.holdLists()
+      const reconciles = server.listCalls("all")
+      write.accept()
+      await waitFor(() =>
+        expect(server.listCalls("all")).toBeGreaterThan(reconciles)
+      )
+      await tick()
+      // Gone from the store (the row shows what the cache holds) and not
+      // written into the cache.
+      expect(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      ).toBeInTheDocument()
+      expect(count()).toHaveTextContent("1 open and unread")
+      const cached = client.getQueryData<{
+        pages: { items: { readAt: string | null }[]; unreadCount: number }[]
+      }>(queryKeys.notifications("all"))
+      expect(cached?.pages[0]?.items[0]?.readAt).toBeNull()
+      expect(cached?.pages[0]?.unreadCount).toBe(1)
       server.releaseLists()
     })
   })
@@ -1157,7 +1218,7 @@ describe("NotificationsView pending changes", () => {
 
   it("keeps a pending resolve out of the Open filter when a read in All settles", async () => {
     const server = steppedServer([first, other])
-    renderView()
+    const client = mountScoped(OWNER)
     await screen.findByText("Publishing failed")
     fireEvent.click(
       screen.getByRole("button", { name: "Mark read: Publishing failed" })
@@ -1183,6 +1244,13 @@ describe("NotificationsView pending changes", () => {
     const resolve = await server.write(1)
     expect(resolve.call.url).toContain(other.id)
     await waitFor(() => expect(server.listCalls("open")).toBeGreaterThan(opens))
+    // The refetch has come back and been rendered (nothing is still
+    // fetching, and the screen has caught up with the cache).
+    await waitFor(() =>
+      expect(client.isFetching({ queryKey: queryKeys.notificationsAll })).toBe(
+        0
+      )
+    )
     await tick()
     expect(screen.queryByText("Listing access lost")).not.toBeInTheDocument()
     expect(screen.getByText("Publishing failed")).toBeInTheDocument()
@@ -1190,6 +1258,37 @@ describe("NotificationsView pending changes", () => {
     resolve.accept()
     await waitFor(() => expect(count()).toHaveTextContent("0 open and unread"))
     expect(screen.queryByText("Listing access lost")).not.toBeInTheDocument()
+  })
+
+  it("keeps the saved turns read, with no flash of unread, when a later turn is refused", async () => {
+    const many = Array.from({ length: 101 }, (_, index) =>
+      item({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      })
+    )
+    const server = steppedServer(many)
+    renderView()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark all read" })
+    )
+    const turnOne = await server.write(0)
+    expect(
+      (turnOne.call.body as { incidentIds: string[] }).incidentIds
+    ).toHaveLength(100)
+    server.holdLists()
+    turnOne.accept()
+    const turnTwo = await server.write(1)
+    turnTwo.refuse()
+    expect(
+      await screen.findByText("Some notifications weren’t marked as read")
+    ).toBeInTheDocument()
+    // With the reconciliation GET still out: the hundred that saved are read
+    // from the cache, and the one that was refused is the only unread row.
+    expect(count()).toHaveTextContent("1 open and unread")
+    expect(screen.getAllByText(/\(unread\)/)).toHaveLength(1)
+    server.releaseLists()
+    await waitFor(() => expect(count()).toHaveTextContent("1 open and unread"))
+    expect(screen.getAllByText(/\(unread\)/)).toHaveLength(1)
   })
 
   describe("the shell bell", () => {
@@ -1278,6 +1377,61 @@ describe("NotificationsView pending changes", () => {
       agree(0)
       server.releaseLists()
       await waitFor(() => agree(0))
+    })
+
+    it("is not overwritten by a shell poll that left before the change was saved", async () => {
+      const server = steppedServer([first, other])
+      const client = mountScoped(OWNER, true)
+      await screen.findByText("Publishing failed")
+      await waitFor(() => agree(2))
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      )
+      agree(1)
+      // A poll leaves now, still holding the count from before the save. Like
+      // the real one it seeds the badge when its answer arrives, and its
+      // request is aborted when cancelled.
+      let answer = () => {}
+      const poll = client.fetchQuery({
+        queryKey: queryKeys.shellStatus,
+        queryFn: ({ client: queryClient, signal }) =>
+          new Promise<null>((resolve, reject) => {
+            signal.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError"))
+            )
+            answer = () => {
+              // The real poll seeds only after its request resolves, which
+              // an abort prevents.
+              if (signal.aborted) return
+              seedShellKeys(queryClient, {
+                counts: {},
+                connections: [],
+                notifications: { items: [], nextCursor: null, unreadCount: 2 },
+              } as unknown as ShellStatusResponse)
+              resolve(null)
+            }
+          }),
+      })
+      poll.catch(() => undefined)
+      server.holdLists()
+      ;(await server.write(0)).accept()
+      await waitFor(() =>
+        expect(
+          client.getQueryData<{ unreadCount: number }>(
+            queryKeys.notifications("badge")
+          )?.unreadCount
+        ).toBe(1)
+      )
+      // The stale poll answers after the commit: it must not land.
+      answer()
+      await tick()
+      expect(
+        client.getQueryData<{ unreadCount: number }>(
+          queryKeys.notifications("badge")
+        )?.unreadCount
+      ).toBe(1)
+      agree(1)
+      server.releaseLists()
     })
   })
 

@@ -11,7 +11,6 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import {
   addPendingChange,
   commitPendingChange,
-  currentScopeToken,
   removePendingChange,
   type PendingChange,
 } from "@/lib/notifications/pending-changes"
@@ -30,31 +29,34 @@ const CHANGE_KEY = ["notifications", "change"] as const
 const CHANGE_SCOPE = { id: "notifications-change" }
 const ERROR_TOAST_ID = "notifications-change-error"
 
-/** What a request reports: null, or why a later turn was refused. */
-type ChangeResult = { failure: unknown }
+/**
+ * What a request reports: the rows the server saved, and null or why a later
+ * turn was refused.
+ */
+type ChangeResult = { saved: readonly string[]; failure: unknown }
 
 /**
  * Sends in turns of 100. A turn refused after an earlier one saved is not a
  * failure of the whole change: it reports what is left instead of throwing,
- * so the list is refetched and shows what the server holds.
+ * so what saved is kept and the list is refetched.
  */
 async function send(change: PendingChange): Promise<ChangeResult> {
   if (change.kind === "resolve") {
     await resolveNotification(change.ids[0]!)
-    return { failure: null }
+    return { saved: change.ids, failure: null }
   }
+  const saved: string[] = []
   for (let from = 0; from < change.ids.length; from += READ_BATCH) {
+    const turn = change.ids.slice(from, from + READ_BATCH)
     try {
-      await markNotificationsRead(
-        change.ids.slice(from, from + READ_BATCH),
-        change.read ?? true
-      )
+      await markNotificationsRead(turn, change.read ?? true)
     } catch (error) {
       if (from === 0) throw error
-      return { failure: error }
+      return { saved, failure: error }
     }
+    saved.push(...turn)
   }
-  return { failure: null }
+  return { saved, failure: null }
 }
 
 /**
@@ -73,28 +75,25 @@ export function useNotificationChanges() {
     mutationKey: CHANGE_KEY,
     scope: CHANGE_SCOPE,
     mutationFn: send,
-    onSuccess: async ({ failure }, change) => {
-      const reconcile = () =>
-        void client.invalidateQueries({ queryKey: queryKeys.notificationsAll })
-      if (failure !== null) {
-        // Part saved and a later turn was refused: what is known is only what
-        // the server holds, so there is nothing to commit.
-        removePendingChange(client, change.id)
-        reconcile()
-        showToast({
-          id: "notifications-read-partial",
-          type: "error",
-          title: "Some notifications weren’t marked as read",
-          description: describeActionError(failure),
-        })
-        return
-      }
-      // A refetch started before the answer may predate the change.
-      await client.cancelQueries({ queryKey: queryKeys.notificationsAll })
-      if (currentScopeToken(client) === change.scope)
-        commitPendingChange(client, change)
-      else removePendingChange(client, change.id)
-      reconcile()
+    onSuccess: async ({ saved, failure }, change) => {
+      // A refetch or a shell poll that left before the answer may predate
+      // the change; neither may land after the commit.
+      await Promise.all([
+        client.cancelQueries({ queryKey: queryKeys.notificationsAll }),
+        client.cancelQueries({ queryKey: queryKeys.shellStatus }),
+      ])
+      // What the server saved is made permanent (all of it, or the turns
+      // that went before a refused one), so saved rows do not flash unread;
+      // a change the store has dropped, or from another scope, is only removed.
+      commitPendingChange(client, change, saved)
+      void client.invalidateQueries({ queryKey: queryKeys.notificationsAll })
+      if (failure === null) return
+      showToast({
+        id: "notifications-read-partial",
+        type: "error",
+        title: "Some notifications weren’t marked as read",
+        description: describeActionError(failure),
+      })
     },
     onError: (error, change) => {
       removePendingChange(client, change.id)
