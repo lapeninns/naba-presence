@@ -53,14 +53,15 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
     renderToolbar()
     const group = screen.getByRole("group", { name: "Filter reviews" })
     expect(group).toHaveAttribute("data-slot", "inbox-filter-toolbar")
-    // Age and sort are the inline shortcuts (CSS folds them away on narrow
-    // screens); everything else waits in the sheet.
+    // Age and sort are in the sheet alone: they used to be mounted a second
+    // time here, hidden at every width, so nothing could reach them.
+    expect(within(group).queryByRole("combobox")).not.toBeInTheDocument()
     expect(
-      within(group).getByRole("combobox", { name: "Filter by review age" })
-    ).toBeInTheDocument()
+      screen.queryByRole("combobox", { name: "Filter by review age" })
+    ).not.toBeInTheDocument()
     expect(
-      within(group).getByRole("combobox", { name: "Sort reviews" })
-    ).toBeInTheDocument()
+      screen.queryByRole("combobox", { name: "Sort reviews" })
+    ).not.toBeInTheDocument()
     expect(
       within(group).getByRole("button", { name: /^Filters/ })
     ).toBeInTheDocument()
@@ -289,8 +290,9 @@ describe("FilterToolbar — age and custom dates", () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     renderToolbar({}, { onChange })
+    const sheet = await openSheet(user)
     await user.click(
-      screen.getByRole("combobox", { name: "Filter by review age" })
+      within(sheet).getByRole("combobox", { name: "Filter by review age" })
     )
     await user.click(await screen.findByRole("option", { name: "Last 7 days" }))
     expect(onChange).toHaveBeenCalledWith(
@@ -311,8 +313,9 @@ describe("FilterToolbar — age and custom dates", () => {
       },
       { onChange }
     )
+    const sheet = await openSheet(user)
     await user.click(
-      screen.getByRole("combobox", { name: "Filter by review age" })
+      within(sheet).getByRole("combobox", { name: "Filter by review age" })
     )
     await user.click(
       await screen.findByRole("option", { name: "Last 24 hours" })

@@ -13,7 +13,11 @@ import {
 import type { ReviewRow } from "@/lib/contracts/reviews"
 
 vi.mock("@/components/inbox/google-freshness", () => ({
-  GoogleFreshness: () => null,
+  GoogleFreshness: ({ className }: { className?: string }) => (
+    <span data-testid="freshness" className={className}>
+      Google checked 5 min ago
+    </span>
+  ),
 }))
 
 function row(id: string): ReviewRow {
@@ -55,6 +59,24 @@ const readout = () => screen.getByTestId("readout").textContent
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+describe("freshness", () => {
+  it("shows when Google was last checked at every width, phones included", () => {
+    renderHeader()
+    const freshness = screen.getByTestId("freshness")
+    // It used to be `max-2xl:hidden`, so a phone, and a member or viewer
+    // with no Sync button, could not tell how fresh the list was.
+    expect(freshness.className).not.toMatch(/hidden/)
+    expect(freshness).toHaveClass("min-w-0", "truncate")
+  })
+
+  it("steps aside for the selection count on a phone", async () => {
+    const user = userEvent.setup()
+    renderHeader()
+    await user.click(screen.getByRole("button", { name: "Select" }))
+    expect(screen.getByTestId("freshness")).toHaveClass("max-desk:hidden")
+  })
 })
 
 describe("selection mode", () => {
@@ -167,7 +189,7 @@ describe("ListHeader", () => {
     expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument()
   })
 
-  it("reads '0 selected' on touch in select mode until the selection bar takes over", async () => {
+  it("reads '0 selected' in select mode, then the ticked count, beside the one Cancel", async () => {
     const user = userEvent.setup()
     const { container } = renderHeader()
     expect(
@@ -178,30 +200,53 @@ describe("ListHeader", () => {
       "[data-slot=inbox-selected-count]"
     )!
     expect(selected).toHaveTextContent("0 selected")
-    // Touch only: a desk keeps its count, as its boxes are always there.
-    expect(selected).toHaveClass("desk:hidden")
+    // The selection's count replaces the list's count while it lasts.
     expect(
-      screen.getByText("2 reviews", { selector: "span:not([role=status])" })
-    ).toHaveClass("hidden", "desk:inline")
+      screen.queryByText("2 reviews", { selector: "span:not([role=status])" })
+    ).toBeNull()
     await user.click(
       screen.getByRole("checkbox", { name: "Select every review in this view" })
     )
-    // QA #11: once something is ticked the selection bar says "2 selected"
-    // beside "Clear selection", so the band says it no more and shows the
-    // list's count beside its one Cancel.
+    // The header owns the count and the Cancel: the selection bar below
+    // holds only the actions, so there is one of each.
     expect(
       container.querySelector("[data-slot=inbox-selected-count]")
-    ).toBeNull()
-    expect(screen.queryByText(/selected$/)).toBeNull()
-    expect(
-      screen.getByText("2 reviews", { selector: "span:not([role=status])" })
-    ).not.toHaveClass("hidden")
-    expect(
-      screen.getAllByRole("button", { name: /cancel/i })
-    ).toHaveLength(1)
+    ).toHaveTextContent("2 selected")
+    expect(screen.getAllByRole("button", { name: /cancel/i })).toHaveLength(1)
     expect(
       screen.getByRole("button", { name: "Cancel selection" })
     ).toBeVisible()
+    // The count is also spoken, from a region that is always mounted.
+    expect(screen.getByText("2 reviews selected")).toHaveAttribute(
+      "aria-live",
+      "polite"
+    )
+  })
+
+  it("offers Cancel on a desk once something is ticked, without select mode", async () => {
+    const user = userEvent.setup()
+    const { container } = renderHeader()
+    // A desk's boxes are always there: no Select button, no Cancel to start.
+    const select = screen.getByRole("button", { name: "Select" })
+    expect(select).toHaveClass("desk:hidden")
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select every review in this view" })
+    )
+    expect(readout()).toBe("a,b · off")
+    const cancel = screen.getByRole("button", { name: "Cancel selection" })
+    // Not folded away on a desk any more: it is the way out of the ticks.
+    expect(cancel).not.toHaveClass("desk:hidden")
+    expect(
+      container.querySelector("[data-slot=inbox-selected-count]")
+    ).toHaveTextContent("2 selected")
+    await user.click(cancel)
+    expect(readout()).toBe("none · off")
+    expect(
+      container.querySelector("[data-slot=inbox-selected-count]")
+    ).toBeNull()
+    expect(screen.getByRole("button", { name: "Select" })).toHaveClass(
+      "desk:hidden"
+    )
   })
 
   it("shows the select-all box on touch only in select mode", async () => {

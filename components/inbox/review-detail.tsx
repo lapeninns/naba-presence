@@ -15,6 +15,7 @@ import {
   TriangleAlertIcon,
   UserPlusIcon,
 } from "lucide-react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 
 import { ReviewAvatar } from "@/components/inbox/review-avatar"
@@ -45,11 +46,9 @@ import { useMenuSheet } from "@/components/ui/menu-surface"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Stars } from "@/components/ui/stars"
-import { ActivityTimeline } from "@/components/inbox/activity-timeline"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
-import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
 import {
   AssigneeItems,
   assignReviews,
@@ -349,6 +348,46 @@ function ReviewAssignItems({
   return <AssigneeItems {...assignees} onAssign={onAssign} />
 }
 
+// History and Review details are opened now and then from the ⋯ menu, so
+// their code is not part of the Inbox's first load. They are fetched when
+// the menu opens (the click that follows then finds them already loaded) and,
+// failing that, when the dialog is asked for. Both are closed on the server,
+// so neither renders there.
+const loadActivityTimeline = () =>
+  import("@/components/inbox/activity-timeline")
+const loadReviewMetadata = () =>
+  import("@/components/inbox/detail/review-metadata")
+const ActivityTimeline = dynamic(
+  () => loadActivityTimeline().then((module) => module.ActivityTimeline),
+  {
+    ssr: false,
+    // Inside the History dialog that is already open: rows where the events
+    // will be, so nothing moves when they arrive.
+    loading: () => (
+      <div role="status" aria-label="Loading history" className="grid gap-3">
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-4 w-3/5" />
+      </div>
+    ),
+  }
+)
+const ReviewMetadata = dynamic(
+  () => loadReviewMetadata().then((module) => module.ReviewMetadata),
+  {
+    ssr: false,
+    loading: () => (
+      <span role="status" className="sr-only">
+        Loading review details…
+      </span>
+    ),
+  }
+)
+function preloadReviewDialogs() {
+  void loadActivityTimeline()
+  void loadReviewMetadata()
+}
+
 /**
  * The ⋯ menu beside the reviewer: the triage that needs no reply (No reply
  * needed, Assign…) where the reader already is, then everything that is
@@ -361,6 +400,10 @@ function ReviewMenu({ review }: { review: Review }) {
   const moreRef = useRef<HTMLButtonElement>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  // The details dialog is not mounted (so its code is not fetched) until it
+  // is first asked for; it then stays mounted so it can close with its
+  // animation and hand focus back.
+  const [detailsMounted, setDetailsMounted] = useState(false)
   const [confirmReviewed, setConfirmReviewed] = useState(false)
   const canTriage = useSessionRole() !== "viewer"
   const triage = useReviewTriage()
@@ -372,7 +415,11 @@ function ReviewMenu({ review }: { review: Review }) {
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (open) preloadReviewDialogs()
+        }}
+      >
         <DropdownMenuTrigger
           ref={moreRef}
           render={
@@ -434,7 +481,12 @@ function ReviewMenu({ review }: { review: Review }) {
             <HistoryIcon aria-hidden />
             History
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
+          <DropdownMenuItem
+            onClick={() => {
+              setDetailsMounted(true)
+              setDetailsOpen(true)
+            }}
+          >
             <InfoIcon aria-hidden />
             Review details
           </DropdownMenuItem>
@@ -477,12 +529,14 @@ function ReviewMenu({ review }: { review: Review }) {
           />
         </DialogContent>
       </Dialog>
-      <ReviewMetadata
-        review={review}
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-        finalFocus={moreRef}
-      />
+      {detailsMounted ? (
+        <ReviewMetadata
+          review={review}
+          open={detailsOpen}
+          onOpenChange={setDetailsOpen}
+          finalFocus={moreRef}
+        />
+      ) : null}
     </>
   )
 }

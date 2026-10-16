@@ -106,8 +106,52 @@ describe("SyncReviewsButton", () => {
     )
     renderButton(true)
     await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "A sync is already running"
+    // A toast, like the success, not a caption that stays under the icon.
+    expect(
+      await screen.findByText(
+        "A sync is already running. Try again in a moment."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText("Could not sync reviews")).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+      "data-type",
+      "error"
     )
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sync reviews" })).toBeEnabled()
+  })
+
+  it("reports a failed sync as a toast", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({ error: { code: "internal_error", message: "x" } }, 500)
+      )
+    )
+    renderButton(true)
+    await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
+    expect(
+      await screen.findByText("Could not sync reviews")
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("reports a Google failure inside a finished sync as a toast", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({
+          processed: 0,
+          nextCursor: null,
+          failures: [{ errorCode: "google_unavailable" }],
+        })
+      )
+    )
+    renderButton(true)
+    await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
+    expect(
+      await screen.findByText("Could not sync reviews")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Reviews synced")).not.toBeInTheDocument()
   })
 })

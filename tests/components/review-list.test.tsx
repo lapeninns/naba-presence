@@ -997,7 +997,8 @@ describe("ReviewList row anatomy", () => {
     // never squeezed (R3 F2-S2, RC3 QA #2): under sm (24rem, any phone up
     // to ~470px) the pill drops below so the client · location keeps its
     // width; the location takes the rest with a zero basis, so it never
-    // forces that wrap itself, and wraps instead of truncating.
+    // forces that wrap itself. It is one line (DSK-12): the client gives way
+    // first, with the whole text as the title.
     const subtitle = venue.closest('[data-slot="list-row-subtitle"]')!
     expect(subtitle).not.toBeNull()
     expect(venue).toHaveClass("@container/venue")
@@ -1016,10 +1017,18 @@ describe("ReviewList row anatomy", () => {
       location.compareDocumentPosition(status) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(location).toHaveClass("wrap-break-word", "flex-1", "basis-0")
-    expect(location).not.toHaveClass("truncate")
-    expect(location.className).not.toMatch(/line-clamp/)
-    expect(venue).toHaveClass("whitespace-normal")
+    expect(location).toHaveClass("flex-1", "basis-0", "whitespace-nowrap")
+    expect(location).toHaveAttribute("title", "Old Crown Group · Riverside")
+    expect(location.className).not.toMatch(/wrap-break-word|line-clamp/)
+    expect(venue).not.toHaveClass("whitespace-normal")
+    // The client truncates first; the listing, which tells two venues of one
+    // client apart, keeps its width.
+    const client = location.querySelector('[data-slot="review-row-client"]')!
+    expect(client).toHaveClass("truncate", "min-w-0")
+    expect(client).toHaveTextContent("Old Crown Group")
+    expect(client.nextElementSibling).toHaveTextContent("·")
+    expect(location.lastElementChild).toHaveClass("truncate")
+    expect(location.lastElementChild).toHaveTextContent("Riverside")
     expect(button.querySelector('[data-slot="list-row-trailing"]')).toBeNull()
 
     // DOM order is the visual order: name and time, venue, then the words.
@@ -1251,5 +1260,75 @@ describe("ReviewList — keeping the selection in view", () => {
     expect(scrollBy).not.toHaveBeenCalled()
     view.rerender(list([...first, ...page("b")], "b1"))
     expect(scrollBy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("ReviewList refresh bar", () => {
+  const rows = [row({ id: "a" })]
+
+  it("is an indeterminate, named Progress while the list refetches", () => {
+    render(
+      <ReviewList
+        reviews={rows}
+        selectedId={undefined}
+        onSelect={() => true}
+        isRefreshing
+      />
+    )
+    const bar = screen.getByRole("progressbar", { name: "Refreshing reviews" })
+    expect(bar).toHaveAttribute("data-slot", "progress")
+    expect(bar).toHaveAttribute("data-indeterminate", "true")
+    expect(bar).not.toHaveAttribute("aria-valuenow")
+    // Its highlight stops under reduced motion (the one-off pulse did not),
+    // and the section is marked busy as before.
+    expect(bar.querySelector(".animate-shimmer")).toHaveClass(
+      "motion-reduce:animate-none"
+    )
+    expect(document.querySelector(".animate-pulse")).toBeNull()
+    expect(screen.getByRole("region", { name: "Review list" })).toHaveAttribute(
+      "aria-busy",
+      "true"
+    )
+  })
+
+  it("is not drawn when the list is current", () => {
+    render(
+      <ReviewList reviews={rows} selectedId={undefined} onSelect={() => true} />
+    )
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+  })
+})
+
+describe("ReviewList venue line", () => {
+  it("keeps a long venue to one line, truncating the client before the listing", () => {
+    render(
+      <ReviewList
+        reviews={[
+          row({
+            id: "long",
+            location: {
+              id: "loc-2",
+              name: "Stub location e23631ff",
+              clientId: "c1",
+              clientName: "Journey Hospitality",
+            },
+          } as Partial<ReviewRow>),
+        ]}
+        selectedId={undefined}
+        onSelect={() => true}
+      />
+    )
+    const location = document.querySelector(
+      '[data-slot="review-row-location"]'
+    )!
+    expect(location).toHaveAttribute(
+      "title",
+      "Journey Hospitality · Stub location e23631ff"
+    )
+    expect(location).toHaveClass("whitespace-nowrap")
+    expect(location.className).not.toMatch(/wrap-break-word/)
+    expect(location).toHaveTextContent(
+      "Journey Hospitality · Stub location e23631ff"
+    )
   })
 })

@@ -7,6 +7,7 @@ import {
   Ellipsis,
   UserPlus,
 } from "lucide-react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import * as React from "react"
 
@@ -19,7 +20,6 @@ import {
   useReviewTriage,
 } from "@/components/inbox/review-triage"
 import { useSelection } from "@/components/inbox/selection-context"
-import { TemplateReplyDialog } from "@/components/inbox/template-reply-dialog"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -55,11 +55,30 @@ import {
 } from "@/lib/inbox/bulk-outcome"
 import { isRatingOnly } from "@/lib/inbox/template-batch"
 
+// The template batch is a 580-line dialog used on rating-only selections, so
+// it is not part of the Inbox's first load. It is fetched as soon as a
+// selection that offers it exists (the click that follows then finds it
+// loaded) and mounted only once asked for. It is closed on the server.
+const loadTemplateReplyDialog = () =>
+  import("@/components/inbox/template-reply-dialog")
+const TemplateReplyDialog = dynamic(
+  () => loadTemplateReplyDialog().then((module) => module.TemplateReplyDialog),
+  {
+    ssr: false,
+    loading: () => (
+      <span role="status" className="sr-only">
+        Loading the template reply…
+      </span>
+    ),
+  }
+)
+
 /**
  * Actions over a selection: the shared SelectionBar, docked to the bottom
  * of a phone while anything is ticked, where it takes the tab bar's slot
- * (D4), and sticky at the foot of the list from md. Its header is "N
- * selected" and "Clear selection"; its tiles are an overflow (⋯) for the
+ * (D4), and sticky at the foot of the list from md. It holds only actions:
+ * "N selected" and the one "Cancel" are in the list header (list-header.tsx),
+ * so there is a single way out. Its tiles are an overflow (⋯) for the
  * rarer actions and one primary — 64px tiles, icon over label, on a phone,
  * inline buttons from md. The primary is the charcoal tile when it leads to
  * Google (approve and publish, the template batch), the plain tile when it
@@ -78,7 +97,7 @@ function BulkActionBar({
   /** Approve and template replies run as a bulk batch (the job runner sends them). */
   bulkEngine?: boolean
 }) {
-  const { selected, clear, replace, setSelectMode } = useSelection()
+  const { selected, replace, setSelectMode } = useSelection()
   const bulk = useReviewTriage()
   // On a phone the overflow is a bottom action sheet, where a flyout
   // submenu has nowhere to fly to; the assignees are listed in the sheet.
@@ -101,6 +120,11 @@ function BulkActionBar({
     chosen.map((row) => row.location.id),
     { enabled: chosen.length > 0 }
   )
+
+  const offersTemplate = chosen.some(isRatingOnly)
+  React.useEffect(() => {
+    if (offersTemplate) void loadTemplateReplyDialog()
+  }, [offersTemplate])
 
   const templateDialog = templateRows ? (
     <TemplateReplyDialog
@@ -183,7 +207,6 @@ function BulkActionBar({
   }
 
   const partial = approvable.length < chosen.length && approvable.length > 0
-  const ratingOnly = chosen.some(isRatingOnly)
   const failures = outcome
     ? outcome.results.filter(
         (row) => row.status !== "ok" && row.status !== "queued"
@@ -195,7 +218,7 @@ function BulkActionBar({
   const primary: "approve" | "template" | "mark_reviewed" =
     approvable.length > 0
       ? "approve"
-      : ratingOnly
+      : offersTemplate
         ? "template"
         : "mark_reviewed"
   const assigneeItems = (
@@ -291,15 +314,11 @@ function BulkActionBar({
           phone it is fixed to the bottom of the screen (the chrome contract
           in globals.css steps the tab bar aside for it, and it rides the
           keyboard); from md it sticks to the foot of the list. Only on the
-          page while something is ticked (the early return above). Its
-          "Clear selection" empties the selection and leaves select mode as
-          it is; the list header's Cancel/Done leaves select mode. */}
+          page while something is ticked (the early return above). The count
+          and the Cancel are the list header's. */}
       <SelectionBar
         data-slot="bulk-action-bar"
         label="Selected reviews"
-        count={chosen.length}
-        onCancel={clear}
-        cancelLabel="Clear selection"
         notes={notes}
         className="shrink-0"
       >
@@ -342,7 +361,7 @@ function BulkActionBar({
             {/* Stars with no words: one standard reply each, checked and then
               published (or submitted) as a batch. Offered only when the
               selection has some. */}
-            {ratingOnly && primary !== "template" ? (
+            {offersTemplate && primary !== "template" ? (
               <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
                 <MessageSquareText aria-hidden />
                 Reply with template

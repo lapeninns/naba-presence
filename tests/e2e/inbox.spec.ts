@@ -134,8 +134,10 @@ test.describe("inbox", () => {
   // R3 F2-S2 / RC3 QA #2: on a phone the venue line keeps the client ·
   // location readable. Beside the stars, a status pill used to squeeze it to
   // an ellipsis, and at 390 the line truncated even without one ("Stub
-  // locat…"). The pill now drops under the venue below sm (24rem), and the
-  // venue wraps (two lines at most) instead of truncating.
+  // locat…"). The pill now drops under the venue below sm (24rem). R09
+  // (DSK-12): the venue is one line, so a long "client · listing" no longer
+  // wraps a row to three lines; the client truncates before the listing, and
+  // the whole text is the title.
   for (const width of [320, 360, 390]) {
     test(`keeps the venue readable on a ${width}px phone`, async ({
       baseURL,
@@ -159,13 +161,15 @@ test.describe("inbox", () => {
         // of it, and never a sliver.
         expect(box?.width ?? 0).toBeGreaterThanOrEqual(96)
         expect(box!.width).toBeGreaterThan(line!.width * 0.55)
-        // Every word of the client · location is drawn: nothing is cut off.
-        const clipped = await location.evaluate(
+        // One line: the venue is never taller than a line and a half, and
+        // its full text stays available as the title.
+        const lineHeight = await location.evaluate(
           (node) =>
-            node.scrollWidth > node.clientWidth + 1 ||
-            node.scrollHeight > node.clientHeight + 1
+            parseFloat(getComputedStyle(node).lineHeight) ||
+            parseFloat(getComputedStyle(node).fontSize) * 1.5
         )
-        expect(clipped).toBe(false)
+        expect(box!.height).toBeLessThanOrEqual(lineHeight * 1.5)
+        await expect(location).toHaveAttribute("title", /\S/)
         const status = venue.locator('[data-slot="review-row-status"]')
         if ((await status.count()) > 0) {
           const pill = await status.boundingBox()
@@ -203,14 +207,18 @@ test.describe("inbox", () => {
       await expect(boxes.first()).toHaveAttribute("aria-checked", "true")
       // Ticking does not open the review.
       expect(new URL(page.url()).searchParams.get("selected")).toBeNull()
-      // QA #11: the selection bar says how many once, with its one "Clear
-      // selection"; the band keeps its one "Cancel selection".
+      // R09 (INB-17): the list header says how many once, beside the one
+      // "Cancel selection"; the selection bar holds the actions alone and
+      // has no second "Clear selection".
       const bar = page.locator('[data-slot="bulk-action-bar"]')
-      await expect(bar).toContainText("1 selected")
-      await expect(page.getByText(/\d+ selected$/)).toHaveCount(1)
+      await expect(bar).toBeVisible()
+      await expect(bar).not.toContainText("selected")
+      await expect(
+        page.locator('[data-slot="inbox-selected-count"]')
+      ).toHaveText("1 selected")
       await expect(
         page.getByRole("button", { name: "Clear selection" })
-      ).toHaveCount(1)
+      ).toHaveCount(0)
       await expect(
         page.getByRole("button", { name: "Cancel selection" })
       ).toHaveCount(1)
