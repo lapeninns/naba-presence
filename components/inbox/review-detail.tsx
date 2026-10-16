@@ -1,6 +1,14 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -51,6 +59,7 @@ import {
   LazyDialogBoundary,
   whileLoading,
 } from "@/components/inbox/lazy-dialog-boundary"
+import { importReviewMetadata } from "@/components/inbox/detail/review-metadata-loader"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import {
@@ -360,8 +369,7 @@ function ReviewAssignItems({
 // (see LazyDialogBoundary) a fresh component replaces it for the next open.
 const loadActivityTimeline = () =>
   import("@/components/inbox/activity-timeline")
-const loadReviewMetadata = () =>
-  import("@/components/inbox/detail/review-metadata")
+const loadReviewMetadata = importReviewMetadata
 const createActivityTimeline = () =>
   dynamic(
     () => loadActivityTimeline().then((module) => module.ActivityTimeline),
@@ -379,14 +387,49 @@ const createActivityTimeline = () =>
       ),
     }
   )
+/** What the details shell needs from the menu that asked for the dialog. */
+const DetailsShellContext = createContext<{
+  open: boolean
+  close: () => void
+  finalFocus: RefObject<HTMLElement | null>
+} | null>(null)
+
+/**
+ * The dialog that stands in while the details' code is on the way: the same
+ * title and size as ReviewMetadata, which replaces it, so choosing Review
+ * details always answers at once. It is a modal from the click, closes like
+ * the real one and hands focus back to the ⋯ trigger. It must not import
+ * review-metadata: that is the chunk being waited for.
+ */
+function DetailsLoadingShell() {
+  const shell = useContext(DetailsShellContext)
+  return (
+    <Dialog
+      open={shell?.open ?? true}
+      onOpenChange={(open) => {
+        if (!open) shell?.close()
+      }}
+    >
+      <DialogContent className="sm:max-w-md" finalFocus={shell?.finalFocus}>
+        <DialogHeader>
+          <DialogTitle>Review details</DialogTitle>
+          <DialogDescription>
+            When the review arrived, its Google profile and who worked on the
+            reply.
+          </DialogDescription>
+        </DialogHeader>
+        <p role="status" className="text-ui text-ink-secondary">
+          Loading…
+        </p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 const createReviewMetadata = () =>
   dynamic(() => loadReviewMetadata().then((module) => module.ReviewMetadata), {
     ssr: false,
-    loading: whileLoading(
-      <span role="status" className="sr-only">
-        Loading review details…
-      </span>
-    ),
+    loading: whileLoading(<DetailsLoadingShell />),
   })
 const lazyReview = {
   Timeline: createActivityTimeline(),
@@ -549,12 +592,20 @@ function ReviewMenu({ review }: { review: Review }) {
             lazyReview.Metadata = createReviewMetadata()
           }}
         >
-          <lazyReview.Metadata
-            review={review}
-            open={detailsOpen}
-            onOpenChange={setDetailsOpen}
-            finalFocus={moreRef}
-          />
+          <DetailsShellContext.Provider
+            value={{
+              open: detailsOpen,
+              close: () => setDetailsOpen(false),
+              finalFocus: moreRef,
+            }}
+          >
+            <lazyReview.Metadata
+              review={review}
+              open={detailsOpen}
+              onOpenChange={setDetailsOpen}
+              finalFocus={moreRef}
+            />
+          </DetailsShellContext.Provider>
         </LazyDialogBoundary>
       ) : null}
     </>

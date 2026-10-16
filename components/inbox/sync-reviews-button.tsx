@@ -14,6 +14,11 @@ import { formatNumber } from "@/lib/format"
 import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 import { queryKeys } from "@/lib/queries/keys"
 
+// Every outcome of this control is "the latest sync result": one id, so a
+// toast replaces the one before it instead of stacking beside it ("Could not
+// sync reviews" and "Up to date" together after a retry).
+const SYNC_TOAST_ID = "sync-reviews"
+
 /**
  * Pulls the newest reviews from Google for this organisation.
  *
@@ -30,7 +35,12 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
   // Failures go where success goes: a toast that dismisses itself, rather
   // than a caption under the icon that stayed until the next sync.
   const fail = (description: string) =>
-    toasts.add({ title: "Could not sync reviews", description, type: "error" })
+    toasts.add({
+      id: SYNC_TOAST_ID,
+      title: "Could not sync reviews",
+      description,
+      type: "error",
+    })
 
   async function run() {
     setPending(true)
@@ -66,8 +76,9 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         before !== undefined && after !== undefined
           ? Math.max(0, after - before)
           : null
-      toasts.add(
-        added === null
+      toasts.add({
+        id: SYNC_TOAST_ID,
+        ...(added === null
           ? { title: "Reviews synced", type: "success" }
           : added === 0
             ? {
@@ -79,8 +90,8 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
                 title: `${formatNumber(added)} new ${added === 1 ? "review" : "reviews"}`,
                 description: "They are in the list now.",
                 type: "success",
-              }
-      )
+              }),
+      })
     } catch (caught) {
       fail(describeActionError(caught))
     } finally {
