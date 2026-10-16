@@ -483,6 +483,70 @@ test.describe("inbox", () => {
   // R08 (DSK-22): a thumbnail that will not load (an expired Google CDN link,
   // here an aborted request) swaps to the tile's placeholder instead of the
   // browser's broken-image glyph, and the tile still opens.
+  // R09: the bulk bar's code is fetched when the first row is ticked. If that
+  // download fails, the Inbox carries on: the list and the selection stay, a
+  // notice offers "Try again", and the route's error boundary is never reached.
+  test("a bulk bar that fails to download keeps the list and the selection, and Try again recovers", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    // No idle preload, so the bar's code is first asked for by the tick.
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "requestIdleCallback", {
+        configurable: true,
+        value: () => 0,
+      })
+    })
+    await page.goto("/inbox")
+    const boxes = page.getByRole("checkbox", {
+      name: /^Select the review from /,
+    })
+    await page.getByRole("button", { name: "Select", exact: true }).click()
+    await expect(boxes.first()).toBeVisible()
+    // Every script the page has not already fetched is refused from here on.
+    const refused: string[] = []
+    let offline = true
+    await page.route(/\/_next\/static\/chunks\/.*\.js/, (route) => {
+      if (!offline) return route.continue()
+      refused.push(route.request().url())
+      return route.abort()
+    })
+    await boxes.first().click()
+    await expect(boxes.first()).toHaveAttribute("aria-checked", "true")
+
+    const notice = page.locator('[data-slot="bulk-action-bar-failed"]')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText("The selection actions could not load.")
+    expect(refused.length).toBeGreaterThan(0)
+    // The view and the selection are untouched, and the route did not fail.
+    await expect(
+      page.getByRole("heading", { name: "Inbox", level: 1 })
+    ).toBeVisible()
+    await expect(page.locator('[data-slot="inbox-selected-count"]')).toHaveText(
+      "1 selected"
+    )
+    await expect(boxes.first()).toHaveAttribute("aria-checked", "true")
+    await expect(
+      page.locator('[data-slot="boundary-error-state"]')
+    ).toHaveCount(0)
+
+    // The connection is back: Try again brings the real bar, and focus stays
+    // on the page rather than dropping to the body.
+    offline = false
+    await notice.getByRole("button", { name: "Try again" }).click()
+    const bar = page.locator('[data-slot="bulk-action-bar"]')
+    await expect(bar).toBeVisible()
+    await expect(notice).toHaveCount(0)
+    await expect(page.locator('[data-slot="inbox-selected-count"]')).toHaveText(
+      "1 selected"
+    )
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement !== document.body))
+      .toBe(true)
+  })
+
   test("a review photo that fails to load shows a placeholder, not a broken image", async ({
     baseURL,
     page,
