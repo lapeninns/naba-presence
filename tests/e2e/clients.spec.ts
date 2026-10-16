@@ -158,7 +158,9 @@ test.describe("clients index", () => {
     ])
     await openClients(page)
     const strip = page.getByRole("group", { name: "Filter by health" })
-    await strip.getByRole("button", { name: /^Google login disconnected/ }).click()
+    await strip
+      .getByRole("button", { name: /^Google login disconnected/ })
+      .click()
     await expect(page).toHaveURL(/[?&]health=disconnected/)
     await expect(
       page
@@ -171,7 +173,10 @@ test.describe("clients index", () => {
         .getByRole("link", { name: "Old Crown Group", exact: true })
     ).toHaveCount(0)
     await strip
-      .getByRole("button", { name: /^Google login disconnected/, pressed: true })
+      .getByRole("button", {
+        name: /^Google login disconnected/,
+        pressed: true,
+      })
       .click()
     await expect(page).not.toHaveURL(/health=/)
     await expect(
@@ -193,7 +198,9 @@ test.describe("clients index", () => {
       .getByRole("button", { pressed: true })
     await expect(chosen).toHaveAccessibleName("Google login disconnected, 0")
     await expect(
-      page.getByRole("heading", { name: "No clients in “Google login disconnected”" })
+      page.getByRole("heading", {
+        name: "No clients in “Google login disconnected”",
+      })
     ).toBeVisible()
   })
 

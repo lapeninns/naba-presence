@@ -128,7 +128,9 @@ describe("ClientSwitcher", () => {
     expect(options[0]).toHaveAttribute("aria-checked", "true")
     // The mark is decoration; the health word is read after the name.
     expect(options[1]).toHaveAccessibleName("Old Crown, In sync")
-    expect(options[2]).toHaveAccessibleName("Harbour Kitchen, Google login disconnected")
+    expect(options[2]).toHaveAccessibleName(
+      "Harbour Kitchen, Google login disconnected"
+    )
   })
 
   it("puts the tick at the end of each row, Notion Mail's switcher look", async () => {
@@ -395,7 +397,9 @@ describe("ClientScopeSheet", () => {
     expect(options[1]).toHaveAccessibleName("Old Crown")
     // Health is printed as words in the row, not only announced.
     expect(within(options[1]).getByText("In sync")).toBeVisible()
-    expect(within(options[2]).getByText("Google login disconnected")).toBeVisible()
+    expect(
+      within(options[2]).getByText("Google login disconnected")
+    ).toBeVisible()
     expect(options[1]).toHaveAccessibleDescription("In sync")
     expect(options[2]).toHaveAccessibleDescription("Google login disconnected")
     expect(options[2]).toHaveAttribute("aria-selected", "true")

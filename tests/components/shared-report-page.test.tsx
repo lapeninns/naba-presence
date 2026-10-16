@@ -366,7 +366,9 @@ describe("SharedClientReportView", () => {
       within(banner).getByText(/Could not be refreshed: Old Crown, Cheam/)
     ).toBeInTheDocument()
     expect(
-      within(banner).getByText(/Complete for every listing shown through 12 Sept/)
+      within(banner).getByText(
+        /Complete for every listing shown through 12 Sept/
+      )
     ).toBeInTheDocument()
     // The oldest complete date also reads in the provenance line.
     expect(
