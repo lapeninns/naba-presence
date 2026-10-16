@@ -253,7 +253,11 @@ describe("pending changes and the session scope", () => {
       pages: [page([row("a"), row("b")])],
       pageParams: [""],
     })
-    client.setQueryData(queryKeys.notifications("badge"), page([row("a")], 2))
+    // The shell's unread page, read to its end: both unread rows are on it.
+    client.setQueryData(
+      queryKeys.notifications("badge"),
+      page([row("a"), row("b")])
+    )
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client }, children)
     return { client, wrapper }
@@ -336,7 +340,7 @@ describe("pending changes and the session scope", () => {
       queryKeys.notifications("badge")
     )!
     expect(badge.unreadCount).toBe(1)
-    expect(badge.items).toEqual([])
+    expect(badge.items.map((i) => i.id)).toEqual(["b"])
     expect(cachedRowStates(client).get("a")?.readAt).toBe(made.at)
   })
 
