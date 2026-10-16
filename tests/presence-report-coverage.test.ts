@@ -245,6 +245,7 @@ describe("classifyLocationCoverage", () => {
     expect(counts).toEqual({
       eligible: 5,
       reporting: 1,
+      unconfirmed: 0,
       unavailable: 1,
       stale: 1,
       pending: 1,
@@ -252,6 +253,7 @@ describe("classifyLocationCoverage", () => {
     })
     expect(
       counts.reporting +
+        counts.unconfirmed +
         counts.unavailable +
         counts.stale +
         counts.pending +
@@ -259,11 +261,12 @@ describe("classifyLocationCoverage", () => {
     ).toBe(counts.eligible)
   })
 
-  it("does not call a location with stored rows both reporting and not fetched", () => {
-    // Rows exist but the checkpoint never recorded a success: the old counts
-    // said "1 reporting" and "1 not fetched yet" for the same location.
-    const statuses = classifyLocationCoverage(
-      [LOCATIONS[0]],
+  it("does not call a location with stored rows but no recorded fetch up to date", () => {
+    // Rows exist but no checkpoint ever recorded a success (stored directly,
+    // or from before checkpoints): "up to date" and "nothing fetched" must not
+    // both be said of it. The figures stay; only the freshness claim goes.
+    for (const checkpoints of [
+      [],
       [
         {
           locationId: "a",
@@ -272,9 +275,26 @@ describe("classifyLocationCoverage", () => {
           lastSucceededAt: null,
         },
       ],
-      { ...WINDOW, staleBefore, latestStored: new Map([["a", "2026-10-08"]]) }
-    )
-    expect(statuses).toEqual([{ id: "a", status: "reporting" }])
+      [
+        {
+          locationId: "a",
+          status: "running",
+          watermark: "2026-10-08",
+          lastSucceededAt: null,
+        },
+      ],
+    ]) {
+      const statuses = classifyLocationCoverage([LOCATIONS[0]], checkpoints, {
+        ...WINDOW,
+        staleBefore,
+        latestStored: new Map([["a", "2026-10-08"]]),
+      })
+      expect(statuses).toEqual([{ id: "a", status: "unconfirmed" }])
+      const counts = countLocationCoverage(statuses)
+      expect(counts.reporting).toBe(0)
+      expect(counts.unconfirmed).toBe(1)
+      expect(counts.eligible).toBe(1)
+    }
   })
 
   it("calls figures that end before the window stale, and a failed refresh unavailable", () => {

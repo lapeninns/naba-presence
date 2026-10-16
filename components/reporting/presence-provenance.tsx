@@ -106,6 +106,9 @@ export function PresenceProvenance({
   const coverageParts = coverage
     ? [
         `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`,
+        coverage.unconfirmed
+          ? `${coverage.unconfirmed} with figures but no recorded fetch`
+          : null,
         coverage.pending
           ? `${coverage.pending} waiting for a first fetch`
           : null,

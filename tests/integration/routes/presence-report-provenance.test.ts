@@ -109,6 +109,7 @@ describeDatabase("Google presence report provenance", () => {
       stale: 1,
       pending: 1,
       noData: 0,
+      unconfirmed: 0,
     })
     expect(report.freshThrough).toBe(day(2))
     expect(Date.parse(report.fetchedAt!.newest!)).toBeGreaterThan(

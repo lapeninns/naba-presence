@@ -143,8 +143,9 @@ const metricTotalsSchema = z.object(
 
 /**
  * How many in-scope locations are in each reporting state. Every location is
- * in exactly one state, so reporting + unavailable + stale + pending + noData
- * equals eligible (`noData` is 0 from a server that predates it).
+ * in exactly one state, so reporting + unconfirmed + unavailable + stale +
+ * pending + noData equals eligible (`unconfirmed` and `noData` are 0 from a
+ * server that predates them).
  */
 export const presenceCoverageSchema = z.object({
   eligible: z.number().int().nonnegative(),
@@ -153,6 +154,7 @@ export const presenceCoverageSchema = z.object({
   stale: z.number().int().nonnegative(),
   pending: z.number().int().nonnegative(),
   noData: z.number().int().nonnegative().default(0),
+  unconfirmed: z.number().int().nonnegative().default(0),
 })
 export type PresenceCoverage = z.infer<typeof presenceCoverageSchema>
 

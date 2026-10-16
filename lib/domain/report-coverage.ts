@@ -103,6 +103,9 @@ function missingReason(
  * exactly one, so the counts of the states add up to the locations in scope.
  *
  * - `reporting`: has figures in the window, fetched recently, no failed refresh.
+ * - `unconfirmed`: has figures in the window, but no successful fetch is
+ *   recorded (stored directly, or from before checkpoints). The figures stay
+ *   in the totals; we just cannot say how fresh they are.
  * - `pending`: no figures yet and the first fetch has not finished.
  * - `unavailable`: the latest refresh failed (figures it has may stop early).
  * - `stale`: its figures end before the window, or its last fetch is old
@@ -111,6 +114,7 @@ function missingReason(
  */
 export const LOCATION_COVERAGE_STATUSES = [
   "reporting",
+  "unconfirmed",
   "pending",
   "unavailable",
   "stale",
@@ -143,7 +147,10 @@ export function classifyLocationCoverage(
     const oldFetch = fetchedAt !== null && fetchedAt < staleBefore
     const covered = watermark !== null && watermark >= windowStart
     if (status === "failed") return { id, status: "unavailable" }
-    if (covered) return { id, status: oldFetch ? "stale" : "reporting" }
+    if (covered) {
+      if (fetchedAt === null) return { id, status: "unconfirmed" }
+      return { id, status: oldFetch ? "stale" : "reporting" }
+    }
     // Not covered: Google's figures end before the window, or there are none.
     if (watermark !== null) return { id, status: "stale" }
     // No figures at all. One fetched long ago is out of date, not empty; one
@@ -167,6 +174,7 @@ export function countLocationCoverage(
 ) {
   const counts: Record<LocationCoverageStatus, number> = {
     reporting: 0,
+    unconfirmed: 0,
     pending: 0,
     unavailable: 0,
     stale: 0,
@@ -176,6 +184,7 @@ export function countLocationCoverage(
   return {
     eligible: statuses.length,
     reporting: counts.reporting,
+    unconfirmed: counts.unconfirmed,
     unavailable: counts.unavailable,
     stale: counts.stale,
     pending: counts.pending,
