@@ -1119,6 +1119,42 @@ describe("NotificationsView pending changes", () => {
     })
   })
 
+  describe("when a queued change loses its scope before it is sent", () => {
+    it("sends nothing for it, and says nothing, once the earlier change settles", async () => {
+      const server = steppedServer([first, other])
+      const client = mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Resolve: Publishing failed",
+        })
+      )
+      fireEvent.click(
+        screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+      )
+      const resolve = await server.write(0)
+      // Queued behind the resolve, which is still in flight.
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mark read: Listing access lost" })
+      )
+      await tick()
+      expect(server.writes).toHaveLength(1)
+      // The person's role changes: the scope reset drops the queued change.
+      await act(async () => {
+        client.setQueryData<SessionResponse>(queryKeys.session, {
+          session: MEMBER,
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      resolve.accept()
+      await waitFor(() => expect(server.listCalls("all")).toBeGreaterThan(1))
+      await tick()
+      // The dropped change never reached the server, and it did not fail
+      // aloud for a row the person can no longer see.
+      expect(server.writes).toHaveLength(1)
+      expect(screen.queryByText("Your change wasn’t saved")).toBeNull()
+    })
+  })
+
   describe("when changes overlap", () => {
     it("takes back only the refused change, then the other, in either order", async () => {
       const server = steppedServer([first, other])

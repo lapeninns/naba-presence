@@ -350,6 +350,20 @@ export function addPendingChange(
   return change
 }
 
+/**
+ * Whether the change is still this session's to send and show: the store
+ * still holds it and the scope it was made in is still the current one.
+ */
+export function isChangeLive(
+  client: QueryClient,
+  change: PendingChange
+): boolean {
+  return (
+    storeFor(client).changes.some((other) => other.id === change.id) &&
+    currentScopeToken(client) === change.scope
+  )
+}
+
 /** Takes back one change, and only that one. */
 export function removePendingChange(client: QueryClient, id: string): void {
   const store = storeFor(client)
@@ -376,9 +390,7 @@ export function commitPendingChange(
   saved?: readonly string[]
 ): void {
   const store = storeFor(client)
-  const live =
-    store.changes.some((other) => other.id === change.id) &&
-    currentScopeToken(client) === change.scope
+  const live = isChangeLive(client, change)
   notifyManager.batch(() => {
     if (live) {
       const applied = saved ? { ...change, ids: saved } : change

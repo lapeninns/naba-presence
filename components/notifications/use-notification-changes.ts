@@ -1,6 +1,10 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query"
 
 import { showToast } from "@/components/ui/toast"
 import {
@@ -11,6 +15,7 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import {
   addPendingChange,
   commitPendingChange,
+  isChangeLive,
   removePendingChange,
 } from "@/lib/notifications/pending-changes"
 import type { PendingChange } from "@/lib/notifications/pending-store"
@@ -40,7 +45,14 @@ type ChangeResult = { saved: readonly string[]; failure: unknown }
  * failure of the whole change: it reports what is left instead of throwing,
  * so what saved is kept and the list is refetched.
  */
-async function send(change: PendingChange): Promise<ChangeResult> {
+async function send(
+  client: QueryClient,
+  change: PendingChange
+): Promise<ChangeResult> {
+  // Queued behind an earlier change, it may have been dropped meanwhile (the
+  // session's scope moved on): nothing is sent for a change nobody can see,
+  // and it ends as saved-nothing, which only removes it.
+  if (!isChangeLive(client, change)) return { saved: [], failure: null }
   if (change.kind === "resolve") {
     await resolveNotification(change.ids[0]!)
     return { saved: change.ids, failure: null }
@@ -74,7 +86,7 @@ export function useNotificationChanges() {
   const mutation = useMutation<ChangeResult, unknown, PendingChange>({
     mutationKey: CHANGE_KEY,
     scope: CHANGE_SCOPE,
-    mutationFn: send,
+    mutationFn: (change) => send(client, change),
     onSuccess: async ({ saved, failure }, change) => {
       // A refetch or a shell poll that left before the answer may predate
       // the change; neither may land after the commit.
