@@ -21,6 +21,9 @@ import {
 const describeDatabase =
   process.env.RUN_DB_TESTS === "true" ? describe : describe.skip
 const CRON = { authorization: "Bearer route-harness-cron-secret" }
+// This server has no email provider, so a send that passes every check
+// settles here (lib/server/notifications/email.ts).
+const SEND_UNAVAILABLE = "provider_not_configured"
 
 /**
  * INB-05 (D2, 0149): a reply parked for approval tells the people who could
@@ -353,7 +356,24 @@ describeDatabase("approval notifications", { timeout: 60_000 }, () => {
       order by i.opened_at`
     expect(sent).toHaveLength(2)
     expect(sent[0]).toEqual({ status: "suppressed", code: "incident_resolved" })
-    expect(sent[1].code).not.toBe("incident_resolved")
+    // The second is suppressed only for want of an email provider here.
+    expect(sent[1]).toEqual({ status: "suppressed", code: SEND_UNAVAILABLE })
+  })
+
+  it("keeps one request, and one email, when the same draft is submitted twice", async () => {
+    const f = await fixture()
+    await optIn(f.people.publisher.cookie, "approval_requested")
+    expect((await publish(f, f.people.requester.cookie)).status).toBe(202)
+    const again = await publish(f, f.people.requester.cookie)
+    expect(again.status, await again.clone().text()).toBe(202)
+    expect(
+      (await incidents(f)).map((row) => `${row.kind}:${row.status}`)
+    ).toEqual(["approval_requested:open"])
+    const deliveries = await admin`
+      select 1 from notification_delivery d join notification_incident i on i.id = d.incident_id
+      where d.recipient_user_id = ${f.people.publisher.userId}
+        and i.kind = 'approval_requested'`
+    expect(deliveries).toHaveLength(1)
   })
 
   it("does not email a request that was decided before the email went out", async () => {

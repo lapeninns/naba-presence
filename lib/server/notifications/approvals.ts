@@ -24,7 +24,7 @@ import { queueDeliveries } from "./evaluate"
  *
  * Both are keyed by the review, so one review has at most one open incident
  * of each kind. A decision resolves the request, a new request resolves the
- * send-back and any earlier request, and evaluateOrganisation (evaluate.ts) resolves whichever the
+ * send-back and any open request for another draft, and evaluateOrganisation (evaluate.ts) resolves whichever the
  * reply has moved past by any other route. The summary holds the listing title and ids only:
  * never the review, the reply or a person's name.
  */
@@ -105,8 +105,8 @@ async function resolveOpen(
 
 /**
  * Opens (or, while one is open, re-addresses) the review's incident of
- * `kind`. Only a newly opened incident queues email, so a repeated request
- * never emails the same person twice.
+ * `kind`. Only a newly opened incident queues email, so re-addressing an
+ * open one never emails anyone again.
  */
 async function openAddressed(
   sql: TransactionSql,
@@ -116,6 +116,7 @@ async function openAddressed(
     kind: "approval_requested" | "reply_sent_back"
     context: ReviewContext
     recipients: readonly string[]
+    draftId?: string
   }
 ) {
   const subjectId = approvalSubjectId(input.organisationId, input.reviewId)
@@ -123,6 +124,7 @@ async function openAddressed(
     title: input.context.title,
     locationId: input.context.locationId,
     reviewId: input.reviewId,
+    ...(input.draftId ? { draftId: input.draftId } : {}),
   }
   const [row] = await sql<{ id: string; inserted: boolean }[]>`
     insert into notification_incident (organisation_id, kind, subject_type, subject_id, summary, location_id)
@@ -155,12 +157,16 @@ export async function notifyApprovalRequested(
   const context = await reviewContext(sql, input.reviewId)
   if (!context) return null
   const subjectId = approvalSubjectId(input.organisationId, input.reviewId)
-  // Submitting again answers the send-back. A request still open from an
-  // earlier park (the draft was edited, which leaves approval without a
-  // decision) is closed too, so each park is a new request that its
-  // approvers see as unread and are emailed about.
+  // Submitting again answers the send-back. A request still open for a
+  // different draft (the draft was edited, which leaves approval without a
+  // decision) is closed, so the new draft is a new request its approvers
+  // see as unread and are emailed about. The same draft submitted again (a
+  // double press, a retried request) keeps the open one and emails nobody.
   await resolveOpen(sql, "reply_sent_back", subjectId)
-  await resolveOpen(sql, "approval_requested", subjectId)
+  await sql`
+    update notification_incident set status = 'resolved', resolved_at = now()
+    where kind = 'approval_requested' and subject_id = ${subjectId} and status = 'open'
+      and summary->>'draftId' is distinct from ${input.draftId}`
   const [draft] = context.twoPerson
     ? await sql<{ createdBy: string | null }[]>`
         select created_by::text as "createdBy" from draft where id = ${input.draftId}`
@@ -175,6 +181,7 @@ export async function notifyApprovalRequested(
     kind: "approval_requested",
     context,
     recipients,
+    draftId: input.draftId,
   })
 }
 
