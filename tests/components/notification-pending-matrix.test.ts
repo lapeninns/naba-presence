@@ -16,7 +16,7 @@ import {
   commitPendingChange,
   removePendingChange,
   usePendingNotificationChanges,
-  usePinnedUnreadCount,
+  usePendingUnreadTotal,
 } from "@/lib/notifications/pending-changes"
 import type { PendingChange } from "@/lib/notifications/pending-store"
 import { queryKeys } from "@/lib/queries/keys"
@@ -102,7 +102,7 @@ async function run(
     createElement(QueryClientProvider, { client }, children)
   const pending = renderHook(() => usePendingNotificationChanges(), { wrapper })
   const delta = renderHook(() => usePendingUnreadDelta("badge"), { wrapper })
-  const pinned = renderHook(() => usePinnedUnreadCount(), { wrapper })
+  const total = renderHook(() => usePendingUnreadTotal(), { wrapper })
   const server: Record<string, RowModel> = {
     x: { status: "open", read: xStartsRead },
     y: { status: "open", read: false },
@@ -130,7 +130,7 @@ async function run(
     )
   const label = `${ops.map((op, at) => `${op.join(" ")}:${outcomes[at]}`).join(", ")} (refresh during #${inFlight + 1}${xStartsRead ? ", X starts read" : ""})`
   const pageCount = () => {
-    act(() => pinned.rerender())
+    act(() => total.rerender())
     const all = client.getQueryData<{ pages: NotificationListResponse[] }>(
       queryKeys.notifications("all")
     )!
@@ -139,7 +139,7 @@ async function run(
       pending.result.current,
       "all",
       cachedRowStates(client),
-      pinned.result.current
+      total.result.current
     ).unreadCount
   }
   const badgeCache = () =>
@@ -201,7 +201,7 @@ async function run(
     )
   pending.unmount()
   delta.unmount()
-  pinned.unmount()
+  total.unmount()
   client.clear()
   return judged ? problems : []
 }

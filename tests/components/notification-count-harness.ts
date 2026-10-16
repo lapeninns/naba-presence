@@ -15,7 +15,7 @@ import {
   commitPendingChange,
   removePendingChange,
   usePendingNotificationChanges,
-  usePinnedUnreadCount,
+  usePendingUnreadTotal,
 } from "@/lib/notifications/pending-changes"
 import type { PendingChange } from "@/lib/notifications/pending-store"
 import { queryKeys } from "@/lib/queries/keys"
@@ -88,7 +88,7 @@ export function views() {
     wrapper,
   })
   const delta = renderHook(() => usePendingUnreadDelta("badge"), { wrapper })
-  const pinned = renderHook(() => usePinnedUnreadCount(), { wrapper })
+  const total = renderHook(() => usePendingUnreadTotal(), { wrapper })
   const all = () =>
     client.getQueryData<{ pages: NotificationListResponse[] }>(
       queryKeys.notifications("all")
@@ -133,6 +133,19 @@ export function views() {
         })
         await flush()
       }),
+    /** The shell's poll when its page has more behind it. */
+    pollPage: (
+      unread: NotificationItem[],
+      count: number,
+      nextCursor: string | null
+    ) =>
+      act(async () => {
+        client.setQueryData(
+          queryKeys.notifications("badge"),
+          page(unread, count, nextCursor)
+        )
+        await flush()
+      }),
     /** The shell's poll alone. */
     poll: (unread: NotificationItem[], count = unread.length) =>
       act(async () => {
@@ -163,14 +176,14 @@ export function views() {
     pageCount: () => {
       act(() => {
         pending.rerender()
-        pinned.rerender()
+        total.rerender()
       })
       return applyPendingChanges(
         all().pages,
         pending.result.current,
         "all",
         cachedRowStates(client),
-        pinned.result.current
+        total.result.current
       ).unreadCount
     },
     bellCount: () => {
@@ -183,7 +196,7 @@ export function views() {
     unmount() {
       pending.unmount()
       delta.unmount()
-      pinned.unmount()
+      total.unmount()
       client.clear()
     },
   }

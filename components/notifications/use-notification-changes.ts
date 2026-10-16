@@ -42,11 +42,11 @@ type ChangeResult = {
   saved: readonly string[]
   failure: unknown
   /**
-   * Rows sent in turns the server answered but did not fully save (it counts
-   * how many it saved, not which): none of that turn is taken as saved, and
-   * the person is told.
+   * Rows in turns the server answered but did not fully save (it counts how
+   * many it saved, not which): none of that turn is taken as saved, and the
+   * person is told how many of the rows it answered for it saved.
    */
-  unsaved: number
+  short: { accepted: number; answered: number } | null
 }
 
 /**
@@ -62,51 +62,56 @@ async function send(
   // session's scope moved on): nothing is sent for a change nobody can see,
   // and it ends as saved-nothing, which only removes it.
   if (!isChangeLive(client, change)) {
-    return { saved: [], failure: null, unsaved: 0 }
+    return { saved: [], failure: null, short: null }
   }
   if (change.kind === "resolve") {
     await resolveNotification(change.ids[0]!)
-    return { saved: change.ids, failure: null, unsaved: 0 }
+    return { saved: change.ids, failure: null, short: null }
   }
   // The server counts an id once, however often it is sent, so a repeated id
   // would make a turn look short: each is sent once.
   const ids = [...new Set(change.ids)]
   const saved: string[] = []
-  let unsaved = 0
+  let accepted = 0
+  let answered = 0
+  let short = false
+  const tally = () => (short ? { accepted, answered } : null)
   for (let from = 0; from < ids.length; from += READ_BATCH) {
     // Between turns the scope may have moved on: the rest is not sent.
     if (from > 0 && !isChangeLive(client, change)) {
-      return { saved, failure: null, unsaved }
+      return { saved, failure: null, short: tally() }
     }
     const turn = ids.slice(from, from + READ_BATCH)
-    let accepted: number
+    let updated: number
     try {
-      accepted = (await markNotificationsRead(turn, change.read ?? true))
-        .updated
+      updated = (await markNotificationsRead(turn, change.read ?? true)).updated
     } catch (error) {
       if (from === 0) throw error
-      return { saved, failure: error, unsaved }
+      return { saved, failure: error, short: tally() }
     }
     // The server drops ids it can no longer change (a row that became
     // invisible or was deleted) and answers with how many it saved, not which.
     // A turn that did not save every row is not taken as saved: nothing in it
     // is made permanent, and the refetch that follows shows what really is.
-    if (accepted >= turn.length) saved.push(...turn)
-    else unsaved += turn.length - Math.max(0, accepted)
+    answered += turn.length
+    accepted += Math.min(turn.length, Math.max(0, updated))
+    if (updated >= turn.length) saved.push(...turn)
+    else short = true
   }
-  return { saved, failure: null, unsaved }
+  return { saved, failure: null, short: tally() }
 }
 
-/** What a partly saved change says: how many of the rows it sent were saved. */
-function partialSave(change: PendingChange, unsaved: number) {
-  const sent = new Set(change.ids).size
-  const verb = change.read === false ? "unread" : "read"
+/** What a partly saved change says: how many of the rows answered for saved. */
+function partialSave(
+  verb: "read" | "unread",
+  { accepted, answered }: { accepted: number; answered: number }
+) {
   return {
     title:
-      unsaved >= sent
+      accepted === 0
         ? "Your change wasn’t saved"
         : `Some notifications weren’t marked as ${verb}`,
-    description: `${sent - unsaved} of ${sent} saved. The list shows what is saved.`,
+    description: `${accepted} of ${answered} saved. The list shows what is saved.`,
   }
 }
 
@@ -126,7 +131,7 @@ export function useNotificationChanges() {
     mutationKey: CHANGE_KEY,
     scope: CHANGE_SCOPE,
     mutationFn: (change) => send(client, change),
-    onSuccess: async ({ saved, failure, unsaved }, change) => {
+    onSuccess: async ({ saved, failure, short }, change) => {
       // A refetch or a shell poll that left before the answer may predate
       // the change; neither may land after the commit.
       await Promise.all([
@@ -136,16 +141,20 @@ export function useNotificationChanges() {
       // What the server saved is made permanent (all of it, or the turns
       // that went before a refused one), so saved rows do not flash unread;
       // a change the store has dropped, or from another scope, is only removed.
+      const live = isChangeLive(client, change)
       commitPendingChange(client, change, saved)
       void client.invalidateQueries({ queryKey: queryKeys.notificationsAll })
-      if (failure === null && unsaved === 0) return
+      if (failure === null && short === null) return
+      // Said only where the change was made: not in another scope.
+      if (!live) return
+      const verb = change.read === false ? "unread" : "read"
       showToast({
         id: "notifications-read-partial",
         type: "error",
-        ...(failure === null
-          ? partialSave(change, unsaved)
+        ...(failure === null && short
+          ? partialSave(verb, short)
           : {
-              title: partialSave(change, 0).title,
+              title: `Some notifications weren’t marked as ${verb}`,
               description: describeActionError(failure),
             }),
       })

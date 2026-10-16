@@ -46,7 +46,7 @@ import {
   applyPendingChanges,
   cachedRowStates,
   usePendingNotificationChanges,
-  usePinnedUnreadCount,
+  usePendingUnreadTotal,
 } from "@/lib/notifications/pending-changes"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -139,7 +139,7 @@ export function NotificationsView() {
   const changes = useNotificationChanges()
   const pending = usePendingNotificationChanges()
   // The total the bell shows while changes are pending: one number for both.
-  const pinned = usePinnedUnreadCount()
+  const total = usePendingUnreadTotal()
   // The cached rows with every pending change laid over them. Where a row is
   // in another cached list but not this one, that list says what it was.
   const shown = useMemo(
@@ -150,10 +150,10 @@ export function NotificationsView() {
             pending,
             filter,
             pending.length ? cachedRowStates(client) : undefined,
-            pinned
+            total
           )
         : null,
-    [client, filter, pending, pinned, query.data]
+    [client, filter, pending, total, query.data]
   )
   const items = shown?.pages.flatMap((page) => page.items) ?? []
   // Unknown until the first page arrives: a failed or pending load shows no

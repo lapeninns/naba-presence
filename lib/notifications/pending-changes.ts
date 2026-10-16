@@ -70,11 +70,13 @@ let sequence = 0
 let committing = false
 
 /**
- * The badge answer a commit last wrote, per client: the pin never rests on
- * it, since a commit moves the count and drops read rows from the page, which
- * the server did not say.
+ * The badge answer a commit last wrote, per client (the page object itself):
+ * the pin never rests on it, since a commit moves the count and drops read
+ * rows from the page, which the server did not say. By identity, so a query
+ * reset (which restarts its update count) cannot make a real answer look
+ * like it.
  */
-const ownWrites = new WeakMap<QueryClient, number | undefined>()
+const ownWrites = new WeakMap<QueryClient, NotificationListResponse>()
 
 /**
  * A change made in one session scope is dropped the moment the session in the
@@ -397,7 +399,7 @@ function rebasePin(client: QueryClient, store: Store, token: string) {
   if (committing) return
   const answer = badgeAnswer(client)
   if (!answer || answer.version === undefined) return
-  if (answer.version === ownWrites.get(client)) return
+  if (answer.pages[0] === ownWrites.get(client)) return
   const pin = store.pin?.scope === token ? store.pin : null
   if (pin && pin.answer === answer.version) return
   const held = store.changes.filter((change) => change.scope === token)
@@ -466,7 +468,7 @@ export function applyPendingChanges(
   changes: readonly PendingChange[],
   filter: ListFilter,
   otherRows?: ReadonlyMap<string, KnownRow>,
-  pinned?: number | null
+  total?: number | null
 ): AppliedChanges {
   if (changes.length === 0)
     return { pages, delta: 0, unreadCount: pages[0]?.unreadCount ?? null }
@@ -502,11 +504,11 @@ export function applyPendingChanges(
       ? leftOutOfUnreadList(base)
       : otherRows?.get(id)
   })
-  // With a pinned total (the bell's) the page shows that same total, not its
-  // own list's count moved by its own reading of the rows.
+  // With the total the bell shows (`usePendingUnreadTotal`) the page shows
+  // that same number, not its own list's count moved by its own reading.
   const delta =
-    pinned != null && pages[0]
-      ? Math.max(0, pinned) - pages[0].unreadCount
+    total != null && pages[0]
+      ? Math.max(0, total) - pages[0].unreadCount
       : counted
   const result = delta
     ? next.map((page) => ({
@@ -748,7 +750,7 @@ export function commitPendingChange(
       store.changes = store.changes.filter((other) => other.id !== change.id)
       // The badge now holds what the pin says: it rests on that answer.
       const answer = badgeAnswer(client)
-      ownWrites.set(client, answer?.version)
+      if (answer) ownWrites.set(client, answer.pages[0]!)
       if (store.pin && answer)
         store.pin = { ...store.pin, answer: answer.version }
       publish(store, true)
@@ -795,20 +797,26 @@ export function usePendingNotificationChanges(): readonly PendingChange[] {
 }
 
 /**
- * The total pinned for the changes pending in this session's scope, or null
- * when there is none (nothing is pending, or the pin has nothing to rest on).
- * The page passes it to `applyPendingChanges` so it shows the bell's number.
+ * The total the bell shows while changes are pending in this session's scope:
+ * the badge's count moved by the pending changes (the pinned count where
+ * there is a pin, the rows where there is none), exactly the bell's own sum.
+ * The page passes it to `applyPendingChanges` so the two are one number
+ * whether or not a pin exists. Null when nothing is pending or the badge is
+ * not loaded.
  */
-export function usePinnedUnreadCount(): number | null {
+export function usePendingUnreadTotal(): number | null {
   const client = useQueryClient()
   const store = storeFor(client)
   const token = useScopeToken(client)
-  const pin = React.useSyncExternalStore(
+  const total = React.useSyncExternalStore(
     store.subscribe,
-    () => store.publishedPin,
-    () => store.publishedPin
+    () => {
+      const count = badgeAnswer(client)?.count
+      const pending = store.published.some((change) => change.scope === token)
+      if (!pending || count === undefined) return null
+      return Math.max(0, count + (store.delta?.(client, "badge") ?? 0))
+    },
+    () => null
   )
-  const changes = usePendingNotificationChanges()
-  const total = pinnedTotal(changes, pin, token)
-  return total === null ? null : Math.max(0, total)
+  return total
 }
