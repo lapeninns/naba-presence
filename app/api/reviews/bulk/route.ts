@@ -62,8 +62,8 @@ type Row = BulkReviewResult["results"][number]
  * the job runner, and the answer names the batch to follow
  * (`operationId`, rows `queued`). Without it, approve stays this per-row
  * loop and template replies are not offered here (404 feature_disabled;
- * the inbox runs them itself). Assign and "no reply needed" are always
- * synchronous.
+ * the inbox runs them itself). Assign, "no reply needed" and its undo are
+ * always synchronous.
  *
  * The per-row approve loop publishes to Google one row after another inside
  * this request, so it stops at the request deadline (lib/server/deadline.ts)
@@ -181,6 +181,14 @@ export const POST = route({
                      assigned_at = ${body.assigneeId ? sql`now()` : null}
                where id = ${reviewId}
             `
+          } else if (body.action === "mark_unreviewed") {
+            // The way back from "no reply needed": the same two columns,
+            // cleared. A review that is not triaged is left as it is.
+            await sql`
+              update review
+                 set triaged_at = null, triaged_by = null
+               where id = ${reviewId} and triaged_at is not null
+            `
           } else {
             // "Reviewed, nothing to say." A five-star review with no text
             // needs no reply, and before this the only way to clear it from
@@ -196,7 +204,11 @@ export const POST = route({
             organisationId: session.organisationId,
             actorUserId: session.userId,
             action:
-              body.action === "assign" ? "review.assigned" : "review.triaged",
+              body.action === "assign"
+                ? "review.assigned"
+                : body.action === "mark_unreviewed"
+                  ? "review.untriaged"
+                  : "review.triaged",
             subjectType: "review",
             subjectId: reviewId,
             requestId,

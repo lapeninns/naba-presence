@@ -6,7 +6,6 @@ import { CircleSlashIcon, GlobeIcon, ImageIcon } from "lucide-react"
 import { ReviewAvatar } from "@/components/inbox/review-avatar"
 import {
   markNoReplyNeeded,
-  NoReplyNeededDialog,
   useReviewTriage,
 } from "@/components/inbox/review-triage"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -151,27 +150,8 @@ function ReviewList({
   const business = useWorkspaceMode() === "business"
   const desk = useHydratedBreakpoint("desk")
   const containerRef = useRef<HTMLUListElement>(null)
-  // The row whose "No reply needed" is waiting on its confirmation.
-  const [noReplyFor, setNoReplyFor] = useState<ReviewRow | null>(null)
-  // Closing is separate from unmounting: the dialog stays mounted until its
-  // exit animation has finished (`onOpenChangeComplete`).
-  const [noReplyOpen, setNoReplyOpen] = useState(false)
-
-  // Where focus goes back to when the row's confirmation closes: that row's
-  // "⋯" button, or nothing (the default) once the row has left the list.
-  function rowActionsTrigger(id: string) {
-    const index = reviews.findIndex((review) => review.id === id)
-    const row = containerRef.current?.querySelectorAll<HTMLElement>(
-      '[data-slot="review-row"]'
-    )[index]
-    return (
-      row
-        ?.closest<HTMLElement>('[data-slot="list-row-swipe"]')
-        ?.querySelector<HTMLElement>(
-          '[data-slot="list-row-actions-trigger"]'
-        ) ?? null
-    )
-  }
+  // The row whose "No reply needed" is being done: at once, with Undo in its toast.
+  const [noReplyFor, setNoReplyFor] = useState<string | null>(null)
 
   function focusRow(index: number) {
     const buttons = containerRef.current?.querySelectorAll<HTMLButtonElement>(
@@ -370,10 +350,7 @@ function ReviewList({
                       {
                         label: "No reply needed",
                         icon: <CircleSlashIcon aria-hidden />,
-                        onAction: () => {
-                          setNoReplyFor(review)
-                          setNoReplyOpen(true)
-                        },
+                        onAction: () => setNoReplyFor(review.id),
                       },
                     ]
                   : undefined
@@ -575,11 +552,8 @@ function ReviewList({
       </ListRows>
       {noReplyFor ? (
         <RowNoReplyNeeded
-          review={noReplyFor}
-          open={noReplyOpen}
-          onOpenChange={setNoReplyOpen}
-          onClosed={() => setNoReplyFor(null)}
-          finalFocus={() => rowActionsTrigger(noReplyFor.id)}
+          reviewId={noReplyFor}
+          onDone={() => setNoReplyFor(null)}
         />
       ) : null}
       {onReachEnd ? (
@@ -598,38 +572,25 @@ function ReviewList({
 }
 
 /**
- * The confirmation behind a row's "No reply needed": the same dialog and
- * action as the bulk bar and the review's ⋯ menu (review-triage.tsx), for
- * this one row. Mounted only while a row is waiting on it.
+ * A row's "No reply needed", done at once (nothing to confirm: Undo is in the
+ * toast it raises, review-triage.tsx). Mounted only while one is being sent,
+ * so the list itself needs no query client until a row is acted on.
  */
 function RowNoReplyNeeded({
-  review,
-  open,
-  onOpenChange,
-  onClosed,
-  finalFocus,
+  reviewId,
+  onDone,
 }: {
-  review: ReviewRow
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  /** The exit animation has finished: safe to unmount. */
-  onClosed: () => void
-  finalFocus: () => HTMLElement | null
+  reviewId: string
+  onDone: () => void
 }) {
   const triage = useReviewTriage()
-  return (
-    <NoReplyNeededDialog
-      count={1}
-      open={open}
-      onOpenChange={onOpenChange}
-      onOpenChangeComplete={(isOpen) => {
-        if (!isOpen) onClosed()
-      }}
-      finalFocus={finalFocus}
-      pending={triage.isPending}
-      onConfirm={() => void triage.run(markNoReplyNeeded([review.id]))}
-    />
-  )
+  const started = useRef(false)
+  useEffect(() => {
+    if (started.current) return
+    started.current = true
+    void triage.run(markNoReplyNeeded([reviewId])).finally(onDone)
+  })
+  return null
 }
 
 /**

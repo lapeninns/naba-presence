@@ -586,6 +586,7 @@ export const BULK_REVIEW_ACTIONS = [
   "approve",
   "assign",
   "mark_reviewed",
+  "mark_unreviewed",
   "template_reply",
 ] as const
 export type BulkReviewAction = (typeof BULK_REVIEW_ACTIONS)[number]
@@ -626,6 +627,14 @@ export const bulkReviewActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("mark_reviewed"),
+    reviewIds: bulkReviewIdsSchema,
+  }),
+  /**
+   * Puts reviews marked "no reply needed" back in Needs reply: the Undo
+   * behind that action's toast. Clears the same two columns and nothing else.
+   */
+  z.object({
+    action: z.literal("mark_unreviewed"),
     reviewIds: bulkReviewIdsSchema,
   }),
   /**
