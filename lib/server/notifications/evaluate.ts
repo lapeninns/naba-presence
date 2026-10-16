@@ -9,7 +9,7 @@ import { getAiCredits } from "@/lib/server/ai-credits"
 import { runDeliveries, type DeliveryOutcome } from "./delivery"
 import { sendTenantEmail } from "./email"
 import { renderDigestEmail, renderIncidentEmail, type IncidentKind } from "./messages"
-import { canSeeIncident, effectiveMode, loadNotificationMembers, loadPreferences, type ScopedIncident } from "./recipients"
+import { canSeeIncident, effectiveMode, loadNotificationMembers, loadPreferences, recipientsColumn, type ScopedIncident } from "./recipients"
 
 /**
  * Turns an organisation's current state into incidents (0050), and new
@@ -83,8 +83,8 @@ export async function queueDeliveries(
 ) {
   if (incidentIds.length === 0) return 0
   const incidents = await sql<ScopedIncident[]>`
-    select id::text as id, kind, location_id::text as "locationId"
-    from notification_incident where id in ${sql(incidentIds)}`
+    select i.id::text as id, i.kind, i.location_id::text as "locationId", ${recipientsColumn(sql)}
+    from notification_incident i where i.id in ${sql(incidentIds)}`
   const members = [...(await loadNotificationMembers(sql)).values()]
   const preferences = await loadPreferences(sql)
   let queued = 0
@@ -356,6 +356,27 @@ export async function evaluateOrganisation(
     `
     opened = opened.concat(lowRated.map((row) => row.id))
 
+    // Approval incidents (approvals.ts) the reply has moved past by another
+    // route than a decision or a new request: a request whose review is no
+    // longer awaiting approval, and a send-back whose review no longer needs
+    // a reply (the needs_reply queue's rule, review-queues.ts).
+    const settledApprovals = await sql`
+      update notification_incident i set status = 'resolved', resolved_at = now()
+      where i.status = 'open'
+        and i.kind in ('approval_requested', 'reply_sent_back')
+        and not exists (
+          select 1 from review r
+          where r.id = (i.summary->>'reviewId')::uuid
+            and case i.kind
+              when 'approval_requested' then r.workflow_status = 'awaiting_approval'
+              else r.workflow_status in ('new', 'drafted', 'verified', 'rejected')
+                and r.triaged_at is null
+            end
+        )
+      returning i.id
+    `
+    resolved += settledApprovals.length
+
     const deliveriesQueued = await queueDeliveries(sql, organisationId, opened)
     return { opened: opened.length, resolved, deliveriesQueued }
   })
@@ -373,6 +394,7 @@ type ClaimedDelivery = {
   kind: string | null
   locationId: string | null
   summary: Record<string, unknown> | null
+  recipients: string[] | null
   digestIncidentIds: string[] | null
 }
 
@@ -408,8 +430,8 @@ export async function deliverPending(
         preferences: await loadPreferences(sql),
         digestIncidents: digestIds.length
           ? await sql<(ScopedIncident & { summary: Record<string, unknown> })[]>`
-              select id::text as id, kind, location_id::text as "locationId", summary
-              from notification_incident where id in ${sql(digestIds)}`
+              select i.id::text as id, i.kind, i.location_id::text as "locationId", i.summary, ${recipientsColumn(sql)}
+              from notification_incident i where i.id in ${sql(digestIds)}`
           : [],
       }
     }))
@@ -449,6 +471,7 @@ export async function deliverPending(
             i.kind,
             i.location_id::text as "locationId",
             i.summary,
+            ${recipientsColumn(sql)},
             (select array_agg(x::text) from unnest(g.incident_ids) x) as "digestIncidentIds"
           from claimed c
           left join notification_incident i on i.id = c.incident_id
@@ -464,7 +487,7 @@ export async function deliverPending(
       if (!member.email) return { status: "suppressed", reason: "recipient_has_no_email" }
       let email: { subject: string; text: string }
       if (delivery.incidentId && delivery.kind) {
-        const incident = { id: delivery.incidentId, kind: delivery.kind, locationId: delivery.locationId }
+        const incident = { id: delivery.incidentId, kind: delivery.kind, locationId: delivery.locationId, recipients: delivery.recipients }
         if (!canSeeIncident(member, incident)) return { status: "suppressed", reason: "recipient_access_revoked" }
         if (effectiveMode(preferences, member, delivery.kind, "email") !== "immediate") return { status: "suppressed", reason: "recipient_preference_off" }
         email = renderIncidentEmail(delivery.kind as IncidentKind, delivery.summary ?? {}, appUrl, { billingEnabled })
@@ -532,7 +555,7 @@ export async function buildDigests(organisationId: string, now: Date = new Date(
       const [previous] = await sql<{ createdAt: Date }[]>`select created_at as "createdAt" from notification_digest where user_id = ${member.userId} order by digest_date desc limit 1`
       const since = previous?.createdAt ?? new Date(now.getTime() - 86_400_000)
       const candidates = await sql<ScopedIncident[]>`
-        select i.id::text as id, i.kind, i.location_id::text as "locationId"
+        select i.id::text as id, i.kind, i.location_id::text as "locationId", ${recipientsColumn(sql)}
         from notification_incident i
         where i.opened_at > ${since} and i.opened_at <= ${now}
           and not exists (select 1 from notification_recipient_state r where r.incident_id = i.id and r.user_id = ${member.userId})

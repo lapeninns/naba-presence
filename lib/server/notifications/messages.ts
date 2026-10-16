@@ -7,6 +7,7 @@
 
 import { NOTIFICATION_EVENT_LABELS, isNotificationEventKind, type NotificationEventKind } from "@/lib/domain/notification-preferences"
 import { SCHEDULE_REASON } from "@/lib/locations/schedule-display"
+import { reviewNotificationPath } from "@/lib/notifications/links"
 
 export type IncidentKind = NotificationEventKind
 
@@ -185,7 +186,9 @@ export function renderIncidentEmail(
  */
 function renderOperationalEmail(kind: NotificationEventKind, summary: Record<string, unknown>, link: (path: string) => string) {
   const title = text(summary.title, "A listing")
-  const where = typeof summary.locationId === "string" ? link(`/listings/${summary.locationId}`) : link("/listings")
+  const review = reviewNotificationPath(kind, summary)
+  const where = review ? link(review)
+    : typeof summary.locationId === "string" ? link(`/listings/${summary.locationId}`) : link("/listings")
   const label = NOTIFICATION_EVENT_LABELS[kind].label
   const detail: Partial<Record<NotificationEventKind, string>> = {
     publication_failed: `A change to ${title} was not published. Nothing further will be sent automatically.`,
@@ -196,6 +199,8 @@ function renderOperationalEmail(kind: NotificationEventKind, summary: Record<str
     verification_changed: `The Google verification state of ${title} changed.`,
     suggestions_available: `Google suggested changes to ${title}. Nothing is applied until you review it.`,
     resource_stale: `Part of ${title} has not refreshed from Google recently.`,
+    approval_requested: `A reply to a review of ${title} is waiting for your approval. It is not sent to Google until someone approves it.`,
+    reply_sent_back: `An approver sent back your reply to a review of ${title}. It was not sent to Google. Revise it and submit it again.`,
   }
   const why = scheduleReason(kind, summary)
   return {

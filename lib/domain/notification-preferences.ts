@@ -16,6 +16,8 @@ export const NOTIFICATION_EVENT_KINDS = [
   "connection_owner_left",
   "listing_stale",
   "low_rating_review",
+  "approval_requested",
+  "reply_sent_back",
   "publication_failed",
   "publication_unresolved",
   "mutation_unconfirmed",
@@ -45,7 +47,24 @@ export const ACCOUNT_SCOPED_KINDS: readonly NotificationEventKind[] = [
   "ai_credits_exhausted",
 ]
 
-/** Resolved by the condition clearing on re-evaluation, never by a person. */
+/**
+ * Addressed to named people (notification_incident_recipient, 0149) rather
+ * than to everyone who can see the location: a reply waiting for approval
+ * goes to the people who could approve it, and a reply sent back goes to the
+ * person who asked. An addressed incident with no recipient row reaches
+ * nobody, owners and admins included.
+ */
+export const ADDRESSED_KINDS: readonly NotificationEventKind[] = [
+  "approval_requested",
+  "reply_sent_back",
+]
+
+/**
+ * Resolved by the condition clearing on re-evaluation, never by a person.
+ * The approval kinds clear when the reply moves on: a request once it is
+ * decided, a send-back once the reply is submitted again, published or
+ * marked as needing nothing.
+ */
 export const CONDITION_KINDS: readonly NotificationEventKind[] = [
   "connection_reconnect",
   "listing_access_lost",
@@ -53,6 +72,8 @@ export const CONDITION_KINDS: readonly NotificationEventKind[] = [
   "listing_stale",
   "ai_credits_low",
   "ai_credits_exhausted",
+  "approval_requested",
+  "reply_sent_back",
 ]
 
 const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
@@ -95,6 +116,15 @@ export const NOTIFICATION_EVENT_LABELS: Record<
   low_rating_review: {
     label: "New low-rated review",
     description: "A review of three stars or fewer arrived.",
+  },
+  approval_requested: {
+    label: "Reply waiting for your approval",
+    description: "Someone submitted a reply to a review for approval.",
+  },
+  reply_sent_back: {
+    label: "Reply sent back",
+    description:
+      "An approver sent your reply back. Revise it and submit it again.",
   },
   publication_failed: {
     label: "Publishing failed",
@@ -152,6 +182,10 @@ export function defaultNotificationMode(
   if (channel === "in_app") return "immediate"
   const manager = role === "owner" || role === "admin"
   return manager && MANAGER_IMMEDIATE.includes(kind) ? "immediate" : "off"
+}
+
+export function isAddressedKind(kind: string): boolean {
+  return (ADDRESSED_KINDS as readonly string[]).includes(kind)
 }
 
 export function isNotificationEventKind(

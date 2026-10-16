@@ -10,6 +10,7 @@ import {
 } from "@/lib/contracts/operational-notifications"
 import {
   ACCOUNT_SCOPED_KINDS,
+  ADDRESSED_KINDS,
   CONDITION_KINDS,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENT_KINDS,
@@ -61,13 +62,21 @@ function decodeCursor(value: string | undefined) {
   }
 }
 
-/** What this viewer may see: account incidents for owners/admins, location incidents where the location is visible. */
+/**
+ * What this viewer may see: account incidents for owners/admins, location
+ * incidents where the location is visible, and an addressed incident only
+ * when it is addressed to them (recipients.ts, canSeeIncident).
+ */
 function scopePredicate(
   sql: Parameters<Parameters<typeof withTenant>[1]>[0],
   session: Session
 ) {
-  if (isManagerialRole(session.role)) return sql`true`
+  const addressed = sql`(i.kind not in ${sql([...ADDRESSED_KINDS])} or exists (
+    select 1 from notification_incident_recipient nr
+    where nr.incident_id = i.id and nr.user_id = ${session.userId}))`
+  if (isManagerialRole(session.role)) return addressed
   return sql`(i.location_id is not null and i.kind not in ${sql([...ACCOUNT_SCOPED_KINDS])}
+    and ${addressed}
     and ${visibilityPredicate(sql, session, sql`i.location_id`)})`
 }
 
@@ -206,9 +215,12 @@ export async function readNotificationPreferences(session: Session) {
     const explicit = new Set(preferences.keys())
     return parseStored(notificationPreferencesResponseSchema, {
       emailConfigured: emailConfigured(),
-      // Account incidents are for owners and admins; others get no choice to make.
+      // Account incidents are for owners and admins, and a viewer neither
+      // asks for approval nor gives it; others get no choice to make.
       preferences: NOTIFICATION_EVENT_KINDS.filter(
-        (kind) => isManagerialRole(member.role) || !ACCOUNT_SCOPED_KINDS.includes(kind)
+        (kind) =>
+          (isManagerialRole(member.role) || !ACCOUNT_SCOPED_KINDS.includes(kind)) &&
+          (member.role !== "viewer" || !ADDRESSED_KINDS.includes(kind))
       ).flatMap((kind) =>
         NOTIFICATION_CHANNELS.map((channel) => ({
           kind,
