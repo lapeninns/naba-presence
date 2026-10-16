@@ -6,7 +6,6 @@ import type { ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
-import { Toaster } from "@/components/ui/toast"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
@@ -680,11 +679,7 @@ describe("ReviewDetail", () => {
     it("marks the review as needing no reply from ⋯ at once, and Undo puts it back", async () => {
       const user = userEvent.setup()
       fakeDetail({ isPending: false, isError: false, data: detail })
-      renderPane(
-        <Toaster>
-          <ReviewDetail reviewId="rev-1" />
-        </Toaster>
-      )
+      renderPane(<ReviewDetail reviewId="rev-1" />)
 
       await user.click(screen.getByRole("button", { name: "More actions" }))
       await user.click(
@@ -719,11 +714,7 @@ describe("ReviewDetail", () => {
         ],
       })
       fakeDetail({ isPending: false, isError: false, data: detail })
-      renderPane(
-        <Toaster>
-          <ReviewDetail reviewId="rev-1" />
-        </Toaster>
-      )
+      renderPane(<ReviewDetail reviewId="rev-1" />)
       await user.click(screen.getByRole("button", { name: "More actions" }))
       await user.click(
         await screen.findByRole("menuitem", { name: "No reply needed" })
