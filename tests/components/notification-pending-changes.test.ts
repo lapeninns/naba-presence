@@ -312,6 +312,53 @@ describe("pending changes and the session scope", () => {
     expect(result.current).toBe(0)
   })
 
+  it("does not count a resolved, read row as unread when it is marked unread and the unread page was read whole", () => {
+    const { client, wrapper } = setup()
+    // The server's unread page leaves out a resolved row that was read; the
+    // list the page shows still holds it, resolved and read.
+    client.setQueryData(queryKeys.notifications("all"), {
+      pages: [
+        page([
+          row("a"),
+          row("b"),
+          row("z", {
+            status: "resolved",
+            resolvedAt: "2026-09-30T11:00:00.000Z",
+            readAt: "2026-09-30T11:00:00.000Z",
+          }),
+        ]),
+      ],
+      pageParams: [""],
+    })
+    const { result } = renderHook(() => usePendingUnreadDelta("badge"), {
+      wrapper,
+    })
+    act(() => {
+      addPendingChange(client, { kind: "read", ids: ["z"], read: false })
+    })
+    // It stays resolved, so it never joins "open and unread": the bell has
+    // nothing to add (and the page's own count agrees).
+    expect(result.current).toBe(0)
+    const applied = applyPendingChanges(
+      [page([row("a"), row("b")])],
+      [
+        change({
+          kind: "read",
+          ids: ["z"],
+          read: false,
+          snapshots: {
+            z: {
+              status: "resolved",
+              readAt: "2026-09-30T11:00:00.000Z",
+            },
+          },
+        }),
+      ],
+      "unread"
+    )
+    expect(applied.delta).toBe(0)
+  })
+
   it("commits into every cached list and the badge, and stops being pending in the same step", () => {
     const { client } = setup()
     client.setQueryData(queryKeys.notifications("unread"), {

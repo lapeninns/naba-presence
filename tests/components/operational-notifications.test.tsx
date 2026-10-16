@@ -1497,7 +1497,9 @@ describe("NotificationsView pending changes", () => {
         } as unknown as ShellStatusResponse)
       })
       // The count already has the read: neither the bell nor the page takes
-      // it off again.
+      // it off again. (The cache's notifications are deferred: let the bell
+      // see the poll before it is judged.)
+      await tick()
       agree(1)
       server.holdLists()
       ;(await server.write(0)).accept()

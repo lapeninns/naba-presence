@@ -165,10 +165,21 @@ export function cachedRowStates(
 
 const countsAsUnread = (row: RowState) => row.status === "open" && !row.readAt
 
-/** What a row is when the unread list that was fetched whole does not hold it. */
-const NOT_UNREAD: RowState = {
-  status: "open",
-  readAt: "1970-01-01T00:00:00.000Z",
+/** A read time that only says "read": a row the whole unread list left out. */
+const READ_MARK = "1970-01-01T00:00:00.000Z"
+
+/**
+ * A row the unread list, fetched whole, does not hold: it is not unread (read,
+ * or resolved), whatever an older list says. Its status is the one the other
+ * lists know (a resolved row stays resolved, so marking it unread does not
+ * make it count); a row nobody knows is not counted.
+ */
+function leftOutOfWholeUnreadList(
+  base: RowState | undefined
+): RowState | undefined {
+  return base
+    ? { status: base.status, readAt: base.readAt ?? READ_MARK }
+    : undefined
 }
 
 /**
@@ -318,10 +329,13 @@ export function applyPendingChanges(
     return { ...page, items }
   })
   const wholeUnreadList = isCompleteUnreadList(filter, pages)
-  const delta = unreadDelta(
-    changes,
-    (id) => shown.get(id) ?? (wholeUnreadList ? NOT_UNREAD : otherRows?.get(id))
-  )
+  const delta = unreadDelta(changes, (id) => {
+    const held = shown.get(id)
+    if (held) return held
+    return wholeUnreadList
+      ? leftOutOfWholeUnreadList(otherRows?.get(id) ?? snapshotOf(changes, id))
+      : otherRows?.get(id)
+  })
   const result = delta
     ? next.map((page) => ({
         ...page,
@@ -380,7 +394,12 @@ export function addPendingChange(
       for (const page of own.pages)
         for (const item of page.items)
           ownRows.set(item.id, { status: item.status, readAt: item.readAt })
-      return unreadDelta(changes, (id) => ownRows.get(id) ?? NOT_UNREAD)
+      return unreadDelta(
+        changes,
+        (id) =>
+          ownRows.get(id) ??
+          leftOutOfWholeUnreadList(rows.get(id) ?? snapshotOf(changes, id))
+      )
     }
     return unreadDelta(changes, (id) => rows.get(id))
   }
