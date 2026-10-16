@@ -45,6 +45,7 @@ import { sessionScopeToken } from "@/lib/queries/scope-reset"
 import { storeFor } from "@/lib/api/operational-notifications"
 
 import {
+  type CountPin,
   type KnownRow,
   type PendingChange,
   type RowState,
@@ -65,6 +66,16 @@ export type ListFilter = "all" | "unread" | "open"
 
 let sequence = 0
 
+/** True while a commit writes the cache: those writes are not new answers. */
+let committing = false
+
+/**
+ * The badge answer a commit last wrote, per client: the pin never rests on
+ * it, since a commit moves the count and drops read rows from the page, which
+ * the server did not say.
+ */
+const ownWrites = new WeakMap<QueryClient, number | undefined>()
+
 /**
  * A change made in one session scope is dropped the moment the session in the
  * cache is another scope, even if it later comes back to the first (A to B to
@@ -81,6 +92,8 @@ function watchScope(client: QueryClient, store: Store) {
     const token = currentScopeToken(client)
     const kept = store.changes.filter((change) => change.scope === token)
     if (kept.length === store.changes.length) {
+      // A newer badge answer may be one the pin can rest on.
+      rebasePin(client, store, token)
       // The rows the count leans on may have moved: tell the bell.
       notifyManager.schedule(() => store.listeners.forEach((l) => l()))
       return
@@ -332,10 +345,99 @@ function snapshotDelta(changes: readonly PendingChange[]): number {
   return unreadDelta(changes, (id) => snapshotOf(changes, id))
 }
 
-/** The shell badge's count in the cache, if the badge is loaded. */
-function badgeCount(client: QueryClient): number | undefined {
-  return cachedLists(client).find((list) => list.filter === "badge")?.pages[0]
-    ?.unreadCount
+/**
+ * The shell badge's answer in the cache, if it is loaded: its count and rows,
+ * and which answer it is (the query's update count, which moves each time the
+ * server's word or a commit is written).
+ */
+function badgeAnswer(client: QueryClient) {
+  const list = cachedLists(client).find((entry) => entry.filter === "badge")
+  const first = list?.pages[0]
+  if (!list || !first) return undefined
+  return {
+    count: first.unreadCount,
+    pages: list.pages,
+    version: client.getQueryState(list.key)?.dataUpdateCount,
+  }
+}
+
+/**
+ * The one total every surface shows while changes are pending: the pinned
+ * count plus what the pending changes do to the rows it was taken over. The
+ * page and the bell both read it (a refreshed list's own count is not
+ * another total), so they cannot disagree. Null when there is no pin to rest
+ * on, or nothing pending.
+ */
+function pinnedTotal(
+  changes: readonly PendingChange[],
+  pin: CountPin | null,
+  token: string
+): number | null {
+  if (!pin || pin.scope !== token || changes.length === 0) return null
+  return pin.count + snapshotDelta(changes)
+}
+
+/**
+ * Moves the pin onto a badge answer that is newer than the one it rests on,
+ * when that answer can account for every row a pending change touches: each
+ * is on its first page, or it proves (`unreadListProof`) the row is not
+ * unread. Then the answer's count is the pin, and each touched row's snapshot
+ * is the row as that answer shows it, so a save a poll has since absorbed is
+ * counted once, a review that arrived is counted, and a change taken back
+ * after its answer was lost no longer leaves the pin on a count the server has
+ * moved from. An answer that leaves a row's state open (a row past the edge
+ * of a page that has more) cannot say whether it took a pending change in, so
+ * the pin stays where it was, as before.
+ *
+ * It also gives a pin to a run whose first change was made before the badge
+ * was loaded.
+ */
+function rebasePin(client: QueryClient, store: Store, token: string) {
+  // A commit's own writes to the badge are not the server's word.
+  if (committing) return
+  const answer = badgeAnswer(client)
+  if (!answer || answer.version === undefined) return
+  if (answer.version === ownWrites.get(client)) return
+  const pin = store.pin?.scope === token ? store.pin : null
+  if (pin && pin.answer === answer.version) return
+  const held = store.changes.filter((change) => change.scope === token)
+  if (held.length === 0) return
+  const proves = unreadListProof("badge", answer.pages)
+  const shown = new Map<string, KnownRow>()
+  for (const page of answer.pages)
+    for (const item of page.items)
+      shown.set(item.id, {
+        status: item.status,
+        readAt: item.readAt,
+        openedAt: item.openedAt,
+      })
+  const rows = cachedRowStates(client, "badge")
+  const views = new Map<string, KnownRow>()
+  for (const change of held)
+    for (const id of change.ids) {
+      if (views.has(id)) continue
+      const row = shown.get(id)
+      if (row) {
+        views.set(id, row)
+        continue
+      }
+      const base = snapshotOf(held, id) ?? rows.get(id)
+      // Nobody knows the row: nothing counts it, before or after.
+      if (!base) continue
+      if (!proves(base.openedAt)) return
+      views.set(id, { ...base, ...leftOutOfUnreadList(base) })
+    }
+  store.changes = store.changes.map((change) => {
+    if (change.scope !== token) return change
+    const snapshots = { ...change.snapshots }
+    for (const id of change.ids) {
+      const view = views.get(id)
+      if (view) snapshots[id] = view
+    }
+    return { ...change, snapshots }
+  })
+  store.pin = { count: answer.count, scope: token, answer: answer.version }
+  publish(store, true)
 }
 
 // ---------------------------------------------------------------------------
@@ -363,7 +465,8 @@ export function applyPendingChanges(
   pages: NotificationListResponse[],
   changes: readonly PendingChange[],
   filter: ListFilter,
-  otherRows?: ReadonlyMap<string, KnownRow>
+  otherRows?: ReadonlyMap<string, KnownRow>,
+  pinned?: number | null
 ): AppliedChanges {
   if (changes.length === 0)
     return { pages, delta: 0, unreadCount: pages[0]?.unreadCount ?? null }
@@ -391,7 +494,7 @@ export function applyPendingChanges(
     return { ...page, items }
   })
   const proves = unreadListProof(filter, pages)
-  const delta = unreadDelta(changes, (id) => {
+  const counted = unreadDelta(changes, (id) => {
     const held = shown.get(id)
     if (held) return held
     const base = otherRows?.get(id) ?? snapshotOf(changes, id)
@@ -399,6 +502,12 @@ export function applyPendingChanges(
       ? leftOutOfUnreadList(base)
       : otherRows?.get(id)
   })
+  // With a pinned total (the bell's) the page shows that same total, not its
+  // own list's count moved by its own reading of the rows.
+  const delta =
+    pinned != null && pages[0]
+      ? Math.max(0, pinned) - pages[0].unreadCount
+      : counted
   const result = delta
     ? next.map((page) => ({
         ...page,
@@ -467,9 +576,14 @@ export function addPendingChange(
   // The first change of a run pins the bell's count: from here to the last
   // commit it is this count plus the changes, not whatever a poll says.
   if (store.changes.length === 0) {
-    const count = badgeCount(client)
-    store.pin =
-      count === undefined ? null : { count, scope: currentScopeToken(client) }
+    const answer = badgeAnswer(client)
+    store.pin = answer
+      ? {
+          count: answer.count,
+          scope: currentScopeToken(client),
+          answer: answer.version,
+        }
+      : null
   }
   store.delta ??= (cache, prefer) => {
     const token = currentScopeToken(cache)
@@ -478,10 +592,8 @@ export function addPendingChange(
     const own = prefer
       ? cachedLists(cache).find((list) => list.filter === prefer)
       : undefined
-    const pin = store.publishedPin
-    if (pin && pin.scope === token && own?.pages[0]) {
-      return pin.count + snapshotDelta(changes) - own.pages[0].unreadCount
-    }
+    const total = pinnedTotal(changes, store.publishedPin, token)
+    if (total !== null && own?.pages[0]) return total - own.pages[0].unreadCount
     const rows = cachedRowStates(cache, prefer)
     // Without a pinned count: the count the bell adds this to came from
     // `prefer`'s own answer, so its rows (and their absence, as far as the
@@ -571,69 +683,79 @@ export function commitPendingChange(
 ): void {
   const store = storeFor(client)
   const live = isChangeLive(client, change)
-  notifyManager.batch(() => {
-    if (live) {
-      // The store's copy of the change: an earlier save may have rebased its
-      // snapshots since the caller took the one it holds.
-      const current = store.changes.find((other) => other.id === change.id)
-      const applied = { ...(current ?? change), ...(saved && { ids: saved }) }
-      // Read before any write: each list's delta is judged against the cache
-      // as it was, not as the previous list's write left it.
-      const rows = cachedRowStates(client)
-      // The bell's count once this change is made permanent: the pinned count
-      // moved by every change, this one only for what saved. What is still
-      // pending then rides on a pin that leaves the total where it was.
-      const token = currentScopeToken(client)
-      const held = store.changes.filter((other) => other.scope === token)
-      const pin = store.pin?.scope === token ? store.pin : null
-      const others = held.filter((other) => other.id !== change.id)
-      const total = pin
-        ? pin.count +
-          snapshotDelta(
-            held.map((other) => (other.id === change.id ? applied : other))
-          )
-        : null
-      // A change still out for a row this one saved took its snapshot before
-      // the save: measured against that, it would move nothing. It is
-      // measured against the row as saved, so the pin rests on the committed
-      // count and a later refusal of it leaves the bell where the cache is.
-      const rebased = new Map(
-        others.map((other) => [other.id, rebaseOnto(applied, other)])
-      )
-      const rest = others.map((other) => rebased.get(other.id)!)
-      if (pin && total !== null)
-        store.pin = { ...pin, count: total - snapshotDelta(rest) }
-      store.changes = store.changes.map(
-        (other) => rebased.get(other.id) ?? other
-      )
-      for (const list of cachedLists(client)) {
-        const filter: ListFilter =
-          list.filter === "all" || list.filter === "open"
-            ? list.filter
-            : "unread"
-        let pages = applyPendingChanges(
-          list.pages,
-          [applied],
-          filter,
-          rows
-        ).pages
-        // The shell's count is the pinned one, not one taken off rows a poll
-        // may already have moved.
-        if (list.filter === "badge" && store.pin && pages[0]) {
-          const count = Math.max(0, store.pin.count)
-          if (pages[0].unreadCount !== count)
-            pages = [{ ...pages[0], unreadCount: count }, ...pages.slice(1)]
-        }
-        if (pages === list.pages) continue
-        client.setQueryData(
-          list.key,
-          list.infinite ? { ...list.data, pages } : pages[0]
+  committing = true
+  try {
+    notifyManager.batch(() => {
+      if (live) {
+        // The store's copy of the change: an earlier save may have rebased its
+        // snapshots since the caller took the one it holds.
+        const current = store.changes.find((other) => other.id === change.id)
+        const applied = { ...(current ?? change), ...(saved && { ids: saved }) }
+        // Read before any write: each list's delta is judged against the cache
+        // as it was, not as the previous list's write left it.
+        const rows = cachedRowStates(client)
+        // The bell's count once this change is made permanent: the pinned count
+        // moved by every change, this one only for what saved. What is still
+        // pending then rides on a pin that leaves the total where it was.
+        const token = currentScopeToken(client)
+        const held = store.changes.filter((other) => other.scope === token)
+        const pin = store.pin?.scope === token ? store.pin : null
+        const others = held.filter((other) => other.id !== change.id)
+        const total = pin
+          ? pin.count +
+            snapshotDelta(
+              held.map((other) => (other.id === change.id ? applied : other))
+            )
+          : null
+        // A change still out for a row this one saved took its snapshot before
+        // the save: measured against that, it would move nothing. It is
+        // measured against the row as saved, so the pin rests on the committed
+        // count and a later refusal of it leaves the bell where the cache is.
+        const rebased = new Map(
+          others.map((other) => [other.id, rebaseOnto(applied, other)])
         )
+        const rest = others.map((other) => rebased.get(other.id)!)
+        if (pin && total !== null)
+          store.pin = { ...pin, count: total - snapshotDelta(rest) }
+        store.changes = store.changes.map(
+          (other) => rebased.get(other.id) ?? other
+        )
+        for (const list of cachedLists(client)) {
+          const filter: ListFilter =
+            list.filter === "all" || list.filter === "open"
+              ? list.filter
+              : "unread"
+          let pages = applyPendingChanges(
+            list.pages,
+            [applied],
+            filter,
+            rows
+          ).pages
+          // The shell's count is the pinned one, not one taken off rows a poll
+          // may already have moved.
+          if (list.filter === "badge" && store.pin && pages[0]) {
+            const count = Math.max(0, store.pin.count)
+            if (pages[0].unreadCount !== count)
+              pages = [{ ...pages[0], unreadCount: count }, ...pages.slice(1)]
+          }
+          if (pages === list.pages) continue
+          client.setQueryData(
+            list.key,
+            list.infinite ? { ...list.data, pages } : pages[0]
+          )
+        }
       }
-    }
-    store.changes = store.changes.filter((other) => other.id !== change.id)
-    publish(store, true)
-  })
+      store.changes = store.changes.filter((other) => other.id !== change.id)
+      // The badge now holds what the pin says: it rests on that answer.
+      const answer = badgeAnswer(client)
+      ownWrites.set(client, answer?.version)
+      if (store.pin && answer)
+        store.pin = { ...store.pin, answer: answer.version }
+      publish(store, true)
+    })
+  } finally {
+    committing = false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -670,4 +792,23 @@ export function usePendingNotificationChanges(): readonly PendingChange[] {
     () => all.filter((change) => change.scope === token),
     [all, token]
   )
+}
+
+/**
+ * The total pinned for the changes pending in this session's scope, or null
+ * when there is none (nothing is pending, or the pin has nothing to rest on).
+ * The page passes it to `applyPendingChanges` so it shows the bell's number.
+ */
+export function usePinnedUnreadCount(): number | null {
+  const client = useQueryClient()
+  const store = storeFor(client)
+  const token = useScopeToken(client)
+  const pin = React.useSyncExternalStore(
+    store.subscribe,
+    () => store.publishedPin,
+    () => store.publishedPin
+  )
+  const changes = usePendingNotificationChanges()
+  const total = pinnedTotal(changes, pin, token)
+  return total === null ? null : Math.max(0, total)
 }
