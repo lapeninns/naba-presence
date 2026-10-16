@@ -139,8 +139,8 @@ export function dropResourceQueries(
 export function useScopeReset(
   client: QueryClient,
   /**
-   * Called once the cache has been reset for a new scope (or for no
-   * session). The dashboard's provider refreshes the router with it, so
+   * Called once the cache has been reset for a new scope (not for a
+   * sign-out). The dashboard's provider refreshes the router with it, so
    * no page payload the old scope read can come back on Back (#195).
    */
   onScopeChange?: () => void
@@ -174,10 +174,10 @@ export function useScopeReset(
     const previous = last.current
     last.current = token
     if (!token) {
-      if (previous) {
-        void resetScopedQueries(client)
-        scopeChanged.current?.()
-      }
+      // Signed out elsewhere: no refresh, which would take a half-edited
+      // page to sign-in on a background refetch. A stamped payload is
+      // refused with no session anyway (inLiveScope).
+      if (previous) void resetScopedQueries(client)
       return
     }
     const [userId, organisationId] = token.split("\n")
