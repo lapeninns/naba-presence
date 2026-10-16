@@ -95,6 +95,9 @@ export function usePendingUnreadDelta(prefer?: string): number {
   const store = storeFor(client)
   return React.useSyncExternalStore(
     store.subscribe,
-    () => store.delta?.(client, prefer) ?? 0
+    () => store.delta?.(client, prefer) ?? 0,
+    // Nothing is pending while the server renders: the bell shows the
+    // cache's own count, and hydration matches it.
+    () => 0
   )
 }
