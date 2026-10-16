@@ -322,9 +322,12 @@ export function PolicyForm({ role }: { role: string | null }) {
     },
   })
 
-  // The same write, cache update and refresh as the wizard's name card
+  // The same write and cache update as the wizard's name card
   // (agency-name-form.tsx): the app shell reads the name from the cached
-  // session, and server components still hold the old one.
+  // session. Server components still hold the old name, but the refresh
+  // waits for the whole save (onSubmit): the page's server snapshot carries
+  // the settings too (P20), and one read before the policy write lands
+  // would hand the form the old policy back.
   const rename = useMutation({
     mutationFn: (name: string) => renameOrganisation(name),
     onSuccess: (organisation) => {
@@ -336,7 +339,6 @@ export function PolicyForm({ role }: { role: string | null }) {
       void client.invalidateQueries({ queryKey: ["organisations"] })
       setNameDraft(null)
       setNameError(null)
-      router.refresh()
     },
     onError: (error) => setNameError(describeActionError(error)),
   })
@@ -426,11 +428,15 @@ export function PolicyForm({ role }: { role: string | null }) {
         })
       )
     }
-    if (nameDirty) {
+    const renaming = nameDirty
+    if (renaming) {
       setNameError(null)
       writes.push(rename.mutateAsync(nameValue.trim()))
     }
     const results = await Promise.allSettled(writes)
+    // Rename last in `writes`. Refreshed only once every write has settled,
+    // so the server reads the policy as saved (see `rename` above).
+    if (renaming && results.at(-1)?.status === "fulfilled") router.refresh()
     if (results.every((result) => result.status === "fulfilled")) {
       toast.add({ title: "Settings saved", type: "success" })
       // The bar (and the Save button that had focus) goes with the last
