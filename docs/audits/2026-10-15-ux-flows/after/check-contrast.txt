@@ -1,0 +1,218 @@
+
+LIGHT  (106/106 pass)
+   --np-ink                 on --np-surface-canvas      16.32   need 4.5   body text on the page
+   --np-ink                 on --np-surface             17.28   need 4.5   body text in a card
+   --np-ink                 on --np-surface-raised      17.28   need 4.5   text on a raised surface
+   --np-ink                 on --np-surface-sunken      15.66   need 4.5   text in a table header or well
+   --np-ink                 on --np-surface-overlay     17.28   need 4.5   text in a popover or dialog
+   --np-ink-secondary       on --np-surface-canvas      10.22   need 4.5   field labels and read list rows
+   --np-ink-secondary       on --np-surface             10.82   need 4.5   field labels in a card
+   --np-ink-secondary       on --np-surface-overlay     10.82   need 4.5   field labels in a dialog or sheet
+   --np-ink-muted           on --np-surface-canvas      5.65    need 4.5   captions and secondary text
+   --np-ink-muted           on --np-surface             5.98    need 4.5   secondary text in a card
+   --np-ink-muted           on --np-surface-sunken      5.42    need 4.5   table column headers
+   --np-ink-muted           on --np-hover-bg            4.99    need 4.5   secondary text on a hovered row
+   --np-ink-inverse         on --np-ink                 17.28   need 4.5   text on an inverted surface
+   --np-ink-faint           on --np-surface-canvas      5.65    need 3   separators and inert icons
+   --np-ink-faint           on --np-surface             5.98    need 3   inert icons inside a card
+   --np-ink                 on --np-fill                14.41   need 4.5   grey button label and segmented control thumb text
+   --np-ink-muted           on --np-fill                4.99    need 4.5   unselected segment label on the track
+   --np-ink                 on --np-fill-secondary      15.66   need 4.5   text in a search field or keycap
+   --np-ink-muted           on --np-fill-secondary      5.42    need 4.5   placeholder in a search field
+   --np-ink-muted           on --np-fill-tertiary       5.65    need 4.5   secondary text on a subtle well
+   --np-accent-ink          on --np-fill                7.31    need 4.5   tinted action inside a grey control
+   --np-ink                 on --np-surface-alt         15.66   need 4.5   text on a list row or panel
+   --np-ink-muted           on --np-surface-alt         5.42    need 4.5   secondary text on a list row or panel
+   --np-accent-ink          on --np-surface-alt         7.94    need 4.5   link or selected label on a panel
+   --np-success-ink         on --np-surface-alt         6.98    need 4.5   status text on a list row
+   --np-warning-ink         on --np-surface-alt         6.64    need 4.5   attention text on a list row
+   --np-danger-ink          on --np-surface-alt         6.20    need 4.5   danger text on a list row
+   --np-info-ink            on --np-surface-alt         6.47    need 4.5   pending text on a list row
+   --np-line-strong         on --np-surface-alt         3.29    need 3   control edge on a panel
+   --np-rating              on --np-surface-alt         3.24    need 3   star rating on a list row
+   --np-ink-on-charcoal     on --np-charcoal            15.05   need 4.5   composer footer and bulk bar labels
+   --np-ink-muted-on-charcoal on --np-charcoal            8.22    need 4.5   dark action bar meta
+   --np-ink-muted-on-charcoal on --np-charcoal            8.22    need 3   quiet button edge and the sign-in panel's icon ring on charcoal
+   --np-ink                 on --np-material-sidebar-opaque 16.32   need 4.5   sidebar item label
+   --np-ink-muted           on --np-material-sidebar-opaque 5.65    need 4.5   sidebar group label
+   --np-ink                 on --np-material-toolbar-opaque 16.32   need 4.5   toolbar title
+   --np-ink-muted           on --np-material-toolbar-opaque 5.65    need 4.5   toolbar breadcrumb
+   --np-ink                 on --np-material-popover-opaque 17.28   need 4.5   menu item label
+   --np-ink-muted           on --np-material-popover-opaque 5.98    need 4.5   menu item shortcut hint
+   --np-ink-on-accent       on --np-accent              7.08    need 4.5   primary button label
+   --np-ink-on-accent       on --np-accent-hover        9.61    need 4.5   primary button label, hovered
+   --np-ink-on-accent       on --np-accent-active       9.61    need 4.5   primary button label, pressed
+   --np-accent-ink          on --np-surface-canvas      8.27    need 4.5   links on the page
+   --np-accent-ink          on --np-surface             8.76    need 4.5   links in a card
+   --np-accent-ink          on --np-accent-tint         7.77    need 4.5   active nav item and selected chip
+   --np-accent-ink          on --np-selection-bg        7.77    need 4.5   text in a selected row
+   --np-ink                 on --np-accent-tint         15.33   need 4.5   primary text on a tinted card or selected row
+   --np-ink-muted           on --np-accent-tint         5.30    need 4.5   secondary text in a selected row
+   --np-success-ink         on --np-accent-tint         6.83    need 4.5   status text in a selected row
+   --np-warning-ink         on --np-accent-tint         6.50    need 4.5   attention text in a selected row
+   --np-danger-ink          on --np-accent-tint         6.07    need 4.5   danger text in a selected row
+   --np-info-ink            on --np-accent-tint         6.33    need 4.5   pending text in a selected row
+   --np-accent-ink          on --np-accent-tint-strong  6.63    need 4.5   text over a text selection
+   --np-ink                 on --np-accent-tint-strong  13.08   need 4.5   selected text
+   --np-accent-vivid        on --np-surface             4.01    need 3   vivid accent used as a graphic: switch on-state, progress, active icon
+   --np-ink-on-accent       on --np-accent-vivid        4.01    need 3   switch knob glyph on the vivid accent
+   --np-line-strong         on --np-surface-canvas      3.43    need 3   input and button borders
+   --np-line-strong         on --np-surface             3.63    need 3   control borders inside a card
+   --np-focus-ring          on --np-surface-canvas      3.79    need 3   focus ring on the page
+   --np-focus-ring          on --np-surface             4.01    need 3   focus ring inside a card
+   --np-success-ink         on --np-surface-canvas      7.28    need 4.5   success message text on the page background
+   --np-success-ink         on --np-success-tint        6.84    need 4.5   success pill and banner text on its own tint
+   --np-success-on-solid    on --np-success-solid       4.67    need 4.5   text on a solid success fill
+   --np-success-line        on --np-surface-canvas      3.80    need 3   success banner border
+   --np-warning-ink         on --np-surface-canvas      6.91    need 4.5   warning message text on the page background
+   --np-warning-ink         on --np-warning-tint        6.61    need 4.5   warning pill and banner text on its own tint
+   --np-warning-on-solid    on --np-warning-solid       9.55    need 4.5   text on a solid warning fill
+   --np-warning-line        on --np-surface-canvas      3.83    need 3   warning banner border
+   --np-danger-ink          on --np-surface-canvas      6.46    need 4.5   danger message text on the page background
+   --np-danger-ink          on --np-danger-tint         6.09    need 4.5   danger pill and banner text on its own tint
+   --np-danger-on-solid     on --np-danger-solid        5.82    need 4.5   text on a solid danger fill
+   --np-danger-line         on --np-surface-canvas      5.50    need 3   danger banner border
+   --np-info-ink            on --np-surface-canvas      6.74    need 4.5   info message text on the page background
+   --np-info-ink            on --np-info-tint           6.36    need 4.5   info pill and banner text on its own tint
+   --np-info-on-solid       on --np-info-solid          4.65    need 4.5   text on a solid info fill
+   --np-info-line           on --np-surface-canvas      4.40    need 3   info banner border
+   --np-chart-1             on --np-surface             5.19    need 3   chart series 1
+   --np-chart-2             on --np-surface             3.22    need 3   chart series 2
+   --np-chart-3             on --np-surface             3.93    need 3   chart series 3
+   --np-chart-4             on --np-surface             4.64    need 3   chart series 4
+   --np-chart-5             on --np-surface             3.74    need 3   chart series 5
+   --np-chart-6             on --np-surface             5.23    need 3   chart series 6
+   --np-chart-axis          on --np-surface             5.98    need 4.5   chart axis labels
+   --np-rating              on --np-surface             3.58    need 3   star rating fill
+   --np-ink                 on --np-field-bg            17.28   need 4.5   typed value in an input
+   --np-ink-muted           on --np-field-bg            5.98    need 4.5   input placeholder
+   --np-ink-muted           on --np-table-header-bg     5.42    need 4.5   table header label
+   --np-line-strong         on --np-field-bg            3.63    need 3   field edge
+   --np-danger-line         on --np-field-bg            5.82    need 3   invalid field edge
+   --np-success-solid       on --np-surface             4.02    need 3   healthy status dot
+   --np-danger-solid        on --np-surface             5.82    need 3   at-risk status dot
+   --np-info-solid          on --np-surface             4.65    need 3   pending status dot
+   --np-warning-ink         on --np-surface             7.32    need 3   attention status dot
+   --np-indicator-unread    on --np-surface             4.65    need 3   unread dot on a list row
+   --np-indicator-unread    on --np-surface-alt         4.22    need 3   unread dot on a hovered list row
+   --np-indicator-unread    on --np-fill                3.88    need 3   unread dot on a selected list row
+   --np-avatar-ink          on --np-avatar-bg           9.03    need 4.5   initials in a neutral avatar
+   --np-banner-ink          on --np-banner-bg           6.61    need 4.5   announcement banner text
+   --np-tag-neutral-ink     on --np-tag-neutral-bg      6.25    need 4.5   neutral tag label on its own tint
+   --np-tag-neutral-ink     on --np-surface             7.46    need 4.5   neutral tag label outside its chip (tag manager, inline mention)
+   --np-tag-blue-ink        on --np-tag-blue-bg         6.27    need 4.5   blue tag label on its own tint
+   --np-tag-blue-ink        on --np-surface             7.19    need 4.5   blue tag label outside its chip (tag manager, inline mention)
+   --np-tag-pink-ink        on --np-tag-pink-bg         6.85    need 4.5   pink tag label on its own tint
+   --np-tag-pink-ink        on --np-surface             8.01    need 4.5   pink tag label outside its chip (tag manager, inline mention)
+   --np-tag-purple-ink      on --np-tag-purple-bg       6.78    need 4.5   purple tag label on its own tint
+   --np-tag-purple-ink      on --np-surface             7.89    need 4.5   purple tag label outside its chip (tag manager, inline mention)
+
+DARK  (106/106 pass)
+   --np-ink                 on --np-surface-canvas      16.25   need 4.5   body text on the page
+   --np-ink                 on --np-surface             14.95   need 4.5   body text in a card
+   --np-ink                 on --np-surface-raised      14.20   need 4.5   text on a raised surface
+   --np-ink                 on --np-surface-sunken      15.63   need 4.5   text in a table header or well
+   --np-ink                 on --np-surface-overlay     14.20   need 4.5   text in a popover or dialog
+   --np-ink-secondary       on --np-surface-canvas      11.90   need 4.5   field labels and read list rows
+   --np-ink-secondary       on --np-surface             10.95   need 4.5   field labels in a card
+   --np-ink-secondary       on --np-surface-overlay     10.40   need 4.5   field labels in a dialog or sheet
+   --np-ink-muted           on --np-surface-canvas      7.59    need 4.5   captions and secondary text
+   --np-ink-muted           on --np-surface             6.99    need 4.5   secondary text in a card
+   --np-ink-muted           on --np-surface-sunken      7.31    need 4.5   table column headers
+   --np-ink-muted           on --np-hover-bg            5.88    need 4.5   secondary text on a hovered row
+   --np-ink-inverse         on --np-ink                 16.25   need 4.5   text on an inverted surface
+   --np-ink-faint           on --np-surface-canvas      7.59    need 3   separators and inert icons
+   --np-ink-faint           on --np-surface             6.99    need 3   inert icons inside a card
+   --np-ink                 on --np-fill                12.59   need 4.5   grey button label and segmented control thumb text
+   --np-ink-muted           on --np-fill                5.88    need 4.5   unselected segment label on the track
+   --np-ink                 on --np-fill-secondary      13.81   need 4.5   text in a search field or keycap
+   --np-ink-muted           on --np-fill-secondary      6.45    need 4.5   placeholder in a search field
+   --np-ink-muted           on --np-fill-tertiary       7.15    need 4.5   secondary text on a subtle well
+   --np-accent-ink          on --np-fill                8.15    need 4.5   tinted action inside a grey control
+   --np-ink                 on --np-surface-alt         15.63   need 4.5   text on a list row or panel
+   --np-ink-muted           on --np-surface-alt         7.31    need 4.5   secondary text on a list row or panel
+   --np-accent-ink          on --np-surface-alt         10.13   need 4.5   link or selected label on a panel
+   --np-success-ink         on --np-surface-alt         10.13   need 4.5   status text on a list row
+   --np-warning-ink         on --np-surface-alt         11.33   need 4.5   attention text on a list row
+   --np-danger-ink          on --np-surface-alt         9.31    need 4.5   danger text on a list row
+   --np-info-ink            on --np-surface-alt         9.73    need 4.5   pending text on a list row
+   --np-line-strong         on --np-surface-alt         3.90    need 3   control edge on a panel
+   --np-rating              on --np-surface-alt         9.53    need 3   star rating on a list row
+   --np-ink-on-charcoal     on --np-charcoal            12.11   need 4.5   composer footer and bulk bar labels
+   --np-ink-muted-on-charcoal on --np-charcoal            7.29    need 4.5   dark action bar meta
+   --np-ink-muted-on-charcoal on --np-charcoal            7.29    need 3   quiet button edge and the sign-in panel's icon ring on charcoal
+   --np-ink                 on --np-material-sidebar-opaque 16.25   need 4.5   sidebar item label
+   --np-ink-muted           on --np-material-sidebar-opaque 7.59    need 4.5   sidebar group label
+   --np-ink                 on --np-material-toolbar-opaque 16.25   need 4.5   toolbar title
+   --np-ink-muted           on --np-material-toolbar-opaque 7.59    need 4.5   toolbar breadcrumb
+   --np-ink                 on --np-material-popover-opaque 14.20   need 4.5   menu item label
+   --np-ink-muted           on --np-material-popover-opaque 6.64    need 4.5   menu item shortcut hint
+   --np-ink-on-accent       on --np-accent              8.58    need 4.5   primary button label
+   --np-ink-on-accent       on --np-accent-hover        11.22   need 4.5   primary button label, hovered
+   --np-ink-on-accent       on --np-accent-active       11.22   need 4.5   primary button label, pressed
+   --np-accent-ink          on --np-surface-canvas      10.52   need 4.5   links on the page
+   --np-accent-ink          on --np-surface             9.68    need 4.5   links in a card
+   --np-accent-ink          on --np-accent-tint         7.49    need 4.5   active nav item and selected chip
+   --np-accent-ink          on --np-selection-bg        7.49    need 4.5   text in a selected row
+   --np-ink                 on --np-accent-tint         11.56   need 4.5   primary text on a tinted card or selected row
+   --np-ink-muted           on --np-accent-tint         5.40    need 4.5   secondary text in a selected row
+   --np-success-ink         on --np-accent-tint         7.49    need 4.5   status text in a selected row
+   --np-warning-ink         on --np-accent-tint         8.38    need 4.5   attention text in a selected row
+   --np-danger-ink          on --np-accent-tint         6.88    need 4.5   danger text in a selected row
+   --np-info-ink            on --np-accent-tint         7.20    need 4.5   pending text in a selected row
+   --np-accent-ink          on --np-accent-tint-strong  5.90    need 4.5   text over a text selection
+   --np-ink                 on --np-accent-tint-strong  9.10    need 4.5   selected text
+   --np-accent-vivid        on --np-surface             7.37    need 3   vivid accent used as a graphic: switch on-state, progress, active icon
+   --np-ink-on-accent       on --np-accent-vivid        7.99    need 3   switch knob glyph on the vivid accent
+   --np-line-strong         on --np-surface-canvas      4.05    need 3   input and button borders
+   --np-line-strong         on --np-surface             3.73    need 3   control borders inside a card
+   --np-focus-ring          on --np-surface-canvas      8.01    need 3   focus ring on the page
+   --np-focus-ring          on --np-surface             7.37    need 3   focus ring inside a card
+   --np-success-ink         on --np-surface-canvas      10.52   need 4.5   success message text on the page background
+   --np-success-ink         on --np-success-tint        7.76    need 4.5   success pill and banner text on its own tint
+   --np-success-on-solid    on --np-success-solid       7.42    need 4.5   text on a solid success fill
+   --np-success-line        on --np-surface-canvas      5.02    need 3   success banner border
+   --np-warning-ink         on --np-surface-canvas      11.77   need 4.5   warning message text on the page background
+   --np-warning-ink         on --np-warning-tint        8.30    need 4.5   warning pill and banner text on its own tint
+   --np-warning-on-solid    on --np-warning-solid       9.24    need 4.5   text on a solid warning fill
+   --np-warning-line        on --np-surface-canvas      5.92    need 3   warning banner border
+   --np-danger-ink          on --np-surface-canvas      9.67    need 4.5   danger message text on the page background
+   --np-danger-ink          on --np-danger-tint         7.19    need 4.5   danger pill and banner text on its own tint
+   --np-danger-on-solid     on --np-danger-solid        5.80    need 4.5   text on a solid danger fill
+   --np-danger-line         on --np-surface-canvas      4.81    need 3   danger banner border
+   --np-info-ink            on --np-surface-canvas      10.12   need 4.5   info message text on the page background
+   --np-info-ink            on --np-info-tint           7.33    need 4.5   info pill and banner text on its own tint
+   --np-info-on-solid       on --np-info-solid          6.77    need 4.5   text on a solid info fill
+   --np-info-line           on --np-surface-canvas      4.78    need 3   info banner border
+   --np-chart-1             on --np-surface             7.37    need 3   chart series 1
+   --np-chart-2             on --np-surface             3.27    need 3   chart series 2
+   --np-chart-3             on --np-surface             4.77    need 3   chart series 3
+   --np-chart-4             on --np-surface             6.51    need 3   chart series 4
+   --np-chart-5             on --np-surface             7.89    need 3   chart series 5
+   --np-chart-6             on --np-surface             5.61    need 3   chart series 6
+   --np-chart-axis          on --np-surface             6.99    need 4.5   chart axis labels
+   --np-rating              on --np-surface             9.11    need 3   star rating fill
+   --np-ink                 on --np-field-bg            14.95   need 4.5   typed value in an input
+   --np-ink-muted           on --np-field-bg            6.99    need 4.5   input placeholder
+   --np-ink-muted           on --np-table-header-bg     7.31    need 4.5   table header label
+   --np-line-strong         on --np-field-bg            3.73    need 3   field edge
+   --np-danger-line         on --np-field-bg            4.43    need 3   invalid field edge
+   --np-success-solid       on --np-surface             6.85    need 3   healthy status dot
+   --np-danger-solid        on --np-surface             5.14    need 3   at-risk status dot
+   --np-info-solid          on --np-surface             6.03    need 3   pending status dot
+   --np-warning-ink         on --np-surface             10.83   need 3   attention status dot
+   --np-indicator-unread    on --np-surface             6.03    need 3   unread dot on a list row
+   --np-indicator-unread    on --np-surface-alt         6.31    need 3   unread dot on a hovered list row
+   --np-indicator-unread    on --np-fill                5.08    need 3   unread dot on a selected list row
+   --np-avatar-ink          on --np-avatar-bg           9.22    need 4.5   initials in a neutral avatar
+   --np-banner-ink          on --np-banner-bg           8.30    need 4.5   announcement banner text
+   --np-tag-neutral-ink     on --np-tag-neutral-bg      8.63    need 4.5   neutral tag label on its own tint
+   --np-tag-neutral-ink     on --np-surface             10.92   need 4.5   neutral tag label outside its chip (tag manager, inline mention)
+   --np-tag-blue-ink        on --np-tag-blue-bg         8.68    need 4.5   blue tag label on its own tint
+   --np-tag-blue-ink        on --np-surface             11.22   need 4.5   blue tag label outside its chip (tag manager, inline mention)
+   --np-tag-pink-ink        on --np-tag-pink-bg         8.57    need 4.5   pink tag label on its own tint
+   --np-tag-pink-ink        on --np-surface             10.57   need 4.5   pink tag label outside its chip (tag manager, inline mention)
+   --np-tag-purple-ink      on --np-tag-purple-bg       8.61    need 4.5   purple tag label on its own tint
+   --np-tag-purple-ink      on --np-surface             10.70   need 4.5   purple tag label outside its chip (tag manager, inline mention)
+
+All 212 pairs clear their target in both themes.
