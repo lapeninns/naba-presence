@@ -296,12 +296,12 @@ function ClientsIndex({ role }: { role: string | null }) {
     <div className="flex flex-col gap-(--np-gap-section)">
       {notice}
 
-      {/* Search first (the quickest way to one client), then the health
-          chips: above them on a phone, where the strip runs full bleed so it
-          scrolls edge to edge, and on the left at the desk. One order for
-          reading and Tab at every width. */}
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-        <div role="search" className="w-full min-w-0 md:w-80 md:flex-none">
+      {/* Search on its own row (the quickest way to one client), then the
+          health chips beneath it: the same two rows at every width, so the
+          chips have the full width to wrap in at the desk and a phone's strip
+          still runs edge to edge. One order for reading and Tab. */}
+      <div className="flex flex-col gap-2 md:gap-3">
+        <div role="search" className="w-full min-w-0 md:w-80">
           <SearchInput
             {...searchProps}
             className={SEARCH_PILL}
@@ -309,13 +309,11 @@ function ClientsIndex({ role }: { role: string | null }) {
             aria-label="Filter clients by name"
           />
         </div>
-        <div className="min-w-0 max-md:-mx-5 md:flex-1">
-          <HealthFilterStrip
-            value={health}
-            counts={counts}
-            onValueChange={setHealth}
-          />
-        </div>
+        <HealthFilterStrip
+          value={health}
+          counts={counts}
+          onValueChange={setHealth}
+        />
       </div>
 
       <section
@@ -442,15 +440,13 @@ function ClientsIndex({ role }: { role: string | null }) {
                 id: "locations",
                 header: "Listings linked",
                 priority: "meta",
-                label: "Linked",
-                numeric: true,
+                // The cell is a whole phrase, so a card's meta line reads as
+                // a sentence ("3 of 3 listings linked"), not a label and a
+                // figure.
+                label: "",
                 cell: (client) => (
-                  <span className="text-caption text-ink tabular-nums">
-                    {formatNumber(client.linkedCount)}
-                    <span className="text-ink-muted">
-                      {" / "}
-                      {formatNumber(client.locationCount)}
-                    </span>
+                  <span className="font-sans text-caption text-ink-muted tabular-nums">
+                    {linkedSentence(client)}
                   </span>
                 ),
               },
@@ -465,7 +461,9 @@ function ClientsIndex({ role }: { role: string | null }) {
                 id: "sync",
                 header: "Last sync",
                 priority: "meta",
-                label: "Synced",
+                // "Synced 3 minutes ago" or "Not synced yet": a sentence on
+                // a card, never a label joined to a bare value.
+                label: "",
                 cell: (client) => (
                   <span
                     className={cn(
@@ -476,9 +474,9 @@ function ClientsIndex({ role }: { role: string | null }) {
                     )}
                   >
                     {client.lastSyncAt ? (
-                      <RelativeTime iso={client.lastSyncAt} />
+                      <RelativeTime iso={client.lastSyncAt} prefix="Synced " />
                     ) : (
-                      "Not yet"
+                      "Not synced yet"
                     )}
                   </span>
                 ),
@@ -699,11 +697,16 @@ function ArchivedClients({
   )
 }
 
+/** "3 of 3 listings linked"; "No listings" when none are filed. */
+function linkedSentence(client: ClientSummary) {
+  if (client.locationCount === 0) return "No listings"
+  return `${formatNumber(client.linkedCount)} of ${formatNumber(client.locationCount)} ${client.locationCount === 1 ? "listing" : "listings"} linked`
+}
+
 function OpenWork({ client }: { client: ClientSummary }) {
   const { needsReply, awaitingApproval, failed } = client.openWork
   if (needsReply + awaitingApproval + failed === 0) {
-    // A state in words, drawn as a status (dot + word, no fill), so it can't
-    // be mistaken for a button beside the rows' "2 to reply" links.
+    // A state in words, drawn as a status (dot + word, no fill).
     return (
       // Sans, not the numeric column's mono; on a record card the short word
       // keeps the client name to one line (the full phrase stays for readers).
@@ -720,16 +723,15 @@ function OpenWork({ client }: { client: ClientSummary }) {
       </StatusPill>
     )
   }
+  // Plain text, not a link: the whole card opens the client, so a second
+  // target inside it would go somewhere else. The Inbox is one tap away on
+  // the client's page. Sans, not the numeric column's mono.
   return (
-    <span className="inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 tabular-nums">
+    <span className="inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 font-sans tabular-nums">
       {needsReply > 0 ? (
-        <ShellLink
-          href={`/inbox?clientId=${client.id}`}
-          onClick={(event) => event.stopPropagation()}
-          className="rounded-(--np-radius-tag) font-medium text-ink underline underline-offset-3 focus-halo hover:decoration-2 pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
-        >
+        <span className="font-medium text-ink">
           {formatNumber(needsReply)} to reply
-        </ShellLink>
+        </span>
       ) : null}
       {awaitingApproval > 0 ? (
         <span className="text-ink-muted">
@@ -783,12 +785,9 @@ function LoginCell({ client }: { client: ClientSummary }) {
 function ClientsSkeleton() {
   return (
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
-      <div
-        aria-hidden
-        className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3"
-      >
-        <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-pill) max-md:h-(--np-touch) md:w-80 md:flex-none" />
-        <div className="flex min-w-0 gap-2 overflow-hidden md:flex-1">
+      <div aria-hidden className="flex flex-col gap-2 md:gap-3">
+        <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-pill) max-md:h-(--np-touch) md:w-80" />
+        <div className="flex min-w-0 gap-2 overflow-hidden">
           {["w-16", "w-36", "w-40", "w-24", "w-32"].map((width) => (
             <Skeleton
               key={width}

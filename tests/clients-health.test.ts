@@ -313,6 +313,13 @@ describe("health filters", () => {
     }
   })
 
+  it("says in plain words what is partly checked, not a clipped half-sentence", () => {
+    expect(healthLabel("partially_checked")).toBe(
+      "Some listings not checked yet"
+    )
+    expect(healthLabel("partially_checked")).not.toMatch(/partially/i)
+  })
+
   it("does not promise automatic recovery for canonical comparison problems", () => {
     expect(healthLabel("attention")).toBe("Needs attention")
     expect(healthDescription("attention")).not.toMatch(

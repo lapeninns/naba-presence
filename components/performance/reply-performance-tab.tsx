@@ -5,6 +5,10 @@ import { useMemo } from "react"
 import { SectionHeader } from "@/components/ui/section-header"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReplyFigures } from "@/components/reporting/reply-figures"
+import {
+  ReportActionsMenu,
+  type ReportShareTarget,
+} from "@/components/reporting/report-actions-menu"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { ReportsSkeleton } from "@/components/reporting/reports-skeleton"
@@ -30,8 +34,11 @@ function ReplyPerformanceLoading() {
 export function ReplyPerformanceTab({
   clientId,
   range,
+  share,
 }: {
   clientId?: string
+  /** What the report's menu shares; none when the viewer may not share. */
+  share?: ReportShareTarget | null
   /** The period, kept by the page (in `?range=`); defaults to 28 days. */
   range?: ReplyRangeId
   /** Accepted for the page's API; the picker is in the page's toolbar. */
@@ -55,10 +62,15 @@ export function ReplyPerformanceTab({
     "This window"
   const period = formatPeriod(current, now.data?.timezone ?? "Europe/London")
 
-  // The period picker lives in the page's ReportToolbar; the tab's head is
-  // the "as at" line only.
+  // The period is the page's (period strip, toolbar); the tab's head is the
+  // "as at" line and the report's actions menu.
   const head = (caption: React.ReactNode) =>
-    caption ? <ReportTabHead caption={caption} /> : null
+    caption || share ? (
+      <ReportTabHead
+        caption={caption}
+        controls={share ? <ReportActionsMenu share={share} /> : undefined}
+      />
+    ) : null
 
   if (now.isPending || now.isError) {
     return (

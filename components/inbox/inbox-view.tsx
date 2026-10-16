@@ -164,9 +164,10 @@ function InboxViewInner({
   const toolbarCounts = hydrated ? countsQuery.data : undefined
   const toolbarCountsPending = !hydrated || countsQuery.isPending
 
-  // One h1 per view. With a review open, a phone's h1 is the review head's
-  // title and the toolbar (hidden with the list) is not; from lg the head is
-  // hidden and "Inbox" is. CSS already hides the other one, but a hidden h1
+  // One h1 per view. With a review open, a phone's h1 is the reviewer's name
+  // and the toolbar (hidden with the list) is not; from lg the list is beside
+  // the review, the name is a plain h2 and "Inbox" is the h1. CSS already
+  // hides the toolbar below lg, but a hidden h1
   // is still a second h1 in the document, so once the client knows its
   // width the hidden one is drawn as plain text — same classes, so nothing
   // moves. Until then (server, hydration) both stay headings: the CSS-only
@@ -231,18 +232,14 @@ function InboxViewInner({
     [state]
   )
 
-  // One change of client scope for every control that makes it: the top-bar
-  // switcher (through the shell's handler), the Filters sheet's Client field
-  // and the chip that removes it. The queue and the other filters stay (see
+  // One change of client scope, made by the top-bar switcher (through the
+  // shell's handler). The queue and the other filters stay (see
   // `scopeInboxState`); an open review of another client closes, and if it
   // holds an unsaved reply the operator is asked first. Resolves false when
   // they kept editing, so the switcher leaves its preference alone.
   const applyClientScope = useCallback(
-    async (
-      clientId: string | undefined,
-      base: InboxState = state
-    ): Promise<boolean> => {
-      const next = scopeInboxState(base, clientId, {
+    async (clientId: string | undefined): Promise<boolean> => {
+      const next = scopeInboxState(state, clientId, {
         locationClientIds: new Map(
           (locationsQuery.data ?? []).map((location) => [
             location.id,
@@ -250,10 +247,10 @@ function InboxViewInner({
           ])
         ),
         selectedClientId:
-          reviews.find((review) => review.id === base.selected)?.location
+          reviews.find((review) => review.id === state.selected)?.location
             .clientId ?? null,
       })
-      if (base.selected && !next.selected && !(await dirtyGate())) return false
+      if (state.selected && !next.selected && !(await dirtyGate())) return false
       updateState(next, "replace")
       return true
     },
@@ -267,22 +264,15 @@ function InboxViewInner({
   // after each debounced keystroke in the search, for an edit the search had
   // no reason to touch. The review is fetched by id, so it keeps rendering
   // whether or not the narrowed list still contains it.
-  //
-  // A change of client is the exception: it goes through `applyClientScope`,
-  // the same path the top-bar switcher takes.
   const onFilterChange = useCallback(
     (partial: Partial<InboxState>) => {
-      if ("clientId" in partial && partial.clientId !== state.clientId) {
-        void applyClientScope(partial.clientId, { ...state, ...partial })
-        return
-      }
       if (readIsDirty()) {
         updateState(partial, "replace")
         return
       }
       updateState({ ...partial, selected: undefined }, "replace")
     },
-    [applyClientScope, readIsDirty, state, updateState]
+    [readIsDirty, updateState]
   )
   const onQueueChange = useCallback(
     (queue: Queue) => {
@@ -334,10 +324,12 @@ function InboxViewInner({
         ratings: [],
         search: "",
         sort: "updated_desc",
+        // The client scope is the app bar's, not a filter: it stays.
+        clientId: state.clientId,
         selected: readIsDirty() ? state.selected : undefined,
       }).toString()}`
     )
-  }, [readIsDirty, state.queue, state.selected])
+  }, [readIsDirty, state.clientId, state.queue, state.selected])
   // Same gate as the handlers above: returning to the list also drops
   // `selected`, which would otherwise silently unmount a dirty composer.
   // When the review was pushed over the list, Back to Inbox pops that entry
@@ -646,9 +638,8 @@ function InboxViewInner({
   // meaningful instead of losing their place (ReviewList re-focuses the
   // originating row on the way back).
   // After an advance the new review's name takes focus instead (ReviewDetail's
-  // `focusHeading`). After a step from the head's Previous / Next, the same
-  // button in the new review's head keeps it, so the operator can tap on.
-  const backButtonRef = useRef<HTMLButtonElement>(null)
+  // `focusHeading`). After a step from the review's Previous / Next, the same
+  // button in the new review keeps it, so the operator can tap on.
   const headStepRef = useRef<AdjacentDirection | null>(null)
   // A page that arrives already on a review (a deep link, a reload) leaves
   // focus where the browser puts it: nothing replaced the list, and a ring
@@ -667,14 +658,14 @@ function InboxViewInner({
     if (isSplitView()) return
     if (step) {
       const button = rootRef.current?.querySelector<HTMLButtonElement>(
-        `[data-slot="review-head"] [data-nav="${step === "prev" ? "previous" : "next"}"]`
+        `[data-slot="review-steps"] [data-nav="${step === "prev" ? "previous" : "next"}"]`
       )
       if (button && !button.disabled) {
         button.focus({ preventScroll: true })
         return
       }
     }
-    focusBackControl(backButtonRef.current)
+    focusBackControl()
   }, [state.selected])
 
   // `r`, `g` and `a` are handled by the detail pane's own controls, which
@@ -729,11 +720,17 @@ function InboxViewInner({
     [canBatch, onAdjacentReview, reviews, selection, state.selected]
   )
 
-  const clientName = state.clientId
-    ? clientsQuery.data?.items.find((client) => client.id === state.clientId)
-        ?.name
-    : undefined
-
+  // The app bar's switcher only appears with more than one client. Without it
+  // nothing there shows or clears a `?clientId=` scope, so the chip row does.
+  const clientChip =
+    state.clientId && clientsQuery.data && clientsQuery.data.items.length <= 1
+      ? {
+          name: clientsQuery.data.items.find(
+            (client) => client.id === state.clientId
+          )?.name,
+          onRemove: () => void applyClientScope(undefined),
+        }
+      : undefined
   const loaded = !reviewsQuery.isPending && !reviewsQuery.isError
   // In the viewer's own clock, which the server rendering a prefetched list
   // does not share: held back until hydration so the two renders agree.
@@ -774,14 +771,6 @@ function InboxViewInner({
         counts={toolbarCounts}
         countsPending={toolbarCountsPending}
         locations={locationsQuery.data ?? []}
-        clients={
-          business
-            ? []
-            : (clientsQuery.data?.items ?? []).map((client) => ({
-                id: client.id,
-                name: client.name,
-              }))
-        }
         showLocationFilter={showLocationFilter}
         actions={actions}
         titleIsHeading={toolbarTitleIsHeading}
@@ -793,7 +782,7 @@ function InboxViewInner({
       <ActiveFilterChips
         state={state}
         locations={locationsQuery.data ?? []}
-        clientName={clientName}
+        clientChip={clientChip}
         onChange={onFilterChange}
         onClear={onClearFilters}
       />
@@ -851,9 +840,9 @@ function InboxViewInner({
     ? reviews.findIndex((review) => review.id === state.selected)
     : -1
   const selectedRow = selectedIndex >= 0 ? reviews[selectedIndex] : undefined
-  // Where the open review sits in what is loaded, for the phone head. A
-  // review opened from a link may not be in the list at all: then there is
-  // no position to give, and the head shows only the way back.
+  // Where the open review sits in what is loaded, for its steps. A review
+  // opened from a link may not be in the list at all: then there is no
+  // position to give, and no steps.
   const hasMore = Boolean(reviewsQuery.hasNextPage)
   const stepFromHead = (direction: AdjacentDirection) => {
     headStepRef.current = direction
@@ -875,20 +864,13 @@ function InboxViewInner({
               : undefined,
         }
       : undefined
-  // Back also works because opening from the list pushed (spec §6).
-  // Where the app bar leads with "‹ Inbox" (the PageChrome below: a pushed
-  // review, list not beside it) the head draws no back of its own.
-  const backInAppBar = Boolean(state.selected) && splitView === false
-  const back = {
-    label: "Inbox",
-    onBack: onBackToList,
-    ref: backButtonRef,
-    inAppBar: backInAppBar,
-  }
+  // Back also works because opening from the list pushed (spec §6). The way
+  // back of a pushed review is the shell's app bar ("‹ Inbox", the
+  // PageChrome below), so the review draws none of its own.
 
   // The detail is mounted in exactly one place, so the composer's dirty guard
-  // is registered once. ReviewDetail draws its own boundary under the phone
-  // head; this outer one catches a failure in the head itself.
+  // is registered once. ReviewDetail draws its own boundary around the
+  // review; this outer one catches a failure outside it.
   const detail = state.selected ? (
     <DetailErrorBoundary key={state.selected} onBack={onBackToList}>
       <ReviewDetail
@@ -907,7 +889,7 @@ function InboxViewInner({
           business ? null : (selectedRow?.location.clientName ?? null)
         }
         focusHeading={advance?.reviewId === state.selected}
-        back={back}
+        onBack={onBackToList}
         nav={nav}
         titleIsHeading={headTitleIsHeading}
         composer={<ReplyComposer reviewId={state.selected} />}
@@ -1070,24 +1052,21 @@ function InboxViewInner({
 // caller and test keeps a visible filter; a redundant control is a much better
 // failure mode than a silently missing one.
 /**
- * Focuses the way back that is on screen: the review head's button, or,
- * where the head leaves it to the app bar, the shell's "‹ Inbox" link
+ * Focuses the way back that is on screen: the shell's "‹ Inbox" link
  * (`[data-slot="back-control"]`, the visible one: the tablet toolbar draws
  * its own copy). The app bar takes the page's back from PageChrome a render
  * after the review opens, so the link is looked for over a few frames.
  */
-function focusBackControl(button: HTMLButtonElement | null, frames = 10) {
-  const target =
-    button ??
-    [
-      ...document.querySelectorAll<HTMLElement>('[data-slot="back-control"]'),
-    ].find((element) => element.checkVisibility?.() ?? true)
+function focusBackControl(frames = 10) {
+  const target = [
+    ...document.querySelectorAll<HTMLElement>('[data-slot="back-control"]'),
+  ].find((element) => element.checkVisibility?.() ?? true)
   if (target) {
     target.focus({ preventScroll: true })
     return
   }
   if (frames > 0) {
-    requestAnimationFrame(() => focusBackControl(null, frames - 1))
+    requestAnimationFrame(() => focusBackControl(frames - 1))
   }
 }
 

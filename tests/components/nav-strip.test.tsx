@@ -1,6 +1,27 @@
-import { render, screen, within } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import type { ComponentProps } from "react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+// An anchor that records what each tab asked next/link to prefetch, so the
+// TabNav `prefetch` modes can be read off the DOM. Everything else a tab
+// renders (href, aria-current, classes) passes through unchanged.
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    prefetch,
+    children,
+    ...rest
+  }: ComponentProps<"a"> & { prefetch?: boolean | "auto" | null }) => (
+    <a
+      href={href}
+      data-prefetch={prefetch === undefined ? "default" : String(prefetch)}
+      {...rest}
+    >
+      {children}
+    </a>
+  ),
+}))
 
 import {
   ChipCount,
@@ -467,5 +488,46 @@ describe("the pressed filter chip", () => {
     const chip = screen.getByRole("button", { name: "Needs reply" })
     expect(chip).not.toHaveClass("ring-1")
     expect(chip).not.toHaveClass("font-semibold")
+  })
+})
+
+describe("TabNav prefetch (L16)", () => {
+  const renderStrip = (prefetch?: "viewport" | "intent") =>
+    render(
+      <TabNav
+        aria-label="Areas"
+        items={areas("Alpha").slice(0, 3)}
+        prefetch={prefetch}
+      />
+    )
+  const link = (name: string) =>
+    within(nav()).getByRole("link", { name: new RegExp(`^${name}`) })
+
+  it("keeps next/link's viewport prefetch by default", () => {
+    renderStrip()
+    for (const name of ["Alpha", "Beta", "Gamma"])
+      expect(link(name)).toHaveAttribute("data-prefetch", "default")
+  })
+
+  it("prefetches nothing on mount with intent", () => {
+    renderStrip("intent")
+    for (const name of ["Alpha", "Beta", "Gamma"])
+      expect(link(name)).toHaveAttribute("data-prefetch", "false")
+  })
+
+  it("prefetches a tab on focus, and only that tab", () => {
+    renderStrip("intent")
+    fireEvent.focus(link("Beta"))
+    expect(link("Beta")).toHaveAttribute("data-prefetch", "auto")
+    expect(link("Alpha")).toHaveAttribute("data-prefetch", "false")
+    expect(link("Gamma")).toHaveAttribute("data-prefetch", "false")
+  })
+
+  it("prefetches a tab on pointer-enter, and only that tab", () => {
+    renderStrip("intent")
+    fireEvent.pointerEnter(link("Gamma"))
+    expect(link("Gamma")).toHaveAttribute("data-prefetch", "auto")
+    expect(link("Alpha")).toHaveAttribute("data-prefetch", "false")
+    expect(link("Beta")).toHaveAttribute("data-prefetch", "false")
   })
 })

@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -6,10 +7,13 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { useState } from "react"
+import { createRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
-import { HoursEditor } from "@/components/locations/hours-editor"
+import {
+  HoursEditor,
+  type HoursEditorHandle,
+} from "@/components/locations/hours-editor"
 import {
   INVALID_TIME_MESSAGE,
   validateHours,
@@ -32,6 +36,12 @@ async function openSpecialDay(name: RegExp) {
 async function closeSheet(dialog: HTMLElement) {
   fireEvent.click(within(dialog).getByRole("button", { name: "Done" }))
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+}
+
+/** A weekday's times live in its sheet: open it from its row. */
+async function openDayRow(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${name}`) }))
+  return screen.findByRole("dialog")
 }
 
 /** Add a special day (its sheet opens at once) and give it a date. */
@@ -167,17 +177,41 @@ describe("HoursEditor special-day focus return", () => {
 })
 
 describe("HoursEditor day switch and special-day order", () => {
-  it("brings a day's own periods back when it is switched off and on", () => {
+  it("brings a day's own periods back when it is switched off and on", async () => {
     render(<Harness />)
-    const monday = screen.getByRole("switch", { name: "Monday open" })
-    fireEvent.click(monday)
-    const opens = screen.getByLabelText("Monday period 1 opens")
-    fireEvent.change(opens, { target: { value: "11:30" } })
+    fireEvent.click(screen.getByRole("switch", { name: "Monday open" }))
+    const dialog = await openDayRow("Monday")
+    fireEvent.change(within(dialog).getByLabelText("Monday period 1 opens"), {
+      target: { value: "11:30" },
+    })
+    const monday = within(dialog).getByRole("switch", {
+      name: "Monday open in this sheet",
+    })
 
     fireEvent.click(monday) // off
-    expect(screen.queryByLabelText("Monday period 1 opens")).toBeNull()
+    expect(within(dialog).queryByLabelText("Monday period 1 opens")).toBeNull()
     fireEvent.click(monday) // on again
-    expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("11:30")
+    expect(within(dialog).getByLabelText("Monday period 1 opens")).toHaveValue(
+      "11:30"
+    )
+  })
+
+  it("shows each day as one row with its hours and a switch beside it", () => {
+    const value = emptyHours()
+    value.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "09:00", closesAt: "17:00", closeDayOfWeek: 1 }],
+    }
+    render(<HoursEditor value={value} onChange={() => {}} disabled={false} />)
+    const row = screen.getByRole("button", { name: /^Monday/ })
+    expect(row).toHaveTextContent("09:00 – 17:00")
+    expect(screen.getByRole("button", { name: /^Tuesday/ })).toHaveTextContent(
+      "Closed"
+    )
+    // The period fields are not on the page until the day's sheet opens.
+    expect(screen.queryByLabelText("Monday period 1 opens")).toBeNull()
+    expect(screen.getByRole("switch", { name: "Monday open" })).toBeChecked()
   })
 
   it("lists special days by date and marks the ones already past", async () => {
@@ -226,7 +260,7 @@ describe("HoursEditor day switch and special-day order", () => {
 })
 
 describe("HoursEditor service and boundary preservation", () => {
-  it("keeps two distinct services visible and edits only the selected schedule", () => {
+  it("keeps two distinct services visible and edits only the selected schedule", async () => {
     const initial = emptyHours()
     initial.moreHours = [
       {
@@ -264,12 +298,18 @@ describe("HoursEditor service and boundary preservation", () => {
         ]}
       />
     )
+    const barDay = await openDayRow("Bar Sunday")
     expect(
-      screen.getByRole("combobox", { name: "Bar Sunday period 1 closing day" })
+      within(barDay).getByRole("combobox", {
+        name: "Bar Sunday period 1 closing day",
+      })
     ).toHaveTextContent("Next day (Monday)")
-    fireEvent.change(screen.getByLabelText("Kitchen Monday period 1 closes"), {
-      target: { value: "16:00" },
-    })
+    await closeSheet(barDay)
+    const kitchenDay = await openDayRow("Kitchen Monday")
+    fireEvent.change(
+      within(kitchenDay).getByLabelText("Kitchen Monday period 1 closes"),
+      { target: { value: "16:00" } }
+    )
     const next: NormalizedHours = change.mock.calls[0][0]
     expect(next.moreHours[1]).toEqual(initial.moreHours[1])
     expect(next.moreHours[0].periods[0]).toMatchObject({
@@ -278,7 +318,7 @@ describe("HoursEditor service and boundary preservation", () => {
     })
   })
 
-  it("shows unknown services read-only while retaining them on a venue edit", () => {
+  it("shows unknown services read-only while retaining them on a venue edit", async () => {
     const initial = emptyHours()
     initial.moreHours = [
       {
@@ -295,9 +335,11 @@ describe("HoursEditor service and boundary preservation", () => {
     ]
     const change = vi.fn()
     render(<HoursEditor value={initial} onChange={change} disabled={false} />)
+    const unknownDay = await openDayRow("UNKNOWN_SERVICE Sunday")
     expect(
-      screen.getByLabelText("UNKNOWN_SERVICE Sunday period 1 opens")
+      within(unknownDay).getByLabelText("UNKNOWN_SERVICE Sunday period 1 opens")
     ).toBeDisabled()
+    await closeSheet(unknownDay)
     fireEvent.click(screen.getByRole("switch", { name: "Monday open" }))
     expect(change.mock.calls[0][0].moreHours).toEqual(initial.moreHours)
     expect(screen.queryByRole("button", { name: /Remove UNKNOWN/ })).toBeNull()
@@ -321,11 +363,16 @@ describe("HoursEditor service and boundary preservation", () => {
     ]
     const change = vi.fn()
     render(<HoursEditor value={initial} onChange={change} disabled={false} />)
-    expect(screen.getByLabelText("Monday period 1 closes")).toHaveValue("24:00")
-    fireEvent.change(screen.getByLabelText("Monday period 1 opens"), {
-      target: { value: "01:00" },
-    })
+    const mondaySheet = await openDayRow("Monday")
+    expect(
+      within(mondaySheet).getByLabelText("Monday period 1 closes")
+    ).toHaveValue("24:00")
+    fireEvent.change(
+      within(mondaySheet).getByLabelText("Monday period 1 opens"),
+      { target: { value: "01:00" } }
+    )
     expect(change.mock.calls[0][0].special).toEqual(initial.special)
+    await closeSheet(mondaySheet)
     const dialog = await openSpecialDay(/31 Dec 2099/)
     expect(
       within(dialog).getByLabelText("Special date 1 closing date")
@@ -375,7 +422,7 @@ describe("HoursEditor service and boundary preservation", () => {
 })
 
 describe("HoursEditor phone-first controls", () => {
-  it("edits times on the numeric pad and tidies loose input on blur", () => {
+  it("edits times on the numeric pad and tidies loose input on blur", async () => {
     const value = emptyHours()
     value.regular[1] = {
       dayOfWeek: 1,
@@ -387,7 +434,8 @@ describe("HoursEditor phone-first controls", () => {
       return <HoursEditor value={hours} onChange={setHours} disabled={false} />
     }
     render(<Controlled />)
-    const opens = screen.getByLabelText("Monday period 1 opens")
+    const sheet = await openDayRow("Monday")
+    const opens = within(sheet).getByLabelText("Monday period 1 opens")
     expect(opens).toHaveAttribute("inputmode", "numeric")
     expect(opens).toHaveAttribute("id", "hours-1-0-opens")
     for (const [typed, tidy] of [
@@ -443,7 +491,8 @@ describe("HoursEditor phone-first controls", () => {
     }
     const change = vi.fn()
     render(<HoursEditor value={value} onChange={change} disabled={false} />)
-    const closingDay = screen.getByRole("combobox", {
+    const fridaySheet = await openDayRow("Friday")
+    const closingDay = within(fridaySheet).getByRole("combobox", {
       name: "Friday period 1 closing day",
     })
     expect(closingDay).toHaveAttribute("id", "hours-5-0-end")
@@ -492,6 +541,66 @@ describe("HoursEditor phone-first controls", () => {
     )
   })
 
+  it("reveals a field in a service schedule's day sheet from a validation link", async () => {
+    const value = emptyHours()
+    value.moreHours = [
+      {
+        hoursTypeId: "KITCHEN",
+        periods: [
+          {
+            dayOfWeek: 1,
+            closeDayOfWeek: 1,
+            opensAt: "12:00",
+            closesAt: "12:00",
+          },
+        ],
+      },
+    ]
+    const message = "Opening and closing times are the same."
+    const handle = createRef<HoursEditorHandle>()
+    render(
+      <HoursEditor
+        ref={handle}
+        value={value}
+        onChange={() => {}}
+        disabled={false}
+        supportedHoursTypes={[
+          { hoursTypeId: "KITCHEN", displayName: "Kitchen" },
+        ]}
+        errors={{ "service-KITCHEN-hours-1-0-opens": message }}
+      />
+    )
+    // The row says what is wrong before anything is opened.
+    expect(
+      screen.getByRole("button", { name: /^Kitchen Monday/ })
+    ).toHaveAccessibleDescription(message)
+    await act(async () => {
+      await handle.current!.reveal("service-KITCHEN-hours-1-0-opens")
+    })
+    const sheet = await screen.findByRole("dialog", {
+      name: "Kitchen Monday hours",
+    })
+    expect(
+      within(sheet).getByLabelText("Kitchen Monday period 1 opens")
+    ).toHaveAttribute("aria-invalid", "true")
+  })
+
+  it("copies from the day's own sheet by closing it first, never stacking sheets", async () => {
+    const value = emptyHours()
+    value.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "10:00", closesAt: "22:00", closeDayOfWeek: 1 }],
+    }
+    render(<HoursEditor value={value} onChange={() => {}} disabled={false} />)
+    const day = await openDayRow("Monday")
+    fireEvent.click(
+      within(day).getByRole("button", { name: "Copy to… (Monday’s hours)" })
+    )
+    await screen.findByRole("dialog", { name: "Copy Monday’s hours" })
+    await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1))
+  })
+
   it("copies a day's hours from a dialog that does not open over another dialog", async () => {
     const user = userEvent.setup()
     const value = emptyHours()
@@ -502,9 +611,11 @@ describe("HoursEditor phone-first controls", () => {
     }
     const change = vi.fn()
     render(<HoursEditor value={value} onChange={change} disabled={false} />)
-    await user.click(
-      screen.getByRole("button", { name: "Copy to… (Monday’s hours)" })
+    // One Copy action in the group header, not one on every day.
+    expect(screen.getAllByRole("button", { name: /^Copy .*to…/ })).toHaveLength(
+      1
     )
+    await user.click(screen.getByRole("button", { name: "Copy Monday to…" }))
     const dialog = await screen.findByRole("dialog")
     expect(screen.getAllByRole("dialog")).toHaveLength(1)
     await user.click(within(dialog).getByRole("button", { name: "Weekdays" }))

@@ -27,8 +27,9 @@ import { cn } from "@/lib/utils"
  * the server (lib/server/shared-report.ts), which carries aggregates and the
  * client's, venues' and agency's names only. The page has no app chrome and
  * no links into the app; the only links are the three periods, which reload
- * this same page (plain links, so they work before or without JavaScript),
- * and the skip link to the figures. Printing (the browser's own Print, or
+ * this same page (plain links, so they work before or without JavaScript,
+ * and each ends `#main` so the reload lands on the figures rather than the
+ * top), and the skip link to the figures. Printing (the browser's own Print, or
  * Save as PDF) drops the period switcher and the charts' buttons, keeps the
  * figures, and starts the Google section on a new page.
  *
@@ -118,29 +119,12 @@ export function SharedClientReportView({
         <h1 className="text-page-title font-semibold text-balance [overflow-wrap:anywhere] text-ink">
           {report.clientName}
         </h1>
-        <dl className="grid gap-x-8 gap-y-0.5 text-ui text-ink sm:grid-cols-[auto_1fr] sm:gap-y-1.5">
-          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">Period</dt>
-          <dd>
-            {period.label}
-            {periodText ? (
-              <span className="text-ink-muted"> · {periodText}</span>
-            ) : null}
-          </dd>
-          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">
-            {report.venues.length === 1 ? "Venue" : "Venues"}
-          </dt>
-          <dd className="[overflow-wrap:anywhere]">
-            {report.venues.length ? report.venues.join(", ") : "None yet"}
-          </dd>
-          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">
-            Prepared by
-          </dt>
-          <dd className="[overflow-wrap:anywhere]">{report.agencyName}</dd>
-          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">Generated</dt>
-          <dd className="tabular-nums">
-            <ZonedTime iso={report.generatedAt} timeZone={timezone} />
-          </dd>
-        </dl>
+        <p className="text-ui text-ink">
+          {period.label}
+          {periodText ? (
+            <span className="text-ink-muted"> · {periodText}</span>
+          ) : null}
+        </p>
         {/* Notion Mail text tabs, drawn with the TextTabs item style but as
             plain anchors in a wrapping row: TabNav's Next links would
             navigate client-side (and may prefetch this view-counted page),
@@ -150,7 +134,7 @@ export function SharedClientReportView({
             {SHARE_PERIODS.map((option) => (
               <li key={option.id} className="flex">
                 <a
-                  href={`?period=${option.id}`}
+                  href={`?period=${option.id}#main`}
                   aria-current={option.id === period.id ? "page" : undefined}
                   className={textTabItemClassName}
                 >
@@ -238,11 +222,29 @@ export function SharedClientReportView({
         ) : null}
       </main>
 
-      <footer className="border-t border-line-subtle pt-4 text-caption text-ink-muted">
-        A read-only report prepared by {report.agencyName} for{" "}
-        {report.clientName}. It shows totals only: no individual reviews,
-        reviewers or replies. Review figures come from Google reviews collected
-        for these venues; profile figures are as reported by Google.
+      <footer className="flex flex-col gap-3 border-t border-line-subtle pt-4 text-caption text-ink-muted">
+        <dl className="grid gap-x-8 gap-y-0.5 sm:grid-cols-[auto_1fr] sm:gap-y-1">
+          <dt className="mt-2 first:mt-0 sm:mt-0">
+            {report.venues.length === 1 ? "Venue" : "Venues"}
+          </dt>
+          <dd className="[overflow-wrap:anywhere] text-ink">
+            {report.venues.length ? report.venues.join(", ") : "None yet"}
+          </dd>
+          <dt className="mt-2 first:mt-0 sm:mt-0">Prepared by</dt>
+          <dd className="[overflow-wrap:anywhere] text-ink">
+            {report.agencyName}
+          </dd>
+          <dt className="mt-2 first:mt-0 sm:mt-0">Generated</dt>
+          <dd className="text-ink tabular-nums">
+            <ZonedTime iso={report.generatedAt} timeZone={timezone} />
+          </dd>
+        </dl>
+        <p>
+          A read-only report prepared by {report.agencyName} for{" "}
+          {report.clientName}. It shows totals only: no individual reviews,
+          reviewers or replies. Review figures come from Google reviews
+          collected for these venues; profile figures are as reported by Google.
+        </p>
       </footer>
     </div>
   )

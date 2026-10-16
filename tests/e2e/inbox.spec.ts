@@ -39,8 +39,8 @@ test.describe("inbox", () => {
     ).toBeVisible()
     // The permanent left rail is gone: five queue controls and a compact
     // filter toolbar sit above the list and the detail. Located by slot rather
-    // than by name, because each control's accessible name also carries its
-    // count ("Needs reply, 12 reviews").
+    // than by name, because a control's accessible name can also carry its
+    // count ("Approval, 5 reviews").
     await expect(
       page.getByRole("navigation", { name: "Review queues" })
     ).toBeVisible()
@@ -72,6 +72,63 @@ test.describe("inbox", () => {
     await expect(
       page.getByRole("combobox", { name: "Approval waiting on" })
     ).toBeHidden()
+  })
+
+  // R07: rating and "With text" are one-tap chips above the list, not groups
+  // inside the Filters sheet. 5 stars with text was Filters, 5 stars, With
+  // text, "Show 1 review" (four taps); it is now two.
+  test("filters by 5 stars with text in two taps, from chips above the list", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/inbox")
+    const quick = page.getByRole("group", { name: "Quick filters" })
+    await expect(quick).toBeVisible()
+    const stars = quick.getByRole("button", { name: "5 stars" })
+    const withText = quick.getByRole("button", { name: "With text" })
+    await expect(stars).toHaveAttribute("aria-pressed", "false")
+
+    await stars.click()
+    await expect(stars).toHaveAttribute("aria-pressed", "true")
+    await withText.click()
+    await expect(withText).toHaveAttribute("aria-pressed", "true")
+    await expect
+      .poll(() => {
+        const params = new URL(page.url()).searchParams
+        return [params.get("rating"), params.get("written")]
+      })
+      .toEqual(["5", "with_text"])
+
+    // Tapping a pressed chip again takes that filter off in one tap.
+    await stars.click()
+    await expect(stars).toHaveAttribute("aria-pressed", "false")
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("rating"))
+      .toBeNull()
+  })
+
+  test("keeps rating, client and reply status out of the Filters sheet", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.goto("/inbox")
+    await page.getByRole("button", { name: /^Filters/ }).click()
+    const sheet = page.getByRole("dialog", { name: "Filters" })
+    await expect(sheet).toBeVisible()
+    await expect(
+      sheet.getByRole("combobox", { name: "Filter by location" })
+    ).toBeVisible()
+    await expect(sheet.getByRole("group", { name: "Rating" })).toHaveCount(0)
+    await expect(
+      sheet.getByRole("combobox", { name: "Filter by client" })
+    ).toHaveCount(0)
+    await expect(
+      sheet.getByRole("radiogroup", { name: "Reply status" })
+    ).toHaveCount(0)
   })
 
   // R3 F2-S2 / RC3 QA #2: on a phone the venue line keeps the client ·
@@ -160,6 +217,54 @@ test.describe("inbox", () => {
       // Untick from the box again.
       await boxes.first().tap()
       await expect(boxes.first()).toHaveAttribute("aria-checked", "false")
+    })
+
+    // R08 (INB-13, INB-16): a pushed review leads with the app bar and then
+    // the review itself. There is no second head band, the name is written
+    // once (as the page's h1), the steps sit on its row, and the text box is
+    // the first control (touch-critical.spec.ts holds its top above half the
+    // screen, on a review with no photo).
+    test("a review opens with no head band, the text box first and its tones inside Generate", async ({
+      baseURL,
+      page,
+    }) => {
+      const state = await readJourneyState()
+      await applyCookie(page, baseURL, state.cookie)
+      await page.goto(`/inbox?selected=${state.directReview.id}`)
+      const detail = page.getByRole("region", { name: "Selected review" })
+      await expect(detail).toBeVisible()
+      await expect(page.locator('[data-slot="review-head"]')).toHaveCount(0)
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1)
+      const name = detail.locator('h1[data-slot="review-heading"]')
+      await expect(name).toBeVisible()
+      const steps = detail.locator('[data-slot="review-steps"]')
+      await expect(
+        steps.getByRole("button", { name: "Previous review" })
+      ).toBeVisible()
+      await expect(
+        steps.getByRole("button", { name: "Next review" })
+      ).toBeVisible()
+      // The steps share the name's row with the ⋯ menu.
+      const nameBox = (await name.boundingBox())!
+      const stepsBox = (await steps.boundingBox())!
+      expect(Math.abs(stepsBox.y - nameBox.y)).toBeLessThan(nameBox.height)
+      // Generate and its tones are one control, under the box.
+      const reply = detail.getByRole("textbox", { name: "Your reply" })
+      await expect(reply).toBeVisible()
+      await expect(
+        detail.getByRole("radiogroup", { name: "Reply tone" })
+      ).toHaveCount(0)
+      await expect(
+        detail.getByRole("button", { name: "Generate reply" })
+      ).toBeVisible()
+      // Guidance waits for text, and its marks are not radio-like circles.
+      await expect(
+        detail.getByRole("list", { name: "Reply guidance" })
+      ).toHaveCount(0)
+      await reply.fill("Thank you for visiting.")
+      const guidance = detail.getByRole("list", { name: "Reply guidance" })
+      await expect(guidance).toBeVisible()
+      await expect(guidance.locator("svg.lucide-circle")).toHaveCount(0)
     })
   })
 
@@ -365,5 +470,27 @@ test.describe("inbox", () => {
       .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth))
       .toBeGreaterThan(0)
     expect(cspViolations).toEqual([])
+  })
+
+  // R08 (DSK-22): a thumbnail that will not load (an expired Google CDN link,
+  // here an aborted request) swaps to the tile's placeholder instead of the
+  // browser's broken-image glyph, and the tile still opens.
+  test("a review photo that fails to load shows a placeholder, not a broken image", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.route(`${state.directReview.media.thumbnailUrl}*`, (route) =>
+      route.abort()
+    )
+    await page.goto(`/inbox?selected=${state.directReview.id}`)
+    const tile = page.getByRole("button", {
+      name: `Open ${state.directReview.media.thumbnailLabel}`,
+    })
+    const placeholder = tile.locator('[data-slot="media-unavailable"]')
+    await expect(placeholder).toBeVisible()
+    await expect(placeholder).toHaveAttribute("title", "Photo unavailable")
+    await expect(tile.locator("img")).toHaveCount(0)
   })
 })

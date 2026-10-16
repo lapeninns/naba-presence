@@ -68,6 +68,32 @@ test.describe("inbox URL state", () => {
     expect(await page.evaluate(() => window.history.length)).toBe(before)
   })
 
+  test("the one-tap rating and text chips filter without a server render or a history entry", async ({
+    baseURL,
+    page,
+  }) => {
+    // R07: the chips above the list write `rating` and `written` through the
+    // same history-API path as every other filter (replace, not push).
+    await openInbox(page, baseURL)
+    const flights: string[] = []
+    page.on("request", (request) => {
+      if (isInboxFlight(request)) flights.push(request.url())
+    })
+    const before = await page.evaluate(() => window.history.length)
+    const quick = page.getByRole("group", { name: "Quick filters" })
+    await quick.getByRole("button", { name: "5 stars" }).click()
+    await quick.getByRole("button", { name: "With text" }).click()
+    await expect
+      .poll(() => {
+        const params = new URL(page.url()).searchParams
+        return [params.get("rating"), params.get("written")]
+      })
+      .toEqual(["5", "with_text"])
+    await page.waitForLoadState("networkidle")
+    expect(await page.evaluate(() => window.history.length)).toBe(before)
+    expect(flights).toEqual([])
+  })
+
   test("the loaded rows survive a selection", async ({ baseURL, page }) => {
     const rows = await openInbox(page, baseURL)
     // Past the first page where the tenant has one (50 rows a page): that
@@ -83,5 +109,37 @@ test.describe("inbox URL state", () => {
     await expect(rows.nth(loaded - 1)).toHaveAttribute("aria-current", "true")
     await page.waitForLoadState("networkidle")
     expect(await rows.count()).toBe(loaded)
+  })
+
+  // INB-07 / R05: the client scope belongs to the app bar, so it is not a
+  // filter chip and "Clear all filters" does not take it away. The journey
+  // tenant has ONE client, so the app bar shows no switcher; the scope then
+  // keeps a removable chip, as the only sign of it, and nothing else.
+  test("Clear all filters keeps the client scope", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    const [name, value] = state.cookie.split("=", 2)
+    await page.context().addCookies([{ name, value, url: baseURL! }])
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/inbox?queue=all&clientId=${state.clientId}&assignee=me`)
+
+    // The assignee is a filter chip wherever the rating lives; the scope is
+    // its own chip, alone because there is no switcher to show it.
+    const chips = page.locator('[data-slot="active-filter-chips"]')
+    await expect(chips.getByText("Assigned to: Me")).toBeVisible()
+    await expect(chips.getByText(`Client: ${state.clientName}`)).toBeVisible()
+
+    await chips.getByRole("button", { name: "Clear all filters" }).click()
+
+    await expect(page).not.toHaveURL(/assignee=/)
+    await expect(page).toHaveURL(new RegExp(`clientId=${state.clientId}(&|$)`))
+    // The filter is gone, the scope is not: its chip stays, "Clear all" goes.
+    await expect(chips.getByText("Assigned to: Me")).toHaveCount(0)
+    await expect(chips.getByText(`Client: ${state.clientName}`)).toBeVisible()
+    await expect(
+      chips.getByRole("button", { name: "Clear all filters" })
+    ).toHaveCount(0)
   })
 })

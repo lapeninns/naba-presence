@@ -624,6 +624,16 @@ test.describe("touch: critical journeys at 390x844", () => {
       await expect(detail.getByText(inboxTenant.text)).toBeVisible()
       // The list is pushed away, not beside the review, on a phone.
       await expect(list).toBeHidden()
+      // R08: no head band under the app bar. The reviewer's name is the
+      // page's one h1, and the steps sit on its row at a touch size.
+      await expect(page.locator("[data-slot=review-head]")).toHaveCount(0)
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1)
+      await expect(detail.locator("h1[data-slot=review-heading]")).toBeVisible()
+      for (const name of ["Previous review", "Next review"]) {
+        const step = await detail.getByRole("button", { name }).boundingBox()
+        expect(step!.width, `${name} width`).toBeGreaterThanOrEqual(44)
+        expect(step!.height, `${name} height`).toBeGreaterThanOrEqual(44)
+      }
       // One way back, whether it is drawn as a button or a link.
       const backControls = page
         .getByRole("button", { name: /^Back\b/ })
@@ -729,6 +739,12 @@ test.describe("touch: critical journeys at 390x844", () => {
       await installKeyboardShim(page)
       await page.goto(`/inbox?selected=${inboxTenant.reviewId}`)
       const reply = page.getByRole("textbox", { name: "Your reply" })
+      // R08: the text box comes first, so it starts above half the screen
+      // before anything is typed (it used to start at about 70%).
+      await expect(reply).toBeVisible()
+      await settle(page, reply)
+      const replyTop = (await reply.boundingBox())!.y
+      expect(replyTop).toBeLessThan(page.viewportSize()!.height * 0.5)
       await tap(reply)
       await page.keyboard.type("Thank you for the lovely review, Stub.")
       await expect(reply).toBeFocused()
@@ -870,7 +886,7 @@ test.describe("touch: critical journeys at 390x844", () => {
     await tap(monday)
     await expect(monday).toBeChecked()
 
-    await tap(page.getByRole("button", { name: "Copy to… (Monday’s hours)" }))
+    await tap(page.getByRole("button", { name: "Copy Monday to…" }))
     const sheet = page.getByRole("dialog", { name: "Copy Monday’s hours" })
     await expect(sheet).toBeVisible()
     const tuesdayPick = sheet.getByRole("checkbox", { name: /^Tuesday/ })
@@ -1077,6 +1093,14 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(page).toHaveURL(/[?&]tab=keywords/)
     await expect(keywords).toHaveAttribute("aria-selected", "true")
     await expect(page.getByText("riverside hotel bath")).toBeVisible()
+    // Keywords carries Google's one month, where the term's suppressed month
+    // falls outside the window and it reads as an exact 1,000. One tap on the
+    // longer period brings the honest "1,000+" back.
+    await tap(
+      page
+        .getByRole("group", { name: "Period" })
+        .getByRole("button", { name: "Last 6 months" })
+    )
     await expect(page.getByText("1,000+")).toBeVisible()
   })
 })

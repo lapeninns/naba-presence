@@ -21,6 +21,7 @@ import { ReplyComposer } from "@/components/inbox/reply-composer"
 import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail } from "@/lib/api/reviews"
 import { __resetDraftSources, stashDraft } from "@/lib/api/draft-stash"
+import { ApiClientError } from "@/lib/api/client"
 import { draftKey } from "@/lib/editors/draft-key"
 import {
   __resetLeaveGuardForTests,
@@ -213,6 +214,18 @@ function mount(
 
 const textbox = () => screen.getByRole("textbox", { name: "Your reply" })
 
+// Generate is a menu: pressing it opens the tones, and picking one writes the
+// reply in it. `button` is the trigger's name ("Generate reply" over an empty
+// box, "Regenerate" over text).
+async function generateIn(
+  user: ReturnType<typeof userEvent.setup>,
+  tone: "Warm" | "Concise" | "Empathetic" = "Warm",
+  button: "Generate reply" | "Regenerate" = "Generate reply"
+) {
+  await user.click(screen.getByRole("button", { name: button }))
+  await user.click(await screen.findByRole("menuitem", { name: RegExp(tone) }))
+}
+
 // Every value of the inbox's dirty flag that reached the screen, in order.
 let dirtySeen: boolean[] = []
 function DirtyProbe() {
@@ -332,81 +345,115 @@ describe("ReplyComposer — opening a review", () => {
 })
 
 describe("ReplyComposer — the editor", () => {
-  it("opens as an empty editor with the tone and Generate, calling nothing on mount", () => {
+  it("opens as an empty editor with Generate beneath it, calling nothing on mount", () => {
     const mutateAsync = mount()
     expect(textbox()).toHaveValue("")
     expect(textbox()).toHaveAttribute(
       "placeholder",
-      "Write a reply, or generate one in the chosen tone."
+      "Write a reply, or generate one."
     )
-    const tones = screen.getByRole("radiogroup", { name: "Reply tone" })
-    for (const name of ["Warm", "Concise", "Empathetic"]) {
-      expect(within(tones).getByRole("radio", { name })).toBeInTheDocument()
-    }
-    expect(
-      within(tones).getByRole("radio", { name: "Warm" })
-    ).toHaveAccessibleDescription(/Friendly and personal/)
     expect(
       screen.getByRole("button", { name: "Generate reply" })
     ).toBeInTheDocument()
+    // The tone is inside Generate, not a control of its own.
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument()
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /Write my own/ })
     ).not.toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  // The tone and Generate are the prompt's controls, docked on a bar above
-  // the words rather than mixed into the text.
-  it("docks the tone and Generate above the editor", () => {
+  // INB-16: nothing sits between the top of the reply and the words. What
+  // acts on them (Generate) is under the box, where it cannot push it down.
+  it("puts the text box first and Generate under it", () => {
     mount()
+    const editor = document.querySelector<HTMLElement>(
+      '[data-slot="reply-editor"]'
+    )!
+    expect(editor.firstElementChild).toBe(textbox())
     const bar = document.querySelector('[data-slot="composer-prompt-bar"]')
     expect(bar).not.toBeNull()
     expect(
-      within(bar as HTMLElement).getByRole("radiogroup", { name: "Reply tone" })
+      within(bar as HTMLElement).getByRole("button", { name: "Generate reply" })
     ).toBeInTheDocument()
     expect(
-      bar!.compareDocumentPosition(textbox()) & Node.DOCUMENT_POSITION_FOLLOWING
+      textbox().compareDocumentPosition(bar!) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
   })
 
-  // The shared segmented control, not a local copy: its track scrolls inside
-  // itself with a focusable radio in it, and the box grows with the reply.
-  it("draws the tone as the segmented control and grows the box with the text", () => {
+  it("grows the box with the text", () => {
     mount()
-    expect(
-      screen.getByRole("radiogroup", { name: "Reply tone" })
-    ).toHaveAttribute("data-slot", "segmented-control-track")
     expect(textbox()).toHaveAttribute("data-autosize", "true")
   })
 
-  it("ticks the reply guidance off as they type, without blocking anything", async () => {
-    const user = userEvent.setup()
+  it("hides the count and the guidance until there is text", () => {
     mount()
-    const guidance = screen.getByRole("list", { name: "Reply guidance" })
-    expect(textbox()).toHaveAccessibleDescription(/Under 1,000 characters/)
-    const length = within(guidance).getByText(/Under 1,000 characters/)
-    expect(length.closest("li")).toHaveAttribute("data-met", "false")
-
-    await user.type(textbox(), "Thank you for the kind words.")
-    expect(length.closest("li")).toHaveAttribute("data-met", "true")
+    expect(document.querySelector('[data-slot="char-count"]')).toBeNull()
+    expect(screen.queryByRole("list", { name: "Reply guidance" })).toBeNull()
+    expect(screen.queryByText("Good replies")).not.toBeInTheDocument()
+    expect(textbox()).not.toHaveAccessibleDescription(/Under 1,000/)
   })
 
-  it("fills the box from Generate, in the chosen tone, without sending a body", async () => {
+  it("ticks the reply guidance off as they type, without circles or blocking anything", async () => {
+    const user = userEvent.setup()
+    mount({ reviewerDisplayName: "Sam" })
+    await user.type(textbox(), "Thanks.")
+    const guidance = screen.getByRole("list", { name: "Reply guidance" })
+    expect(screen.getByText("Good replies")).toBeVisible()
+    expect(textbox()).toHaveAccessibleDescription(/Under 1,000 characters/)
+    const length = within(guidance).getByText(/Under 1,000 characters/)
+    // At 7 characters the length already holds; it never reads as failing.
+    expect(length.closest("li")).toHaveAttribute("data-met", "true")
+    const name = within(guidance).getByText(/Greets them by name/)
+    expect(name.closest("li")).toHaveAttribute("data-met", "false")
+    // Nothing is drawn as a hollow circle that could read as a radio button.
+    expect(guidance.querySelector(".lucide-circle")).toBeNull()
+
+    await user.type(textbox(), " Sam, thank you.")
+    expect(name.closest("li")).toHaveAttribute("data-met", "true")
+
+    await user.clear(textbox())
+    expect(screen.queryByRole("list", { name: "Reply guidance" })).toBeNull()
+  })
+
+  it("fills the box from Generate, in the tone picked inside it, without sending a body", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(
       {},
       vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "AI drafted reply" })
     )
-    // With nothing in the box, a tone only sets what Generate will use.
-    await user.click(screen.getByRole("radio", { name: "Concise" }))
-    expect(mutateAsync).not.toHaveBeenCalled()
+    // Opening Generate only shows the tones; nothing is written until one is
+    // picked.
     await user.click(screen.getByRole("button", { name: "Generate reply" }))
+    for (const name of ["Warm", "Concise", "Empathetic"]) {
+      expect(
+        await screen.findByRole("menuitem", { name: RegExp(name) })
+      ).toBeInTheDocument()
+    }
+    expect(mutateAsync).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("menuitem", { name: /Concise/ }))
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty("body")
     expect(textbox()).toHaveValue("AI drafted reply")
     expect(
       screen.getByRole("button", { name: "Regenerate" })
     ).toBeInTheDocument()
+  })
+
+  it("describes each tone in its menu row", async () => {
+    const user = userEvent.setup()
+    mount()
+    await user.click(screen.getByRole("button", { name: "Generate reply" }))
+    expect(
+      await screen.findByRole("menuitem", { name: /Warm/ })
+    ).toHaveTextContent(/Friendly and personal/)
+    expect(screen.getByRole("menuitem", { name: /Concise/ })).toHaveTextContent(
+      /Two sentences/
+    )
+    expect(
+      screen.getByRole("menuitem", { name: /Empathetic/ })
+    ).toHaveTextContent(/Acknowledges how they felt/)
   })
 
   it("seeds the box from an existing draft, editable", () => {
@@ -536,7 +583,7 @@ describe("ReplyComposer — the editor", () => {
       vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
     )
     await user.type(textbox(), " edits")
-    await user.click(screen.getByRole("button", { name: "Regenerate" }))
+    await generateIn(user, "Warm", "Regenerate")
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
     await user.click(
@@ -545,64 +592,24 @@ describe("ReplyComposer — the editor", () => {
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
   })
 
-  // A tone is a setting, not an action: choosing one never writes a reply
-  // or spends a credit. Generate then says which tone it will write in.
-  it("only sets the tone over a reply; Generate then regenerates in it", async () => {
+  // The tone is picked inside Generate, so it is chosen at the moment the
+  // reply is written, in that tone, over a saved draft.
+  it("regenerates over a saved draft in the tone picked from Regenerate", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
-    await user.click(screen.getByRole("radio", { name: "Empathetic" }))
-    expect(screen.getByRole("radio", { name: "Empathetic" })).toBeChecked()
-    expect(mutateAsync).not.toHaveBeenCalled()
     expect(textbox()).toHaveValue("Existing draft body")
-    await user.click(
-      screen.getByRole("button", { name: "Regenerate in Empathetic" })
-    )
+    await generateIn(user, "Empathetic", "Regenerate")
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "empathetic" })
-    // Written in that tone, the button goes back to its short name.
     expect(
       await screen.findByRole("button", { name: "Regenerate" })
     ).toBeInTheDocument()
-  })
-
-  it("moves the tone with the arrow keys, from one tab stop, writing nothing", async () => {
-    const user = userEvent.setup()
-    const mutateAsync = mount(EXISTING)
-    const warm = screen.getByRole("radio", { name: "Warm" })
-    expect(warm).toHaveAttribute("tabindex", "0")
-    expect(screen.getByRole("radio", { name: "Concise" })).toHaveAttribute(
-      "tabindex",
-      "-1"
-    )
-    warm.focus()
-    await user.keyboard("{ArrowRight}")
-    const concise = screen.getByRole("radio", { name: "Concise" })
-    expect(concise).toHaveFocus()
-    expect(concise).toBeChecked()
-    await user.keyboard("{ArrowRight}")
-    expect(screen.getByRole("radio", { name: "Empathetic" })).toBeChecked()
-    await user.keyboard("{ArrowLeft}")
-    expect(concise).toBeChecked()
-    expect(mutateAsync).not.toHaveBeenCalled()
-  })
-
-  it("names each tone by its label and describes it, with no hover-only hint", () => {
-    mount()
-    for (const radio of screen.getAllByRole("radio")) {
-      expect(radio).not.toHaveAttribute("title")
-      expect(radio).toHaveAccessibleDescription(/\w/)
-    }
   })
 
   it("confirms before regenerating in a new tone over unsaved edits", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
     await user.type(textbox(), "!")
-    await user.click(screen.getByRole("radio", { name: "Concise" }))
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
-    expect(textbox()).toHaveValue("Existing draft body!")
-    await user.click(
-      screen.getByRole("button", { name: "Regenerate in Concise" })
-    )
+    await generateIn(user, "Concise", "Regenerate")
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
     await user.click(
@@ -611,13 +618,29 @@ describe("ReplyComposer — the editor", () => {
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
   })
 
+  it("keeps the edits when the discard prompt is declined", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(EXISTING)
+    await user.type(textbox(), "!")
+    await generateIn(user, "Concise", "Regenerate")
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
+    expect(mutateAsync).not.toHaveBeenCalled()
+    expect(textbox()).toHaveValue("Existing draft body!")
+    // Declining does not change the tone either: the next save keeps it.
+    await user.click(screen.getByRole("button", { name: "Probe save" }))
+    expect(mutateAsync).toHaveBeenCalledWith({
+      body: "Existing draft body!",
+      tone: "warm_professional",
+    })
+  })
+
   it("offers Undo after regenerating over a saved draft, restoring it as an edit", async () => {
     const user = userEvent.setup()
     mount(
       EXISTING,
       vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
     )
-    await user.click(screen.getByRole("button", { name: "Regenerate" }))
+    await generateIn(user, "Warm", "Regenerate")
     await user.click(await screen.findByRole("button", { name: "Undo" }))
     expect(textbox()).toHaveValue("Existing draft body")
   })
@@ -631,7 +654,7 @@ describe("ReplyComposer — the editor", () => {
         .mockRejectedValueOnce(new TypeError("offline"))
         .mockResolvedValueOnce(DRAFT_RESULT)
     )
-    await user.click(screen.getByRole("button", { name: "Generate reply" }))
+    await generateIn(user)
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("No reply was generated.")
     await user.click(within(alert).getByRole("button", { name: "Retry" }))
@@ -644,12 +667,72 @@ describe("ReplyComposer — the editor", () => {
   it("focuses the editor from a failed generation's Write my own", async () => {
     const user = userEvent.setup()
     mount({}, vi.fn().mockRejectedValue(new TypeError("offline")))
-    await user.click(screen.getByRole("button", { name: "Generate reply" }))
+    await generateIn(user)
     const alert = await screen.findByRole("alert")
     await user.click(
       within(alert).getByRole("button", { name: "Write my own" })
     )
     await waitFor(() => expect(textbox()).toHaveFocus())
+  })
+
+  // INB-14: "not set up" is permanent until someone sets it up, so it is
+  // treated like spent credits. Nothing offers the same dead end again.
+  describe("when AI is not set up for the workspace", () => {
+    const NOT_CONFIGURED = new ApiClientError(
+      503,
+      "ai_not_configured",
+      "AI features are not configured."
+    )
+
+    async function fail(credits?: Partial<AiCredits>) {
+      const user = userEvent.setup()
+      const mutateAsync = mount(
+        {},
+        vi.fn().mockRejectedValue(NOT_CONFIGURED),
+        credits
+      )
+      await generateIn(user)
+      const alert = await screen.findByRole("alert")
+      return { user, mutateAsync, alert }
+    }
+
+    it("offers only Write my own: no Retry, no Generate, no credits", async () => {
+      const { alert, mutateAsync } = await fail({ used: 0, remaining: 100 })
+      expect(alert).toHaveTextContent("No reply was generated.")
+      expect(alert).toHaveTextContent(
+        "AI assistance isn’t available for this workspace yet."
+      )
+      expect(
+        within(alert).queryByRole("button", { name: "Retry" })
+      ).not.toBeInTheDocument()
+      expect(
+        within(alert).getByRole("button", { name: "Write my own" })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: /Generate reply|Regenerate/ })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(/credits left/)).not.toBeInTheDocument()
+      expect(mutateAsync).toHaveBeenCalledTimes(1)
+    })
+
+    it("says why Generate is gone once the alert is dismissed, and `g` stays quiet", async () => {
+      const { user, mutateAsync, alert } = await fail()
+      await user.click(
+        within(alert).getByRole("button", { name: "Write my own" })
+      )
+      await waitFor(() => expect(textbox()).toHaveFocus())
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+      expect(
+        document.querySelector('[data-slot="ai-unavailable"]')
+      ).toHaveTextContent(
+        "AI replies are not available for this workspace yet."
+      )
+      window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
+      expect(mutateAsync).toHaveBeenCalledTimes(1)
+      // Writing by hand is untouched.
+      await user.type(textbox(), "Thanks for visiting.")
+      expect(textbox()).toHaveValue("Thanks for visiting.")
+    })
   })
 
   // `r` asks the composer to focus; the composer decides. The hotkey layer
@@ -705,10 +788,7 @@ describe("ReplyComposer — the editor", () => {
   it("keeps the editor read-only while a publish is under way", () => {
     mount({ ...EXISTING, workflowStatus: "publish_requested" })
     expect(textbox()).toHaveAttribute("readonly")
-    expect(screen.getByRole("radio", { name: "Warm" })).toHaveAttribute(
-      "aria-disabled",
-      "true"
-    )
+    expect(screen.getByRole("button", { name: "Regenerate" })).toBeDisabled()
   })
 
   // ⌘/Ctrl+Enter does exactly what the publish bar's button does, by asking
@@ -751,10 +831,11 @@ describe("ReplyComposer — AI credits", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it("does not write anything from a tone change when out of credits", async () => {
+  it("does not open the tones, or write anything, when out of credits", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING, undefined, { used: 200, remaining: 0 })
-    await user.click(screen.getByRole("radio", { name: "Concise" }))
+    await user.click(screen.getByRole("button", { name: "Regenerate" }))
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
@@ -982,8 +1063,9 @@ describe("ReplyComposer — first draft on `g`", () => {
   })
 })
 
-// The insert bar is AI rewrite (tone and Generate) and a neutral count; the
-// limit itself is the foot's, in the unit Google counts (bytes).
+// The bar under the words is AI rewrite (Generate, with the tone inside it)
+// and a neutral count that appears with the first character; the limit itself
+// is the foot's, in the unit Google counts (bytes).
 describe("ReplyComposer — the insert bar", () => {
   it("counts the characters neutrally and leaves the limit to the foot", () => {
     mount(EXISTING)

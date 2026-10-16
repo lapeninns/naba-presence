@@ -272,8 +272,12 @@ describe("InboxView — filters keep a dirty reply open", () => {
     renderInbox()
     const textbox = await dirtyComposer(user)
 
+    // Rating is a pressed chip above the list: tapping it takes it off.
     await user.click(
-      screen.getByRole("button", { name: /^Remove filter: Rating/ })
+      within(screen.getByRole("group", { name: "Quick filters" })).getByRole(
+        "button",
+        { name: "4 stars" }
+      )
     )
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(replace).toHaveBeenCalledTimes(1)
@@ -298,8 +302,12 @@ describe("InboxView — filters keep a dirty reply open", () => {
     const user = userEvent.setup()
     renderInbox()
 
+    // Rating is a pressed chip above the list: tapping it takes it off.
     await user.click(
-      screen.getByRole("button", { name: /^Remove filter: Rating/ })
+      within(screen.getByRole("group", { name: "Quick filters" })).getByRole(
+        "button",
+        { name: "4 stars" }
+      )
     )
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
@@ -335,16 +343,18 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
 
   it("gates 'Back to Inbox'", async () => {
     const user = userEvent.setup()
+    // Below lg, where the app bar's "‹ Inbox" is the one way back.
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
     renderInbox()
     const textbox = await dirtyComposer(user)
 
-    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
+    await user.click(await screen.findByRole("link", { name: "Back to Inbox" }))
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
+    await user.click(screen.getByRole("link", { name: "Back to Inbox" }))
     await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
@@ -441,19 +451,20 @@ describe("InboxView — client scope", () => {
     expect(replace.mock.calls[0][0]).not.toContain("clientId=")
   })
 
-  it("takes the Client chip through the same guarded path", async () => {
+  it("draws the scope as no chip, and Clear all filters keeps it", async () => {
     const user = userEvent.setup()
-    currentParams = new URLSearchParams("selected=rev-1&clientId=c1")
+    currentParams = new URLSearchParams("selected=rev-1&clientId=c1&rating=5")
     renderInbox()
     await dirtyComposer(user)
 
-    await user.click(
-      screen.getByRole("button", { name: /^Remove filter: Client/ })
-    )
-    // Widening keeps the review, so nothing is asked.
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
-    expect(replace.mock.calls[0][0]).toContain("selected=rev-1")
-    expect(replace.mock.calls[0][0]).not.toContain("clientId=")
+    expect(
+      screen.queryByRole("button", { name: /^Remove filter: Client/ })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
+    const href = replace.mock.calls[0][0] as string
+    expect(href).toContain("clientId=c1")
+    expect(href).toContain("selected=rev-1")
+    expect(href).not.toContain("rating=")
   })
 
   it("scopes the queue counts to the client in view", () => {
@@ -524,7 +535,7 @@ describe("InboxView — next and previous review", () => {
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
     renderInbox()
-    // J steps down the queue, as the head's Next review does below lg.
+    // J steps down the queue, as the review's Next step does below lg.
     await user.keyboard("j")
     // Replace, not push: stepping through a queue must not leave one history
     // entry per review between the operator and the page they came from.
@@ -533,7 +544,7 @@ describe("InboxView — next and previous review", () => {
     expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
   })
 
-  it("steps from the phone head and says where the review sits", async () => {
+  it("steps from the review itself and says where it sits", async () => {
     const user = userEvent.setup()
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
     vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
@@ -569,6 +580,64 @@ describe("InboxView — next and previous review", () => {
     expect(push).not.toHaveBeenCalled()
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+
+  it("keeps focus on the step pressed while the next review is still loading", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: {
+        pages: [
+          {
+            items: [row(), row({ id: "rev-2" }), row({ id: "rev-3" })],
+            nextCursor: null,
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+    // Only the first review is cached; the next one is still on its way.
+    const detailSpy = vi
+      .spyOn(detailHook, "useReviewDetail")
+      .mockImplementation(
+        (id) =>
+          (id === "rev-1"
+            ? { data: reviewDetail() }
+            : {
+                isPending: true,
+                isError: false,
+              }) as UseQueryResult<ReviewDetailData>
+      )
+    const view = renderInbox()
+    await user.click(screen.getByRole("button", { name: "Next review" }))
+    currentParams = new URLSearchParams(
+      (replace.mock.calls[0][0] as string).split("?")[1]
+    )
+    view.rerender(inboxUi())
+
+    // The pane is loading, yet it still draws the steps and the position,
+    // and the Next step it was reached from holds focus.
+    expect(view.container.querySelector("[aria-busy=true]")).not.toBeNull()
+    const next = screen.getByRole("button", { name: "Next review" })
+    await waitFor(() => expect(next).toHaveFocus())
+    expect(
+      view.container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("Review 2 of 3")
+
+    // The review lands: the loading steps give way to the thread's own, and
+    // focus stays on Next rather than falling to <body>.
+    detailSpy.mockImplementation(
+      () => ({ data: reviewDetail() }) as UseQueryResult<ReviewDetailData>
+    )
+    view.rerender(inboxUi())
+    expect(view.container.querySelector("[aria-busy=true]")).toBeNull()
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next review" })).toHaveFocus()
+    )
   })
 
   it("keeps Next on at the last loaded review while another page follows", () => {
@@ -906,15 +975,15 @@ describe("InboxView — list and detail", () => {
     expect(
       screen.getByRole("region", { name: "Selected review" })
     ).toBeInTheDocument()
-    // From lg the head is hidden: "Inbox" is the one h1, and the head's
-    // title is plain text rather than a hidden second h1.
+    // From lg the list is beside the review: "Inbox" is the one h1, and the
+    // reviewer's name is an h2 rather than a second h1.
     expect(document.querySelectorAll("h1")).toHaveLength(1)
     expect(
       screen.getByRole("heading", { level: 1, name: "Inbox" })
     ).toBeInTheDocument()
-    expect(container.querySelector('[data-slot="review-title"]')?.tagName).toBe(
-      "P"
-    )
+    expect(
+      container.querySelector('[data-slot="review-heading"]')?.tagName
+    ).toBe("H2")
   })
 
   // The retired inbox-mail.module.css, as token utilities on the parts
@@ -975,18 +1044,23 @@ describe("InboxView — list and detail", () => {
     currentParams = new URLSearchParams("rating=4&selected=rev-1")
     view.rerender(inboxUi())
     // One back control: the app bar's link (it arrives a render after the
-    // review opens), not a second button in the review head.
+    // review opens), not a second button in the review.
     const link = await screen.findByRole("link", { name: "Back to Inbox" })
     expect(
       screen.queryByRole("button", { name: "Back to Inbox" })
     ).not.toBeInTheDocument()
     await waitFor(() => expect(link).toHaveFocus())
-    // The head keeps the title, the position and the steps.
-    const head = view.container.querySelector('[data-slot="review-head"]')
-    expect(head).not.toBeNull()
+    // No head band above the review: the name is the h1, and the steps sit
+    // on its row.
+    expect(view.container.querySelector('[data-slot="review-head"]')).toBeNull()
+    const name = view.container.querySelector('[data-slot="review-heading"]')
+    expect(name?.tagName).toBe("H1")
+    const steps = view.container.querySelector('[data-slot="review-steps"]')
+    expect(steps).not.toBeNull()
     expect(
-      within(head as HTMLElement).getByRole("button", { name: "Next review" })
+      within(steps as HTMLElement).getByRole("button", { name: "Next review" })
     ).toBeInTheDocument()
+    expect(steps?.parentElement).toBe(name?.parentElement)
   })
 
   it("leaves focus alone on a page that arrives already on a review", async () => {
@@ -998,9 +1072,14 @@ describe("InboxView — list and detail", () => {
 
   it("leaves focus alone when a review opens beside the list", () => {
     renderInbox()
+    // The list is beside the review, so there is no way back to draw.
     expect(
-      screen.getByRole("button", { name: "Back to Inbox" })
-    ).not.toHaveFocus()
+      screen.queryByRole("button", { name: "Back to Inbox" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Back to Inbox" })
+    ).not.toBeInTheDocument()
+    expect(document.body).toHaveFocus()
   })
 })
 
