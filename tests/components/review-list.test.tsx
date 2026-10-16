@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -6,6 +7,7 @@ import { selectionHitAreaClassName } from "@/components/ui/checkbox"
 import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
+import * as bulkHook from "@/lib/queries/use-bulk-review-action"
 
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
@@ -104,7 +106,7 @@ describe("ReviewList", () => {
       />
     )
 
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     expect(button).toHaveTextContent("Sam Traveller")
     // Client first: "Riverside" alone does not say whose voice to reply in.
     expect(button).toHaveTextContent("Old Crown Group · Riverside")
@@ -133,7 +135,7 @@ describe("ReviewList", () => {
       />
     )
     const name =
-      screen.getByRole("button", { name: /Sam Traveller/ }).textContent ?? ""
+      screen.getByRole("button", { name: /^Sam Traveller/ }).textContent ?? ""
     expect(name).toContain("Sam Traveller")
     expect(name).toContain("Great stay, would return.")
   })
@@ -650,7 +652,7 @@ describe("ReviewList", () => {
       stubPointer(true, false)
       const user = userEvent.setup()
       const { toggle, onSelect } = renderSelectable(true)
-      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      await user.click(screen.getByRole("button", { name: /^Sam Traveller/ }))
       expect(toggle).toHaveBeenCalledWith("a")
       expect(onSelect).not.toHaveBeenCalled()
     })
@@ -694,7 +696,7 @@ describe("ReviewList", () => {
       stubPointer(false, true)
       const user = userEvent.setup()
       const { toggle, onSelect } = renderSelectable(true)
-      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      await user.click(screen.getByRole("button", { name: /^Sam Traveller/ }))
       expect(onSelect).toHaveBeenCalledWith("a")
       expect(toggle).not.toHaveBeenCalled()
     })
@@ -711,10 +713,155 @@ describe("ReviewList", () => {
         document.querySelector('[data-slot="list-row-control"]')
       ).toBeNull()
       expect(document.querySelector("[data-reviewer-avatar]")).not.toBeNull()
-      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      await user.click(screen.getByRole("button", { name: /^Sam Traveller/ }))
       expect(onSelect).toHaveBeenCalledWith("a")
       expect(toggle).not.toHaveBeenCalled()
     })
+  })
+})
+
+// INB-08: one review is triaged from its row, not through Select mode. A left
+// swipe on touch reveals "No reply needed", and the visible ⋯ button reaches
+// the same action for a mouse, a keyboard or a finger that does not swipe.
+describe("ReviewList — triage from the row", () => {
+  const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(async () => ({
+    results: [{ reviewId: "a", status: "ok" }],
+  }))
+
+  beforeEach(() => {
+    mutateAsync.mockClear()
+    vi.spyOn(bulkHook, "useBulkReviewAction").mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    } as unknown as ReturnType<typeof bulkHook.useBulkReviewAction>)
+  })
+
+  function renderRows(selectMode = false, withSelection = true) {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ReviewList
+          reviews={[row({ id: "a" }), row({ id: "b" })]}
+          selectedId={undefined}
+          onSelect={() => true}
+          selection={
+            withSelection
+              ? {
+                  selected: new Set(),
+                  toggle: vi.fn(),
+                  extendTo: vi.fn(),
+                  selectMode,
+                }
+              : undefined
+          }
+        />
+      </QueryClientProvider>
+    )
+  }
+
+  it("marks a review as needing no reply from the row's ⋯, once confirmed", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    const buttons = screen.getAllByRole("button", {
+      name: /^Actions for /,
+    })
+    expect(buttons).toHaveLength(2)
+
+    await user.click(buttons[1])
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Mark 1 review as no reply needed?",
+      })
+    ).toBeInTheDocument()
+    expect(mutateAsync).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Mark 1 review" }))
+    expect(mutateAsync).toHaveBeenCalledTimes(1)
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "mark_reviewed",
+      reviewIds: ["b"],
+    })
+  })
+
+  it("names each row's ⋯ after its reviewer and returns focus to it after Cancel", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    const [first] = screen.getAllByRole("button", { name: /^Actions for / })
+    expect(first).toHaveAccessibleName(/^Actions for \S/)
+    expect(first).not.toHaveAccessibleName("Actions for this review")
+
+    await user.click(first)
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(first).toHaveFocus())
+  })
+
+  it("reaches the same action by a left swipe, and still asks first", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    const slide = document.querySelector<HTMLElement>(
+      '[data-slot="list-row-swipe-slide"]'
+    )!
+    const init = { pointerType: "touch", pointerId: 1, isPrimary: true }
+    fireEvent.pointerDown(slide, { ...init, clientX: 300, clientY: 100 })
+    for (const step of [1, 2, 3]) {
+      fireEvent.pointerMove(slide, {
+        ...init,
+        clientX: 300 - 30 * step,
+        clientY: 100,
+      })
+    }
+    fireEvent.pointerUp(slide, { ...init, clientX: 210, clientY: 100 })
+
+    const open = document.querySelector(
+      '[data-slot="list-row-swipe"][data-open]'
+    )!
+    expect(open).not.toBeNull()
+    // The swipe alone neither opened the review nor sent anything.
+    await user.click(
+      open.querySelector<HTMLElement>('[data-slot="list-row-swipe-action"]')!
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Mark 1 review" })
+    )
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "mark_reviewed",
+      reviewIds: ["a"],
+    })
+  })
+
+  it("sends nothing when the row's confirmation is cancelled", async () => {
+    const user = userEvent.setup()
+    renderRows()
+    await user.click(
+      screen.getAllByRole("button", { name: /^Actions for / })[0]
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Cancel" }))
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  // The same gate as the tick boxes, which a viewer is not given.
+  it("offers a viewer no row actions", () => {
+    renderRows(false, false)
+    expect(
+      screen.queryByRole("button", { name: /^Actions for / })
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector('[data-slot="list-row-swipe"]')
+    ).not.toBeInTheDocument()
+  })
+
+  it("leaves the rows to tapping while select mode is ticking them", () => {
+    renderRows(true)
+    expect(
+      screen.queryByRole("button", { name: /^Actions for / })
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -752,8 +899,8 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const fresh = screen.getByRole("button", { name: /Sam Traveller/ })
-    const handled = screen.getByRole("button", { name: /Ben Handled/ })
+    const fresh = screen.getByRole("button", { name: /^Sam Traveller/ })
+    const handled = screen.getByRole("button", { name: /^Ben Handled/ })
 
     expect(nameOf(fresh, "Sam Traveller")).toHaveClass(
       "font-semibold",
@@ -801,7 +948,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     // In the Needs reply queue the pill would repeat the tab, so it is
     // dropped, and the dot is not words: a sr-only word carries it.
     expect(button.querySelector('[data-slot="reply-status"]')).toBeNull()
@@ -830,7 +977,7 @@ describe("ReviewList row anatomy", () => {
     expect(said[0]).toHaveClass("sr-only")
     expect(said[0]).toHaveTextContent(/^, No reply yet$/)
     expect(
-      screen.getByRole("button", { name: /Sam Traveller, No reply yet/ })
+      screen.getByRole("button", { name: /^Sam Traveller, No reply yet/ })
     ).toBeInTheDocument()
   })
 
@@ -843,7 +990,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     const venue = button.querySelector('[data-slot="review-row-venue"]')!
     const pill = button.querySelector('[data-slot="reply-status"]')!
     // The venue is the row's subtitle and the pill rides its line, last and
@@ -903,7 +1050,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     const avatar = button.querySelector("[data-reviewer-avatar]")!
     expect(avatar).not.toHaveAttribute("data-avatar-tone")
     // The ListRow leading column's size (`--np-avatar-list`).
@@ -962,7 +1109,7 @@ describe("ReviewList row anatomy", () => {
         onSelect={() => true}
       />
     )
-    const button = () => screen.getByRole("button", { name: /Sam Traveller/ })
+    const button = () => screen.getByRole("button", { name: /^Sam Traveller/ })
     const avatar = () =>
       button().querySelector<HTMLElement>("[data-reviewer-avatar]")
     const select = () =>
@@ -1055,9 +1202,7 @@ describe("ReviewList — keeping the selection in view", () => {
       configurable: true,
       value: scrollBy,
     })
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
-      1000
-    )
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000)
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(100)
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {
