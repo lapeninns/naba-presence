@@ -45,13 +45,14 @@ function serverEnv(
     // draft far faster than any person. Only abuse-limits.test.ts turns them
     // on.
     ABUSE_LIMITS_ENABLED: "false",
+    // Suites never reach the real Pwned Passwords API; the check is covered
+    // with a mocked API by tests/server/breached-password*.test.ts.
+    BREACHED_PASSWORD_CHECK_ENABLED: "false",
     ...overrides,
   }
 }
 
-export async function startAppServer(
-  overrides: Record<string, string> = {}
-) {
+export async function startAppServer(overrides: Record<string, string> = {}) {
   if (!existsSync(SERVER_ENTRY)) {
     throw new Error("Standalone build missing - run `pnpm build` first")
   }
@@ -118,9 +119,7 @@ export async function startAppServer(
   }
 }
 
-export async function expectBootFailure(
-  overrides: Record<string, string>
-) {
+export async function expectBootFailure(overrides: Record<string, string>) {
   try {
     const server = await startAppServer(overrides)
     await server.stop()

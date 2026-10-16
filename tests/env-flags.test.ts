@@ -51,6 +51,22 @@ describe("feature flags", () => {
     expect(env.IMPORT_REVIEW_ENABLED).toBe(true)
   })
 
+  it("defaults the breached-password check on, and only false turns it off", () => {
+    expect(
+      serverEnvSchema.parse({ ...baseEnv }).BREACHED_PASSWORD_CHECK_ENABLED
+    ).toBe(true)
+    expect(
+      serverEnvSchema.parse({ ...baseEnv, BREACHED_PASSWORD_CHECK_ENABLED: "" })
+        .BREACHED_PASSWORD_CHECK_ENABLED
+    ).toBe(true)
+    expect(
+      serverEnvSchema.parse({
+        ...baseEnv,
+        BREACHED_PASSWORD_CHECK_ENABLED: "false",
+      }).BREACHED_PASSWORD_CHECK_ENABLED
+    ).toBe(false)
+  })
+
   it("defaults the background and retention kill switches on", () => {
     const env = serverEnvSchema.parse({ ...baseEnv })
 

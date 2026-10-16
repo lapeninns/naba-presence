@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { registerSchema, type RegisterResponse } from "@/lib/contracts/auth"
+import { assertPasswordNotBreached } from "@/lib/server/breached-password"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { getServerEnv } from "@/lib/server/env"
 import { isMfaEnabled } from "@/lib/server/mfa"
@@ -17,6 +18,9 @@ export const POST = route({
   limits: ({ body }) => ({ scope: "register", email: body.email }),
   handler: async ({ request, body, requestId, clientRequestId }) => {
     await requireRegistrationInvitation(body.email, body.inviteToken)
+    // Before the provider: a refused password creates nothing. The answer
+    // depends on the password alone, so it says nothing about the address.
+    await assertPasswordNotBreached(body.password)
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     const confirmationUrl = new URL("/auth/confirm", baseUrl)
     confirmationUrl.searchParams.set("flow", "signup")
