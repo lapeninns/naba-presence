@@ -408,7 +408,7 @@ function HubActions({
  * The chip never says all is well while a listing is unreachable: a login
  * can be connected and still have lost manager access to one of the
  * client's listings, and "Connected · refreshed a minute ago" beside an
- * Action needed alert read as a contradiction.
+ * "Google login disconnected" alert read as a contradiction.
  */
 function LoginLine({
   client,

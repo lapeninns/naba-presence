@@ -113,7 +113,7 @@ describe("ClientsIndex", () => {
     const table = await screen.findByRole("table", {
       name: "Clients, with their Google health and open review work",
     })
-    expect(within(table).getByText("Action needed")).toBeInTheDocument()
+    expect(within(table).getByText("Google login disconnected")).toBeInTheDocument()
   })
 
   it("surfaces unassigned locations rather than hiding them", async () => {
@@ -176,13 +176,13 @@ describe("ClientsIndex", () => {
     // "All" plus every bucket; no bucket is left out of the counts.
     expect(chips.map((chip) => chip.textContent)).toEqual([
       "All 8",
-      "Action needed 1",
+      "Google login disconnected 1",
       "Needs attention 1",
-      "In sync 2",
-      "Not checked 1",
-      "Some listings not checked yet 1",
       "Changes to publish 1",
+      "Some listings not checked yet 1",
+      "Not checked 1",
       "Not set up 1",
+      "In sync 2",
     ])
     expect(chips[0]).toHaveAttribute("aria-pressed", "true")
     fireEvent.click(chips[1])
@@ -198,13 +198,13 @@ describe("ClientsIndex", () => {
     ])
     renderIndex()
     const strip = await screen.findByRole("group", { name: "Filter by health" })
-    // No "Action needed 0" or "Needs attention 0" ahead of the one that
+    // No "Google login disconnected 0" or "Needs attention 0" ahead of the one that
     // matters, and nothing past the edge of the strip to scroll to.
     expect(
       within(strip)
         .getAllByRole("button")
         .map((chip) => chip.textContent)
-    ).toEqual(["All 2", "In sync 1", "Some listings not checked yet 1"])
+    ).toEqual(["All 2", "Some listings not checked yet 1", "In sync 1"])
   })
 
   it("keeps an empty bucket's chip while it is the chosen filter", async () => {
@@ -214,8 +214,8 @@ describe("ClientsIndex", () => {
     const strip = await screen.findByRole("group", { name: "Filter by health" })
     const chosen = within(strip).getByRole("button", { pressed: true })
     // Zero draws no figure, but the name still says it.
-    expect(chosen).toHaveAccessibleName("Action needed, 0")
-    expect(chosen).toHaveTextContent(/^Action needed$/)
+    expect(chosen).toHaveAccessibleName("Google login disconnected, 0")
+    expect(chosen).toHaveTextContent(/^Google login disconnected$/)
     fireEvent.click(chosen)
     expect(replace).toHaveBeenCalledWith("/clients", { scroll: false })
   })
@@ -322,7 +322,7 @@ describe("ClientsIndex", () => {
     const name = within(cell("primary")[0] as HTMLElement).getByRole("link")
     expect(name).toHaveAccessibleName("Old Crown Group")
     expect(name).toHaveAttribute("href", "/clients/c1")
-    expect(cell("secondary")[0]).toHaveTextContent("Action needed")
+    expect(cell("secondary")[0]).toHaveTextContent("Google login disconnected")
     expect(cell("trailing")[0]).toHaveTextContent("2 to reply· 1 approval")
     // The meta line is two sentences, not a label joined to a bare value.
     expect(cell("meta").map((td) => td.getAttribute("data-label"))).toEqual([
