@@ -730,6 +730,7 @@ describe("ReviewList — triage from the row", () => {
       results: (input as { reviewIds: string[] }).reviewIds.map((reviewId) => ({
         reviewId,
         status: "ok",
+        triagedAt: "2026-10-16T07:00:00.000001Z",
       })),
     })
   )
@@ -789,7 +790,7 @@ describe("ReviewList — triage from the row", () => {
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
     expect(mutateAsync).toHaveBeenLastCalledWith({
       action: "mark_unreviewed",
-      reviewIds: ["b"],
+      marks: [{ reviewId: "b", triagedAt: "2026-10-16T07:00:00.000001Z" }],
     })
   })
 

@@ -50,6 +50,20 @@ describeDatabase("bulk review actions", () => {
       body: JSON.stringify(body),
     })
 
+  /** Marks reviews "no reply needed" and returns each mark as the server recorded it. */
+  async function mark(cookie: string, reviewIds: string[]) {
+    const response = await post(cookie, { action: "mark_reviewed", reviewIds })
+    expect(response.status).toBe(200)
+    const { results } = (await response.json()) as {
+      results: { reviewId: string; status: string; triagedAt?: string }[]
+    }
+    return results.map((row) => {
+      expect(row.status).toBe("ok")
+      expect(row.triagedAt).toEqual(expect.any(String))
+      return { reviewId: row.reviewId, triagedAt: row.triagedAt as string }
+    })
+  }
+
   /**
    * A reply parked for approval by a member who cannot publish, as the
    * owner's inbox would list it: the draft on screen and the review's
@@ -424,10 +438,10 @@ describeDatabase("bulk review actions", () => {
         ).json()) as { byQueue: Record<string, number> }
       ).byQueue
 
-    expect((await post(owner.cookie, { action: "mark_reviewed", reviewIds: [seeded.reviewId] })).status).toBe(200)
+    const marks = await mark(owner.cookie, [seeded.reviewId])
     expect(await counts()).toMatchObject({ needs_reply: 0, done: 1 })
 
-    const undone = await post(owner.cookie, { action: "mark_unreviewed", reviewIds: [seeded.reviewId] })
+    const undone = await post(owner.cookie, { action: "mark_unreviewed", marks })
     expect(undone.status).toBe(200)
     expect(((await undone.json()) as { results: unknown[] }).results).toEqual([
       { reviewId: seeded.reviewId, status: "ok" },
@@ -449,7 +463,10 @@ describeDatabase("bulk review actions", () => {
   it("says so, and records nothing, when an undo arrives for a review that is not marked", async () => {
     const owner = await fixture()
     const seeded = await seedReview(admin, { organisationId: owner.organisationId })
-    const response = await post(owner.cookie, { action: "mark_unreviewed", reviewIds: [seeded.reviewId] })
+    const response = await post(owner.cookie, {
+      action: "mark_unreviewed",
+      marks: [{ reviewId: seeded.reviewId, triagedAt: "2026-10-16T07:00:00.000001Z" }],
+    })
     expect(response.status).toBe(200)
     expect(((await response.json()) as { results: unknown[] }).results).toEqual([
       { reviewId: seeded.reviewId, status: "skipped", code: "review_not_triaged" },
@@ -459,6 +476,53 @@ describeDatabase("bulk review actions", () => {
     `
     expect(audited).toEqual([])
   })
+
+  it.each(["another person", "the same person"])(
+    "leaves a later mark alone when an old undo is replayed after %s marked again",
+    async (who) => {
+      // Mark, Undo, a new mark, then the first Undo's request arrives again
+      // (a retry, a second tab, a double press). It names the first mark, so
+      // it must not clear the new decision or audit a second untriage.
+      const owner = await fixture()
+      const seeded = await seedReview(admin, { organisationId: owner.organisationId })
+      const colleague = await seedMemberUser(admin, {
+        organisationId: owner.organisationId,
+        role: "member",
+        assignLocationId: seeded.locationId,
+      })
+      const second = who === "another person" ? colleague : owner
+
+      const first = await mark(owner.cookie, [seeded.reviewId])
+      const undone = await post(owner.cookie, { action: "mark_unreviewed", marks: first })
+      expect(((await undone.json()) as { results: unknown[] }).results).toEqual([
+        { reviewId: seeded.reviewId, status: "ok" },
+      ])
+      const later = await mark(second.cookie, [seeded.reviewId])
+      expect(later[0].triagedAt).not.toBe(first[0].triagedAt)
+
+      const replay = await post(owner.cookie, { action: "mark_unreviewed", marks: first })
+      expect(((await replay.json()) as { results: unknown[] }).results).toEqual([
+        { reviewId: seeded.reviewId, status: "skipped", code: "review_not_triaged" },
+      ])
+      const [row] = await admin<{ triagedAt: Date | null; triagedBy: string | null }[]>`
+        select triaged_at as "triagedAt", triaged_by::text as "triagedBy"
+        from review where id = ${seeded.reviewId}
+      `
+      expect(row.triagedAt).not.toBeNull()
+      expect(row.triagedBy).toBe(second.userId)
+      const audited = await admin<{ action: string }[]>`
+        select action from audit_log
+        where subject_id = ${seeded.reviewId} and action = 'review.untriaged'
+      `
+      expect(audited).toHaveLength(1)
+
+      // The new mark's own Undo still works.
+      const own = await post(second.cookie, { action: "mark_unreviewed", marks: later })
+      expect(((await own.json()) as { results: unknown[] }).results).toEqual([
+        { reviewId: seeded.reviewId, status: "ok" },
+      ])
+    }
+  )
 
   it("keeps an earlier mark, and who made it, when the review is marked again", async () => {
     // Otherwise an Undo of the second press would clear the first person's decision.
@@ -488,9 +552,9 @@ describeDatabase("bulk review actions", () => {
     const owner = await fixture()
     const mine = await seedReview(admin, { organisationId: owner.organisationId })
     const hidden = await seedReview(admin, { organisationId: owner.organisationId })
-    await post(owner.cookie, { action: "mark_reviewed", reviewIds: [mine.reviewId, hidden.reviewId] })
+    const marks = await mark(owner.cookie, [mine.reviewId, hidden.reviewId])
     const viewer = await seedMemberUser(admin, { organisationId: owner.organisationId, role: "viewer" })
-    expect((await post(viewer.cookie, { action: "mark_unreviewed", reviewIds: [mine.reviewId] })).status).toBe(403)
+    expect((await post(viewer.cookie, { action: "mark_unreviewed", marks: [marks[0]] })).status).toBe(403)
     const member = await seedMemberUser(admin, {
       organisationId: owner.organisationId,
       role: "member",
@@ -498,7 +562,7 @@ describeDatabase("bulk review actions", () => {
     })
     const response = await post(member.cookie, {
       action: "mark_unreviewed",
-      reviewIds: [mine.reviewId, hidden.reviewId],
+      marks,
     })
     expect(((await response.json()) as { results: unknown[] }).results).toEqual([
       { reviewId: mine.reviewId, status: "ok" },
@@ -602,7 +666,7 @@ describeDatabase("bulk review actions", () => {
       reviewIds: [mine.reviewId, hidden.reviewId],
     })
     expect(((await response.json()) as { results: unknown[] }).results).toEqual([
-      { reviewId: mine.reviewId, status: "ok" },
+      { reviewId: mine.reviewId, status: "ok", triagedAt: expect.any(String) },
       { reviewId: hidden.reviewId, status: "skipped", code: "review_not_found" },
     ])
   })

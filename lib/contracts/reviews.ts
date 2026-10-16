@@ -632,10 +632,22 @@ export const bulkReviewActionSchema = z.discriminatedUnion("action", [
   /**
    * Puts reviews marked "no reply needed" back in Needs reply: the Undo
    * behind that action's toast. Clears the same two columns and nothing else.
+   * Each review comes with the mark the press made (`triagedAt`, from its
+   * `mark_reviewed` row), and a row is cleared only while that exact mark is
+   * still on it, so an Undo replayed after a later mark, by anyone, cannot
+   * clear a decision it did not make.
    */
   z.object({
     action: z.literal("mark_unreviewed"),
-    reviewIds: bulkReviewIdsSchema,
+    marks: z
+      .array(
+        z.object({
+          reviewId: z.uuid(),
+          triagedAt: z.iso.datetime({ offset: true }),
+        })
+      )
+      .min(1)
+      .max(100),
   }),
   /**
    * Rating-only reviews answered from the standard template, on the bulk
@@ -693,6 +705,8 @@ export const bulkReviewResultSchema = z.object({
       reviewId: z.string(),
       status: z.enum(BULK_REVIEW_ROW_STATUSES),
       code: z.string().optional(),
+      /** `mark_reviewed`, `ok`: the mark made, for the Undo to name. */
+      triagedAt: z.iso.datetime({ offset: true }).optional(),
     })
   ),
 })

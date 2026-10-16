@@ -150,9 +150,15 @@ export const POST = route({
       return { results } satisfies BulkReviewResult
     }
 
-    for (const reviewId of body.reviewIds) {
+    const targets =
+      body.action === "mark_unreviewed"
+        ? body.marks
+        : body.reviewIds.map((reviewId) => ({ reviewId, triagedAt: null }))
+    for (const { reviewId, triagedAt: undoneMark } of targets) {
       try {
-        // The code of a row left as it was, or null when it was changed.
+        // The code of a row left as it was, or null when it was changed;
+        // `triagedAt` is the mark a "no reply needed" press made.
+        let triagedAt: string | undefined
         const unchanged = await tenant(async (sql): Promise<string | null> => {
           const [review] = await sql<{ locationId: string }[]>`
             select location_id::text as "locationId" from review where id = ${reviewId}
@@ -184,12 +190,17 @@ export const POST = route({
             `
           } else if (body.action === "mark_unreviewed") {
             // The way back from "no reply needed": the same two columns,
-            // cleared. A review that is not marked is left as it is, and
-            // said to be, so the Undo never claims what it did not do.
+            // cleared, but only the mark this Undo names (compare-and-clear
+            // on triaged_at, which every mark sets afresh; passed as text
+            // because the driver would round a timestamp parameter to
+            // milliseconds). A review that is not marked, or carries a later
+            // mark, is left as it is and said to be, so the Undo never clears
+            // what it did not make.
             const cleared = await sql`
               update review
                  set triaged_at = null, triaged_by = null
-               where id = ${reviewId} and triaged_at is not null
+               where id = ${reviewId}
+                 and triaged_at = ${undoneMark}::text::timestamptz
                returning id
             `
             if (cleared.length === 0) return "review_not_triaged"
@@ -199,13 +210,17 @@ export const POST = route({
             // the queue was to publish something. A review already marked
             // keeps the mark (and who made it) and is said to be, so an Undo
             // never clears a decision this press did not make.
-            const marked = await sql`
+            const marked = await sql<{ triagedAt: string }[]>`
               update review
                  set triaged_at = now(), triaged_by = ${session.userId}
                where id = ${reviewId} and triaged_at is null
-               returning id
+               returning to_char(
+                 triaged_at at time zone 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+               ) as "triagedAt"
             `
             if (marked.length === 0) return "review_already_triaged"
+            triagedAt = marked[0].triagedAt
           }
 
           await writeAudit(sql, {
@@ -230,7 +245,7 @@ export const POST = route({
         results.push(
           unchanged
             ? { reviewId, status: "skipped", code: unchanged }
-            : { reviewId, status: "ok" }
+            : { reviewId, status: "ok", ...(triagedAt ? { triagedAt } : {}) }
         )
       } catch (error) {
         // The row's transaction rolled back, so nothing changed for it.

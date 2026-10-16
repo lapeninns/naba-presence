@@ -481,7 +481,8 @@ const COPY: Record<string, string> = {
   legal_hold_not_found: "There’s no active legal hold for that review.",
   review_not_found: "That review no longer exists.",
   review_already_triaged: "That review was already marked as no reply needed.",
-  review_not_triaged: "That review is no longer marked as no reply needed.",
+  review_not_triaged:
+    "That review is no longer marked as no reply needed, or was marked again since.",
 
   // ---- Settings: connections (OAuth) --------------------------------------
   google_oauth_denied: "Google sign-in was cancelled before it finished.",

@@ -362,8 +362,16 @@ describe("BulkActionBar", () => {
     const user = userEvent.setup()
     mutateAsync.mockResolvedValueOnce({
       results: [
-        { reviewId: "a", status: "ok" },
-        { reviewId: "b", status: "ok" },
+        {
+          reviewId: "a",
+          status: "ok",
+          triagedAt: "2026-10-16T07:00:00.000001Z",
+        },
+        {
+          reviewId: "b",
+          status: "ok",
+          triagedAt: "2026-10-16T07:00:00.000002Z",
+        },
       ],
     })
     renderBar([row("a"), row("b")], ["a", "b"])
@@ -392,7 +400,10 @@ describe("BulkActionBar", () => {
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
     expect(mutateAsync).toHaveBeenLastCalledWith({
       action: "mark_unreviewed",
-      reviewIds: ["a", "b"],
+      marks: [
+        { reviewId: "a", triagedAt: "2026-10-16T07:00:00.000001Z" },
+        { reviewId: "b", triagedAt: "2026-10-16T07:00:00.000002Z" },
+      ],
     })
   })
 
@@ -400,7 +411,11 @@ describe("BulkActionBar", () => {
     const user = userEvent.setup()
     mutateAsync.mockResolvedValueOnce({
       results: [
-        { reviewId: "a", status: "ok" },
+        {
+          reviewId: "a",
+          status: "ok",
+          triagedAt: "2026-10-16T07:00:00.000001Z",
+        },
         { reviewId: "b", status: "skipped", code: "review_not_found" },
       ],
     })
@@ -415,7 +430,7 @@ describe("BulkActionBar", () => {
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
     expect(mutateAsync).toHaveBeenLastCalledWith({
       action: "mark_unreviewed",
-      reviewIds: ["a"],
+      marks: [{ reviewId: "a", triagedAt: "2026-10-16T07:00:00.000001Z" }],
     })
   })
 

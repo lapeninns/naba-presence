@@ -23,7 +23,11 @@ import { useSession } from "@/lib/queries/use-session"
  */
 
 const reviewCount = (input: BulkReviewActionInput) =>
-  input.action === "approve" ? input.approvals.length : input.reviewIds.length
+  input.action === "approve"
+    ? input.approvals.length
+    : input.action === "mark_unreviewed"
+      ? input.marks.length
+      : input.reviewIds.length
 
 /**
  * Runs a bulk action and says how it went. Resolves with the per-row
@@ -40,11 +44,15 @@ export function useReviewTriage() {
     try {
       const result = await bulk.mutateAsync(input)
       const summary = summariseBulkOutcome(result)
+      // The marks this press made, each as the server recorded it, so Undo
+      // can name them: a review marked again since is then left alone.
       const marked =
         input.action === "mark_reviewed"
-          ? result.results
-              .filter((row) => row.status === "ok")
-              .map((row) => row.reviewId)
+          ? result.results.flatMap((row) =>
+              row.status === "ok" && row.triagedAt
+                ? [{ reviewId: row.reviewId, triagedAt: row.triagedAt }]
+                : []
+            )
           : []
       if (marked.length > 0) {
         // Local and reversible, so it is done at once and Undo is the way
@@ -98,8 +106,9 @@ export function useReviewTriage() {
       return null
     }
   }
-  const undoNoReplyNeeded = (reviewIds: string[]) =>
-    run({ action: "mark_unreviewed", reviewIds })
+  const undoNoReplyNeeded = (
+    marks: { reviewId: string; triagedAt: string }[]
+  ) => run({ action: "mark_unreviewed", marks })
   return { run, isPending: bulk.isPending }
 }
 

@@ -623,7 +623,15 @@ describe("ReviewDetail", () => {
   // takes the menu and the person.
   describe("triage from ⋯", () => {
     const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(
-      async () => ({ results: [{ reviewId: "rev-1", status: "ok" }] })
+      async () => ({
+        results: [
+          {
+            reviewId: "rev-1",
+            status: "ok",
+            triagedAt: "2026-10-16T07:00:00.000001Z",
+          },
+        ],
+      })
     )
 
     beforeEach(() => {
@@ -688,7 +696,9 @@ describe("ReviewDetail", () => {
       await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
       expect(mutateAsync).toHaveBeenLastCalledWith({
         action: "mark_unreviewed",
-        reviewIds: ["rev-1"],
+        marks: [
+          { reviewId: "rev-1", triagedAt: "2026-10-16T07:00:00.000001Z" },
+        ],
       })
     })
 
