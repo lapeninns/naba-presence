@@ -649,7 +649,7 @@ test.describe("touch: critical journeys at 390x844", () => {
   // inbox tenant is a throwaway (destroyed after each test), so marking its
   // one review as needing no reply leaves nothing behind for other specs.
   touchTest(
-    "inbox: a left swipe on a row marks the review as needing no reply, after the confirmation",
+    "inbox: a left swipe on a row marks the review as needing no reply, with an Undo",
     async ({ page, baseURL, inboxTenant }) => {
       await applyCookie(page, baseURL, inboxTenant.cookie)
       await page.goto("/inbox")
@@ -672,14 +672,13 @@ test.describe("touch: critical journeys at 390x844", () => {
       await expect(action).toBeVisible()
       await tap(action)
 
-      // The confirmation stays until the undo work lands (R06b).
-      const confirm = page.getByRole("alertdialog", {
-        name: "Mark 1 review as no reply needed?",
-      })
-      await expect(confirm).toBeVisible()
-      await tap(confirm.getByRole("button", { name: "Mark 1 review" }))
-      await expect(page.getByText("1 review updated")).toBeVisible()
+      // No question first (R06b): it is done, and Undo is in the toast.
+      await expect(page.getByRole("alertdialog")).toHaveCount(0)
+      await expect(page.getByText("Marked as no reply needed")).toBeVisible()
       await expect(page.locator("[data-slot=review-row]")).toHaveCount(0)
+      await tap(page.getByRole("button", { name: "Undo" }))
+      await expect(page.getByText("Review back in Needs reply")).toBeVisible()
+      await expect(page.locator("[data-slot=review-row]")).toHaveCount(1)
     }
   )
 
@@ -697,12 +696,8 @@ test.describe("touch: critical journeys at 390x844", () => {
 
       await tap(list.getByRole("button", { name: /^Actions for / }))
       await tap(page.getByRole("menuitem", { name: "No reply needed" }))
-      const confirm = page.getByRole("alertdialog", {
-        name: "Mark 1 review as no reply needed?",
-      })
-      await expect(confirm).toBeVisible()
-      await tap(confirm.getByRole("button", { name: "Mark 1 review" }))
-      await expect(page.getByText("1 review updated")).toBeVisible()
+      await expect(page.getByRole("alertdialog")).toHaveCount(0)
+      await expect(page.getByText("Marked as no reply needed")).toBeVisible()
       await expect(page.locator("[data-slot=review-row]")).toHaveCount(0)
     }
   )
@@ -728,12 +723,9 @@ test.describe("touch: critical journeys at 390x844", () => {
         0
       )
       await tap(page.getByRole("menuitem", { name: "No reply needed" }))
-      const confirm = page.getByRole("alertdialog", {
-        name: "Mark 1 review as no reply needed?",
-      })
-      await expect(confirm).toBeVisible()
-      await tap(confirm.getByRole("button", { name: "Mark 1 review" }))
-      await expect(page.getByText("1 review updated")).toBeVisible()
+      // No question first (R06b): it is done, and Undo is in the toast.
+      await expect(page.getByRole("alertdialog")).toHaveCount(0)
+      await expect(page.getByText("Marked as no reply needed")).toBeVisible()
     }
   )
 

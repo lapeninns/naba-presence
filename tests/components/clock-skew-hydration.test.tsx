@@ -81,6 +81,9 @@ async function hydrateWithSkew(
   document.body.appendChild(container)
 
   vi.setSystemTime(SERVER_NOW + skewMs)
+  // The browser gets its own copy, deserialised from the flight payload: the
+  // boundary aligns each payload object once per page load.
+  const received = JSON.parse(JSON.stringify(state)) as DehydratedState
   const errors: unknown[] = []
   const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
   let root: ReturnType<typeof hydrateRoot> | undefined
@@ -88,7 +91,7 @@ async function hydrateWithSkew(
     root = hydrateRoot(
       container,
       <QueryClientProvider client={client()}>
-        {page(state)}
+        {page(received)}
       </QueryClientProvider>,
       { onRecoverableError: (error) => errors.push(error) }
     )

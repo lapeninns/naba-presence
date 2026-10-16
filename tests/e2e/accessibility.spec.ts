@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test"
 import { LISTING_HEALTH, listingHealthLabel } from "@/lib/listings/health"
 
 import { readJourneyState } from "./helpers/stub-bridge"
+import { seedTeamTenant } from "./helpers/team-tenant"
 
 // Several authenticated surfaces below are gated server-side by the REAL
 // session cookie (`getSession()` reading a request cookie), not by the
@@ -394,6 +395,12 @@ for (const theme of themes) {
         await page.addInitScript((value) => {
           window.localStorage.setItem("theme", value)
         }, theme)
+      })
+
+      // Tenants seeded by a test, destroyed after it whatever the outcome.
+      const cleanups: (() => Promise<void>)[] = []
+      test.afterEach(async () => {
+        for (const cleanup of cleanups.splice(0)) await cleanup()
       })
 
       test("design-system proof", async ({ page }) => {
@@ -1511,12 +1518,39 @@ for (const theme of themes) {
       })
 
       test("settings policy and the team page", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie: /settings' PolicyForm fetches
-        // `/api/settings/capabilities` for real (never mocked below), and
-        // /team gates on an owner/admin session server-side, which the
-        // client-side `/api/session` mock alone cannot satisfy.
-        const state = await readJourneyState()
-        await applyCookie(page, baseURL, state.cookie)
+        // Real tenant/cookie: /settings' PolicyForm fetches
+        // `/api/settings/capabilities` for real (never mocked below), /team
+        // gates on an owner/admin session server-side, which the client-side
+        // `/api/session` mock alone cannot satisfy, and since P20 the policy
+        // settings and Team's members and invitations are read on the server
+        // too. So the scanned state is seeded into a throwaway tenant rather
+        // than stubbed: Reply policy with approval on and 30 days kept, a
+        // second owner and one pending invitation.
+        const team = await seedTeamTenant({
+          members: [
+            {
+              displayName: "Alex Morgan",
+              email: "alex.{id}@example.test",
+              role: "owner",
+              canPublish: true,
+            },
+          ],
+          invitations: [
+            {
+              email: "invitee@example.com",
+              role: "member",
+              canPublish: false,
+              createdAt: new Date("2026-07-29T09:00:00.000Z"),
+              // Always a week ahead: a fixed date expires and turns the row
+              // into the expired state this check does not cover.
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            },
+          ],
+          settings: { approvalRequired: true, rawContentRetentionDays: 30 },
+        })
+        cleanups.push(team.destroy)
+        const alex = team.members[0]!
+        await applyCookie(page, baseURL, team.cookie)
         await page.route(/\/api\/session(?:\?.*)?$/, async (route) => {
           await route.fulfill({
             json: {
@@ -1534,65 +1568,8 @@ for (const theme of themes) {
             },
           })
         })
-        await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
-          await route.fulfill({
-            json: {
-              settings: {
-                approvalRequired: true,
-                rawContentRetentionDays: 30,
-                defaultLanguageCode: "en",
-                defaultTimezone: "Europe/London",
-                directPublishConsentAt: null,
-              },
-            },
-          })
-        })
-        await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
-          await route.fulfill({
-            json: {
-              members: [
-                {
-                  userId: "user-settings-a11y",
-                  email: "alex@example.com",
-                  displayName: "Alex Morgan",
-                  role: "owner",
-                  canPublish: true,
-                  // memberSchema requires the explicit membership scope;
-                  // without it the whole list fails to parse and Team shows
-                  // its "couldn't load your team" alert instead of rows.
-                  locationScope: "all",
-                  createdAt: "2026-07-01T09:00:00.000Z",
-                  locations: [],
-                },
-              ],
-            },
-          })
-        })
         await page.route(/\/api\/location-links(?:\?.*)?$/, async (route) => {
           await route.fulfill({ json: { locations: [] } })
-        })
-        await page.route(/\/api\/invitations(?:\?.*)?$/, async (route) => {
-          await route.fulfill({
-            json: {
-              items: [
-                {
-                  id: "invitation-settings-a11y",
-                  email: "invitee@example.com",
-                  role: "member",
-                  canPublish: false,
-                  // Always a week ahead: a fixed date expires and turns the
-                  // row into the expired state this check does not cover.
-                  expiresAt: new Date(
-                    Date.now() + 7 * 24 * 60 * 60 * 1000
-                  ).toISOString(),
-                  acceptedAt: null,
-                  createdAt: "2026-07-29T09:00:00.000Z",
-                  inviteUrl:
-                    "http://localhost:3000/invite/invitation-settings-a11y",
-                },
-              ],
-            },
-          })
         })
         await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
           await route.fulfill({
@@ -1636,7 +1613,7 @@ for (const theme of themes) {
         if (viewport.name === "mobile") {
           await expect(
             page.getByRole("button", {
-              name: "Alex Morgan, alex@example.com",
+              name: `Alex Morgan, ${alex.email}`,
             })
           ).toBeVisible()
         } else {
@@ -1653,7 +1630,7 @@ for (const theme of themes) {
         if (viewport.name === "mobile") {
           await page
             .getByRole("button", {
-              name: "Alex Morgan, alex@example.com",
+              name: `Alex Morgan, ${alex.email}`,
             })
             .click()
           await expect(

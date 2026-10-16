@@ -468,6 +468,13 @@ export const reviewCountsSchema = z.object({
    * promise rows the queue does not contain.
    */
   byQueue: z.record(reviewQueueSchema, z.number()),
+  /**
+   * Replies parked for approval that this person could approve: the
+   * `awaiting_my_approval` queue without, under two-person approval, the
+   * ones whose parked draft they wrote (the route would refuse them). What
+   * the Inbox badge and title count; absent from a server that predates it.
+   */
+  approvableByMe: z.number().optional(),
   /** Per-client breakdown, present only when the caller asks to group. */
   groups: z
     .array(
@@ -489,6 +496,7 @@ export const BULK_REVIEW_ACTIONS = [
   "approve",
   "assign",
   "mark_reviewed",
+  "mark_unreviewed",
   "template_reply",
 ] as const
 export type BulkReviewAction = (typeof BULK_REVIEW_ACTIONS)[number]
@@ -530,6 +538,26 @@ export const bulkReviewActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("mark_reviewed"),
     reviewIds: bulkReviewIdsSchema,
+  }),
+  /**
+   * Puts reviews marked "no reply needed" back in Needs reply: the Undo
+   * behind that action's toast. Clears the same two columns and nothing else.
+   * Each review comes with the mark the press made (`triagedAt`, from its
+   * `mark_reviewed` row), and a row is cleared only while that exact mark is
+   * still on it, so an Undo replayed after a later mark, by anyone, cannot
+   * clear a decision it did not make.
+   */
+  z.object({
+    action: z.literal("mark_unreviewed"),
+    marks: z
+      .array(
+        z.object({
+          reviewId: z.uuid(),
+          triagedAt: z.iso.datetime({ offset: true }),
+        })
+      )
+      .min(1)
+      .max(100),
   }),
   /**
    * Rating-only reviews answered from the standard template, on the bulk
@@ -587,6 +615,8 @@ export const bulkReviewResultSchema = z.object({
       reviewId: z.string(),
       status: z.enum(BULK_REVIEW_ROW_STATUSES),
       code: z.string().optional(),
+      /** `mark_reviewed`, `ok`: the mark made, for the Undo to name. */
+      triagedAt: z.iso.datetime({ offset: true }).optional(),
     })
   ),
 })

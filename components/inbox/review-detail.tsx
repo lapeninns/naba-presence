@@ -57,7 +57,6 @@ import {
   AssigneeItems,
   assignReviews,
   markNoReplyNeeded,
-  NoReplyNeededDialog,
   useAssignees,
   useReviewTriage,
 } from "@/components/inbox/review-triage"
@@ -416,7 +415,6 @@ function ReviewMenu({ review }: { review: Review }) {
   // is first asked for; it then stays mounted so it can close with its
   // animation and hand focus back.
   const [detailsMounted, setDetailsMounted] = useState(false)
-  const [confirmReviewed, setConfirmReviewed] = useState(false)
   const canTriage = useSessionRole() !== "viewer"
   const triage = useReviewTriage()
   // On a phone the menu is a bottom sheet, where a flyout submenu has
@@ -460,9 +458,11 @@ function ReviewMenu({ review }: { review: Review }) {
                 </DropdownMenuSub>
               )}
               {/* Triage, not a reply: it clears the review from Needs
-                  reply and sends nothing to Google. Confirmed, because
-                  there is no way back. */}
-              <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
+                  reply and sends nothing to Google. Done at once, with
+                  Undo in its toast. */}
+              <DropdownMenuItem
+                onClick={() => void triage.run(markNoReplyNeeded([review.id]))}
+              >
                 <CircleSlashIcon aria-hidden />
                 No reply needed
               </DropdownMenuItem>
@@ -515,15 +515,6 @@ function ReviewMenu({ review }: { review: Review }) {
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <NoReplyNeededDialog
-        count={1}
-        open={confirmReviewed}
-        onOpenChange={setConfirmReviewed}
-        finalFocus={moreRef}
-        pending={triage.isPending}
-        onConfirm={() => void triage.run(markNoReplyNeeded([review.id]))}
-      />
 
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="sm:max-w-lg" finalFocus={moreRef}>

@@ -41,7 +41,7 @@ import { ShellOAuthReturn } from "./shell-oauth-return"
 import { TabBar } from "./tab-bar"
 import { Toolbar } from "./topbar"
 import type { ShellSession } from "./shell-session"
-import { useNeedsReplyCount } from "./use-needs-reply-count"
+import { useInboxWaiting } from "./use-needs-reply-count"
 
 // The shell's session props are display fields only (shell-session.ts):
 // the dashboard layout projects its server `Session` with `toShellSession`.
@@ -98,7 +98,7 @@ function SidebarNav({
   hideCalendar: boolean
 }) {
   const clients = useClients()
-  const needsReply = useNeedsReplyCount()
+  const waiting = useInboxWaiting()
   const { remembered } = useRememberedClient()
   return (
     <Nav
@@ -106,7 +106,7 @@ function SidebarNav({
       mode={mode}
       hideCalendar={hideCalendar}
       scopeClientId={mode === "business" ? null : remembered}
-      needsReply={needsReply}
+      waiting={waiting}
       clients={
         clients.data?.items.map((client) => ({
           id: client.id,

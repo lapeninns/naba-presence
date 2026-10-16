@@ -76,7 +76,9 @@ import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { StashedEditsNotice } from "@/components/editors/stashed-edits-notice"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
+import { HYDRATION_DAY_ZONE } from "@/lib/settings/use-format-day"
 
 type FormState = {
   approvalRequired: boolean
@@ -212,6 +214,7 @@ function PolicySkeleton() {
  */
 export function PolicyForm({ role }: { role: string | null }) {
   const query = useSettings()
+  const hydrated = useHydrated()
   const caps = useSettingsCapabilities()
   const session = useSession()
   const client = useQueryClient()
@@ -319,9 +322,10 @@ export function PolicyForm({ role }: { role: string | null }) {
     },
   })
 
-  // The same write, cache update and refresh as the wizard's name card
+  // The same write and cache update as the wizard's name card
   // (agency-name-form.tsx): the app shell reads the name from the cached
-  // session, and server components still hold the old one.
+  // session. Server components still hold the old name; the refresh that
+  // updates them waits for the whole save (onSubmit).
   const rename = useMutation({
     mutationFn: (name: string) => renameOrganisation(name),
     onSuccess: (organisation) => {
@@ -333,7 +337,6 @@ export function PolicyForm({ role }: { role: string | null }) {
       void client.invalidateQueries({ queryKey: ["organisations"] })
       setNameDraft(null)
       setNameError(null)
-      router.refresh()
     },
     onError: (error) => setNameError(describeActionError(error)),
   })
@@ -428,6 +431,13 @@ export function PolicyForm({ role }: { role: string | null }) {
       writes.push(rename.mutateAsync(nameValue.trim()))
     }
     const results = await Promise.allSettled(writes)
+    // The page's server snapshot carries the name and the settings (P20).
+    // Refreshed once every write has settled, so it reads them as saved: a
+    // read while the policy write was on its way handed the form the old
+    // policy back (#195), and a stale snapshot left in the router's cache
+    // could come back on Back.
+    if (results.some((result) => result.status === "fulfilled"))
+      router.refresh()
     if (results.every((result) => result.status === "fulfilled")) {
       toast.add({ title: "Settings saved", type: "success" })
       // The bar (and the Save button that had focus) goes with the last
@@ -451,11 +461,15 @@ export function PolicyForm({ role }: { role: string | null }) {
   const barError =
     formError ?? (nameError ? `${terms.orgName}: ${nameError}` : null)
   const showBar = !readOnly && (isDirty || saving || barError !== null)
+  // The settings are server-rendered (P20), so the day is written in one
+  // pinned zone until hydration is done, then in the viewer's own
+  // (lib/settings/use-format-day.ts).
   const consentedOn = query.data?.directPublishConsentAt
     ? new Date(query.data.directPublishConsentAt).toLocaleDateString("en-GB", {
         day: "numeric",
         month: "long",
         year: "numeric",
+        ...(hydrated ? {} : { timeZone: HYDRATION_DAY_ZONE }),
       })
     : null
 

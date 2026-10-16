@@ -4,16 +4,10 @@ import type { TransactionSql } from "postgres"
 import {
   invitationCreateSchema,
   type InvitationCreatedResponse,
-  type InvitationsResponse,
 } from "@/lib/contracts/invitations"
 import { type LocationScope, type MemberRole } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
-import {
-  decryptSecret,
-  encryptSecret,
-  randomToken,
-  sha256,
-} from "@/lib/server/crypto"
+import { encryptSecret, randomToken, sha256 } from "@/lib/server/crypto"
 import { assertNewMemberSeat } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -22,8 +16,8 @@ import {
   enqueueInvitationDelivery,
   invitationEmailEnabled,
   latestDelivery,
-  serialiseDelivery,
 } from "@/lib/server/invitations/delivery"
+import { loadInvitations } from "@/lib/server/invitations/list"
 import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { route } from "@/lib/server/route"
 
@@ -126,103 +120,8 @@ async function validateLocationScope(
 
 export const GET = route({
   roles: ["owner", "admin"],
-  handler: async ({ session, tenant }) => {
-    const { items, emailDelivery } = await tenant(async (sql) => {
-      const emailDelivery = await invitationEmailEnabled(
-        sql,
-        session.organisationId
-      )
-      const rows = await sql<
-        Array<{
-          id: string
-          email: string
-          role: MemberRole
-          canPublish: boolean
-          clients: { id: string; name: string }[] | null
-          locations: { id: string; name: string }[] | null
-          locationScope: LocationScope
-          tokenCiphertext: Buffer
-          expiresAt: Date
-          acceptedAt: Date | null
-          createdAt: Date
-          delivery: {
-            id: string
-            kind: "initial" | "resend"
-            status: "pending" | "sent" | "failed" | "suppressed" | "uncertain"
-            errorCode: string | null
-            attempts: number
-            sentAt: string | null
-            createdAt: string
-          } | null
-        }>
-      >`
-        select
-          i.id::text as id,
-          email,
-          role,
-          can_publish as "canPublish",
-          case when i.client_ids is null then null else (
-            select coalesce(
-              json_agg(json_build_object('id', c.id::text, 'name', c.name) order by lower(c.name)),
-              '[]'::json
-            )
-            from client c
-            where c.id = any(i.client_ids)
-          ) end as clients,
-          case when i.location_ids is null then null else (
-            select coalesce(
-              json_agg(json_build_object('id', l.id::text, 'name', l.name) order by lower(l.name)),
-              '[]'::json
-            )
-            from location l
-            where l.id = any(i.location_ids)
-          ) end as locations,
-          location_scope as "locationScope",
-          token_ciphertext as "tokenCiphertext",
-          expires_at as "expiresAt",
-          i.accepted_at as "acceptedAt",
-          i.created_at as "createdAt",
-          (
-            select json_build_object(
-              'id', d.id::text,
-              'kind', d.kind,
-              'status', d.status,
-              'errorCode', d.last_error_code,
-              'attempts', d.attempts,
-              'sentAt', d.sent_at,
-              'createdAt', d.created_at
-            )
-            from invitation_delivery d
-            where d.invitation_id = i.id
-            order by d.created_at desc, d.id desc
-            limit 1
-          ) as delivery
-        from invitation i
-        where i.accepted_at is null
-        order by i.created_at desc
-      `
-      const baseUrl = getServerEnv().NEXTAUTH_URL ?? "http://localhost:3000"
-      const items = rows.map(({ tokenCiphertext, delivery, ...row }) => ({
-        ...row,
-        expiresAt: row.expiresAt.toISOString(),
-        acceptedAt: row.acceptedAt?.toISOString() ?? null,
-        createdAt: row.createdAt.toISOString(),
-        inviteUrl: new URL(
-          `/invite/${decryptSecret(tokenCiphertext)}`,
-          baseUrl
-        ).toString(),
-        delivery: delivery
-          ? serialiseDelivery({
-              ...delivery,
-              sentAt: delivery.sentAt ? new Date(delivery.sentAt) : null,
-              createdAt: new Date(delivery.createdAt),
-            })
-          : null,
-      }))
-      return { items, emailDelivery }
-    })
-    return { items, emailDelivery } satisfies InvitationsResponse
-  },
+  handler: async ({ session, tenant }) =>
+    tenant((sql) => loadInvitations(sql, session.organisationId)),
 })
 
 export const POST = route({

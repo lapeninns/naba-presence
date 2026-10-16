@@ -15,7 +15,6 @@ import {
   AssigneeItems,
   assignReviews,
   markNoReplyNeeded,
-  NoReplyNeededDialog,
   useAssignees,
   useReviewTriage,
 } from "@/components/inbox/review-triage"
@@ -191,7 +190,6 @@ function BulkActionBar({
   const menuIsSheet = useMenuSheet()
   const [outcome, setOutcome] = React.useState<BulkReviewResult | null>(null)
   const [confirmApprove, setConfirmApprove] = React.useState(false)
-  const [confirmReviewed, setConfirmReviewed] = React.useState(false)
   // The selection as it was when the template batch opened. Replies that
   // publish leave the list (and so the selection's visible rows) while the
   // dialog is still showing its summary, so it works from this copy and is
@@ -385,7 +383,7 @@ function BulkActionBar({
         icon={<CircleSlash aria-hidden />}
         label="No reply needed"
         disabled={bulk.isPending}
-        onClick={() => setConfirmReviewed(true)}
+        onClick={() => void run("mark_reviewed")}
       />
     )
 
@@ -483,9 +481,9 @@ function BulkActionBar({
             )}
             {/* Triage, not a reply: it clears the reviews from Needs reply
               and sends nothing to Google. "Mark reviewed" read as though it
-              might do either. Confirmed, because there is no way back. */}
+              might do either. Done at once, with Undo in its toast. */}
             {primary !== "mark_reviewed" ? (
-              <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
+              <DropdownMenuItem onClick={() => void run("mark_reviewed")}>
                 <CircleSlash aria-hidden />
                 No reply needed
               </DropdownMenuItem>
@@ -554,13 +552,6 @@ function BulkActionBar({
         </AlertDialogContent>
       </AlertDialog>
 
-      <NoReplyNeededDialog
-        count={chosen.length}
-        open={confirmReviewed}
-        onOpenChange={setConfirmReviewed}
-        pending={bulk.isPending}
-        onConfirm={() => void run("mark_reviewed")}
-      />
       {templateDialog}
     </>
   )

@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { UseQueryResult } from "@tanstack/react-query"
@@ -6,6 +6,7 @@ import type { ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
+import { Toaster } from "@/components/ui/toast"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
@@ -623,11 +624,19 @@ describe("ReviewDetail", () => {
 
   // INB-08: triaging one review no longer goes through Select mode. The
   // review's own ⋯ carries "No reply needed" and "Assign…", so it takes the
-  // menu, the action and the confirmation (three taps), and an assignment
+  // menu and the action (two taps, with Undo in the toast), and an assignment
   // takes the menu and the person.
   describe("triage from ⋯", () => {
     const mutateAsync = vi.fn<(input: unknown) => Promise<unknown>>(
-      async () => ({ results: [{ reviewId: "rev-1", status: "ok" }] })
+      async () => ({
+        results: [
+          {
+            reviewId: "rev-1",
+            status: "ok",
+            triagedAt: "2026-10-16T07:00:00.000001Z",
+          },
+        ],
+      })
     )
 
     beforeEach(() => {
@@ -668,41 +677,64 @@ describe("ReviewDetail", () => {
 
     afterEach(() => vi.unstubAllGlobals())
 
-    it("marks the review as needing no reply from ⋯, once confirmed", async () => {
+    it("marks the review as needing no reply from ⋯ at once, and Undo puts it back", async () => {
       const user = userEvent.setup()
       fakeDetail({ isPending: false, isError: false, data: detail })
-      renderPane(<ReviewDetail reviewId="rev-1" />)
+      renderPane(
+        <Toaster>
+          <ReviewDetail reviewId="rev-1" />
+        </Toaster>
+      )
 
       await user.click(screen.getByRole("button", { name: "More actions" }))
       await user.click(
         await screen.findByRole("menuitem", { name: "No reply needed" })
       )
-      // The confirmation stays: nothing is sent until it is answered.
-      expect(
-        await screen.findByRole("alertdialog", {
-          name: "Mark 1 review as no reply needed?",
-        })
-      ).toHaveTextContent("It leaves Needs reply. Nothing is posted to Google.")
-      expect(mutateAsync).not.toHaveBeenCalled()
-      await user.click(screen.getByRole("button", { name: "Mark 1 review" }))
-      expect(mutateAsync).toHaveBeenCalledTimes(1)
+      // No question first: it is sent, and the toast carries the way back.
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+      await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
       expect(mutateAsync).toHaveBeenCalledWith({
         action: "mark_reviewed",
         reviewIds: ["rev-1"],
       })
+      await user.click(await screen.findByRole("button", { name: "Undo" }))
+      await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2))
+      expect(mutateAsync).toHaveBeenLastCalledWith({
+        action: "mark_unreviewed",
+        marks: [
+          { reviewId: "rev-1", triagedAt: "2026-10-16T07:00:00.000001Z" },
+        ],
+      })
     })
 
-    it("sends nothing when the confirmation is cancelled", async () => {
+    it("says why nothing changed when the review was already marked, with no Undo", async () => {
       const user = userEvent.setup()
+      mutateAsync.mockResolvedValueOnce({
+        results: [
+          {
+            reviewId: "rev-1",
+            status: "skipped",
+            code: "review_already_triaged",
+          },
+        ],
+      })
       fakeDetail({ isPending: false, isError: false, data: detail })
-      renderPane(<ReviewDetail reviewId="rev-1" />)
-
+      renderPane(
+        <Toaster>
+          <ReviewDetail reviewId="rev-1" />
+        </Toaster>
+      )
       await user.click(screen.getByRole("button", { name: "More actions" }))
       await user.click(
         await screen.findByRole("menuitem", { name: "No reply needed" })
       )
-      await user.click(await screen.findByRole("button", { name: "Cancel" }))
-      expect(mutateAsync).not.toHaveBeenCalled()
+      expect(await screen.findByText("Nothing changed")).toBeInTheDocument()
+      expect(
+        screen.getByText("That review was already marked as no reply needed.")
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Undo" })
+      ).not.toBeInTheDocument()
     })
 
     it("assigns the review from ⋯ → Assign…, to people it could be offered to", async () => {
