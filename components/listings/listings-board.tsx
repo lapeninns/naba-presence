@@ -408,7 +408,7 @@ function ListingQuickLook({
             <VerificationCell row={row} />
           </QuickLookFact>
           {summary?.freshness ? (
-            <QuickLookFact label="Reviews">
+            <QuickLookFact label="Last check">
               <FreshnessLine summary={summary} />
             </QuickLookFact>
           ) : null}
