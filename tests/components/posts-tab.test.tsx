@@ -150,6 +150,92 @@ describe("PostsTab", () => {
     expect(screen.getAllByText("History").length).toBeGreaterThan(0)
   })
 
+  it("explains a failed post in words and keeps the raw code behind support details", () => {
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        posts: [
+          post({
+            id: "f",
+            status: "failed",
+            lastErrorCode: "google_post_not_published",
+          }),
+        ],
+      }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    const note = screen.getByRole("note")
+    expect(note).toHaveTextContent(
+      "Google does not list this post, so nothing was published. You can publish it again."
+    )
+    // The code is one click away under "Details for support", never in the
+    // sentence or the history's status line.
+    expect(within(note).getByText("Details for support")).toBeInTheDocument()
+    expect(
+      within(note).getByText("google_post_not_published")
+    ).toBeInTheDocument()
+    expect(screen.getAllByText("google_post_not_published")).toHaveLength(1)
+    expect(screen.getByText("Not accepted")).toBeInTheDocument()
+  })
+
+  it("calls a post Google refused rejected, in the note and the history", () => {
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        posts: [
+          post({
+            id: "r",
+            status: "failed",
+            googleState: "REJECTED",
+            lastErrorCode: "google_post_rejected",
+          }),
+        ],
+      }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    const note = screen.getByRole("note")
+    expect(note).toHaveTextContent(
+      "Google rejected this post, so customers can’t see it."
+    )
+    expect(within(note).getByText("google_post_rejected")).toBeInTheDocument()
+    expect(screen.getAllByText("google_post_rejected")).toHaveLength(1)
+    expect(screen.getByText("Rejected")).toBeInTheDocument()
+    expect(screen.queryByText("Not accepted")).not.toBeInTheDocument()
+  })
+
+  it("falls back to a plain sentence for a failure code with no copy", () => {
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        posts: [
+          post({ id: "f", status: "failed", lastErrorCode: "some_new_code" }),
+        ],
+      }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Google didn’t accept this post, so nothing is live. Edit it or publish it again."
+    )
+  })
+
   it("puts New post in the empty state, not beside it", () => {
     usePostsMock.mockReturnValue({
       data: makeState({ posts: [] }),
