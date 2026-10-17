@@ -105,8 +105,11 @@ async function resolveOpen(
 
 /**
  * Opens (or, while one is open, re-addresses) the review's incident of
- * `kind`. Only a newly opened incident queues email, so re-addressing an
- * open one never emails anyone again.
+ * `kind`, and queues email for its recipients. A delivery is unique per
+ * incident and recipient, so re-addressing an open one emails only the
+ * people it newly names (a different publisher resubmitting the same draft
+ * under two-person approval makes the earlier requester eligible), never
+ * anyone twice. Someone it no longer names is suppressed at send time.
  */
 async function openAddressed(
   sql: TransactionSql,
@@ -140,7 +143,7 @@ async function openAddressed(
       select ${input.organisationId}, ${row.id}, unnest(${[...input.recipients]}::uuid[])
       on conflict (incident_id, user_id) do nothing`
   }
-  if (row.inserted) await queueDeliveries(sql, input.organisationId, [row.id])
+  await queueDeliveries(sql, input.organisationId, [row.id])
   return { incidentId: row.id, opened: row.inserted }
 }
 

@@ -1,10 +1,14 @@
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { clientCapabilityHeaders } from "@/lib/contracts/client-capabilities"
 import {
   notificationListResponseSchema,
   notificationPreferencesResponseSchema,
 } from "@/lib/contracts/operational-notifications"
+import { shellStatusResponseSchema } from "@/lib/contracts/shell-status"
+
+import * as mainContract from "../../fixtures/contracts/notifications-main-3f335f82"
 
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
@@ -48,10 +52,22 @@ describeDatabase("approval notifications", { timeout: 60_000 }, () => {
     await admin.end()
   })
 
-  const api = (cookie: string, path: string, init: RequestInit = {}) =>
+  // As this build's client calls: declaring that it reads the approval
+  // kinds (lib/contracts/client-capabilities.ts). `legacy` calls as a
+  // browser still on the build before them does.
+  const api = (
+    cookie: string,
+    path: string,
+    init: RequestInit = {},
+    { legacy = false } = {}
+  ) =>
     fetch(`${server.baseUrl}${path}`, {
       ...init,
-      headers: { cookie, "content-type": "application/json" },
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        ...(legacy ? {} : clientCapabilityHeaders()),
+      },
     })
 
   async function fixture() {
@@ -415,5 +431,81 @@ describeDatabase("approval notifications", { timeout: 60_000 }, () => {
       }).then((response) => response.json())
     expect(await mark(f.owner.cookie)).toEqual({ updated: 0 })
     expect(await mark(f.people.requester.cookie)).toEqual({ updated: 1 })
+  })
+
+  it("sends a browser on the previous build only what its contract reads", async () => {
+    const f = await fixture()
+    expect((await publish(f, f.people.requester.cookie)).status).toBe(202)
+    expect((await decide(f, f.owner.cookie, "reject")).status).toBe(200)
+    // The requester has an open send-back; the owner a resolved request.
+    for (const cookie of [f.people.requester.cookie, f.owner.cookie]) {
+      const legacy = { legacy: true }
+      const listed = await api(cookie, "/api/notifications?filter=all", {}, legacy)
+      expect(listed.status).toBe(200)
+      const page = await listed.json()
+      expect(mainContract.notificationListResponseSchema.safeParse(page).success).toBe(true)
+      expect(page.items).toEqual([])
+      expect(page.unreadCount).toBe(0)
+
+      const shell = await api(cookie, "/api/shell-status", {}, legacy)
+      expect(shell.status, await shell.clone().text()).toBe(200)
+      expect(mainContract.shellStatusResponseSchema.safeParse(await shell.json()).success).toBe(true)
+
+      const prefs = await api(cookie, "/api/notifications/preferences", {}, legacy)
+      expect(prefs.status).toBe(200)
+      expect(
+        mainContract.notificationPreferencesResponseSchema.safeParse(await prefs.json()).success
+      ).toBe(true)
+      const saved = await api(
+        cookie,
+        "/api/notifications/preferences",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            changes: [{ kind: "publication_failed", channel: "in_app", mode: "immediate" }],
+          }),
+        },
+        legacy
+      )
+      expect(saved.status).toBe(200)
+      expect(
+        mainContract.notificationPreferencesResponseSchema.safeParse(await saved.json()).success
+      ).toBe(true)
+    }
+    // This build's client is sent them, and reads them.
+    const page = await list(f.people.requester.cookie)
+    expect(page.items.map((row) => row.kind)).toEqual(["reply_sent_back"])
+    expect(page.unreadCount).toBe(1)
+    const shell = await api(f.people.requester.cookie, "/api/shell-status")
+    const status = shellStatusResponseSchema.parse(await shell.json())
+    expect(status.notifications.items.map((row) => row.kind)).toEqual(["reply_sent_back"])
+  })
+
+  it("emails an approver a re-addressed request newly names", async () => {
+    const f = await fixture()
+    await admin`
+      update organisation set require_two_person_approval = true
+      where id = ${f.owner.organisationId}`
+    await optIn(f.people.publisher.cookie, "approval_requested")
+    // The owner wrote the draft. The publisher asks first, so the request
+    // is not theirs to approve...
+    expect((await publish(f, f.people.publisher.cookie)).status).toBe(202)
+    let [request] = await incidents(f)
+    expect(request.recipients).toEqual([f.people.assignedPublisher.userId])
+    // ...then the assigned publisher submits the same draft: the request
+    // stays open and now names the first publisher.
+    const again = await publish(f, f.people.assignedPublisher.cookie)
+    expect(again.status, await again.clone().text()).toBe(202)
+    const rows = await incidents(f)
+    expect(rows.map((row) => `${row.kind}:${row.status}`)).toEqual([
+      "approval_requested:open",
+    ])
+    ;[request] = rows
+    expect(request.recipients).toEqual([f.people.publisher.userId])
+    const deliveries = await admin`
+      select 1 from notification_delivery d join notification_incident i on i.id = d.incident_id
+      where d.recipient_user_id = ${f.people.publisher.userId}
+        and i.kind = 'approval_requested'`
+    expect(deliveries).toHaveLength(1)
   })
 })

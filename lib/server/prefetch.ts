@@ -390,7 +390,10 @@ export async function readInvitations(
 export async function readNotificationPreferences(
   session: Session
 ): Promise<NotificationPreferencesResponse> {
-  const payload = await loadNotificationPreferences(session)
+  // Rendered for this build's own client, which reads the approval kinds.
+  const payload = await loadNotificationPreferences(session, {
+    addressedKinds: true,
+  })
   return throughWire(notificationPreferencesResponseSchema, payload)
 }
 

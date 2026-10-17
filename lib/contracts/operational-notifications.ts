@@ -12,6 +12,29 @@ import {
 
 export const notificationEventKindSchema = z.enum(NOTIFICATION_EVENT_KINDS)
 
+/**
+ * A tolerant reader for a list of rows that each carry a `kind`: rows of a
+ * kind this build does not know are dropped, not a reason to reject the
+ * whole answer. A newer server can then add a kind without breaking a
+ * browser still running this build (lib/contracts/client-capabilities.ts
+ * keeps the new kinds from older builds in the first place). A row of a
+ * known kind is still checked in full.
+ */
+function knownKindRows<T extends z.ZodType>(row: T) {
+  return z.preprocess(
+    (rows) =>
+      Array.isArray(rows)
+        ? rows.filter(
+            (candidate) =>
+              notificationEventKindSchema.safeParse(
+                (candidate as { kind?: unknown } | null)?.kind
+              ).success
+          )
+        : rows,
+    z.array(row)
+  )
+}
+
 export const notificationItemSchema = z.object({
   id: z.uuid(),
   kind: notificationEventKindSchema,
@@ -38,7 +61,7 @@ export const notificationListQuerySchema = z.strictObject({
   filter: z.enum(["all", "unread", "open"]).default("all"),
 })
 export const notificationListResponseSchema = z.object({
-  items: z.array(notificationItemSchema),
+  items: knownKindRows(notificationItemSchema),
   nextCursor: z.string().nullable(),
   unreadCount: z.number().int().nonnegative(),
 })
@@ -59,7 +82,7 @@ export const notificationPreferenceSchema = z.object({
   explicit: z.boolean(),
 })
 export const notificationPreferencesResponseSchema = z.object({
-  preferences: z.array(notificationPreferenceSchema),
+  preferences: knownKindRows(notificationPreferenceSchema),
   emailConfigured: z.boolean(),
 })
 export type NotificationPreferencesResponse = z.infer<
