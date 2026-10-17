@@ -207,6 +207,9 @@ test.describe("clients index", () => {
   test("a client card is one target, with its meta written as sentences", async ({
     page,
   }) => {
+    // A record card is the phone's row; from lg a row click opens the desk
+    // quick look instead (desk-quick-look.spec.ts).
+    await page.setViewportSize({ width: 390, height: 844 })
     await stubClients(page, [
       stubClient("c-busy", "Busy Bar", "healthy", {
         openWork: { needsReply: 2, awaitingApproval: 0, failed: 0 },

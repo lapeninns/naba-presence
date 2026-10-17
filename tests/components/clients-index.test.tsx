@@ -113,9 +113,7 @@ describe("ClientsIndex", () => {
     const table = await screen.findByRole("table", {
       name: "Clients, with their Google health and open review work",
     })
-    expect(
-      within(table).getByText("Can’t reach Google")
-    ).toBeInTheDocument()
+    expect(within(table).getByText("Can’t reach Google")).toBeInTheDocument()
   })
 
   it("surfaces unassigned locations rather than hiding them", async () => {
@@ -458,6 +456,91 @@ describe("ClientsIndex", () => {
     )
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
       archived: false,
+    })
+  })
+
+  describe("quick look from lg", () => {
+    // The viewport, as the shell's matchMedia answers it.
+    const stubWidth = (wide: boolean) =>
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          matches: wide && query === "(min-width: 64rem)",
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }))
+      )
+
+    it("opens the client's work beside the list on a row click, without leaving the page", async () => {
+      stubWidth(true)
+      stub([base])
+      renderIndex()
+      const table = await screen.findByRole("table", {
+        name: "Clients, with their Google health and open review work",
+      })
+      // A click on the row's work, not on the name link.
+      fireEvent.click(within(table).getByText("2 to reply"), { detail: 1 })
+      const dialog = await screen.findByRole("dialog", {
+        name: "Old Crown Group",
+      })
+      expect(dialog).toHaveAttribute("data-slot", "quick-look")
+      expect(within(dialog).getByText("In sync")).toBeInTheDocument()
+      expect(
+        within(dialog).getByRole("link", {
+          name: "2 in the inbox: Needs reply",
+        })
+      ).toHaveAttribute("href", "/inbox?clientId=c1&queue=needs_reply")
+      expect(within(dialog).getByText("Needs reply")).toBeInTheDocument()
+      // Nothing waiting is "None", not a link to an empty queue.
+      expect(within(dialog).getAllByText("None")).toHaveLength(2)
+      expect(
+        within(dialog).getByRole("link", { name: "Open client" })
+      ).toHaveAttribute("href", "/clients/c1")
+      // Verified is counted against the linked listings it can apply to.
+      expect(within(dialog).getByText("2 of 3 linked")).toBeInTheDocument()
+      expect(push).not.toHaveBeenCalled()
+    })
+
+    it("opens the quick look from a click on the row itself, and does not navigate", async () => {
+      stubWidth(true)
+      stub([base])
+      renderIndex()
+      const table = await screen.findByRole("table", {
+        name: "Clients, with their Google health and open review work",
+      })
+      const row = within(table)
+        .getByRole("link", { name: "Old Crown Group" })
+        .closest("tr") as HTMLElement
+      fireEvent.click(row)
+      expect(
+        await screen.findByRole("dialog", { name: "Old Crown Group" })
+      ).toBeInTheDocument()
+      expect(push).not.toHaveBeenCalled()
+    })
+
+    it("keeps the name link's own navigation for a plain click, Enter and a modifier click", async () => {
+      stubWidth(true)
+      stub([base])
+      renderIndex()
+      const link = await screen.findByRole("link", { name: "Old Crown Group" })
+      // fireEvent.click answers false when the default was prevented.
+      expect(fireEvent.click(link, { detail: 1 })).toBe(true)
+      expect(fireEvent.click(link, { detail: 0 })).toBe(true)
+      expect(fireEvent.click(link, { detail: 1, metaKey: true })).toBe(true)
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(push).not.toHaveBeenCalled()
+    })
+
+    it("still opens the client page on a row click below lg", async () => {
+      stubWidth(false)
+      stub([base])
+      renderIndex()
+      const link = await screen.findByRole("link", { name: "Old Crown Group" })
+      expect(fireEvent.click(link, { detail: 1 })).toBe(true)
+      fireEvent.click(link.closest("tr") as HTMLElement, { detail: 1 })
+      expect(push).toHaveBeenCalledWith("/clients/c1")
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     })
   })
 })

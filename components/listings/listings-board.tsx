@@ -31,6 +31,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import {
+  QuickLookFact,
+  QuickLookFacts,
+  QuickLookPanel,
+  QuickLookSection,
+  useQuickLook,
+} from "@/components/ui/quick-look-panel"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -49,9 +56,12 @@ import { formatNumber } from "@/lib/format"
 import {
   googleChangedCount,
   listingHealth,
+  listingHealthDescription,
   listingHealthLabel,
   listingHealthTone,
   summariseListingHealth,
+  syncStatusLabel,
+  syncStatusTone,
   unpublishedCount,
   type ListingHealth,
 } from "@/lib/listings/health"
@@ -303,6 +313,130 @@ function PendingChips({ summary }: { summary: ListingSummary | undefined }) {
   )
 }
 
+/** The areas a quick look reports: the ones compared with Google. */
+const QUICK_LOOK_AREAS = [
+  { key: "profile", label: "Business profile" },
+  { key: "hours", label: "Opening hours" },
+  { key: "menu", label: "Food menu" },
+] as const
+
+/**
+ * The desk quick look for one listing (DSK-23): its health in words, the
+ * state of each area compared with Google, what is waiting and when it was
+ * last checked and published, with "Open listing" for the workspace. Each
+ * area links straight to its tab.
+ */
+function ListingQuickLook({
+  row,
+  business,
+  summaryPending,
+  ...panel
+}: {
+  row: BoardRow
+  business: boolean
+  summaryPending: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  returnFocus?: React.RefObject<HTMLElement | null>
+}) {
+  const { entry, summary } = row
+  const address = formatAddressLine(entry.address)
+  const client = business || row.clientId === UNFILED ? null : row.clientName
+  const known = !(summaryPending && row.health === "unchecked")
+  const areas = QUICK_LOOK_AREAS.filter(
+    (area) => area.key !== "menu" || summary?.menu.eligible !== false
+  )
+  return (
+    <QuickLookPanel
+      {...panel}
+      title={entry.name}
+      description={
+        client || address
+          ? [client, address].filter(Boolean).join(" · ")
+          : undefined
+      }
+      status={
+        known ? (
+          <>
+            <StatusPill tone={listingHealthTone(row.health)}>
+              {listingHealthLabel(row.health)}
+            </StatusPill>
+            <span className="text-caption text-ink-muted">
+              {listingHealthDescription(row.health)}
+            </span>
+          </>
+        ) : (
+          <span className="text-caption text-ink-muted">
+            Checking this listing…
+          </span>
+        )
+      }
+      openHref={listingHref(entry.id)}
+      openLabel="Open listing"
+    >
+      {entry.linked && summary ? (
+        <QuickLookSection title="Areas">
+          <QuickLookFacts>
+            {areas.map((area) => (
+              <QuickLookFact
+                key={area.key}
+                label={
+                  <Link
+                    href={listingHref(entry.id, area.key)}
+                    className="rounded-(--np-radius-tag) underline-offset-4 focus-halo hover:underline"
+                  >
+                    {area.label}
+                  </Link>
+                }
+              >
+                <StatusPill tone={syncStatusTone(summary[area.key].status)}>
+                  {syncStatusLabel(summary[area.key].status)}
+                </StatusPill>
+              </QuickLookFact>
+            ))}
+          </QuickLookFacts>
+        </QuickLookSection>
+      ) : null}
+      {summary ? (
+        <QuickLookSection title="Waiting">
+          <PendingChips summary={summary} />
+        </QuickLookSection>
+      ) : null}
+      <QuickLookSection title="Google">
+        <QuickLookFacts>
+          <QuickLookFact label="Verification">
+            <VerificationCell row={row} />
+          </QuickLookFact>
+          {summary?.freshness ? (
+            <QuickLookFact label="Last check">
+              <FreshnessLine summary={summary} />
+            </QuickLookFact>
+          ) : null}
+          <QuickLookFact label="Last published">
+            <span className="text-ink-muted tabular-nums">
+              {!summary ? (
+                "—"
+              ) : summary.lastPublish ? (
+                <RelativeTime iso={summary.lastPublish.at} />
+              ) : (
+                "Never"
+              )}
+            </span>
+            {/* The listing page's words for a publish that did not land. */}
+            {summary?.lastPublish?.status === "failed" ? (
+              <StatusPill tone="at-risk">Failed</StatusPill>
+            ) : summary?.lastPublish?.status === "ambiguous" ? (
+              <StatusPill tone="attention">Outcome unclear</StatusPill>
+            ) : summary?.lastPublish?.status === "in_progress" ? (
+              <StatusPill tone="pending">In progress</StatusPill>
+            ) : null}
+          </QuickLookFact>
+        </QuickLookFacts>
+      </QuickLookSection>
+    </QuickLookPanel>
+  )
+}
+
 function VerificationCell({ row }: { row: BoardRow }) {
   if (!row.entry.linked || row.verified === undefined)
     return <span className="text-ink-muted">—</span>
@@ -497,6 +631,10 @@ function ListingsBoard({
   const directory = useLocationDirectory(role)
   const clients = useClients()
   const summaries = useListingSummaries()
+  // From `lg` a row click answers "what is waiting here?" in a side panel;
+  // Enter and a modifier click on the row's link still open the listing
+  // (DSK-23).
+  const quick = useQuickLook<BoardRow>()
   // A business has no client layer: no Client column, chips, grouping or
   // filter, whatever a stale address says.
   const business = useWorkspaceMode() === "business"
@@ -789,12 +927,22 @@ function ListingsBoard({
             {/* The whole row is this link's target: its ::after stretches
                 over the row (positioned), so a phone row is one tap and
                 never a 24px line of text. No chevron of its own: the row is
-                `interactive`, so the record card already draws one. */}
+                `interactive`, so the record card already draws one. From
+                `lg` a click on the rest of the row (the ::after, whose clicks
+                land on the link itself) opens the quick look; the name is
+                raised above the ::after, so a click on it opens the listing
+                (DSK-23). */}
             <ShellLink
               href={listingHref(row.entry.id)}
+              onClick={(event) => {
+                if (event.target === event.currentTarget)
+                  quick.intercept(event, row)
+              }}
               className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-3xl/table:min-h-0 @max-3xl/table:text-body"
             >
-              {row.entry.name}
+              <span data-slot="row-name" className="relative z-raised">
+                {row.entry.name}
+              </span>
             </ShellLink>
             {clientInSubtitle || address ? (
               <span className="text-caption break-words text-ink-muted">
@@ -1093,6 +1241,18 @@ function ListingsBoard({
           </BoardTable>
         </div>
       )}
+      {quick.item ? (
+        <ListingQuickLook
+          // The latest state of the listing, if it is still on the board.
+          row={
+            rows.find((row) => row.entry.id === quick.item?.entry.id) ??
+            quick.item
+          }
+          business={business}
+          summaryPending={summaries.isPending}
+          {...quick.panelProps}
+        />
+      ) : null}
       {/* Owners and admins only, as the header action it replaces was. At
           the end of the list so the first listing is not pushed down by it. */}
       {canManage ? (
