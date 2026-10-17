@@ -35,6 +35,13 @@ import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
 import { SearchInput } from "@/components/ui/input"
 import { QueryError } from "@/components/ui/query-states"
+import {
+  QuickLookFact,
+  QuickLookFacts,
+  QuickLookPanel,
+  QuickLookSection,
+  useQuickLook,
+} from "@/components/ui/quick-look-panel"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -117,6 +124,9 @@ function ClientsIndex({ role }: { role: string | null }) {
   const archivedView = canCreate && params?.get("view") === "archived"
   const clients = useClients()
   const archived = useArchivedClients(canCreate)
+  // From `lg` a row click answers "what is waiting here?" in a side panel;
+  // the name link still opens the client (DSK-23).
+  const quick = useQuickLook<ClientSummary>()
 
   const rawHealth = params?.get("health") ?? null
   const health: HealthFilter = isHealthFilter(rawHealth) ? rawHealth : "all"
@@ -377,12 +387,25 @@ function ClientsIndex({ role }: { role: string | null }) {
           // subtitle, linked listings and the last sync on one meta line,
           // and a chevron. A tap anywhere on the card opens the client
           // (onRowClick); keyboard and screen-reader users open it through
-          // the name link, whose name is just the client's.
+          // the name link, whose name is just the client's. From `lg` a click
+          // opens the quick look instead, and the name link keeps the full
+          // open for Enter and a modifier click.
           <DataTable
             caption="Clients, with their Google health and open review work"
             rows={rows}
             rowId={(client) => client.id}
-            onRowClick={(client) => router.push(`/clients/${client.id}`)}
+            onRowClick={(client) => {
+              if (!quick.desk) {
+                router.push(`/clients/${client.id}`)
+                return
+              }
+              quick.show(
+                client,
+                document.querySelector<HTMLElement>(
+                  `[data-quick-look-link="${CSS.escape(client.id)}"]`
+                )
+              )
+            }}
             surface
             responsive
             columns={[
@@ -399,7 +422,11 @@ function ClientsIndex({ role }: { role: string | null }) {
                         // A full touch-height row on touch, as the bulk and
                         // client settings record cards do; a text link at the desk.
                         className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) text-body font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
-                        onClick={(event) => event.stopPropagation()}
+                        data-quick-look-link={client.id}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          quick.intercept(event, client)
+                        }}
                       >
                         {client.name}
                       </ShellLink>
@@ -491,6 +518,15 @@ function ClientsIndex({ role }: { role: string | null }) {
             ]}
           />
         )}
+        {quick.item ? (
+          <ClientQuickLook
+            // The latest figures for the client, if it is still listed.
+            client={
+              all.find((client) => client.id === quick.item?.id) ?? quick.item
+            }
+            {...quick.panelProps}
+          />
+        ) : null}
       </section>
 
       {unassigned > 0 && canCreate ? (
@@ -694,6 +730,106 @@ function ArchivedClients({
         />
       )}
     </section>
+  )
+}
+
+/**
+ * The desk quick look for one client (DSK-23): its health, its open review
+ * work and the Google login behind it, with "Open client" for the rest.
+ * Each work figure links to the inbox filtered to this client, as the
+ * client page's tiles do.
+ */
+function ClientQuickLook({
+  client,
+  ...panel
+}: {
+  client: ClientSummary
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  returnFocus?: React.RefObject<HTMLElement | null>
+}) {
+  const note = clientHealthNote(client)
+  const { needsReply, awaitingApproval, failed } = client.openWork
+  const inbox = (queue: string) =>
+    `/inbox?clientId=${encodeURIComponent(client.id)}&queue=${queue}`
+  const work = [
+    { label: "Needs reply", count: needsReply, queue: "needs_reply" },
+    { label: "Awaiting approval", count: awaitingApproval, queue: "approval" },
+    { label: "Replies that didn’t post", count: failed, queue: "failed" },
+  ]
+  return (
+    <QuickLookPanel
+      {...panel}
+      title={client.name}
+      description={linkedSentence(client)}
+      status={
+        <>
+          <StatusPill
+            tone={healthTone(client.health)}
+            dashed={client.health === "not_connected"}
+          >
+            {healthLabel(client.health)}
+          </StatusPill>
+          {note ? (
+            <span className="text-caption text-ink-muted">{note}</span>
+          ) : null}
+        </>
+      }
+      openHref={`/clients/${client.id}`}
+      openLabel="Open client"
+    >
+      <QuickLookSection title="Open review work">
+        <QuickLookFacts>
+          {work.map((item) => (
+            <QuickLookFact key={item.queue} label={item.label}>
+              {item.count === 0 ? (
+                <span className="text-ink-muted">None</span>
+              ) : (
+                <Link
+                  href={inbox(item.queue)}
+                  className={cn(
+                    "rounded-(--np-radius-tag) font-medium tabular-nums underline-offset-4 focus-halo hover:underline",
+                    item.queue === "failed" ? "text-danger-ink" : "text-ink"
+                  )}
+                >
+                  {formatNumber(item.count)}
+                  <span className="sr-only"> in the inbox</span>
+                </Link>
+              )}
+            </QuickLookFact>
+          ))}
+        </QuickLookFacts>
+      </QuickLookSection>
+      <QuickLookSection title="Google">
+        <QuickLookFacts>
+          <QuickLookFact label="Login">
+            <LoginCell client={client} />
+          </QuickLookFact>
+          <QuickLookFact label="Last sync">
+            <span
+              className={cn(
+                "tabular-nums",
+                client.health === "disconnected"
+                  ? "text-danger-ink"
+                  : "text-ink-muted"
+              )}
+            >
+              {client.lastSyncAt ? (
+                <RelativeTime iso={client.lastSyncAt} />
+              ) : (
+                "Not synced yet"
+              )}
+            </span>
+          </QuickLookFact>
+          <QuickLookFact label="Verified on Google">
+            <span className="tabular-nums">
+              {formatNumber(client.verifiedCount)} of{" "}
+              {formatNumber(client.locationCount)}
+            </span>
+          </QuickLookFact>
+        </QuickLookFacts>
+      </QuickLookSection>
+    </QuickLookPanel>
   )
 }
 
