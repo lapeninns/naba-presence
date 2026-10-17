@@ -81,7 +81,9 @@ and `http.url` whatever `opentelemetry: { ignore: true }` says, and neither
 Next.js nor `@vercel/otel` traces `node:https`. So the prefix never reaches
 a trace exporter, with no setting needed
 (`tests/server/breached-password-telemetry.test.ts` holds this against the
-real Next.js fetch wrapper). `BREACHED_PASSWORD_CHECK_ENABLED` (default on when
+real Next.js fetch wrapper). Adding HTTP client instrumentation (for example
+`@opentelemetry/instrumentation-http`) would put the path back into spans, so
+that needs a hook that drops it first. `BREACHED_PASSWORD_CHECK_ENABLED` (default on when
 unset; `"false"` turns it off) is the kill switch; the check is also skipped
 while `PASSWORD_AUTH_ENABLED` is off. A breached password comes back as a 400
 `invalid_request` field error on `password`, which the forms already show.
