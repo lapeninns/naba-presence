@@ -388,23 +388,20 @@ function ClientsIndex({ role }: { role: string | null }) {
           // and a chevron. A tap anywhere on the card opens the client
           // (onRowClick); keyboard and screen-reader users open it through
           // the name link, whose name is just the client's. From `lg` a click
-          // opens the quick look instead, and the name link keeps the full
-          // open for Enter and a modifier click.
+          // on the row opens the quick look instead; the name link always
+          // opens the client.
           <DataTable
             caption="Clients, with their Google health and open review work"
             rows={rows}
             rowId={(client) => client.id}
             onRowClick={(client) => {
-              if (!quick.desk) {
-                router.push(`/clients/${client.id}`)
-                return
-              }
-              quick.show(
+              const opened = quick.show(
                 client,
                 document.querySelector<HTMLElement>(
                   `[data-quick-look-link="${CSS.escape(client.id)}"]`
                 )
               )
+              if (!opened) router.push(`/clients/${client.id}`)
             }}
             surface
             responsive
@@ -423,10 +420,7 @@ function ClientsIndex({ role }: { role: string | null }) {
                         // client settings record cards do; a text link at the desk.
                         className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) text-body font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
                         data-quick-look-link={client.id}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          quick.intercept(event, client)
-                        }}
+                        onClick={(event) => event.stopPropagation()}
                       >
                         {client.name}
                       </ShellLink>
@@ -825,8 +819,9 @@ function ClientQuickLook({
           </QuickLookFact>
           <QuickLookFact label="Verified on Google">
             <span className="tabular-nums">
-              {formatNumber(client.verifiedCount)} of{" "}
-              {formatNumber(client.locationCount)}
+              {client.linkedCount === 0
+                ? "No linked listings"
+                : `${formatNumber(client.verifiedCount)} of ${formatNumber(client.linkedCount)} linked`}
             </span>
           </QuickLookFact>
         </QuickLookFacts>

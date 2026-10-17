@@ -422,6 +422,14 @@ function ListingQuickLook({
                 "Never"
               )}
             </span>
+            {/* The listing page's words for a publish that did not land. */}
+            {summary?.lastPublish?.status === "failed" ? (
+              <StatusPill tone="at-risk">Failed</StatusPill>
+            ) : summary?.lastPublish?.status === "ambiguous" ? (
+              <StatusPill tone="attention">Outcome unclear</StatusPill>
+            ) : summary?.lastPublish?.status === "in_progress" ? (
+              <StatusPill tone="pending">In progress</StatusPill>
+            ) : null}
           </QuickLookFact>
         </QuickLookFacts>
       </QuickLookSection>
@@ -919,13 +927,22 @@ function ListingsBoard({
             {/* The whole row is this link's target: its ::after stretches
                 over the row (positioned), so a phone row is one tap and
                 never a 24px line of text. No chevron of its own: the row is
-                `interactive`, so the record card already draws one. */}
+                `interactive`, so the record card already draws one. From
+                `lg` a click on the rest of the row (the ::after, whose clicks
+                land on the link itself) opens the quick look; the name is
+                raised above the ::after, so a click on it opens the listing
+                (DSK-23). */}
             <ShellLink
               href={listingHref(row.entry.id)}
-              onClick={(event) => quick.intercept(event, row)}
+              onClick={(event) => {
+                if (event.target === event.currentTarget)
+                  quick.intercept(event, row)
+              }}
               className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-3xl/table:min-h-0 @max-3xl/table:text-body"
             >
-              {row.entry.name}
+              <span data-slot="row-name" className="relative z-raised">
+                {row.entry.name}
+              </span>
             </ShellLink>
             {clientInSubtitle || address ? (
               <span className="text-caption break-words text-ink-muted">

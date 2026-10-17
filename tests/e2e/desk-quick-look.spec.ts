@@ -6,8 +6,8 @@ import { readJourneyState } from "./helpers/stub-bridge"
 /**
  * The desk quick look (DSK-23, P23): from `lg`, a plain click on a Clients
  * index row or a Listings board row opens the row's work in a right panel
- * with one "Open …" link; Enter on the row's link and any click below `lg`
- * still open the full page.
+ * with one "Open …" link; the row's name (a click or Enter) and any click
+ * below `lg` still open the full page.
  */
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
@@ -148,6 +148,21 @@ test.describe("desk quick look", () => {
       await expect(page).toHaveURL(/\/clients\/c-busy$/)
     })
 
+    test("a click on a client's name opens the page, not the panel", async ({
+      page,
+    }) => {
+      await stubClients(page, [
+        stubClient("c-busy", "Busy Bar", "healthy"),
+        stubClient("c-other", "Old Crown Group", "healthy"),
+      ])
+      await openClients(page)
+      const row = page.getByRole("row").filter({ hasText: "Busy Bar" })
+      await expect(row.getByText("2 to reply")).toBeVisible()
+      await row.getByRole("link", { name: "Busy Bar", exact: true }).click()
+      await expect(page).toHaveURL(/\/clients\/c-busy$/)
+      await expect(page.getByRole("dialog")).toHaveCount(0)
+    })
+
     test("Enter on a client's name link opens the page, not the panel", async ({
       page,
     }) => {
@@ -195,10 +210,16 @@ test.describe("desk quick look", () => {
 
       await page.keyboard.press("Escape")
       await expect(panel).toBeHidden()
-      await expect(
-        row.getByRole("link", { name: listing, exact: true })
-      ).toBeFocused()
+      const name = row.getByRole("link", { name: listing, exact: true })
+      await expect(name).toBeFocused()
       await expect(page).toHaveURL(/\/listings$/)
+
+      // The listing's name still opens the listing.
+      await name.click()
+      await expect(page).toHaveURL(
+        new RegExp(`/listings/${state.primaryLocationId}$`)
+      )
+      await expect(page.getByRole("dialog")).toHaveCount(0)
     })
   })
 

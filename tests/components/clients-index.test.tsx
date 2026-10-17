@@ -479,12 +479,8 @@ describe("ClientsIndex", () => {
       const table = await screen.findByRole("table", {
         name: "Clients, with their Google health and open review work",
       })
-      fireEvent.click(
-        within(table).getByRole("link", { name: "Old Crown Group" }),
-        {
-          detail: 1,
-        }
-      )
+      // A click on the row's work, not on the name link.
+      fireEvent.click(within(table).getByText("2 to reply"), { detail: 1 })
       const dialog = await screen.findByRole("dialog", {
         name: "Old Crown Group",
       })
@@ -501,6 +497,8 @@ describe("ClientsIndex", () => {
       expect(
         within(dialog).getByRole("link", { name: "Open client" })
       ).toHaveAttribute("href", "/clients/c1")
+      // Verified is counted against the linked listings it can apply to.
+      expect(within(dialog).getByText("2 of 3 linked")).toBeInTheDocument()
       expect(push).not.toHaveBeenCalled()
     })
 
@@ -521,11 +519,13 @@ describe("ClientsIndex", () => {
       expect(push).not.toHaveBeenCalled()
     })
 
-    it("keeps the name link's own navigation for Enter and a modifier click", async () => {
+    it("keeps the name link's own navigation for a plain click, Enter and a modifier click", async () => {
       stubWidth(true)
       stub([base])
       renderIndex()
       const link = await screen.findByRole("link", { name: "Old Crown Group" })
+      // fireEvent.click answers false when the default was prevented.
+      expect(fireEvent.click(link, { detail: 1 })).toBe(true)
       expect(fireEvent.click(link, { detail: 0 })).toBe(true)
       expect(fireEvent.click(link, { detail: 1, metaKey: true })).toBe(true)
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()

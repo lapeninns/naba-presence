@@ -742,6 +742,22 @@ describe("ListingsBoard", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     })
 
+    it("opens the listing, not the quick look, on a click on its name", () => {
+      stubWidth(true)
+      stub({
+        entries,
+        summaries: entries.map((entry) => summary({ locationId: entry.id })),
+      })
+      render(<ListingsBoard role="owner" />)
+      // The name sits above the row's stretched target, so a click on it
+      // lands on the name, not on the link's own box.
+      const name = within(
+        screen.getByRole("link", { name: "Old Crown Girton" })
+      ).getByText("Old Crown Girton")
+      expect(fireEvent.click(name, { detail: 1 })).toBe(true)
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    })
+
     it("does not intercept the click below lg", () => {
       stubWidth(false)
       stub({

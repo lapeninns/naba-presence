@@ -13,7 +13,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { useBreakpoint } from "@/lib/hooks/use-media-query"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 
 /**
@@ -22,14 +22,16 @@ import { cn } from "@/lib/utils"
  * `lg`, a plain click on a Clients or Listings row opens the overlay's right
  * `panel` with the row's work and one "Open …" link to the full page.
  *
- * The row's own link still opens the page in every other case: below `lg`
- * (a phone or tablet has no room beside the list), a modifier or middle
- * click (new tab or window), and Enter on the link, so keyboard and
- * screen-reader users keep the link they had and never meet a "link" that
- * opens a dialog.
+ * The row's name is its link and always opens the page: a click on the
+ * name, Enter on it (so keyboard users keep exactly the link they had) and a
+ * modifier or middle click (new tab or window). Only the rest of the row
+ * opens the quick look, and only from `lg`; a phone or tablet has no room
+ * beside the list, so there the whole row still opens the page. Every fact
+ * in the panel is also on the page it links to.
  *
  *   const quick = useQuickLook<Client>()
- *   <a href={…} onClick={(event) => quick.intercept(event, client)}>…</a>
+ *   <a href={…} onClick={(event) => quick.intercept(event, row)}>…</a>
+ *   <DataTable onRowClick={(client) => quick.show(client, nameLink) || router.push(…)} />
  *   <QuickLookPanel {...quick.panelProps} title={…} openHref={…} openLabel="Open client">
  *     <QuickLookSection title="Work">…</QuickLookSection>
  *   </QuickLookPanel>
@@ -57,43 +59,63 @@ function isQuickLookClick(event: QuickLookClick): boolean {
 }
 
 /**
+ * Whether the window is at least `lg` now. Asked at the click, not held as
+ * state, so a resize never re-renders the whole list (see
+ * lib/hooks/use-media-query.ts). jsdom and the server read false.
+ */
+function atDesk(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    Boolean(window.matchMedia(mediaQuery("lg"))?.matches)
+  )
+}
+
+/**
  * The quick look's state for one list. `item` stays set while the panel
  * animates out, so its content does not empty under the closing panel.
  */
 function useQuickLook<T>() {
-  const desk = useBreakpoint("lg", false)
   const [state, setState] = React.useState<{ item: T | null; open: boolean }>({
     item: null,
     open: false,
   })
-  // Where focus goes back to on close: the row's link that opened it.
+  // Where focus goes back to on close: the row's name link.
   const returnFocus = React.useRef<HTMLElement | null>(null)
 
-  const show = (item: T, from?: HTMLElement | null) => {
-    returnFocus.current = from ?? null
-    setState({ item, open: true })
-  }
   const onOpenChange = (open: boolean) =>
     setState((current) => ({ ...current, open }))
 
   /**
-   * For a row link's (or row's) click: from `lg`, a plain pointer click
-   * opens the quick look instead of the page. Answers whether it did, so a
-   * caller can fall back to its own navigation.
+   * From `lg`, open the quick look on `item`; below it, do nothing. For a
+   * row whose click handler gets no event (DataTable's `onRowClick`).
+   * Answers whether it opened.
+   */
+  const show = (item: T, from?: HTMLElement | null): boolean => {
+    if (!atDesk()) return false
+    returnFocus.current = from ?? null
+    setState({ item, open: true })
+    return true
+  }
+
+  /**
+   * For a row's click: from `lg`, a plain pointer click opens the quick look
+   * (and the click's default is prevented). Answers whether it did, so a
+   * caller can fall back to its own navigation. `from` is the row's name
+   * link, where focus returns on close.
    */
   const intercept = (
     event: React.MouseEvent<HTMLElement>,
     item: T,
     from?: HTMLElement | null
   ): boolean => {
-    if (!desk || !isQuickLookClick(event)) return false
+    if (!isQuickLookClick(event) || !show(item, from ?? event.currentTarget))
+      return false
     event.preventDefault()
-    show(item, from ?? event.currentTarget)
     return true
   }
 
   return {
-    desk,
     item: state.item,
     open: state.open,
     show,
