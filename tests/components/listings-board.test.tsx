@@ -681,4 +681,52 @@ describe("ListingsBoard", () => {
     const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
     expect(within(crown).getByText("Not checked")).toBeInTheDocument()
   })
+
+  it("opens a quick look on a listing without leaving the board", async () => {
+    const user = userEvent.setup()
+    stub({
+      entries,
+      summaries: [
+        summary({
+          locationId: "l1",
+          profile: { status: "core_dirty", dirtyCount: 2, observedAt: null },
+        }),
+        summary({ locationId: "l2" }),
+        summary({ locationId: "l3" }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    await user.click(
+      screen.getByRole("button", { name: "Quick look: Old Crown Girton" })
+    )
+    const panel = await screen.findByRole("dialog", {
+      name: "Old Crown Girton",
+    })
+    expect(within(panel).getByText("Old Crown Group")).toBeInTheDocument()
+    expect(within(panel).getByText("2 changes to publish")).toBeInTheDocument()
+    expect(
+      within(panel).getByRole("link", { name: "Open listing" })
+    ).toHaveAttribute("href", "/listings/l1")
+    // Opening it never selected, filtered or navigated.
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("closes the quick look with Escape and returns focus to its button", async () => {
+    const user = userEvent.setup()
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    const button = screen.getByRole("button", {
+      name: "Quick look: Harbour View",
+    })
+    await user.click(button)
+    await screen.findByRole("dialog", { name: "Harbour View" })
+    await user.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(button).toHaveFocus())
+  })
 })

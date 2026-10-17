@@ -35,6 +35,7 @@ import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
 import { SearchInput } from "@/components/ui/input"
 import { QueryError } from "@/components/ui/query-states"
+import { QuickLook } from "@/components/ui/quick-look"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -488,6 +489,14 @@ function ClientsIndex({ role }: { role: string | null }) {
                 priority: "desk-only",
                 cell: (client) => <LoginCell client={client} />,
               },
+              {
+                id: "quick-look",
+                header: <span className="sr-only">Quick look</span>,
+                // The desk's panel; a card is already one tap to the client.
+                priority: "desk-only",
+                className: "text-right",
+                cell: (client) => <ClientQuickLook client={client} />,
+              },
             ]}
           />
         )}
@@ -743,6 +752,69 @@ function OpenWork({ client }: { client: ClientSummary }) {
         <StatusPill tone="at-risk">{formatNumber(failed)} failed</StatusPill>
       ) : null}
     </span>
+  )
+}
+
+/**
+ * The desk's quick look at a client: the row's figures in words, the whole
+ * list of Google logins (the table shows only the first), and the three
+ * places a next step usually starts.
+ */
+function ClientQuickLook({ client }: { client: ClientSummary }) {
+  const note = clientHealthNote(client)
+  return (
+    <QuickLook
+      subject={client.name}
+      description={
+        <span className="flex flex-col items-start gap-1">
+          <StatusPill
+            tone={healthTone(client.health)}
+            dashed={client.health === "not_connected"}
+          >
+            {healthLabel(client.health)}
+          </StatusPill>
+          {note ? <span>{note}</span> : null}
+        </span>
+      }
+      facts={[
+        { label: "Listings", value: linkedSentence(client) },
+        { label: "Reviews waiting", value: <OpenWork client={client} /> },
+        {
+          label: "Last sync",
+          value: client.lastSyncAt ? (
+            <RelativeTime iso={client.lastSyncAt} prefix="Synced " />
+          ) : (
+            "Not synced yet"
+          ),
+        },
+        {
+          label: "Google logins",
+          value:
+            client.connections.length === 0 ? (
+              "No Google login yet"
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {client.connections.map((connection) => (
+                  <li key={connection.id} className="[overflow-wrap:anywhere]">
+                    {connection.googleEmail ?? "Google account"}
+                    {connectionNeedsReconnect(connection) ? (
+                      <span className="font-medium text-danger-ink">
+                        {" "}
+                        · needs reconnecting
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ),
+        },
+      ]}
+      links={[
+        { label: "Open client", href: `/clients/${client.id}` },
+        { label: "Open inbox", href: `/inbox?clientId=${client.id}` },
+        { label: "Open listings", href: `/listings?clientId=${client.id}` },
+      ]}
+    />
   )
 }
 

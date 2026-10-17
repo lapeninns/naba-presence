@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { QuickLook } from "@/components/ui/quick-look"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -49,6 +50,7 @@ import { formatNumber } from "@/lib/format"
 import {
   googleChangedCount,
   listingHealth,
+  listingHealthDescription,
   listingHealthLabel,
   listingHealthTone,
   summariseListingHealth,
@@ -313,6 +315,75 @@ function VerificationCell({ row }: { row: BoardRow }) {
   )
 }
 
+/**
+ * The desk's quick look at a listing: what the row shows, plus the plain
+ * sentence behind its health word, so a listing can be checked without
+ * opening it and losing the board's filters and place.
+ */
+function ListingQuickLook({
+  row,
+  summariesPending,
+}: {
+  row: BoardRow
+  summariesPending: boolean
+}) {
+  const business = useWorkspaceMode() === "business"
+  const address = formatAddressLine(row.entry.address)
+  const checking = summariesPending && row.health === "unchecked"
+  return (
+    <QuickLook
+      subject={row.entry.name}
+      description={address || undefined}
+      facts={[
+        {
+          label: "Health",
+          value: checking ? (
+            "Checking this listing…"
+          ) : (
+            <span className="flex flex-col items-start gap-1">
+              <StatusPill tone={listingHealthTone(row.health)}>
+                {listingHealthLabel(row.health)}
+              </StatusPill>
+              <span className="text-caption text-ink-muted">
+                {listingHealthDescription(row.health)}
+              </span>
+            </span>
+          ),
+        },
+        ...(business ? [] : [{ label: "Client", value: row.clientName }]),
+        {
+          label: "Waiting",
+          value: summariesPending ? (
+            "Checking…"
+          ) : (
+            <PendingChips summary={row.summary} />
+          ),
+        },
+        { label: "Verification", value: <VerificationCell row={row} /> },
+        {
+          label: "Reviews",
+          value: row.summary?.freshness ? (
+            <FreshnessLine summary={row.summary} />
+          ) : (
+            "—"
+          ),
+        },
+        {
+          label: "Last published",
+          value: !row.summary ? (
+            "—"
+          ) : row.summary.lastPublish ? (
+            <RelativeTime iso={row.summary.lastPublish.at} />
+          ) : (
+            "Never"
+          ),
+        },
+      ]}
+      links={[{ label: "Open listing", href: listingHref(row.entry.id) }]}
+    />
+  )
+}
+
 const COLUMNS = [
   "Listing",
   "Client",
@@ -384,6 +455,9 @@ function BoardTable({
           {columnsFor(business).map((column) => (
             <TableHead key={column}>{column}</TableHead>
           ))}
+          <TableHead>
+            <span className="sr-only">Quick look</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>{children}</TableBody>
@@ -437,6 +511,7 @@ function BoardSkeleton({ canManage = false }: { canManage?: boolean }) {
             <TableCell priority="desk-only">
               <Skeleton className="h-3.5 w-20" />
             </TableCell>
+            <TableCell priority="desk-only" />
           </TableRow>
         ))}
       </BoardTable>
@@ -887,6 +962,9 @@ function ListingsBoard({
             </span>
           )}
         </TableCell>
+        <TableCell priority="desk-only" className="text-right">
+          <ListingQuickLook row={row} summariesPending={summaries.isPending} />
+        </TableCell>
       </TableRow>
     )
   }
@@ -1076,7 +1154,7 @@ function ListingsBoard({
           >
             {!business && unfiled.length > 0 ? (
               <TableRow group>
-                <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
+                <TableCell colSpan={COLUMNS.length + 1 + (canSelect ? 1 : 0)}>
                   Not filed under a client · {formatNumber(unfiled.length)}
                 </TableCell>
               </TableRow>
@@ -1084,7 +1162,7 @@ function ListingsBoard({
             {unfiled.map(renderRow)}
             {!business && unfiled.length > 0 && filed.length > 0 ? (
               <TableRow group>
-                <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
+                <TableCell colSpan={COLUMNS.length + 1 + (canSelect ? 1 : 0)}>
                   Filed under a client · {formatNumber(filed.length)}
                 </TableCell>
               </TableRow>

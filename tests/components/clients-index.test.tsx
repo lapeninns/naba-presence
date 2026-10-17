@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -113,9 +114,7 @@ describe("ClientsIndex", () => {
     const table = await screen.findByRole("table", {
       name: "Clients, with their Google health and open review work",
     })
-    expect(
-      within(table).getByText("Can’t reach Google")
-    ).toBeInTheDocument()
+    expect(within(table).getByText("Can’t reach Google")).toBeInTheDocument()
   })
 
   it("surfaces unassigned locations rather than hiding them", async () => {
@@ -459,5 +458,52 @@ describe("ClientsIndex", () => {
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
       archived: false,
     })
+  })
+
+  it("opens a quick look on a client without opening the client", async () => {
+    const user = userEvent.setup()
+    stub([
+      {
+        ...base,
+        connections: [
+          {
+            id: "k1",
+            googleEmail: "owner@oldcrown.example",
+            status: "active",
+            reconnectRequired: false,
+            lastRefreshAt: null,
+          },
+          {
+            id: "k2",
+            googleEmail: "second@oldcrown.example",
+            status: "revoked",
+            reconnectRequired: true,
+            lastRefreshAt: null,
+          },
+        ],
+      },
+    ])
+    renderIndex()
+    await user.click(
+      await screen.findByRole("button", { name: "Quick look: Old Crown Group" })
+    )
+    const panel = await screen.findByRole("dialog", { name: "Old Crown Group" })
+    expect(
+      within(panel).getByText("3 of 3 listings linked")
+    ).toBeInTheDocument()
+    expect(within(panel).getByText("2 to reply")).toBeInTheDocument()
+    // Every login, not just the first the table shows.
+    expect(
+      within(panel).getByText("second@oldcrown.example")
+    ).toBeInTheDocument()
+    expect(
+      within(panel).getByRole("link", { name: "Open client" })
+    ).toHaveAttribute("href", "/clients/c1")
+    expect(
+      within(panel).getByRole("link", { name: "Open inbox" })
+    ).toHaveAttribute("href", "/inbox?clientId=c1")
+    // Neither opening it nor clicking inside it hit the row's click.
+    await user.click(within(panel).getByText("3 of 3 listings linked"))
+    expect(push).not.toHaveBeenCalled()
   })
 })
