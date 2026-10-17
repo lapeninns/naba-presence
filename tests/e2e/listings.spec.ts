@@ -48,15 +48,42 @@ test.describe("listings", () => {
     await expect(
       page.getByRole("heading", { name: "Listings", level: 1 })
     ).toBeVisible()
-    for (const column of ["Listing", "Client", "Health", "Waiting"]) {
-      await expect(
-        page.getByRole("columnheader", { name: column, exact: true })
-      ).toBeVisible()
-    }
+    const table = page.getByRole("table", {
+      name: "Listings, with their Google health and what is waiting on each",
+    })
+    await expect(table).toBeVisible()
     const row = page
       .getByRole("row")
       .filter({ hasText: state.directReview.locationName })
     await expect(row).toBeVisible()
+    // The board is a table only while its own container is 48rem wide (a
+    // container query, so 375 and 768 both get record cards). There the
+    // header row steps aside and each card's title line, the listing's name,
+    // is what stands in for the Listing column.
+    const cards = await table.evaluate(
+      (element) => (element.parentElement?.clientWidth ?? 0) < 768
+    )
+    const columns = ["Listing", "Client", "Health", "Waiting"]
+    for (const column of columns) {
+      const header = page.getByRole("columnheader", {
+        name: column,
+        exact: true,
+      })
+      if (cards) await expect(header).toBeHidden()
+      else await expect(header).toBeVisible()
+    }
+    if (cards) {
+      const title = row.getByRole("link", {
+        name: state.directReview.locationName,
+      })
+      await expect(title).toBeVisible()
+      // The title line is the card's first line: nothing in the row sits
+      // above the listing's name.
+      const titleBox = await title.boundingBox()
+      const rowBox = await row.boundingBox()
+      expect(titleBox && rowBox).toBeTruthy()
+      expect(titleBox!.y - rowBox!.y).toBeLessThan(titleBox!.height)
+    }
     // The Waiting column is the DB-only summary: it settles without Google.
     await expect(
       row.getByText(/Nothing waiting|to publish|Google change/)
@@ -373,7 +400,26 @@ test.describe("listings", () => {
     await page.waitForLoadState("networkidle")
     await name.fill("Riverside Rooms & Suites")
     // Save the change in NabaPresence only, so Review & publish has it waiting.
-    await page.getByRole("button", { name: "Save here", exact: true }).click()
+    // "Save here" is a secondary of the editor's bar: inline from `md`, and on
+    // a phone folded into the bar's "More actions" menu, so the bar stays one
+    // row. Reach it the way that width does.
+    const bar = page.getByRole("region", { name: "Editor actions" })
+    const saveHere = bar.getByRole("button", { name: "Save here", exact: true })
+    const saved = page.waitForResponse(
+      (r) =>
+        r.request().method() === "PUT" &&
+        new URL(r.url()).pathname ===
+          `/api/locations/${state.primaryLocationId}/profile`
+    )
+    if (page.viewportSize()!.width < 768) {
+      await expect(saveHere).toBeHidden()
+      await bar.getByRole("button", { name: "More actions" }).click()
+      await page.getByRole("menuitem", { name: "Save here" }).click()
+    } else {
+      await saveHere.click()
+    }
+    expect((await saved).status()).toBe(200)
+
 
     // Review & publish sends the profile step as a POST operation (the save
     // above was the PUT), so fail that one.
