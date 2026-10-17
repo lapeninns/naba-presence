@@ -562,8 +562,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       data-slot="ai-unavailable"
       className="m-0 min-w-0 flex-1 text-caption text-ink-muted"
     >
-      AI replies are not available for this workspace yet. You can still write
-      one yourself.
+      AI replies aren’t set up here. Write your own.
     </p>
   ) : (
     <DropdownMenu>

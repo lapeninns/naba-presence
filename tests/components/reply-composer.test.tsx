@@ -682,7 +682,7 @@ describe("ReplyComposer — the editor", () => {
       "ai_not_configured",
       "AI features are not configured."
     )
-    const NOTE = "AI replies are not available for this workspace yet."
+    const NOTE = "AI replies aren’t set up here. Write your own."
 
     it("is known from the credits read, before any attempt", () => {
       const mutateAsync = mount({}, undefined, {

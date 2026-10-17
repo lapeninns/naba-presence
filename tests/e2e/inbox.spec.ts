@@ -336,7 +336,7 @@ test.describe("inbox", () => {
     expect((await (await credits).json()).aiConfigured).toBe(false)
     const detail = page.getByRole("region", { name: "Selected review" })
     await expect(
-      detail.getByText("AI replies are not available for this workspace yet.")
+      detail.getByText("AI replies aren’t set up here. Write your own.")
     ).toBeVisible()
     await expect(
       detail.getByRole("button", { name: /Generate reply|Regenerate/ })
