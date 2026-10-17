@@ -54,10 +54,23 @@ export default function InboxLoading() {
                   />
                 }
                 actions={
-                  <Skeleton aria-hidden className="size-(--np-control-h)" />
+                  // On a phone the header has no visible action: Sync is in
+                  // the bottom bar and the shortcuts are a desk control.
+                  <Skeleton
+                    aria-hidden
+                    className="size-(--np-control-h) max-md:hidden"
+                  />
                 }
               />
-              <InboxBottomToolbar searchMode={false}>
+              <InboxBottomToolbar
+                searchMode={false}
+                trailing={
+                  <Skeleton
+                    aria-hidden
+                    className="size-(--np-touch) rounded-full"
+                  />
+                }
+              >
                 <div aria-hidden className="flex min-w-0 items-center gap-2">
                   <Skeleton className="h-(--np-touch) min-w-0 flex-1 basis-32 rounded-(--np-radius-pill) md:basis-48 desk:h-(--np-control-h)" />
                   <Skeleton className="size-(--np-touch) shrink-0 rounded-(--np-radius-pill) desk:size-(--np-control-h)" />

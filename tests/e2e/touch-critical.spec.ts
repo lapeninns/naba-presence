@@ -31,7 +31,17 @@ async function applyCookie(
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
-type InboxTenant = { cookie: string; reviewId: string; text: string }
+type InboxTenant = {
+  cookie: string
+  reviewId: string
+  text: string
+  /** For a journey that needs more reviews than the one seeded here. */
+  seed: {
+    organisationId: string
+    connectionId: string
+    googleAccountName: string
+  }
+}
 
 /**
  * The inbox journeys' own tenant. The journey tenant's reviews are shared
@@ -97,7 +107,16 @@ const touchTest = test.extend<
         update location set client_id = (select id from filed)
         where id = ${review.locationId}
       `
-      await provide({ cookie: tenant.cookie, reviewId: review.reviewId, text })
+      await provide({
+        cookie: tenant.cookie,
+        reviewId: review.reviewId,
+        text,
+        seed: {
+          organisationId: tenant.organisationId,
+          connectionId: connection.connectionId,
+          googleAccountName: connection.googleAccountName,
+        },
+      })
     } finally {
       await destroyTenants(harnessAdmin, [tenant.organisationId])
     }
@@ -733,7 +752,15 @@ test.describe("touch: critical journeys at 390x844", () => {
   // and out of the way of every other bottom bar.
   touchTest(
     "inbox: search and Filters sit in the bottom third on the tab bar, and a docked bar takes the edge",
-    async ({ page, baseURL, inboxTenant }) => {
+    async ({ page, baseURL, inboxTenant, harnessAdmin }) => {
+      // More reviews than a screen holds, so the list's foot meets the bar.
+      for (let index = 1; index <= 11; index += 1) {
+        await seedLinkedReview(harnessAdmin, {
+          ...inboxTenant.seed,
+          text: `Touch overflow review ${index}`,
+          rating: 4,
+        })
+      }
       await applyCookie(page, baseURL, inboxTenant.cookie)
       await page.goto("/inbox")
       const toolbar = page.locator("[data-slot=inbox-bottom-toolbar]")
@@ -769,14 +796,28 @@ test.describe("touch: critical journeys at 390x844", () => {
         toolbar.getByRole("button", { name: "Sync reviews" })
       ).toBeVisible()
       // The last row can be scrolled clear of the bar.
-      const row = page
+      const rows = page
         .getByRole("region", { name: "Review list" })
-        .getByRole("button", {
-          name: new RegExp(inboxTenant.text + "(?: |$)"),
-        })
-      await row.scrollIntoViewIfNeeded()
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-      await expectNotCovered(row, "the last review row")
+        .getByRole("button", { name: /Touch (?:project|overflow) review/ })
+      await expect(rows).toHaveCount(12)
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollHeight > window.innerHeight
+        ),
+        "the list is longer than the screen"
+      ).toBe(true)
+      await page.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight)
+      )
+      const lastRow = rows.last()
+      await expectNotCovered(lastRow, "the last review row")
+      const lastBox = (await lastRow.boundingBox())!
+      const barTop = (await toolbar.boundingBox())!.y
+      expect(
+        lastBox.y + lastBox.height,
+        "the last row's foot is above the bar"
+      ).toBeLessThanOrEqual(barTop + 1)
+      await page.evaluate(() => window.scrollTo(0, 0))
 
       // Filters opens its sheet by tap.
       await tap(filters)
@@ -795,6 +836,20 @@ test.describe("touch: critical journeys at 390x844", () => {
       await tap(page.getByRole("button", { name: "Cancel selection" }))
       await expect(toolbar).toBeVisible()
       await expect(tabBar).toBeVisible()
+
+      // A toast clears the bar as it clears the tab bar: Sync's result
+      // lands above the bar, not over the field.
+      await tap(toolbar.getByRole("button", { name: "Sync reviews" }))
+      const toast = page.locator("[data-slot=toast]").first()
+      // A sync reads every listing from the Google stub (12 here).
+      await expect(toast).toBeVisible({ timeout: 30_000 })
+      await settle(page, toast)
+      const toastBox = (await toast.boundingBox())!
+      const barBox = (await toolbar.boundingBox())!
+      expect(
+        toastBox.y + toastBox.height,
+        "the toast's foot is above the bar"
+      ).toBeLessThanOrEqual(barBox.y)
     }
   )
 
@@ -815,8 +870,11 @@ test.describe("touch: critical journeys at 390x844", () => {
       const visibleBottom = await page.evaluate(
         () => window.visualViewport!.offsetTop + window.visualViewport!.height
       )
+      // The bar rides on the keyboard: its foot is the keyboard's top edge.
       const box = (await toolbar.boundingBox())!
-      expect(box.y + box.height).toBeLessThanOrEqual(visibleBottom + 1)
+      expect(Math.abs(box.y + box.height - visibleBottom)).toBeLessThanOrEqual(
+        1
+      )
       await expect(page.locator("[data-slot=tab-bar]")).toBeHidden()
       await expect(
         toolbar.getByRole("button", { name: "Cancel" })
@@ -828,6 +886,22 @@ test.describe("touch: critical journeys at 390x844", () => {
       await expect(page).toHaveURL(/[?&]search=lovely/)
       await tap(toolbar.getByRole("button", { name: "Cancel" }))
       await expect(page).not.toHaveURL(/[?&]search=/)
+      // The keyboard goes with the field; the tab bar comes back and the bar
+      // rests on it again, with Sync beside the field.
+      await page.evaluate(() => {
+        ;(window as unknown as { __touchKeyboard: number }).__touchKeyboard = 0
+        window.visualViewport!.dispatchEvent(new Event("resize"))
+      })
+      await expect(page.locator("html")).not.toHaveAttribute(
+        "data-keyboard",
+        "open"
+      )
+      const tabBar = page.locator("[data-slot=tab-bar]")
+      await expect(tabBar).toBeVisible()
+      await settle(page, toolbar)
+      const rested = (await toolbar.boundingBox())!
+      const tabs = (await tabBar.boundingBox())!
+      expect(Math.abs(rested.y + rested.height - tabs.y)).toBeLessThanOrEqual(1)
       await expect(
         toolbar.getByRole("button", { name: "Sync reviews" })
       ).toBeVisible()

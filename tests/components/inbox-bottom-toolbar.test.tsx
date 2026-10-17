@@ -85,7 +85,10 @@ describe("InboxBottomToolbar (R10, INB-19)", () => {
         <p>toolbar</p>
       </InboxBottomToolbar>
     )
-    expect(screen.queryByText("Sync")).toBeNull()
+    // Hidden, not unmounted, so a running sync keeps its pending state.
+    expect(trailing).toBeInTheDocument()
+    expect(trailing).toHaveAttribute("hidden")
+    expect(screen.getByText("Sync")).not.toBeVisible()
   })
 
   it("has a spacer that is hidden from assistive tech and from md", () => {
@@ -160,8 +163,12 @@ describe("InboxToolbar with the bottom toolbar", () => {
     expect(
       within(bar()).getByRole("button", { name: "Cancel" })
     ).toBeInTheDocument()
+    // Sync steps aside but stays mounted, keeping any running sync's state.
     expect(
       document.querySelector('[data-slot="inbox-bottom-toolbar-trailing"]')
+    ).toHaveAttribute("hidden")
+    expect(
+      within(bar()).queryByRole("button", { name: "Sync reviews" })
     ).toBeNull()
   })
 })

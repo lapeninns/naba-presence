@@ -1158,8 +1158,8 @@
    the tab bar steps aside. The Inbox's list toolbar
    (`data-slot="inbox-bottom-toolbar"`, R10) is the one bar that rides above
    the tab bar instead of replacing it: it sits on the tab bar, on the
-   keyboard while search has it open, and steps aside for a docked bar. The document's scroll padding follows whichever
-   bar is there, so a focused field scrolled into view is never left under
+   keyboard while search has it open, and steps aside for a docked bar. The
+   document's scroll padding follows whichever bar is there, so a focused field scrolled into view is never left under
    the app bar or a bottom bar (WCAG 2.4.11). On a desk the toolbar is the
    only sticky chrome. */
 @media (width < 48rem) {

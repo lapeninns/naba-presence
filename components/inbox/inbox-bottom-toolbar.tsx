@@ -30,7 +30,7 @@ function InboxBottomToolbar({
 }: {
   /** Search mode (the field and its Cancel take the whole bar). */
   searchMode: boolean
-  /** The phone's sync control. Drawn beside the toolbar, never in search. */
+  /** The phone's sync control. Drawn beside the toolbar, hidden in search. */
   trailing?: ReactNode
   /** The `Toolbar`. */
   children: ReactNode
@@ -49,9 +49,12 @@ function InboxBottomToolbar({
       )}
     >
       <div className="min-w-0 flex-1">{children}</div>
-      {trailing != null && !searchMode ? (
+      {trailing != null ? (
+        // Hidden, not removed, in search: a sync that is running keeps its
+        // pending state, so Cancel never brings back a second Sync to fire.
         <div
           data-slot="inbox-bottom-toolbar-trailing"
+          hidden={searchMode}
           className="flex shrink-0 empty:hidden md:hidden"
         >
           {trailing}
