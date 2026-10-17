@@ -53,7 +53,7 @@ afterEach(() => {
 })
 
 describe("InboxBottomToolbar (R10, INB-19)", () => {
-  it("draws the phone bar on the chrome contract's slot, one control row tall", () => {
+  it("draws the floating bar on the chrome contract's slot, one control row tall, where float-bar holds", () => {
     render(
       <InboxBottomToolbar searchMode={false}>
         <p>toolbar</p>
@@ -61,10 +61,13 @@ describe("InboxBottomToolbar (R10, INB-19)", () => {
     )
     expect(bar()).toHaveClass(
       "max-md:flex",
-      "max-md:z-chrome",
-      "max-md:h-(--np-actionbar-h)",
-      "max-md:border-t"
+      "float-bar:z-chrome",
+      "float-bar:h-(--np-actionbar-h)",
+      "float-bar:border-t",
+      "float-bar:bg-surface"
     )
+    // In the band (a short phone) it is only a row: no bar of its own.
+    expect(bar().className).not.toMatch(/max-md:(?:z-|border-t|bg-|h-)/)
     expect(within(bar()).getByText("toolbar")).toBeInTheDocument()
   })
 
@@ -91,13 +94,17 @@ describe("InboxBottomToolbar (R10, INB-19)", () => {
     expect(screen.getByText("Sync")).not.toBeVisible()
   })
 
-  it("has a spacer that is hidden from assistive tech and from md", () => {
+  it("has a spacer that is hidden from assistive tech and shown only where the bar floats", () => {
     render(<InboxBottomToolbarSpacer />)
     const spacer = document.querySelector(
       '[data-slot="inbox-bottom-toolbar-spacer"]'
     )
     expect(spacer).toHaveAttribute("aria-hidden", "true")
-    expect(spacer).toHaveClass("h-(--np-actionbar-h)", "md:hidden")
+    expect(spacer).toHaveClass(
+      "hidden",
+      "h-(--np-actionbar-h)",
+      "float-bar:block"
+    )
   })
 })
 
@@ -174,12 +181,18 @@ describe("InboxToolbar with the bottom toolbar", () => {
 })
 
 describe("the chrome contract for the Inbox's bottom toolbar", () => {
-  it("fixes the bar above the tab bar and on the keyboard while it is open", () => {
+  it("fixes the bar above the tab bar on a phone with room, and on the keyboard at any height", () => {
     expect(globalsCss).toMatch(
-      /\[data-slot="inbox-bottom-toolbar"\]\s*\{\s*position: fixed;[^}]*bottom: calc\(var\(--np-tabbar-h\) \+ var\(--np-safe-bottom\)\)/
+      /@media \(width < 48rem\) and \(min-height: 40rem\) \{\s*\[data-slot="inbox-bottom-toolbar"\]\s*\{\s*position: fixed;[^}]*bottom: calc\(var\(--np-tabbar-h\) \+ var\(--np-safe-bottom\)\)/
     )
     expect(globalsCss).toMatch(
-      /\[data-keyboard="open"\] \[data-slot="inbox-bottom-toolbar"\]\s*\{\s*bottom: var\(--np-dock-bottom\)/
+      /html\[data-keyboard="open"\] \[data-slot="inbox-bottom-toolbar"\]\s*\{\s*position: fixed;[^}]*bottom: var\(--np-dock-bottom\)/
+    )
+  })
+
+  it("defines float-bar as the same two conditions", () => {
+    expect(globalsCss).toMatch(
+      /@custom-variant float-bar \{\s*@media \(width < 48rem\) and \(min-height: 40rem\) \{\s*@slot;\s*\}\s*@media \(width < 48rem\) \{\s*&:where\(\[data-keyboard="open"\] \*\) \{\s*@slot;/
     )
   })
 

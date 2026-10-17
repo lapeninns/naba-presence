@@ -909,6 +909,77 @@ test.describe("touch: critical journeys at 390x844", () => {
   )
 
   touchTest(
+    "inbox: on a short phone the toolbar stays in the band, and rides the keyboard while search has it",
+    async ({ page, baseURL, inboxTenant }) => {
+      // 320x568: a floating bar on the tab bar would put fixed chrome over a
+      // quarter of the screen (audit:mobile's chrome budget).
+      await page.setViewportSize({ width: 320, height: 568 })
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await installKeyboardShim(page)
+      await page.goto("/inbox")
+      const toolbar = page.locator("[data-slot=inbox-bottom-toolbar]")
+      await expect(toolbar).toBeVisible()
+      await settle(page, toolbar)
+      await expect(toolbar).toHaveCSS("position", "static")
+      const box = (await toolbar.boundingBox())!
+      expect(box.y, "the toolbar is in the band at the top").toBeLessThan(
+        568 / 2
+      )
+      await expect(
+        page.locator("[data-slot=inbox-bottom-toolbar-spacer]")
+      ).toBeHidden()
+      // Sync is beside the field in the band, still not in the header.
+      await expect(
+        toolbar.getByRole("button", { name: "Sync reviews" })
+      ).toBeVisible()
+      await expect(
+        page
+          .locator("[data-slot=inbox-title-row]")
+          .getByRole("button", { name: "Sync reviews" })
+      ).toBeHidden()
+      // Fixed chrome: the app bar and the tab bar, within a quarter.
+      const fixed = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>("body *")]
+          .filter((element) => {
+            const position = getComputedStyle(element).position
+            const rect = element.getBoundingClientRect()
+            return (
+              (position === "fixed" || position === "sticky") &&
+              rect.height > 0 &&
+              rect.height < window.innerHeight * 0.9 &&
+              rect.bottom > 0 &&
+              rect.top < window.innerHeight
+            )
+          })
+          .map((element) => element.getBoundingClientRect())
+          .map((rect) => [Math.max(0, rect.top), Math.min(568, rect.bottom)])
+      )
+      const covered = new Set<number>()
+      for (const [top, bottom] of fixed)
+        for (let y = Math.floor(top); y < Math.ceil(bottom); y += 1)
+          covered.add(y)
+      expect(covered.size / 568, "fixed chrome share").toBeLessThanOrEqual(0.25)
+
+      // Search takes the keyboard: the bar leaves the band for the keyboard's
+      // top edge, the one place a focused field stays in view.
+      await tap(toolbar.locator("[data-slot=input-search]"))
+      await openKeyboard(page)
+      await settle(page, toolbar)
+      await expect(toolbar).toHaveCSS("position", "fixed")
+      const visibleBottom = await page.evaluate(
+        () => window.visualViewport!.offsetTop + window.visualViewport!.height
+      )
+      const riding = (await toolbar.boundingBox())!
+      expect(
+        Math.abs(riding.y + riding.height - visibleBottom)
+      ).toBeLessThanOrEqual(1)
+      await expect(
+        page.getByRole("searchbox", { name: "Search reviews" })
+      ).toBeFocused()
+    }
+  )
+
+  touchTest(
     "inbox: an open review has no toolbar over it",
     async ({ page, baseURL, inboxTenant }) => {
       await applyCookie(page, baseURL, inboxTenant.cookie)

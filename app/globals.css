@@ -46,6 +46,23 @@
    lib/ui/breakpoints.ts for matchMedia. */
 @custom-variant tall (@media (min-height: 38.75rem));
 
+/* A phone with room for a second bottom bar above the tab bar: at least
+   40rem tall (the opposite of `short`), or any phone while the keyboard is
+   up. Under it the app bar, that bar and the tab bar stay within a quarter
+   of the screen. The keyboard half keeps a bar that is floating where it is
+   when Android shrinks the layout viewport for the keyboard. Used by the
+   Inbox's list toolbar (R10); its placement is in the CHROME CONTRACT. */
+@custom-variant float-bar {
+  @media (width < 48rem) and (min-height: 40rem) {
+    @slot;
+  }
+  @media (width < 48rem) {
+    &:where([data-keyboard="open"] *) {
+      @slot;
+    }
+  }
+}
+
 /* Hover motion only where a fine pointer can actually hover. */
 @custom-variant hover-fine (@media (hover: hover) and (pointer: fine));
 
@@ -1159,9 +1176,9 @@
    (`data-slot="inbox-bottom-toolbar"`, R10) is the one bar that rides above
    the tab bar instead of replacing it: it sits on the tab bar, on the
    keyboard while search has it open, and steps aside for a docked bar. The
-   document's scroll padding follows whichever bar is there, so a focused field scrolled into view is never left under
-   the app bar or a bottom bar (WCAG 2.4.11). On a desk the toolbar is the
-   only sticky chrome. */
+   document's scroll padding follows whichever bar is there, so a focused
+   field scrolled into view is never left under the app bar or a bottom bar
+   (WCAG 2.4.11). On a desk the toolbar is the only sticky chrome. */
 @media (width < 48rem) {
   html {
     scroll-padding-top: calc(var(--np-appbar-h) + var(--np-safe-top));
@@ -1179,19 +1196,21 @@
   [data-keyboard="open"] [data-slot="tab-bar"] {
     display: none;
   }
+}
 
-  /* The Inbox's bottom toolbar (components/inbox/inbox-bottom-toolbar.tsx).
-     Its height is the action bar's, so a docked bar can take its place
-     without the page moving. Where the list is not on screen (a review is
-     open) the inbox hides it with its controls, and the scroll padding
-     below does not count it. */
+/* The Inbox's bottom toolbar (components/inbox/inbox-bottom-toolbar.tsx). It
+   floats where `float-bar` holds: on a phone at least 40rem tall, and on any
+   phone while the keyboard is up. On a short phone, or one held sideways, it
+   stays in the band under the title, so fixed chrome stays within a quarter
+   of the screen. Its height is the action bar's, so a docked bar can take
+   its place without the page moving. Where the list is not on screen (a
+   review is open) the inbox hides it with its controls, and the scroll
+   padding below does not count it. */
+@media (width < 48rem) and (min-height: 40rem) {
   [data-slot="inbox-bottom-toolbar"] {
     position: fixed;
     inset-inline: 0;
     bottom: calc(var(--np-tabbar-h) + var(--np-safe-bottom));
-  }
-  [data-keyboard="open"] [data-slot="inbox-bottom-toolbar"] {
-    bottom: var(--np-dock-bottom);
   }
   body:has([data-docked="bottom"]) [data-slot="inbox-bottom-toolbar"],
   body:has([data-docked="bottom"]) [data-slot="inbox-bottom-toolbar-spacer"] {
@@ -1204,19 +1223,8 @@
       var(--np-tabbar-h) + var(--np-safe-bottom) + var(--np-actionbar-h)
     );
   }
-  html[data-keyboard="open"]:has(
-      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
-    ):not(:has([data-docked="bottom"])) {
-    scroll-padding-bottom: calc(var(--np-dock-bottom) + var(--np-actionbar-h));
-  }
   /* Toasts clear the toolbar as they clear the tab bar: the same edge, one
      bar higher. Unlayered, so it wins over the viewport's own utilities. */
-  body:has(
-      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
-    ):not(:has([data-docked="bottom"]))
-    [data-slot="toast-viewport"] {
-    --toast-edge: calc(var(--np-dock-bottom) + var(--np-actionbar-h));
-  }
   html:not([data-keyboard="open"])
     body:has(
       [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
@@ -1225,6 +1233,34 @@
     --toast-edge: calc(
       var(--np-tabbar-h) + var(--np-safe-bottom) + var(--np-actionbar-h)
     );
+  }
+}
+/* With the keyboard up the bar rides on the keyboard, at any phone height. */
+@media (width < 48rem) {
+  html[data-keyboard="open"] [data-slot="inbox-bottom-toolbar"] {
+    position: fixed;
+    inset-inline: 0;
+    bottom: var(--np-dock-bottom);
+  }
+  html[data-keyboard="open"]
+    body:has([data-docked="bottom"])
+    [data-slot="inbox-bottom-toolbar"],
+  html[data-keyboard="open"]
+    body:has([data-docked="bottom"])
+    [data-slot="inbox-bottom-toolbar-spacer"] {
+    display: none;
+  }
+  html[data-keyboard="open"]:has(
+      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+    ):not(:has([data-docked="bottom"])) {
+    scroll-padding-bottom: calc(var(--np-dock-bottom) + var(--np-actionbar-h));
+  }
+  html[data-keyboard="open"]
+    body:has(
+      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+    ):not(:has([data-docked="bottom"]))
+    [data-slot="toast-viewport"] {
+    --toast-edge: calc(var(--np-dock-bottom) + var(--np-actionbar-h));
   }
 }
 /* Scrolled into view by focus, a control keeps a little air above and below

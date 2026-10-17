@@ -11,16 +11,20 @@ import { cn } from "@/lib/utils"
  * moves on hydration. From `md` the wrapper is a plain block and the toolbar
  * sits in the band under the title as it always has. Below `md`:
  *
- * - Where the bar sits is the CHROME CONTRACT's (`[data-slot="inbox-bottom-
- *   toolbar"]` in app/globals.css): on top of the tab bar, on the keyboard
- *   while it is open (search takes the keyboard), and out of the way while a
- *   docked bar (the selection bar, a review's publish bar) owns the edge:
- *   one bottom bar at a time.
+ * - It floats where the `float-bar` variant holds: a phone at least 40rem
+ *   tall, or any phone with the keyboard up. A short phone (320x568, or a
+ *   phone held sideways) keeps it in the band, Sync beside the field, so
+ *   fixed chrome stays within a quarter of the screen.
+ * - Where the floating bar sits is the CHROME CONTRACT's (`[data-slot=
+ *   "inbox-bottom-toolbar"]` in app/globals.css): on top of the tab bar, on
+ *   the keyboard while it is open (search takes the keyboard), and out of the
+ *   way while a docked bar (the selection bar, a review's publish bar) owns
+ *   the edge: one bottom bar at a time.
  * - `InboxBottomToolbarSpacer` keeps the list's last row reachable above it.
  * - Sync moves in beside the field (`trailing`) and leaves the page header;
  *   search mode takes the whole width for the field and its Cancel.
  */
-const BAR_HEIGHT_CLASS = "max-md:h-(--np-actionbar-h)"
+const BAR_HEIGHT_CLASS = "float-bar:h-(--np-actionbar-h)"
 
 function InboxBottomToolbar({
   searchMode,
@@ -41,9 +45,10 @@ function InboxBottomToolbar({
       data-slot="inbox-bottom-toolbar"
       className={cn(
         "min-w-0",
-        "max-md:z-chrome max-md:flex max-md:items-center max-md:gap-2 max-md:border-t max-md:border-line max-md:bg-surface",
+        "max-md:flex max-md:items-center max-md:gap-2",
+        "float-bar:z-chrome float-bar:border-t float-bar:border-line float-bar:bg-surface",
         // The page gutter, or the landscape notch when that is wider.
-        "max-md:pr-[max(--spacing(4),var(--np-safe-right))] max-md:pl-[max(--spacing(4),var(--np-safe-left))]",
+        "float-bar:pr-[max(--spacing(4),var(--np-safe-right))] float-bar:pl-[max(--spacing(4),var(--np-safe-left))]",
         BAR_HEIGHT_CLASS,
         className
       )}
@@ -65,16 +70,17 @@ function InboxBottomToolbar({
 }
 
 /**
- * The room the fixed bar takes at the foot of the list, so the last row can
- * scroll clear of it. Phone only; the bar steps aside for a docked bar, which
- * brings its own spacer, and so does this (globals.css).
+ * The room the floating bar takes at the foot of the list, so the last row
+ * can scroll clear of it. Only where the bar floats (`float-bar`); the bar
+ * steps aside for a docked bar, which brings its own spacer, and so does
+ * this (globals.css).
  */
 function InboxBottomToolbarSpacer() {
   return (
     <div
       aria-hidden
       data-slot="inbox-bottom-toolbar-spacer"
-      className="h-(--np-actionbar-h) shrink-0 md:hidden"
+      className="hidden h-(--np-actionbar-h) shrink-0 float-bar:block"
     />
   )
 }
