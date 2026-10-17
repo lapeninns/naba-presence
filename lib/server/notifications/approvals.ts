@@ -164,7 +164,8 @@ export async function notifyApprovalRequested(
   // different draft (the draft was edited, which leaves approval without a
   // decision) is closed, so the new draft is a new request its approvers
   // see as unread and are emailed about. The same draft submitted again (a
-  // double press, a retried request) keeps the open one and emails nobody.
+  // double press, a retried request) keeps the open one and emails nobody
+  // twice; only someone it newly names is emailed (openAddressed).
   await resolveOpen(sql, "reply_sent_back", subjectId)
   await sql`
     update notification_incident set status = 'resolved', resolved_at = now()

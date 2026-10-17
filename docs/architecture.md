@@ -1820,7 +1820,12 @@ owner/admin only. The approval kinds (`approval_requested`, `reply_sent_back`,
 reply, or the person who asked), and only while those people can still see the
 location. They are recorded in the transaction that parks or decides the reply
 (`lib/server/notifications/approvals.ts`), clear themselves when the reply
-moves on, and an email for one that has cleared is not sent. Reading is per person (`notification_recipient_state`) and
+moves on, and an email for one that has cleared is not sent. Because a browser
+still on an earlier build checks answers against its own strict kind list, the
+notification list, shell-status poll and preferences name these kinds only to a
+client that sends `x-naba-capabilities: notification-kinds-2`
+(`lib/contracts/client-capabilities.ts`); others get the earlier shape. This
+build's readers drop rows of a kind they do not know rather than failing. Reading is per person (`notification_recipient_state`) and
 never resolves; conditions clear themselves and managers resolve events.
 Preferences store only explicit choices; defaults preserve the original
 owner/admin immediate emails and make every digest category opt-in. Each send
