@@ -722,6 +722,57 @@ test.describe("listings", () => {
       .click()
     await expect(review).toHaveCount(0)
   })
+
+  test("profile section headings at 390: only Identity's is screen-reader text, every other has a normal box (incl. Lodging)", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(`/listings/${state.primaryLocationId}/profile`)
+    await page.waitForLoadState("networkidle")
+    // The industry sections load after the editor's first paint.
+    await expect(
+      page.getByRole("heading", { name: "Lodging", exact: true })
+    ).toBeAttached()
+    // A rendered box, not toBeVisible: an sr-only heading is a 1 px clipped
+    // box and passes that.
+    const headings = await page
+      .locator('[data-slot="settings-group-label"]')
+      .evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const rect = node.getBoundingClientRect()
+          const style = getComputedStyle(node)
+          return {
+            text: node.textContent?.trim() ?? "",
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            clipped: style.clip !== "auto" || style.clipPath !== "none",
+          }
+        })
+      )
+    const byName = (name: string) => headings.find((item) => item.text === name)
+    expect(byName("Identity")).toMatchObject({ width: 1, height: 1 })
+    for (const name of ["Lodging", "Categories"]) {
+      const heading = byName(name)
+      expect(heading, `${name} heading is on the page`).toBeDefined()
+      expect(heading!.width, `${name} heading width`).toBeGreaterThan(30)
+      expect(heading!.height, `${name} heading height`).toBeGreaterThan(10)
+      expect(heading!.clipped, `${name} heading clipped`).toBe(false)
+    }
+    // And no heading other than Identity's is hidden.
+    expect(
+      headings.filter((item) => item.width <= 1 && item.height <= 1)
+    ).toEqual([expect.objectContaining({ text: "Identity" })])
+
+    // From desk Identity's heading is drawn again.
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const identity = page.locator("#section-identity-heading")
+    await expect
+      .poll(async () => (await identity.boundingBox())?.height ?? 0)
+      .toBeGreaterThan(10)
+  })
 })
 
 // #195 (Listings peer review note A) and GF-7: a document load of a

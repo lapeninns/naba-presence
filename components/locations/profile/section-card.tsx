@@ -46,11 +46,16 @@ export function LabelRow({
  * heading); the scroll margin keeps the section clear of the phone's
  * sticky section tabs.
  *
- * Where the phone's sticky tab strip already names the section, the first
- * group on the page drops its visible heading row and caption below `desk`
- * so its first field starts straight under the tabs (the heading stays in the
- * outline as screen-reader text, still the section nav's focus target, and
- * the caption still describes the group); a "Changed" mark keeps its row.
+ * `quietOnPhone`: where the phone's sticky tab strip already names the
+ * section, the group drops its visible heading row and caption below `desk`
+ * so its first field starts straight under the tabs. The heading stays in
+ * the outline as screen-reader text, still the section nav's focus target,
+ * and the caption still describes the group; a "Changed" mark keeps its row.
+ * Opt-in, for the one section that sits first under the tabs (Identity). It
+ * is a prop rather than a `first-of-type` rule on purpose: that selector
+ * matched any card that was the first `<section>` inside its own wrapper
+ * (Lodging in IndustryEditor, the Product catalogue handoff) and hid their
+ * headings too.
  *
  * `bare`: no card, for a section made of its own groups (attributes).
  * `info`: an information card on every screen (the sunken surface), for a
@@ -64,6 +69,7 @@ export function SectionCard({
   children,
   bare = false,
   info = false,
+  quietOnPhone = false,
   className,
 }: {
   id: string
@@ -75,6 +81,8 @@ export function SectionCard({
   bare?: boolean
   /** A sunken information card on every screen, not a settings group. */
   info?: boolean
+  /** Below `desk`, turn the heading and caption into screen-reader text. */
+  quietOnPhone?: boolean
   className?: string
 }) {
   // An info card says its piece inside the card; a settings group says what
@@ -98,11 +106,11 @@ export function SectionCard({
         // The page's column gap spaces the groups; clear of the phone's
         // sticky section tabs, a desk has a rail.
         "mt-0 min-w-0 scroll-mt-18 desk:scroll-mt-4",
-        // The first group, below `desk` (a custom variant has no `max-`
-        // form, so `desk:` puts it back): the tab strip above already names
-        // it, so its heading row and caption become screen-reader text.
-        "first-of-type:[&>[data-slot=settings-group-caption]]:sr-only first-of-type:[&>div:first-child]:min-h-0 first-of-type:[&>div:first-child>[data-slot=settings-group-label]]:sr-only",
-        "desk:first-of-type:[&>[data-slot=settings-group-caption]]:not-sr-only desk:first-of-type:[&>[data-slot=settings-group-caption]]:mb-1 desk:first-of-type:[&>div:first-child]:min-h-8 desk:first-of-type:[&>div:first-child>[data-slot=settings-group-label]]:not-sr-only",
+        // Below `desk` (a custom variant has no `max-` form, so `desk:` puts
+        // it back): the tab strip above already names the group, so its
+        // heading row and caption become screen-reader text.
+        quietOnPhone &&
+          "[&>[data-slot=settings-group-caption]]:sr-only desk:[&>[data-slot=settings-group-caption]]:not-sr-only desk:[&>[data-slot=settings-group-caption]]:mb-1 [&>div:first-child]:min-h-0 desk:[&>div:first-child]:min-h-8 [&>div:first-child>[data-slot=settings-group-label]]:sr-only desk:[&>div:first-child>[data-slot=settings-group-label]]:not-sr-only",
         className
       )}
     >
