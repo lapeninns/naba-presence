@@ -435,14 +435,19 @@ test("a client hub names its locations and trails back to Clients", async ({
   ).toBeVisible()
 
   // The trail is what makes the depth navigable: from an area three levels
-  // in, the board, the client and the listing are each one click away. It
+  // in, the board is one click away and the client and the listing two. It
   // is drawn from 1180px; narrower widths show the back link instead.
   await page.setViewportSize(DESK)
   await page.goto(`/listings/${state.primaryLocationId}/hours`)
   const trail = page.getByRole("navigation", { name: "Breadcrumb" })
   await expect(trail.getByRole("link", { name: "Listings" })).toBeVisible()
-  await expect(trail.getByRole("link", { name: state.clientName })).toBeVisible()
+  // The middle folds into "…" (DSK-05); the listing's name is also the line
+  // above the area's title. The client and the listing are one menu away.
+  await trail.getByRole("button", { name: "Earlier pages in the trail" }).click()
   await expect(
-    trail.getByRole("link", { name: state.directReview.locationName })
+    page.getByRole("menuitem", { name: state.clientName })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("menuitem", { name: state.directReview.locationName })
   ).toBeVisible()
 })

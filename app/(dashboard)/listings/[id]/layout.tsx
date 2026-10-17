@@ -10,9 +10,9 @@ import { getSession } from "@/lib/server/session"
 /**
  * Every page of one listing. An area page's `AreaFrame` lives here, so
  * switching areas swaps only the editor below the header, which stays
- * mounted with its switcher, pill and tabs (LST-14). Each area page streams
- * its own editor read behind `StreamedTab`. The overview and Review &
- * publish draw their own header.
+ * mounted with its switcher, pill and tabs (LST-14). Each area page, and
+ * Review & publish, streams its own live read behind `StreamedTab`. Only the
+ * overview draws its own header.
  *
  * The capabilities and the DB summary are read here (pure SQL, so the
  * header and its status paint with the page) inside their own Suspense
