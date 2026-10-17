@@ -160,10 +160,12 @@ const minutes = (count: number) => count * 60_000
  */
 async function settle() {
   if (!shellClient) throw new Error("The shell is not rendered")
-  const deadline = performance.now() + 10_000
+  // Inside vitest's 5 s test timeout, so a query that never settles fails
+  // with this message rather than a bare timeout.
+  const deadline = performance.now() + 4_000
   while (shellClient.isFetching()) {
     if (performance.now() > deadline) {
-      throw new Error("The shell's queries did not settle within 10 s")
+      throw new Error("The shell's queries did not settle within 4 s")
     }
     await act(async () => {
       await new Promise((resolve) => setImmediate(resolve))
