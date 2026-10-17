@@ -49,11 +49,13 @@
 /* Where the Inbox's list toolbar (R10) floats on a phone: with room for a
    second bottom bar above the tab bar, at least 40rem tall (the opposite of
    `short`), so the app bar, that bar and the tab bar stay within a quarter
-   of the screen; and at any height while its search field has focus or the
-   keyboard is up. The focus half holds the bar where it is when Android
-   shrinks the layout viewport for the keyboard (and sets no
-   `data-keyboard`); the keyboard half puts it on an iPhone's keyboard. Its
-   placement is in the CHROME CONTRACT. */
+   of the screen; and at any height in search mode or while the keyboard is
+   up. The search half holds the bar where it is when Android shrinks the
+   layout viewport for the keyboard (and sets no `data-keyboard`), and keeps
+   it there when a tapped result takes focus from the field, so the list
+   never moves under the finger; leaving search (Cancel) moves it once. The
+   keyboard half puts it on an iPhone's keyboard. Its placement is in the
+   CHROME CONTRACT. */
 @custom-variant float-bar {
   @media (width < 48rem) and (min-height: 40rem) {
     @slot;
@@ -61,7 +63,7 @@
   @media (width < 48rem) {
     &:where(
       [data-keyboard="open"] *,
-      :root:has([data-slot="inbox-bottom-toolbar"] input:focus) *
+      :root:has([data-slot="inbox-bottom-toolbar"][data-search-mode]) *
     ) {
       @slot;
     }
@@ -1240,12 +1242,12 @@
     );
   }
 }
-/* While its search field has focus the bar floats at any phone height, on
-   the tab bar: on Android the keyboard shrinks the layout viewport under
-   40rem and leaves the tab bar showing, and the bar must not drop into the
-   band under the field being typed in. */
+/* In search mode the bar floats at any phone height, on the tab bar: on
+   Android the keyboard shrinks the layout viewport under 40rem and leaves
+   the tab bar showing, and the bar must not drop into the band under the
+   field being typed in, or move the results while one is tapped. */
 @media (width < 48rem) {
-  html:has([data-slot="inbox-bottom-toolbar"] input:focus):not(
+  html:has([data-slot="inbox-bottom-toolbar"][data-search-mode]):not(
       [data-keyboard="open"]
     ) {
     & [data-slot="inbox-bottom-toolbar"] {

@@ -983,7 +983,7 @@ test.describe("touch: critical journeys at 390x844", () => {
   )
 
   touchTest(
-    "inbox: on Android, where the keyboard shrinks the page, the bar stays on the tab bar while search has it",
+    "inbox: on Android, where the keyboard shrinks the page, the bar stays on the tab bar through search and a tapped result",
     async ({ page, baseURL, inboxTenant }) => {
       // Android Chrome with `interactive-widget=resizes-content`: the
       // keyboard shrinks the layout viewport (under 40rem here) and sets no
@@ -1010,6 +1010,24 @@ test.describe("touch: critical journeys at 390x844", () => {
       // Leaving search returns a short screen's bar to the band.
       await tap(toolbar.getByRole("button", { name: "Cancel" }))
       await expect(toolbar).toHaveCSS("position", "static")
+
+      // Search mode, not focus, holds the bar: a result tapped near its top
+      // edge takes focus from the field, and the list must not move under
+      // the finger before the tap lands.
+      await tap(toolbar.locator("[data-slot=input-search]"))
+      await expect(search).toBeFocused()
+      await page.keyboard.type("Touch")
+      await expect(page).toHaveURL(/[?&]search=Touch/)
+      const result = page
+        .getByRole("region", { name: "Review list" })
+        .getByRole("button", { name: new RegExp(inboxTenant.text) })
+        .first()
+      await expect(result).toBeVisible()
+      await settle(page, result)
+      await result.tap({ position: { x: 40, y: 8 } })
+      await expect(page).toHaveURL(
+        new RegExp(`[?&]selected=${inboxTenant.reviewId}`)
+      )
     }
   )
 

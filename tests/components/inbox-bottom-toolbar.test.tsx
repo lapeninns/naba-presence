@@ -82,12 +82,15 @@ describe("InboxBottomToolbar (R10, INB-19)", () => {
     )
     expect(trailing).toHaveClass("md:hidden", "empty:hidden")
     expect(within(trailing as HTMLElement).getByText("Sync")).toBeVisible()
+    expect(bar()).not.toHaveAttribute("data-search-mode")
 
     rerender(
       <InboxBottomToolbar searchMode trailing={<button>Sync</button>}>
         <p>toolbar</p>
       </InboxBottomToolbar>
     )
+    // Search mode is on the bar for the chrome contract (float-bar).
+    expect(bar()).toHaveAttribute("data-search-mode")
     // Hidden, not unmounted, so a running sync keeps its pending state.
     expect(trailing).toBeInTheDocument()
     expect(trailing).toHaveAttribute("hidden")
@@ -192,13 +195,13 @@ describe("the chrome contract for the Inbox's bottom toolbar", () => {
 
   it("defines float-bar as the same three conditions", () => {
     expect(globalsCss).toMatch(
-      /@custom-variant float-bar \{\s*@media \(width < 48rem\) and \(min-height: 40rem\) \{\s*@slot;\s*\}\s*@media \(width < 48rem\) \{\s*&:where\(\s*\[data-keyboard="open"\] \*,\s*:root:has\(\[data-slot="inbox-bottom-toolbar"\] input:focus\) \*\s*\) \{\s*@slot;/
+      /@custom-variant float-bar \{\s*@media \(width < 48rem\) and \(min-height: 40rem\) \{\s*@slot;\s*\}\s*@media \(width < 48rem\) \{\s*&:where\(\s*\[data-keyboard="open"\] \*,\s*:root:has\(\[data-slot="inbox-bottom-toolbar"\]\[data-search-mode\]\) \*\s*\) \{\s*@slot;/
     )
   })
 
-  it("keeps the bar floating on the tab bar at any height while its search field has focus", () => {
+  it("keeps the bar floating on the tab bar at any height in search mode", () => {
     expect(globalsCss).toMatch(
-      /html:has\(\[data-slot="inbox-bottom-toolbar"\] input:focus\):not\(\s*\[data-keyboard="open"\]\s*\) \{\s*& \[data-slot="inbox-bottom-toolbar"\] \{\s*position: fixed;[^}]*bottom: calc\(var\(--np-tabbar-h\) \+ var\(--np-safe-bottom\)\)/
+      /html:has\(\[data-slot="inbox-bottom-toolbar"\]\[data-search-mode\]\):not\(\s*\[data-keyboard="open"\]\s*\) \{\s*& \[data-slot="inbox-bottom-toolbar"\] \{\s*position: fixed;[^}]*bottom: calc\(var\(--np-tabbar-h\) \+ var\(--np-safe-bottom\)\)/
     )
   })
 

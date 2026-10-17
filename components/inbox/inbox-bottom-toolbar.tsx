@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils"
  * sits in the band under the title as it always has. Below `md`:
  *
  * - It floats where the `float-bar` variant holds: a phone at least 40rem
- *   tall, or any phone while its search field has focus or the keyboard is
- *   up. Otherwise a short phone (320x568, or a phone held sideways) keeps it
+ *   tall, or any phone in search mode (`data-search-mode`) or with the
+ *   keyboard up. Otherwise a short phone (320x568, or a phone held sideways) keeps it
  *   in the band, Sync beside the field, so fixed chrome stays within a
  *   quarter of the screen.
  * - Where the floating bar sits is the CHROME CONTRACT's (`[data-slot=
@@ -44,6 +44,7 @@ function InboxBottomToolbar({
   return (
     <div
       data-slot="inbox-bottom-toolbar"
+      data-search-mode={searchMode || undefined}
       className={cn(
         "min-w-0",
         "max-md:flex max-md:items-center max-md:gap-2",
