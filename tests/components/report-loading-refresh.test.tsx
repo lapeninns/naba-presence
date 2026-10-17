@@ -305,7 +305,7 @@ describe("one location's report", () => {
       </QueryClientProvider>
     )
     expect(
-      screen.getByText("Loading this location’s report")
+      screen.getByText("Loading this listing’s report")
     ).toBeInTheDocument()
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map(([url]) => String(url))

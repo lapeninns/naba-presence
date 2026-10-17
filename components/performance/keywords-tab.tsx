@@ -42,6 +42,7 @@ import {
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
  * Search keywords for the page's scope and period. The period is chosen in
@@ -90,7 +91,7 @@ export function KeywordsTab({
             <FetchedAtCaption
               iso={keywords.data?.from ?? null}
               timezone="UTC"
-              prefix="Impressions since"
+              prefix="Impressions counted from"
             />
             {refresh.refreshing ? <RefreshStatus /> : null}
           </>
@@ -171,8 +172,8 @@ export function KeywordsTab({
         titleAs="h3"
         variant="empty"
         icon={<Link2OffIcon />}
-        title="No linked location"
-        description="Connect a Google location to see the searches that surface it."
+        title={`No linked ${LISTING_TERMS.place}`}
+        description={`Connect a Google ${LISTING_TERMS.place} to see the searches that surface it.`}
         action={
           <Link
             href={clientId ? `/clients/${clientId}` : "/listings"}

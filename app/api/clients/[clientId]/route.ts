@@ -12,6 +12,9 @@ import {
   uniqueClientSlug,
 } from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
+import { listingWaiting } from "@/lib/clients/listing-columns"
+import { listingHealth } from "@/lib/listings/health"
+import { readListingSummaries } from "@/lib/server/location-summary"
 import { requireRecentMfa } from "@/lib/server/mfa"
 import {
   requireClientAccess,
@@ -56,7 +59,32 @@ export const GET = route({
           and ${visibilityPredicate(sql, session, sql`l.id`)}
         order by lower(l.name)
       `
-      return { client, locations }
+      // The listings board's Health and Waiting for each row (DSK-10), from
+      // the DB-only summary: no Google call, and only the listings this
+      // session may see (the query above already applied that scope).
+      const summaries = locations.length
+        ? await readListingSummaries(
+            sql,
+            session,
+            locations.map((row) => row.locationId as string)
+          )
+        : []
+      const summaryOf = new Map(summaries.map((s) => [s.locationId, s]))
+      return {
+        client,
+        locations: locations.map((row) => {
+          const summary = summaryOf.get(row.locationId as string)
+          return {
+            ...row,
+            health: listingHealth({
+              linked: summary?.linked ?? Boolean(row.linkId),
+              verified: summary?.verified ?? (row.verified as boolean | null),
+              summary,
+            }),
+            waiting: summary ? listingWaiting(summary) : 0,
+          }
+        }),
+      }
     })
     return clientResponseSchema.parse(result)
   },

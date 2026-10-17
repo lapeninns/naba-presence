@@ -56,7 +56,7 @@ describe("ReplyFigures", () => {
       />
     )
     expect(screen.getAllByText("—")).toHaveLength(2)
-    expect(screen.queryByText(/previous window/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/previous period/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Changes compare/)).not.toBeInTheDocument()
   })
 
@@ -70,8 +70,8 @@ describe("ReplyFigures", () => {
         {...base}
       />
     )
-    expect(screen.getByText(/faster than the previous window/)).toBeInTheDocument()
-    expect(screen.getByText("Changes compare with the 28 days before this window.")).toBeInTheDocument()
+    expect(screen.getByText(/faster than the previous period/)).toBeInTheDocument()
+    expect(screen.getByText("Changes compare with the 28 days before this period.")).toBeInTheDocument()
   })
 
   it("never says no reviews beside tiles that count some", () => {
@@ -81,9 +81,9 @@ describe("ReplyFigures", () => {
       <ReplyFigures audience="internal" summary={SUMMARY} previous={PREVIOUS} series={EMPTY_SERIES} {...base} />
     )
     expect(screen.getByText("2")).toBeInTheDocument()
-    expect(screen.queryByText("No reviews in this window")).not.toBeInTheDocument()
-    expect(screen.queryByText("No rated reviews in this window")).not.toBeInTheDocument()
-    expect(screen.getAllByText("Chart unavailable for this window")).toHaveLength(2)
+    expect(screen.queryByText("No reviews in this period")).not.toBeInTheDocument()
+    expect(screen.queryByText("No rated reviews in this period")).not.toBeInTheDocument()
+    expect(screen.getAllByText("Chart unavailable for this period")).toHaveLength(2)
   })
 
   it("draws the charts with a value table when the series has reviews", () => {
@@ -126,9 +126,9 @@ describe("ReplyFigures", () => {
     rerender(
       <ReplyFigures audience="internal" summary={PREVIOUS} previous={PREVIOUS} series={EMPTY_SERIES} {...base} />
     )
-    expect(screen.getByText("No reviews in this window yet")).toBeInTheDocument()
+    expect(screen.getByText("No reviews in this period yet")).toBeInTheDocument()
     expect(
-      screen.getByText(/these locations in the last 28 days \(15 Sept – 13 Oct\)/)
+      screen.getByText(/these listings in the last 28 days \(15 Sept – 13 Oct\)/)
     ).toBeInTheDocument()
     expect(screen.queryByText("Response rate")).not.toBeInTheDocument()
   })
@@ -138,7 +138,7 @@ describe("ReplyFigures", () => {
       <ReplyFigures audience="public" summary={PREVIOUS} previous={null} series={[]} {...base} />
     )
     expect(screen.getByText("No reviews in this period")).toBeInTheDocument()
-    expect(screen.getByText("No reviews arrived for these venues in the last 28 days.")).toBeInTheDocument()
+    expect(screen.getByText("No reviews arrived for these listings in the last 28 days.")).toBeInTheDocument()
   })
 
   it("uses one hint for response rate whoever reads it", () => {

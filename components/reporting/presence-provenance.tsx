@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sheet"
 import type { PresenceResponse } from "@/lib/contracts/analytics"
 import { formatDate, formatDateTime } from "@/lib/format"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 const noSubscribe = () => () => {}
 
@@ -94,18 +95,18 @@ export function PresenceProvenance({
   const newest = data.fetchedAt?.newest ?? oldest
   const dataThrough = data.freshThrough
     ? `Figures up to ${formatDate(data.freshThrough, "UTC")}`
-    : "No Google figures in this window"
+    : "No Google figures in this period"
   // The oldest per-location watermark, when it trails the newest date: every
   // location is complete up to it, only some beyond it.
   const completeThrough = data.completeness?.completeThrough
   const completeLine =
     completeThrough && data.freshThrough && completeThrough < data.freshThrough
-      ? `All reporting locations complete through ${formatDate(completeThrough, "UTC")}`
+      ? `All reporting listings complete through ${formatDate(completeThrough, "UTC")}`
       : null
   // One state per location, so the parts add up to the locations in scope.
   const coverageParts = coverage
     ? [
-        `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`,
+        `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? LISTING_TERMS.place : LISTING_TERMS.placePlural} up to date`,
         coverage.unconfirmed
           ? `${coverage.unconfirmed} with figures but no recorded fetch`
           : null,
@@ -164,9 +165,9 @@ export function PresenceCaption({
   const coverage = data.coverage
   const through = data.freshThrough
     ? `Through ${formatDate(data.freshThrough, "UTC")}`
-    : "No Google figures in this window"
+    : "No Google figures in this period"
   const reporting = coverage
-    ? `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} up to date`
+    ? `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? LISTING_TERMS.place : LISTING_TERMS.placePlural} up to date`
     : null
   return (
     <div

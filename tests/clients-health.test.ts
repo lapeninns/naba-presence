@@ -88,7 +88,7 @@ describe("clientHealth", () => {
 
   it("asks for action when any of a client's logins needs reconnecting", () => {
     // Partly working used to read as a softer "attention", but a person
-    // still has to do something, so it is Action needed.
+    // still has to do something, so it is disconnected.
     expect(
       health({
         connections: [connection(), connection({ status: "revoked" })],
@@ -304,6 +304,24 @@ describe("health filters", () => {
         buckets.filter((filter) => healthFilterMatches(filter.value, state))
       ).toHaveLength(1)
     }
+  })
+
+  it("lists the buckets most urgent first, as the chip strip draws them", () => {
+    const order = HEALTH_FILTERS.map((filter) => filter.value)
+    expect(order).toEqual([
+      "all",
+      "disconnected",
+      "attention",
+      "unpublished",
+      "partially_checked",
+      "unchecked",
+      "not_connected",
+      "healthy",
+    ])
+    const severities = order
+      .filter((value) => value !== "all")
+      .map((value) => healthSeverity(value as ClientHealth))
+    expect(severities).toEqual([...severities].sort((a, b) => a - b))
   })
 
   it("labels each bucket with the same word as the pill", () => {

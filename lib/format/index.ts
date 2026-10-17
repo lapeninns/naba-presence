@@ -1,4 +1,10 @@
-export { formatDate, formatDateTime, formatRelativeTime } from "./date"
+export {
+  formatDate,
+  formatDateTime,
+  formatDayMonth,
+  formatMonthYear,
+  formatRelativeTime,
+} from "./date"
 export { formatDuration } from "./duration"
 export { formatNumber, formatPercent } from "./number"
 export { formatDelta, deltaDirection, type DeltaDirection } from "./delta"
