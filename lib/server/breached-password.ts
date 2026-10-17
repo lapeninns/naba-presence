@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createHash } from "node:crypto"
+import { request } from "node:https"
 
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -11,8 +12,15 @@ import { log } from "@/lib/server/logger"
 // API: we send the first five hex characters of the password's SHA-1 and get
 // back every suffix that shares them, so neither the password nor its full
 // hash leaves the server, and the match happens here.
-const RANGE_URL = "https://api.pwnedpasswords.com/range/"
+const RANGE_HOST = "api.pwnedpasswords.com"
+const RANGE_PATH = "/range/"
 const PREFIX_LENGTH = 5
+
+/** A padded answer is about 40 KB; anything far larger is not a range. */
+const MAX_BODY_CHARS = 1_000_000
+
+/** One record: the other 35 hex characters of a SHA-1, a colon, a count. */
+const RANGE_RECORD = /^([0-9A-F]{35}):(\d+)$/
 
 /**
  * The API asks every caller to identify itself and may answer 403 to a
@@ -34,7 +42,9 @@ export type BreachedPasswordResult = "breached" | "not_breached" | "unavailable"
 
 /**
  * Whether the password is in Pwned Passwords. `unavailable` when the service
- * could not answer (network error, timeout, non-2xx): the caller fails open.
+ * could not answer (network error, timeout, non-2xx) or answered with
+ * something that is not a range: the caller fails open, and the warning shows
+ * the check is degraded.
  *
  * The request carries `Add-Padding: true`, so every response is padded to a
  * similar size with fake suffixes whose count is 0. A count of 0 is padding,
@@ -51,35 +61,90 @@ export async function checkBreachedPassword(
   const suffix = hash.slice(PREFIX_LENGTH)
   let body: string
   try {
-    const init: RequestInit & { opentelemetry?: { ignore: boolean } } = {
-      method: "GET",
-      headers: {
-        "Add-Padding": "true",
-        "User-Agent": BREACHED_PASSWORD_USER_AGENT,
-      },
-      cache: "no-store",
-      // Covers reading the body too, not just the headers.
-      signal: AbortSignal.timeout(BREACHED_PASSWORD_TIMEOUT_MS),
-      // Keeps the URL, and so the prefix, out of @vercel/otel's fetch span
-      // (instrumentation.ts). Next.js's own fetch span still records it; see
-      // "Password policy" in docs/architecture.md.
-      opentelemetry: { ignore: true },
-    }
-    const response = await fetch(`${RANGE_URL}${prefix}`, init)
-    if (!response.ok) return unavailable()
-    body = await response.text()
+    body = await requestRange(prefix)
   } catch {
     return unavailable()
   }
+  let records = 0
+  let result: BreachedPasswordResult = "not_breached"
   for (const line of body.split("\n")) {
-    const separator = line.indexOf(":")
-    if (separator === -1) continue
-    if (line.slice(0, separator).trim().toUpperCase() !== suffix) continue
-    return Number.parseInt(line.slice(separator + 1).trim(), 10) > 0
-      ? "breached"
-      : "not_breached"
+    const trimmed = line.trim()
+    if (trimmed === "") continue
+    const record = RANGE_RECORD.exec(trimmed.toUpperCase())
+    // A proxy page, an HTML error or a truncated body is not an answer.
+    if (!record) return unavailable()
+    records += 1
+    if (record[1] === suffix && Number.parseInt(record[2], 10) > 0) {
+      result = "breached"
+    }
   }
-  return "not_breached"
+  return records === 0 ? unavailable() : result
+}
+
+/**
+ * GETs the range for one prefix and resolves with the body; rejects on a
+ * network error, a non-2xx answer, an oversized body or the timeout, which
+ * covers reading the body too.
+ *
+ * This uses node:https, not fetch, on purpose. Next.js wraps the global fetch
+ * and names its span `fetch GET <url>` with the full URL in `http.url`, and
+ * `opentelemetry: { ignore: true }` does not stop it, so with a trace exporter
+ * configured the prefix would leave the server in telemetry and could be
+ * matched to the sign-up or reset request. Neither Next.js nor @vercel/otel
+ * (instrumentation.ts registers only its fetch instrumentation) traces
+ * node:https. tests/server/breached-password-telemetry.test.ts holds this.
+ */
+function requestRange(prefix: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const settle = (error: Error | null, body = "") => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (error) {
+        req.destroy()
+        reject(error)
+      } else {
+        resolve(body)
+      }
+    }
+    const req = request(
+      {
+        host: RANGE_HOST,
+        path: `${RANGE_PATH}${prefix}`,
+        method: "GET",
+        headers: {
+          "Add-Padding": "true",
+          "User-Agent": BREACHED_PASSWORD_USER_AGENT,
+        },
+      },
+      (res) => {
+        const status = res.statusCode ?? 0
+        if (status < 200 || status > 299) {
+          res.resume()
+          settle(new Error("range request failed"))
+          return
+        }
+        let body = ""
+        res.setEncoding("utf8")
+        res.on("data", (chunk: string) => {
+          body += chunk
+          if (body.length > MAX_BODY_CHARS) settle(new Error("range too large"))
+        })
+        res.on("end", () => settle(null, body))
+        res.on("error", (error) => settle(error))
+        // Fires after "end" on a complete body, when it is a no-op.
+        res.on("close", () => settle(new Error("range body cut short")))
+      }
+    )
+    // Declared after `settle`, which only ever runs later, from a callback.
+    const timer = setTimeout(
+      () => settle(new Error("range request timed out")),
+      BREACHED_PASSWORD_TIMEOUT_MS
+    )
+    req.on("error", (error) => settle(error))
+    req.end()
+  })
 }
 
 function unavailable(): "unavailable" {

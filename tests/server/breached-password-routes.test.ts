@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto"
+import { request } from "node:https"
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { POST as login } from "@/app/api/auth/password/login/route"
 import { POST as register } from "@/app/api/auth/password/register/route"
@@ -13,6 +22,11 @@ import {
   verifyEmailToken,
 } from "@/lib/server/password-auth"
 import type { RouteHandler } from "@/lib/server/route"
+import {
+  type RangeReply,
+  fakeRangeRequest,
+  rangeBody,
+} from "../helpers/fake-range-request"
 
 /**
  * The register route (sign-up and invitation registration) and the reset
@@ -31,6 +45,7 @@ vi.mock("@/lib/server/password-auth", async (importOriginal) => ({
 vi.mock("@/lib/server/email-auth", () => ({
   completeEmailAuthentication: vi.fn(),
 }))
+vi.mock("node:https", () => ({ request: vi.fn() }))
 
 const PASSWORD = "correct horse battery staple"
 const SUFFIX = createHash("sha1")
@@ -38,7 +53,15 @@ const SUFFIX = createHash("sha1")
   .digest("hex")
   .toUpperCase()
   .slice(5)
-const BREACHED = () => new Response(`${SUFFIX}:42\r\n`, { status: 200 })
+const BREACHED: RangeReply = { status: 200, body: rangeBody([`${SUFFIX}:42`]) }
+const NOT_LISTED: RangeReply = {
+  status: 200,
+  body: rangeBody([`${"0".repeat(35)}:3`]),
+}
+
+function answer(reply: RangeReply) {
+  vi.mocked(request).mockImplementation(fakeRangeRequest(reply))
+}
 
 function post(body: unknown) {
   return new Request("http://localhost/x", {
@@ -59,8 +82,6 @@ const registration = {
 }
 const reset = { tokenHash: "h".repeat(40), password: PASSWORD }
 
-let fetchMock: ReturnType<typeof vi.fn>
-
 beforeAll(() => {
   vi.stubEnv("DATABASE_URL", "postgresql://runtime@example.test/naba")
   vi.stubEnv("NEXTAUTH_SECRET", "n".repeat(32))
@@ -74,8 +95,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  fetchMock = vi.fn()
-  vi.stubGlobal("fetch", fetchMock)
+  answer(NOT_LISTED)
+  vi.stubGlobal("fetch", vi.fn())
   vi.spyOn(console, "warn").mockImplementation(() => {})
   vi.mocked(signUpWithPassword).mockResolvedValue({
     identity: null,
@@ -115,20 +136,20 @@ async function expectBreachedFieldError(response: Response) {
 
 describe("registration", () => {
   it("refuses a breached password before the provider creates anything", async () => {
-    fetchMock.mockResolvedValue(BREACHED())
+    answer(BREACHED)
     await expectBreachedFieldError(await call(register, post(registration)))
     expect(signUpWithPassword).not.toHaveBeenCalled()
   })
 
   it("fails open: an unavailable check lets sign-up go ahead", async () => {
-    fetchMock.mockRejectedValue(new TypeError("fetch failed"))
+    answer({ error: new Error("ECONNREFUSED") })
     const response = await call(register, post(registration))
     expect(response.status).toBe(202)
     expect(signUpWithPassword).toHaveBeenCalledTimes(1)
   })
 
   it("refuses 14 characters and accepts 15 (code points)", async () => {
-    fetchMock.mockResolvedValue(new Response("", { status: 200 }))
+    answer(NOT_LISTED)
     const short = await call(
       register,
       post({ ...registration, password: "a".repeat(14) })
@@ -147,14 +168,14 @@ describe("registration", () => {
 
 describe("password reset", () => {
   it("refuses a breached password before spending the link", async () => {
-    fetchMock.mockResolvedValue(BREACHED())
+    answer(BREACHED)
     await expectBreachedFieldError(await call(resetComplete, post(reset)))
     expect(verifyEmailToken).not.toHaveBeenCalled()
     expect(updatePasswordWithToken).not.toHaveBeenCalled()
   })
 
   it("fails open: an unavailable check lets the reset go ahead", async () => {
-    fetchMock.mockResolvedValue(new Response("", { status: 503 }))
+    answer({ status: 503, body: "" })
     const response = await call(resetComplete, post(reset))
     expect(response.status).toBe(200)
     expect(updatePasswordWithToken).toHaveBeenCalledWith("access", PASSWORD)
@@ -172,6 +193,7 @@ describe("sign-in", () => {
       "owner@example.test",
       "Password!12"
     )
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 })

@@ -70,13 +70,18 @@ and, on reset, before the link is spent. Only the first five hex characters
 of the password's SHA-1 are sent to the range API, with `Add-Padding: true`,
 an identifying `User-Agent: NabaPresence-PasswordCheck` (the API
 documentation asks every caller to send one, and a 403 without it would
-fail open on every check) and a 2.5-second timeout; the suffix is compared on the server, and padding
-entries (count 0) never match. When the service does not answer the check
-fails open and logs `auth.breached_password_check_unavailable` with nothing
-derived from the password. The request opts out of `@vercel/otel`'s fetch
-span, but Next.js's own fetch span records the URL, prefix included, if a
-trace exporter is configured (`NEXT_OTEL_FETCH_DISABLED=1` hides that span
-for every fetch). `BREACHED_PASSWORD_CHECK_ENABLED` (default on when
+fail open on every check) and a 2.5-second timeout that covers the body; the
+suffix is compared on the server, and padding entries (count 0) never match.
+When the service does not answer, answers with an error or answers with
+something that is not a range, the check fails open and logs
+`auth.breached_password_check_unavailable` with nothing derived from the
+password. The request goes through `node:https`, not `fetch`: Next.js wraps
+the global fetch and puts the full URL, prefix included, in its span name
+and `http.url` whatever `opentelemetry: { ignore: true }` says, and neither
+Next.js nor `@vercel/otel` traces `node:https`. So the prefix never reaches
+a trace exporter, with no setting needed
+(`tests/server/breached-password-telemetry.test.ts` holds this against the
+real Next.js fetch wrapper). `BREACHED_PASSWORD_CHECK_ENABLED` (default on when
 unset; `"false"` turns it off) is the kill switch; the check is also skipped
 while `PASSWORD_AUTH_ENABLED` is off. A breached password comes back as a 400
 `invalid_request` field error on `password`, which the forms already show.

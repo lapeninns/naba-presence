@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { request } from "node:https"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -10,12 +11,19 @@ import {
   checkBreachedPassword,
 } from "@/lib/server/breached-password"
 import { ApiError } from "@/lib/server/http"
+import {
+  type FakeRangeRequest,
+  type RangeReply,
+  fakeRangeRequest,
+  rangeBody,
+} from "../helpers/fake-range-request"
 
 const env = vi.hoisted(() => ({
   PASSWORD_AUTH_ENABLED: true,
   BREACHED_PASSWORD_CHECK_ENABLED: true,
 }))
 vi.mock("@/lib/server/env", () => ({ getServerEnv: () => env }))
+vi.mock("node:https", () => ({ request: vi.fn() }))
 
 const PASSWORD = "correct horse battery staple"
 const HASH = createHash("sha1")
@@ -28,56 +36,68 @@ const SUFFIX = HASH.slice(5)
 /** A suffix that is not ours but shares the prefix's shape. */
 const OTHER = "0".repeat(SUFFIX.length)
 
-function range(lines: string[], status = 200) {
-  return new Response(lines.join("\r\n"), { status })
+let sent: FakeRangeRequest[]
+let warn: ReturnType<typeof vi.spyOn>
+
+function answer(reply: RangeReply | ((options: never) => RangeReply)) {
+  vi.mocked(request).mockImplementation(
+    fakeRangeRequest(reply as RangeReply, sent)
+  )
 }
 
-let fetchMock: ReturnType<typeof vi.fn>
-let warn: ReturnType<typeof vi.spyOn>
+function range(records: string[], status = 200): RangeReply {
+  return { status, body: rangeBody(records) }
+}
 
 beforeEach(() => {
   env.PASSWORD_AUTH_ENABLED = true
   env.BREACHED_PASSWORD_CHECK_ENABLED = true
-  fetchMock = vi.fn()
-  vi.stubGlobal("fetch", fetchMock)
+  sent = []
+  vi.mocked(request).mockClear()
+  answer(range([`${OTHER}:3`]))
+  // Next.js and @vercel/otel trace the global fetch; the check must not use it.
+  vi.stubGlobal("fetch", vi.fn())
   warn = vi.spyOn(console, "warn").mockImplementation(() => {})
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe("checkBreachedPassword", () => {
-  it("sends only the five-character prefix, with padding, an identifying User-Agent and a timeout", async () => {
-    fetchMock.mockResolvedValue(range([`${OTHER}:3`]))
+  it("sends only the five-character prefix, with padding and an identifying User-Agent", async () => {
     await checkBreachedPassword(PASSWORD)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe(`https://api.pwnedpasswords.com/range/${PREFIX}`)
-    const headers = new Headers(init.headers)
-    expect(headers.get("Add-Padding")).toBe("true")
-    expect(headers.get("User-Agent")).toBe("NabaPresence-PasswordCheck")
+    expect(sent).toHaveLength(1)
+    const { options } = sent[0]!
+    expect(options.host).toBe("api.pwnedpasswords.com")
+    expect(options.path).toBe(`/range/${PREFIX}`)
+    expect(options.method).toBe("GET")
+    // https is the module's own default; no port, protocol or agent override.
+    expect(options).not.toHaveProperty("protocol")
+    expect(options).not.toHaveProperty("port")
+    expect(options.headers).toEqual({
+      "Add-Padding": "true",
+      "User-Agent": "NabaPresence-PasswordCheck",
+    })
     expect(BREACHED_PASSWORD_USER_AGENT).toBe("NabaPresence-PasswordCheck")
-    expect([...headers.keys()].sort()).toEqual(["add-padding", "user-agent"])
-    expect(init.cache).toBe("no-store")
-    expect(init.signal).toBeInstanceOf(AbortSignal)
-    expect(init.method).toBe("GET")
-    expect(init.body).toBeUndefined()
-    expect(init).toMatchObject({ opentelemetry: { ignore: true } })
     // Neither the password nor the full hash nor the suffix goes anywhere.
-    const sent = JSON.stringify([url, init])
-    expect(sent).not.toContain(PASSWORD)
-    expect(sent).not.toContain(SUFFIX)
-    expect(sent.toLowerCase()).not.toContain(SUFFIX.toLowerCase())
+    const outgoing = JSON.stringify(options)
+    expect(outgoing).not.toContain(PASSWORD)
+    expect(outgoing.toUpperCase()).not.toContain(SUFFIX)
+  })
+
+  it("never goes through the global fetch, which Next.js traces with the URL", async () => {
+    await checkBreachedPassword(PASSWORD)
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
   it("still finds a hit when the service refuses requests that do not identify themselves", async () => {
     // The API may answer 403 to a missing or generic User-Agent, which would
     // otherwise fail open on every check.
-    fetchMock.mockImplementation(async (_url: string, init: RequestInit) =>
-      new Headers(init.headers).get("User-Agent") ===
-      BREACHED_PASSWORD_USER_AGENT
+    answer((options: { headers?: Record<string, string> }) =>
+      options.headers?.["User-Agent"] === BREACHED_PASSWORD_USER_AGENT
         ? range([`${SUFFIX}:42`])
         : range([], 403)
     )
@@ -90,30 +110,33 @@ describe("checkBreachedPassword", () => {
   })
 
   it("reports a hit when the suffix is listed with a count", async () => {
-    fetchMock.mockResolvedValue(range([`${OTHER}:3`, `${SUFFIX}:42`]))
+    answer(range([`${OTHER}:3`, `${SUFFIX}:42`]))
     await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("breached")
   })
 
   it("matches the suffix whatever its case", async () => {
-    fetchMock.mockResolvedValue(range([`${SUFFIX.toLowerCase()}:1`]))
+    answer(range([`${SUFFIX.toLowerCase()}:1`]))
     await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("breached")
   })
 
   it("reports a miss when the suffix is not listed", async () => {
-    fetchMock.mockResolvedValue(range([`${OTHER}:9`, "", "not a line"]))
+    answer(range([`${OTHER}:9`, ""]))
     await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("not_breached")
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it("treats a padding entry (count 0) for our suffix as a miss", async () => {
-    fetchMock.mockResolvedValue(range([`${OTHER}:0`, `${SUFFIX}:0`]))
+    answer(range([`${OTHER}:0`, `${SUFFIX}:0`]))
     await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("not_breached")
   })
 
-  it("fails open on a timeout and logs nothing derived from the password", async () => {
-    fetchMock.mockRejectedValue(
-      new DOMException("The operation timed out.", "TimeoutError")
-    )
-    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("unavailable")
+  it("fails open on a timeout, gives up on the request and logs nothing derived from the password", async () => {
+    vi.useFakeTimers()
+    answer("hang")
+    const result = checkBreachedPassword(PASSWORD)
+    await vi.advanceTimersByTimeAsync(BREACHED_PASSWORD_TIMEOUT_MS)
+    await expect(result).resolves.toBe("unavailable")
+    expect(sent[0]?.destroyed).toBe(true)
     expect(warn).toHaveBeenCalledTimes(1)
     const line = String(warn.mock.calls[0]?.[0])
     expect(line).toContain("auth.breached_password_check_unavailable")
@@ -122,27 +145,40 @@ describe("checkBreachedPassword", () => {
   })
 
   it("fails open on a network error", async () => {
-    fetchMock.mockRejectedValue(new TypeError("fetch failed"))
+    answer({ error: new Error("getaddrinfo ENOTFOUND") })
     await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("unavailable")
   })
 
   it("fails open when the service answers with an error status", async () => {
-    fetchMock.mockResolvedValue(range([`${SUFFIX}:42`], 503))
+    answer(range([`${SUFFIX}:42`], 503))
     await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("unavailable")
   })
 
-  it("fails open when the body cannot be read", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      text: () => Promise.reject(new Error("aborted")),
-    })
+  it("fails open when the body breaks off", async () => {
+    answer({ bodyError: new Error("aborted") })
+    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("unavailable")
+  })
+
+  it.each([
+    ["an empty body", ""],
+    ["an HTML page", "<!doctype html><title>Gateway</title>"],
+    ["a record with a bad suffix", `${OTHER}:3\r\nnot a record`],
+    ["a record with no count", `${SUFFIX}:`],
+  ])("treats a 200 with %s as unavailable, not as a miss", async (_, body) => {
+    answer({ status: 200, body })
+    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("unavailable")
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it("treats an oversized body as unavailable", async () => {
+    answer(range(Array.from({ length: 30_000 }, () => `${OTHER}:1`)))
     await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("unavailable")
   })
 })
 
 describe("assertPasswordNotBreached", () => {
   it("refuses a breached password as a field error on password", async () => {
-    fetchMock.mockResolvedValue(range([`${SUFFIX}:42`]))
+    answer(range([`${SUFFIX}:42`]))
     const error = await assertPasswordNotBreached(PASSWORD).catch((e) => e)
     expect(error).toBeInstanceOf(ApiError)
     expect(error.status).toBe(400)
@@ -158,26 +194,26 @@ describe("assertPasswordNotBreached", () => {
   })
 
   it("lets a password through that is not listed", async () => {
-    fetchMock.mockResolvedValue(range([`${SUFFIX}:0`]))
+    answer(range([`${SUFFIX}:0`]))
     await expect(assertPasswordNotBreached(PASSWORD)).resolves.toBeUndefined()
   })
 
   it("lets the password through when the service is unavailable", async () => {
-    fetchMock.mockRejectedValue(new TypeError("fetch failed"))
+    answer({ error: new Error("ECONNRESET") })
     await expect(assertPasswordNotBreached(PASSWORD)).resolves.toBeUndefined()
   })
 
   it("makes no request when the flag is off", async () => {
     env.BREACHED_PASSWORD_CHECK_ENABLED = false
-    fetchMock.mockResolvedValue(range([`${SUFFIX}:42`]))
+    answer(range([`${SUFFIX}:42`]))
     await expect(assertPasswordNotBreached(PASSWORD)).resolves.toBeUndefined()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
   })
 
   it("makes no request when password auth is off", async () => {
     env.PASSWORD_AUTH_ENABLED = false
-    fetchMock.mockResolvedValue(range([`${SUFFIX}:42`]))
+    answer(range([`${SUFFIX}:42`]))
     await expect(assertPasswordNotBreached(PASSWORD)).resolves.toBeUndefined()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
   })
 })
