@@ -15,29 +15,30 @@ describe("email and password input policy", () => {
     expect(emailSchema.parse("  Owner@Example.COM ")).toBe("owner@example.com")
   })
 
-  it("requires 12 to 128 characters and nothing else (NIST SP 800-63B)", () => {
+  it("requires 15 to 128 characters and nothing else (NIST SP 800-63B-4)", () => {
     expect(passwordSchema.safeParse("short!1").success).toBe(false)
-    expect(passwordSchema.safeParse("a".repeat(11)).success).toBe(false)
-    expect(passwordSchema.safeParse("a".repeat(12)).success).toBe(true)
+    expect(passwordSchema.safeParse("a".repeat(12)).success).toBe(false)
+    expect(passwordSchema.safeParse("a".repeat(14)).success).toBe(false)
+    expect(passwordSchema.safeParse("a".repeat(15)).success).toBe(true)
     expect(passwordSchema.safeParse("a".repeat(128)).success).toBe(true)
     expect(passwordSchema.safeParse("a".repeat(129)).success).toBe(false)
     // No composition rules: letters only, digits only and symbols only pass.
     expect(passwordSchema.safeParse("onlyletterslong").success).toBe(true)
-    expect(passwordSchema.safeParse("123456789012").success).toBe(true)
-    expect(passwordSchema.safeParse("!!!!!!!!!!!!").success).toBe(true)
+    expect(passwordSchema.safeParse("123456789012345").success).toBe(true)
+    expect(passwordSchema.safeParse("!!!!!!!!!!!!!!!").success).toBe(true)
     expect(passwordSchema.safeParse("Valid password!42").success).toBe(true)
   })
 
   it("counts code points, not UTF-16 code units (NIST SP 800-63B)", () => {
     // One emoji is one character to a person and to NIST, but two code units
-    // to String.length, so six of them must not pass a 12-character minimum.
+    // to String.length, so eight of them must not pass a 15-character minimum.
     const rocket = "🚀"
     expect(rocket.length).toBe(2)
     expect(passwordLength(rocket.repeat(6))).toBe(6)
-    expect(passwordSchema.safeParse(rocket.repeat(6)).success).toBe(false)
-    expect(passwordSchema.safeParse(rocket.repeat(11)).success).toBe(false)
-    expect(passwordSchema.safeParse(rocket.repeat(12)).success).toBe(true)
-    expect(passwordSchema.safeParse("a".repeat(11) + rocket).success).toBe(true)
+    expect(passwordSchema.safeParse(rocket.repeat(8)).success).toBe(false)
+    expect(passwordSchema.safeParse(rocket.repeat(14)).success).toBe(false)
+    expect(passwordSchema.safeParse(rocket.repeat(15)).success).toBe(true)
+    expect(passwordSchema.safeParse("a".repeat(14) + rocket).success).toBe(true)
     // The maximum is in code points too: 128 emoji (256 code units) pass,
     // 129 don't.
     expect(passwordSchema.safeParse(rocket.repeat(128)).success).toBe(true)
@@ -47,8 +48,8 @@ describe("email and password input policy", () => {
     )
     // The short failure still says what to do.
     expect(
-      passwordSchema.safeParse(rocket.repeat(6)).error?.issues[0]?.message
-    ).toBe("Use at least 12 characters.")
+      passwordSchema.safeParse(rocket.repeat(8)).error?.issues[0]?.message
+    ).toBe("Use at least 15 characters.")
     expect(
       passwordSchema.safeParse(rocket.repeat(129)).error?.issues[0]?.message
     ).toBe("Use no more than 128 characters.")
@@ -97,7 +98,7 @@ describe("email and password input policy", () => {
     expect(
       resetPasswordSchema.safeParse({
         tokenHash: "h".repeat(40),
-        password: "🚀".repeat(12),
+        password: "🚀".repeat(15),
       }).success
     ).toBe(true)
   })
@@ -110,7 +111,7 @@ describe("email and password input policy", () => {
     const tooShort = passwordSchema.safeParse("short!1")
     expect(
       tooShort.success ? [] : tooShort.error.issues.map((i) => i.message)
-    ).toEqual(["Use at least 12 characters."])
+    ).toEqual(["Use at least 15 characters."])
     const tooLong = passwordSchema.safeParse("a".repeat(129))
     expect(
       tooLong.success ? [] : tooLong.error.issues.map((i) => i.message)

@@ -5,11 +5,12 @@
 export const RESET_TOKEN_HASH_LENGTH = { min: 20, max: 512 } as const
 
 /**
- * A password's length bounds, counted in Unicode code points, as NIST SP
- * 800-63B counts characters (one emoji is one character, not the two UTF-16
- * code units `String.length` sees).
+ * A new password's length bounds, counted in Unicode code points, as NIST SP
+ * 800-63B-4 counts characters (one emoji is one character, not the two UTF-16
+ * code units `String.length` sees). The minimum applies only when a password
+ * is set: passwords set under the old 12-character minimum keep working.
  */
-export const PASSWORD_LENGTH = { min: 12, max: 128 } as const
+export const PASSWORD_LENGTH = { min: 15, max: 128 } as const
 
 /**
  * The most UTF-16 code units a password within `PASSWORD_LENGTH` can have

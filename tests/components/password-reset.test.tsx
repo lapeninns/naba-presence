@@ -160,7 +160,7 @@ describe("ResetPasswordForm", () => {
     // The requirements checklist also renders here, so the accessible
     // description concatenates both — match the error text, not the whole string.
     expect(screen.getByLabelText("New password")).toHaveAccessibleDescription(
-      /Use at least 12 characters\./
+      /Use at least 15 characters\./
     )
   })
 
