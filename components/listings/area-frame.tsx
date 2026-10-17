@@ -792,7 +792,10 @@ function AreaFrameBody({
   return (
     <ListingGate locationId={locationId} role={role}>
       {(entry) => (
-        <PageFrame width="workspace">
+        // On a phone the editor starts as high as the chrome allows (LST-06):
+        // the frame's top padding and the gap under the header are halved
+        // (24 -> 12 px each); from md the frame's own rhythm stands.
+        <PageFrame width="workspace" className="max-md:gap-3 max-md:pt-3">
           <ListingAreaHeader
             entry={entry}
             role={role}
