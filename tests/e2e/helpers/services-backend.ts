@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
 import { googleServiceItemsSchema } from "@/lib/domain/google-services"
 import { startVerificationBackend } from "./verification-backend"
 
@@ -22,6 +22,17 @@ export async function startServicesBackend() {
       return { status: validateOnly ? 200 : state.status, json: { name: fixture.linked.googleLocationName, serviceItems: state.items } }
     })
     const writes = () => backend.google.calls.filter((call) => call.method === "PATCH" && new URL(call.path, backend.google.baseUrl).searchParams.get("validateOnly") !== "true")
-    return { ...fixture, state, writes, open: () => page.goto(`${backend.server.baseUrl}/listings/${fixture.linked.locationId}/profile`) }
+    return { ...fixture, state, writes, open: async () => {
+      // `goto` resolves at the load event, while React is still hydrating. A field filled or a
+      // radio chosen in the server-rendered markup before then is reset when the draft is seeded,
+      // which leaves the review action disabled. Each editor reads from an effect (the service
+      // metadata, or the attribute reviews on a retail listing), and that only runs once it has
+      // hydrated and committed: wait for that real read before the test touches the page.
+      const read = retail ? "attribute_reviews" : "services"
+      const hydrated = page.waitForResponse((response) => response.request().method() === "GET" && new URL(response.url()).pathname === `/api/locations/${fixture.linked.locationId}/business-information` && new URL(response.url()).searchParams.get("type") === read)
+      await page.goto(`${backend.server.baseUrl}/listings/${fixture.linked.locationId}/profile`)
+      await hydrated
+      if (!retail) await expect(page.getByText("Loading available services…", { exact: true })).toHaveCount(0)
+    } }
   } }
 }

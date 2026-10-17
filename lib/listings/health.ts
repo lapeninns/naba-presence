@@ -222,7 +222,7 @@ export function listingHealthTone(health: ListingHealth): StatusTone {
 
 const LABELS: Record<ListingHealth, string> = {
   unchecked: "Not checked",
-  partially_checked: "Partially checked",
+  partially_checked: "Some areas not checked yet",
   healthy: "In sync",
   unpublished: "Changes to publish",
   attention: "Needs attention",

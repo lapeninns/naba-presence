@@ -25,6 +25,14 @@ export async function startPlaceActionsBackend() {
       return { status: state.status, json: {} }
     })
     const writes = () => backend.google.calls.filter((call) => ["POST", "PATCH", "DELETE"].includes(call.method) && call.path.includes("placeActionLinks"))
-    return { ...fixture, state, writes, open: () => page.goto(`${backend.server.baseUrl}/listings/${fixture.linked.locationId}/booking`) }
+    return { ...fixture, state, writes, open: async () => {
+      // `goto` resolves at the load event, while React is still hydrating. Text typed into the
+      // server-rendered form before then is thrown away when the controlled field is seeded, so the
+      // review action never appears. The tab reads its saved reviews from an effect, which only
+      // runs once it has hydrated and committed: wait for that real read before the test types.
+      const hydrated = page.waitForResponse((response) => response.request().method() === "GET" && new URL(response.url()).pathname === `/api/locations/${fixture.linked.locationId}/place-action-reviews`)
+      await page.goto(`${backend.server.baseUrl}/listings/${fixture.linked.locationId}/booking`)
+      await hydrated
+    } }
   } }
 }

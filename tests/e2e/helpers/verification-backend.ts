@@ -43,7 +43,15 @@ export async function startVerificationBackend() {
       await page.context().addCookies([{ name: "naba_session", value: owner.cookie.slice("naba_session=".length), url: server.baseUrl, httpOnly: true, sameSite: "Lax" }])
       return {
         owner, linked, connection, name, address,
-        open: () => page.goto(`${server.baseUrl}/listings/${linked.locationId}/verification`),
+        open: async () => {
+          // `goto` resolves at the load event, while React is still hydrating. A PIN typed into the
+          // server-rendered field before then is reset when the form is hydrated, which leaves its
+          // review action disabled. The panel reads its completion workflows from an effect, which
+          // only runs once it has hydrated and committed: wait for that real read first.
+          const hydrated = page.waitForResponse((response) => response.request().method() === "GET" && new URL(response.url()).pathname === `/api/locations/${linked.locationId}/verification-workflows` && new URL(response.url()).searchParams.get("operation") === "complete")
+          await page.goto(`${server.baseUrl}/listings/${linked.locationId}/verification`)
+          await hydrated
+        },
         writes: () => google.calls.filter((call) => call.path.endsWith(":verify")),
         completionWrites: () => google.calls.filter((call) => call.path.endsWith(":complete")),
         verification,
