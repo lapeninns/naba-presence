@@ -12,9 +12,10 @@ import { cn } from "@/lib/utils"
  * sits in the band under the title as it always has. Below `md`:
  *
  * - It floats where the `float-bar` variant holds: a phone at least 40rem
- *   tall, or any phone with the keyboard up. A short phone (320x568, or a
- *   phone held sideways) keeps it in the band, Sync beside the field, so
- *   fixed chrome stays within a quarter of the screen.
+ *   tall, or any phone while its search field has focus or the keyboard is
+ *   up. Otherwise a short phone (320x568, or a phone held sideways) keeps it
+ *   in the band, Sync beside the field, so fixed chrome stays within a
+ *   quarter of the screen.
  * - Where the floating bar sits is the CHROME CONTRACT's (`[data-slot=
  *   "inbox-bottom-toolbar"]` in app/globals.css): on top of the tab bar, on
  *   the keyboard while it is open (search takes the keyboard), and out of the

@@ -190,9 +190,15 @@ describe("the chrome contract for the Inbox's bottom toolbar", () => {
     )
   })
 
-  it("defines float-bar as the same two conditions", () => {
+  it("defines float-bar as the same three conditions", () => {
     expect(globalsCss).toMatch(
-      /@custom-variant float-bar \{\s*@media \(width < 48rem\) and \(min-height: 40rem\) \{\s*@slot;\s*\}\s*@media \(width < 48rem\) \{\s*&:where\(\[data-keyboard="open"\] \*\) \{\s*@slot;/
+      /@custom-variant float-bar \{\s*@media \(width < 48rem\) and \(min-height: 40rem\) \{\s*@slot;\s*\}\s*@media \(width < 48rem\) \{\s*&:where\(\s*\[data-keyboard="open"\] \*,\s*:root:has\(\[data-slot="inbox-bottom-toolbar"\] input:focus\) \*\s*\) \{\s*@slot;/
+    )
+  })
+
+  it("keeps the bar floating on the tab bar at any height while its search field has focus", () => {
+    expect(globalsCss).toMatch(
+      /html:has\(\[data-slot="inbox-bottom-toolbar"\] input:focus\):not\(\s*\[data-keyboard="open"\]\s*\) \{\s*& \[data-slot="inbox-bottom-toolbar"\] \{\s*position: fixed;[^}]*bottom: calc\(var\(--np-tabbar-h\) \+ var\(--np-safe-bottom\)\)/
     )
   })
 

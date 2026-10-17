@@ -966,6 +966,9 @@ test.describe("touch: critical journeys at 390x844", () => {
       await openKeyboard(page)
       await settle(page, toolbar)
       await expect(toolbar).toHaveCSS("position", "fixed")
+      // With the floating bar's own look, not the band row's.
+      await expect(toolbar).toHaveCSS("border-top-width", "1px")
+      await expect(toolbar).toHaveCSS("height", "64px")
       const visibleBottom = await page.evaluate(
         () => window.visualViewport!.offsetTop + window.visualViewport!.height
       )
@@ -976,6 +979,37 @@ test.describe("touch: critical journeys at 390x844", () => {
       await expect(
         page.getByRole("searchbox", { name: "Search reviews" })
       ).toBeFocused()
+    }
+  )
+
+  touchTest(
+    "inbox: on Android, where the keyboard shrinks the page, the bar stays on the tab bar while search has it",
+    async ({ page, baseURL, inboxTenant }) => {
+      // Android Chrome with `interactive-widget=resizes-content`: the
+      // keyboard shrinks the layout viewport (under 40rem here) and sets no
+      // `data-keyboard`. No shim: the viewport itself is resized.
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto("/inbox")
+      const toolbar = page.locator("[data-slot=inbox-bottom-toolbar]")
+      const search = page.getByRole("searchbox", { name: "Search reviews" })
+      await tap(toolbar.locator("[data-slot=input-search]"))
+      await expect(search).toBeFocused()
+      await page.setViewportSize({ width: 390, height: 480 })
+      await expect(page.locator("html")).not.toHaveAttribute(
+        "data-keyboard",
+        "open"
+      )
+      await settle(page, toolbar)
+      await expect(search).toBeFocused()
+      await expect(toolbar).toHaveCSS("position", "fixed")
+      const tabBar = page.locator("[data-slot=tab-bar]")
+      await expect(tabBar).toBeVisible()
+      const bar = (await toolbar.boundingBox())!
+      const tabs = (await tabBar.boundingBox())!
+      expect(Math.abs(bar.y + bar.height - tabs.y)).toBeLessThanOrEqual(1)
+      // Leaving search returns a short screen's bar to the band.
+      await tap(toolbar.getByRole("button", { name: "Cancel" }))
+      await expect(toolbar).toHaveCSS("position", "static")
     }
   )
 

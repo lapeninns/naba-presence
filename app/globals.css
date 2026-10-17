@@ -46,18 +46,23 @@
    lib/ui/breakpoints.ts for matchMedia. */
 @custom-variant tall (@media (min-height: 38.75rem));
 
-/* A phone with room for a second bottom bar above the tab bar: at least
-   40rem tall (the opposite of `short`), or any phone while the keyboard is
-   up. Under it the app bar, that bar and the tab bar stay within a quarter
-   of the screen. The keyboard half keeps a bar that is floating where it is
-   when Android shrinks the layout viewport for the keyboard. Used by the
-   Inbox's list toolbar (R10); its placement is in the CHROME CONTRACT. */
+/* Where the Inbox's list toolbar (R10) floats on a phone: with room for a
+   second bottom bar above the tab bar, at least 40rem tall (the opposite of
+   `short`), so the app bar, that bar and the tab bar stay within a quarter
+   of the screen; and at any height while its search field has focus or the
+   keyboard is up. The focus half holds the bar where it is when Android
+   shrinks the layout viewport for the keyboard (and sets no
+   `data-keyboard`); the keyboard half puts it on an iPhone's keyboard. Its
+   placement is in the CHROME CONTRACT. */
 @custom-variant float-bar {
   @media (width < 48rem) and (min-height: 40rem) {
     @slot;
   }
   @media (width < 48rem) {
-    &:where([data-keyboard="open"] *) {
+    &:where(
+      [data-keyboard="open"] *,
+      :root:has([data-slot="inbox-bottom-toolbar"] input:focus) *
+    ) {
       @slot;
     }
   }
@@ -1233,6 +1238,43 @@
     --toast-edge: calc(
       var(--np-tabbar-h) + var(--np-safe-bottom) + var(--np-actionbar-h)
     );
+  }
+}
+/* While its search field has focus the bar floats at any phone height, on
+   the tab bar: on Android the keyboard shrinks the layout viewport under
+   40rem and leaves the tab bar showing, and the bar must not drop into the
+   band under the field being typed in. */
+@media (width < 48rem) {
+  html:has([data-slot="inbox-bottom-toolbar"] input:focus):not(
+      [data-keyboard="open"]
+    ) {
+    & [data-slot="inbox-bottom-toolbar"] {
+      position: fixed;
+      inset-inline: 0;
+      bottom: calc(var(--np-tabbar-h) + var(--np-safe-bottom));
+    }
+    & body:has([data-docked="bottom"]) [data-slot="inbox-bottom-toolbar"],
+    &
+      body:has([data-docked="bottom"])
+      [data-slot="inbox-bottom-toolbar-spacer"] {
+      display: none;
+    }
+    &:has(
+        [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+      ):not(:has([data-docked="bottom"])) {
+      scroll-padding-bottom: calc(
+        var(--np-tabbar-h) + var(--np-safe-bottom) + var(--np-actionbar-h)
+      );
+    }
+    &
+      body:has(
+        [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+      ):not(:has([data-docked="bottom"]))
+      [data-slot="toast-viewport"] {
+      --toast-edge: calc(
+        var(--np-tabbar-h) + var(--np-safe-bottom) + var(--np-actionbar-h)
+      );
+    }
   }
 }
 /* With the keyboard up the bar rides on the keyboard, at any phone height. */
