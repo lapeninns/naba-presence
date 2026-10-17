@@ -19,6 +19,7 @@ import type {
   ReportMissingReason,
 } from "@/lib/contracts/analytics"
 import { formatDate } from "@/lib/format"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 const MISSING_LABEL: Record<ReportMissingReason, string> = {
   pending: "Not fetched from Google yet",
@@ -35,7 +36,10 @@ const MONTH = new Intl.DateTimeFormat("en-GB", {
 
 type Nouns = { one: string; many: string }
 
-const LOCATION_NOUNS: Nouns = { one: "location", many: "locations" }
+const LISTING_NOUNS: Nouns = {
+  one: LISTING_TERMS.place,
+  many: LISTING_TERMS.placePlural,
+}
 
 /**
  * Completeness as the report shows it: the shared client report's DTO
@@ -66,7 +70,7 @@ function completeThroughLine(completeness: Completeness, nouns: Nouns) {
  */
 export function RefreshFailedNote({
   completeness,
-  nouns = LOCATION_NOUNS,
+  nouns = LISTING_NOUNS,
 }: {
   completeness: Completeness | null | undefined
   nouns?: Nouns
@@ -95,14 +99,14 @@ export function RefreshFailedNote({
  * unavailable-reasons alert. Renders nothing for a complete report, or for a
  * server that predates the completeness field.
  *
- * `compact` (the report tabs) is one line, "Showing 1 of 2 locations", with
+ * `compact` (the report tabs) is one line, "Showing 1 of 2 listings", with
  * a Details button that opens the same list in a sheet, so a partial report
  * does not push its first figure down by a screen. The shared client report
  * keeps the list inline.
  */
 export function PartialCoverageAlert({
   completeness,
-  nouns = LOCATION_NOUNS,
+  nouns = LISTING_NOUNS,
   refreshFailedShownElsewhere = false,
   compact = false,
 }: {

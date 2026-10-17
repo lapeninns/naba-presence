@@ -65,6 +65,22 @@ export function areaUnavailableReason(
   return null
 }
 
+/**
+ * Whether this role has anything to review or send. A role that can neither
+ * edit nor publish nor ask for approval has no use for Review & publish, so
+ * every entry point (the area list, the header button, the phone's overflow)
+ * leaves it out; a direct link still opens the page, read-only. While the
+ * capabilities load the step stays (nothing is known to rule it out).
+ */
+export function canReviewChanges(caps: LocationCapabilities | undefined) {
+  return !(
+    caps &&
+    caps.canEditCanonical === false &&
+    caps.canPublish === false &&
+    !caps.canRequestApproval
+  )
+}
+
 /** The page's title: the area's label, "Review & publish", or "Overview". */
 export function listingPageLabel(page: ListingPageKey): string {
   if (page === "overview") return "Overview"
@@ -118,11 +134,7 @@ export function listingAreaNavItems({
     ),
     // A role that can neither edit nor publish has nothing to review or send,
     // so the step is left out (a direct link still opens, and stays marked).
-    ...(current !== "changes" &&
-    caps &&
-    caps.canEditCanonical === false &&
-    caps.canPublish === false &&
-    !caps.canRequestApproval
+    ...(current !== "changes" && !canReviewChanges(caps)
       ? []
       : [
           {

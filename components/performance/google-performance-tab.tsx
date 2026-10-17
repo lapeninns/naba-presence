@@ -35,6 +35,7 @@ import {
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session" // client session hook (Task 1, REV-1)
 import { cn } from "@/lib/utils"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
  * Google performance for the page's scope and period. The period is chosen
@@ -166,7 +167,7 @@ export function GooglePerformanceTab({
         titleAs="h3"
         variant="empty"
         icon={<Link2OffIcon />}
-        title="No linked location"
+        title={`No linked ${LISTING_TERMS.place}`}
         description="Link a Google listing to see how it is performing."
         action={
           <Link
@@ -213,8 +214,8 @@ export function GooglePerformanceTab({
           titleAs="h3"
           variant="empty"
           icon={<Link2OffIcon />}
-          title="No Google figures for this window"
-          description="Nothing could be refreshed for these locations. The reasons are listed above."
+          title="No Google figures for this period"
+          description={`Nothing could be refreshed for these ${LISTING_TERMS.placePlural}. The reasons are listed above.`}
         />
       </>
     )

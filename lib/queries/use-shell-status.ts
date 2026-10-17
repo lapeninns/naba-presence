@@ -77,6 +77,12 @@ export function useShellStatus(enabled = true) {
     queryFn: async ({ client, signal }) => {
       // A badge is not worth a sign-in redirect: always background.
       const status = await fetchShellStatus({ signal, background: true })
+      // A poll cancelled while its answer was on the way (a notification
+      // change commits and cancels it) is older than what the cache now
+      // holds, and a response that is already back is not stopped by the
+      // abort: it must seed nothing. Checked after the whole fetch, including
+      // the lazy schema parse.
+      if (signal.aborted) return status
       seedShellKeys(client, status)
       return status
     },

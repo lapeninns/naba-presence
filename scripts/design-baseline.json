@@ -7,7 +7,7 @@
     "R4": 12,
     "R5": 1,
     "R6": 2,
-    "R7": 16
+    "R7": 14
   },
   "files": {
     "app/(auth)/layout.tsx": {
@@ -194,14 +194,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[minmax(7.5rem,34%)_1fr]": 1
-        }
-      }
-    },
-    "components/editors/editor-frame.tsx": {
-      "R7": {
-        "total": 2,
-        "patterns": {
-          "[@media(min-height:620px)]:": 2
         }
       }
     },

@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -91,11 +92,13 @@ const DRAFT_RESULT = {
 // useGenerateOrSaveDraft's exact mutation-result type (verified against
 // `never`/`unknown`, which tsc rejects here). The eslint-disable is scoped to
 // this one generic pair only.
+// Set by a test that wants the mutation reported as in flight.
+let generating = false
 function mockMutation(mutateAsync = vi.fn().mockResolvedValue(DRAFT_RESULT)) {
   return {
     mutate: vi.fn(),
     mutateAsync,
-    isPending: false,
+    isPending: generating,
     isError: false,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see comment above
   } as unknown as UseMutationResult<any, Error, any>
@@ -576,7 +579,9 @@ describe("ReplyComposer — the editor", () => {
     expect(textbox()).toHaveValue("Thanks for the kind words! Really.")
   })
 
-  it("confirms before Regenerate replaces unsaved text", async () => {
+  // INB-09: no "Discard your edits?" step. The regenerate runs at once and
+  // the "Reply ready" toast carries Undo, which puts the replaced text back.
+  it("regenerates over unsaved text at once, and Undo puts the edits back", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(
       EXISTING,
@@ -584,12 +589,11 @@ describe("ReplyComposer — the editor", () => {
     )
     await user.type(textbox(), " edits")
     await generateIn(user, "Warm", "Regenerate")
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
-    expect(mutateAsync).not.toHaveBeenCalled()
-    await user.click(
-      screen.getByRole("button", { name: "Discard and regenerate" })
-    )
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
+    await waitFor(() => expect(textbox()).toHaveValue("Fresh AI draft"))
+    await user.click(await screen.findByRole("button", { name: "Undo" }))
+    expect(textbox()).toHaveValue("Existing draft body edits")
   })
 
   // The tone is picked inside Generate, so it is chosen at the moment the
@@ -605,32 +609,92 @@ describe("ReplyComposer — the editor", () => {
     ).toBeInTheDocument()
   })
 
-  it("confirms before regenerating in a new tone over unsaved edits", async () => {
+  it("holds the box read-only while a reply is being written, so nothing typed meanwhile is lost", () => {
+    generating = true
+    try {
+      mount(EXISTING)
+      expect(textbox()).toHaveAttribute("readonly")
+    } finally {
+      generating = false
+    }
+    cleanup()
+    mount(EXISTING)
+    expect(textbox()).not.toHaveAttribute("readonly")
+  })
+
+  it("regenerates in a new tone over unsaved edits without asking", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
     await user.type(textbox(), "!")
     await generateIn(user, "Concise", "Regenerate")
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
-    expect(mutateAsync).not.toHaveBeenCalled()
-    await user.click(
-      screen.getByRole("button", { name: "Discard and regenerate" })
-    )
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
   })
 
-  it("keeps the edits when the discard prompt is declined", async () => {
-    const user = userEvent.setup()
-    const mutateAsync = mount(EXISTING)
-    await user.type(textbox(), "!")
-    await generateIn(user, "Concise", "Regenerate")
-    await user.click(screen.getByRole("button", { name: "Keep editing" }))
-    expect(mutateAsync).not.toHaveBeenCalled()
-    expect(textbox()).toHaveValue("Existing draft body!")
-    // Declining does not change the tone either: the next save keeps it.
-    await user.click(screen.getByRole("button", { name: "Probe save" }))
-    expect(mutateAsync).toHaveBeenCalledWith({
-      body: "Existing draft body!",
-      tone: "warm_professional",
+  // The reviewer opens another review while Undo toasts are up: the composer
+  // unmounts, and an Undo that can no longer reach its text must not stay.
+  describe("Undo toasts and the composer unmounting", () => {
+    function mountToggle(mutateAsync: Parameters<typeof mockMutation>[0]) {
+      vi.spyOn(creditsHook, "useAiCredits").mockReturnValue({
+        data: undefined,
+      } as UseQueryResult<AiCredits>)
+      vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+        data: reviewWith(EXISTING),
+      } as UseQueryResult<ReviewDetail>)
+      vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+        mockMutation(mutateAsync)
+      )
+      const view = render(
+        <Host>
+          <ReplyComposer reviewId="rev-1" />
+        </Host>
+      )
+      // The Toaster stays; only the composer goes, as when another review opens.
+      return () => act(() => view.rerender(<Host>{null}</Host>))
+    }
+    const undoButtons = () => screen.queryAllByRole("button", { name: "Undo" })
+
+    it("takes down the one Undo toast it owns", async () => {
+      const user = userEvent.setup()
+      const unmount = mountToggle(
+        vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
+      )
+      await generateIn(user, "Warm", "Regenerate")
+      await waitFor(() => expect(undoButtons()).toHaveLength(1))
+      unmount()
+      await waitFor(() => expect(undoButtons()).toHaveLength(0))
+    })
+
+    it("takes down every Undo toast after two regenerations", async () => {
+      const user = userEvent.setup()
+      const mutateAsync = vi
+        .fn()
+        .mockResolvedValueOnce({ ...DRAFT_RESULT, body: "First fresh draft" })
+        .mockResolvedValueOnce({ ...DRAFT_RESULT, body: "Second fresh draft" })
+      const unmount = mountToggle(mutateAsync)
+      await generateIn(user, "Warm", "Regenerate")
+      await waitFor(() => expect(textbox()).toHaveValue("First fresh draft"))
+      await generateIn(user, "Concise", "Regenerate")
+      await waitFor(() => expect(textbox()).toHaveValue("Second fresh draft"))
+      await waitFor(() => expect(undoButtons().length).toBeGreaterThan(0))
+      unmount()
+      await waitFor(() => expect(undoButtons()).toHaveLength(0))
+    })
+
+    it("offers no Undo when the reply arrives after the composer is gone", async () => {
+      const user = userEvent.setup()
+      let arrive: (value: typeof DRAFT_RESULT) => void = () => {}
+      const late = new Promise<typeof DRAFT_RESULT>((resolve) => {
+        arrive = resolve
+      })
+      const unmount = mountToggle(vi.fn().mockReturnValue(late))
+      await generateIn(user, "Warm", "Regenerate")
+      unmount()
+      arrive({ ...DRAFT_RESULT, body: "Too late" })
+      await act(async () => {
+        await late
+      })
+      expect(undoButtons()).toHaveLength(0)
     })
   })
 
@@ -676,57 +740,75 @@ describe("ReplyComposer — the editor", () => {
   })
 
   // INB-14: "not set up" is permanent until someone sets it up, so it is
-  // treated like spent credits. Nothing offers the same dead end again.
+  // treated like spent credits. The credits read says so up front
+  // (`aiConfigured: false`); an older server is learned from the first 503.
+  // Either way the one note replaces Generate, and nothing says it twice.
   describe("when AI is not set up for the workspace", () => {
     const NOT_CONFIGURED = new ApiClientError(
       503,
       "ai_not_configured",
       "AI features are not configured."
     )
+    const NOTE = "AI replies aren’t set up here. Write your own."
 
-    async function fail(credits?: Partial<AiCredits>) {
-      const user = userEvent.setup()
-      const mutateAsync = mount(
-        {},
-        vi.fn().mockRejectedValue(NOT_CONFIGURED),
-        credits
-      )
-      await generateIn(user)
-      const alert = await screen.findByRole("alert")
-      return { user, mutateAsync, alert }
-    }
-
-    it("offers only Write my own: no Retry, no Generate, no credits", async () => {
-      const { alert, mutateAsync } = await fail({ used: 0, remaining: 100 })
-      expect(alert).toHaveTextContent("No reply was generated.")
-      expect(alert).toHaveTextContent(
-        "AI assistance isn’t available for this workspace yet."
-      )
+    it("is known from the credits read, before any attempt", () => {
+      const mutateAsync = mount({}, undefined, {
+        used: 0,
+        remaining: 100,
+        aiConfigured: false,
+      })
       expect(
-        within(alert).queryByRole("button", { name: "Retry" })
-      ).not.toBeInTheDocument()
-      expect(
-        within(alert).getByRole("button", { name: "Write my own" })
-      ).toBeInTheDocument()
+        document.querySelector('[data-slot="ai-unavailable"]')
+      ).toHaveTextContent(NOTE)
       expect(
         screen.queryByRole("button", { name: /Generate reply|Regenerate/ })
       ).not.toBeInTheDocument()
       expect(screen.queryByText(/credits left/)).not.toBeInTheDocument()
-      expect(mutateAsync).toHaveBeenCalledTimes(1)
+      window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
+      expect(mutateAsync).not.toHaveBeenCalled()
     })
 
-    it("says why Generate is gone once the alert is dismissed, and `g` stays quiet", async () => {
-      const { user, mutateAsync, alert } = await fail()
-      await user.click(
-        within(alert).getByRole("button", { name: "Write my own" })
-      )
-      await waitFor(() => expect(textbox()).toHaveFocus())
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    // A rating-only review is answered from a template: no model, so no AI
+    // is needed and Generate stays.
+    it("keeps Generate for a review with no text, which needs no AI", () => {
+      mount({ text: null }, undefined, {
+        used: 0,
+        remaining: 100,
+        aiConfigured: false,
+      })
+      expect(
+        screen.getByRole("button", { name: "Generate reply" })
+      ).toBeInTheDocument()
       expect(
         document.querySelector('[data-slot="ai-unavailable"]')
-      ).toHaveTextContent(
-        "AI replies are not available for this workspace yet."
+      ).not.toBeInTheDocument()
+    })
+
+    it("still offers Generate when the credits read does not say", () => {
+      mount({}, undefined, { used: 0, remaining: 100 })
+      expect(
+        screen.getByRole("button", { name: "Generate reply" })
+      ).toBeInTheDocument()
+      expect(
+        document.querySelector('[data-slot="ai-unavailable"]')
+      ).not.toBeInTheDocument()
+    })
+
+    it("is learned from the 503 on an older server, said once: the note, no alert", async () => {
+      const user = userEvent.setup()
+      const mutateAsync = mount({}, vi.fn().mockRejectedValue(NOT_CONFIGURED))
+      await generateIn(user)
+      await waitFor(() =>
+        expect(
+          document.querySelector('[data-slot="ai-unavailable"]')
+        ).toHaveTextContent(NOTE)
       )
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", {
+          name: /Generate reply|Regenerate|Retry/,
+        })
+      ).not.toBeInTheDocument()
       window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
       expect(mutateAsync).toHaveBeenCalledTimes(1)
       // Writing by hand is untouched.

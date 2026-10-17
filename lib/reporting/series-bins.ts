@@ -4,6 +4,8 @@
  * returns, so a week's bar is exactly the days inside it added up.
  */
 
+import { formatDayMonth, formatMonthYear } from "@/lib/format"
+
 export type BinUnit = "day" | "week" | "month"
 
 export type Bin = {
@@ -110,18 +112,11 @@ export function formatBinLabel(
   const dateOnly = iso.length === 10
   const date = new Date(dateOnly ? `${iso}T00:00:00.000Z` : iso)
   const zone = dateOnly ? "UTC" : timeZone
-  if (unit === "month") {
-    return new Intl.DateTimeFormat("en-GB", {
-      timeZone: zone,
-      month: "short",
-      year: "numeric",
-    }).format(date)
-  }
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: zone,
-    day: "numeric",
-    month: "short",
-  }).format(date)
+  // The month comes from its number (lib/format/date.ts), so the server's
+  // "Sept" and WebKit's "Sep" cannot disagree and fail hydration (#418).
+  return unit === "month"
+    ? formatMonthYear(date, zone)
+    : formatDayMonth(date, zone)
 }
 
 /** The first column's heading in a chart's screen-reader table. */

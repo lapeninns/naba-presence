@@ -30,6 +30,7 @@ import {
 } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { LISTING_TERMS, workspaceTerms } from "@/lib/workspace/terms"
 
 /**
  * Reports scoped to one location.
@@ -82,7 +83,9 @@ function LocationReport({
         data-slot="location-report"
       >
         <div role="status" aria-busy="true" className="flex flex-col gap-3">
-          <span className="sr-only">Loading this location’s report</span>
+          <span className="sr-only">
+            Loading this {LISTING_TERMS.place}’s report
+          </span>
           <Skeleton className="h-6 w-64 max-w-full" />
           <Skeleton className="h-(--np-chip-h) w-full rounded-(--np-radius-pill) md:hidden" />
           <Skeleton className="hidden h-(--np-control-h) w-full rounded-(--np-radius-control) md:block" />
@@ -102,7 +105,7 @@ function LocationReport({
       >
         <ReportingPanel
           variant="error"
-          title="We couldn’t load this location"
+          title={`We couldn’t load this ${LISTING_TERMS.place}`}
           cause={directory.error}
           onRetry={() => void directory.refetch()}
         />
@@ -128,7 +131,7 @@ function LocationReport({
       ? `/reports?clientId=${location.clientId}`
       : "/reports"
   const wholeLabel = business
-    ? "All locations"
+    ? `All ${workspaceTerms(mode).scopePlural}`
     : location.clientId
       ? "Whole client"
       : "All clients"

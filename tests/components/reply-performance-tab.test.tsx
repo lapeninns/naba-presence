@@ -80,7 +80,7 @@ describe("ReplyPerformanceTab by-location card", () => {
     renderTab()
     await screen.findByRole("heading", { name: "Review volume" })
     expect(
-      screen.queryByRole("heading", { name: "By location" })
+      screen.queryByRole("heading", { name: "By listing" })
     ).not.toBeInTheDocument()
   })
 
@@ -88,7 +88,7 @@ describe("ReplyPerformanceTab by-location card", () => {
     stubOverview([locationRow("a", "Alpha"), locationRow("b", "Bravo")])
     renderTab()
     expect(
-      await screen.findByRole("heading", { name: "By location" })
+      await screen.findByRole("heading", { name: "By listing" })
     ).toBeInTheDocument()
   })
 })
@@ -98,7 +98,7 @@ describe("ReplyPerformanceTab empty window", () => {
     stubOverview([], 0)
     renderTab()
     expect(
-      await screen.findByText("No reviews in this window yet")
+      await screen.findByText("No reviews in this period yet")
     ).toBeInTheDocument()
     expect(screen.queryByText("Response rate")).not.toBeInTheDocument()
     expect(

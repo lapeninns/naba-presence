@@ -128,7 +128,9 @@ describe("ClientSwitcher", () => {
     expect(options[0]).toHaveAttribute("aria-checked", "true")
     // The mark is decoration; the health word is read after the name.
     expect(options[1]).toHaveAccessibleName("Old Crown, In sync")
-    expect(options[2]).toHaveAccessibleName("Harbour Kitchen, Action needed")
+    expect(options[2]).toHaveAccessibleName(
+      "Harbour Kitchen, Can’t reach Google"
+    )
   })
 
   it("puts the tick at the end of each row, Notion Mail's switcher look", async () => {
@@ -155,7 +157,7 @@ describe("ClientSwitcher", () => {
     const trigger = screen.getByRole("button", {
       name: "Client: Harbour Kitchen",
     })
-    expect(trigger).toHaveAccessibleDescription("Action needed")
+    expect(trigger).toHaveAccessibleDescription("Can’t reach Google")
   })
 
   it("swaps the Inbox's client in place and remembers it", async () => {
@@ -395,9 +397,11 @@ describe("ClientScopeSheet", () => {
     expect(options[1]).toHaveAccessibleName("Old Crown")
     // Health is printed as words in the row, not only announced.
     expect(within(options[1]).getByText("In sync")).toBeVisible()
-    expect(within(options[2]).getByText("Action needed")).toBeVisible()
+    expect(
+      within(options[2]).getByText("Can’t reach Google")
+    ).toBeVisible()
     expect(options[1]).toHaveAccessibleDescription("In sync")
-    expect(options[2]).toHaveAccessibleDescription("Action needed")
+    expect(options[2]).toHaveAccessibleDescription("Can’t reach Google")
     expect(options[2]).toHaveAttribute("aria-selected", "true")
     expect(options[0]).toHaveAttribute("aria-selected", "false")
     // One Tab stop for the group: the checked row.
@@ -560,7 +564,7 @@ describe("useClientScopeLabel", () => {
     ).toEqual({
       visible: true,
       label: "Harbour Kitchen",
-      healthWords: "Action needed",
+      healthWords: "Can’t reach Google",
       id: "c2",
     })
   })

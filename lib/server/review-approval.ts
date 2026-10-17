@@ -6,6 +6,7 @@ import type { ApprovalInput, ApprovalResult } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
 import { authorisationAssurance } from "@/lib/server/mfa"
+import { notifyApprovalDecided } from "@/lib/server/notifications/approvals"
 import { canPublishLocation, requireLocationAccess } from "@/lib/server/permissions"
 import { executePublish, lockReview } from "@/lib/server/publishing"
 import type { Session } from "@/lib/server/session"
@@ -194,6 +195,17 @@ export async function recordApprovalDecision(
       note: input.note ?? null,
       clientRequestId: ctx.clientRequestId,
     },
+  })
+
+  // Either decision answers the request; a rejection tells whoever asked
+  // (lib/server/notifications/approvals.ts). Before the reject below clears
+  // approval_requested_by.
+  await notifyApprovalDecided(sql, {
+    organisationId: session.organisationId,
+    reviewId: record.review_id,
+    decision: input.decision === "approve" ? "approved" : "rejected",
+    decidedBy: session.userId,
+    requestedBy: record.approval_requested_by,
   })
 
   if (input.decision === "reject") {

@@ -18,6 +18,7 @@ import {
 } from "@/lib/contracts/report-shares"
 import { formatPeriod } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
  * The public client report (`/share/report/[token]`): one client's reply and
@@ -177,14 +178,14 @@ export function SharedClientReportView({
 
           {locations.length > 1 ? (
             <section
-              aria-labelledby="shared-by-venue"
+              aria-labelledby="shared-by-listing"
               className="flex flex-col gap-2.5"
             >
               <h3
-                id="shared-by-venue"
+                id="shared-by-listing"
                 className="text-title font-semibold text-ink"
               >
-                By venue
+                By {LISTING_TERMS.place}
               </h3>
               <p className="text-caption text-ink-muted">
                 Highest response rate first. “Unresolved” counts one- and
@@ -213,10 +214,7 @@ export function SharedClientReportView({
               </p>
               <PresenceProvenance data={presence} timeZone={timezone} />
             </div>
-            <PartialCoverageAlert
-              completeness={presence.completeness}
-              nouns={{ one: "venue", many: "venues" }}
-            />
+            <PartialCoverageAlert completeness={presence.completeness} />
             <PresenceFigures data={presence} />
           </section>
         ) : null}
@@ -225,7 +223,9 @@ export function SharedClientReportView({
       <footer className="flex flex-col gap-3 border-t border-line-subtle pt-4 text-caption text-ink-muted">
         <dl className="grid gap-x-8 gap-y-0.5 sm:grid-cols-[auto_1fr] sm:gap-y-1">
           <dt className="mt-2 first:mt-0 sm:mt-0">
-            {report.venues.length === 1 ? "Venue" : "Venues"}
+            {report.venues.length === 1
+              ? LISTING_TERMS.placeTitle
+              : LISTING_TERMS.placePluralTitle}
           </dt>
           <dd className="[overflow-wrap:anywhere] text-ink">
             {report.venues.length ? report.venues.join(", ") : "None yet"}
@@ -243,7 +243,8 @@ export function SharedClientReportView({
           A read-only report prepared by {report.agencyName} for{" "}
           {report.clientName}. It shows totals only: no individual reviews,
           reviewers or replies. Review figures come from Google reviews
-          collected for these venues; profile figures are as reported by Google.
+          collected for these {LISTING_TERMS.placePlural}; profile figures are
+          as reported by Google.
         </p>
       </footer>
     </div>

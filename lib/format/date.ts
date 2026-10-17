@@ -6,14 +6,60 @@ function yearIn(timeZone: string, date: Date): number {
   )
 }
 
-function datePart(date: Date, timeZone: string): string {
-  const withYear = yearIn(timeZone, date) !== yearIn(timeZone, new Date())
-  return new Intl.DateTimeFormat(LOCALE, {
+/**
+ * The UK short months, as the en-GB data in Node and Chromium spell them.
+ * Safari's en-GB data says "Sep", so a page rendered on the server and
+ * hydrated in WebKit disagreed on the text ("18 Sept – 16 Oct" against "18
+ * Sep – 16 Oct") and React rejected it (#418 on /reports). The month comes
+ * from its number, so every engine writes the same words.
+ */
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sept",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const
+
+function numericParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat(LOCALE, {
     timeZone,
     day: "numeric",
-    month: "short",
-    ...(withYear ? { year: "numeric" } : {}),
-  }).format(date)
+    month: "numeric",
+    year: "numeric",
+  }).formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value ?? ""
+  return {
+    day: Number(part("day")),
+    month: MONTHS[Number(part("month")) - 1] ?? part("month"),
+    year: part("year"),
+  }
+}
+
+function datePart(date: Date, timeZone: string): string {
+  const withYear = yearIn(timeZone, date) !== yearIn(timeZone, new Date())
+  const { day, month, year } = numericParts(date, timeZone)
+  return `${day} ${month}${withYear ? ` ${year}` : ""}`
+}
+
+/** "5 Sept": the day and short month in `timeZone`, never with a year. */
+export function formatDayMonth(date: Date, timeZone: string): string {
+  const { day, month } = numericParts(date, timeZone)
+  return `${day} ${month}`
+}
+
+/** "Sept 2026": the short month and year in `timeZone`. */
+export function formatMonthYear(date: Date, timeZone: string): string {
+  const { month, year } = numericParts(date, timeZone)
+  return `${month} ${year}`
 }
 
 export function formatDate(iso: string, timeZone: string): string {

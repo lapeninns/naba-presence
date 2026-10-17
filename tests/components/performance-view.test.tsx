@@ -218,8 +218,8 @@ describe("PerformanceView", () => {
         <PerformanceView />
       </QueryClientProvider>
     )
-    expect(await screen.findByText("Location")).toBeInTheDocument()
-    expect(screen.getByText("Every location")).toBeInTheDocument()
+    expect(await screen.findByText("Listing")).toBeInTheDocument()
+    expect(screen.getByText("Every listing")).toBeInTheDocument()
     // One client in scope and an owner: the report can be shared, from the
     // report's actions menu rather than a button of its own.
     await userEvent.click(
@@ -395,7 +395,7 @@ describe("PerformanceView share beside the no-location panel", () => {
     stubAgency("owner", { onlyOneClient: true, locationCount: 0 })
     search = "clientId=00000000-0000-4000-8000-000000000001"
     renderAgencyView()
-    expect(await screen.findByText("No linked location")).toBeInTheDocument()
+    expect(await screen.findByText("No linked listing")).toBeInTheDocument()
     await userEvent.click(
       await screen.findByRole("button", { name: "More actions" })
     )
@@ -408,7 +408,7 @@ describe("PerformanceView share beside the no-location panel", () => {
     stubAgency("member", { onlyOneClient: true, locationCount: 0 })
     search = "clientId=00000000-0000-4000-8000-000000000001"
     renderAgencyView()
-    expect(await screen.findByText("No linked location")).toBeInTheDocument()
+    expect(await screen.findByText("No linked listing")).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "More actions" })
     ).not.toBeInTheDocument()

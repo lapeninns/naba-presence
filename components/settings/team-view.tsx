@@ -3,6 +3,7 @@
 import { Check, UserPlus } from "lucide-react"
 import { useEffect, useState } from "react"
 
+import { PageChrome } from "@/components/app-shell/page-chrome"
 import { PageHeader } from "@/components/app-shell/page-frame"
 import {
   InvitationsList,
@@ -99,6 +100,15 @@ export function TeamView({
 
   return (
     <>
+      {/* The header's button scrolls away on a phone; the app bar carries
+          the same action from then on (SET-25), as on Connections. */}
+      <PageChrome
+        action={{
+          label: "Invite a teammate",
+          icon: UserPlus,
+          onSelect: () => setInviteOpen(true),
+        }}
+      />
       <PageHeader
         title="Team"
         description={terms.teamDescription}

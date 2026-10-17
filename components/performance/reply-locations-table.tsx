@@ -13,6 +13,7 @@ import type { AnalyticsLocation } from "@/lib/api/analytics"
 import type { CsvCell } from "@/lib/reporting/csv"
 import { cn } from "@/lib/utils"
 import { formatDuration, formatNumber, formatPercent } from "@/lib/format"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 // Order by response rate desc, nulls last (missing ≠ 0), then by name.
 function orderLocations(locations: AnalyticsLocation[]): AnalyticsLocation[] {
@@ -33,7 +34,7 @@ function orderLocations(locations: AnalyticsLocation[]): AnalyticsLocation[] {
 export function replyLocationsCsv(locations: AnalyticsLocation[]): CsvCell[][] {
   return [
     [
-      "Location",
+      LISTING_TERMS.placeTitle,
       "Reviews",
       "Average rating",
       "Response rate",
@@ -70,7 +71,7 @@ export function ReplyLocationsTable({
     <Table surface responsive>
       <TableHeader>
         <TableRow>
-          <TableHead>Location</TableHead>
+          <TableHead>{LISTING_TERMS.placeTitle}</TableHead>
           <TableHead numeric>Reviews</TableHead>
           <TableHead numeric>Avg rating</TableHead>
           <TableHead numeric>Response rate</TableHead>

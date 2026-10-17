@@ -11,6 +11,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
+import { notifyApprovalRequested } from "@/lib/server/notifications/approvals"
 
 import type { PublishInput, PublishOutcome } from "./types"
 
@@ -84,6 +85,14 @@ export async function requestApproval(
     subjectId: input.reviewId,
     requestId: input.requestId,
     metadata: { draftId: input.draftId },
+  })
+  // In this transaction: the people who could approve hear of it only if
+  // the park commits.
+  await notifyApprovalRequested(sql, {
+    organisationId: input.organisationId,
+    reviewId: input.reviewId,
+    requestedBy: input.session.userId,
+    draftId: input.draftId,
   })
   return {
     status: "awaiting_approval",

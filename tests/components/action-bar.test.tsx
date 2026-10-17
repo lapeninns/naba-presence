@@ -1109,6 +1109,34 @@ describe("ActionBar", () => {
       )
     })
 
+    // The approver's bar after an approval sent the reply: nothing is left to
+    // submit, so no disabled "Submit for approval" sits beside the status.
+    it("draws no Submit for approval once the reply is already with Google, and brings it back on an edit", () => {
+      const sent = detailWith({
+        workflowStatus: "published",
+        reply: {
+          id: "reply-1",
+          body: "Reply",
+          publishStatus: "published",
+          googleReplyState: "PENDING",
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+        },
+        capabilities: { ...twoPersonPublisher, approvalScope: null },
+      })
+      stubHooks(sent)
+      const { unmount } = renderActionBar()
+      expect(
+        screen.queryByRole("button", { name: /Submit for approval/ })
+      ).not.toBeInTheDocument()
+      unmount()
+      stubHooks(sent)
+      renderActionBar(true, oneStepSave())
+      expect(
+        screen.getByRole("button", { name: /Submit for approval/ })
+      ).toBeEnabled()
+    })
+
     it("lets a publisher submit edited text in one press under the two-person rule", async () => {
       const user = userEvent.setup()
       const publish = mutation(

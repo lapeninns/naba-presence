@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ShellBreadcrumbs } from "@/components/app-shell/breadcrumbs-context"
@@ -44,14 +45,15 @@ describe("ShellBreadcrumbs", () => {
 
     const nav = screen.getByRole("navigation", { name: "Breadcrumb" })
     const items = nav.querySelectorAll("li")
-    expect(items).toHaveLength(4)
+    // Listings / … / People: the middle folds (DSK-05).
+    expect(items).toHaveLength(3)
     for (const item of items) {
       expect(item.className).toContain("min-w-0")
       expect(item.className).not.toMatch(/(^|\s)shrink-0(\s|$)/)
     }
     // Ancestors shrink far faster than the current page.
     const ancestors = nav.querySelectorAll('[data-slot="breadcrumb-ancestor"]')
-    expect(ancestors).toHaveLength(3)
+    expect(ancestors).toHaveLength(2)
     for (const ancestor of ancestors) {
       expect(ancestor.className).toContain("shrink-[100]")
     }
@@ -66,14 +68,40 @@ describe("ShellBreadcrumbs", () => {
     expect(current.className).toContain("min-w-0")
     expect(current).toHaveAttribute("title", "People")
 
-    const ancestor = screen.getByRole("link", {
-      name: "Stub location 2122d2d2 with a long name",
-    })
+    const ancestor = screen.getByRole("link", { name: "Listings" })
     expect(ancestor.className).toContain("truncate")
-    expect(ancestor).toHaveAttribute(
-      "title",
-      "Stub location 2122d2d2 with a long name"
+    expect(ancestor).toHaveAttribute("title", "Listings")
+  })
+
+  it('folds the middle crumbs into a "…" menu that still links to each (DSK-05)', async () => {
+    render(<ShellBreadcrumbs />)
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" })
+    // The listing's name is in the page header, not repeated in the trail.
+    expect(
+      screen.queryByRole("link", {
+        name: "Stub location 2122d2d2 with a long name",
+      })
+    ).toBeNull()
+    const fold = nav.querySelector<HTMLElement>(
+      '[data-slot="breadcrumb-folded"]'
+    )!
+    expect(fold).toHaveAccessibleName("Earlier pages in the trail")
+    await userEvent.click(fold)
+    expect(
+      await screen.findByRole("menuitem", {
+        name: "Stub location 2122d2d2 with a long name",
+      })
+    ).toHaveAttribute("href", "/listings/l2")
+    expect(screen.getByRole("menuitem", { name: "Unfiled" })).toHaveAttribute(
+      "href",
+      "/listings"
     )
+  })
+
+  it("does not fold a trail of three or fewer", () => {
+    pathname.current = "/listings/l2"
+    render(<ShellBreadcrumbs />)
+    expect(document.querySelector('[data-slot="breadcrumb-folded"]')).toBeNull()
   })
 
   it("puts the page's registered count after the current crumb, muted", async () => {

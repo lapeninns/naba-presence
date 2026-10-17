@@ -3,7 +3,7 @@ import path from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { breadcrumbTrail } from "@/lib/ui/breadcrumb-trail"
+import { breadcrumbTrail, foldTrail } from "@/lib/ui/breadcrumb-trail"
 
 const clients = [{ id: "c1", name: "Old Crown Group" }]
 const locations = [
@@ -148,5 +148,36 @@ describe("breadcrumbTrail in business mode", () => {
 
   it("files Setup under Listings", () => {
     expect(business("/setup")).toEqual(["Listings", "Setup"])
+  })
+})
+
+describe("foldTrail (DSK-05)", () => {
+  const trail = (pathname: string) => breadcrumbTrail({ pathname, clients, locations })
+
+  it("folds a listing area's middle into one entry, keeping the first and the page", () => {
+    const folded = foldTrail(trail("/listings/l1/photos"))
+    expect(folded.map((crumb) => crumb.label)).toEqual(["Listings", "…", "Photos"])
+    expect(folded[1].folded).toEqual([
+      { label: "Old Crown Group", href: "/clients/c1" },
+      { label: "Old Crown Girton", href: "/listings/l1" },
+    ])
+  })
+
+  it("leaves a trail of three or fewer as it is", () => {
+    const overview = trail("/listings/l1")
+    expect(foldTrail(overview)).toBe(overview)
+    expect(foldTrail(trail("/inbox"))).toEqual([{ label: "Inbox" }])
+  })
+
+  it("folds only what exceeds the limit it is given", () => {
+    const four = trail("/listings/l1/photos")
+    expect(foldTrail(four, 4)).toBe(four)
+    const five = [{ label: "A", href: "/a" }, ...four]
+    expect(foldTrail(five, 4).map((crumb) => crumb.label)).toEqual([
+      "A",
+      "…",
+      "Old Crown Girton",
+      "Photos",
+    ])
   })
 })

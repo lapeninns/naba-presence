@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react"
 
@@ -19,6 +18,7 @@ import {
 } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { formatTimeZoneLabel } from "@/lib/format"
+import { useViewerTimeZone } from "@/lib/hooks/use-viewer-time-zone"
 import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import {
@@ -109,17 +109,6 @@ function leftOutNote(dirty: boolean) {
   return dirty
     ? "Your whole schedule is saved here first. Anything left out stays as Google has it now and waits for a later publish."
     : "Anything left out stays as Google has it now and waits for a later publish."
-}
-
-const subscribeNever = () => () => {}
-
-/** The viewer's own zone; null on the server and during hydration. */
-function useViewerTimeZone(): string | null {
-  return useSyncExternalStore(
-    subscribeNever,
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-    () => null
-  )
 }
 
 function isEmptySchedule(hours: HoursState["google"]) {
