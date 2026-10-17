@@ -275,14 +275,17 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // unmounts this composer, and an Undo that no longer reaches the text it
   // would restore is taken down with it rather than left to do nothing.
   const undoToastIds = useRef<string[]>([])
-  useEffect(
-    () => () => {
-      for (const id of undoToastIds.current) toasts.close(id)
-    },
-    // The manager is stable; this runs once, on unmount.
+  const mounted = useRef(false)
+  useEffect(() => {
+    const ids = undoToastIds.current
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      for (const id of ids) toasts.close(id)
+    }
+    // The manager is stable; this runs on mount and unmount only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  )
+  }, [])
 
   // The publish bar's Publish runs this composer's own save first, through
   // the dirty store it already reads, then publishes the draft it returns.
@@ -369,6 +372,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     try {
       // No body → server runs AI (or rating-only template). Manual only.
       const result = await generateOrSave.mutateAsync({ tone: withTone })
+      // The reviewer moved on while it was written: the reply is saved, but
+      // there is no box to put it in and no text for an Undo to restore.
+      if (!mounted.current) return
       setBody(result.body)
       setMutationVerification(result.verification)
       setVerdictStale(false)

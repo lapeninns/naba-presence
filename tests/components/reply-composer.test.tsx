@@ -631,6 +631,73 @@ describe("ReplyComposer — the editor", () => {
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
   })
 
+  // The reviewer opens another review while Undo toasts are up: the composer
+  // unmounts, and an Undo that can no longer reach its text must not stay.
+  describe("Undo toasts and the composer unmounting", () => {
+    function mountToggle(mutateAsync: Parameters<typeof mockMutation>[0]) {
+      vi.spyOn(creditsHook, "useAiCredits").mockReturnValue({
+        data: undefined,
+      } as UseQueryResult<AiCredits>)
+      vi.spyOn(detailHook, "useReviewDetail").mockReturnValue({
+        data: reviewWith(EXISTING),
+      } as UseQueryResult<ReviewDetail>)
+      vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+        mockMutation(mutateAsync)
+      )
+      const view = render(
+        <Host>
+          <ReplyComposer reviewId="rev-1" />
+        </Host>
+      )
+      // The Toaster stays; only the composer goes, as when another review opens.
+      return () => act(() => view.rerender(<Host>{null}</Host>))
+    }
+    const undoButtons = () => screen.queryAllByRole("button", { name: "Undo" })
+
+    it("takes down the one Undo toast it owns", async () => {
+      const user = userEvent.setup()
+      const unmount = mountToggle(
+        vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
+      )
+      await generateIn(user, "Warm", "Regenerate")
+      await waitFor(() => expect(undoButtons()).toHaveLength(1))
+      unmount()
+      await waitFor(() => expect(undoButtons()).toHaveLength(0))
+    })
+
+    it("takes down every Undo toast after two regenerations", async () => {
+      const user = userEvent.setup()
+      const mutateAsync = vi
+        .fn()
+        .mockResolvedValueOnce({ ...DRAFT_RESULT, body: "First fresh draft" })
+        .mockResolvedValueOnce({ ...DRAFT_RESULT, body: "Second fresh draft" })
+      const unmount = mountToggle(mutateAsync)
+      await generateIn(user, "Warm", "Regenerate")
+      await waitFor(() => expect(textbox()).toHaveValue("First fresh draft"))
+      await generateIn(user, "Concise", "Regenerate")
+      await waitFor(() => expect(textbox()).toHaveValue("Second fresh draft"))
+      await waitFor(() => expect(undoButtons().length).toBeGreaterThan(0))
+      unmount()
+      await waitFor(() => expect(undoButtons()).toHaveLength(0))
+    })
+
+    it("offers no Undo when the reply arrives after the composer is gone", async () => {
+      const user = userEvent.setup()
+      let arrive: (value: typeof DRAFT_RESULT) => void = () => {}
+      const late = new Promise<typeof DRAFT_RESULT>((resolve) => {
+        arrive = resolve
+      })
+      const unmount = mountToggle(vi.fn().mockReturnValue(late))
+      await generateIn(user, "Warm", "Regenerate")
+      unmount()
+      arrive({ ...DRAFT_RESULT, body: "Too late" })
+      await act(async () => {
+        await late
+      })
+      expect(undoButtons()).toHaveLength(0)
+    })
+  })
+
   it("offers Undo after regenerating over a saved draft, restoring it as an edit", async () => {
     const user = userEvent.setup()
     mount(
