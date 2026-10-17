@@ -271,13 +271,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     ? aiCreditsBlocked(aiCredits.data)
     : false
   const toasts = useToastManager()
-  // The "Reply ready" toast that carries Undo. Opening another review
+  // The "Reply ready" toasts that carry Undo. Opening another review
   // unmounts this composer, and an Undo that no longer reaches the text it
   // would restore is taken down with it rather than left to do nothing.
-  const undoToastId = useRef<string | null>(null)
+  const undoToastIds = useRef<string[]>([])
   useEffect(
     () => () => {
-      if (undoToastId.current) toasts.close(undoToastId.current)
+      for (const id of undoToastIds.current) toasts.close(id)
     },
     // The manager is stable; this runs once, on unmount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -374,7 +374,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       setVerdictStale(false)
       const restorable =
         previous.trim() !== "" && previous !== result.body ? previous : null
-      undoToastId.current = toasts.add({
+      const toastId = toasts.add({
         title: "Reply ready",
         description: restorable
           ? "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit."
@@ -396,6 +396,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             }
           : {}),
       })
+      // Every Undo still on screen is taken down if the composer unmounts.
+      if (restorable) undoToastIds.current.push(toastId)
     } catch (error) {
       if (isAiCreditsExhausted(error)) {
         // Told apart from drafts_paused: the balance is spent, so there is
