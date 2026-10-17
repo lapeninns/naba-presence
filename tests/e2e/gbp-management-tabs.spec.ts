@@ -3,6 +3,7 @@ import { locationFieldCapabilities } from "@/lib/domain/google-capabilities"
 import AxeBuilder from "@axe-core/playwright"
 import { draftFromLocation } from "@/lib/locations/business-information-draft"
 import { draftKey } from "@/lib/editors/draft-key"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 
 // The sessionStorage key an editor's stash lives under: drafts are keyed by
 // the signed-in person and organisation (lib/editors/draft-key.ts), here the
@@ -954,8 +955,24 @@ test("Business profile editor renders live Google data with humanised fields", a
   await expect(page.getByText(/gcid:/)).toHaveCount(0)
   // Regression lock (spec §7, sibling fix to the Calls select below): the
   // Open status trigger must read its humanised label on first paint too,
-  // never the raw Google enum ("OPEN").
-  await expect(page.getByRole("combobox", { name: "Open status" })).toHaveText("Open")
+  // never the raw Google enum ("OPEN"). The desk (a fine pointer from md)
+  // keeps the Select; a phone draws a settings row showing the status, which
+  // opens an inset sheet of the choices. Check the control that width draws.
+  const desk = await page.evaluate((query) => window.matchMedia(query).matches, mediaQuery("desk"))
+  if (desk) {
+    await expect(page.getByRole("combobox", { name: "Open status" })).toHaveText("Open")
+  } else {
+    const status = page.getByRole("button", { name: /^Open status/ })
+    await expect(status).toHaveText(/^Open status\s*Open$/)
+    await status.click()
+    const sheet = page.getByRole("dialog", { name: "Open status" })
+    const open = sheet.getByRole("option", { name: "Open", exact: true })
+    await expect(open).toHaveAttribute("aria-selected", "true")
+    // Choosing the current status closes the sheet without drafting a change.
+    await open.click()
+    await expect(sheet).toBeHidden()
+    await expect(status).toHaveText(/^Open status\s*Open$/)
+  }
   // One primary action for the whole listing; publishing happens inside the
   // review sheet it opens. A clean editor draws no footer bar; the first edit
   // brings that one "Review changes" in, with no Publish beside it.
