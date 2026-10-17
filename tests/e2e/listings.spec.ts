@@ -731,6 +731,7 @@ test.describe("listings", () => {
 // width, the switch stays its own size and sits to the right of it.
 for (const viewport of [
   { width: 1280, height: 800 },
+  { width: 768, height: 1024 },
   { width: 390, height: 844 },
 ]) {
   test(`the hours rows keep the day name and times beside the switch at ${viewport.width}px`, async ({
