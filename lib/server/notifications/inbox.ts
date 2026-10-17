@@ -10,6 +10,7 @@ import {
 } from "@/lib/contracts/operational-notifications"
 import {
   ACCOUNT_SCOPED_KINDS,
+  ADDRESSED_KINDS,
   CONDITION_KINDS,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENT_KINDS,
@@ -61,23 +62,44 @@ function decodeCursor(value: string | undefined) {
   }
 }
 
-/** What this viewer may see: account incidents for owners/admins, location incidents where the location is visible. */
+/**
+ * Whether the answer may name the addressed kinds (0149). A browser still on
+ * a build from before them rejects any answer that does, so they go only to
+ * a client that says it reads them (lib/contracts/client-capabilities.ts);
+ * everyone else gets the shape they already know, without those rows.
+ */
+export type NotificationReadOptions = { addressedKinds?: boolean }
+
+/**
+ * What this viewer may see: account incidents for owners/admins, location
+ * incidents where the location is visible, and an addressed incident only
+ * when it is addressed to them (recipients.ts, canSeeIncident), and only to
+ * a client that reads addressed kinds.
+ */
 function scopePredicate(
   sql: Parameters<Parameters<typeof withTenant>[1]>[0],
-  session: Session
+  session: Session,
+  { addressedKinds = false }: NotificationReadOptions = {}
 ) {
-  if (isManagerialRole(session.role)) return sql`true`
+  const addressed = addressedKinds
+    ? sql`(i.kind not in ${sql([...ADDRESSED_KINDS])} or exists (
+    select 1 from notification_incident_recipient nr
+    where nr.incident_id = i.id and nr.user_id = ${session.userId}))`
+    : sql`i.kind not in ${sql([...ADDRESSED_KINDS])}`
+  if (isManagerialRole(session.role)) return addressed
   return sql`(i.location_id is not null and i.kind not in ${sql([...ACCOUNT_SCOPED_KINDS])}
+    and ${addressed}
     and ${visibilityPredicate(sql, session, sql`i.location_id`)})`
 }
 
 export async function listNotifications(
   session: Session,
-  query: z.infer<typeof notificationListQuerySchema>
+  query: z.infer<typeof notificationListQuerySchema>,
+  options: NotificationReadOptions = {}
 ) {
   const after = decodeCursor(query.cursor)
   return withTenant(session.organisationId, async (sql) => {
-    const scope = scopePredicate(sql, session)
+    const scope = scopePredicate(sql, session, options)
     const rows = await sql<Row[]>`
       select i.id::text as id, i.kind, i.subject_type as "subjectType", i.subject_id as "subjectId",
         i.location_id::text as "locationId", l.name as "locationName", i.status, i.reason, i.summary,
@@ -132,7 +154,7 @@ export async function markNotificationsRead(
 ) {
   return withTenant(session.organisationId, async (sql) => {
     const visible = await sql<{ id: string }[]>`
-      select i.id::text as id from notification_incident i where i.id in ${sql(incidentIds)} and ${scopePredicate(sql, session)}`
+      select i.id::text as id from notification_incident i where i.id in ${sql(incidentIds)} and ${scopePredicate(sql, session, { addressedKinds: true })}`
     const ids = visible.map((row) => row.id)
     if (!ids.length) return { updated: 0 }
     if (read) {
@@ -193,7 +215,10 @@ export async function resolveNotification(
   })
 }
 
-export async function readNotificationPreferences(session: Session) {
+export async function readNotificationPreferences(
+  session: Session,
+  { addressedKinds = false }: NotificationReadOptions = {}
+) {
   return withTenant(session.organisationId, async (sql) => {
     const member = (await loadNotificationMembers(sql)).get(session.userId)
     if (!member)
@@ -206,9 +231,13 @@ export async function readNotificationPreferences(session: Session) {
     const explicit = new Set(preferences.keys())
     return parseStored(notificationPreferencesResponseSchema, {
       emailConfigured: emailConfigured(),
-      // Account incidents are for owners and admins; others get no choice to make.
+      // Account incidents are for owners and admins, and a viewer neither
+      // asks for approval nor gives it; others get no choice to make.
       preferences: NOTIFICATION_EVENT_KINDS.filter(
-        (kind) => isManagerialRole(member.role) || !ACCOUNT_SCOPED_KINDS.includes(kind)
+        (kind) =>
+          (isManagerialRole(member.role) || !ACCOUNT_SCOPED_KINDS.includes(kind)) &&
+          ((addressedKinds && member.role !== "viewer") ||
+            !ADDRESSED_KINDS.includes(kind))
       ).flatMap((kind) =>
         NOTIFICATION_CHANNELS.map((channel) => ({
           kind,
@@ -224,7 +253,8 @@ export async function readNotificationPreferences(session: Session) {
 export async function updateNotificationPreferences(
   session: Session,
   input: z.infer<typeof notificationPreferencesUpdateSchema>,
-  requestId: string
+  requestId: string,
+  options: NotificationReadOptions = {}
 ) {
   await withTenant(session.organisationId, async (sql) => {
     for (const change of input.changes) {
@@ -243,5 +273,5 @@ export async function updateNotificationPreferences(
       metadata: { changes: input.changes },
     })
   })
-  return readNotificationPreferences(session)
+  return readNotificationPreferences(session, options)
 }

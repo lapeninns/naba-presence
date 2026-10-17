@@ -1,3 +1,5 @@
+import { clientCapabilityHeaders } from "@/lib/contracts/client-capabilities"
+
 import { apiFetch, type RequestOptions } from "./client"
 
 // The schema loads on demand (see `ResponseSchema` in ./client): the shell
@@ -10,6 +12,7 @@ export function fetchShellStatus(options?: RequestOptions) {
       import("@/lib/contracts/shell-status").then(
         (m) => m.shellStatusResponseSchema
       ),
+    headers: clientCapabilityHeaders(),
     ...options,
   })
 }

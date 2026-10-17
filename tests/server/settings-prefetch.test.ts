@@ -252,7 +252,9 @@ describe("readers", () => {
     }
     vi.mocked(load).mockResolvedValueOnce(payload as never)
     const out = await readNotificationPreferences(owner)
-    expect(load).toHaveBeenLastCalledWith(owner)
+    // Rendered for this build's own client, which reads the approval kinds
+    // (lib/contracts/client-capabilities.ts).
+    expect(load).toHaveBeenLastCalledWith(owner, { addressedKinds: true })
     expect(notificationPreferencesResponseSchema.safeParse(out).success).toBe(
       true
     )

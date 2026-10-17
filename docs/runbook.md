@@ -1523,6 +1523,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `notification_delivery_event` | operational | keep | with its delivery | none | none | no | pending D-47: keep provider delivery events with their delivery |
 | `notification_digest` | operational | keep | kept after it is sent | none | none | no | pending D-47: keep digest records for the life of the organisation |
 | `notification_incident` | operational | keep | kept after it resolves | none | none | no | pending D-47: keep resolved incidents for the life of the organisation |
+| `notification_incident_recipient` | operational | keep | with its incident, or until the person's account is deleted | none | none | no | lifecycle |
 | `notification_preference` | customer | keep | while the person is a member | none | none | no | lifecycle |
 | `notification_recipient_state` | operational | keep | with its incident; cleared when a person marks it unread | none | none | no | lifecycle |
 | `ops_heartbeat` | operational | keep | one row per tick, updated in place | none | none | no | internal |
