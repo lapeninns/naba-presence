@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   BREACHED_PASSWORD_MESSAGE,
   BREACHED_PASSWORD_TIMEOUT_MS,
+  BREACHED_PASSWORD_USER_AGENT,
   assertPasswordNotBreached,
   checkBreachedPassword,
 } from "@/lib/server/breached-password"
@@ -17,7 +18,10 @@ const env = vi.hoisted(() => ({
 vi.mock("@/lib/server/env", () => ({ getServerEnv: () => env }))
 
 const PASSWORD = "correct horse battery staple"
-const HASH = createHash("sha1").update(PASSWORD, "utf8").digest("hex").toUpperCase()
+const HASH = createHash("sha1")
+  .update(PASSWORD, "utf8")
+  .digest("hex")
+  .toUpperCase()
 const PREFIX = HASH.slice(0, 5)
 const SUFFIX = HASH.slice(5)
 
@@ -45,13 +49,18 @@ afterEach(() => {
 })
 
 describe("checkBreachedPassword", () => {
-  it("sends only the five-character prefix, with padding and a timeout", async () => {
+  it("sends only the five-character prefix, with padding, an identifying User-Agent and a timeout", async () => {
     fetchMock.mockResolvedValue(range([`${OTHER}:3`]))
     await checkBreachedPassword(PASSWORD)
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe(`https://api.pwnedpasswords.com/range/${PREFIX}`)
-    expect(new Headers(init.headers).get("Add-Padding")).toBe("true")
+    const headers = new Headers(init.headers)
+    expect(headers.get("Add-Padding")).toBe("true")
+    expect(headers.get("User-Agent")).toBe("NabaPresence-PasswordCheck")
+    expect(BREACHED_PASSWORD_USER_AGENT).toBe("NabaPresence-PasswordCheck")
+    expect([...headers.keys()].sort()).toEqual(["add-padding", "user-agent"])
+    expect(init.cache).toBe("no-store")
     expect(init.signal).toBeInstanceOf(AbortSignal)
     expect(init.method).toBe("GET")
     expect(init.body).toBeUndefined()
@@ -61,6 +70,19 @@ describe("checkBreachedPassword", () => {
     expect(sent).not.toContain(PASSWORD)
     expect(sent).not.toContain(SUFFIX)
     expect(sent.toLowerCase()).not.toContain(SUFFIX.toLowerCase())
+  })
+
+  it("still finds a hit when the service refuses requests that do not identify themselves", async () => {
+    // The API may answer 403 to a missing or generic User-Agent, which would
+    // otherwise fail open on every check.
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) =>
+      new Headers(init.headers).get("User-Agent") ===
+      BREACHED_PASSWORD_USER_AGENT
+        ? range([`${SUFFIX}:42`])
+        : range([], 403)
+    )
+    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("breached")
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it("keeps the timeout short", () => {
@@ -79,16 +101,12 @@ describe("checkBreachedPassword", () => {
 
   it("reports a miss when the suffix is not listed", async () => {
     fetchMock.mockResolvedValue(range([`${OTHER}:9`, "", "not a line"]))
-    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe(
-      "not_breached"
-    )
+    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("not_breached")
   })
 
   it("treats a padding entry (count 0) for our suffix as a miss", async () => {
     fetchMock.mockResolvedValue(range([`${OTHER}:0`, `${SUFFIX}:0`]))
-    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe(
-      "not_breached"
-    )
+    await expect(checkBreachedPassword(PASSWORD)).resolves.toBe("not_breached")
   })
 
   it("fails open on a timeout and logs nothing derived from the password", async () => {

@@ -15,6 +15,13 @@ const RANGE_URL = "https://api.pwnedpasswords.com/range/"
 const PREFIX_LENGTH = 5
 
 /**
+ * The API asks every caller to identify itself and may answer 403 to a
+ * missing or generic User-Agent. A 403 would take the fail-open path on every
+ * check and let breached passwords through, so this stays fixed and explicit.
+ */
+export const BREACHED_PASSWORD_USER_AGENT = "NabaPresence-PasswordCheck"
+
+/**
  * Short on purpose: the check sits in front of sign-up and reset, and fails
  * open, so a slow service costs the person this long and no more.
  */
@@ -46,7 +53,10 @@ export async function checkBreachedPassword(
   try {
     const init: RequestInit & { opentelemetry?: { ignore: boolean } } = {
       method: "GET",
-      headers: { "Add-Padding": "true" },
+      headers: {
+        "Add-Padding": "true",
+        "User-Agent": BREACHED_PASSWORD_USER_AGENT,
+      },
       cache: "no-store",
       // Covers reading the body too, not just the headers.
       signal: AbortSignal.timeout(BREACHED_PASSWORD_TIMEOUT_MS),

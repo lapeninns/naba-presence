@@ -67,8 +67,10 @@ reset.
 The register and reset-complete routes also refuse a password found in Pwned
 Passwords (`lib/server/breached-password.ts`), before the provider is asked
 and, on reset, before the link is spent. Only the first five hex characters
-of the password's SHA-1 are sent to the range API, with `Add-Padding: true`
-and a 2.5-second timeout; the suffix is compared on the server, and padding
+of the password's SHA-1 are sent to the range API, with `Add-Padding: true`,
+an identifying `User-Agent: NabaPresence-PasswordCheck` (the API
+documentation asks every caller to send one, and a 403 without it would
+fail open on every check) and a 2.5-second timeout; the suffix is compared on the server, and padding
 entries (count 0) never match. When the service does not answer the check
 fails open and logs `auth.breached_password_check_unavailable` with nothing
 derived from the password. The request opts out of `@vercel/otel`'s fetch
