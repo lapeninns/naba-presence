@@ -141,32 +141,35 @@ test.describe("listings", () => {
     // From lg the way back is the "Listing areas" tab row. Below lg that row
     // steps aside and the page title is the area switcher: its words open
     // the same list of areas as a menu (an action sheet on a phone).
+    const overviewHref = new RegExp(`/listings/${state.primaryLocationId}$`)
     const tabs = page.getByRole("navigation", { name: "Listing areas" })
     const wide = await page.evaluate(
       (query) => window.matchMedia(query).matches,
       mediaQuery("lg")
     )
-    if (wide) {
-      await expect(tabs.getByRole("link", { name: "Overview" })).toBeVisible()
-    } else {
+    let overview = tabs.getByRole("link", { name: "Overview" })
+    if (!wide) {
       await expect(tabs).toBeHidden()
       await page
         .getByRole("heading", { name: "Opening hours", level: 1 })
         .getByRole("button", { name: "Opening hours", exact: true })
         .click()
-      const overview = page.getByRole("menuitem", {
-        name: "Overview",
-        exact: true,
-      })
-      await expect(overview).toBeVisible()
-      await expect(overview).toHaveAttribute(
-        "href",
-        new RegExp(`/listings/${state.primaryLocationId}$`)
-      )
       await expect(
         page.getByRole("menuitem", { name: /^Opening hours/ })
       ).toHaveAttribute("aria-current", "page")
+      overview = page.getByRole("menuitem", { name: "Overview", exact: true })
     }
+    await expect(overview).toBeVisible()
+    await expect(overview).toHaveAttribute("href", overviewHref)
+    // Either way, it goes back to the listing's overview.
+    await overview.click()
+    await expect(page).toHaveURL(overviewHref)
+    await expect(
+      page.getByRole("heading", {
+        name: state.directReview.locationName,
+        level: 1,
+      })
+    ).toBeVisible()
   })
 
   for (const theme of ["light", "dark"] as const) {
