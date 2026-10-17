@@ -1063,7 +1063,7 @@ function ProfileEditor({
       ) : null}
 
       {/* gap-x-6 is the rail-to-form gap the footer's `rail` offset adds. */}
-      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-4 desk:grid-cols-[var(--np-form-rail-w)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-0 desk:gap-y-4 desk:grid-cols-[var(--np-form-rail-w)_minmax(0,1fr)]">
         <SectionNav entries={navEntries} />
 
         {/* Settings groups: flat on a phone, so the space between them is
