@@ -6,14 +6,15 @@ import { cn } from "@/lib/utils"
 type PasswordRule = { id: string; label: string; met: boolean }
 
 // Mirrors passwordSchema in lib/domain/auth.ts. Both must change together;
-// the server remains the authority and re-validates every submission. Length
-// is the only rule (D9, NIST SP 800-63B): no letter, number or symbol rules,
-// and it counts code points, exactly as the schema does.
+// the server remains the authority and re-validates every submission, and
+// also refuses a password found in a breach, which no row here can check.
+// Length is the only rule (NIST SP 800-63B-4): no letter, number or symbol
+// rules, and it counts code points, exactly as the schema does.
 function checkPasswordRules(value: string): PasswordRule[] {
   return [
     {
       id: "length",
-      label: "Between 12 and 128 characters",
+      label: "Between 15 and 128 characters",
       met:
         passwordLength(value) >= PASSWORD_LENGTH.min &&
         passwordLength(value) <= PASSWORD_LENGTH.max,

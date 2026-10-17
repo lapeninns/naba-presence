@@ -160,7 +160,7 @@ describe("PasswordField", () => {
 describe("password requirements", () => {
   it("evaluates every rule", () => {
     expect(checkPasswordRules("short")).toEqual([
-      { id: "length", label: "Between 12 and 128 characters", met: false },
+      { id: "length", label: "Between 15 and 128 characters", met: false },
     ])
     expect(
       checkPasswordRules("correct-horse-9").every((rule) => rule.met)
@@ -170,9 +170,9 @@ describe("password requirements", () => {
   it("counts code points, as the schema does", () => {
     const met = (value: string) =>
       checkPasswordRules(value).every((rule) => rule.met)
-    expect(met("🚀".repeat(6))).toBe(false)
-    expect(met("🚀".repeat(11))).toBe(false)
-    expect(met("🚀".repeat(12))).toBe(true)
+    expect(met("🚀".repeat(8))).toBe(false)
+    expect(met("🚀".repeat(14))).toBe(false)
+    expect(met("🚀".repeat(15))).toBe(true)
     expect(met("🚀".repeat(128))).toBe(true)
     expect(met("🚀".repeat(129))).toBe(false)
   })
@@ -181,11 +181,11 @@ describe("password requirements", () => {
     expect(checkPasswordRules("short").map((rule) => rule.id)).toEqual([
       "length",
     ])
-    // Letters only, spaces only and digits only all meet it at 12 characters.
+    // Letters only, spaces only and digits only all meet it at 15 characters.
     for (const value of [
       "onlyletterslong",
       "correct horse battery",
-      "123456789012",
+      "123456789012345",
     ]) {
       expect(checkPasswordRules(value).every((rule) => rule.met)).toBe(true)
     }
@@ -197,7 +197,7 @@ describe("password requirements", () => {
     const rules = checkPasswordRules(tooLong)
     expect(rules.find((rule) => rule.id === "length")).toEqual({
       id: "length",
-      label: "Between 12 and 128 characters",
+      label: "Between 15 and 128 characters",
       met: false,
     })
   })
@@ -206,13 +206,13 @@ describe("password requirements", () => {
     render(<PasswordRequirements value="correct-horse-9" />)
     expect(
       screen.getByRole("listitem", {
-        name: "Met: Between 12 and 128 characters",
+        name: "Met: Between 15 and 128 characters",
       })
     ).toBeInTheDocument()
     render(<PasswordRequirements value="short" />)
     expect(
       screen.getByRole("listitem", {
-        name: "Not yet met: Between 12 and 128 characters",
+        name: "Not yet met: Between 15 and 128 characters",
       })
     ).toBeInTheDocument()
   })

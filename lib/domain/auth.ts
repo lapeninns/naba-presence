@@ -15,12 +15,14 @@ export const emailSchema = z
   .transform((value) => value.toLowerCase())
 
 /**
- * Length only, 12 to 128 characters counted in code points (so six emoji
- * are six characters, not twelve), with no letter, number or symbol rules
- * (D9, following NIST SP 800-63B: composition rules push people to
+ * A new password: length only, 15 to 128 characters counted in code points
+ * (so six emoji are six characters, not twelve), with no letter, number or
+ * symbol rules (NIST SP 800-63B-4: composition rules push people to
  * predictable patterns without adding strength). Any character counts,
- * spaces included, so a passphrase works. There is no breached-password
- * check yet; that is an owner follow-up, not something this schema fakes.
+ * spaces included, so a passphrase works. The register and reset routes also
+ * refuse a password found in a breach (lib/server/breached-password.ts).
+ * Sign-in never applies this schema, so passwords set under the earlier
+ * 12-character minimum keep working.
  */
 export const passwordSchema = z
   .string()
@@ -31,7 +33,7 @@ export const passwordSchema = z
     abort: true,
   })
   .refine((value) => passwordLength(value) >= PASSWORD_LENGTH.min, {
-    message: "Use at least 12 characters.",
+    message: "Use at least 15 characters.",
   })
   .refine((value) => passwordLength(value) <= PASSWORD_LENGTH.max, {
     message: "Use no more than 128 characters.",

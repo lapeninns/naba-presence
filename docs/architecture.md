@@ -55,6 +55,52 @@ separate owner/admin action whose encrypted connection belongs to that
 organisation, so application sign-out or a new device session does not remove
 the Google connection.
 
+### Password policy (NIST SP 800-63B-4)
+
+A new password (sign-up, invitation registration, reset) must be 15 to 128
+characters counted in Unicode code points, with no composition rules
+(`passwordSchema`, `lib/domain/auth.ts`; `PASSWORD_LENGTH`,
+`lib/domain/auth-limits.ts`). Sign-in and MFA never apply it, so passwords set
+under the earlier 12-character minimum keep working and nobody is forced to
+reset.
+
+The register and reset-complete routes also refuse a password found in Pwned
+Passwords (`lib/server/breached-password.ts`), before the provider is asked
+and, on reset, before the link is spent. Only the first five hex characters
+of the password's SHA-1 are sent to the range API, with `Add-Padding: true`,
+an identifying `User-Agent: NabaPresence-PasswordCheck` (the API
+documentation asks every caller to send one, and a 403 without it would
+fail open on every check) and a 2.5-second timeout; the suffix is compared on the server, and padding
+entries (count 0) never match. When the service does not answer the check
+fails open and logs `auth.breached_password_check_unavailable` with nothing
+derived from the password. The request opts out of `@vercel/otel`'s fetch
+span, but Next.js's own fetch span records the URL, prefix included, if a
+trace exporter is configured (`NEXT_OTEL_FETCH_DISABLED=1` hides that span
+for every fetch). `BREACHED_PASSWORD_CHECK_ENABLED` (default on when
+unset; `"false"` turns it off) is the kill switch; the check is also skipped
+while `PASSWORD_AUTH_ENABLED` is off. A breached password comes back as a 400
+`invalid_request` field error on `password`, which the forms already show.
+
+What the code shows about hosted Supabase Auth, to confirm before release
+(not changed here):
+
+- The provider may refuse a password the schema accepts, with 422
+  `weak_password`, if the hosted project sets a minimum above 15 or requires
+  character classes (`supabase/config.toml` sets neither, so the local stack
+  uses the provider defaults and cannot show this). On sign-up,
+  `lib/server/password-auth.ts` (lines 311-313) turns every 400/422 into "check your
+  email" so as not to reveal existing accounts: the person is told to confirm
+  an account that was never created. On reset, line 465 turns every 4xx into
+  "The reset session is invalid or expired", after the link has been spent.
+  So hosted Auth must require no character classes and a minimum of 15 or
+  less, or letters-only passphrases will fail in those two misleading ways.
+- Supabase Auth stores passwords with bcrypt, which reads only the first 72
+  bytes; whether the hosted release refuses a longer password or truncates
+  it is not visible from this repo. The schema allows 128
+  code points, up to 512 UTF-8 bytes, and nothing in the code checks bytes.
+  If the hosted version refuses over 72 bytes, a long password fails in the
+  same two ways; if it truncates, the bytes past 72 are ignored.
+
 ### Two-step verification (P02-S8, migration 0105)
 
 Behind `MFA_ENABLED` (default off), a person with a verified Supabase TOTP
