@@ -13,6 +13,7 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
+  SheetTrigger,
 } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 
@@ -77,17 +78,20 @@ function QuickLook({
       className={cn("relative z-raised inline-flex", className)}
       onClick={contain}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Quick look: ${subject}`}
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
-        <EyeIcon aria-hidden strokeWidth={1.75} />
-      </Button>
       <Sheet open={open} onOpenChange={setOpen}>
+        <SheetTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Quick look: ${subject}`}
+              title="Quick look"
+            />
+          }
+        >
+          <EyeIcon aria-hidden strokeWidth={1.75} />
+        </SheetTrigger>
         <SheetContent side="right">
           <SheetHeader>
             <SheetTitle>{subject}</SheetTitle>
@@ -125,6 +129,7 @@ function QuickLook({
                   <ShellLink
                     key={link.href}
                     href={link.href}
+                    onClick={() => setOpen(false)}
                     className={buttonVariants({
                       variant: index === 0 ? "default" : "secondary",
                     })}

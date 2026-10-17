@@ -712,6 +712,20 @@ function linkedSentence(client: ClientSummary) {
   return `${formatNumber(client.linkedCount)} of ${formatNumber(client.locationCount)} ${client.locationCount === 1 ? "listing" : "listings"} linked`
 }
 
+/** The open work as one sentence for the panel: "2 to reply · 1 approval". */
+function openWorkSentence({ openWork }: ClientSummary) {
+  const parts = [
+    openWork.needsReply > 0
+      ? `${formatNumber(openWork.needsReply)} to reply`
+      : null,
+    openWork.awaitingApproval > 0
+      ? `${formatNumber(openWork.awaitingApproval)} awaiting approval`
+      : null,
+    openWork.failed > 0 ? `${formatNumber(openWork.failed)} failed` : null,
+  ].filter((part): part is string => part !== null)
+  return parts.length > 0 ? parts.join(" · ") : "Nothing to reply to"
+}
+
 function OpenWork({ client }: { client: ClientSummary }) {
   const { needsReply, awaitingApproval, failed } = client.openWork
   if (needsReply + awaitingApproval + failed === 0) {
@@ -778,7 +792,7 @@ function ClientQuickLook({ client }: { client: ClientSummary }) {
       }
       facts={[
         { label: "Listings", value: linkedSentence(client) },
-        { label: "Reviews waiting", value: <OpenWork client={client} /> },
+        { label: "Open reviews", value: openWorkSentence(client) },
         {
           label: "Last sync",
           value: client.lastSyncAt ? (

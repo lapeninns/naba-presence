@@ -506,4 +506,49 @@ describe("ClientsIndex", () => {
     await user.click(within(panel).getByText("3 of 3 listings linked"))
     expect(push).not.toHaveBeenCalled()
   })
+
+  it("says plainly when a client has nothing open, and closes before following a link", async () => {
+    const user = userEvent.setup()
+    stub([
+      {
+        ...base,
+        openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
+        lastSyncAt: null,
+      },
+    ])
+    renderIndex()
+    await user.click(
+      await screen.findByRole("button", { name: "Quick look: Old Crown Group" })
+    )
+    const panel = await screen.findByRole("dialog", { name: "Old Crown Group" })
+    // One phrase, not the table cell's two container-query variants.
+    expect(
+      within(panel).getAllByText(/Nothing to reply to|Nothing due/)
+    ).toHaveLength(1)
+    expect(within(panel).getByText("Not synced yet")).toBeInTheDocument()
+    expect(within(panel).getByText("No Google login yet")).toBeInTheDocument()
+    await user.click(within(panel).getByRole("link", { name: "Open inbox" }))
+    // The link is the only navigation: the row underneath never got the click.
+    expect(push).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+  })
+
+  it("returns focus to the quick look button when Escape closes it", async () => {
+    const user = userEvent.setup()
+    stub([base])
+    renderIndex()
+    const button = await screen.findByRole("button", {
+      name: "Quick look: Old Crown Group",
+    })
+    await user.click(button)
+    await screen.findByRole("dialog", { name: "Old Crown Group" })
+    await user.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(button).toHaveFocus())
+    expect(push).not.toHaveBeenCalled()
+  })
 })
