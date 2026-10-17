@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import { QuickFilters } from "@/components/inbox/filter-controls"
 import { FilterToolbar } from "@/components/inbox/filter-toolbar"
+import { InboxBottomToolbar } from "@/components/inbox/inbox-bottom-toolbar"
 import { QueueTabs } from "@/components/inbox/queue-tabs"
 import { useReviewSearch } from "@/components/inbox/review-filters"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -61,7 +62,9 @@ function headerCount(
  *   head is the h1), the needs-reply count after it, and the page actions
  *   (shortcuts and sync). From `xl` the reminder sentence sits before them.
  * - `Toolbar`: the review search (Notion Mail's filled pill, "Search
- *   reviews") with the filter end of the band in its filter slot.
+ *   reviews") with the filter end of the band in its filter slot. On a
+ *   phone it leaves the band for the bottom toolbar, in thumb reach, with
+ *   Sync beside it (`InboxBottomToolbar`).
  * - The queue strip under it, across the full width.
  * - The quick filters under that: star ratings and "With text" as chips,
  *   one tap each, above the list they narrow.
@@ -88,6 +91,7 @@ function InboxToolbar({
   locations,
   showLocationFilter,
   actions,
+  sync,
   resultLabel,
   onFilterChange,
   onQueueChange,
@@ -99,8 +103,13 @@ function InboxToolbar({
   countsPending: boolean
   locations: LocationOption[]
   showLocationFilter: boolean
-  /** Page actions from the route: shortcuts and sync. */
+  /** Page actions from the route: shortcuts, and sync from `md`. */
   actions?: ReactNode
+  /**
+   * The sync control. In the page header from `md`; on a phone it sits beside
+   * the search in the bottom toolbar instead (R10).
+   */
+  sync?: ReactNode
   /**
    * The list's count label ("12 reviews", "50 reviews so far", "Loading
    * reviews…"), which the Filters sheet turns into its "Show 12 reviews".
@@ -191,44 +200,51 @@ function InboxToolbar({
             >
               <p className="sr-only">Only verified replies reach Google.</p>
               {actions}
+              {sync != null ? (
+                <div className="flex empty:hidden max-md:hidden">{sync}</div>
+              ) : null}
             </div>
           }
         />
       </div>
 
-      <Toolbar
-        key={searchModeFromState ? "search-from-state" : "search-by-user"}
-        focusSearchOnMount={false}
-        sticky={false}
-        className="py-0"
-        searchLabel="Search reviews"
-        searchPlaceholder="Search reviews"
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        searchInputProps={{ "aria-busy": searchPending || undefined }}
-        searchRef={searchRef}
-        searchMode={searchMode}
-        onSearchModeChange={(next) => {
-          if (next) {
-            setSearchEngaged(true)
-            return
+      <InboxBottomToolbar searchMode={searchMode} trailing={sync}>
+        <Toolbar
+          key={searchModeFromState ? "search-from-state" : "search-by-user"}
+          focusSearchOnMount={false}
+          sticky={false}
+          // On a phone the field and the Filters button share the bottom bar
+          // with Sync, so the row never wraps and the field gives way first.
+          className="py-0 max-md:[&_[data-slot=toolbar-row]]:flex-nowrap max-md:[&_[data-slot=toolbar-search]]:basis-32"
+          searchLabel="Search reviews"
+          searchPlaceholder="Search reviews"
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          searchInputProps={{ "aria-busy": searchPending || undefined }}
+          searchRef={searchRef}
+          searchMode={searchMode}
+          onSearchModeChange={(next) => {
+            if (next) {
+              setSearchEngaged(true)
+              return
+            }
+            leavingSearchRef.current = true
+            cancel()
+            setSearchEngaged(false)
+          }}
+          filter={
+            <FilterToolbar
+              state={state}
+              resultLabel={resultLabel}
+              locations={locations}
+              showLocationFilter={showLocationFilter}
+              onChange={onFilterChange}
+              onQueueChange={onQueueChange}
+              onClear={onClear}
+            />
           }
-          leavingSearchRef.current = true
-          cancel()
-          setSearchEngaged(false)
-        }}
-        filter={
-          <FilterToolbar
-            state={state}
-            resultLabel={resultLabel}
-            locations={locations}
-            showLocationFilter={showLocationFilter}
-            onChange={onFilterChange}
-            onQueueChange={onQueueChange}
-            onClear={onClear}
-          />
-        }
-      />
+        />
+      </InboxBottomToolbar>
 
       {searchMode ? (
         // The results label under the field: the list's own count, so it

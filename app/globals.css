@@ -1155,7 +1155,10 @@
      - an ActionBar docked to the bottom of a phone renders
        `data-docked="bottom"`.
    One bar owns the bottom edge: while a docked action bar is on the page,
-   the tab bar steps aside. The document's scroll padding follows whichever
+   the tab bar steps aside. The Inbox's list toolbar
+   (`data-slot="inbox-bottom-toolbar"`, R10) is the one bar that rides above
+   the tab bar instead of replacing it: it sits on the tab bar, on the
+   keyboard while search has it open, and steps aside for a docked bar. The document's scroll padding follows whichever
    bar is there, so a focused field scrolled into view is never left under
    the app bar or a bottom bar (WCAG 2.4.11). On a desk the toolbar is the
    only sticky chrome. */
@@ -1175,6 +1178,53 @@
   body:has([data-docked="bottom"]) [data-slot="tab-bar"],
   [data-keyboard="open"] [data-slot="tab-bar"] {
     display: none;
+  }
+
+  /* The Inbox's bottom toolbar (components/inbox/inbox-bottom-toolbar.tsx).
+     Its height is the action bar's, so a docked bar can take its place
+     without the page moving. Where the list is not on screen (a review is
+     open) the inbox hides it with its controls, and the scroll padding
+     below does not count it. */
+  [data-slot="inbox-bottom-toolbar"] {
+    position: fixed;
+    inset-inline: 0;
+    bottom: calc(var(--np-tabbar-h) + var(--np-safe-bottom));
+  }
+  [data-keyboard="open"] [data-slot="inbox-bottom-toolbar"] {
+    bottom: var(--np-dock-bottom);
+  }
+  body:has([data-docked="bottom"]) [data-slot="inbox-bottom-toolbar"],
+  body:has([data-docked="bottom"]) [data-slot="inbox-bottom-toolbar-spacer"] {
+    display: none;
+  }
+  html:has(
+      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+    ):not(:has([data-docked="bottom"])) {
+    scroll-padding-bottom: calc(
+      var(--np-tabbar-h) + var(--np-safe-bottom) + var(--np-actionbar-h)
+    );
+  }
+  html[data-keyboard="open"]:has(
+      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+    ):not(:has([data-docked="bottom"])) {
+    scroll-padding-bottom: calc(var(--np-dock-bottom) + var(--np-actionbar-h));
+  }
+  /* Toasts clear the toolbar as they clear the tab bar: the same edge, one
+     bar higher. Unlayered, so it wins over the viewport's own utilities. */
+  body:has(
+      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+    ):not(:has([data-docked="bottom"]))
+    [data-slot="toast-viewport"] {
+    --toast-edge: calc(var(--np-dock-bottom) + var(--np-actionbar-h));
+  }
+  html:not([data-keyboard="open"])
+    body:has(
+      [data-slot="inbox"][data-view="list"] [data-slot="inbox-bottom-toolbar"]
+    ):not(:has([data-docked="bottom"]))
+    [data-slot="toast-viewport"] {
+    --toast-edge: calc(
+      var(--np-tabbar-h) + var(--np-safe-bottom) + var(--np-actionbar-h)
+    );
   }
 }
 /* Scrolled into view by focus, a control keeps a little air above and below
