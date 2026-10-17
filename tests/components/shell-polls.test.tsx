@@ -1,10 +1,15 @@
+import { dehydrate, QueryClient, useQueryClient } from "@tanstack/react-query"
 import { act, render } from "@testing-library/react"
+import { useEffect } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "@/components/app-shell/app-shell"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { Toaster } from "@/components/ui/toast"
 import { REVIEW_QUEUES } from "@/lib/contracts/reviews"
+import { sessionSchema } from "@/lib/contracts/session"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
+import { queryKeys } from "@/lib/queries/keys"
 import { QueryProvider } from "@/lib/queries/provider"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { SHELL_POLL_MS } from "@/lib/queries/use-shell-status"
@@ -77,7 +82,9 @@ function stubApi() {
                   ? { items: [] }
                   : url.pathname === "/api/session"
                     ? { session }
-                    : {}
+                    : url.pathname === "/api/location-links"
+                      ? { locations: [] }
+                      : {}
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -97,13 +104,40 @@ function InboxPage() {
   )
 }
 
+/**
+ * The session as the dashboard layout hydrates it, so the role is known on
+ * the first render. Fetched instead, it arrives in real time, and every
+ * reader keyed by the role (the location directory) loads again whenever
+ * that happens to be, inside the idle minutes this test counts.
+ */
+function layoutPayload() {
+  const server = new QueryClient()
+  server.setQueryData(queryKeys.session, {
+    session: sessionSchema.parse(session),
+  })
+  return dehydrate(server)
+}
+
+let shellClient: QueryClient | null = null
+
+function ClientProbe() {
+  const client = useQueryClient()
+  useEffect(() => {
+    shellClient = client
+  }, [client])
+  return null
+}
+
 function renderShell() {
   return render(
     <Toaster>
       <QueryProvider>
-        <AppShell session={session}>
-          <InboxPage />
-        </AppShell>
+        <ClientProbe />
+        <HydrationBoundary state={layoutPayload()}>
+          <AppShell session={session}>
+            <InboxPage />
+          </AppShell>
+        </HydrationBoundary>
       </QueryProvider>
     </Toaster>
   )
@@ -119,10 +153,40 @@ function setVisibility(state: "visible" | "hidden") {
 
 const minutes = (count: number) => count * 60_000
 
+/**
+ * Waits, in real time, until no query is fetching. The timers are fake, but
+ * a response's body, its lazily imported schema and the parse settle in
+ * real time.
+ */
+async function settle() {
+  if (!shellClient) throw new Error("The shell is not rendered")
+  // Inside vitest's 5 s test timeout, so a query that never settles fails
+  // with this message rather than a bare timeout.
+  const deadline = performance.now() + 4_000
+  while (shellClient.isFetching()) {
+    if (performance.now() > deadline) {
+      throw new Error("The shell's queries did not settle within 4 s")
+    }
+    await act(async () => {
+      await new Promise((resolve) => setImmediate(resolve))
+    })
+  }
+}
+
+/**
+ * Lets `ms` of idle time pass one poll interval at a time, settling after
+ * each step. Advanced in one go, a loaded machine can fire every tick of 10
+ * minutes while the first request is still in flight, and a tick that finds
+ * its query already fetching joins that fetch instead of making a request.
+ */
 async function idle(ms: number) {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(ms)
-  })
+  await settle()
+  for (let left = ms; left > 0; left -= SHELL_POLL_MS) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(Math.min(left, SHELL_POLL_MS))
+    })
+    await settle()
+  }
 }
 
 beforeEach(() => {
@@ -138,6 +202,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  shellClient = null
   setVisibility("visible")
   vi.useRealTimers()
   vi.restoreAllMocks()
