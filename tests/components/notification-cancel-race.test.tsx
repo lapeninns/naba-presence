@@ -54,18 +54,22 @@ it.each(Array.from({ length: 41 }, (_, at) => at * 3))(
     const { result } = renderHook(() => useNotificationChanges(), { wrapper })
     // The poll left before the save: it still says x is unread, count 2.
     let answerPoll = () => {}
-    void client.fetchQuery({
-      queryKey: queryKeys.shellStatus,
-      queryFn: async () => {
-        await new Promise<void>((resolve) => (answerPoll = resolve))
-        for (let turn = 0; turn < turns; turn++) await Promise.resolve()
-        client.setQueryData<NotificationListResponse>(
-          queryKeys.notifications("badge"),
-          page([row("x"), row("y")])
-        )
-        return null
-      },
-    })
+    // Cancelling it rejects it with CancelledError, which is expected here:
+    // the rejection is handled, not left unhandled.
+    const poll = client
+      .fetchQuery({
+        queryKey: queryKeys.shellStatus,
+        queryFn: async () => {
+          await new Promise<void>((resolve) => (answerPoll = resolve))
+          for (let turn = 0; turn < turns; turn++) await Promise.resolve()
+          client.setQueryData<NotificationListResponse>(
+            queryKeys.notifications("badge"),
+            page([row("x"), row("y")])
+          )
+          return null
+        },
+      })
+      .catch(() => "cancelled")
     act(() => result.current.markRead(["x"], true))
     // Both answers come back together, once the save has reached the server.
     await vi.waitFor(() => expect(answerRead).not.toBeNull())
@@ -74,6 +78,7 @@ it.each(Array.from({ length: 41 }, (_, at) => at * 3))(
       answerPoll()
       await new Promise((resolve) => setTimeout(resolve, 20))
     })
+    await poll
     expect(storeFor(client).changes).toHaveLength(0)
     expect(
       client.getQueryData<NotificationListResponse>(

@@ -240,13 +240,17 @@ export function NotificationsView() {
             onValueChange={(value) => setFilter(String(value))}
             className="w-full sm:w-auto"
           >
-            <TabsList
-              variant="text"
-              aria-label="Show notifications"
-              aria-describedby={hintId}
-            >
+            <TabsList variant="text" aria-label="Show notifications">
               {FILTERS.map((option) => (
-                <TabsTab key={option.value} value={option.value}>
+                // The hint describes the filter being shown, so it hangs on
+                // that tab: a screen reader says it as focus reaches the tab.
+                <TabsTab
+                  key={option.value}
+                  value={option.value}
+                  aria-describedby={
+                    option.value === filter ? hintId : undefined
+                  }
+                >
                   {option.label}
                 </TabsTab>
               ))}

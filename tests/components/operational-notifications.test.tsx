@@ -2767,10 +2767,14 @@ describe("NotificationsView follow-ups to the Release & QA review", () => {
         "Everything sent to you, newest first."
       )
       expect(hint).toBeInTheDocument()
-      // The tab list is described by it, so a screen reader says it with the tabs.
-      expect(screen.getByRole("tablist")).toHaveAttribute(
+      // The tab being shown is described by it, so a screen reader says it
+      // as focus reaches the tab; the others are not.
+      expect(screen.getByRole("tab", { name: "All" })).toHaveAttribute(
         "aria-describedby",
         hint.id
+      )
+      expect(screen.getByRole("tab", { name: "Open" })).not.toHaveAttribute(
+        "aria-describedby"
       )
       fireEvent.click(screen.getByRole("tab", { name: "Unread" }))
       expect(
