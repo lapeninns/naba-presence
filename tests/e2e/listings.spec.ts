@@ -799,7 +799,14 @@ test.describe("profile section nav focus at 390", () => {
           width: Math.round(rect.width),
           height: Math.round(rect.height),
           clipped: style.clip !== "auto" || style.clipPath !== "none",
-          ring: style.boxShadow !== "none" || style.outlineStyle !== "none",
+          top: Math.round(rect.top),
+          // A ring that draws: a box-shadow with a colour that is not
+          // transparent (the focus-visible ring), not merely "not none".
+          ring:
+            style.boxShadow !== "none" &&
+            /rgba?\((?!\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))|oklch|oklab|color\(|lab\(|lch\(/.test(
+              style.boxShadow
+            ),
         }
       })
 
@@ -825,6 +832,11 @@ test.describe("profile section nav focus at 390", () => {
       .toBeGreaterThan(30)
     expect(await box()).toMatchObject({ clipped: false, ring: true })
     expect((await box()).height).toBeGreaterThan(10)
+    // And it sits clear of the sticky tab strip, not scrolled under it.
+    const strip = await nav.boundingBox()
+    expect((await box()).top).toBeGreaterThanOrEqual(
+      Math.round(strip!.y + strip!.height)
+    )
 
     // Leaving it puts the quiet box back.
     await page.keyboard.press("Tab")
