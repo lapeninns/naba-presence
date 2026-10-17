@@ -42,6 +42,11 @@ describe("SectionCard on a phone", () => {
     expect(group.className).toContain(
       `desk:[&>div:first-child>${SR_ONLY_RULE.replace("]]:sr-only", "]]:not-sr-only")}`
     )
+    // The section nav focuses it, and a 1 px clipped box shows no focus ring:
+    // it is drawn again while it has keyboard focus.
+    expect(group.className).toContain(
+      `[&>div:first-child>${SR_ONLY_RULE.replace("]]:sr-only", "]]:focus-visible:not-sr-only")}`
+    )
     // The heading is still in the outline, and still the section nav's focus
     // target.
     expect(

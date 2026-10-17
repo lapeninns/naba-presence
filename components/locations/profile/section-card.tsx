@@ -51,6 +51,9 @@ export function LabelRow({
  * so its first field starts straight under the tabs. The heading stays in
  * the outline as screen-reader text, still the section nav's focus target,
  * and the caption still describes the group; a "Changed" mark keeps its row.
+ * The section nav moves focus to that heading, and a 1 px clipped box cannot
+ * show a focus ring, so the heading is drawn again while it has keyboard
+ * focus (`focus-visible`), ring included, and goes quiet when focus leaves.
  * Opt-in, for the one section that sits first under the tabs (Identity). It
  * is a prop rather than a `first-of-type` rule on purpose: that selector
  * matched any card that was the first `<section>` inside its own wrapper
@@ -110,7 +113,7 @@ export function SectionCard({
         // it back): the tab strip above already names the group, so its
         // heading row and caption become screen-reader text.
         quietOnPhone &&
-          "[&>[data-slot=settings-group-caption]]:sr-only desk:[&>[data-slot=settings-group-caption]]:not-sr-only desk:[&>[data-slot=settings-group-caption]]:mb-1 [&>div:first-child]:min-h-0 desk:[&>div:first-child]:min-h-8 [&>div:first-child>[data-slot=settings-group-label]]:sr-only desk:[&>div:first-child>[data-slot=settings-group-label]]:not-sr-only",
+          "[&>[data-slot=settings-group-caption]]:sr-only desk:[&>[data-slot=settings-group-caption]]:not-sr-only desk:[&>[data-slot=settings-group-caption]]:mb-1 [&>div:first-child]:min-h-0 desk:[&>div:first-child]:min-h-8 [&>div:first-child>[data-slot=settings-group-label]]:sr-only [&>div:first-child>[data-slot=settings-group-label]]:focus-visible:not-sr-only desk:[&>div:first-child>[data-slot=settings-group-label]]:not-sr-only",
         className
       )}
     >
