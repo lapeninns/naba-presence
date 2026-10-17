@@ -3,7 +3,7 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query"
-import { cleanup, render, waitFor } from "@testing-library/react"
+import { act, cleanup, render, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
@@ -85,23 +85,67 @@ describe("the reply report's server prefetch and the tab", () => {
   // how long ago this page first saw that `now`. An open report is never
   // reloaded under the reader, and a device clock minutes out from the
   // server's changes nothing.
-  it("does not reload an open report when ten minutes pass", async () => {
+  //
+  // These two tests run the real thing: `setInterval` is faked as well as
+  // `Date`, so the shared 15 s clock ticks inside `act` as it does in a
+  // browser, and the re-render is a NEW element (the same element object is
+  // skipped by React and proves nothing). Against the previous component,
+  // which subscribed to that clock, both fail with four asked-for windows.
+  function tree(client: QueryClient, windowNow: string) {
+    return (
+      <QueryClientProvider client={client}>
+        <ReplyPerformanceTab windowNow={windowNow} />
+      </QueryClientProvider>
+    )
+  }
+
+  it("does not reload an open report when the clock ticks past ten minutes", async () => {
     stubFetch()
     const opened = "2026-10-16T09:00:00.000Z"
-    vi.useFakeTimers({ now: new Date(opened), toFake: ["Date"] })
+    vi.useFakeTimers({
+      now: new Date(opened),
+      toFake: ["Date", "setInterval", "clearInterval"],
+    })
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    const tree = (
-      <QueryClientProvider client={client}>
-        <ReplyPerformanceTab windowNow={opened} />
-      </QueryClientProvider>
-    )
-    const view = render(tree)
+    const view = render(tree(client, opened))
     await waitFor(() => expect(tabKeys(client)).toHaveLength(2))
-    vi.setSystemTime(new Date("2026-10-16T09:25:00.000Z"))
-    view.rerender(tree)
-    expect(tabKeys(client)).toHaveLength(2)
+    const before = tabKeys(client)
+    // Twenty-five minutes of 15 s ticks, with the report open the whole time.
+    act(() => {
+      vi.advanceTimersByTime(25 * 60_000)
+    })
+    view.rerender(tree(client, opened))
+    expect(tabKeys(client)).toEqual(before)
+    // The figures are still on screen, not the loading state.
+    expect(view.container.querySelector('[aria-busy="true"]')).toBeNull()
+  })
+
+  it("keeps the prefetched keys when the device clock is hours ahead of the server's now", async () => {
+    stubFetch()
+    const serverNow = "2026-10-16T12:00:00.000Z"
+    // The device says it is two hours later than the server's render.
+    vi.useFakeTimers({
+      now: new Date("2026-10-16T14:00:00.000Z"),
+      toFake: ["Date", "setInterval", "clearInterval"],
+    })
+    const entries = replyReportPrefetch({
+      rangeId: "28d",
+      now: new Date(serverNow),
+    })({ organisationId: "org-1" } as unknown as Session)
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const view = render(tree(client, serverNow))
+    await waitFor(() => expect(tabKeys(client)).toHaveLength(2))
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    view.rerender(tree(client, serverNow))
+    expect(tabKeys(client)).toEqual(
+      entries.map((entry) => hashKey(entry.queryKey)).sort()
+    )
   })
 
   it("resolves the windows from the browser's clock for a page restored long after it first saw the server's now (Back)", async () => {
