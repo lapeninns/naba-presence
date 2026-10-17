@@ -51,6 +51,13 @@ vi.mock("next/navigation", async () => {
   }
 })
 
+// The viewer's zone is the browser's; pin it so the test names zones the same
+// wherever it runs. `null` is the server render and hydration.
+const viewer = vi.hoisted(() => ({ zone: "Europe/London" as string | null }))
+vi.mock("@/lib/hooks/use-viewer-time-zone", () => ({
+  useViewerTimeZone: () => viewer.zone,
+}))
+
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -101,6 +108,7 @@ const OCCURRENCES = [
 ]
 
 beforeEach(() => {
+  viewer.zone = "Europe/London"
   nav.set("")
   nav.replace.mockReset()
   nav.replace.mockImplementation((url: string) =>
@@ -193,6 +201,39 @@ describe("PublicationCalendar month grid", () => {
     expect(
       screen.queryByText(/moved by a clock change/)
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("PublicationCalendar time zone names", () => {
+  async function openAgenda() {
+    renderWithProviders(<PublicationCalendar timeZone="Pacific/Auckland" />)
+    await screen.findByRole("region", { name: "Calendar grid" })
+    await userEvent.click(screen.getByRole("tab", { name: "Agenda" }))
+    return screen.findByRole("list", { name: "Scheduled publications" })
+  }
+
+  it("names the listing's zone for a viewer elsewhere, never the IANA id", async () => {
+    viewer.zone = "America/New_York"
+    const agenda = await openAgenda()
+    expect(within(agenda).getAllByText(/^UK time/).length).toBeGreaterThan(0)
+    expect(document.body.textContent).not.toContain("Europe/London")
+    expect(document.body.textContent).not.toContain("Pacific/Auckland")
+    expect(
+      screen.getByText(/workspace time zone \(New Zealand time\)/)
+    ).toBeInTheDocument()
+  })
+
+  it("says nothing extra for someone on the listing's own clock", async () => {
+    const agenda = await openAgenda()
+    expect(within(agenda).queryByText(/^UK time/)).not.toBeInTheDocument()
+    // The clock-change note still shows, without a stray separator.
+    expect(within(agenda).getByText(/^Clocks go back/)).toBeInTheDocument()
+  })
+
+  it("says nothing until the viewer's zone is known", async () => {
+    viewer.zone = null
+    const agenda = await openAgenda()
+    expect(within(agenda).queryByText(/UK time/)).not.toBeInTheDocument()
   })
 })
 

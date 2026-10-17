@@ -12,6 +12,7 @@ vi.mock("@/lib/server/logger", () => ({
 
 import {
   aiCreditsBlocked,
+  aiCreditsSchema,
   describeCreditsLeft,
   fillDailyCredits,
   formatResetDate,
@@ -26,6 +27,27 @@ const period = {
   periodEnd: "2026-11-01T00:00:00.000Z",
   canUseAi: true,
 }
+
+describe("the credits payload's AI signal (INB-14)", () => {
+  const base = {
+    used: 0,
+    allowance: 200,
+    remaining: 200,
+    periodId: PERIOD_ID,
+    periodKind: "pilot_month" as const,
+    periodStart: "2026-10-01T00:00:00.000Z",
+    periodEnd: "2026-11-01T00:00:00.000Z",
+    canUseAi: true,
+    accessReason: "pilot" as const,
+  }
+
+  it("is additive: an older server without it still parses, and an explicit false is kept", () => {
+    expect(aiCreditsSchema.parse(base).aiConfigured).toBeUndefined()
+    expect(
+      aiCreditsSchema.parse({ ...base, aiConfigured: false }).aiConfigured
+    ).toBe(false)
+  })
+})
 
 describe("credit copy", () => {
   it("formats the reset date in UTC", () => {
@@ -143,7 +165,9 @@ describe("creditUsageFindings", () => {
       ...period,
       periodKind: "paid_period",
     })
-    expect(f.ai_credits_exhausted[0].summary).toMatchObject({ period: "period" })
+    expect(f.ai_credits_exhausted[0].summary).toMatchObject({
+      period: "period",
+    })
   })
 })
 
@@ -175,7 +199,10 @@ describe("credit emails", () => {
 describe("migration 0060", () => {
   it("allows both credit incident kinds", () => {
     const sql = readFileSync(
-      join(process.cwd(), "supabase/migrations/0060_ai_credit_notifications.sql"),
+      join(
+        process.cwd(),
+        "supabase/migrations/0060_ai_credit_notifications.sql"
+      ),
       "utf8"
     )
     expect(sql).toContain("'ai_credits_low'")

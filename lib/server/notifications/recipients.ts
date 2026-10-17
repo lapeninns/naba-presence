@@ -6,6 +6,7 @@ import type { LocationScope } from "@/lib/contracts/members"
 import {
   ACCOUNT_SCOPED_KINDS,
   defaultNotificationMode,
+  isAddressedKind,
   isNotificationEventKind,
   type NotificationChannel,
   type NotificationEventKind,
@@ -24,6 +25,22 @@ export type ScopedIncident = {
   id: string
   kind: string
   locationId: string | null
+  /**
+   * An addressed kind's recipient rows (0149), from recipientsColumn. Unused
+   * by other kinds; for an addressed kind, absent means nobody.
+   */
+  recipients?: readonly string[] | null
+}
+
+/**
+ * The select-list column every incident read that feeds canSeeIncident adds,
+ * as `recipients`. `i` must alias notification_incident.
+ */
+export function recipientsColumn(sql: TransactionSql) {
+  return sql`(
+    select array_agg(nr.user_id::text) from notification_incident_recipient nr
+    where nr.incident_id = i.id
+  ) as recipients`
 }
 
 /**
@@ -74,11 +91,20 @@ export async function loadNotificationMembers(
   )
 }
 
-/** Account incidents are owner/admin only; location incidents reach anyone who can see the location. */
+/**
+ * Account incidents are owner/admin only; location incidents reach anyone who
+ * can see the location. An addressed incident reaches only its recipients,
+ * and only while they can still see its location.
+ */
 export function canSeeIncident(
   member: NotificationMember,
   incident: ScopedIncident
 ) {
+  if (
+    isAddressedKind(incident.kind) &&
+    !(incident.recipients ?? []).includes(member.userId)
+  )
+    return false
   if (member.role === "owner" || member.role === "admin") return true
   if (
     !incident.locationId ||

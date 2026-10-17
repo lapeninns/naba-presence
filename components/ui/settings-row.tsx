@@ -22,7 +22,10 @@ import { cn } from "@/lib/utils"
  * alias `labelId`) sets the heading id outright. `listProps` reach the
  * rows' `<ul>` (`aria-label="Danger zone actions"`). `bodyAs="div"` drops
  * the list for a group that is one form card: no `<ul>`, and its rows (and
- * a `SettingsDestructiveAction asRow`) render as `<div>`s.
+ * a `SettingsDestructiveAction asRow`) render as `<div>`s. In a `card` the
+ * desk stretches each row's child to the card's width; a custom row that
+ * puts two controls side by side (a row and its switch) sets
+ * `data-row-layout="inline"` on its `<li>` so they keep their own widths.
  *
  * `SettingsRow`: `--np-settings-row-h` tall (56px touch, 44px desk); a
  * leading 28px `fill-secondary` circle holding an 18px, 1.5-stroke icon; a
@@ -186,7 +189,7 @@ function SettingsGroup({
             className={cn(
               "flex flex-col",
               card &&
-                "desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-1 desk:[&>div>*]:mx-0 desk:[&>div>*]:w-full",
+                "desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-1 desk:[&>div:not([data-row-layout=inline])>*]:mx-0 desk:[&>div:not([data-row-layout=inline])>*]:w-full",
               card && hasFooter && "desk:rounded-b-none"
             )}
           >
@@ -199,7 +202,7 @@ function SettingsGroup({
             className={cn(
               "flex flex-col",
               card &&
-                "desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-1 desk:[&>li>*]:mx-0 desk:[&>li>*]:w-full",
+                "desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-1 desk:[&>li:not([data-row-layout=inline])>*]:mx-0 desk:[&>li:not([data-row-layout=inline])>*]:w-full",
               card && hasFooter && "desk:rounded-b-none",
               listProps?.className
             )}

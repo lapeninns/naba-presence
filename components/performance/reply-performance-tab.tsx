@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useSyncExternalStore } from "react"
 
 import { SectionHeader } from "@/components/ui/section-header"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
@@ -26,6 +26,23 @@ import {
   type ReplyRangeId,
 } from "@/lib/reporting/ranges"
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
+
+/** How long a prefetched window's `now` may be held before the browser's clock replaces it. */
+const WINDOW_NOW_MAX_AGE_MS = 10 * 60_000
+
+/** When this page first saw each server `now`, by this browser's clock. */
+const windowSeenAt = new Map<string, number>()
+
+function windowIsOld(windowNow: string | undefined): boolean {
+  if (!windowNow) return false
+  const at = Date.now()
+  const first = windowSeenAt.get(windowNow) ?? at
+  windowSeenAt.set(windowNow, first)
+  return at - first > WINDOW_NOW_MAX_AGE_MS
+}
+
+const noopSubscribe = () => () => {}
 
 function ReplyPerformanceLoading() {
   return <ReportsSkeleton variant="tab" label="Loading reply performance…" />
@@ -35,8 +52,15 @@ export function ReplyPerformanceTab({
   clientId,
   range,
   share,
+  windowNow,
 }: {
   clientId?: string
+  /**
+   * The server's "now" (ISO) from the page that prefetched these windows. The
+   * windows are resolved from it, so their keys match the prefetched ones;
+   * without it they are resolved from the browser's clock on mount.
+   */
+  windowNow?: string
   /** What the report's menu shares; none when the viewer may not share. */
   share?: ReportShareTarget | null
   /** The period, kept by the page (in `?range=`); defaults to 28 days. */
@@ -50,16 +74,35 @@ export function ReplyPerformanceTab({
   // -> a new useAnalyticsOverview query key -> refetch -> re-render -> an
   // infinite fetch loop (72 requests in 5s, observed). Capture the window once
   // per rangeId change so the query keys stay stable.
+  // The server's `now` stands for the render that hydrates (so the keys match
+  // the prefetched ones). A page restored later from the router cache (Back)
+  // brings its old `windowNow` with it. Whether it is old is decided once,
+  // when the tab mounts, and only from this browser's own clock: how long ago
+  // this page first saw that `now`. Not against the server's clock, which a
+  // device may be minutes out from, and not on a tick, which would reload an
+  // open report mid-read.
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  )
+  const windowStale = useMemo(
+    () => mounted && windowIsOld(windowNow),
+    [mounted, windowNow]
+  )
   const { current, previous } = useMemo(
-    () => resolveReplyRange(rangeId),
-    [rangeId]
+    () =>
+      resolveReplyRange(
+        rangeId,
+        windowNow && !windowStale ? new Date(windowNow) : undefined
+      ),
+    [rangeId, windowNow, windowStale]
   )
   const now = useAnalyticsOverview({ ...current, clientId })
   const prior = useAnalyticsOverview({ ...previous, clientId })
   const unit = current.granularity
   const rangeLabel =
-    REPLY_RANGES.find((option) => option.id === rangeId)?.label ??
-    "This window"
+    REPLY_RANGES.find((option) => option.id === rangeId)?.label ?? "This period"
   const period = formatPeriod(current, now.data?.timezone ?? "Europe/London")
 
   // The period is the page's (period strip, toolbar); the tab's head is the
@@ -137,12 +180,15 @@ export function ReplyPerformanceTab({
           <SectionHeader
             as="h3"
             id="reply-by-location"
-            title="By location"
+            title={`By ${LISTING_TERMS.place}`}
             description="Highest response rate first. Missing figures show “—”, never zero."
             actions={
               <CsvDownloadButton
-                filename={csvFilename("reply performance by location", rangeLabel)}
-                accessibleLabel="Download reply performance by location as CSV"
+                filename={csvFilename(
+                  `reply performance by ${LISTING_TERMS.place}`,
+                  rangeLabel
+                )}
+                accessibleLabel={`Download reply performance by ${LISTING_TERMS.place} as CSV`}
                 rows={() => replyLocationsCsv(now.data.locations)}
               />
             }

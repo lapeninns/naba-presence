@@ -305,7 +305,7 @@ describe("AppShell", () => {
     )
     // "2 clients need attention" tells an agency where to look. The old chip
     // said only "disconnected" whenever any connection anywhere was down.
-    // Action needed outranks delayed data: the count names the clients a
+    // A disconnected login outranks delayed data: the count names the clients a
     // person has to do something for.
     expect(await screen.findByText("1 client needs action")).toBeInTheDocument()
   })

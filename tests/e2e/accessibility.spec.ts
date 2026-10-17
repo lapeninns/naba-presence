@@ -580,7 +580,7 @@ for (const theme of themes) {
       })
 
       test("reports", async ({ baseURL, page }) => {
-        // Real journey tenant/cookie: the "By location" table
+        // Real journey tenant/cookie: the "By listing" table
         // (components/performance/reply-locations-table.tsx) renders response
         // rate as a plain table cell, not a named progressbar, and a real
         // cookie means `/api/google/connections` (never mocked here) resolves

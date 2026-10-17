@@ -47,7 +47,17 @@ export type PendingChange = {
  * The shell's unread count as it stood when the first of the changes now
  * pending was made, moved on by each change that commits since.
  */
-export type CountPin = { count: number; scope: string }
+export type CountPin = {
+  count: number
+  scope: string
+  /**
+   * The badge answer the count rests on (the badge query's `dataUpdateCount`
+   * when it was taken), so a newer answer is noticed and the pin can move
+   * onto it (`rebasePin` in lib/notifications/pending-changes.ts). Absent
+   * when the answer is not known.
+   */
+  answer?: number
+}
 
 export type Store = {
   /** The truth, for code that is not rendering. */

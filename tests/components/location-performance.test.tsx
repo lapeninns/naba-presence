@@ -46,7 +46,7 @@ describe("LocationPerformance", () => {
     expect(urls.some((url) => url.startsWith("/api/analytics/presence?") && url.includes("range=90d"))).toBe(true)
   })
 
-  it("shows an honest no-activity panel when the location is absent from overview", async () => {
+  it("shows an honest no-activity panel when the listing is absent from overview", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       const body = url.startsWith("/api/analytics/overview")
         ? { from: "a", to: "b", timezone: "Europe/London", summary: { reviewVolume: 0, averageRating: null, responseRate: null, unresolvedComplaints: 0, verificationFailures: 0, verificationRejectionRate: null, medianFirstResponseSeconds: null, p95FirstResponseSeconds: null, medianLatestEditSeconds: null }, series: [], locations: [], providerTotals: { averageRating: null, totalReviewCount: null, localReviewCount: 0, divergence: false } }
@@ -56,8 +56,8 @@ describe("LocationPerformance", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><LocationPerformance locationId="loc-1" /></QueryClientProvider>)
     expect(
-      await screen.findByText("No reviews in this window yet")
+      await screen.findByText("No reviews in this period yet")
     ).toBeInTheDocument()
-    expect(screen.getByText(/for this location in the last 28 days/)).toBeInTheDocument()
+    expect(screen.getByText(/for this listing in the last 28 days/)).toBeInTheDocument()
   })
 })

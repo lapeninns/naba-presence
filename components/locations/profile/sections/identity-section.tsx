@@ -79,7 +79,8 @@ export function IdentitySection({
     <SectionCard
       id="section-identity"
       title="Identity"
-      description="The name customers see. Google may review name changes before they show."
+      description="The name customers see."
+      quietOnPhone
       changed={changed.name || changed.storeCode || changed.labels}
     >
       {/* Settings rows that edit in place: the label (and where the field
@@ -101,7 +102,8 @@ export function IdentitySection({
             />
             <FieldDescription>
               Use the name on the sign. Don’t add places or offers — Google can
-              suspend listings for it.
+              suspend listings for it. Google may review name changes before
+              they show.
             </FieldDescription>
             <FieldError />
           </Field>

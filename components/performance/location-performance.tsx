@@ -26,6 +26,7 @@ import {
   resolveReplyRange,
   type ReplyRangeId,
 } from "@/lib/reporting/ranges"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
  * One location's row of the overview as reply figures. A location with no
@@ -131,7 +132,7 @@ export function LocationPerformance({
             unit={current.granularity}
             rangeLabel={rangeLabel}
             periodText={period}
-            scope="this location"
+            scope={`this ${LISTING_TERMS.place}`}
           />
         )}
       </section>
@@ -165,7 +166,7 @@ export function LocationPerformance({
             variant="empty"
             icon={<Link2OffIcon />}
             title="Not linked"
-            description="This location is not linked to Google."
+            description="This listing is not linked to Google."
           />
         ) : presence.data.state === "pending" ? (
           <ReportingPanel framed titleAs="h3" variant="collecting" />
@@ -229,7 +230,7 @@ export function LocationPerformance({
             variant="empty"
             icon={<SearchIcon />}
             title="No keywords yet"
-            description="Google has not reported any search keywords for this location."
+            description="Google has not reported any search keywords for this listing."
           />
         ) : (
           <KeywordsTable keywords={keywords.data.keywords.slice(0, 20)} />

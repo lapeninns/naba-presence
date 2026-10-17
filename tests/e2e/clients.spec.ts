@@ -101,12 +101,12 @@ test.describe("clients index", () => {
       ).toBeVisible()
       await expect(strip.getByRole("button")).toHaveText([
         "All 2",
-        "In sync 1",
         "Some listings not checked yet 1",
+        "In sync 1",
       ])
       // The empty near-synonyms are not drawn.
       await expect(
-        strip.getByRole("button", { name: /Action needed/ })
+        strip.getByRole("button", { name: /Can’t reach Google/ })
       ).toHaveCount(0)
       await expect(
         strip.getByRole("button", { name: /Needs attention/ })
@@ -158,7 +158,9 @@ test.describe("clients index", () => {
     ])
     await openClients(page)
     const strip = page.getByRole("group", { name: "Filter by health" })
-    await strip.getByRole("button", { name: /^Action needed/ }).click()
+    await strip
+      .getByRole("button", { name: /^Can’t reach Google/ })
+      .click()
     await expect(page).toHaveURL(/[?&]health=disconnected/)
     await expect(
       page
@@ -171,7 +173,10 @@ test.describe("clients index", () => {
         .getByRole("link", { name: "Old Crown Group", exact: true })
     ).toHaveCount(0)
     await strip
-      .getByRole("button", { name: /^Action needed/, pressed: true })
+      .getByRole("button", {
+        name: /^Can’t reach Google/,
+        pressed: true,
+      })
       .click()
     await expect(page).not.toHaveURL(/health=/)
     await expect(
@@ -191,9 +196,11 @@ test.describe("clients index", () => {
     const chosen = page
       .getByRole("group", { name: "Filter by health" })
       .getByRole("button", { pressed: true })
-    await expect(chosen).toHaveAccessibleName("Action needed, 0")
+    await expect(chosen).toHaveAccessibleName("Can’t reach Google, 0")
     await expect(
-      page.getByRole("heading", { name: "No clients in “Action needed”" })
+      page.getByRole("heading", {
+        name: "No clients in “Can’t reach Google”",
+      })
     ).toBeVisible()
   })
 

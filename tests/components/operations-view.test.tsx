@@ -439,10 +439,10 @@ describe("time zone", () => {
     // 01:30 UTC on 15 Oct is 14:30 in Auckland (UTC+13) and 02:30 in London (BST).
     const iso = "2026-10-15T01:30:00Z"
     expect(formatZonedTime(iso, "Pacific/Auckland")).toBe(
-      "15 Oct, 14:30 (Pacific/Auckland)"
+      "15 Oct, 14:30 (New Zealand time)"
     )
     expect(formatZonedTime(iso, "Europe/London")).toBe(
-      "15 Oct, 02:30 (Europe/London)"
+      "15 Oct, 02:30 (UK time)"
     )
   })
 
@@ -473,7 +473,7 @@ describe("time zone", () => {
     renderWithProviders(<OperationsView />)
     expect(
       await screen.findByRole("button", {
-        name: "Replay New reviews received 15 Oct, 14:30 (Pacific/Auckland)",
+        name: "Replay New reviews received 15 Oct, 14:30 (New Zealand time)",
       })
     ).toBeInTheDocument()
     // The raw type and code are for support, not the visible sentence.

@@ -270,6 +270,17 @@ test.describe("inbox", () => {
     }) => {
       const state = await readJourneyState()
       await applyCookie(page, baseURL, state.cookie)
+      // This server has no AI provider key, so its credits read says so
+      // (INB-14) and Generate gives way to a note. The layout under test is
+      // the one a configured workspace sees: read the real balance and say
+      // the provider is set up.
+      await page.route("**/api/ai/credits", async (route) => {
+        const response = await route.fetch()
+        await route.fulfill({
+          response,
+          json: { ...(await response.json()), aiConfigured: true },
+        })
+      })
       await page.goto(`/inbox?selected=${state.directReview.id}`)
       const detail = page.getByRole("region", { name: "Selected review" })
       await expect(detail).toBeVisible()
@@ -306,6 +317,33 @@ test.describe("inbox", () => {
       await expect(guidance).toBeVisible()
       await expect(guidance.locator("svg.lucide-circle")).toHaveCount(0)
     })
+  })
+
+  // INB-14: with no AI provider on the server the credits read says so, and
+  // the composer replaces Generate with its note before anything is tried.
+  test("a server with no AI provider says so up front instead of offering Generate", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    const credits = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/ai/credits") &&
+        response.request().method() === "GET"
+    )
+    await page.goto(`/inbox?selected=${state.directReview.id}`)
+    expect((await (await credits).json()).aiConfigured).toBe(false)
+    const detail = page.getByRole("region", { name: "Selected review" })
+    await expect(
+      detail.getByText("AI replies aren’t set up here. Write your own.")
+    ).toBeVisible()
+    await expect(
+      detail.getByRole("button", { name: /Generate reply|Regenerate/ })
+    ).toHaveCount(0)
+    await expect(
+      detail.getByRole("textbox", { name: "Your reply" })
+    ).toBeEditable()
   })
 
   // INB-08: one review is triaged where the reader is, not through Select

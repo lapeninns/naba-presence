@@ -28,7 +28,9 @@ import {
 } from "@/components/ui/table"
 import type { ScheduleOccurrence } from "@/lib/contracts/publication-schedules"
 import { clockChangeNote } from "@/lib/domain/publication-schedule"
+import { formatTimeZoneLabel } from "@/lib/format"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
+import { useViewerTimeZone } from "@/lib/hooks/use-viewer-time-zone"
 import { occurrenceReasonText } from "@/lib/locations/schedule-display"
 import { cn } from "@/lib/utils"
 
@@ -82,19 +84,25 @@ function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
 }
 
 /**
- * The listing's timezone, what a clock change did to this run and, for one
- * that did not publish, why (a missed run is never retried: P08-R5).
+ * The listing's timezone (named like the Hours tab: "UK time" for a viewer
+ * elsewhere, nothing for someone on the listing's own clock, and nothing
+ * until hydration, when the viewer's zone is known), what a clock change did
+ * to this run and, for one that did not publish, why (a missed run is never
+ * retried: P08-R5). Null when there is nothing to say.
  */
-function OccurrenceMeta({ occurrence }: { occurrence: ScheduleOccurrence }) {
-  const note = clockChangeNote(occurrence.adjustment)
-  const reason = occurrenceReasonText(occurrence)
-  return (
-    <span className="text-caption text-ink-muted">
-      {occurrence.timezone}
-      {note ? ` · ${note}` : ""}
-      {reason ? ` · ${reason}` : ""}
-    </span>
-  )
+function occurrenceMeta(
+  occurrence: ScheduleOccurrence,
+  viewerZone: string | null
+): string | null {
+  const parts = [
+    formatTimeZoneLabel(
+      occurrence.timezone,
+      viewerZone ?? occurrence.timezone
+    ),
+    clockChangeNote(occurrence.adjustment),
+    occurrenceReasonText(occurrence),
+  ].filter(Boolean)
+  return parts.length ? parts.join(" · ") : null
 }
 
 /**
@@ -113,10 +121,12 @@ function DayEntries({
   flush?: boolean
   className?: string
 }) {
+  const viewerZone = useViewerTimeZone()
   return (
     <ListRows bleed={!flush} className={className}>
       {entries.map((occurrence) => {
         const status = STATUS[occurrence.status]
+        const meta = occurrenceMeta(occurrence, viewerZone)
         return (
           <ListRow
             key={occurrence.id}
@@ -140,7 +150,11 @@ function DayEntries({
                 {status.label}
               </StatusPill>
             }
-            footer={<OccurrenceMeta occurrence={occurrence} />}
+            footer={
+              meta ? (
+                <span className="text-caption text-ink-muted">{meta}</span>
+              ) : undefined
+            }
           />
         )
       })}

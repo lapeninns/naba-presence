@@ -534,6 +534,7 @@ export function HoursEditor({
             // row, not inside it, so each stays one control.
             <li
               key={dayOfWeek}
+              data-row-layout="inline"
               data-changed={changed || undefined}
               className={cn(
                 "flex items-center gap-1",

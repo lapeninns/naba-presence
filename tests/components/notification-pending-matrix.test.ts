@@ -16,6 +16,7 @@ import {
   commitPendingChange,
   removePendingChange,
   usePendingNotificationChanges,
+  usePendingUnreadTotal,
 } from "@/lib/notifications/pending-changes"
 import type { PendingChange } from "@/lib/notifications/pending-store"
 import { queryKeys } from "@/lib/queries/keys"
@@ -101,6 +102,7 @@ async function run(
     createElement(QueryClientProvider, { client }, children)
   const pending = renderHook(() => usePendingNotificationChanges(), { wrapper })
   const delta = renderHook(() => usePendingUnreadDelta("badge"), { wrapper })
+  const total = renderHook(() => usePendingUnreadTotal(), { wrapper })
   const server: Record<string, RowModel> = {
     x: { status: "open", read: xStartsRead },
     y: { status: "open", read: false },
@@ -128,6 +130,7 @@ async function run(
     )
   const label = `${ops.map((op, at) => `${op.join(" ")}:${outcomes[at]}`).join(", ")} (refresh during #${inFlight + 1}${xStartsRead ? ", X starts read" : ""})`
   const pageCount = () => {
+    act(() => total.rerender())
     const all = client.getQueryData<{ pages: NotificationListResponse[] }>(
       queryKeys.notifications("all")
     )!
@@ -135,7 +138,8 @@ async function run(
       all.pages,
       pending.result.current,
       "all",
-      cachedRowStates(client)
+      cachedRowStates(client),
+      total.result.current
     ).unreadCount
   }
   const badgeCache = () =>
@@ -175,7 +179,8 @@ async function run(
   if (outcomes[inFlight] !== "refused") applyToServer(server, ops[inFlight]!)
   await act(async () => {
     refresh()
-    await Promise.resolve()
+    // The cache tells its subscribers a tick later.
+    await new Promise((resolve) => setTimeout(resolve, 0))
   })
   agree("at the refresh")
   await act(async () => {
@@ -196,6 +201,7 @@ async function run(
     )
   pending.unmount()
   delta.unmount()
+  total.unmount()
   client.clear()
   return judged ? problems : []
 }

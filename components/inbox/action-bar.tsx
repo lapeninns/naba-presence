@@ -301,6 +301,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // `awaiting_approval` (lib/server/publishing/approval.ts) -- so
   // onPublish/describeOutcomeToast are shared unchanged.
   const offerRequestApproval = primary.kind === "submit"
+  // Nothing left to submit: the reply is already with Google (an approver's
+  // approval sent it). The status words say so; a disabled "Submit for
+  // approval" beside them only asks what to submit. Editing the reply brings
+  // the button back.
+  const nothingToSubmit = offerRequestApproval && primary.settled
   // A publish already with Google: nothing to press until it answers.
   const inFlight = review.workflowStatus === "publish_requested"
   // Unsaved edits (or an unchecked draft) in front of a publish or a submit:
@@ -380,7 +385,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               </Button>
             ) : null}
           </>
-        ) : offerRequestApproval ? (
+        ) : nothingToSubmit ? null : offerRequestApproval ? (
           <Button
             ref={primaryRef}
             disabled={!sendEnabled}

@@ -5,8 +5,8 @@ import { ListingSkeleton } from "@/components/listings/listing-skeleton"
 import { Skeleton } from "@/components/ui/skeleton"
 
 // Between two areas the header stays (it lives in `[id]/layout.tsx`, LST-14),
-// so this draws only the editor's card inside it. Elsewhere (the overview,
-// Review & publish) the whole page's shape.
+// so this draws only the editor's card inside it (Review & publish included).
+// Elsewhere (the overview) the whole page's shape.
 export default function ListingLoading() {
   const inFrame = useInAreaFrame()
   if (inFrame)

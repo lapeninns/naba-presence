@@ -25,12 +25,12 @@ function toneFor(
 
 function comparisonLabel(direction: DeltaDirection, unit: DeltaUnit): string {
   if (unit === "duration") {
-    if (direction === "flat") return "same as the previous window"
+    if (direction === "flat") return "same as the previous period"
     return direction === "down"
-      ? "faster than the previous window"
-      : "slower than the previous window"
+      ? "faster than the previous period"
+      : "slower than the previous period"
   }
-  return "vs the previous window"
+  return "vs the previous period"
 }
 
 /**

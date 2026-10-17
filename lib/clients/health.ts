@@ -193,8 +193,11 @@ export function clientFreshness(input: ClientHealthInput): ClientFreshness {
  * setup states that are not health at all (nothing linked yet; the first
  * import still running).
  *
- * `disconnected` is Action needed and `attention` is Needs attention; the
+ * `disconnected` reads "Can’t reach Google" and `attention` is Needs attention; the
  * values keep their names so saved `?health=` filters and links still work.
+ * The words cover both causes of `action_needed` — the login is gone, or it
+ * works but has lost manager access to a listing — so neither is described as
+ * the other; the hub's login line says which.
  * Freshness comes from successful checks, never from token refreshes: a
  * quiet client whose checks succeed is up to date however long it has been
  * since a refresh.
@@ -252,7 +255,7 @@ const LABELS: Record<ClientHealth, string> = {
   healthy: "In sync",
   syncing: "Importing",
   attention: "Needs attention",
-  disconnected: "Action needed",
+  disconnected: "Can’t reach Google",
   not_connected: "Not set up",
 }
 
@@ -361,9 +364,12 @@ export function summariseHealth(
  * One vocabulary everywhere: the filter labels, the summary tiles and the
  * status pills all use the health words above, and the buckets do not
  * overlap, so a tile's count is exactly the rows its filter shows. (The
- * filters used to include "Delayed or action needed" beside "Action
- * needed", so one client counted twice and a tile called "Need attention"
+ * filters used to include "Delayed or action needed" beside the broken
+ * login bucket, so one client counted twice and a tile called "Need attention"
  * sat over rows that said "nothing needs doing".)
+ *
+ * The buckets run most urgent first, in the same order as
+ * `HEALTH_SEVERITY` below, and the chip strip draws them in that order.
  *
  * "Up to date" includes clients still importing their history: their checks
  * succeed, and the pill on the row says Importing.
@@ -372,11 +378,11 @@ export const HEALTH_FILTERS = [
   { value: "all", label: "All" },
   { value: "disconnected", label: LABELS.disconnected },
   { value: "attention", label: LABELS.attention },
-  { value: "healthy", label: LABELS.healthy },
-  { value: "unchecked", label: LABELS.unchecked },
-  { value: "partially_checked", label: LABELS.partially_checked },
   { value: "unpublished", label: LABELS.unpublished },
+  { value: "partially_checked", label: LABELS.partially_checked },
+  { value: "unchecked", label: LABELS.unchecked },
   { value: "not_connected", label: LABELS.not_connected },
+  { value: "healthy", label: LABELS.healthy },
 ] as const
 
 export type HealthFilter = (typeof HEALTH_FILTERS)[number]["value"]

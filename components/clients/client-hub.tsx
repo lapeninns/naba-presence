@@ -56,9 +56,11 @@ import {
 import type { ClientResponse } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
+import { listingHealthLabel, listingHealthTone } from "@/lib/listings/health"
 import { formatAddressLine } from "@/lib/locations/address"
 import { useClient } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 type Client = ClientResponse["client"]
 type Listing = ClientResponse["locations"][number]
@@ -250,9 +252,8 @@ function ClientHub({
             tone={client.openWork.failed > 0 ? "bad" : undefined}
             href={`/inbox?clientId=${client.id}&queue=failed`}
           />
-          {/* TODO(CLR-06): adopt lib/workspace/terms.ts once P11 merges */}
           <WorkTile
-            label="Listings linked"
+            label={`${LISTING_TERMS.placePluralTitle} linked`}
             value={`${formatNumber(client.linkedCount)} / ${formatNumber(client.locationCount)}`}
             hint={`${formatNumber(client.verifiedCount)} verified on Google`}
             href={`/listings?clientId=${client.id}`}
@@ -362,7 +363,7 @@ function HubActions({
           <EllipsisIcon aria-hidden strokeWidth={1.75} />
           More
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" title="Client actions">
           <DropdownMenuItem
             render={<Link href={`/reports?clientId=${clientId}`} />}
           >
@@ -408,7 +409,7 @@ function HubActions({
  * The chip never says all is well while a listing is unreachable: a login
  * can be connected and still have lost manager access to one of the
  * client's listings, and "Connected · refreshed a minute ago" beside an
- * Action needed alert read as a contradiction.
+ * "Can’t reach Google" alert read as a contradiction.
  */
 function LoginLine({
   client,
@@ -534,9 +535,8 @@ function ListingsSection({
       className="flex min-w-0 flex-1 flex-col gap-2.5"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        {/* TODO(CLR-06): adopt lib/workspace/terms.ts once P11 merges */}
         <h2 id="client-listings" className="text-title font-semibold text-ink">
-          Listings
+          {LISTING_TERMS.placePluralTitle}
         </h2>
         {/* The linked and verified counts are the "Listings linked" tile
             above; they are not repeated here. */}
@@ -549,7 +549,7 @@ function ListingsSection({
             titleAs="h3"
             icon={<MapPinIcon />}
             title="No listings yet"
-            description={`Connect the Google account that manages ${client.name}'s Business Profile, then pick its locations. Reviews start arriving once a listing is linked.`}
+            description={`Connect the Google account that manages ${client.name}'s Business Profile, then pick its ${LISTING_TERMS.placePlural}. Reviews start arriving once a ${LISTING_TERMS.place} is linked.`}
             action={
               canManage ? (
                 <Link
@@ -573,7 +573,7 @@ function ListingsSection({
         // actions. A healthy row shows plain text at the desk and nothing on
         // a phone; a pill appears only for a state that needs a look.
         <DataTable
-          caption={`${client.name}'s listings with their Google link and verification`}
+          caption={`${client.name}'s listings with their Google link, health, work waiting and verification`}
           rows={listings}
           rowId={(listing) => listing.locationId}
           surface
@@ -626,6 +626,57 @@ function ListingsSection({
                   <StatusPill tone="neutral" dashed>
                     Not linked
                   </StatusPill>
+                ),
+            },
+            {
+              // The listings board's Health word (DSK-10). A state the Google
+              // or Verified cell already says is not said twice: a paused
+              // login, no manager access, not linked, not verified. A token
+              // that has only expired is not "paused" there, so it keeps its
+              // word here.
+              id: "health",
+              header: "Health",
+              priority: "trailing",
+              cell: (listing) => {
+                const health = listing.health
+                if (!health) return null
+                const said =
+                  (health === "not_linked" && !listing.linkId) ||
+                  (health === "pending_verification" &&
+                    listing.verified === false) ||
+                  (health === "access_lost" && listing.accessLost) ||
+                  (health === "disconnected" && loginBroken)
+                if (said)
+                  return (
+                    <span className="text-ui text-ink-muted @max-3xl/table:hidden">
+                      —
+                    </span>
+                  )
+                return health === "healthy" ? (
+                  <span className="text-ui text-ink-secondary @max-3xl/table:hidden">
+                    {listingHealthLabel(health)}
+                  </span>
+                ) : (
+                  <StatusPill tone={listingHealthTone(health)}>
+                    {listingHealthLabel(health)}
+                  </StatusPill>
+                )
+              },
+            },
+            {
+              id: "waiting",
+              header: "Waiting",
+              priority: "meta",
+              label: "",
+              cell: (listing) =>
+                listing.waiting ? (
+                  <span className="text-ui text-ink-secondary">
+                    {formatNumber(listing.waiting)} waiting
+                  </span>
+                ) : (
+                  <span className="text-ui text-ink-muted @max-3xl/table:hidden">
+                    —
+                  </span>
                 ),
             },
             {

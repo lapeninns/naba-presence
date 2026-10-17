@@ -124,7 +124,12 @@ describeDatabase("clients", () => {
     const detail = await request(`/api/clients/${clientId}`, owner.cookie)
     const payload = (await detail.json()) as {
       client: ClientSummary
-      locations: { locationId: string; clientId: string | null }[]
+      locations: {
+        locationId: string
+        clientId: string | null
+        health?: string
+        waiting?: number
+      }[]
     }
     expect(payload.client.locationCount).toBe(1)
     // A freshly seeded review is `new`, which is the Needs reply queue.
@@ -133,6 +138,9 @@ describeDatabase("clients", () => {
       seeded.locationId,
     ])
     expect(payload.locations[0]?.clientId).toBe(clientId)
+    // DSK-10: each row carries the listings board's Health and Waiting.
+    expect(payload.locations[0]?.health).toBe("not_linked")
+    expect(payload.locations[0]?.waiting).toBe(0)
   })
 
   it("reports the last check Google answered, not the last attempt", async () => {

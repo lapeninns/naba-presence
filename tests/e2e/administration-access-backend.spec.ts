@@ -24,7 +24,11 @@ async function approveAndSend(page: Page, info: TestInfo, typedName?: string, su
   await shot("approved")
   // A removal's send step asks for the listing name as well as the consent.
   if (typedName !== undefined) { await review.getByLabel("Type the listing name:", { exact: false }).fill(typedName); await expect(review.getByRole("button", { name: "Send approved access request" })).toBeDisabled() }
-  await review.getByRole("checkbox").focus(); await page.keyboard.press("Space")
+  // Tab to the consent, as a keyboard user does, rather than focus() it: each step claims focus for its title again 400 ms after it opens unless a key has been pressed, so a script that only focuses can have focus taken back between its focus() and its Space (the box then stays unticked).
+  const consent = review.getByRole("checkbox")
+  for (let step = 0; step < 12 && !(await consent.evaluate((element) => element === document.activeElement)); step += 1) await page.keyboard.press("Tab")
+  await expect(consent).toBeFocused(); await page.keyboard.press("Space")
+  await expect(consent).toBeChecked()
   await review.getByRole("button", { name: "Send approved access request" }).focus()
   await shot("keyboard-ready")
   await page.keyboard.press("Enter")

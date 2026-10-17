@@ -1,4 +1,8 @@
-import { formatDateTime, formatRelativeTime } from "@/lib/format"
+import {
+  formatDateTime,
+  formatRelativeTime,
+  formatTimeZoneLabel,
+} from "@/lib/format"
 
 /** Whether the runtime knows this IANA zone (a stored value can be stale). */
 function knownZone(timeZone: string | null | undefined): timeZone is string {
@@ -13,7 +17,7 @@ function knownZone(timeZone: string | null | undefined): timeZone is string {
 
 /**
  * A time as the organisation's default time zone writes it, with the zone
- * named: "15 Oct, 14:03 (Pacific/Auckland)". With no zone to hand (settings
+ * named the way people say it: "15 Oct, 14:03 (New Zealand time)". With no zone to hand (settings
  * not loaded, or a value the runtime refuses) it says the same relative
  * phrase the page shows, never a clock time in a zone nobody chose.
  */
@@ -23,7 +27,7 @@ export function formatZonedTime(
   now: Date = new Date()
 ): string {
   return knownZone(timeZone)
-    ? `${formatDateTime(iso, timeZone)} (${timeZone})`
+    ? `${formatDateTime(iso, timeZone)} (${formatTimeZoneLabel(timeZone) ?? timeZone})`
     : formatRelativeTime(iso, now)
 }
 
