@@ -330,6 +330,10 @@ export const serverEnvSchema = z.object({
   RETENTION_ENABLED: featureFlag(true),
   RETENTION_DELETES_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
+  // Refuses a new password (sign-up, invitation, reset) found in Pwned
+  // Passwords (lib/server/breached-password.ts). On when unset; the check
+  // fails open when the service does not answer. "false" turns it off.
+  BREACHED_PASSWORD_CHECK_ENABLED: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
   // The /design-system route is internal evidence, not a product surface: it
   // renders the contrast pairs and the component hierarchy the accessibility

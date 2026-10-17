@@ -70,6 +70,9 @@ beforeAll(() => {
   vi.stubEnv("CRON_SECRET", "c".repeat(16))
   vi.stubEnv("NEXTAUTH_URL", "https://app.example.test")
   vi.stubEnv("PASSWORD_AUTH_ENABLED", "true")
+  // No real Pwned Passwords calls; tests/server/breached-password*.test.ts
+  // cover the check with a mocked API.
+  vi.stubEnv("BREACHED_PASSWORD_CHECK_ENABLED", "false")
   vi.stubEnv("MFA_ENABLED", "true")
 })
 

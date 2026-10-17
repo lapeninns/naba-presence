@@ -2,6 +2,7 @@ import {
   resetPasswordSchema,
   type ResetCompleteResponse,
 } from "@/lib/contracts/auth"
+import { assertPasswordNotBreached } from "@/lib/server/breached-password"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { isMfaEnabled } from "@/lib/server/mfa"
 import {
@@ -18,6 +19,10 @@ export const POST = route({
   body: resetPasswordSchema,
   limits: ({ body }) => ({ scope: "reset_complete", token: body.tokenHash }),
   handler: async ({ body, requestId, clientRequestId }) => {
+    // Before the link is spent, so a refused password leaves it usable for
+    // a second try. This also covers the MFA-deferred reset, whose password
+    // is set later from the ticket.
+    await assertPasswordNotBreached(body.password)
     const verified = await verifyEmailToken({
       tokenHash: body.tokenHash,
       type: "recovery",

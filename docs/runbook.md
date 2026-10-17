@@ -898,6 +898,17 @@ login sessions. Verify Supabase Auth health, the publishable key, redirect allow
 list, confirmation/recovery templates, custom SMTP delivery, and provider rate
 limits. Do not bypass email verification or manually set password hashes.
 
+If Pwned Passwords is down, sign-up and reset keep working: the
+breached-password check fails open and logs
+`auth.breached_password_check_unavailable`. The same warning also covers an
+error status (a 403 or 429 means the service is refusing us, not down) and an
+answer that is not a range (a proxy or captive page), so a steady stream of
+it while the service is up still means breached passwords are getting
+through. If the check itself is the problem
+(for example, it refuses passwords it should not), set
+`BREACHED_PASSWORD_CHECK_ENABLED=false` and redeploy; unset means on. See
+"Password policy" in `docs/architecture.md`.
+
 ### OAuth or token refresh failures
 
 Disable new connects if failures are global. Verify the Google project, consent
