@@ -142,3 +142,27 @@ export function breadcrumbTrail({
   const label = TOP_LEVEL[first]
   return label ? [{ label }] : []
 }
+
+/** A trail drawn with its middle folded into one "…" entry. */
+export type FoldedCrumb = Crumb & {
+  /** The crumbs the "…" stands for, in trail order (never empty). */
+  folded?: Crumb[]
+}
+
+/**
+ * The desk toolbar's trail, folded so it never grows past `max` entries: the
+ * first crumb (where the trail starts), a "…" standing for the middle ones,
+ * and the last (the page). A listing area is Listings / client / listing /
+ * area, and the listing's name already sits in the page header beside its
+ * switcher, so repeating it here only crowded the strip (DSK-05). A trail
+ * that fits is returned as it is.
+ */
+export function foldTrail(crumbs: Crumb[], max = 3): FoldedCrumb[] {
+  if (max < 3 || crumbs.length <= max) return crumbs
+  const keepAtEnd = max - 2
+  return [
+    crumbs[0],
+    { label: "…", folded: crumbs.slice(1, crumbs.length - keepAtEnd) },
+    ...crumbs.slice(crumbs.length - keepAtEnd),
+  ]
+}
