@@ -58,6 +58,7 @@ import { TabNav } from "@/components/ui/tabs"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { formatNumber } from "@/lib/format"
 import {
+  canReviewChanges,
   listingAreaNavItems,
   listingPageLabel,
   type ListingAreaNavItem,
@@ -113,6 +114,14 @@ const MODEL_ICON: Record<
 }
 
 export type { ListingPageKey }
+
+/** What the frame wraps: one of the areas, or Review & publish (LST-14). */
+type FramePageKey = ListingAreaKey | "changes"
+
+/** Under Review & publish's title: what the page is for. The pending count
+ *  and what Google said are in the page itself, where they update live. */
+const CHANGES_DESCRIPTION =
+  "What you have saved here, compared with what Google has now, before anything is published."
 
 /** A link the header offers beside Activity ("Open on Google"). */
 export type ListingHeaderLink = {
@@ -339,7 +348,9 @@ function AreaMetaLine({
 /**
  * "Review & publish (n)", for every page of a listing while edits saved
  * here are waiting, so the way to publish them is never only on the
- * overview. Hidden while the Google login is broken (nothing can go out).
+ * overview. Hidden while the Google login is broken (nothing can go out) and
+ * for a role that can neither edit, publish nor ask for approval (LST-27: the
+ * area list leaves the step out for it too).
  *
  * Secondary: the one primary publishing action on an area is the editor's
  * "Review changes".
@@ -347,13 +358,16 @@ function AreaMetaLine({
 function ReviewPublishLink({
   locationId,
   summary,
+  caps,
   className,
 }: {
   locationId: string
   summary: ListingSummary | undefined
+  caps?: LocationCapabilities
   className?: string
 }) {
-  if (!summary || googleUnreachable(summary)) return null
+  if (!summary || googleUnreachable(summary) || !canReviewChanges(caps))
+    return null
   const pending = unpublishedCount(summary)
   if (pending === 0) return null
   return (
@@ -377,6 +391,7 @@ function ReviewPublishLink({
 function HeaderOverflow({
   locationId,
   summary,
+  caps,
   links,
   showReviewPublish,
   onActivity,
@@ -385,6 +400,7 @@ function HeaderOverflow({
 }: {
   locationId: string
   summary: ListingSummary | undefined
+  caps?: LocationCapabilities
   links: ListingHeaderLink[]
   showReviewPublish: boolean
   onActivity: () => void
@@ -392,7 +408,10 @@ function HeaderOverflow({
   className?: string
 }) {
   const pending =
-    showReviewPublish && summary && !googleUnreachable(summary)
+    showReviewPublish &&
+    canReviewChanges(caps) &&
+    summary &&
+    !googleUnreachable(summary)
       ? unpublishedCount(summary)
       : 0
   if (links.length === 0 && pending === 0) {
@@ -476,7 +495,7 @@ function HeaderOverflow({
  * Wider screens add the description, the header buttons (Review & publish
  * always among them), the tab row from 64rem, and one line under it for the
  * model note and the editor's last Google check. The client caption is left
- * to the breadcrumb on area pages (DSK-05).
+ * to the breadcrumb on area pages, in its "…" menu (DSK-05).
  *
  * `status` is the pill beside the title. Pass `undefined` to show a
  * placeholder while it loads and `null` for none.
@@ -513,6 +532,7 @@ function ListingAreaHeader({
       ? null
       : listingArea(current)
   const title = listingPageLabel(current)
+  const lead = current === "changes" ? CHANGES_DESCRIPTION : description
   const nested = current !== "overview"
   const clientLabel = business
     ? "Listing"
@@ -581,6 +601,7 @@ function ListingAreaHeader({
             <HeaderOverflow
               locationId={locationId}
               summary={summary}
+              caps={caps}
               links={links}
               showReviewPublish={current !== "changes"}
               onActivity={() => setActivityOpen(true)}
@@ -622,9 +643,9 @@ function ListingAreaHeader({
             <p className="hidden text-ui text-pretty text-ink-muted md:block">
               {area.description}
             </p>
-          ) : description ? (
+          ) : lead ? (
             <p className="mt-1 max-w-(--np-measure-reading) text-ui text-pretty text-ink-muted md:mt-0">
-              {description}
+              {lead}
             </p>
           ) : null}
         </div>
@@ -656,7 +677,11 @@ function ListingAreaHeader({
           {current === "changes" ? null : (
             // Always a header action: the tab row no longer carries it, so
             // it is never cut off at the strip's end (DSK-01).
-            <ReviewPublishLink locationId={locationId} summary={summary} />
+            <ReviewPublishLink
+              locationId={locationId}
+              summary={summary}
+              caps={caps}
+            />
           )}
           <ActivityDrawer
             locationId={locationId}
@@ -706,7 +731,7 @@ function AreaStatusPill({
 function AreaFrame(props: {
   locationId: string
   role: string | null
-  area: ListingAreaKey
+  area: FramePageKey
   actions?: React.ReactNode
   status?: React.ReactNode
   children: React.ReactNode
@@ -732,7 +757,7 @@ function AreaFrameBody({
 }: {
   locationId: string
   role: string | null
-  area: ListingAreaKey
+  area: FramePageKey
   actions?: React.ReactNode
   status?: React.ReactNode
   children: React.ReactNode
@@ -778,10 +803,12 @@ function AreaFrameBody({
     paneRef.current?.scrollTo?.({ top: 0 })
   }, [areaKey])
 
+  // Review & publish has no status of its own: its page says what is waiting.
   const pill =
     status !== undefined ? (
       status
-    ) : areaKey === "verification" ? null : editorPill ? (
+    ) : areaKey === "changes" ||
+      areaKey === "verification" ? null : editorPill ? (
       <StatusPill tone={editorPill.tone} data-slot="area-editor-status">
         {editorPill.label}
       </StatusPill>
@@ -819,7 +846,7 @@ function AreaFrameBody({
           <div
             ref={paneRef}
             role="region"
-            aria-label={listingArea(areaKey).label}
+            aria-label={listingPageLabel(areaKey)}
             tabIndex={paneScrolls ? 0 : undefined}
             className={cn(
               "flex flex-col gap-6 rounded-(--np-radius-card) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:flex-1 md:[@media(min-height:620px)]:overflow-y-auto",
@@ -836,9 +863,9 @@ function AreaFrameBody({
 
 /**
  * The listing layout's frame (`app/(dashboard)/listings/[id]/layout.tsx`):
- * an area route renders inside one `AreaFrame` that survives switching to
- * another area, so the header never remounts; the overview and Review &
- * publish render their own header and pass through.
+ * an area route, or Review & publish, renders inside one `AreaFrame` that
+ * survives switching to another page, so the header never remounts; the
+ * overview renders its own header and passes through.
  */
 /** The editor's placeholder while its code loads on an in-app area switch. */
 function AreaEditorLoading() {
@@ -862,9 +889,16 @@ function AreaEditorLoading() {
  * chunk), so a document load paints the editor as before.
  */
 const AREA_EDITORS: Record<
-  ListingAreaKey,
-  React.ComponentType<{ locationId: string }>
+  FramePageKey,
+  React.ComponentType<{ locationId: string; role: string | null }>
 > = {
+  changes: dynamic(
+    () =>
+      import("@/components/listings/review-publish").then(
+        (m) => m.ReviewPublish
+      ),
+    { loading: AreaEditorLoading }
+  ),
   profile: dynamic(
     () =>
       import("@/components/locations/profile/profile-editor").then(
@@ -918,12 +952,15 @@ const AREA_EDITORS: Record<
 function AreaEditor({
   area,
   locationId,
+  role = null,
 }: {
-  area: ListingAreaKey
+  area: FramePageKey
   locationId: string
+  /** Only Review & publish reads it (who may publish, who reconnects). */
+  role?: string | null
 }) {
   const Editor = AREA_EDITORS[area]
-  return <Editor locationId={locationId} />
+  return <Editor locationId={locationId} role={role} />
 }
 
 function ListingAreaLayout({
@@ -936,10 +973,15 @@ function ListingAreaLayout({
   children: React.ReactNode
 }) {
   const segment = useSelectedLayoutSegment()
-  const area = segment ? areaForSegment(segment) : undefined
+  const area =
+    segment === "changes"
+      ? ("changes" as const)
+      : segment
+        ? areaForSegment(segment)?.key
+        : undefined
   if (!area) return children
   return (
-    <AreaFrame locationId={locationId} role={role} area={area.key}>
+    <AreaFrame locationId={locationId} role={role} area={area}>
       {children}
     </AreaFrame>
   )

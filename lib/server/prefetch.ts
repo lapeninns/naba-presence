@@ -104,6 +104,7 @@ import {
 } from "@/lib/locations/photos-url-state"
 import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 import { sessionSchema } from "@/lib/contracts/session"
+import { pendingAreas, type AreaKey } from "@/lib/listings/pending-areas"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import { sessionScopeToken } from "@/lib/queries/session-scope"
@@ -868,6 +869,76 @@ export function menuTabPrefetch(
     return [
       { queryKey: queryKeys.locationMenu(locationId), load: loadMenus },
       summaryAfter(session, locationId, loadMenus),
+    ]
+  }
+}
+
+/**
+ * /listings/{id}/changes: what Review & publish compares, read only for the
+ * areas the DB summary says have saved edits (`pendingAreas`), the ones it
+ * builds a review from (`useProfileReview`, `useHoursReview`,
+ * `useMenuReview`). An area with nothing waiting is never read from Google
+ * here. The summary is read first (pure SQL, shared by the three entries),
+ * then each pending area live, side by side. As with the area pages, a live
+ * read refreshes the summary, so it is read again once they settle unless
+ * every one was served from the stored observation. A summary that can't be
+ * read leaves every key to the browser, and counts as no Google read.
+ */
+export function changesTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    let summary: Promise<ListingSummary | null> | undefined
+    const loadSummary = () =>
+      (summary ??= readListingSummary(session, locationId))
+    // Per area: undefined when nothing was read (nothing waiting there).
+    const reads = new Map<AreaKey, Promise<{ stored: boolean } | undefined>>()
+    const areaEntry = <T extends object>(
+      area: AreaKey,
+      queryKey: QueryKey,
+      read: () => Promise<T>
+    ): PrefetchEntry => {
+      let value: Promise<T | typeof PREFETCH_SKIP> | undefined
+      const load = () =>
+        (value ??= (async () => {
+          const current = await loadSummary().catch(() => null)
+          if (!current || !pendingAreas(current).includes(area))
+            return PREFETCH_SKIP
+          return read()
+        })())
+      reads.set(
+        area,
+        load().then(
+          (result) =>
+            result === PREFETCH_SKIP
+              ? undefined
+              : { stored: "source" in result && result.source === "stored" },
+          // A failed live read still touched Google: the summary is read again.
+          () => ({ stored: false })
+        )
+      )
+      return { queryKey, load }
+    }
+    return [
+      areaEntry("profile", queryKeys.locationProfile(locationId), () =>
+        readProfile(session, locationId)
+      ),
+      areaEntry("hours", queryKeys.locationHours(locationId), () =>
+        readHours(session, locationId)
+      ),
+      areaEntry("menu", queryKeys.locationMenu(locationId), () =>
+        readFoodMenus(session, locationId)
+      ),
+      {
+        queryKey: queryKeys.listingSummary(locationId),
+        load: async () => {
+          const results = await Promise.all(reads.values())
+          const live = results.filter((read) => read && !read.stored)
+          if (live.length === 0) return PREFETCH_SKIP
+          return readListingSummary(session, locationId)
+        },
+      },
     ]
   }
 }
