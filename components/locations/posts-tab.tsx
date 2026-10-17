@@ -5,6 +5,7 @@ import { FilterIcon, Megaphone } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { SupportDetails } from "@/components/editors/support-details"
 import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { LocationTab } from "@/components/locations/location-tab"
 import { PostCard } from "@/components/locations/posts/post-card"
@@ -19,6 +20,10 @@ import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
 import { LoadMore } from "@/components/ui/load-more"
 import type { Post } from "@/lib/api/location-posts"
+import {
+  describeErrorCode,
+  GENERIC_ERROR_COPY,
+} from "@/lib/errors/action-errors"
 import { fetchPostSchedules } from "@/lib/api/publication-schedules"
 import type { PublicationSchedule } from "@/lib/contracts/publication-schedules"
 import { describeScheduleRule } from "@/lib/domain/publication-schedule"
@@ -110,7 +115,11 @@ function lifecycle(post: Post): LifecycleStage[] {
       state: sentState,
       meta:
         sentState === "failed"
-          ? (post.lastErrorCode ?? (rejected ? "Rejected" : "Not confirmed"))
+          ? rejected
+            ? "Rejected"
+            : status === "failed"
+              ? "Not accepted"
+              : "Not confirmed"
           : undefined,
     },
     {
@@ -124,17 +133,21 @@ function lifecycle(post: Post): LifecycleStage[] {
 }
 
 function problem(post: Post): React.ReactNode {
-  if (post.status === "failed")
+  if (post.status === "failed") {
+    // The code is for support, not the reader: the sentence says what
+    // happened and what to do next, the code stays one click away.
+    const known = post.lastErrorCode
+      ? describeErrorCode(post.lastErrorCode)
+      : GENERIC_ERROR_COPY
     return (
       <>
-        Google didn’t accept this post, so nothing is live.{" "}
-        {post.lastErrorCode ? (
-          <span className="text-caption text-ink-muted">
-            {post.lastErrorCode}
-          </span>
-        ) : null}
+        {known === GENERIC_ERROR_COPY
+          ? "Google didn’t accept this post, so nothing is live. Edit it or publish it again."
+          : known}
+        <SupportDetails items={[post.lastErrorCode]} className="mt-1" />
       </>
     )
+  }
   if (post.status === "ambiguous")
     return "We couldn’t confirm whether Google has this post. Check Google before publishing again, so it isn’t posted twice."
   if (post.status === "published" && post.googleState === "REJECTED")

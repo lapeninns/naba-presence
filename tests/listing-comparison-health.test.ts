@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { emptyListingSummary } from "@/lib/contracts/location-summary"
-import { listingHealth, summariseListingHealth } from "@/lib/listings/health"
+import {
+  listingHealth,
+  listingHealthLabel,
+  summariseListingHealth,
+} from "@/lib/listings/health"
 import { clientHealth } from "@/lib/clients/health"
 
 const now = new Date().toISOString()
@@ -22,6 +26,12 @@ function checked() {
 }
 
 describe("evidence-based listing and client health", () => {
+  it("words a partly compared listing the way the clients list does", () => {
+    expect(listingHealthLabel("partially_checked")).toBe(
+      "Some areas not checked yet"
+    )
+  })
+
   it("never confirms missing summaries or unobserved hours", () => {
     expect(listingHealth({ linked: true })).toBe("unchecked")
     const summary = checked()
