@@ -787,13 +787,15 @@ function ClientQuickLook({
               ) : (
                 <Link
                   href={inbox(item.queue)}
+                  // The figure first, as shown (label in name), then where
+                  // it leads; the row's label is the dt beside it.
+                  aria-label={`${formatNumber(item.count)} in the inbox: ${item.label}`}
                   className={cn(
                     "rounded-(--np-radius-tag) font-medium tabular-nums underline-offset-4 focus-halo hover:underline",
                     item.queue === "failed" ? "text-danger-ink" : "text-ink"
                   )}
                 >
                   {formatNumber(item.count)}
-                  <span className="sr-only"> in the inbox</span>
                 </Link>
               )}
             </QuickLookFact>

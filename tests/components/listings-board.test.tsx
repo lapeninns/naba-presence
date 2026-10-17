@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseQueryResult } from "@tanstack/react-query"
 import type { ComponentProps } from "react"
@@ -680,5 +686,72 @@ describe("ListingsBoard", () => {
     expect(screen.queryByText("Checking each listing…")).not.toBeInTheDocument()
     const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
     expect(within(crown).getByText("Not checked")).toBeInTheDocument()
+  })
+
+  describe("quick look from lg", () => {
+    // The viewport, as the shell's matchMedia answers it.
+    const stubWidth = (wide: boolean) =>
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          matches: wide && query === "(min-width: 64rem)",
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }))
+      )
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it("opens a listing's areas beside the board on a plain click, and stops the navigation", async () => {
+      stubWidth(true)
+      stub({
+        entries,
+        summaries: entries.map((entry) => summary({ locationId: entry.id })),
+      })
+      render(<ListingsBoard role="owner" />)
+      const link = screen.getByRole("link", { name: "Old Crown Girton" })
+      // fireEvent returns false when the click's default was prevented.
+      expect(fireEvent.click(link, { detail: 1 })).toBe(false)
+      const dialog = await screen.findByRole("dialog", {
+        name: "Old Crown Girton",
+      })
+      expect(dialog).toHaveAttribute("data-slot", "quick-look")
+      expect(
+        within(dialog).getByRole("heading", { name: "Areas" })
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).getByRole("link", { name: "Business profile" })
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).getByRole("link", { name: "Open listing" })
+      ).toHaveAttribute("href", link.getAttribute("href"))
+    })
+
+    it("leaves Enter and a modifier click on the row link to open the listing", () => {
+      stubWidth(true)
+      stub({
+        entries,
+        summaries: entries.map((entry) => summary({ locationId: entry.id })),
+      })
+      render(<ListingsBoard role="owner" />)
+      const link = screen.getByRole("link", { name: "Old Crown Girton" })
+      expect(fireEvent.click(link, { detail: 0 })).toBe(true)
+      expect(fireEvent.click(link, { detail: 1, ctrlKey: true })).toBe(true)
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    })
+
+    it("does not intercept the click below lg", () => {
+      stubWidth(false)
+      stub({
+        entries,
+        summaries: entries.map((entry) => summary({ locationId: entry.id })),
+      })
+      render(<ListingsBoard role="owner" />)
+      const link = screen.getByRole("link", { name: "Old Crown Girton" })
+      expect(fireEvent.click(link, { detail: 1 })).toBe(true)
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    })
   })
 })
