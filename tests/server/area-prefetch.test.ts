@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { emptyListingSummary } from "@/lib/contracts/location-summary"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
   bookingTabPrefetch,
+  changesTabPrefetch,
   menuTabPrefetch,
   peopleTabPrefetch,
   prefetch,
@@ -213,6 +215,109 @@ describe("listing area summary re-read", () => {
     expect(
       client.getQueryData(queryKeys.locationBooking(LOCATION))
     ).toBeUndefined()
+  })
+})
+
+describe("Review & publish prefetch (LST-14)", () => {
+  /** The DB summary the page's own reads see, with the named areas dirty. */
+  async function waiting(areas: Array<"profile" | "hours" | "menu">) {
+    const readListingSummaries = await summaryMocks()
+    const base = emptyListingSummary({
+      locationId: LOCATION,
+      linked: true,
+      verified: true,
+    })
+    const summary = { ...base } as Record<string, unknown>
+    for (const area of areas)
+      summary[area] = { ...base[area], status: "core_dirty", eligible: true }
+    vi.mocked(readListingSummaries).mockResolvedValue([summary] as never)
+    const { getProfileState } = await import("@/lib/server/profile")
+    const { getFoodMenusState } = await import("@/lib/server/food-menus")
+    const { readHoursResponse } = await import("@/lib/server/listing-reads")
+    for (const read of [getProfileState, getFoodMenusState, readHoursResponse])
+      vi.mocked(read as () => unknown).mockReset()
+    return {
+      readListingSummaries,
+      getProfileState,
+      getFoodMenusState,
+      readHoursResponse,
+    }
+  }
+
+  it("keys the three areas Review & publish reads, then the summary", () => {
+    expect(
+      changesTabPrefetch(LOCATION)(owner).map((entry) => entry.queryKey)
+    ).toEqual([
+      queryKeys.locationProfile(LOCATION),
+      queryKeys.locationHours(LOCATION),
+      queryKeys.locationMenu(LOCATION),
+      queryKeys.listingSummary(LOCATION),
+    ])
+    expect(changesTabPrefetch("not-a-uuid")(owner)).toEqual([])
+  })
+
+  it("reads only the areas the summary says have saved edits, and the summary again after", async () => {
+    const {
+      readListingSummaries,
+      getProfileState,
+      getFoodMenusState,
+      readHoursResponse,
+    } = await waiting(["hours"])
+    vi.mocked(readHoursResponse).mockRejectedValue(new Error("google down"))
+    const [profile, hours, menu, summary] = changesTabPrefetch(LOCATION)(owner)
+    await expect(profile.load()).resolves.toBe(PREFETCH_SKIP)
+    await expect(menu.load()).resolves.toBe(PREFETCH_SKIP)
+    await expect(hours.load()).rejects.toThrow("google down")
+    // A failed live read still touched Google, so the summary is re-read.
+    await expect(summary.load()).resolves.not.toBe(PREFETCH_SKIP)
+    expect(readHoursResponse).toHaveBeenCalledOnce()
+    expect(getProfileState).not.toHaveBeenCalled()
+    expect(getFoodMenusState).not.toHaveBeenCalled()
+    // Once to learn what is waiting (shared by the three), once to refresh.
+    expect(readListingSummaries).toHaveBeenCalledTimes(2)
+  })
+
+  it("reads nothing from Google when nothing is waiting", async () => {
+    const {
+      readListingSummaries,
+      getProfileState,
+      getFoodMenusState,
+      readHoursResponse,
+    } = await waiting([])
+    const entries = changesTabPrefetch(LOCATION)(owner)
+    for (const entry of entries)
+      await expect(entry.load()).resolves.toBe(PREFETCH_SKIP)
+    expect(readHoursResponse).not.toHaveBeenCalled()
+    expect(getProfileState).not.toHaveBeenCalled()
+    expect(getFoodMenusState).not.toHaveBeenCalled()
+    expect(readListingSummaries).toHaveBeenCalledOnce()
+  })
+
+  it("leaves every key to the browser, and reads no Google, when the summary can't be read", async () => {
+    const {
+      readListingSummaries,
+      getProfileState,
+      getFoodMenusState,
+      readHoursResponse,
+    } = await waiting(["profile", "hours", "menu"])
+    vi.mocked(readListingSummaries).mockRejectedValue(new Error("db down"))
+    const entries = changesTabPrefetch(LOCATION)(owner)
+    for (const entry of entries)
+      await expect(entry.load()).resolves.toBe(PREFETCH_SKIP)
+    expect(getProfileState).not.toHaveBeenCalled()
+    expect(getFoodMenusState).not.toHaveBeenCalled()
+    expect(readHoursResponse).not.toHaveBeenCalled()
+  })
+
+  it("leaves the summary alone after a profile served from storage", async () => {
+    const { readListingSummaries, getProfileState } = await waiting(["profile"])
+    vi.mocked(getProfileState).mockResolvedValue({ source: "stored" } as never)
+    const [profile, hours, menu, summary] = changesTabPrefetch(LOCATION)(owner)
+    await expect(profile.load()).resolves.toEqual({ source: "stored" })
+    await expect(hours.load()).resolves.toBe(PREFETCH_SKIP)
+    await expect(menu.load()).resolves.toBe(PREFETCH_SKIP)
+    await expect(summary.load()).resolves.toBe(PREFETCH_SKIP)
+    expect(readListingSummaries).toHaveBeenCalledOnce()
   })
 })
 

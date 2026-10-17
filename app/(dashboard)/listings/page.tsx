@@ -17,12 +17,21 @@ export default async function ListingsPage() {
   const session = await getSession()
   const canManage = session?.role === "owner" || session?.role === "admin"
   const bulkEnabled =
-    canManage && session ? await bulkActionsEnabled(session.organisationId) : false
+    canManage && session
+      ? await bulkActionsEnabled(session.organisationId)
+      : false
   return (
     <PageFrame width="wide">
       <PageHeader
         title="Listings"
-        description="Every Google Business Profile you look after, and what each one is waiting on."
+        description={
+          // Words for a screen reader on a phone, where the first listing
+          // belongs above the fold (LST-07); read in full from md.
+          <span className="max-md:sr-only">
+            Every Google Business Profile you look after, and what each one is
+            waiting on.
+          </span>
+        }
       />
       <ListingsBoard role={session?.role ?? null} bulkEnabled={bulkEnabled} />
     </PageFrame>

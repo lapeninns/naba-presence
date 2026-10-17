@@ -57,6 +57,7 @@ function Header({
   current = "profile",
   dirty = false,
   publishBlocked = false,
+  viewOnly = false,
   summary,
   status = null,
 }: {
@@ -64,6 +65,8 @@ function Header({
   current?: "profile" | "hours" | "overview"
   dirty?: boolean
   publishBlocked?: boolean
+  /** A role that can neither edit, publish nor ask for approval. */
+  viewOnly?: boolean
   summary?: ListingSummary
   status?: React.ReactNode
 }) {
@@ -77,8 +80,8 @@ function Header({
         current={current}
         summary={summary}
         caps={{
-          canEditCanonical: true,
-          canPublish: true,
+          canEditCanonical: !viewOnly,
+          canPublish: !viewOnly,
           resources: {
             ...(publishBlocked
               ? {
@@ -284,6 +287,34 @@ describe("mobile listing area navigation", () => {
       await screen.findByRole("dialog", { name: "Recent activity" })
     ).toBeInTheDocument()
     expect(historyMounted).toHaveBeenCalled()
+  })
+  it("leaves Review & publish out of the header and the overflow for a role that can't edit or publish (LST-27)", async () => {
+    const summary = {
+      ...emptyListingSummary({
+        locationId: "l1",
+        linked: true,
+        verified: true,
+      }),
+      menu: { status: "core_dirty", dirtyCount: 2, eligible: true },
+    } as ListingSummary
+    const view = render(<Header summary={summary} viewOnly />)
+    expect(
+      document.querySelector('[data-slot="review-publish-link"]')
+    ).toBeNull()
+    // Nothing else to choose from, so the phone's button opens Activity
+    // directly instead of a menu holding one dead entry.
+    expect(
+      screen.queryByRole("button", { name: "More listing actions" })
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector('[data-slot="listing-header-activity"]')
+    ).not.toBeNull()
+    expect(screen.queryByText(/Review & publish \(/)).toBeNull()
+    // The same listing for a role that can publish still offers both.
+    view.rerender(<Header summary={summary} />)
+    expect(
+      document.querySelector('[data-slot="review-publish-link"]')
+    ).toHaveTextContent("Review & publish (2)")
   })
   it("keeps the model note reachable on an area behind an info button without a pill", async () => {
     render(<Header current="hours" />)

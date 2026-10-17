@@ -51,12 +51,8 @@ export default async function InboxPage() {
         <InboxView
           showLocationFilter={locationCount > 1}
           bulkEngine={bulkEngine}
-          actions={
-            <>
-              <ShortcutsButton />
-              <SyncReviewsButton canSync={canTriggerSync(session?.role)} />
-            </>
-          }
+          actions={<ShortcutsButton />}
+          sync={<SyncReviewsButton canSync={canTriggerSync(session?.role)} />}
         />
       </HydrationBoundary>
     </PageFrame>
