@@ -15,6 +15,7 @@ import { useClientScopeHandler } from "@/components/app-shell/client-context"
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
+import { InboxBottomToolbarSpacer } from "@/components/inbox/inbox-bottom-toolbar"
 import { InboxToolbar } from "@/components/inbox/inbox-toolbar"
 import { LazyBulkActionBar } from "@/components/inbox/lazy-bulk-action-bar"
 import { ListHeader } from "@/components/inbox/list-header"
@@ -119,10 +120,12 @@ function refreshedAt(timestamp: number | undefined): string | null {
 function InboxViewInner({
   showLocationFilter,
   actions,
+  sync,
   bulkEngine,
 }: {
   showLocationFilter: boolean
   actions?: ReactNode
+  sync?: ReactNode
   bulkEngine: boolean
 }) {
   const router = useRouter()
@@ -773,6 +776,7 @@ function InboxViewInner({
         locations={locationsQuery.data ?? []}
         showLocationFilter={showLocationFilter}
         actions={actions}
+        sync={sync}
         titleIsHeading={toolbarTitleIsHeading}
         onFilterChange={onFilterChange}
         onQueueChange={onQueueChange}
@@ -837,6 +841,7 @@ function InboxViewInner({
           scopeKey={state.clientId ?? ""}
         />
       ) : null}
+      <InboxBottomToolbarSpacer />
     </section>
   )
 
@@ -1077,11 +1082,17 @@ function focusBackControl(frames = 10) {
 function InboxView({
   showLocationFilter = true,
   actions,
+  sync,
   bulkEngine = false,
 }: {
   showLocationFilter?: boolean
-  /** The route's page actions (shortcuts, sync), drawn in the toolbar. */
+  /** The route's page actions (shortcuts), drawn in the toolbar. */
   actions?: ReactNode
+  /**
+   * The sync control: in the page header from `md`, in the phone's bottom
+   * toolbar below it (R10).
+   */
+  sync?: ReactNode
   /**
    * The organisation has bulk changes on: bulk approve and template replies
    * are sent by the job runner as a batch (lib/server/bulk-reviews.ts).
@@ -1094,6 +1105,7 @@ function InboxView({
         <InboxViewInner
           showLocationFilter={showLocationFilter}
           actions={actions}
+          sync={sync}
           bulkEngine={bulkEngine}
         />
       </SelectionProvider>

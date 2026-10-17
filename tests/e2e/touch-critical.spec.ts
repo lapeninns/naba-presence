@@ -31,7 +31,17 @@ async function applyCookie(
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
-type InboxTenant = { cookie: string; reviewId: string; text: string }
+type InboxTenant = {
+  cookie: string
+  reviewId: string
+  text: string
+  /** For a journey that needs more reviews than the one seeded here. */
+  seed: {
+    organisationId: string
+    connectionId: string
+    googleAccountName: string
+  }
+}
 
 /**
  * The inbox journeys' own tenant. The journey tenant's reviews are shared
@@ -97,7 +107,16 @@ const touchTest = test.extend<
         update location set client_id = (select id from filed)
         where id = ${review.locationId}
       `
-      await provide({ cookie: tenant.cookie, reviewId: review.reviewId, text })
+      await provide({
+        cookie: tenant.cookie,
+        reviewId: review.reviewId,
+        text,
+        seed: {
+          organisationId: tenant.organisationId,
+          connectionId: connection.connectionId,
+          googleAccountName: connection.googleAccountName,
+        },
+      })
     } finally {
       await destroyTenants(harnessAdmin, [tenant.organisationId])
     }
@@ -726,6 +745,303 @@ test.describe("touch: critical journeys at 390x844", () => {
       // No question first (R06b): it is done, and Undo is in the toast.
       await expect(page.getByRole("alertdialog")).toHaveCount(0)
       await expect(page.getByText("Marked as no reply needed")).toBeVisible()
+    }
+  )
+
+  // R10 (INB-19): search and Filters are in the bottom third, on the tab bar,
+  // and out of the way of every other bottom bar.
+  touchTest(
+    "inbox: search and Filters sit in the bottom third on the tab bar, and a docked bar takes the edge",
+    async ({ page, baseURL, inboxTenant, harnessAdmin }) => {
+      // More reviews than a screen holds, so the list's foot meets the bar.
+      for (let index = 1; index <= 11; index += 1) {
+        await seedLinkedReview(harnessAdmin, {
+          ...inboxTenant.seed,
+          text: `Touch overflow review ${index}`,
+          rating: 4,
+        })
+      }
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto("/inbox")
+      const toolbar = page.locator("[data-slot=inbox-bottom-toolbar]")
+      const tabBar = page.locator("[data-slot=tab-bar]")
+      await expect(toolbar).toBeVisible()
+      await expect(tabBar).toBeVisible()
+      await settle(page, toolbar)
+      const height = page.viewportSize()!.height
+      const filters = page.getByRole("button", { name: /^Filters/ })
+      // The field's 44px pill is the target; the input sits inside its border.
+      const pill = toolbar.locator("[data-slot=input-search]")
+      for (const [name, control] of [
+        ["search", pill],
+        ["Filters", filters],
+      ] as const) {
+        const box = (await control.boundingBox())!
+        expect(box.y, `${name} starts in the bottom third`).toBeGreaterThan(
+          height * (2 / 3)
+        )
+        expect(box.height, `${name} height`).toBeGreaterThanOrEqual(44)
+      }
+      // The bar rests on the tab bar: its bottom edge is the tab bar's top.
+      const bar = (await toolbar.boundingBox())!
+      const tabs = (await tabBar.boundingBox())!
+      expect(Math.abs(bar.y + bar.height - tabs.y)).toBeLessThanOrEqual(1)
+      // Sync is beside the field here, not in the page header.
+      await expect(
+        page
+          .locator("[data-slot=inbox-title-row]")
+          .getByRole("button", { name: "Sync reviews" })
+      ).toBeHidden()
+      await expect(
+        toolbar.getByRole("button", { name: "Sync reviews" })
+      ).toBeVisible()
+      // The last row can be scrolled clear of the bar.
+      const rows = page
+        .getByRole("region", { name: "Review list" })
+        .getByRole("button", { name: /Touch (?:project|overflow) review/ })
+      await expect(rows).toHaveCount(12)
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollHeight > window.innerHeight
+        ),
+        "the list is longer than the screen"
+      ).toBe(true)
+      await page.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight)
+      )
+      const lastRow = rows.last()
+      await expectNotCovered(lastRow, "the last review row")
+      const lastBox = (await lastRow.boundingBox())!
+      const barTop = (await toolbar.boundingBox())!.y
+      expect(
+        lastBox.y + lastBox.height,
+        "the last row's foot is above the bar"
+      ).toBeLessThanOrEqual(barTop + 1)
+      await page.evaluate(() => window.scrollTo(0, 0))
+
+      // Filters opens its sheet by tap.
+      await tap(filters)
+      await expect(page.getByRole("dialog", { name: /Filters/ })).toBeVisible()
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("dialog")).toHaveCount(0)
+
+      // One bottom bar at a time: a selection brings its bar and the toolbar
+      // steps aside; ending the selection brings the toolbar back.
+      await tap(page.getByRole("button", { name: "Select", exact: true }))
+      await tap(
+        page.getByRole("checkbox", { name: /^Select the review from / }).first()
+      )
+      await expect(page.locator("[data-slot=bulk-action-bar]")).toBeVisible()
+      await expect(toolbar).toBeHidden()
+      await tap(page.getByRole("button", { name: "Cancel selection" }))
+      await expect(toolbar).toBeVisible()
+      await expect(tabBar).toBeVisible()
+
+      // A toast clears the bar as it clears the tab bar: Sync's result
+      // lands above the bar, not over the field.
+      await tap(toolbar.getByRole("button", { name: "Sync reviews" }))
+      const toast = page.locator("[data-slot=toast]").first()
+      // A sync reads every listing from the Google stub (12 here).
+      await expect(toast).toBeVisible({ timeout: 30_000 })
+      await settle(page, toast)
+      const toastBox = (await toast.boundingBox())!
+      const barBox = (await toolbar.boundingBox())!
+      expect(
+        toastBox.y + toastBox.height,
+        "the toast's foot is above the bar"
+      ).toBeLessThanOrEqual(barBox.y)
+    }
+  )
+
+  touchTest(
+    "inbox: search takes the keyboard, the bar rides on it, and Cancel brings the tab bar back",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await installKeyboardShim(page)
+      await page.goto("/inbox")
+      const toolbar = page.locator("[data-slot=inbox-bottom-toolbar]")
+      const search = page.getByRole("searchbox", { name: "Search reviews" })
+      await tap(toolbar.locator("[data-slot=input-search]"))
+      await expect(search).toBeFocused()
+      await openKeyboard(page)
+      await settle(page, toolbar)
+      // The bar is above the keyboard's edge, with Cancel beside the field;
+      // the tab bar has stepped aside, and Sync with it.
+      const visibleBottom = await page.evaluate(
+        () => window.visualViewport!.offsetTop + window.visualViewport!.height
+      )
+      // The bar rides on the keyboard: its foot is the keyboard's top edge.
+      const box = (await toolbar.boundingBox())!
+      expect(Math.abs(box.y + box.height - visibleBottom)).toBeLessThanOrEqual(
+        1
+      )
+      await expect(page.locator("[data-slot=tab-bar]")).toBeHidden()
+      await expect(
+        toolbar.getByRole("button", { name: "Cancel" })
+      ).toBeVisible()
+      await expect(
+        toolbar.getByRole("button", { name: "Sync reviews" })
+      ).toBeHidden()
+      await page.keyboard.type("lovely")
+      await expect(page).toHaveURL(/[?&]search=lovely/)
+      await tap(toolbar.getByRole("button", { name: "Cancel" }))
+      await expect(page).not.toHaveURL(/[?&]search=/)
+      // The keyboard goes with the field; the tab bar comes back and the bar
+      // rests on it again, with Sync beside the field.
+      await page.evaluate(() => {
+        ;(window as unknown as { __touchKeyboard: number }).__touchKeyboard = 0
+        window.visualViewport!.dispatchEvent(new Event("resize"))
+      })
+      await expect(page.locator("html")).not.toHaveAttribute(
+        "data-keyboard",
+        "open"
+      )
+      const tabBar = page.locator("[data-slot=tab-bar]")
+      await expect(tabBar).toBeVisible()
+      await settle(page, toolbar)
+      const rested = (await toolbar.boundingBox())!
+      const tabs = (await tabBar.boundingBox())!
+      expect(Math.abs(rested.y + rested.height - tabs.y)).toBeLessThanOrEqual(1)
+      await expect(
+        toolbar.getByRole("button", { name: "Sync reviews" })
+      ).toBeVisible()
+    }
+  )
+
+  touchTest(
+    "inbox: on a short phone the toolbar stays in the band, and rides the keyboard while search has it",
+    async ({ page, baseURL, inboxTenant }) => {
+      // 320x568: a floating bar on the tab bar would put fixed chrome over a
+      // quarter of the screen (audit:mobile's chrome budget).
+      await page.setViewportSize({ width: 320, height: 568 })
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await installKeyboardShim(page)
+      await page.goto("/inbox")
+      const toolbar = page.locator("[data-slot=inbox-bottom-toolbar]")
+      await expect(toolbar).toBeVisible()
+      await settle(page, toolbar)
+      await expect(toolbar).toHaveCSS("position", "static")
+      const box = (await toolbar.boundingBox())!
+      expect(box.y, "the toolbar is in the band at the top").toBeLessThan(
+        568 / 2
+      )
+      await expect(
+        page.locator("[data-slot=inbox-bottom-toolbar-spacer]")
+      ).toBeHidden()
+      // Sync is beside the field in the band, still not in the header.
+      await expect(
+        toolbar.getByRole("button", { name: "Sync reviews" })
+      ).toBeVisible()
+      await expect(
+        page
+          .locator("[data-slot=inbox-title-row]")
+          .getByRole("button", { name: "Sync reviews" })
+      ).toBeHidden()
+      // Fixed chrome: the app bar and the tab bar, within a quarter.
+      const fixed = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>("body *")]
+          .filter((element) => {
+            const position = getComputedStyle(element).position
+            const rect = element.getBoundingClientRect()
+            return (
+              (position === "fixed" || position === "sticky") &&
+              rect.height > 0 &&
+              rect.height < window.innerHeight * 0.9 &&
+              rect.bottom > 0 &&
+              rect.top < window.innerHeight
+            )
+          })
+          .map((element) => element.getBoundingClientRect())
+          .map((rect) => [Math.max(0, rect.top), Math.min(568, rect.bottom)])
+      )
+      const covered = new Set<number>()
+      for (const [top, bottom] of fixed)
+        for (let y = Math.floor(top); y < Math.ceil(bottom); y += 1)
+          covered.add(y)
+      expect(covered.size / 568, "fixed chrome share").toBeLessThanOrEqual(0.25)
+
+      // Search takes the keyboard: the bar leaves the band for the keyboard's
+      // top edge, the one place a focused field stays in view.
+      await tap(toolbar.locator("[data-slot=input-search]"))
+      await openKeyboard(page)
+      await settle(page, toolbar)
+      await expect(toolbar).toHaveCSS("position", "fixed")
+      // With the floating bar's own look, not the band row's.
+      await expect(toolbar).toHaveCSS("border-top-width", "1px")
+      await expect(toolbar).toHaveCSS("height", "64px")
+      const visibleBottom = await page.evaluate(
+        () => window.visualViewport!.offsetTop + window.visualViewport!.height
+      )
+      const riding = (await toolbar.boundingBox())!
+      expect(
+        Math.abs(riding.y + riding.height - visibleBottom)
+      ).toBeLessThanOrEqual(1)
+      await expect(
+        page.getByRole("searchbox", { name: "Search reviews" })
+      ).toBeFocused()
+    }
+  )
+
+  touchTest(
+    "inbox: on Android, where the keyboard shrinks the page, the bar stays on the tab bar through search and a tapped result",
+    async ({ page, baseURL, inboxTenant }) => {
+      // Android Chrome with `interactive-widget=resizes-content`: the
+      // keyboard shrinks the layout viewport (under 40rem here) and sets no
+      // `data-keyboard`. No shim: the viewport itself is resized.
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto("/inbox")
+      const toolbar = page.locator("[data-slot=inbox-bottom-toolbar]")
+      const search = page.getByRole("searchbox", { name: "Search reviews" })
+      await tap(toolbar.locator("[data-slot=input-search]"))
+      await expect(search).toBeFocused()
+      await page.setViewportSize({ width: 390, height: 480 })
+      await expect(page.locator("html")).not.toHaveAttribute(
+        "data-keyboard",
+        "open"
+      )
+      await settle(page, toolbar)
+      await expect(search).toBeFocused()
+      await expect(toolbar).toHaveCSS("position", "fixed")
+      const tabBar = page.locator("[data-slot=tab-bar]")
+      await expect(tabBar).toBeVisible()
+      const bar = (await toolbar.boundingBox())!
+      const tabs = (await tabBar.boundingBox())!
+      expect(Math.abs(bar.y + bar.height - tabs.y)).toBeLessThanOrEqual(1)
+      // Leaving search returns a short screen's bar to the band.
+      await tap(toolbar.getByRole("button", { name: "Cancel" }))
+      await expect(toolbar).toHaveCSS("position", "static")
+
+      // Search mode, not focus, holds the bar: a result tapped near its top
+      // edge takes focus from the field, and the list must not move under
+      // the finger before the tap lands.
+      await tap(toolbar.locator("[data-slot=input-search]"))
+      await expect(search).toBeFocused()
+      await page.keyboard.type("Touch")
+      await expect(page).toHaveURL(/[?&]search=Touch/)
+      const result = page
+        .getByRole("region", { name: "Review list" })
+        .getByRole("button", { name: new RegExp(inboxTenant.text) })
+        .first()
+      await expect(result).toBeVisible()
+      await settle(page, result)
+      await result.tap({ position: { x: 40, y: 8 } })
+      await expect(page).toHaveURL(
+        new RegExp(`[?&]selected=${inboxTenant.reviewId}`)
+      )
+    }
+  )
+
+  touchTest(
+    "inbox: an open review has no toolbar over it",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto(`/inbox?selected=${inboxTenant.reviewId}`)
+      await expect(
+        page.getByRole("region", { name: "Selected review" })
+      ).toBeVisible()
+      await expect(
+        page.locator("[data-slot=inbox-bottom-toolbar]")
+      ).toBeHidden()
     }
   )
 
