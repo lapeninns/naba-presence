@@ -26,6 +26,7 @@ import { formatNumber } from "@/lib/format"
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 const NOTES_MAX = 2000
 
@@ -229,7 +230,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                 ],
                 [
                   "Link its listings.",
-                  "Pick the locations that belong to this client. Their reviews start arriving once linked.",
+                  `Pick the ${LISTING_TERMS.placePlural} that belong to this client. Their reviews start arriving once linked.`,
                 ],
                 [
                   "Import past reviews.",

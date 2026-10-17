@@ -50,7 +50,7 @@ export function presenceTotalsCsv(data: PresenceResponse): CsvCell[][] {
       "Metric",
       "Google metric",
       `${data.from} to ${data.to}`,
-      previous ? `${previous.from} to ${previous.to}` : "Previous window",
+      previous ? `${previous.from} to ${previous.to}` : "Previous period",
       "Data through",
     ],
     ...ORDERED_METRICS.map((metric) => [
@@ -162,7 +162,7 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
           ) : (
             <ReportingPanel
               variant="empty"
-              description="No daily views in this window."
+              description="No daily views in this period."
             />
           )}
         </ReportChartCard>
@@ -188,7 +188,7 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
           ) : (
             <ReportingPanel
               variant="empty"
-              description="No daily actions in this window."
+              description="No daily actions in this period."
             />
           )}
         </ReportChartCard>

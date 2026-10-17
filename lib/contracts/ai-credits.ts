@@ -33,6 +33,12 @@ export const aiCreditsSchema = z.object({
   /** False while billing derives read-only: no new AI work at all. */
   canUseAi: z.boolean(),
   accessReason: z.enum(ACCESS_REASONS),
+  /**
+   * False when the deployment has no AI provider configured, so Generate
+   * cannot work for anyone. Absent from older servers and from the operator
+   * route: only an explicit false is acted on.
+   */
+  aiConfigured: z.boolean().optional(),
 })
 export type AiCredits = z.infer<typeof aiCreditsSchema>
 

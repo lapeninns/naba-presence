@@ -103,6 +103,11 @@ type ApiFetchOptions<T> = RequestOptions & {
    * fresh one.
    */
   intentId?: string
+  /**
+   * Extra request headers, such as the client capabilities a read whose
+   * answer has grown declares (lib/contracts/client-capabilities.ts).
+   */
+  headers?: Record<string, string>
 }
 
 /**
@@ -308,7 +313,7 @@ export async function apiFetch<T = unknown>(
     method === "GET"
       ? undefined
       : (options.intentId ?? options.idempotencyKey ?? mintIntentId())
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...options.headers }
   if (body !== undefined) headers["content-type"] = "application/json"
   if (intentId) headers[INTENT_HEADER] = intentId
   // Started before the request so a lazy schema loads alongside it.

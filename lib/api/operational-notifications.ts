@@ -4,6 +4,7 @@ import type { z } from "zod"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import * as React from "react"
 
+import { clientCapabilityHeaders } from "@/lib/contracts/client-capabilities"
 import type { Store } from "@/lib/notifications/pending-store"
 
 import { apiFetch, type RequestOptions } from "./client"
@@ -24,6 +25,7 @@ export function fetchNotifications(
   if (cursor) query.set("cursor", cursor)
   return apiFetch(`/api/notifications?${query}`, {
     schema: () => contract().then((m) => m.notificationListResponseSchema),
+    headers: clientCapabilityHeaders(),
     ...options,
   })
 }
@@ -43,6 +45,7 @@ export const fetchNotificationPreferences = (options?: RequestOptions) =>
   apiFetch("/api/notifications/preferences", {
     schema: () =>
       contract().then((m) => m.notificationPreferencesResponseSchema),
+    headers: clientCapabilityHeaders(),
     ...options,
   })
 export const updateNotificationPreferences = (
@@ -53,6 +56,7 @@ export const updateNotificationPreferences = (
     body: { changes },
     schema: () =>
       contract().then((m) => m.notificationPreferencesResponseSchema),
+    headers: clientCapabilityHeaders(),
   })
 
 // ---------------------------------------------------------------------------

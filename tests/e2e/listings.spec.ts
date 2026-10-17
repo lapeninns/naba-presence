@@ -724,6 +724,47 @@ test.describe("listings", () => {
   })
 })
 
+// LST-16: on desk (768 px and up, fine pointer) the card group once stretched
+// every child of a row to the card's width, so each day's switch took the row
+// and the day name and times got no width. A day is its row and its switch
+// side by side at both sizes: the row has the day's name and hours and real
+// width, the switch stays its own size and sits to the right of it.
+for (const viewport of [
+  { width: 1280, height: 800 },
+  { width: 768, height: 1024 },
+  { width: 390, height: 844 },
+]) {
+  test(`the hours rows keep the day name and times beside the switch at ${viewport.width}px`, async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    await page.setViewportSize(viewport)
+    await page.goto(`/listings/${state.primaryLocationId}/hours`)
+    await expect(page.getByRole("heading", { name: "Opening hours", level: 1 })).toBeVisible()
+    const toggle = page.getByRole("switch", { name: "Monday open" })
+    const day = toggle.locator("xpath=ancestor::li[1]")
+    await expect(day).toBeVisible()
+    const row = day.getByRole("button", { name: /^Monday/ })
+    await expect(row).toContainText("Monday")
+    await expect(row).toContainText(/Closed|\d{2}:\d{2}/)
+    const rowBox = (await row.boundingBox())!
+    const toggleBox = (await toggle.boundingBox())!
+    // The name and times keep most of the line; the switch stays switch-sized.
+    expect(rowBox.width).toBeGreaterThan(viewport.width / 3)
+    expect(toggleBox.width).toBeLessThan(80)
+    expect(toggleBox.x).toBeGreaterThanOrEqual(rowBox.x + rowBox.width - 1)
+    // One line each, level with the other: neither wrapped under the other.
+    expect(Math.abs(rowBox.y + rowBox.height / 2 - (toggleBox.y + toggleBox.height / 2))).toBeLessThan(rowBox.height / 2)
+    // Every weekday keeps its name, none collapsed to a bare switch.
+    for (const name of ["Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
+      await expect(page.getByRole("button", { name: new RegExp(`^${name}`) }).first()).toBeVisible()
+      expect((await page.getByRole("button", { name: new RegExp(`^${name}`) }).first().boundingBox())!.width).toBeGreaterThan(viewport.width / 3)
+    }
+  })
+}
+
 // #195 (Listings peer review note A) and GF-7: a document load of a
 // streamed listing tab with the device clock ahead of the server. The tab's
 // stamped payload hydrates under the layout's session: the editor asks

@@ -54,6 +54,13 @@ describe("binDailySeries", () => {
 })
 
 describe("formatBinLabel", () => {
+  // The server (Node) says "Sept" and WebKit's en-GB data says "Sep": a label
+  // that came from the engine's month name failed hydration (#418).
+  it("writes September the same way in every engine", () => {
+    expect(formatBinLabel("2026-09-19", "day", "UTC")).toBe("19 Sept")
+    expect(formatBinLabel("2026-09-01", "month", "UTC")).toBe("Sept 2026")
+  })
+
   it("reads a bare date as a calendar day, whatever the zone", () => {
     // UTC midnight on 5 Oct is still 4 Oct in Los Angeles.
     expect(formatBinLabel("2026-10-05", "day", "America/Los_Angeles")).toBe(

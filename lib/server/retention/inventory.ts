@@ -930,6 +930,15 @@ export const RETENTION_INVENTORY = [
     approval: { status: "lifecycle" },
   },
   {
+    table: "notification_incident_recipient",
+    provenance: "operational",
+    action: "keep",
+    window: "with its incident, or until the person's account is deleted",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
     table: "platform_incident",
     provenance: "operational",
     action: "keep",

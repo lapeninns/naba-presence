@@ -87,6 +87,58 @@ describe("notification recipients follow the location scope", () => {
     expect(sees("owner", null)).toBe(true)
   })
 
+  it("shows an addressed incident only to its recipients, owners included", async () => {
+    const { sql } = fakeSql([
+      {
+        userId: "approver",
+        role: "member",
+        email: "p@x.test",
+        locationScope: "assigned",
+        locations: [LOCATION],
+      },
+      {
+        userId: "moved",
+        role: "member",
+        email: "m@x.test",
+        locationScope: "assigned",
+        locations: [OTHER],
+      },
+      {
+        userId: "owner",
+        role: "owner",
+        email: "w@x.test",
+        locationScope: "all",
+        locations: null,
+      },
+    ])
+    const members = await loadNotificationMembers(sql)
+    for (const kind of ["approval_requested", "reply_sent_back"]) {
+      const addressed = (recipients?: string[] | null) => ({
+        ...incident(LOCATION, kind),
+        recipients,
+      })
+      const sees = (userId: string, recipients?: string[] | null) =>
+        canSeeIncident(members.get(userId)!, addressed(recipients))
+
+      expect(sees("approver", ["approver"])).toBe(true)
+      expect(sees("owner", ["approver"])).toBe(false)
+      expect(sees("owner", ["owner"])).toBe(true)
+      // A recipient who can no longer see the location stops seeing it.
+      expect(sees("moved", ["moved"])).toBe(false)
+      // No recipient rows is nobody, never everybody.
+      expect(sees("owner", [])).toBe(false)
+      expect(sees("owner", null)).toBe(false)
+      expect(sees("owner")).toBe(false)
+    }
+    // Other kinds ignore recipients.
+    expect(
+      canSeeIncident(members.get("owner")!, {
+        ...incident(LOCATION),
+        recipients: ["approver"],
+      })
+    ).toBe(true)
+  })
+
   it("reads scope and rows from the tenant's organisation only", async () => {
     const { sql, queries } = fakeSql([])
     await loadNotificationMembers(sql)

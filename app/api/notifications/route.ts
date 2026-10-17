@@ -1,3 +1,4 @@
+import { requestHasCapability } from "@/lib/contracts/client-capabilities"
 import { notificationListQuerySchema } from "@/lib/contracts/operational-notifications"
 import { listNotifications } from "@/lib/server/notifications/inbox"
 import { route } from "@/lib/server/route"
@@ -12,8 +13,10 @@ export const runtime = "nodejs"
  */
 export const GET = route({
   query: notificationListQuerySchema,
-  handler: async ({ session, query }) => {
-    const page = await listNotifications(session, query)
+  handler: async ({ session, query, request }) => {
+    const page = await listNotifications(session, query, {
+      addressedKinds: requestHasCapability(request, "notification-kinds-2"),
+    })
     return {
       ...page,
       incidents: page.items.map((item) => ({

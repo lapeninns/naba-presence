@@ -42,6 +42,7 @@ import {
 } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { LISTING_TERMS, workspaceTerms } from "@/lib/workspace/terms"
 
 /**
  * `lead` is what a phone shows; `rest` completes the label from `sm` and is
@@ -77,8 +78,16 @@ function isTab(value: string | null): value is TabValue {
   return TABS.some((tab) => tab.value === value)
 }
 
-function locationsPhrase(count: number) {
-  return `${formatNumber(count)} ${count === 1 ? "location" : "locations"}`
+/**
+ * "3 listings", or "3 locations" in a business workspace, where the access
+ * scope is the location (`workspaceTerms`).
+ */
+function scopeCountPhrase(count: number, business: boolean) {
+  const terms = workspaceTerms(business ? "business" : "agency")
+  const [one, many] = business
+    ? [terms.scope, terms.scopePlural]
+    : [terms.place, terms.placePlural]
+  return `${formatNumber(count)} ${count === 1 ? one : many}`
 }
 
 /**
@@ -105,8 +114,8 @@ function NoLocationsPanel({
         titleAs="h2"
         variant="empty"
         icon={<Link2OffIcon />}
-        title="No linked location"
-        description={`${client.name} has no Google location yet. Add one to see how it is performing.`}
+        title={`No linked ${LISTING_TERMS.place}`}
+        description={`${client.name} has no Google ${LISTING_TERMS.place} yet. Add one to see how it is performing.`}
         action={
           <Link
             href={`/clients/${client.id}`}
@@ -136,7 +145,16 @@ function NoLocationsPanel({
  * (the same scope control as every other page) and in the inline fields
  * from `md`; the period is a one-tap chip strip under the tabs on a phone.
  */
-export function PerformanceView() {
+export function PerformanceView({
+  windowNow,
+}: {
+  /**
+   * The server's "now" (ISO), when it read the Reply tab's figures for this
+   * address: the tab resolves its windows from it so its query keys are the
+   * ones the server stored them under.
+   */
+  windowNow?: string
+} = {}) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -144,6 +162,7 @@ export function PerformanceView() {
   const active: TabValue = isTab(param) ? param : "reply"
   const mode = useWorkspaceMode()
   const business = mode === "business"
+  const terms = workspaceTerms(mode)
   const scope = useScopeLabel(mode)
   // A business has no client scope: a stale `?clientId=` is ignored, and the
   // figures are the whole business (its one home client).
@@ -264,9 +283,9 @@ export function PerformanceView() {
   const locationsPart =
     scopeCount === null
       ? business
-        ? "All locations"
-        : "Every location"
-      : locationsPhrase(scopeCount)
+        ? `All ${terms.scopePlural}`
+        : `Every ${terms.place}`
+      : scopeCountPhrase(scopeCount, business)
   const clientPart = client
     ? client.name
     : clientId
@@ -345,11 +364,7 @@ export function PerformanceView() {
         // client names and the picker are missing.
         <ReportingPanel
           variant="error"
-          title={
-            business
-              ? "We couldn’t load your locations"
-              : "We couldn’t load your clients"
-          }
+          title={`We couldn’t load your ${terms.scopePlural}`}
           cause={clients.error}
           onRetry={() => void clients.refetch()}
         />
@@ -385,6 +400,7 @@ export function PerformanceView() {
             <NoLocationsPanel client={client} share={shareTarget} />
           ) : (
             <ReplyPerformanceTab
+              windowNow={windowNow}
               clientId={clientId}
               range={resolveTabRange("reply", rangeParams).id}
               onRangeChange={setRange("reply")}

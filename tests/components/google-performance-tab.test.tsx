@@ -26,7 +26,7 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     renderTab()
     expect(await screen.findByText(/not switched on|turned on|not enabled/i)).toBeInTheDocument()
   })
-  it("shows a no-link panel when there is no linked location", async () => {
+  it("shows a no-link panel when there is no linked listing", async () => {
     stub({ range: "28d", from: "a", to: "b", state: "no_link", freshThrough: null, locations: [], totals: ZERO_TOTALS, series: [], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true })
     renderTab()
     expect(await screen.findByText(/no.*link|not linked|connect/i)).toBeInTheDocument()
@@ -50,7 +50,7 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(within(tile).getByText("12")).toBeInTheDocument()
     expect(screen.getAllByText("Website clicks").length).toBeGreaterThan(0)
   })
-  it("shows missing metrics as no data, compares the previous window and states coverage", async () => {
+  it("shows missing metrics as no data, compares the previous period and states coverage", async () => {
     const totals = Object.fromEntries(Object.keys(ZERO_TOTALS).map((metric) => [metric, null]))
     stub({ range: "28d", from: "2026-08-04", to: "2026-08-31", state: "ready", freshThrough: "2026-08-29", locations: [{ id: "l", name: "L" }, { id: "m", name: "M" }],
       totals: { ...totals, CALL_CLICKS: 0, WEBSITE_CLICKS: 30 }, series: [{ date: "2026-08-29", metrics: { CALL_CLICKS: 0, WEBSITE_CLICKS: 30 } }], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true,
@@ -63,16 +63,16 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
     expect(within(await tileFor("Website clicks")).getByText(/\+10|10/)).toBeInTheDocument()
     // Provenance is one caption line; the detail is behind its info button.
-    expect(screen.getByText("Through 29 Aug · 1 of 2 locations up to date")).toBeInTheDocument()
+    expect(screen.getByText("Through 29 Aug · 1 of 2 listings up to date")).toBeInTheDocument()
     expect(screen.queryByText(/Google’s daily dates/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "About these figures" }))
     const about = await screen.findByRole("dialog", { name: "About these figures" })
-    expect(within(about).getByText(/1 of 2 locations up to date · 1 waiting for a first fetch/)).toBeInTheDocument()
+    expect(within(about).getByText(/1 of 2 listings up to date · 1 waiting for a first fetch/)).toBeInTheDocument()
     expect(within(about).getByText(/Figures up to /)).toBeInTheDocument()
     await userEvent.keyboard("{Escape}")
     expect(screen.getByRole("button", { name: "Download totals CSV of the Google profile" })).toBeInTheDocument()
   })
-  it("states expected vs covered locations and leaves a missing location out of the tiles", async () => {
+  it("states expected vs covered listings and leaves a missing location out of the tiles", async () => {
     const totals = Object.fromEntries(Object.keys(ZERO_TOTALS).map((metric) => [metric, null]))
     stub({ range: "28d", from: "2026-08-04", to: "2026-08-31", state: "ready", freshThrough: "2026-08-29",
       locations: [{ id: "l", name: "Lamb" }, { id: "m", name: "Mitre" }, { id: "n", name: "Nags Head" }],
@@ -81,10 +81,10 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
         missing: [{ id: "n", name: "Nags Head", reason: "pending" }], refreshFailed: [{ id: "m", name: "Mitre" }] } })
     renderTab()
     // One line in the report; the names and reasons are behind Details.
-    const banner = (await screen.findByText("Showing 2 of 3 locations")).closest("[data-slot=partial-coverage]") as HTMLElement
+    const banner = (await screen.findByText("Showing 2 of 3 listings")).closest("[data-slot=partial-coverage]") as HTMLElement
     expect(within(banner).queryByText(/Nags Head/)).not.toBeInTheDocument()
     await userEvent.click(within(banner).getByRole("button", { name: /^Details/ }))
-    const details = await screen.findByRole("dialog", { name: "Showing 2 of 3 locations" })
+    const details = await screen.findByRole("dialog", { name: "Showing 2 of 3 listings" })
     expect(within(details).getByText(/Not fetched from Google yet: Nags Head/)).toBeInTheDocument()
     expect(within(details).getByText(/Latest refresh failed.*Mitre/)).toBeInTheDocument()
     expect(within(details).getByText(/not counted as zero/)).toBeInTheDocument()
@@ -94,15 +94,15 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(within(await tileFor("Call button taps")).getByText("9")).toBeInTheDocument()
     expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
   })
-  it("names every missing location when the report covers none of them", async () => {
+  it("names every missing listing when the report covers none of them", async () => {
     stub({ range: "28d", from: "2026-08-04", to: "2026-08-31", state: "empty", freshThrough: null,
       locations: [{ id: "l", name: "Lamb" }, { id: "m", name: "Mitre" }], totals: ZERO_TOTALS, series: [], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true,
       completeness: { state: "none", expected: 2, covered: 0, completeThrough: null,
         missing: [{ id: "l", name: "Lamb", reason: "stale" }, { id: "m", name: "Mitre", reason: "pending" }], refreshFailed: [] } })
     renderTab()
-    const banner = (await screen.findByText("Showing 0 of 2 locations")).closest("[data-slot=partial-coverage]") as HTMLElement
+    const banner = (await screen.findByText("Showing 0 of 2 listings")).closest("[data-slot=partial-coverage]") as HTMLElement
     await userEvent.click(within(banner).getByRole("button", { name: /^Details/ }))
-    const details = await screen.findByRole("dialog", { name: "Showing 0 of 2 locations" })
+    const details = await screen.findByRole("dialog", { name: "Showing 0 of 2 listings" })
     expect(within(details).getByText(/latest figures end before this period: Lamb/)).toBeInTheDocument()
     expect(within(details).getByText(/Not fetched from Google yet: Mitre/)).toBeInTheDocument()
     expect(within(details).getByText(/none is counted as zero/)).toBeInTheDocument()
