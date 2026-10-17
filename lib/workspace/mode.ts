@@ -1,6 +1,6 @@
 "use client"
 
-import { QueryClientContext } from "@tanstack/react-query"
+import { hashKey, QueryClientContext } from "@tanstack/react-query"
 import * as React from "react"
 
 import type { SessionResponse } from "@/lib/contracts/session"
@@ -18,11 +18,22 @@ import { workspaceTerms, type WorkspaceMode, type WorkspaceTerms } from "./terms
  * is what the product was before business mode existed. Before the session
  * is known, only the local anonymous bootstrap is in that position.
  */
+const sessionHash = hashKey(queryKeys.session)
+
 export function useWorkspaceMode(): WorkspaceMode {
   const client = React.useContext(QueryClientContext)
+  // Only the session's events. An event for any other key, such as a query
+  // built while another component renders (a reader keyed by the role, once
+  // the session names it), makes React check this store mid-render and
+  // re-render a reader whose new mode is not yet committed: "Cannot update a
+  // component while rendering a different component".
   const subscribe = React.useCallback(
     (onChange: () => void) =>
-      client ? client.getQueryCache().subscribe(onChange) : () => {},
+      client
+        ? client.getQueryCache().subscribe((event) => {
+            if (event.query.queryHash === sessionHash) onChange()
+          })
+        : () => {},
     [client]
   )
   const read = React.useCallback(
