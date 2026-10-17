@@ -363,7 +363,7 @@ function HubActions({
           <EllipsisIcon aria-hidden strokeWidth={1.75} />
           More
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" title="Client actions">
           <DropdownMenuItem
             render={<Link href={`/reports?clientId=${clientId}`} />}
           >

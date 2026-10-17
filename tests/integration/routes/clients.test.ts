@@ -139,7 +139,7 @@ describeDatabase("clients", () => {
     ])
     expect(payload.locations[0]?.clientId).toBe(clientId)
     // DSK-10: each row carries the listings board's Health and Waiting.
-    expect(payload.locations[0]?.health).toEqual(expect.any(String))
+    expect(payload.locations[0]?.health).toBe("not_linked")
     expect(payload.locations[0]?.waiting).toBe(0)
   })
 

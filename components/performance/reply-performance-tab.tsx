@@ -2,7 +2,6 @@
 
 import { useMemo, useSyncExternalStore } from "react"
 
-import { readClock, subscribeClock } from "@/lib/time/clock"
 import { SectionHeader } from "@/components/ui/section-header"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReplyFigures } from "@/components/reporting/reply-figures"
@@ -29,8 +28,21 @@ import {
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
 import { LISTING_TERMS } from "@/lib/workspace/terms"
 
-/** How old a prefetched window's `now` may be before the browser's clock replaces it. */
+/** How long a prefetched window's `now` may be held before the browser's clock replaces it. */
 const WINDOW_NOW_MAX_AGE_MS = 10 * 60_000
+
+/** When this page first saw each server `now`, by this browser's clock. */
+const windowSeenAt = new Map<string, number>()
+
+function windowIsOld(windowNow: string | undefined): boolean {
+  if (!windowNow) return false
+  const at = Date.now()
+  const first = windowSeenAt.get(windowNow) ?? at
+  windowSeenAt.set(windowNow, first)
+  return at - first > WINDOW_NOW_MAX_AGE_MS
+}
+
+const noopSubscribe = () => () => {}
 
 function ReplyPerformanceLoading() {
   return <ReportsSkeleton variant="tab" label="Loading reply performance…" />
@@ -64,17 +76,19 @@ export function ReplyPerformanceTab({
   // per rangeId change so the query keys stay stable.
   // The server's `now` stands for the render that hydrates (so the keys match
   // the prefetched ones). A page restored later from the router cache (Back)
-  // brings its old `windowNow` with it: past this age it is dropped after
-  // hydration and the windows are resolved from the browser's clock, as a
-  // fresh mount would have.
-  // Read through the shared clock like `useNow`: the server snapshot (and so
-  // the hydrating render) is "not stale", a later render reads the browser.
-  const windowStale = useSyncExternalStore(
-    subscribeClock,
-    () =>
-      Boolean(windowNow) &&
-      readClock() - Date.parse(windowNow!) > WINDOW_NOW_MAX_AGE_MS,
+  // brings its old `windowNow` with it. Whether it is old is decided once,
+  // when the tab mounts, and only from this browser's own clock: how long ago
+  // this page first saw that `now`. Not against the server's clock, which a
+  // device may be minutes out from, and not on a tick, which would reload an
+  // open report mid-read.
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
     () => false
+  )
+  const windowStale = useMemo(
+    () => mounted && windowIsOld(windowNow),
+    [mounted, windowNow]
   )
   const { current, previous } = useMemo(
     () =>

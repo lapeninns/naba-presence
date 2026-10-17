@@ -3,7 +3,7 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query"
-import { render, waitFor } from "@testing-library/react"
+import { cleanup, render, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
@@ -81,28 +81,43 @@ describe("the reply report's server prefetch and the tab", () => {
     })
   }
 
-  it("resolves the windows from the browser's clock once the server's now is old (a page restored on Back)", async () => {
+  // Staleness is decided when the tab mounts, from this browser's own clock:
+  // how long ago this page first saw that `now`. An open report is never
+  // reloaded under the reader, and a device clock minutes out from the
+  // server's changes nothing.
+  it("does not reload an open report when ten minutes pass", async () => {
     stubFetch()
-    vi.useFakeTimers({
-      now: new Date("2026-10-17T00:00:00.000Z"),
-      toFake: ["Date"],
+    const opened = "2026-10-16T09:00:00.000Z"
+    vi.useFakeTimers({ now: new Date(opened), toFake: ["Date"] })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
     })
-    const fresh = replyReportPrefetch({
-      rangeId: "28d",
-      now: new Date(SERVER_NOW),
-    })({ organisationId: "org-1" } as unknown as Session)
-    const client = mountTab({ windowNow: SERVER_NOW })
-    // Two hours old: dropped, so the keys are those of "now".
-    await waitFor(() => {
-      const keys = tabKeys(client)
-      expect(keys.some((key) => key.includes("2026-10-17T00:00:00.000Z"))).toBe(
-        true
-      )
-    })
-    // ...and they are not the ones the server stored. A page mounted this
-    // late (not hydrating) reads the clock at once, so only the new pair is
-    // asked for.
+    const tree = (
+      <QueryClientProvider client={client}>
+        <ReplyPerformanceTab windowNow={opened} />
+      </QueryClientProvider>
+    )
+    const view = render(tree)
+    await waitFor(() => expect(tabKeys(client)).toHaveLength(2))
+    vi.setSystemTime(new Date("2026-10-16T09:25:00.000Z"))
+    view.rerender(tree)
     expect(tabKeys(client)).toHaveLength(2)
-    expect(tabKeys(client)).not.toContain(hashKey(fresh[0].queryKey))
+  })
+
+  it("resolves the windows from the browser's clock for a page restored long after it first saw the server's now (Back)", async () => {
+    stubFetch()
+    const restored = "2026-10-16T10:00:00.000Z"
+    vi.useFakeTimers({ now: new Date(restored), toFake: ["Date"] })
+    const first = mountTab({ windowNow: restored })
+    await waitFor(() => expect(tabKeys(first)).toHaveLength(2))
+    cleanup()
+    // The page comes back from the router cache with the same payload.
+    vi.setSystemTime(new Date("2026-10-16T11:30:00.000Z"))
+    const second = mountTab({ windowNow: restored })
+    await waitFor(() => expect(tabKeys(second)).toHaveLength(2))
+    expect(
+      tabKeys(second).some((key) => key.includes("2026-10-16T11:30:00.000Z"))
+    ).toBe(true)
+    expect(tabKeys(second)).not.toEqual(tabKeys(first))
   })
 })
