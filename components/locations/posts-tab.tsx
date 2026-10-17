@@ -82,7 +82,9 @@ function headline(post: Post): { title: string; body: string } {
 
 function lifecycle(post: Post): LifecycleStage[] {
   const status = post.status
-  const rejected = status === "published" && post.googleState === "REJECTED"
+  // Google's verdict, whether the post was settled `published` or `failed`
+  // (the status badge reads the same outcome).
+  const rejected = localPostOutcome(post) === "rejected"
   const sentState =
     status === "failed" || status === "ambiguous" || rejected
       ? "failed"
@@ -133,6 +135,13 @@ function lifecycle(post: Post): LifecycleStage[] {
 }
 
 function problem(post: Post): React.ReactNode {
+  if (localPostOutcome(post) === "rejected")
+    return (
+      <>
+        Google rejected this post, so customers can’t see it.
+        <SupportDetails items={[post.lastErrorCode]} className="mt-1" />
+      </>
+    )
   if (post.status === "failed") {
     // The code is for support, not the reader: the sentence says what
     // happened and what to do next, the code stays one click away.
@@ -150,8 +159,6 @@ function problem(post: Post): React.ReactNode {
   }
   if (post.status === "ambiguous")
     return "We couldn’t confirm whether Google has this post. Check Google before publishing again, so it isn’t posted twice."
-  if (post.status === "published" && post.googleState === "REJECTED")
-    return "Google rejected this post, so customers can’t see it."
   return null
 }
 
