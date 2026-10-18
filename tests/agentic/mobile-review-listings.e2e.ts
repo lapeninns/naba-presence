@@ -27,8 +27,9 @@ describe(
           { params: { review: state.directReview.text } }
         )
         await expect(browser).toHaveURL(/[?&]selected=/)
+        const selected = screen.getByRole("region", { name: "Selected review" })
         await expect(
-          screen.getByText(state.directReview.text, { exact: true })
+          selected.getByText(state.directReview.text, { exact: true })
         ).toBeVisible()
         await expect(
           screen.getByRole("textbox", { name: "Your reply" })
@@ -41,9 +42,8 @@ describe(
         await expect(
           screen.getByRole("heading", { name: "Inbox", level: 1 })
         ).toBeVisible()
-        await expect(
-          screen.getByText(state.directReview.text, { exact: true })
-        ).toBeVisible()
+        // Below lg the list replaces the review again.
+        await expect(selected).toBeHidden()
       }
     )
 
