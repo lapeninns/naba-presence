@@ -28,6 +28,7 @@ import {
   type PostsListResponse,
 } from "@/lib/contracts/location-posts"
 import {
+  listingSummariesResponseSchema,
   listingSummarySchema,
   type ListingSummary,
 } from "@/lib/contracts/location-summary"
@@ -332,6 +333,16 @@ export async function readListingSummary(
   return summary ? throughWire(listingSummarySchema, summary) : null
 }
 
+/** What `useListingSummaries()` fetches: every visible listing's state. */
+export async function readListingSummariesForBoard(
+  session: Session
+): Promise<ListingSummary[]> {
+  const summaries = await withTenant(session.organisationId, (sql) =>
+    readListingSummaries(sql, session)
+  )
+  return throughWire(listingSummariesResponseSchema, { summaries }).summaries
+}
+
 /**
  * What `useSettingsCapabilities()` fetches: a role projection plus the
  * organisation's settings feature switches, read in one tenant transaction
@@ -574,6 +585,20 @@ export function listingPagePrefetch(
     {
       queryKey: queryKeys.listingSummary(locationId),
       load: () => readListingSummary(session, locationId),
+    },
+  ]
+}
+
+/**
+ * /listings: the board's DB-only summaries (as `/api/listings/summary`), so
+ * each row's health pill and the health chips are in the first HTML instead
+ * of appearing after the client bundle hydrates and fetches them.
+ */
+export function listingsBoardPrefetch(): (session: Session) => PrefetchEntry[] {
+  return (session) => [
+    {
+      queryKey: queryKeys.listingSummaries,
+      load: () => readListingSummariesForBoard(session),
     },
   ]
 }
