@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
 import dynamic from "next/dynamic"
 import { useInfiniteQuery } from "@tanstack/react-query"
-import { SavedWorkList } from "@/components/reviewed-write"
+import { SavedWorkList } from "@/components/reviewed-write/saved-work-list"
 import { fetchLodgingWorkflows } from "@/lib/api/location-industry"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"

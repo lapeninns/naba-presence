@@ -28,6 +28,10 @@
         "firstLoadJsTransfer": 565,
         "transfer": 860
       },
+      "/listings/{loc}/profile": {
+        "_why": "Owner decision, AMA-146 (2026-10-18): the shared listing frame alone is ~525 KB, so the 520 default is out of reach for an area page. Measured 586.4 KB after the review sheets went lazy (was 596.2), plus ~5%. See docs/perf/2026-10-18-ama146-mobile-requalification.md.",
+        "firstLoadJsTransfer": 615
+      },
       "/setup": { "firstLoadJsTransfer": 545 },
       "/sign-in": { "firstLoadJsTransfer": 260, "transfer": 530 }
     }

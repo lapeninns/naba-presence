@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useRef, type ReactNode } from "react"
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
-import { SavedWorkList } from "@/components/reviewed-write"
+import { SavedWorkList } from "@/components/reviewed-write/saved-work-list"
 import { fetchServiceMetadata, fetchServiceWorkflows } from "@/lib/api/location-business-information"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -11,7 +11,7 @@ import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { serviceReviewRows } from "@/lib/locations/forms/services"
 import { useServiceReview } from "./use-service-review"
-import { ServiceApprovalSheet } from "./service-approval-sheet"
+import { ServiceApprovalSheet } from "@/components/reviewed-write/lazy-sheets"
 import { savedChangeItem } from "./saved-change-work"
 
 type Workspace = ReturnType<typeof useServiceReview> & { setConfirmedHandler: (handler: ((change: GbpChangeSet) => void) | null) => void }
