@@ -7,6 +7,8 @@
  * UTC midnight, where every day is exactly 24 hours long.
  */
 
+import { formatShortDateRange } from "@/lib/format"
+
 export type CalendarView = "month" | "week" | "agenda"
 
 export const CALENDAR_VIEWS: readonly CalendarView[] = [
@@ -116,14 +118,11 @@ export function periodHeading(
       timeZone: "UTC",
     }).format(anchor)
   const last = new Date(range.to.getTime() - DAY)
-  return new Intl.DateTimeFormat("en-GB", {
+  return formatShortDateRange(range.from, last, {
     day: "numeric",
-    month: "short",
     year: "numeric",
     timeZone: "UTC",
-  })
-    .formatRange(range.from, last)
-    .replace(ICU_SPACES, " ")
+  }).replace(ICU_SPACES, " ")
 }
 
 /** "Tuesday 14 October". */

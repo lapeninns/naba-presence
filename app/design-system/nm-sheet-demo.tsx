@@ -43,6 +43,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { TypedConfirmation } from "@/components/ui/typed-confirmation"
+import { formatShortDate } from "@/lib/format"
 
 /** The demo venue's timezone: presets resolve in venue time, not the browser's. */
 const VENUE_TIME_ZONE = "Europe/London"
@@ -65,12 +66,11 @@ function presetLabel(preset: "tomorrow" | "monday"): string {
   const weekday = today.getUTCDay()
   const days = preset === "tomorrow" ? 1 : (8 - weekday) % 7 || 7
   const day = new Date(today.getTime() + days * 86_400_000)
-  const date = new Intl.DateTimeFormat("en-GB", {
+  const date = formatShortDate(day, {
     timeZone: "UTC",
     weekday: "short",
     day: "numeric",
-    month: "short",
-  }).format(day)
+  })
   return `${date.replace(/,/g, "")}, 09:00 · venue time`
 }
 

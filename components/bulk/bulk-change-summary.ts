@@ -8,6 +8,7 @@
  */
 import type { BulkChild } from "@/lib/contracts/bulk-listings"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
+import { formatShortDate } from "@/lib/format"
 
 export type ChangeRow = {
   /** What changes: a date, a day, a service-hours type, an attribute, a link. */
@@ -63,13 +64,12 @@ function dateKey(value: GoogleDate | undefined): string | null {
     : null
 }
 function dateLabel(key: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
+  return formatShortDate(new Date(`${key}T00:00:00Z`), {
     weekday: "short",
     day: "numeric",
-    month: "short",
     year: "numeric",
     timeZone: "UTC",
-  }).format(new Date(`${key}T00:00:00Z`))
+  })
 }
 
 /** "HAPPY_HOURS" → "Happy hours"; "attributes/has_wifi" → "Has wifi". */

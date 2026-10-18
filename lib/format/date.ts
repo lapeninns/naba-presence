@@ -28,6 +28,75 @@ const MONTHS = [
   "Dec",
 ] as const
 
+export type ShortDateOptions = Pick<
+  Intl.DateTimeFormatOptions,
+  | "day"
+  | "year"
+  | "weekday"
+  | "hour"
+  | "minute"
+  | "hourCycle"
+  | "hour12"
+  | "timeZone"
+>
+
+function shortMonth(date: Date, timeZone: string | undefined): string {
+  const month = new Intl.DateTimeFormat(LOCALE, {
+    timeZone,
+    month: "numeric",
+  }).format(date)
+  return MONTHS[Number(month) - 1] ?? month
+}
+
+/** Fixed UK short months and date/time comma, preserving the requested fields. */
+export function formatShortDate(date: Date, options: ShortDateOptions): string {
+  const formatter = new Intl.DateTimeFormat(LOCALE, {
+    ...options,
+    month: "short",
+  })
+  const parts = formatter.formatToParts(date)
+  const month = parts.find((part) => part.type === "month")
+  let formatted = formatter.format(date)
+  const connector = parts.find(
+    (part, index) =>
+      part.type === "literal" &&
+      part.value === " at " &&
+      ["weekday", "day", "month", "year"].includes(parts[index - 1]?.type) &&
+      parts[index + 1]?.type === "hour"
+  )
+  // WebKit joins date and time with " at ", while Node and Chromium use
+  // ", ". Only the literal at that field boundary follows our comma policy.
+  if (connector) formatted = formatted.replace(connector.value, ", ")
+  // In some engines formatToParts joins the day period with a different
+  // space from format. Retain format's spacing around the clock fields.
+  return month
+    ? formatted.replace(month.value, shortMonth(date, options.timeZone))
+    : formatted
+}
+
+/** Preserve Intl's collapsed range and literals, replacing only month words. */
+export function formatShortDateRange(
+  start: Date,
+  end: Date,
+  options: ShortDateOptions
+): string {
+  const parts = new Intl.DateTimeFormat(LOCALE, {
+    ...options,
+    month: "short",
+  }).formatRangeToParts(start, end)
+  const startMonth = shortMonth(start, options.timeZone)
+  const endMonth = shortMonth(end, options.timeZone)
+  return parts
+    .map((part) =>
+      part.type === "month"
+        ? part.source === "endRange"
+          ? endMonth
+          : startMonth
+        : part.value
+    )
+    .join("")
+}
+
 function numericParts(date: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat(LOCALE, {
     timeZone,
@@ -85,7 +154,10 @@ export function formatDateTime(iso: string, timeZone: string): string {
  * the clock time, and a timestamp would make them do the subtraction. `now` is
  * injected so tests are deterministic.
  */
-export function formatRelativeTime(iso: string, now: Date = new Date()): string {
+export function formatRelativeTime(
+  iso: string,
+  now: Date = new Date()
+): string {
   const then = new Date(iso)
   if (!Number.isFinite(then.getTime())) return "Unknown"
   const seconds = Math.round((now.getTime() - then.getTime()) / 1000)

@@ -78,6 +78,7 @@ import {
 import { editorGate } from "@/lib/editors/gate"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
+import { formatShortDate } from "@/lib/format"
 import type { LocationCapabilities } from "@/lib/locations/gating"
 import {
   usePlaceActions,
@@ -150,7 +151,7 @@ function PlaceActionsFreshness({
 function formatObserved(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+  return formatShortDate(date, { day: "numeric" })
 }
 
 /**

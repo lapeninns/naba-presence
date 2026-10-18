@@ -6,7 +6,7 @@ import { Empty } from "@/components/ui/empty"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { LoadMore } from "@/components/ui/load-more"
 import { StatusPill } from "@/components/ui/status-pill"
-import { formatNumber } from "@/lib/format"
+import { formatNumber, formatShortDate } from "@/lib/format"
 import {
   activityConfirmationLabel,
   activityErrorLabel,
@@ -92,12 +92,14 @@ function ActivityList({
           ]
             .filter(Boolean)
             .join(" · ")
-          const when = new Date(item.createdAt).toLocaleString("en-GB", {
-            day: "numeric",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
+          const createdAt = new Date(item.createdAt)
+          const when = Number.isNaN(createdAt.getTime())
+            ? "Invalid Date"
+            : formatShortDate(createdAt, {
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
           return (
             <ListRow
               key={item.id}

@@ -14,6 +14,7 @@ import type {
 import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import { localPostOutcome } from "@/lib/domain/post-outcome"
 import { describeOutcome } from "@/lib/editors/outcome"
+import { formatShortDate, type ShortDateOptions } from "@/lib/format"
 
 export type PostTone = "neutral" | "info" | "ok" | "warn" | "bad"
 
@@ -143,11 +144,10 @@ export function postSchedule(post: Pick<PostRow, "event">): string {
   const start = toDate(schedule.startDate, schedule.startTime)
   const end = toDate(schedule.endDate, schedule.endTime)
   const format = (value: Date, withTime: boolean) =>
-    new Intl.DateTimeFormat("en-GB", {
+    formatShortDate(value, {
       day: "numeric",
-      month: "short",
       ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
-    }).format(value)
+    })
   const parts = [
     start ? format(start, hasTime(schedule.startTime)) : "",
     end ? format(end, hasTime(schedule.endTime)) : "",
@@ -175,18 +175,42 @@ export function postImageUrl(post: Pick<PostRow, "media">): string | null {
 }
 
 /** Content time is distinct from the database row's reconciliation time. */
-export function postContentTimestamp(post: Pick<PostRow,
-  "status" | "googleState" | "googlePostName" | "lastErrorCode" | "updatedAt" | "localEditedAt" | "providerUpdatedAt" | "providerCreatedAt"
->): string | null {
-  const providerContent = post.status === "published" || (post.status === "failed" && post.googleState === "REJECTED" && (post.lastErrorCode === "google_post_rejected" || post.localEditedAt === null))
+export function postContentTimestamp(
+  post: Pick<
+    PostRow,
+    | "status"
+    | "googleState"
+    | "googlePostName"
+    | "lastErrorCode"
+    | "updatedAt"
+    | "localEditedAt"
+    | "providerUpdatedAt"
+    | "providerCreatedAt"
+  >
+): string | null {
+  const providerContent =
+    post.status === "published" ||
+    (post.status === "failed" &&
+      post.googleState === "REJECTED" &&
+      (post.lastErrorCode === "google_post_rejected" ||
+        post.localEditedAt === null))
   const candidates = providerContent
     ? [post.providerUpdatedAt, post.providerCreatedAt]
-    : [post.localEditedAt === undefined && !post.googlePostName ? post.updatedAt : post.localEditedAt]
-  return candidates.find((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value))) ?? null
+    : [
+        post.localEditedAt === undefined && !post.googlePostName
+          ? post.updatedAt
+          : post.localEditedAt,
+      ]
+  return (
+    candidates.find(
+      (value): value is string =>
+        typeof value === "string" && Number.isFinite(Date.parse(value))
+    ) ?? null
+  )
 }
 
 /**
- * "20 Sep 2026, 16:40" for the row's last change, on the listing's clock
+ * "20 Sept 2026, 16:40" for the row's last change, on the listing's clock
  * (`timeZone`, its IANA zone) as the inbox shows review times. A fixed zone
  * also keeps the server-rendered list and the hydrating browser on the same
  * text; without one (or with one Intl does not know) it is the runtime's.
@@ -194,18 +218,15 @@ export function postContentTimestamp(post: Pick<PostRow,
 export function formatPostTimestamp(value: string, timeZone?: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ""
-  const options: Intl.DateTimeFormatOptions = {
+  const options: ShortDateOptions = {
     day: "numeric",
-    month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   }
   try {
-    return new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).format(
-      date
-    )
+    return formatShortDate(date, { ...options, timeZone })
   } catch {
-    return new Intl.DateTimeFormat("en-GB", options).format(date)
+    return formatShortDate(date, options)
   }
 }

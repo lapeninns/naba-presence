@@ -1,5 +1,7 @@
 import { CalendarDays, Repeat, Tag } from "lucide-react"
 
+import { formatShortDate } from "@/lib/format"
+
 type Schedule = {
   startDate: string
   startTime: string
@@ -12,11 +14,10 @@ function formatWhen(date: string, time: string) {
   if (!year || !month || !day) return ""
   const [hours, minutes] = time ? time.split(":").map(Number) : []
   const value = new Date(year, month - 1, day, hours ?? 0, minutes ?? 0)
-  return new Intl.DateTimeFormat("en-GB", {
+  return formatShortDate(value, {
     day: "numeric",
-    month: "short",
     ...(time ? { hour: "2-digit", minute: "2-digit" } : {}),
-  }).format(value)
+  })
 }
 
 /**

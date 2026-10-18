@@ -3,6 +3,7 @@
  * item may be moved to, and how categories and dates read on screen.
  */
 import type { GoogleMediaCategory } from "@/lib/domain/google-contract"
+import { formatShortDate } from "@/lib/format"
 
 /** Categories Google allows when PATCHing an existing media item. */
 export const PATCHABLE_MEDIA_CATEGORIES = [
@@ -53,9 +54,8 @@ export function formatMediaDate(value: string | null): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return new Intl.DateTimeFormat("en-GB", {
+  return formatShortDate(date, {
     day: "numeric",
-    month: "short",
     year: "numeric",
-  }).format(date)
+  })
 }

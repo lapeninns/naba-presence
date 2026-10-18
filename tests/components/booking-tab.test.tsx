@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { mockWebkitShortSeptember } from "../helpers/webkit-short-month"
 import { BookingTab } from "@/components/locations/booking-tab"
 import { Toaster } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
@@ -48,10 +49,36 @@ function renderTab() {
 
 afterEach(() => {
   vi.clearAllMocks()
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   sessionStorage.clear()
 })
 
 describe("BookingTab", () => {
+  it.each([
+    ["America/Los_Angeles", "Checked on Google 30 Sept"],
+    ["Asia/Tokyo", "Checked on Google 1 Oct"],
+  ])("keeps an observed date on the runtime's %s clock without a year", (zone, expected) => {
+    vi.stubEnv("TZ", zone)
+    mockWebkitShortSeptember()
+    const state = makeState()
+    state.links[0]!.observedAt = "2026-10-01T00:30:00Z"
+    useBookingMock.mockReturnValue({ data: state, isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+
+  it("omits the observed note when Google's observed timestamp is invalid", () => {
+    const state = makeState()
+    state.links[0]!.observedAt = "invalid"
+    useBookingMock.mockReturnValue({ data: state, isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.queryByText(/^Checked on Google/)).toBeNull()
+    expect(screen.getByText("https://book.test")).toBeInTheDocument()
+  })
+
   it("says when Google was last checked and checks it again on request", async () => {
     useBookingMock.mockReturnValue({ data: makeState({ observedAt: new Date(Date.now() - 2 * 60_000).toISOString(), source: "stored" }), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })

@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/table"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { formatShortDate } from "@/lib/format"
 import type { ConnectionSummary } from "@/lib/api/connections"
 import type { StatusTone } from "@/lib/ui/status-tone"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -84,9 +85,8 @@ function formatWhen(iso: string | null): string {
   if (!iso) return "Never"
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return "Unknown"
-  return date.toLocaleString("en-GB", {
+  return formatShortDate(date, {
     day: "numeric",
-    month: "short",
     hour: "2-digit",
     minute: "2-digit",
   })
