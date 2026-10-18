@@ -48,10 +48,12 @@ async function approvalFixture(page: Page) {
     text: "A notification addressed to another person.",
   })
   // These are navigation fixtures, not an approval-lifecycle test. Give the
-  // reviews the states their notifications describe so the queues are real.
-  await backend.admin`
-    update review set workflow_status = 'awaiting_approval'
-    where id = ${approval.reviewId}`
+  // reviews the states their notifications describe so the queues are real,
+  // following the same transition chain the workflow trigger permits.
+  for (const status of ["drafted", "verified", "awaiting_approval"])
+    await backend.admin`
+      update review set workflow_status = ${status}
+      where id = ${approval.reviewId}`
   await backend.admin`
     update review set workflow_status = 'drafted'
     where id = ${sentBack.reviewId}`
