@@ -19,8 +19,8 @@ Phase 3 of the frictionless-flows work (AMA-13, verified in AMA-25). It records 
 | --- | ---: | ---: | ---: | ---: | ---: |
 | P0 | 1 | 0 | 0 | 0 | 1 |
 | P1 | 33 | 0 | 0 | 0 | 33 |
-| P2 | 85 | 3 | 1 | 0 | 89 |
-| **All** | **119** | **3** | **1** | **0** | **123** |
+| P2 | 83 | 5 | 1 | 0 | 89 |
+| **All** | **117** | **5** | **1** | **0** | **123** |
 
 On `de999679`, before F1–F9, the totals were 102 fixed, 17 partly fixed, 3 deferred and 1 open.
 
@@ -32,6 +32,8 @@ On `de999679`, before F1–F9, the totals were 102 fixed, 17 partly fixed, 3 def
   - CLR-19: wording and bucket order, in F2 (#219).
 - **LST-16's desk regression is fixed**, in F4 (#216).
 - **Partly fixed (all P2):**
+  - INB-21: "Mark N shown as read" still shows under Open or while more pages exist.
+  - CLR-05: Reports' empty and collecting states still say "this window".
   - LST-19: Posts still prints raw zone IDs.
   - DSK-05: in a business workspace the trail still repeats the listing's name.
   - LST-28: "Contact support" waits on P21.
@@ -177,7 +179,7 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | INB-02 | P1 | "Publish reply" parks in two-person mode | R01b | #154 | fixed | `lib/inbox/reply-state.ts:230-235` (`publishSubmitsForApproval`), label "Submit for approval" `:111`, `components/inbox/action-bar.tsx:396` |
 | INB-03 | P1 | Requester offered "Approve reply" | R01b | #154, #183 | fixed | Server scope wins `lib/inbox/reply-state.ts:244`; `components/inbox/action-bar.tsx:285-296`; "Waiting for another approver" `components/inbox/detail/reply-exception.tsx:140,156,180`; row `canApprove` `lib/server/reviews-query.ts:203-209` |
 | INB-04 | P1 | Regenerate during approval withdraws it | R02 | #121 | fixed | `components/inbox/reply-composer.tsx:222-232` (parked = read-only), `:495-519` (note, no tone/Generate); "Edit reply" in ⋯ `components/inbox/action-bar.tsx:459` |
-| INB-05 | P1 | Approvers get no badge or notification | R03, F6 | #194, #214 | fixed | Badge and title count approvals (`components/app-shell/use-needs-reply-count.ts:37-56`). F6 adds the `approval_requested` and `reply_sent_back` kinds (`supabase/migrations/0149_approval_notification_kinds.sql:50-51`, required at `lib/server/schema-manifest.ts:160`) and addressed recipients (`lib/server/notifications/evaluate.ts`), on `5fd05fce`. **0149 is not applied to any hosted database**, so the kinds work only after the owner applies it through the release steps. Row icons and an Open review link in the Notifications view are F11 (AMA-46) |
+| INB-05 | P1 | Approvers get no badge or notification | R03, F6 | #194, #214 | fixed | Badge and title count approvals (`components/app-shell/use-needs-reply-count.ts:37-56`). F6 adds the `approval_requested` and `reply_sent_back` kinds (`supabase/migrations/0149_approval_notification_kinds.sql:50-51`, required at `lib/server/schema-manifest.ts:160`) and addressed recipients (`lib/server/notifications/evaluate.ts`), on `5fd05fce`. Fixed in code: the kinds need 0149 in the database a deployment runs on. This verification did not read any hosted database, so whether 0149 is applied there is not known here. Row icons and an Open review link in the Notifications view are F11 (AMA-46) |
 | INB-06 | P1 | Connection actions send members to Access denied | R04 | #120 | fixed | `components/inbox/empty-states.tsx:120-160,461-466`; `components/inbox/detail/reply-exception.tsx:78-82,125-129,261-263` |
 | INB-07 | P1 | Scope treated as a filter; Clear all resets it | R05 | #159 | fixed | `components/inbox/inbox-view.tsx:319-332` (keeps `clientId`); `components/inbox/filter-toolbar.tsx:47-55`; `components/inbox/active-filter-chips.tsx:130-135` (chip only when there is no switcher) |
 | INB-08 | P1 | Single triage takes 4 taps via Select | R06a | #162 | fixed | Row swipe + ⋯ `components/inbox/review-list.tsx:349-368`; detail ⋯ with Assign… `components/inbox/review-detail.tsx:349-360`; `components/inbox/review-triage.tsx` |
@@ -192,7 +194,7 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | INB-17 | P2 | Two Select exits | R09 | #190 | fixed | One "Cancel selection" `components/inbox/list-header.tsx:194`; bulk bar passes no cancel to `SelectionBar` (`components/ui/selection-bar.tsx:131-142` is optional) |
 | INB-18 | P2 | Sticky sync error; no freshness on phones | R09 | #190 | fixed | Toasts with one id `components/inbox/sync-reviews-button.tsx:18-38,79`; freshness on phones `components/inbox/list-header.tsx:156-162` |
 | INB-19 | P2 | List controls out of thumb reach | R10, F8 | #226 | fixed | Search, filters and sync in a bottom toolbar on phones (`components/inbox/inbox-bottom-toolbar.tsx`, `components/inbox/inbox-view.tsx:844`), on `5fd05fce`. "Select" stays in the list header, as the finding's fix text doesn't move it |
-| INB-21 | P2 | Notifications wait on server, unclear labels | R11, F1 | #191, #217 | fixed | Pending-change overlay and error toast (`components/notifications/use-notification-changes.ts`). F1: "Mark N shown as read" while more pages exist or under Open (`components/notifications/notifications-view.tsx:271-275`); the settings link reads "Settings" below sm (`:220-225`); each filter has a hint, so Open is explained (`:64-69`), on `5fd05fce` |
+| INB-21 | P2 | Notifications wait on server, unclear labels | R11, F1 | #191, #217 | partly fixed | Pending-change overlay and error toast (`components/notifications/use-notification-changes.ts`). F1: the settings link reads "Settings" below sm (`components/notifications/notifications-view.tsx:220-225`), and each filter has a hint, so Open is explained (`:64-69`). **Remains:** the finding calls "Mark shown as read" jargon, and the button still reads "Mark N shown as read" under Open or while more pages exist (`:271-275`), on `5fd05fce` |
 | INB-22 | P2 | Refresh bar ignores reduced motion | R09 | #190 | fixed | `components/inbox/review-list.tsx:274` (`Progress`) |
 | INB-23 | P1 | Inbox ships every dialog; over JS budget | R09 | #190 | fixed | `next/dynamic` at `components/inbox/review-detail.tsx:374,430`, `components/inbox/bulk-action-bar.tsx:137`, `components/inbox/lazy-bulk-action-bar.tsx:24`. perf-lab in #190: 549 KB → 518.8 KB (budget 520 KB) |
 | INB-24 | P2 | Scope-switch toasts pile up | P07 | #133 (15 Oct) | fixed | `components/app-shell/scope-sheet-model.tsx:139` `toast.add({ id: SWITCH_TOAST_ID, … })`; `components/ui/toast.tsx:473` `withReplacementReset`; `lib/queries/use-optimistic-mutation.ts` |
@@ -229,7 +231,7 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | CLR-02 | P1 | Figures below a screen of chrome | R12a | #161 | fixed | Description hidden below md `app/(dashboard)/reports/page.tsx:23`; one caption with an info sheet `components/reporting/presence-provenance.tsx:160-185`; Refresh in ⋯ `components/reporting/report-actions-menu.tsx:151-164`. "First KPI above the fold" not measured (G7) |
 | CLR-03 | P2 | Provenance lines contradict | R12b | #192 | fixed | Disjoint status `lib/domain/report-coverage.ts:106-191`, used at `lib/server/presence-report.ts:219`; copy `components/reporting/presence-provenance.tsx:105-120` |
 | CLR-04 | P2 | Charts misread; 10px bars | R13 | #129 | fixed | `components/reporting/report-bar-chart.tsx:36-39,84-104,201-233` (dated labels, scrub, weekly grouping, `kind="line"`) |
-| CLR-05 | P2 | Internal words and GBP jargon | R15, F2 | #125, #219 | fixed | Hub done in #125. F2 does the Reports half: "the previous period" (`components/reporting/delta-badge.tsx:28-30`), "Impressions counted from" (`components/performance/keywords-tab.tsx:94`), on `5fd05fce` |
+| CLR-05 | P2 | Internal words and GBP jargon | R15, F2 | #125, #219 | partly fixed | Hub done in #125. F2: "the previous period" (`components/reporting/delta-badge.tsx:28-30`) and "Impressions counted from" (`components/performance/keywords-tab.tsx:94`). **Remains:** the finding calls "window" internal, and the empty and collecting states still say "this window" (`components/reporting/reporting-states.tsx:20,29`, `components/performance/keywords-tab.tsx:232`, `components/performance/location-performance.tsx:188`), on `5fd05fce` |
 | CLR-06 | P2 | location / listing / venue | R15 (+P11), F2 | #125, #219 | fixed | F2 adopts the P11 vocabulary in Clients, Reports, Performance and the shared report (`LISTING_TERMS` in `lib/workspace/terms.ts`). A business workspace still says "locations" for scope (`components/performance/performance-view.tsx:82`), by design. The e2e wording fix landed in #224 (AMA-49), on `5fd05fce` |
 | CLR-07 | P2 | Refresh refreshes everyone, no progress | R13, R12b (D7) | #129, #192 | fixed | Polling with "Refreshing…" `components/performance/refresh-google-button.tsx:24-26,77-86`; label "Check for new data across clients" on a client report `components/reporting/report-actions-menu.tsx:160-163` (not "Refresh all clients": see item 8 of Phase 2 verification) |
 | CLR-08 | P2 | Tabs load with different shapes | R13 | #129 | fixed | `components/reporting/reports-skeleton.tsx:97-133`; `components/performance/google-performance-tab.tsx:138`; `components/performance/keywords-tab.tsx:85-87,153` |
@@ -298,12 +300,14 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | Item | Findings | Reason |
 | --- | --- | --- |
 | P21 Help and feedback entry | SET-27, and the "Contact support" part of LST-28 | D10: the repo has no help or feedback channel. The only contact is the privacy email in `lib/legal/operator.ts`, which is for privacy requests. **Needs a support channel from the owner.** Once the owner names one, P21 comes back. |
-| R03, notification half | INB-05 (the badge and title half is fixed, #194) | **Shipped in F6 (#214), not deferred any longer.** Migration `0149_approval_notification_kinds` widens the kind `CHECK`. It is on `main` as a file only and **must be applied first, through the release steps, before any deploy**. |
+| R03, notification half | INB-05 (the badge and title half is fixed, #194) | **Shipped in F6 (#214), not deferred any longer.** Migration `0149_approval_notification_kinds` widens the kind `CHECK`. On `5fd05fce` it is a migration file. Before any deploy of that commit, the owner must apply it through the release steps if the target database lacks it. Hosted state was not read. |
 | R10 Inbox bottom toolbar | INB-19 | **Shipped in F8 (#226).** |
 | P23 Desk quick-look panel | DSK-23 | **Shipped in F9 (#230).** |
 | R06b Undo for "No reply needed" | INB-09 | **Not deferred.** It shipped without a schema change (D3): `app/api/reviews/bulk/route.ts:154,191`. F2 (#218) removed the Regenerate "Discard your edits?" confirmation too. |
 
 ## Phase 2 verification: what didn't match
+
+As found on `de999679`, before F1–F9. For the status on `5fd05fce` see [Findings by status](#findings-by-status) and [Open follow-ups](#open-follow-ups).
 
 Each lane's closing evidence was checked against findings.md and the code on main. One regression against a finding's before state was found, in the re-capture: the Hours day rows on desk (item 13). No other regression was found. No migration has landed since `4e0fa805` (`git log 4e0fa805..de999679 -- supabase/migrations` is empty), which matches D2, D3, D6 and the no-schema rule. D9 is confirmed:
 - `lib/domain/auth.ts:25-38` keeps only the 12–128 length rule, with no character-class rules.
@@ -365,6 +369,8 @@ These items differ from what a PR or the plan claimed, or are new gaps:
 
 ## Steps per flow, before and after
 
+Counted on `de999679`, before F1–F9. These were not re-counted on `5fd05fce`.
+
 Before counts are copied from findings.md. "Captured" means the taps were performed in the after library run on 16 Oct (folder given, under "Naba Presence Mobile - Flows (after)"). "Code" means counted from the code path on main; those flows were not driven in the capture.
 
 | Family | Flow | Task | Before (taps) | After (taps) | Source |
@@ -375,7 +381,7 @@ Before counts are copied from findings.md. "Captured" means the taps were perfor
 | Inbox | Approving | Requester submits, approver approves | Requester 3; approver 3; phone Reject 6 | Requester 3 (open; type; Submit for approval). Approver 3 (Approval tab; row; Approve reply), with no confirmation. Reject not tried | Captured (`…/03 - Approving a reply/`) |
 | Inbox | Review detail ⋯ | See history or details | 2 | 2 (⋯; History or Review details); the sheet was opened, the item not tapped | Captured (`03 - Inbox/01 - Review detail/screen-02`) |
 | Inbox | Filtering | 5★ reviews with text | 4 | 2 (★5 chip; With text chip). Removing one: 1 | Captured (`03 - Inbox/02 - Filtering reviews/`) |
-| Inbox | Searching | Find a review | 1 plus typing; Cancel | 1 plus typing; Cancel (no change) | Code (`components/inbox/inbox-toolbar.tsx:63-134`); R10 deferred |
+| Inbox | Searching | Find a review | 1 plus typing; Cancel | 1 plus typing; Cancel (no change) | Code (`components/inbox/inbox-toolbar.tsx:63-134`); R10 deferred on `de999679`, shipped later in F8 (#226), not re-counted |
 | Inbox | Syncing | Pull new reviews | 1 (owners and admins) | 1 (spinner, then "Up to date" toast) | Captured (`03 - Inbox/03 - Syncing reviews/`) |
 | Inbox | Switching client scope | Work on one client | 2 | 2 (scope chip; client row), "Switched to …" toast. No filter chip or filter-count badge any more | Captured (`03 - Inbox/04 - Switching client scope/`) |
 | Inbox | Inbox › Select | Mark one review "No reply needed" | 4 | 2 (row ⋯; No reply needed), no confirmation; Undo is 1 more tap in the toast | Captured (`03 - Inbox/`) |
@@ -441,14 +447,14 @@ Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earli
 ### From AMA-13 decisions and reviews
 1. **Done (F1, #217):** the Inbox unread-count model (AMA-29). Its three cases are poll-after-removal, no pin when the badge isn't loaded at the first change, and a notification arriving mid-change. #217 also fences a cancelled poll.
 2. **Done (F1, #217):** the five notes from the Release & QA review of #191 at `8bcf591f`: inline-confirmation focus loss, partial saves reverting silently, a duplicate ID in a turn, the "Load more" failure wording, and an empty list with a failed refetch.
-3. **Done in code (F6, #214); the owner must apply the migration:** D2's notification kinds. Migration `0149_approval_notification_kinds` is on `main` but not applied to any hosted database. It must be applied first, through the release steps, before any deploy (see [Release gate on `5fd05fce`](#release-gate-on-5fd05fce)). F11 (AMA-46) adds row icons and an Open review link to the Notifications view.
+3. **Done in code (F6, #214); the owner must check the migration:** D2's notification kinds. Migration `0149_approval_notification_kinds` is in `5fd05fce`. This verification did not read any hosted database. Before any deploy, the owner applies it through the release steps wherever it is missing (see [Release gate on `5fd05fce`](#release-gate-on-5fd05fce)). F11 (AMA-46) adds row icons and an Open review link to the Notifications view.
 4. **Still open; needs a support channel from the owner:** D10 / P21. Once the owner names a help or feedback channel, P21 can ship (SET-27), along with "Contact support" on the Calendar off state (LST-28).
 5. **Done:** R10 (INB-19) in F8 (#226), and P23 (DSK-23) in F9 (#230).
 6. **Done (F7, #206 through #233):** passwords. Registration and reset need 15–128 Unicode code points and run a prefix-only Pwned Passwords check. Existing sign-in passwords still work. The owner reported, on 17 Oct, that the hosted Auth compatibility check passed. The pipeline did not see that check.
 
 ### Found or confirmed in this verification
 7. **Done (F3, #212):** "Review & publish (n)" is gated by role (LST-27).
-8. **Done (F2, #219):** CLR-06 wording, and the Reports half of CLR-05.
+8. **Partly done (F2, #219):** CLR-06 is fixed. The Reports half of CLR-05 is partly fixed. **Remains:** "this window" in the empty and collecting states (`components/reporting/reporting-states.tsx:20,29`, `components/performance/keywords-tab.tsx:232`, `components/performance/location-performance.tsx:188`). Use "period", as the delta badge does.
 9. **Done (F2, #218):** INB-09, Undo instead of the Regenerate confirmation.
 10. **Partly done (F4, #216):** LST-19 zone names are fixed in the Calendar and the Replay name. **Remains:** Posts prints raw zone IDs (`components/locations/posts/post-schedules.tsx:331`, `schedule-post-sheet.tsx:351`). F12 (AMA-47) covers the related `Intl` `month: "short"` sites.
 11. **Done (F5):** SET-22 (#208) and SET-25 (#207).
@@ -470,7 +476,7 @@ Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earli
     - Services and `place-actions-backend` timeouts: AMA-48 (#235). `services-backend.spec.ts:106` passed at all three widths in the final gate.
 
 ### Found in the follow-up phase (F1–F10)
-19. **Owner, before any deploy:** apply `0149_approval_notification_kinds` through the release steps. Then confirm that `pnpm db:status --expect-current` is clean against production, which `pnpm release:promote` checks itself. Migrations 0132–0148 are also newer than the last promotion (`2b26bcf2`), so the same check covers them. This verification did not read any hosted database.
+19. **Owner, before any deploy:** make sure `0149_approval_notification_kinds` is in the target database, applying it through the release steps if not. This verification did not read any hosted database. Then confirm that `pnpm db:status --expect-current` is clean against production, which `pnpm release:promote` checks itself. Migrations 0132–0148 are also newer than the last promotion (`2b26bcf2`), so the same check covers them. This verification did not read any hosted database.
 20. **PIN-spec flake (e2e).** In the full gate run for #214 (on 17 Oct, under load from two other e2e suites), "Review PIN completion" stayed disabled after the PIN was typed. That is in the verification PIN specs (`tests/e2e/verification-pin-*.spec.ts`). With `--repeat-each=3` they passed 125 of 126 on the merge and 124 of 126 on `main`, so it predates the follow-ups. It did not recur in the final 716-test gate. Owner: Listings (verification).
 21. **From the F3 reviews (non-blocking):**
     - On a phone a tap leaves focus on the quiet Identity heading. Check on a real iOS or Android device that a tap doesn't count as `:focus-visible`.
@@ -483,6 +489,7 @@ Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earli
     - Add an e2e assertion for Escape on the trail's "…" menu.
     - Lower the `controls` bar's 34rem height threshold (`app/globals.css:31`), so the Publish bar docks at 1280×540.
 23. **Done (AMA-50, #228):** the `shell-polls` test hardening, and the `lib/workspace/mode.ts` session-query subscription.
+24. **INB-21 remainder (Reviews):** the notifications button still reads "Mark N shown as read" under Open or while more pages exist (`components/notifications/notifications-view.tsx:271-275`). INB-21 asks for plain wording, for example "Mark these read".
 
 ### Carried from PR bodies (non-blocking)
 - **L02 (#124):** the activity cursor regex lacks `bulk:` and `schedule:` (`lib/contracts/location-activity.ts:41`), so paging past those rows may return `invalid_cursor`.
@@ -539,12 +546,12 @@ The AMA-13 follow-ups merged between 17 Oct (`3f335f82`) and 18 Oct (`5fd05fce`,
 
 | Sprint | Issue | Source PRs (exact head) | Integrated by | Findings and follow-ups |
 | --- | --- | --- | --- | --- |
-| F1 | AMA-29 | #217 `1c10e0ea` | #220 | INB-21; follow-ups 1 and 2 |
-| F2 | AMA-33 | #218 `74712dc2`, #219 `706a10b2` | #220 | INB-09, INB-14, CLR-05, CLR-06, CLR-19, DSK-10; follow-ups 8, 9, 16 (`/reports`) and 17 (#418) |
+| F1 | AMA-29 | #217 `1c10e0ea` | #220 | INB-21 (partly; follow-up 24); follow-ups 1 and 2 |
+| F2 | AMA-33 | #218 `74712dc2`, #219 `706a10b2` | #220 | INB-09, INB-14, CLR-05 (partly), CLR-06, CLR-19, DSK-10; follow-ups 8 (partly), 9, 16 (`/reports`) and 17 (#418) |
 | F3 | AMA-34 | #212 `62d02d3f`, #205 `32fd8843` | #225, #229 | LST-06, LST-07, LST-14, LST-27, DSK-05 (partly); follow-ups 7 and 13 |
 | F4 | AMA-35 | #216 `978f89c5` | #220 | LST-16, LST-19 (partly); follow-ups 10, 15 and 18 |
 | F5 | AMA-36 | #207 `e49c895b`, #208 `8741c72f`, #209 `964cd1ab`, #210 `a54513cc`, #211 `aebee04e` | #220 | SET-22, SET-25; follow-ups 11, 12, 16 (`/sign-in`) and 18 |
-| F6 | AMA-37 | #214 `e75a5128` | #220 | INB-05 (code; 0149 not applied); follow-up 3 |
+| F6 | AMA-37 | #214 `e75a5128` | #220 | INB-05 (code; needs 0149 in the target database); follow-up 3 |
 | F7 | AMA-38 | #206 `e9326d0c` | #233 | follow-up 6 |
 | F8 | AMA-30 | #226 `cb6bcb21` | #227 | INB-19 |
 | F9 | AMA-31 | #230 `3b43fabd`, #222 `350f90cf` | #236 | DSK-23, CLR-19 (Listings label); follow-up 17 (post failure code) |
@@ -577,13 +584,13 @@ Merge order held: #219 before #208, and #211 last in #220. Hosted CI was not a g
 
 **Independent check (Release & QA, 18 Oct):**
 - The receipt file's sha256 matches the one above.
-- `origin/main` is still `5fd05fce`, and `git merge-base origin/main 2b26bcf2` is `2b26bcf2`.
+- `origin/main` was `5fd05fce` when checked (about 23:30 UTC on 17 Oct, and again at 00:07 UTC on 18 Oct), and `git merge-base origin/main 2b26bcf2` is `2b26bcf2`.
 - The candidate's own `scripts/release/local-receipt.mjs` returns `latestPromotedRelease` = `2b26bcf2`, and `localReceiptProblems(receipt, { sha: 5fd05fce…, nodeMajor: 24, previousSha: 2b26bcf2… })` = `[]`. All 13 required steps passed.
 - The gate log (`final-verify-release.log`, outside the repo) has no failed test line.
 
 **Verdict: GO for NabaPresence on `5fd05fce`, on one condition: migration 0149 is applied first.**
-- `supabase/migrations/0149_approval_notification_kinds.sql` is on `main` as a file only. It is in `REQUIRED_MIGRATIONS` (`lib/server/schema-manifest.ts:160`), so a deployment on a schema without it fails readiness.
-- The owner must apply it first, through the release steps (staging, then production), before any deploy.
+- `supabase/migrations/0149_approval_notification_kinds.sql` is in `5fd05fce`. This verification did not read any hosted database, so whether 0149 is applied there is not known here. It is in `REQUIRED_MIGRATIONS` (`lib/server/schema-manifest.ts:160`), so a deployment on a schema without it fails readiness.
+- Before any deploy of `5fd05fce`, the owner must apply it through the release steps (staging, then production) wherever it is missing.
 - `pnpm release:promote` refuses while `db:status` reports a pending migration. That check also covers 0132–0148, which are newer than the last promotion.
 - No deploy, promotion, hosted migration or hosted database read was part of this verification.
 
