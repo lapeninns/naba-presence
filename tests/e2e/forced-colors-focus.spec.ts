@@ -67,9 +67,15 @@ for (const width of [390, 1280]) {
       await focusOutline(heading)
       const strip = await nav.boundingBox()
       const box = await heading.boundingBox()
-      expect(box!.y).toBeGreaterThanOrEqual(
-        Math.floor(strip!.y + strip!.height)
-      )
+      if (width === 390) {
+        expect(box!.y).toBeGreaterThanOrEqual(
+          Math.floor(strip!.y + strip!.height)
+        )
+      } else {
+        expect(box!.x).toBeGreaterThanOrEqual(
+          Math.floor(strip!.x + strip!.width)
+        )
+      }
       await page.screenshot({
         path: testInfo.outputPath(
           `${name.toLowerCase()}-${width}-forced-colors.png`
