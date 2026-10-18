@@ -11,7 +11,11 @@ import { queryKeys } from "@/lib/queries/keys"
 
 import { OWNER, page, row } from "./notification-count-harness"
 
-afterEach(() => vi.unstubAllGlobals())
+const pendingMutationWaits = new Set<() => void>()
+afterEach(() => {
+  for (const dispose of pendingMutationWaits) dispose()
+  vi.unstubAllGlobals()
+})
 
 /**
  * A shell poll that left before a change saved seeds the badge from inside
@@ -54,31 +58,78 @@ it.each(Array.from({ length: 41 }, (_, at) => at * 3))(
     const { result } = renderHook(() => useNotificationChanges(), { wrapper })
     // The poll left before the save: it still says x is unread, count 2.
     let answerPoll = () => {}
+    let confirmPollSeeded = () => {}
+    let rejectPollSeeded: (error: unknown) => void = () => {}
+    const pollSeeded = new Promise<void>((resolve, reject) => {
+      confirmPollSeeded = resolve
+      rejectPollSeeded = reject
+    })
     // Cancelling it rejects it with CancelledError, which is expected here:
     // the rejection is handled, not left unhandled.
     const poll = client
       .fetchQuery({
         queryKey: queryKeys.shellStatus,
         queryFn: async () => {
-          await new Promise<void>((resolve) => (answerPoll = resolve))
-          for (let turn = 0; turn < turns; turn++) await Promise.resolve()
-          client.setQueryData<NotificationListResponse>(
-            queryKeys.notifications("badge"),
-            page([row("x"), row("y")])
-          )
-          return null
+          try {
+            await new Promise<void>((resolve) => (answerPoll = resolve))
+            for (let turn = 0; turn < turns; turn++) await Promise.resolve()
+            client.setQueryData<NotificationListResponse>(
+              queryKeys.notifications("badge"),
+              page([row("x"), row("y")])
+            )
+            confirmPollSeeded()
+            return null
+          } catch (error) {
+            rejectPollSeeded(error)
+            throw error
+          }
         },
       })
       .catch(() => "cancelled")
     act(() => result.current.markRead(["x"], true))
     // Both answers come back together, once the save has reached the server.
     await vi.waitFor(() => expect(answerRead).not.toBeNull())
-    await act(async () => {
-      answerRead!()
-      answerPoll()
-      await new Promise((resolve) => setTimeout(resolve, 20))
+    const mutation = client.getMutationCache().getAll()[0]
+    if (!mutation)
+      throw new Error("Notification change did not create a mutation")
+    let unsubscribe = () => {}
+    const stopWatching = () => {
+      unsubscribe()
+      pendingMutationWaits.delete(stopWatching)
+    }
+    const mutationSettled = new Promise<"success">((resolve, reject) => {
+      const check = () => {
+        const { status, error } = mutation.state
+        if (status === "success") {
+          stopWatching()
+          resolve(status)
+        } else if (status === "error") {
+          stopWatching()
+          reject(error)
+        }
+      }
+      unsubscribe = client.getMutationCache().subscribe(check)
+      pendingMutationWaits.add(stopWatching)
+      check()
     })
-    await poll
+    let mutationStatus: "success" | undefined
+    try {
+      await act(async () => {
+        // Release both answers before awaiting either: all poll/commit races
+        // remain possible, including the zero-turn stale badge seed.
+        answerRead!()
+        answerPoll()
+        const [status] = await Promise.all([mutationSettled, pollSeeded])
+        mutationStatus = status
+      })
+      await poll
+    } finally {
+      stopWatching()
+    }
+    // Cancellation can settle fetchQuery before its query function finishes.
+    // Check the badge only after that function actually seeded it and the
+    // real mutation (including onSuccess's commit) finished successfully.
+    expect(mutationStatus).toBe("success")
     expect(storeFor(client).changes).toHaveLength(0)
     expect(
       client.getQueryData<NotificationListResponse>(

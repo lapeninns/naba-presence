@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query"
-import { fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
@@ -9,6 +9,7 @@ import { locationFieldCapabilities } from "@/lib/domain/google-capabilities"
 import { businessInformationPreviewSchema } from "@/lib/contracts/location-business-information"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { emptyListingSummary } from "@/lib/contracts/location-summary"
+import { queryKeys } from "@/lib/queries/keys"
 
 // The lodging editor is loaded on demand (next/dynamic). Transforming its
 // module graph the first time can take longer than a query's wait on a
@@ -17,6 +18,51 @@ import { emptyListingSummary } from "@/lib/contracts/location-summary"
 beforeAll(async () => {
   await import("@/components/locations/profile/sections/industry-editor")
 })
+
+// The profile, business-information and industry reads finish in stages. Wait
+// for the actual industry query, including its contract check, before starting
+// the DOM query's deadline. A request entering the fetch stub is not readiness.
+const pendingIndustryWaits = new Set<() => void>()
+
+function renderLodgingProfile() {
+  let client: QueryClient | undefined
+  function CaptureClient() {
+    client = useQueryClient()
+    return null
+  }
+  const rendered = renderWithProviders(
+    <>
+      <CaptureClient />
+      <ProfileTab locationId="loc-1" />
+    </>
+  )
+  if (!client)
+    throw new Error("Profile fixture did not capture its query client")
+  return { ...rendered, client }
+}
+
+function industryReady(client: QueryClient) {
+  return new Promise<void>((resolve, reject) => {
+    let unsubscribe = () => {}
+    const dispose = () => {
+      unsubscribe()
+      pendingIndustryWaits.delete(dispose)
+    }
+    const check = () => {
+      const state = client.getQueryState(queryKeys.locationIndustry("loc-1"))
+      if (state?.status === "success") {
+        dispose()
+        resolve()
+      } else if (state?.status === "error") {
+        dispose()
+        reject(state.error)
+      }
+    }
+    unsubscribe = client.getQueryCache().subscribe(check)
+    pendingIndustryWaits.add(dispose)
+    check()
+  })
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -218,6 +264,7 @@ function wifiAnswer(option: string) {
 }
 
 afterEach(() => {
+  for (const dispose of pendingIndustryWaits) dispose()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -257,7 +304,10 @@ describe("ProfileTab", () => {
           })
         : original(...args)
     )
-    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const { client } = renderLodgingProfile()
+    await act(async () => {
+      await industryReady(client)
+    })
     const lodging = await screen.findByRole("region", {
       name: "Lodging details",
     })
