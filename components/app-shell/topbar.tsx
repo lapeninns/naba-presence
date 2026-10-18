@@ -22,7 +22,14 @@ import { NotificationsLink } from "./notifications-link"
 function ToolbarWayfinding() {
   const back = useShellBack()
   return (
-    <div className="flex min-w-0 flex-1 items-center">
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 items-center",
+        // Reserve layout space as well as a hit target: a remembered client
+        // can otherwise squeeze this flex item to zero on a tablet.
+        back && "max-wide:min-w-11"
+      )}
+    >
       <ShellBreadcrumbs className="hidden min-w-0 flex-1 wide:flex" />
       {back ? (
         <ShellBackLink target={back} className="-ml-1 wide:hidden" />

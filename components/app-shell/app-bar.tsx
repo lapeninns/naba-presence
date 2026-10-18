@@ -83,7 +83,7 @@ function ShellBackLink({
           : undefined
       }
       className={cn(
-        "flex h-11 max-w-full min-w-0 items-center gap-0.5 rounded-md pr-2 pl-1 text-ui font-medium text-accent-ink",
+        "flex h-11 max-w-full min-w-11 items-center gap-0.5 rounded-md pr-2 pl-1 text-ui font-medium text-accent-ink",
         "transition-colors duration-(--np-duration-fast) hover:bg-fill",
         "focus-halo focus-visible:outline-none",
         className

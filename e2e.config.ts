@@ -78,6 +78,11 @@ export default {
       }),
       app,
     },
+    {
+      name: "tablet",
+      engine: web({ viewport: { width: 768, height: 1024 } }),
+      app,
+    },
   ],
   agents: {
     default: {
