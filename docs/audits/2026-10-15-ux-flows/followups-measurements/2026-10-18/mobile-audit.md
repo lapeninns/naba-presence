@@ -104,4 +104,3 @@ Base http://127.0.0.1:63270 · widths 320, 390, 1280 · themes light, dark · 18
 | --- | --- | --- | --- | --- |
 | span in [data-slot=action-bar-status] | 3 | 1 | span |  |
 | span in [data-slot=inbox-list-header] | 1 | 1 | span.text-caption.tabular-nums |  |
-
