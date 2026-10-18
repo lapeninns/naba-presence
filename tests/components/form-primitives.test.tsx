@@ -148,6 +148,10 @@ describe("FormErrorScope", () => {
     const alerts = screen.getAllByRole("alert")
     expect(alerts).toHaveLength(1)
     expect(alerts[0]).toHaveAttribute("data-slot", "validation-summary")
+    expect(alerts[0]).toHaveClass(
+      "focus-visible:shadow-(--np-field-ring-invalid)",
+      "forced-colors:focus-halo"
+    )
     expect(
       container.querySelector("[data-slot=form-error-announcer]")
     ).toBeEmptyDOMElement()
@@ -316,6 +320,10 @@ describe("Textarea", () => {
     const el = screen.getByRole("textbox", { name: "Notes" })
     expect(el.className).toContain("resize-none")
     expect(el.className).toContain("desk:resize-y")
+    expect(el).toHaveClass(
+      "focus-visible:shadow-(--np-field-ring)",
+      "forced-colors:focus-halo"
+    )
   })
 
   it("autoSize grows with content between minRows and maxRows", async () => {

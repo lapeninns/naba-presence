@@ -472,7 +472,7 @@ function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
       className={cn(
         overlayTitleClassName,
         // A keyboard user who lands here after a push sees an inset ring.
-        "rounded-(--np-radius-tag) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2",
+        "rounded-(--np-radius-tag) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid",
         className
       )}
       {...props}

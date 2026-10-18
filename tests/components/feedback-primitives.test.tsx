@@ -485,9 +485,12 @@ describe("TabNav", () => {
     // Base UI makes the panel focusable; it must draw a focus indicator,
     // inside its box so a clipping parent cannot hide it.
     expect(panel).toHaveAttribute("tabindex", "0")
-    expect(panel.className).toContain("focus-visible:ring-2")
-    expect(panel.className).toContain("focus-visible:ring-inset")
-    expect(panel.className).toContain("focus-visible:ring-(--np-focus-ring)")
+    expect(panel).toHaveClass(
+      "focus-visible:ring-2",
+      "focus-visible:ring-inset",
+      "focus-visible:ring-(--np-focus-ring)",
+      "forced-colors:focus-ring-inset"
+    )
   })
 })
 

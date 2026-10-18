@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { TagInput } from "@/components/ui/tag-input"
 
 describe("Field auto-wiring", () => {
   it("associates label, description and control without explicit ids", () => {
@@ -28,6 +29,10 @@ describe("Field auto-wiring", () => {
     const input = screen.getByRole("textbox", { name: "Business name" })
     expect(input).toHaveAccessibleDescription("Shown on your Google profile.")
     expect(input).not.toHaveAttribute("aria-invalid")
+    expect(input).toHaveClass(
+      "focus-visible:shadow-(--np-field-ring)",
+      "forced-colors:focus-halo"
+    )
   })
 
   it("wires errors as an alert and marks the control invalid", () => {
@@ -104,6 +109,10 @@ describe("Field wiring for a pop-up trigger", () => {
     const trigger = screen.getByRole("combobox", { name: "Open status" })
     expect(trigger).toHaveAttribute("aria-invalid", "true")
     expect(trigger).toHaveAccessibleDescription("Pick a status.")
+    expect(trigger).toHaveClass(
+      "focus-visible:shadow-(--np-field-ring)",
+      "forced-colors:focus-halo"
+    )
   })
 
   it("drops htmlFor, which a button could never have answered", () => {
@@ -164,6 +173,8 @@ describe("SearchInput tap target", () => {
       name: "Filter clients by name",
     })
     const field = input.closest('[data-slot="input-search"]') as HTMLElement
+    expect(input).toHaveClass("forced-colors:focus-ring-inset")
+    expect(field).toHaveClass("focus-within:shadow-(--np-field-ring)")
     expect(document.activeElement).not.toBe(input)
     fireEvent.mouseDown(field)
     expect(document.activeElement).toBe(input)
@@ -183,6 +194,19 @@ describe("SearchInput tap target", () => {
       input.closest('[data-slot="input-search"]') as HTMLElement
     )
     expect(document.activeElement).not.toBe(input)
+  })
+})
+
+describe("TagInput focus", () => {
+  it("keeps the field halo and an inset forced-colours fallback while typing a tag", () => {
+    render(<TagInput aria-label="Labels" value={[]} onChange={() => {}} />)
+    const input = screen.getByRole("textbox", { name: "Labels" })
+    fireEvent.change(input, { target: { value: "Brunch" } })
+    expect(input).toHaveValue("Brunch")
+    expect(input).toHaveClass("forced-colors:focus-ring-inset")
+    expect(input.parentElement).toHaveClass(
+      "focus-within:shadow-(--np-field-ring)"
+    )
   })
 })
 

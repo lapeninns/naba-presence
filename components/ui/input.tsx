@@ -207,7 +207,7 @@ function SearchInput({
           onChange?.(event)
         }}
         className={cn(
-          "h-full min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-muted",
+          "h-full min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-muted forced-colors:focus-ring-inset",
           "[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none",
           "disabled:cursor-not-allowed",
           inputClassName

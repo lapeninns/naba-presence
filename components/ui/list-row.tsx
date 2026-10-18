@@ -516,7 +516,7 @@ function ListRow({
     // The "⋯" button takes the row's end padding.
     hasSwipe && "pe-1",
     interactive &&
-      "cursor-pointer transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 hover-fine:hover:bg-surface-alt",
+      "cursor-pointer transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid hover-fine:hover:bg-surface-alt",
     selected && "bg-fill hover-fine:hover:bg-fill",
     className
   )

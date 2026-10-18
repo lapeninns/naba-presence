@@ -301,7 +301,7 @@ function ListRowSwipe({
                 action.onAction()
               }}
               className={cn(
-                "flex w-20 shrink-0 flex-col items-center justify-center gap-1 px-2 text-center text-caption font-semibold wrap-anywhere outline-none focus-visible:ring-2 focus-visible:ring-inset disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0",
+                "flex w-20 shrink-0 flex-col items-center justify-center gap-1 px-2 text-center text-caption font-semibold wrap-anywhere outline-none focus-visible:ring-2 focus-visible:ring-inset disabled:opacity-50 forced-colors:focus-ring-inset [&_svg]:size-5 [&_svg]:shrink-0",
                 TONE_CLASS[action.tone ?? "default"]
               )}
             >
