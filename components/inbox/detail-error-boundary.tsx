@@ -13,6 +13,11 @@ type Props = {
    * and the button is not drawn.
    */
   onBack?: () => void
+  /**
+   * Before "Try again" renders the review afresh: the pane loads through
+   * `next/dynamic`, and a failed load needs a fresh lazy component.
+   */
+  onReset?: () => void
 }
 type State = { error: Error | null }
 
@@ -23,7 +28,10 @@ class DetailErrorBoundary extends Component<Props, State> {
     return { error }
   }
 
-  reset = () => this.setState({ error: null })
+  reset = () => {
+    this.props.onReset?.()
+    this.setState({ error: null })
+  }
 
   render() {
     if (this.state.error) {

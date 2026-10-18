@@ -26,9 +26,11 @@ import {
 import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import { EmptyState, Statement } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
-import { ReviewDetail } from "@/components/inbox/review-detail"
-import { ReplyComposer } from "@/components/inbox/reply-composer"
-import { ActionBar } from "@/components/inbox/action-bar"
+import {
+  LazyReviewPane,
+  reloadReviewPane,
+  useIdlePreloadReviewPane,
+} from "@/components/inbox/lazy-review-pane"
 import {
   DirtyGuardProvider,
   useDirtyGate,
@@ -302,6 +304,8 @@ function InboxViewInner({
   // detail (kept current by an effect further down, beside the restore).
   const onBeforeOpenRef = useRef<() => void>(() => {})
   const rootRef = useRef<HTMLDivElement>(null)
+  // The review pane loads separately from the list; fetch it ahead of a tap.
+  useIdlePreloadReviewPane()
   const listScrollRef = useRef<HTMLElement>(null)
   const savedScroll = useRef<{ page: number; list: number } | null>(null)
   // The open review was pushed over the list (opened from it below lg), so
@@ -881,8 +885,12 @@ function InboxViewInner({
   // is registered once. ReviewDetail draws its own boundary around the
   // review; this outer one catches a failure outside it.
   const detail = state.selected ? (
-    <DetailErrorBoundary key={state.selected} onBack={onBackToList}>
-      <ReviewDetail
+    <DetailErrorBoundary
+      key={state.selected}
+      onBack={onBackToList}
+      onReset={reloadReviewPane}
+    >
+      <LazyReviewPane
         key={state.selected}
         reviewId={state.selected}
         heading={
@@ -901,11 +909,10 @@ function InboxViewInner({
         onBack={onBackToList}
         nav={nav}
         titleIsHeading={headTitleIsHeading}
-        composer={<ReplyComposer reviewId={state.selected} />}
         // A viewer has nothing to press, so no publish bar is drawn for
         // them — not even its loading outline, which would dock and hide
         // the tab bar for a moment (inbox-08).
-        actions={canBatch ? <ActionBar reviewId={state.selected} /> : undefined}
+        withActions={canBatch}
       />
     </DetailErrorBoundary>
   ) : null
