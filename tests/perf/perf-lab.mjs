@@ -1,5 +1,5 @@
 // Lab performance sweep against a production build (`pnpm build && pnpm start`)
-// serving the visual fixtures (tests/visual/with-visual-db.sh). Not part of
+// serving the seeded local fixtures (tests/visual/nm-serve.mjs). Not part of
 // the e2e suite.
 //
 //   node tests/perf/perf-lab.mjs --base http://localhost:3300 --runs 3 \
@@ -19,8 +19,10 @@
 // request in flight, capped at 30 s), JS transfer/decoded bytes and request
 // count, total transfer bytes and requests, DOM nodes, and an interaction
 // probe: one tap/click on a representative control, reported as the
-// longest Event Timing entry with an interactionId (durationThreshold 16),
-// i.e. an INP-like latency for that single interaction.
+// longest attributed Event Timing entry (durationThreshold 16) or observed
+// first-input entry, i.e. a lab latency for that single interaction. Missing
+// timing, failed navigation, errors or an incomplete quiet window fail
+// qualification; this is not a measurement of production field INP.
 //
 // Placeholders and roles match tests/visual/shoot.mjs. The script refuses
 // to run unless the role's cookie resolves to the fixture tenant.
@@ -33,9 +35,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve, join } from "node:path"
 import { loadavg } from "node:os"
 
-import { chromium } from "@playwright/test"
+import { chromium, expect } from "@playwright/test"
 
 import { checkBudgets } from "./budgets.mjs"
+import {
+  interactionTiming,
+  listingHealthForLabel,
+  summarizeRoute,
+} from "./lab-results.mjs"
 
 const argv = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -46,10 +53,10 @@ const arg = (name, fallback) => {
 }
 
 const base = String(arg("base", "http://localhost:3300"))
-const runs = Number.parseInt(String(arg("runs", "3")), 10)
+const runs = Number(arg("runs", "3"))
 const profileName = String(arg("profile", "mobile"))
 const out = resolve(String(arg("out", `test-results/perf/${profileName}`)))
-const quiet = Number.parseInt(String(arg("quiet", "5000")), 10)
+const quiet = Number(arg("quiet", "5000"))
 const role = String(arg("role", "owner"))
 const budgetsPath = arg("budgets", null)
 
@@ -77,6 +84,10 @@ const PROFILES = {
 }
 const profile = PROFILES[profileName]
 if (!profile) throw new Error(`Unknown profile ${profileName}`)
+if (!Number.isInteger(runs) || runs < 1)
+  throw new Error("--runs must be a positive integer")
+if (!Number.isInteger(quiet) || quiet < 1 || quiet > 30_000)
+  throw new Error("--quiet must be between 1 and 30000 milliseconds")
 
 // One representative control per route. `selectors` are tried in order and
 // the first visible match is tapped (mobile) or clicked (desktop).
@@ -87,7 +98,14 @@ const PROBES = {
     'main button:text-is("Concise")',
     '[aria-label="Back to reviews"]',
   ],
-  listings: ['[data-slot="segmented-control-item"] >> nth=1'],
+  // A health chip with nothing in it is not drawn, so a board whose
+  // listings are all unchecked offers only the pressed "All". The order chip
+  // (the successor of the old segmented order control) is the fallback; each
+  // must prove its outcome, never count as a no-op tap.
+  listings: [
+    '[role="group"][aria-label="Filter by health"] [data-slot="filter-chip"][aria-pressed="false"]',
+    '[data-slot="order-chip"]',
+  ],
   // The H1 is the area switcher on every area (L03); the overview's title
   // is the sibling switcher only with two or more listings.
   listing: [
@@ -116,6 +134,8 @@ const DEFAULT_ROUTES = [
   ["/inbox", "inbox"],
   ["/inbox?selected={review}", "inboxDetail"],
   ["/listings", "listings"],
+  // A chosen empty health filter stays drawn, so "All" is the unpressed chip.
+  ["/listings?health=attention", "listings"],
   ["/listings/{loc}", "listing"],
   ["/listings/{loc}/hours", "listing"],
   ["/listings/{loc}/photos", "listing"],
@@ -194,14 +214,26 @@ const INIT = () => {
     longtasks: [],
     events: [],
     lastInput: -1,
+    probeTarget: null,
+    probeStartedAt: null,
+    unavailableTypes: [],
   })
   const watch = (type, push, options = {}) => {
     try {
       new PerformanceObserver((list) =>
         list.getEntries().forEach(push)
       ).observe({ type, buffered: true, ...options })
-    } catch {}
+    } catch {
+      perf.unavailableTypes.push(type)
+    }
   }
+  const matchesProbe = (entry) =>
+    Boolean(
+      perf.probeTarget &&
+      entry.target &&
+      (entry.target === perf.probeTarget ||
+        perf.probeTarget.contains(entry.target))
+    )
   watch("largest-contentful-paint", (e) =>
     perf.lcp.push({
       t: e.startTime,
@@ -225,6 +257,7 @@ const INIT = () => {
         t: e.startTime,
         d: e.duration,
         id: e.interactionId,
+        matchesProbe: matchesProbe(e),
         input: e.processingStart - e.startTime,
         proc: e.processingEnd - e.processingStart,
       }),
@@ -235,20 +268,15 @@ const INIT = () => {
       name: e.name,
       t: e.startTime,
       d: e.duration,
-      id: e.interactionId ?? 1,
+      id: e.interactionId ?? null,
       first: true,
+      matchesProbe: matchesProbe(e),
+      input: e.processingStart - e.startTime,
+      proc: e.processingEnd - e.processingStart,
     })
   )
 }
 
-const median = (values) => {
-  const list = values
-    .filter((v) => typeof v === "number" && Number.isFinite(v))
-    .sort((a, b) => a - b)
-  if (list.length === 0) return null
-  const mid = Math.floor(list.length / 2)
-  return list.length % 2 ? list[mid] : (list[mid - 1] + list[mid]) / 2
-}
 const clsOf = (shifts) => {
   let best = 0
   let window = 0
@@ -271,212 +299,314 @@ async function measure(browser, route, probeKey, who) {
     ...profile.context,
     reducedMotion: "no-preference",
   })
-  const cookie = cookies[who]
-  if (cookie) {
-    const [cookieName, ...rest] = cookie.split("=")
-    await context.addCookies([
-      {
-        name: cookieName,
-        value: rest.join("="),
-        url: base,
-        httpOnly: true,
-        sameSite: "Lax",
-      },
-    ])
-  }
-  await context.addInitScript(INIT)
-  const page = await context.newPage()
-  const cdp = await context.newCDPSession(page)
-  await cdp.send("Network.enable")
-  await cdp.send("Network.setCacheDisabled", { cacheDisabled: false })
-  if (profile.network)
-    await cdp.send("Network.emulateNetworkConditions", profile.network)
-  if (profile.cpu > 1)
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: profile.cpu })
-
-  const requests = new Map()
-  let inflight = 0
-  let lastNetwork = Date.now()
-  let counting = true
-  cdp.on("Network.requestWillBeSent", (e) => {
-    if (!counting || e.request.url.startsWith("data:")) return
-    if (!requests.has(e.requestId)) inflight++
-    requests.set(e.requestId, {
-      url: e.request.url,
-      type: e.type,
-      encoded: 0,
-      decoded: 0,
-      done: false,
-    })
-    lastNetwork = Date.now()
-  })
-  cdp.on("Network.dataReceived", (e) => {
-    const r = requests.get(e.requestId)
-    if (r) r.decoded += e.dataLength
-  })
-  const finish = (e, failed) => {
-    const r = requests.get(e.requestId)
-    if (!r || r.done) return
-    r.done = true
-    r.failed = failed
-    if (!failed) r.encoded = e.encodedDataLength
-    inflight = Math.max(0, inflight - 1)
-    lastNetwork = Date.now()
-  }
-  cdp.on("Network.loadingFinished", (e) => finish(e, false))
-  cdp.on("Network.loadingFailed", (e) => finish(e, true))
-  const errors = []
-  page.on("pageerror", (error) => errors.push(String(error).slice(0, 200)))
-  page.on(
-    "console",
-    (m) => m.type() === "error" && errors.push(m.text().slice(0, 200))
-  )
-
-  const started = Date.now()
-  const response = await page.goto(base + route, {
-    waitUntil: "load",
-    timeout: 120_000,
-  })
-  // First-load JS = the chunks the server HTML names (script tags plus the
-  // client references in the inline RSC payload). Anything else is a
-  // <Link> prefetch of another route or a lazy import.
-  const html = (await response?.text().catch(() => "")) ?? ""
-  const htmlChunks = new Set(
-    [...html.matchAll(/static\/chunks\/[^"'\\\s]+?\.js/g)].map((m) =>
-      decodeURIComponent(m[0])
-    )
-  )
-  // Quiet window: no long task and nothing in flight for `quiet` ms.
-  for (;;) {
-    await page.waitForTimeout(250)
-    const lastTask = await page.evaluate(() => {
-      const t = window.__perf.longtasks.at(-1)
-      return t ? performance.timeOrigin + t.t + t.d : 0
-    })
-    const now = Date.now()
-    const calm = Math.min(now - lastNetwork, now - Math.max(lastTask, started))
-    if ((inflight === 0 && calm >= quiet) || now - started > 30_000) break
-  }
-  counting = false
-  const landedUrl = page.url().replace(base, "")
-
-  const metrics = await page.evaluate(() => {
-    const nav = performance.getEntriesByType("navigation")[0]
-    const fcp = performance.getEntriesByName("first-contentful-paint")[0]
-    const p = window.__perf
-    return {
-      ttfb: nav ? nav.responseStart : null,
-      redirect: nav ? nav.redirectEnd : null,
-      domContentLoaded: nav ? nav.domContentLoadedEventEnd : null,
-      load: nav ? nav.loadEventEnd : null,
-      fcp: fcp ? fcp.startTime : null,
-      lcpEntry: p.lcp.at(-1) ?? null,
-      shifts: p.shifts,
-      longtasks: p.longtasks,
-      domNodes: document.getElementsByTagName("*").length,
-      fonts: performance
-        .getEntriesByType("resource")
-        .filter(
-          (r) => r.initiatorType === "css" && /\.(woff2?|ttf)/.test(r.name)
-        ).length,
+  try {
+    const cookie = cookies[who]
+    if (cookie) {
+      const [cookieName, ...rest] = cookie.split("=")
+      await context.addCookies([
+        {
+          name: cookieName,
+          value: rest.join("="),
+          url: base,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ])
     }
-  })
-  const tbt = metrics.longtasks
-    .filter((t) => metrics.fcp !== null && t.t + t.d > metrics.fcp)
-    .reduce(
-      (sum, t) =>
-        sum + Math.max(0, t.t + t.d - Math.max(t.t, metrics.fcp) - 50),
-      0
+    await context.addInitScript(INIT)
+    const page = await context.newPage()
+    const cdp = await context.newCDPSession(page)
+    await cdp.send("Network.enable")
+    await cdp.send("Network.setCacheDisabled", { cacheDisabled: false })
+    if (profile.network)
+      await cdp.send("Network.emulateNetworkConditions", profile.network)
+    if (profile.cpu > 1)
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: profile.cpu })
+
+    const requests = new Map()
+    let inflight = 0
+    let lastNetwork = Date.now()
+    let counting = true
+    cdp.on("Network.requestWillBeSent", (e) => {
+      if (!counting || e.request.url.startsWith("data:")) return
+      if (!requests.has(e.requestId)) inflight++
+      requests.set(e.requestId, {
+        url: e.request.url,
+        type: e.type,
+        encoded: 0,
+        decoded: 0,
+        done: false,
+      })
+      lastNetwork = Date.now()
+    })
+    cdp.on("Network.dataReceived", (e) => {
+      const r = requests.get(e.requestId)
+      if (r) r.decoded += e.dataLength
+    })
+    const finish = (e, failed) => {
+      const r = requests.get(e.requestId)
+      if (!r || r.done) return
+      r.done = true
+      r.failed = failed
+      if (!failed) r.encoded = e.encodedDataLength
+      inflight = Math.max(0, inflight - 1)
+      lastNetwork = Date.now()
+    }
+    cdp.on("Network.loadingFinished", (e) => finish(e, false))
+    cdp.on("Network.loadingFailed", (e) => finish(e, true))
+    const errors = []
+    page.on("pageerror", (error) => errors.push(String(error).slice(0, 200)))
+    page.on(
+      "console",
+      (m) => m.type() === "error" && errors.push(m.text().slice(0, 200))
     )
 
-  // Interaction probe.
-  let probe = { selector: null, inp: null }
-  const selectors = probeKey ? PROBES[probeKey] : ["main button"]
-  for (const selector of selectors) {
-    const target = page.locator(selector).first()
-    if ((await target.count()) && (await target.isVisible())) {
-      await page.evaluate(() => (window.__perf.events.length = 0))
-      if (profile.context.hasTouch) await target.tap({ timeout: 10_000 })
-      else await target.click({ timeout: 10_000 })
-      await page.waitForTimeout(1500)
-      const events = await page.evaluate(() => window.__perf.events)
-      const interactive = events.filter((e) => e.id > 0)
-      const worst = interactive.sort((a, b) => b.d - a.d)[0]
+    const started = Date.now()
+    const response = await page.goto(base + route, {
+      waitUntil: "load",
+      timeout: 120_000,
+    })
+    // First-load JS = the chunks the server HTML names (script tags plus the
+    // client references in the inline RSC payload). Anything else is a
+    // <Link> prefetch of another route or a lazy import.
+    const html = (await response?.text().catch(() => "")) ?? ""
+    const htmlChunks = new Set(
+      [...html.matchAll(/static\/chunks\/[^"'\\\s]+?\.js/g)].map((m) =>
+        decodeURIComponent(m[0])
+      )
+    )
+    // A capped window is retained as invalid evidence, never treated as quiet.
+    let quietWindow
+    for (;;) {
+      await page.waitForTimeout(250)
+      const lastTask = await page.evaluate(() => {
+        const t = window.__perf.longtasks.at(-1)
+        return t ? performance.timeOrigin + t.t + t.d : 0
+      })
+      const now = Date.now()
+      const calm = Math.min(
+        now - lastNetwork,
+        now - Math.max(lastTask, started)
+      )
+      quietWindow = {
+        completed: inflight === 0 && calm >= quiet,
+        requiredMs: quiet,
+        calmMs: calm,
+        inflight,
+        elapsedMs: now - started,
+        timeoutMs: 30_000,
+      }
+      if (
+        quietWindow.completed ||
+        quietWindow.elapsedMs > quietWindow.timeoutMs
+      )
+        break
+    }
+    counting = false
+    const landedUrl = page.url().replace(base, "")
+
+    const metrics = await page.evaluate(() => {
+      const nav = performance.getEntriesByType("navigation")[0]
+      const fcp = performance.getEntriesByName("first-contentful-paint")[0]
+      const p = window.__perf
+      return {
+        ttfb: nav ? nav.responseStart : null,
+        redirect: nav ? nav.redirectEnd : null,
+        domContentLoaded: nav ? nav.domContentLoadedEventEnd : null,
+        load: nav ? nav.loadEventEnd : null,
+        fcp: fcp ? fcp.startTime : null,
+        lcpEntry: p.lcp.at(-1) ?? null,
+        shifts: p.shifts,
+        longtasks: p.longtasks,
+        domNodes: document.getElementsByTagName("*").length,
+        fonts: performance
+          .getEntriesByType("resource")
+          .filter(
+            (r) => r.initiatorType === "css" && /\.(woff2?|ttf)/.test(r.name)
+          ).length,
+      }
+    })
+    const tbt = metrics.longtasks
+      .filter((t) => metrics.fcp !== null && t.t + t.d > metrics.fcp)
+      .reduce(
+        (sum, t) =>
+          sum + Math.max(0, t.t + t.d - Math.max(t.t, metrics.fcp) - 50),
+        0
+      )
+
+    // Capture only timing attributed to the activated control in this window.
+    // `first-input` remains evidence even if Chromium reports interactionId 0.
+    let probe = {
+      selector: null,
+      actionCompleted: false,
+      outcomeRequired: probeKey === "listings",
+      outcomeVerified: false,
+      ...interactionTiming([], 0, 0),
+    }
+    const selectors = probeKey ? (PROBES[probeKey] ?? []) : ["main button"]
+    for (const selector of selectors) {
+      const candidates = page.locator(selector)
+      let target = null
+      for (const candidate of await candidates.all()) {
+        if (await candidate.isVisible()) {
+          target = candidate
+          break
+        }
+      }
+      if (!target) continue
+      const orderMenu =
+        probeKey === "listings" && selector.includes('"order-chip"')
+      const health =
+        probeKey === "listings" && !orderMenu
+          ? listingHealthForLabel(await target.innerText())
+          : null
+      probe = { ...probe, selector }
+      if (probe.outcomeRequired && !health && !orderMenu) {
+        probe.error = "Available health control has an unknown label"
+        break
+      }
+      const healthBefore =
+        new URL(page.url()).searchParams.get("health") ?? "all"
+      if (health && healthBefore === health.value) {
+        probe.error = "Unpressed health control already matches the URL"
+        break
+      }
+      const probeStartedAt = await target.evaluate((element) => {
+        window.__perf.events.length = 0
+        window.__perf.probeTarget = element
+        return (window.__perf.probeStartedAt = performance.now())
+      })
+      try {
+        if (profile.context.hasTouch) await target.tap({ timeout: 10_000 })
+        else await target.click({ timeout: 10_000 })
+        probe.actionCompleted = true
+        if (health) {
+          // Do not reuse the aria-pressed=false locator after state changes.
+          const selected = page
+            .getByRole("group", { name: "Filter by health", exact: true })
+            .getByRole("button", {
+              name: new RegExp(`^${health.label}(?:\\s|,|$)`),
+            })
+          await expect(selected).toHaveAttribute("aria-pressed", "true", {
+            timeout: 10_000,
+          })
+          await page.waitForURL(
+            (url) => (url.searchParams.get("health") ?? "all") === health.value,
+            { timeout: 10_000 }
+          )
+          probe.outcomeVerified = true
+          probe.outcome = "health-filter"
+          probe.health = {
+            before: healthBefore,
+            after: health.value,
+            label: health.label,
+          }
+        }
+        if (orderMenu) {
+          // The menu opens without changing the order, the URL or the rows.
+          await expect(target).toHaveAttribute("aria-expanded", "true", {
+            timeout: 10_000,
+          })
+          await expect(
+            page.getByRole("menuitemradio", { name: "Worst first" })
+          ).toBeVisible({ timeout: 10_000 })
+          probe.outcomeVerified = true
+          probe.outcome = "order-menu"
+        }
+        await page.waitForFunction(
+          () =>
+            window.__perf.events.some(
+              (entry) =>
+                entry.matchesProbe && (entry.id > 0 || entry.first === true)
+            ),
+          undefined,
+          { timeout: 2000 }
+        )
+      } catch (error) {
+        probe.error = String(error).slice(0, 200)
+      }
+      const observed = await page.evaluate(() => ({
+        events: window.__perf.events,
+        endedAt: performance.now(),
+        unavailableTypes: window.__perf.unavailableTypes,
+      }))
       probe = {
-        selector,
-        inp: worst ? worst.d : 0,
-        event: worst?.name ?? null,
-        input: worst?.input ?? null,
-        processing: worst?.proc ?? null,
+        ...probe,
+        ...interactionTiming(observed.events, probeStartedAt, observed.endedAt),
+        startedAt: probeStartedAt,
+        endedAt: observed.endedAt,
+        unavailableTypes: observed.unavailableTypes,
       }
       break
     }
-  }
 
-  const list = [...requests.values()]
-  const js = list.filter((r) => r.type === "Script")
-  const isFirstLoad = (r) => {
-    const path = decodeURIComponent(new URL(r.url).pathname)
-    return [...htmlChunks].some((chunk) => path.endsWith(chunk))
+    const list = [...requests.values()]
+    const js = list.filter((r) => r.type === "Script")
+    const isFirstLoad = (r) => {
+      const path = decodeURIComponent(new URL(r.url).pathname)
+      return [...htmlChunks].some((chunk) => path.endsWith(chunk))
+    }
+    const firstLoad = js.filter(isFirstLoad)
+    const sum = (items, key) => items.reduce((s, r) => s + (r[key] || 0), 0)
+    const result = {
+      route,
+      finalUrl: landedUrl,
+      status: response?.status() ?? null,
+      ttfb: metrics.ttfb,
+      redirect: metrics.redirect,
+      fcp: metrics.fcp,
+      lcp: metrics.lcpEntry ? metrics.lcpEntry.t : null,
+      lcpElement: metrics.lcpEntry?.el ?? null,
+      cls: clsOf(metrics.shifts),
+      tbt,
+      longTasks: metrics.longtasks.length,
+      longestTask: Math.max(0, ...metrics.longtasks.map((t) => t.d)),
+      domContentLoaded: metrics.domContentLoaded,
+      load: metrics.load,
+      jsRequests: js.length,
+      firstLoadJsRequests: firstLoad.length,
+      firstLoadJsTransfer: sum(firstLoad, "encoded"),
+      firstLoadJsDecoded: sum(firstLoad, "decoded"),
+      otherJsTransfer: sum(js, "encoded") - sum(firstLoad, "encoded"),
+      jsTransfer: sum(js, "encoded"),
+      jsDecoded: sum(js, "decoded"),
+      requests: list.length,
+      transfer: sum(list, "encoded"),
+      fetchRequests: list.filter((r) => r.type === "Fetch" || r.type === "XHR")
+        .length,
+      fetchUrls: list
+        .filter((r) => r.type === "Fetch" || r.type === "XHR")
+        .map((r) => r.url.replace(base, "").slice(0, 120)),
+      rscRequests: list.filter((r) => r.url.includes("_rsc=")).length,
+      rscTransfer: sum(
+        list.filter((r) => r.url.includes("_rsc=")),
+        "encoded"
+      ),
+      cssTransfer: sum(
+        list.filter((r) => r.type === "Stylesheet"),
+        "encoded"
+      ),
+      fontTransfer: sum(
+        list.filter((r) => r.type === "Font"),
+        "encoded"
+      ),
+      documentTransfer: sum(
+        list.filter((r) => r.type === "Document"),
+        "encoded"
+      ),
+      apiRequests: list.filter((r) => r.url.startsWith(base + "/api/")).length,
+      fontRequests: list.filter((r) => r.type === "Font").length,
+      imageRequests: list.filter((r) => r.type === "Image").length,
+      domNodes: metrics.domNodes,
+      probe,
+      errors,
+      quietWindow,
+      hostLoad: loadavg()[0],
+    }
+    return result
+  } finally {
+    await context.close()
   }
-  const firstLoad = js.filter(isFirstLoad)
-  const sum = (items, key) => items.reduce((s, r) => s + (r[key] || 0), 0)
-  const result = {
-    route,
-    finalUrl: landedUrl,
-    status: response?.status() ?? null,
-    ttfb: metrics.ttfb,
-    redirect: metrics.redirect,
-    fcp: metrics.fcp,
-    lcp: metrics.lcpEntry ? metrics.lcpEntry.t : null,
-    lcpElement: metrics.lcpEntry?.el ?? null,
-    cls: clsOf(metrics.shifts),
-    tbt,
-    longTasks: metrics.longtasks.length,
-    longestTask: Math.max(0, ...metrics.longtasks.map((t) => t.d)),
-    domContentLoaded: metrics.domContentLoaded,
-    load: metrics.load,
-    jsRequests: js.length,
-    firstLoadJsRequests: firstLoad.length,
-    firstLoadJsTransfer: sum(firstLoad, "encoded"),
-    firstLoadJsDecoded: sum(firstLoad, "decoded"),
-    otherJsTransfer: sum(js, "encoded") - sum(firstLoad, "encoded"),
-    jsTransfer: sum(js, "encoded"),
-    jsDecoded: sum(js, "decoded"),
-    requests: list.length,
-    transfer: sum(list, "encoded"),
-    fetchRequests: list.filter((r) => r.type === "Fetch" || r.type === "XHR")
-      .length,
-    fetchUrls: list
-      .filter((r) => r.type === "Fetch" || r.type === "XHR")
-      .map((r) => r.url.replace(base, "").slice(0, 120)),
-    rscRequests: list.filter((r) => r.url.includes("_rsc=")).length,
-    rscTransfer: sum(
-      list.filter((r) => r.url.includes("_rsc=")),
-      "encoded"
-    ),
-    cssTransfer: sum(
-      list.filter((r) => r.type === "Stylesheet"),
-      "encoded"
-    ),
-    fontTransfer: sum(
-      list.filter((r) => r.type === "Font"),
-      "encoded"
-    ),
-    documentTransfer: sum(
-      list.filter((r) => r.type === "Document"),
-      "encoded"
-    ),
-    apiRequests: list.filter((r) => r.url.startsWith(base + "/api/")).length,
-    fontRequests: list.filter((r) => r.type === "Font").length,
-    imageRequests: list.filter((r) => r.type === "Image").length,
-    domNodes: metrics.domNodes,
-    probe,
-    errors,
-    hostLoad: loadavg()[0],
-  }
-  await context.close()
-  return result
 }
 
 const browser = await chromium.launch()
@@ -505,51 +635,12 @@ try {
   await browser.close()
 }
 
-const KEYS = [
-  "ttfb",
-  "fcp",
-  "lcp",
-  "cls",
-  "tbt",
-  "longestTask",
-  "load",
-  "jsRequests",
-  "firstLoadJsRequests",
-  "firstLoadJsTransfer",
-  "firstLoadJsDecoded",
-  "otherJsTransfer",
-  "jsTransfer",
-  "jsDecoded",
-  "requests",
-  "transfer",
-  "fetchRequests",
-  "rscRequests",
-  "rscTransfer",
-  "cssTransfer",
-  "fontTransfer",
-  "documentTransfer",
-  "apiRequests",
-  "fontRequests",
-  "imageRequests",
-  "redirect",
-  "domNodes",
-]
-const summary = routes.map(([template]) => {
-  const ok = samples.get(template).filter((s) => !s.error)
-  const row = {
-    route: template,
-    runs: ok.length,
-    finalUrl: ok[0]?.finalUrl,
-    status: ok[0]?.status,
-    lcpElement: ok.at(-1)?.lcpElement,
-  }
-  for (const key of KEYS) row[key] = median(ok.map((s) => s[key]))
-  row.inp = median(ok.map((s) => s.probe?.inp))
-  row.probe = ok[0]?.probe?.selector ?? null
-  row.fetchUrls = ok[0]?.fetchUrls ?? []
-  row.errors = [...new Set(ok.flatMap((s) => s.errors))].slice(0, 5)
-  return row
-})
+const summary = routes.map(([template]) =>
+  summarizeRoute(template, samples.get(template), runs)
+)
+const qualificationErrors = summary.flatMap((row) =>
+  row.validationErrors.map((problem) => `${row.route}: ${problem}`)
+)
 
 const ms = (v) => (v === null ? "–" : Math.round(v).toString())
 const kb = (v) => (v === null ? "–" : (v / 1024).toFixed(0))
@@ -563,7 +654,11 @@ const table = [
       `| ${r.route} | ${ms(r.ttfb)} | ${ms(r.fcp)} | ${ms(r.lcp)} | ${r.cls === null ? "–" : r.cls.toFixed(3)} | ${ms(r.tbt)} | ${ms(r.longestTask)} | ${ms(r.inp)} | ${ms(r.jsRequests)} | ${kb(r.jsTransfer)} | ${kb(r.jsDecoded)} | ${kb(r.firstLoadJsTransfer)} | ${kb(r.otherJsTransfer)} | ${ms(r.requests)} | ${kb(r.transfer)} | ${ms(r.fetchRequests)} | ${ms(r.rscRequests)} | ${ms(r.apiRequests)} | ${ms(r.domNodes)} |`
   ),
   "",
-  "Times in ms. INP probe = longest Event Timing duration for one tap/click on the probe control.",
+  "Times in ms. INP probe = longest observed Event Timing/first-input duration attributed to one tap/click, not field INP.",
+  "",
+  qualificationErrors.length
+    ? `**Invalid measurement (${qualificationErrors.length})**\n\n${qualificationErrors.map((problem) => `- ${problem}`).join("\n")}`
+    : "Every requested cold run has valid navigation, quiet-window and interaction evidence.",
 ]
 
 let breaches = []
@@ -588,6 +683,10 @@ await writeFile(
       profile: profileName,
       base,
       runs,
+      qualification: {
+        valid: qualificationErrors.length === 0,
+        errors: qualificationErrors,
+      },
       summary,
       samples: Object.fromEntries(samples),
     },
@@ -597,4 +696,4 @@ await writeFile(
 )
 await writeFile(join(out, `perf-${profileName}.md`), table.join("\n") + "\n")
 console.log(table.join("\n"))
-if (breaches.length) process.exitCode = 1
+if (breaches.length || qualificationErrors.length) process.exitCode = 1
