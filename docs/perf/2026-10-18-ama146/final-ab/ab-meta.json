@@ -1,0 +1,47 @@
+{
+  "appPort": 58849,
+  "stubPort": 58850,
+  "stateSha256": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168",
+  "blocks": [
+    {
+      "index": 1,
+      "label": "A",
+      "buildId": "uTxBpepAr9tyKWSUkwQ1I",
+      "start": "2026-10-18T22:04:11.976Z",
+      "stateSha256Before": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168",
+      "end": "2026-10-18T22:06:35.398Z",
+      "perfLabExit": 1,
+      "stateSha256After": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168"
+    },
+    {
+      "index": 2,
+      "label": "B",
+      "buildId": "NNPqPAaLVIoZIF1vE99ZS",
+      "start": "2026-10-18T22:06:36.319Z",
+      "stateSha256Before": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168",
+      "end": "2026-10-18T22:08:59.623Z",
+      "perfLabExit": 1,
+      "stateSha256After": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168"
+    },
+    {
+      "index": 3,
+      "label": "B",
+      "buildId": "NNPqPAaLVIoZIF1vE99ZS",
+      "start": "2026-10-18T22:09:00.355Z",
+      "stateSha256Before": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168",
+      "end": "2026-10-18T22:11:23.750Z",
+      "perfLabExit": 1,
+      "stateSha256After": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168"
+    },
+    {
+      "index": 4,
+      "label": "A",
+      "buildId": "uTxBpepAr9tyKWSUkwQ1I",
+      "start": "2026-10-18T22:11:24.558Z",
+      "stateSha256Before": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168",
+      "end": "2026-10-18T22:13:50.169Z",
+      "perfLabExit": 1,
+      "stateSha256After": "d5b3b55718ec9a88dea4c81393a2ce801cd3d76f40b2cde6c149c873fb199168"
+    }
+  ]
+}
