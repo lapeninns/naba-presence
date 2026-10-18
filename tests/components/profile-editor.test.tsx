@@ -1,6 +1,7 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useEffect } from "react"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
@@ -27,7 +28,12 @@ const pendingIndustryWaits = new Set<() => void>()
 function renderLodgingProfile() {
   let client: QueryClient | undefined
   function CaptureClient() {
-    client = useQueryClient()
+    const queryClient = useQueryClient()
+    // Testing Library flushes commit effects before render returns. Capture
+    // the provider's client there rather than mutating outside React in render.
+    useEffect(() => {
+      client = queryClient
+    }, [queryClient])
     return null
   }
   const rendered = renderWithProviders(
