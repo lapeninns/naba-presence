@@ -154,7 +154,7 @@ function SettingsGroup({
               id={labelId}
               tabIndex={-1}
               data-slot="settings-group-label"
-              className="scroll-mt-(--np-touch) rounded-(--np-radius-tag) text-caption font-medium text-ink-muted outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) forced-colors:focus-visible:outline-2"
+              className="scroll-mt-(--np-touch) rounded-(--np-radius-tag) text-caption font-medium text-ink-muted outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-solid"
             >
               {label}
             </Heading>

@@ -51,7 +51,7 @@ function Select<Value>({
 export const selectTriggerClassName = cn(
   "inline-flex h-(--np-field-h) min-w-0 cursor-default items-center justify-between gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-2.5 pl-[11px] text-body text-ink outline-none select-none",
   "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
-  "hover:border-ink-muted focus-visible:border-primary focus-visible:shadow-(--np-field-ring) data-popup-open:border-primary data-popup-open:shadow-(--np-field-ring)",
+  "hover:border-ink-muted focus-visible:border-primary focus-visible:shadow-(--np-field-ring) data-popup-open:border-primary data-popup-open:shadow-(--np-field-ring) forced-colors:focus-halo",
   "disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted data-disabled:cursor-not-allowed data-disabled:bg-surface-alt data-disabled:text-ink-muted",
   "aria-invalid:border-danger-ink aria-invalid:shadow-(--np-field-ring-invalid)",
   "pointer-coarse:text-base",

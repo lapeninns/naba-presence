@@ -309,7 +309,7 @@ export function CategoriesSection({
           <span
             ref={additionalLabelRef}
             tabIndex={-1}
-            className="rounded-(--np-radius-tag) text-ui font-medium text-ink outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) forced-colors:focus-visible:outline-2"
+            className="rounded-(--np-radius-tag) text-ui font-medium text-ink outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-solid"
           >
             Additional categories
           </span>

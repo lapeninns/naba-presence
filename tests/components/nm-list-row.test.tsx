@@ -34,7 +34,14 @@ describe("ListRow", () => {
     expect(row.className).toContain("py-(--np-row-mail-py)")
     expect(row.className).toContain("hover-fine:hover:bg-surface-alt")
     // Focus is an inset ring, which a scrolling list cannot clip.
-    expect(row.className).toContain("focus-visible:ring-inset")
+    expect(row).toHaveClass(
+      "focus-visible:ring-2",
+      "focus-visible:ring-(--np-focus-ring)",
+      "focus-visible:ring-inset",
+      "forced-colors:focus-visible:outline-2",
+      "forced-colors:focus-visible:-outline-offset-2",
+      "forced-colors:focus-visible:outline-solid"
+    )
   })
 
   it("marks unread with weight, a dot and an sr-only word", () => {

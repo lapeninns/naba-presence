@@ -38,7 +38,13 @@ describe("OtpField", () => {
     render(<OtpField aria-label="Verification code" />)
     const boxes = screen.getAllByRole("textbox")
     expect(boxes).toHaveLength(6)
-    for (const box of boxes) expect(box).toHaveAttribute("inputmode", "numeric")
+    for (const box of boxes) {
+      expect(box).toHaveAttribute("inputmode", "numeric")
+      expect(box).toHaveClass(
+        "focus:shadow-(--np-field-ring)",
+        "forced-colors:focus-halo"
+      )
+    }
     expect(boxes[0]).toHaveAttribute("autocomplete", "one-time-code")
     expect(
       screen.getByRole("group", { name: "Verification code" })

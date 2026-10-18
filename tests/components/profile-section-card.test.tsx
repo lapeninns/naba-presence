@@ -6,7 +6,8 @@ import { SectionCard } from "@/components/locations/profile/section-card"
 // Tailwind is not loaded in jsdom, so this pins the classes. The rendered
 // box is checked in a real browser by tests/e2e/listings.spec.ts ("profile
 // section headings at 390").
-const SR_ONLY_RULE = "[data-slot=settings-group-label]]:sr-only"
+const SR_ONLY_RULE =
+  "[&>div:first-child>[data-slot=settings-group-label]]:sr-only"
 
 describe("SectionCard on a phone", () => {
   it("keeps its heading and caption drawn by default", () => {
@@ -16,8 +17,10 @@ describe("SectionCard on a phone", () => {
       </SectionCard>
     )
     const group = document.getElementById("section-lodging")!
-    expect(group.className).not.toContain(SR_ONLY_RULE)
-    expect(group.className).not.toContain("caption]]:sr-only")
+    expect(group).not.toHaveClass(SR_ONLY_RULE)
+    expect(group).not.toHaveClass(
+      "[&>[data-slot=settings-group-caption]]:sr-only"
+    )
     expect(group.className).not.toContain("first-of-type")
     expect(
       screen.getByRole("heading", { level: 3, name: "Lodging" })
@@ -36,16 +39,16 @@ describe("SectionCard on a phone", () => {
       </SectionCard>
     )
     const group = document.getElementById("section-identity")!
-    expect(group.className).toContain(SR_ONLY_RULE)
-    expect(group.className).toContain("caption]]:sr-only")
+    expect(group).toHaveClass(SR_ONLY_RULE)
+    expect(group).toHaveClass("[&>[data-slot=settings-group-caption]]:sr-only")
     // From `desk` they are put back.
-    expect(group.className).toContain(
-      `desk:[&>div:first-child>${SR_ONLY_RULE.replace("]]:sr-only", "]]:not-sr-only")}`
+    expect(group).toHaveClass(
+      `desk:${SR_ONLY_RULE.replace("]]:sr-only", "]]:not-sr-only")}`
     )
     // The section nav focuses it, and a 1 px clipped box shows no focus ring:
     // it is drawn again while it has keyboard focus.
-    expect(group.className).toContain(
-      `[&>div:first-child>${SR_ONLY_RULE.replace("]]:sr-only", "]]:focus-visible:not-sr-only")}`
+    expect(group).toHaveClass(
+      SR_ONLY_RULE.replace("]]:sr-only", "]]:focus-visible:not-sr-only")
     )
     // The heading is still in the outline, and still the section nav's focus
     // target.

@@ -196,7 +196,7 @@ function TagInput({
             }
           }}
           onBlur={commitDraft}
-          className="h-7 min-w-[8ch] flex-1 bg-transparent px-1.5 text-body text-ink outline-none placeholder:text-ink-muted disabled:cursor-not-allowed pointer-coarse:text-base"
+          className="h-7 min-w-[8ch] flex-1 bg-transparent px-1.5 text-body text-ink outline-none placeholder:text-ink-muted disabled:cursor-not-allowed forced-colors:focus-ring-inset pointer-coarse:text-base"
         />
       </div>
       {message ? (

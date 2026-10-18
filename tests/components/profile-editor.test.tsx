@@ -942,6 +942,12 @@ describe("ProfileTab on a phone: sheet focus return", () => {
     await waitFor(() =>
       expect(screen.getByText("Additional categories")).toHaveFocus()
     )
+    expect(screen.getByText("Additional categories")).toHaveClass(
+      "focus-visible:ring-2",
+      "focus-visible:ring-(--np-focus-ring)",
+      "forced-colors:focus-visible:outline-2",
+      "forced-colors:focus-visible:outline-solid"
+    )
     expect(document.body).not.toHaveFocus()
   })
 

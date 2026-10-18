@@ -92,6 +92,12 @@ describe("SettingsGroup slots (F7, F3)", () => {
     })
     expect(heading).toHaveAttribute("id", "hours-heading")
     expect(heading).toHaveAttribute("tabindex", "-1")
+    expect(heading).toHaveClass(
+      "focus-visible:ring-2",
+      "focus-visible:ring-(--np-focus-ring)",
+      "forced-colors:focus-visible:outline-2",
+      "forced-colors:focus-visible:outline-solid"
+    )
     document.getElementById("hours-heading")!.focus()
     expect(heading).toHaveFocus()
     expect(

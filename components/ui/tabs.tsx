@@ -329,7 +329,7 @@ function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props) {
     <TabsPrimitive.Panel
       data-slot="tabs-panel"
       className={cn(
-        "rounded-(--np-radius-card) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset",
+        "rounded-(--np-radius-card) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-ring-inset",
         className
       )}
       {...props}

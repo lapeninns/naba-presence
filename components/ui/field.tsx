@@ -511,7 +511,7 @@ export const fieldChromeClassName = cn(
   "min-w-0 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) text-body text-ink outline-none",
   "transition-[border-color,box-shadow,background-color] duration-(--np-duration-fast) ease-spring-snappy",
   "placeholder:text-ink-muted hover:border-ink-muted",
-  "focus:border-primary focus:shadow-(--np-field-ring) focus-visible:border-primary focus-visible:shadow-(--np-field-ring)",
+  "focus:border-primary focus:shadow-(--np-field-ring) focus-visible:border-primary focus-visible:shadow-(--np-field-ring) forced-colors:focus-halo",
   "aria-invalid:border-danger-ink aria-invalid:shadow-(--np-field-ring-invalid)",
   "read-only:bg-surface-alt read-only:text-ink-muted disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted"
 )

@@ -80,6 +80,11 @@ describe("ListRow swipeActions", () => {
     expect(surfaceOf(row)).toHaveAttribute("data-open")
     expect(panelOf(row)).not.toHaveAttribute("inert")
     expect(screen.getByRole("button", { name: "Archive" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Archive" })).toHaveClass(
+      "focus-visible:ring-2",
+      "focus-visible:ring-inset",
+      "forced-colors:focus-ring-inset"
+    )
     expect(screen.getByRole("button", { name: "Delete" })).toHaveAttribute(
       "data-tone",
       "danger"

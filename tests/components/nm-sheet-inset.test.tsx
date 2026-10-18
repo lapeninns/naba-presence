@@ -244,6 +244,14 @@ describe("Sheet variant=inset", () => {
     expect(title).not.toHaveClass("text-section")
     // Script-focusable only (never a Tab stop), so an edge sheet can push too.
     expect(title).toHaveAttribute("tabindex", "-1")
+    expect(title).toHaveClass(
+      "focus-visible:ring-2",
+      "focus-visible:ring-(--np-focus-ring)",
+      "focus-visible:ring-inset",
+      "forced-colors:focus-visible:outline-2",
+      "forced-colors:focus-visible:-outline-offset-2",
+      "forced-colors:focus-visible:outline-solid"
+    )
     const header = sheet.querySelector('[data-slot="sheet-header"]')!
     expect(header).toHaveClass("p-5", "pr-14")
     expect(header).not.toHaveAttribute("data-variant")

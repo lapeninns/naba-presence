@@ -50,6 +50,10 @@ describe("Toast look", () => {
     expect(root.className).toContain("bg-charcoal")
     expect(root.className).toContain("text-ink-on-charcoal")
     expect(root.className).toContain("shadow-np-float")
+    expect(root).toHaveClass(
+      "focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
+      "forced-colors:focus-ring-inset"
+    )
     const content = root.querySelector('[data-slot="toast-content"]')!
     // min-h-13 = 52px on the 4px spacing scale.
     expect(content.className).toContain("min-h-13")
@@ -105,6 +109,11 @@ describe("Undo (local reversible actions)", () => {
     expect(undo).toHaveFocus()
     expect(undo.className).toContain("min-h-(--np-touch)")
     expect(undo.className).toContain("min-w-(--np-touch)")
+    expect(undo).toHaveClass(
+      "focus-visible:outline-2",
+      "focus-visible:-outline-offset-2",
+      "forced-colors:focus-ring-inset"
+    )
 
     const root = toastEl()
     await user.keyboard("{Enter}")
@@ -154,6 +163,11 @@ describe("Google writes (D5)", () => {
     expect(link).toHaveAttribute("target", "_blank")
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
     expect(link.className).toContain("min-h-(--np-touch)")
+    expect(link).toHaveClass(
+      "focus-visible:outline-2",
+      "focus-visible:-outline-offset-2",
+      "forced-colors:focus-ring-inset"
+    )
     expect(
       screen.queryByRole("button", { name: "Undo" })
     ).not.toBeInTheDocument()

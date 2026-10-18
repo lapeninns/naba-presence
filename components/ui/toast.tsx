@@ -164,7 +164,7 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
     <ToastPrimitive.Root
       data-slot="toast"
       className={cn(
-        "group/toast pointer-events-auto absolute right-0 bottom-0 w-full origin-bottom rounded-toast bg-charcoal text-ink-on-charcoal shadow-np-float will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)] [[data-base-ui-inert]_&]:pointer-events-none",
+        "group/toast pointer-events-auto absolute right-0 bottom-0 w-full origin-bottom rounded-toast bg-charcoal text-ink-on-charcoal shadow-np-float will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)] forced-colors:focus-ring-inset [[data-base-ui-inert]_&]:pointer-events-none",
         // design-exempt R4: per-toast order inside the toast layer, from Base UI's --toast-index
         "z-[calc(1000-var(--toast-index))]",
         "[--dir:-1] [--gap:--spacing(2)] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--dir)*(var(--toast-offset-y)+var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] [--peek:--spacing(3)] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))]",
@@ -254,7 +254,7 @@ function ToastAction({
 }
 
 const TOAST_TRAILING_ACTION =
-  "inline-flex min-h-(--np-touch) min-w-(--np-touch) shrink-0 items-center justify-center self-center rounded-(--np-radius-control) px-3 text-body font-semibold text-ink-on-charcoal outline-none hover-fine:hover:bg-ink-on-charcoal/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink-on-charcoal"
+  "inline-flex min-h-(--np-touch) min-w-(--np-touch) shrink-0 items-center justify-center self-center rounded-(--np-radius-control) px-3 text-body font-semibold text-ink-on-charcoal outline-none hover-fine:hover:bg-ink-on-charcoal/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink-on-charcoal forced-colors:focus-ring-inset"
 
 /**
  * A trailing link in the action's place: the one thing a Google-write toast
