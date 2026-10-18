@@ -2,7 +2,7 @@
 
 Phase 3 of the frictionless-flows work (AMA-13, verified in AMA-25). It records what Phase 2 changed against the 123 findings in [findings.md](findings.md) and the slices in [plan.md](plan.md).
 
-**Updated 18 Oct 2026 (AMA-32, F10)** for the AMA-13 follow-ups F1–F9, merged to `main` at `5fd05fce` (#220, #225, #227, #229, #231, #232, #233, #236). The rows these follow-ups changed now cite `5fd05fce`. Every other row still cites `de999679`. See [Follow-up phase (F1–F9)](#follow-up-phase-f1f9) and [Release gate on `5fd05fce`](#release-gate-on-5fd05fce).
+**Updated 17–18 Oct 2026 UTC (AMA-32, F10; first written at 23:40 UTC on 17 Oct, then corrected on 18 Oct)** for the AMA-13 follow-ups F1–F9, merged to `main` at `5fd05fce` (#220, #225, #227, #229, #231, #232, #233, #236). The rows these follow-ups changed now cite `5fd05fce`. Every other row still cites `de999679`. See [Follow-up phase (F1–F9)](#follow-up-phase-f1f9) and [Release gate on `5fd05fce`](#release-gate-on-5fd05fce).
 
 **Release status (added 18 Oct 2026, from the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239)).** `5fd05fce` was promoted to production at 2026-10-18 08:39:32 UTC, after migrations 0132–0149 were applied. This audit's own verification never read a hosted database; the release facts below are quoted from that record, not checked here.
 
@@ -448,7 +448,7 @@ Before counts are copied from findings.md. "Captured" means the taps were perfor
 
 ## Open follow-ups
 
-Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earlier issue comments that cite them still match. Each gives its status on `5fd05fce`.
+Updated 17–18 Oct 2026 UTC (AMA-32). Items 1–18 keep their original numbers, so earlier issue comments that cite them still match. Each gives its status on `5fd05fce`.
 
 ### From AMA-13 decisions and reviews
 1. **Done (F1, #217):** the Inbox unread-count model (AMA-29). Its three cases are poll-after-removal, no pin when the badge isn't loaded at the first change, and a notification arriving mid-change. #217 also fences a cancelled poll.
@@ -570,7 +570,7 @@ All runs were on `de999679` in the `naba-presence-redesign/ux-results` worktree,
 
 ## Follow-up phase (F1–F9)
 
-The AMA-13 follow-ups merged between 17 Oct (`3f335f82`) and 18 Oct (`5fd05fce`, 22:09 UTC on 17 Oct). Release & QA reviewed each source PR at the exact head below. Each integration PR merged those heads unchanged with `--no-ff`.
+The AMA-13 follow-ups merged between 16 Oct (`3f335f82`, 22:19 UTC) and 17 Oct (`5fd05fce`, 22:09 UTC). Release & QA reviewed each source PR at the exact head below. Each integration PR merged those heads unchanged with `--no-ff`.
 
 | Sprint | Issue | Source PRs (exact head) | Integrated by | Findings and follow-ups |
 | --- | --- | --- | --- | --- |
@@ -610,13 +610,13 @@ Merge order held: #219 before #208, and #211 last in #220. Hosted CI was not a g
 | e2e (`--forbid-only`) | passed: **716 passed**, none failed, flaky or skipped. `services-backend.spec.ts:106`, `place-actions-backend.spec.ts:59` and `operations-features.spec.ts:682` passed at 375, 768 and 1280 |
 | audit (`--prod --audit-level high`), secret-scan (gitleaks 8.30.1) | passed |
 
-**Independent check (Release & QA, 18 Oct):**
+**Independent check (Release & QA, about 23:30 UTC on 17 Oct, 00:30 on 18 Oct Europe/London):**
 - The receipt file's sha256 matches the one above.
 - `origin/main` was `5fd05fce` when checked (about 23:30 UTC on 17 Oct, and again at 00:07 UTC on 18 Oct), and `git merge-base origin/main 2b26bcf2` is `2b26bcf2`.
 - The candidate's own `scripts/release/local-receipt.mjs` returns `latestPromotedRelease` = `2b26bcf2`, and `localReceiptProblems(receipt, { sha: 5fd05fce…, nodeMajor: 24, previousSha: 2b26bcf2… })` = `[]`. All 13 required steps passed.
 - The gate log (`final-verify-release.log`, outside the repo) has no failed test line.
 
-**Verdict (historical, 18 Oct, before promotion): GO for NabaPresence on `5fd05fce` only, on conditions.** The target database must hold every migration in `5fd05fce` (0132–0149 are all newer than the last promotion, `2b26bcf2`), applied by the owner through the release steps. `pnpm db:status --expect-current` must report it current, and readiness must pass. Hosted state was not read here, so at the time it was not known which migrations were pending.
+**Verdict (historical, about 23:40 UTC on 17 Oct, before promotion): GO for NabaPresence on `5fd05fce` only, on conditions.** The target database must hold every migration in `5fd05fce` (0132–0149 are all newer than the last promotion, `2b26bcf2`), applied by the owner through the release steps. `pnpm db:status --expect-current` must report it current, and readiness must pass. Hosted state was not read here, so at the time it was not known which migrations were pending.
 
 **Later record: the conditions were met (18 Oct 2026).** According to the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239), migrations 0132–0149 were applied to production, readback showed 149 applied with none pending or unknown, and `5fd05fce` was promoted at 08:39:32 UTC with exact-commit health and readiness passing. This audit did not check those facts itself. The newest promotion receipt is now `5fd05fce`'s, so it is the baseline for the next `verify:release`.
 
