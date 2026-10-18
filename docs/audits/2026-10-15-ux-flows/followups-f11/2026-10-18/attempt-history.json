@@ -1,0 +1,98 @@
+{
+  "baseline": [
+    {
+      "attempt": 1,
+      "path": "/private/tmp/ama46-finish-20261018/qa-harness/baseline",
+      "outcome": "Failedscratchseednew\u2192awaiting_approval;DBtransitiontriggercorrectlyrejected;successfulinstall+buildretained"
+    },
+    {
+      "attempt": 2,
+      "path": "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2",
+      "outcome": "Fiveimages/audit/bundlecompleted;oldflowfailedexactInboxlocatorbecauseaccessiblenameincludescount"
+    },
+    {
+      "attempt": 3,
+      "path": "/private/tmp/ama46-finish-20261018/qa-harness/baseline-flow-run3",
+      "outcome": "Flowonly;failedbecausemeasurementomittedrequiredApprovalqueueselection"
+    },
+    {
+      "attempt": 4,
+      "path": "/private/tmp/ama46-finish-20261018/qa-harness/baseline-flow-run4",
+      "outcome": "Flowonly4/4complete;actualapproval4clicksandsentback3atbothwidths"
+    }
+  ],
+  "agentic": [
+    {
+      "run": 1,
+      "summary": {
+        "discovered": 4,
+        "selected": 4,
+        "executed": 4,
+        "passed": 0,
+        "failed": 4,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "actualModelCalls": 0,
+      "rawReport": {
+        "file": "/private/tmp/ama46-finish-20261018/qa-harness/.e2e/6b4f47d68bf6-run1/report.json",
+        "bytes": 50049,
+        "sha256": "55122d5d13153cc4513031aeeb5fb211a849218103b5d51100398674d9470804"
+      }
+    },
+    {
+      "run": 2,
+      "summary": {
+        "discovered": 4,
+        "selected": 4,
+        "executed": 4,
+        "passed": 0,
+        "failed": 4,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "actualModelCalls": 4,
+      "rawReport": {
+        "file": "/private/tmp/ama46-finish-20261018/qa-harness/.e2e/6b4f47d68bf6-run2/report.json",
+        "bytes": 75562,
+        "sha256": "468688cb55171e4950d19a459baec12f347759d5d34e9e62d069e7f8a019fb8b"
+      }
+    },
+    {
+      "run": 3,
+      "summary": {
+        "discovered": 4,
+        "selected": 4,
+        "executed": 4,
+        "passed": 4,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "actualModelCalls": 4,
+      "rawReport": {
+        "file": "/private/tmp/ama46-finish-20261018/qa-harness/.e2e/6b4f47d68bf6-run3/report.json",
+        "bytes": 86369,
+        "sha256": "562197f5dc7ce811b3b309e9c463becf25950f54160da48e84c1b44da498efeb"
+      }
+    }
+  ],
+  "testSourceSnapshots": {
+    "run1": {
+      "file": "/private/tmp/ama46-finish-20261018/qa-harness/tests-run1-preserved.e2e.ts.txt",
+      "bytes": 2982,
+      "sha256": "090328ef0b7908cbaea1c5fea7c79b823302424a3836128f459e170104c6324e"
+    },
+    "run2": {
+      "file": "/private/tmp/ama46-finish-20261018/qa-harness/tests-run2-preserved.e2e.ts.txt",
+      "bytes": 3356,
+      "sha256": "1a2a4abf75d75ce6c1bc23e8a2bfcb53871f8f3e95d3c268b8b2347f844200af"
+    },
+    "final": {
+      "file": "/private/tmp/ama46-finish-20261018/qa-harness/tests/notifications.e2e.ts",
+      "bytes": 3349,
+      "sha256": "ef6e3aac8b29754aaa401be8cae7d9018f679a465e2646675ff29ec3d0c8a64a"
+    }
+  },
+  "productBoundary": "Baselineandagenticfailureswerefixture/locator/assertionsemantics, notapplicationassertionpasses. Finalproductjourneys+projecttestsreportedseparately."
+}

@@ -1,0 +1,8 @@
+{
+  "checkedAt": 1792321404.678148,
+  "textFilesChecked": 28,
+  "syntheticScreenshotFiles": 10,
+  "findings": [],
+  "excluded": "No raw browser report, fixture state, .env file, credential export, raw log directory, DB data, trace or video is selected. Report references are file hashes/paths only.",
+  "screenshots": "Local synthetic Journey tenant; notification/listing/reviewer placeholders only, no production/customer data."
+}

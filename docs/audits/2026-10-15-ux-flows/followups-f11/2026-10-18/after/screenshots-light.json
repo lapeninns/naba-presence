@@ -1,0 +1,29 @@
+[
+  {
+    "file": "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/screenshots/notifications-chromium-light-320.png",
+    "width": 320,
+    "status": 200,
+    "url": "/notifications",
+    "horizontalOverflow": false,
+    "overflow": [],
+    "errors": []
+  },
+  {
+    "file": "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/screenshots/notifications-chromium-light-390.png",
+    "width": 390,
+    "status": 200,
+    "url": "/notifications",
+    "horizontalOverflow": false,
+    "overflow": [],
+    "errors": []
+  },
+  {
+    "file": "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/screenshots/notifications-chromium-light-1280.png",
+    "width": 1280,
+    "status": 200,
+    "url": "/notifications",
+    "horizontalOverflow": false,
+    "overflow": [],
+    "errors": []
+  }
+]

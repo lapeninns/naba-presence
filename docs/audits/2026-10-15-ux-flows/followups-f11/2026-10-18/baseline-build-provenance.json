@@ -1,0 +1,10 @@
+{
+  "sha": "12ccd4fca84d3c1806197fbb0357605a91ad652b",
+  "sourceBuildLog": "/private/tmp/ama46-finish-20261018/qa-harness/baseline/logs/build.log",
+  "sourceBuildExit": 0,
+  "buildId": "f1QgjhC0tddCguOu4qlau",
+  "firstAttempt": "baseline",
+  "purpose": "Scratch fixture transition repair; reuse unchanged successful exact-SHA build",
+  "serverSha256": "c94c649ff40ae438eb1daf28f9079a7bb57c99ef624c3e7553d6162d87d83352",
+  "buildIdMtime": 1792320376.6676757
+}

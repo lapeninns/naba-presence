@@ -1,0 +1,604 @@
+{
+  "config": {
+    "base": "http://127.0.0.1:3220",
+    "widths": [
+      320,
+      390,
+      1280
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "combos": [
+      {
+        "width": 320,
+        "theme": "light"
+      },
+      {
+        "width": 390,
+        "theme": "light"
+      },
+      {
+        "width": 390,
+        "theme": "dark"
+      },
+      {
+        "width": 1280,
+        "theme": "light"
+      },
+      {
+        "width": 1280,
+        "theme": "dark"
+      }
+    ],
+    "routes": [
+      "/notifications"
+    ],
+    "concurrency": 3,
+    "settle": 600,
+    "focusSteps": 40,
+    "durationS": 5,
+    "generatedAt": "2026-10-18T10:47:56.786Z"
+  },
+  "summary": {
+    "totals": {
+      "pages": 5,
+      "loadErrors": 0,
+      "horizontalOverflow": 0,
+      "clippedText": 0,
+      "targetSize": 0,
+      "touchTargetBelow44": 0,
+      "touchBoxBelow44": 0,
+      "iosZoomInputs": 0,
+      "textUnder12": 0,
+      "textUnder14Phone": 48,
+      "axeViolations": 0,
+      "axeNodes": 0,
+      "axeCritical": 0,
+      "axeSerious": 0,
+      "focusObscured": 0,
+      "chromeOver25Pct": 0,
+      "mainLandmarkNot1": 0,
+      "h1Not1": 0,
+      "missingSkipLink": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0
+    },
+    "perRoute": {
+      "/notifications": {
+        "pages": 5,
+        "loadErrors": 0,
+        "horizontalOverflow": 0,
+        "clippedText": 0,
+        "targetSize": 0,
+        "touchTargetBelow44": 0,
+        "touchBoxBelow44": 0,
+        "iosZoomInputs": 0,
+        "textUnder12": 0,
+        "textUnder14Phone": 48,
+        "axeViolations": 0,
+        "axeNodes": 0,
+        "axeCritical": 0,
+        "axeSerious": 0,
+        "focusObscured": 0,
+        "chromeOver25Pct": 0,
+        "mainLandmarkNot1": 0,
+        "h1Not1": 0,
+        "missingSkipLink": 0,
+        "consoleErrors": 0,
+        "pageErrors": 0
+      }
+    },
+    "extremes": {
+      "phoneChromeMaxPct": 19,
+      "smallestTextPx": 12,
+      "maxOverflowPx": 0
+    }
+  },
+  "pages": [
+    {
+      "route": "/notifications",
+      "role": "owner",
+      "width": 320,
+      "theme": "light",
+      "touch": true,
+      "status": 200,
+      "url": "/notifications",
+      "dark": false,
+      "viewport": {
+        "w": 320,
+        "h": 568
+      },
+      "overflow": {
+        "scrollWidth": 320,
+        "overflowPx": 0,
+        "offenders": []
+      },
+      "clipped": [],
+      "targetCount": 16,
+      "targetSize": [],
+      "targetSizeSpacingPass": 0,
+      "touchTargets": [],
+      "touchBoxes": [],
+      "iosZoom": [],
+      "text": {
+        "nodes": 35,
+        "smallest": 13,
+        "under12": 0,
+        "under14": 16,
+        "under12Pct": 0,
+        "under14Pct": 45.7,
+        "histogram": {
+          "13": 16,
+          "15": 12,
+          "16": 6,
+          "26": 1
+        }
+      },
+      "smallText": [],
+      "chrome": {
+        "load": {
+          "topPx": 52,
+          "bottomPx": 56,
+          "totalPx": 108,
+          "topPct": 9.2,
+          "bottomPct": 9.9,
+          "totalPct": 19
+        },
+        "scrolled": {
+          "topPx": 52,
+          "bottomPx": 56,
+          "totalPx": 108,
+          "topPct": 9.2,
+          "bottomPct": 9.9,
+          "totalPct": 19
+        },
+        "elements": [
+          {
+            "top": -60,
+            "bottom": -24,
+            "position": "fixed",
+            "sel": "a.fixed.top-[-60px]",
+            "slot": null
+          },
+          {
+            "top": 0,
+            "bottom": 52,
+            "position": "sticky",
+            "sel": "header[data-slot=app-bar].sticky.top-0",
+            "slot": "app-bar"
+          },
+          {
+            "top": 512,
+            "bottom": 568,
+            "position": "fixed",
+            "sel": "nav[data-slot=tab-bar].fixed.inset-x-0",
+            "slot": "tab-bar"
+          }
+        ]
+      },
+      "landmarks": {
+        "main": 1,
+        "h1": 1,
+        "skipLink": true
+      },
+      "axeRuns": {
+        "passes": 26,
+        "incomplete": [
+          "color-contrast:1"
+        ]
+      },
+      "axe": [],
+      "focus": {
+        "steps": 16,
+        "checked": 15,
+        "offscreen": 0,
+        "obscured": []
+      },
+      "consoleErrors": [],
+      "pageErrors": [],
+      "ms": 2523
+    },
+    {
+      "route": "/notifications",
+      "role": "owner",
+      "width": 390,
+      "theme": "light",
+      "touch": true,
+      "status": 200,
+      "url": "/notifications",
+      "dark": false,
+      "viewport": {
+        "w": 390,
+        "h": 844
+      },
+      "overflow": {
+        "scrollWidth": 390,
+        "overflowPx": 0,
+        "offenders": []
+      },
+      "clipped": [],
+      "targetCount": 16,
+      "targetSize": [],
+      "targetSizeSpacingPass": 0,
+      "touchTargets": [],
+      "touchBoxes": [],
+      "iosZoom": [],
+      "text": {
+        "nodes": 35,
+        "smallest": 13,
+        "under12": 0,
+        "under14": 16,
+        "under12Pct": 0,
+        "under14Pct": 45.7,
+        "histogram": {
+          "13": 16,
+          "15": 12,
+          "16": 6,
+          "26": 1
+        }
+      },
+      "smallText": [],
+      "chrome": {
+        "load": {
+          "topPx": 52,
+          "bottomPx": 56,
+          "totalPx": 108,
+          "topPct": 6.2,
+          "bottomPct": 6.6,
+          "totalPct": 12.8
+        },
+        "scrolled": {
+          "topPx": 52,
+          "bottomPx": 56,
+          "totalPx": 108,
+          "topPct": 6.2,
+          "bottomPct": 6.6,
+          "totalPct": 12.8
+        },
+        "elements": [
+          {
+            "top": -60,
+            "bottom": -24,
+            "position": "fixed",
+            "sel": "a.fixed.top-[-60px]",
+            "slot": null
+          },
+          {
+            "top": 0,
+            "bottom": 52,
+            "position": "sticky",
+            "sel": "header[data-slot=app-bar].sticky.top-0",
+            "slot": "app-bar"
+          },
+          {
+            "top": 788,
+            "bottom": 844,
+            "position": "fixed",
+            "sel": "nav[data-slot=tab-bar].fixed.inset-x-0",
+            "slot": "tab-bar"
+          }
+        ]
+      },
+      "landmarks": {
+        "main": 1,
+        "h1": 1,
+        "skipLink": true
+      },
+      "axeRuns": {
+        "passes": 26,
+        "incomplete": [
+          "color-contrast:2"
+        ]
+      },
+      "axe": [],
+      "focus": {
+        "steps": 16,
+        "checked": 15,
+        "offscreen": 0,
+        "obscured": []
+      },
+      "consoleErrors": [],
+      "pageErrors": [],
+      "ms": 2518
+    },
+    {
+      "route": "/notifications",
+      "role": "owner",
+      "width": 390,
+      "theme": "dark",
+      "touch": true,
+      "status": 200,
+      "url": "/notifications",
+      "dark": true,
+      "viewport": {
+        "w": 390,
+        "h": 844
+      },
+      "overflow": {
+        "scrollWidth": 390,
+        "overflowPx": 0,
+        "offenders": []
+      },
+      "clipped": [],
+      "targetCount": 16,
+      "targetSize": [],
+      "targetSizeSpacingPass": 0,
+      "touchTargets": [],
+      "touchBoxes": [],
+      "iosZoom": [],
+      "text": {
+        "nodes": 35,
+        "smallest": 13,
+        "under12": 0,
+        "under14": 16,
+        "under12Pct": 0,
+        "under14Pct": 45.7,
+        "histogram": {
+          "13": 16,
+          "15": 12,
+          "16": 6,
+          "26": 1
+        }
+      },
+      "smallText": [],
+      "chrome": {
+        "load": {
+          "topPx": 52,
+          "bottomPx": 56,
+          "totalPx": 108,
+          "topPct": 6.2,
+          "bottomPct": 6.6,
+          "totalPct": 12.8
+        },
+        "scrolled": {
+          "topPx": 52,
+          "bottomPx": 56,
+          "totalPx": 108,
+          "topPct": 6.2,
+          "bottomPct": 6.6,
+          "totalPct": 12.8
+        },
+        "elements": [
+          {
+            "top": -60,
+            "bottom": -24,
+            "position": "fixed",
+            "sel": "a.fixed.top-[-60px]",
+            "slot": null
+          },
+          {
+            "top": 0,
+            "bottom": 52,
+            "position": "sticky",
+            "sel": "header[data-slot=app-bar].sticky.top-0",
+            "slot": "app-bar"
+          },
+          {
+            "top": 788,
+            "bottom": 844,
+            "position": "fixed",
+            "sel": "nav[data-slot=tab-bar].fixed.inset-x-0",
+            "slot": "tab-bar"
+          }
+        ]
+      },
+      "landmarks": {
+        "main": 1,
+        "h1": 1,
+        "skipLink": true
+      },
+      "axeRuns": {
+        "passes": 26,
+        "incomplete": [
+          "color-contrast:2"
+        ]
+      },
+      "axe": [],
+      "focus": {
+        "steps": 16,
+        "checked": 15,
+        "offscreen": 0,
+        "obscured": []
+      },
+      "consoleErrors": [],
+      "pageErrors": [],
+      "ms": 2524
+    },
+    {
+      "route": "/notifications",
+      "role": "owner",
+      "width": 1280,
+      "theme": "light",
+      "touch": false,
+      "status": 200,
+      "url": "/notifications",
+      "dark": false,
+      "viewport": {
+        "w": 1280,
+        "h": 800
+      },
+      "overflow": {
+        "scrollWidth": 1280,
+        "overflowPx": 0,
+        "offenders": []
+      },
+      "clipped": [],
+      "targetCount": 21,
+      "targetSize": [],
+      "targetSizeSpacingPass": 0,
+      "touchTargets": [],
+      "touchBoxes": [],
+      "iosZoom": [],
+      "text": {
+        "nodes": 45,
+        "smallest": 12,
+        "under12": 0,
+        "under14": 37,
+        "under12Pct": 0,
+        "under14Pct": 82.2,
+        "histogram": {
+          "12": 15,
+          "13": 22,
+          "14": 6,
+          "17": 1,
+          "28": 1
+        }
+      },
+      "smallText": [],
+      "chrome": {
+        "load": {
+          "topPx": 56,
+          "bottomPx": 0,
+          "totalPx": 56,
+          "topPct": 7,
+          "bottomPct": 0,
+          "totalPct": 7
+        },
+        "scrolled": {
+          "topPx": 56,
+          "bottomPx": 0,
+          "totalPx": 56,
+          "topPct": 7,
+          "bottomPct": 0,
+          "totalPct": 7
+        },
+        "elements": [
+          {
+            "top": -60,
+            "bottom": -24,
+            "position": "fixed",
+            "sel": "a.fixed.top-[-60px]",
+            "slot": null
+          },
+          {
+            "top": 0,
+            "bottom": 56,
+            "position": "sticky",
+            "sel": "header[data-slot=toolbar].hidden.h-(--np-toolbar-h)",
+            "slot": "toolbar"
+          }
+        ]
+      },
+      "landmarks": {
+        "main": 1,
+        "h1": 1,
+        "skipLink": true
+      },
+      "axeRuns": {
+        "passes": 26,
+        "incomplete": [
+          "color-contrast:4"
+        ]
+      },
+      "axe": [],
+      "focus": {
+        "steps": 21,
+        "checked": 20,
+        "offscreen": 0,
+        "obscured": []
+      },
+      "consoleErrors": [],
+      "pageErrors": [],
+      "ms": 2490
+    },
+    {
+      "route": "/notifications",
+      "role": "owner",
+      "width": 1280,
+      "theme": "dark",
+      "touch": false,
+      "status": 200,
+      "url": "/notifications",
+      "dark": true,
+      "viewport": {
+        "w": 1280,
+        "h": 800
+      },
+      "overflow": {
+        "scrollWidth": 1280,
+        "overflowPx": 0,
+        "offenders": []
+      },
+      "clipped": [],
+      "targetCount": 21,
+      "targetSize": [],
+      "targetSizeSpacingPass": 0,
+      "touchTargets": [],
+      "touchBoxes": [],
+      "iosZoom": [],
+      "text": {
+        "nodes": 45,
+        "smallest": 12,
+        "under12": 0,
+        "under14": 37,
+        "under12Pct": 0,
+        "under14Pct": 82.2,
+        "histogram": {
+          "12": 15,
+          "13": 22,
+          "14": 6,
+          "17": 1,
+          "28": 1
+        }
+      },
+      "smallText": [],
+      "chrome": {
+        "load": {
+          "topPx": 56,
+          "bottomPx": 0,
+          "totalPx": 56,
+          "topPct": 7,
+          "bottomPct": 0,
+          "totalPct": 7
+        },
+        "scrolled": {
+          "topPx": 56,
+          "bottomPx": 0,
+          "totalPx": 56,
+          "topPct": 7,
+          "bottomPct": 0,
+          "totalPct": 7
+        },
+        "elements": [
+          {
+            "top": -60,
+            "bottom": -24,
+            "position": "fixed",
+            "sel": "a.fixed.top-[-60px]",
+            "slot": null
+          },
+          {
+            "top": 0,
+            "bottom": 56,
+            "position": "sticky",
+            "sel": "header[data-slot=toolbar].hidden.h-(--np-toolbar-h)",
+            "slot": "toolbar"
+          }
+        ]
+      },
+      "landmarks": {
+        "main": 1,
+        "h1": 1,
+        "skipLink": true
+      },
+      "axeRuns": {
+        "passes": 26,
+        "incomplete": [
+          "color-contrast:4"
+        ]
+      },
+      "axe": [],
+      "focus": {
+        "steps": 21,
+        "checked": 20,
+        "offscreen": 0,
+        "obscured": []
+      },
+      "consoleErrors": [],
+      "pageErrors": [],
+      "ms": 2488
+    }
+  ]
+}

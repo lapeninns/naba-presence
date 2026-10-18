@@ -1,0 +1,20 @@
+[
+  {
+    "file": "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/screenshots/notifications-chromium-dark-320.png",
+    "width": 320,
+    "status": 200,
+    "url": "/notifications",
+    "horizontalOverflow": false,
+    "overflow": [],
+    "errors": []
+  },
+  {
+    "file": "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/screenshots/notifications-chromium-dark-390.png",
+    "width": 390,
+    "status": 200,
+    "url": "/notifications",
+    "horizontalOverflow": false,
+    "overflow": [],
+    "errors": []
+  }
+]

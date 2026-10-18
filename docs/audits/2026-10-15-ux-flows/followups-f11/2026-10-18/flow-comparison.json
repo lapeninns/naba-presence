@@ -1,0 +1,72 @@
+{
+  "before": [
+    {
+      "width": 390,
+      "kind": "approval_requested",
+      "actions": [
+        "Open listing",
+        "Inbox",
+        "Approval queue",
+        "Select review"
+      ],
+      "complete": true,
+      "clicks": 4,
+      "lastUrl": "/inbox?queue=approval&selected=4698e2b4-d601-44d7-9424-fbcb0111e2dd",
+      "listingUrl": "/listings/96fae142-3730-4e6c-b8a0-b1547cd9e02e",
+      "finalUrl": "/inbox?queue=approval&selected=4698e2b4-d601-44d7-9424-fbcb0111e2dd",
+      "autoSelected": false
+    },
+    {
+      "width": 390,
+      "kind": "reply_sent_back",
+      "actions": [
+        "Open listing",
+        "Inbox",
+        "Select review"
+      ],
+      "complete": true,
+      "clicks": 3,
+      "lastUrl": "/inbox?selected=d7c3e4b1-81d5-4106-acf5-9471a4709c89",
+      "listingUrl": "/listings/5173ca6d-0d3f-415d-a13c-6882f61facc7",
+      "finalUrl": "/inbox?selected=d7c3e4b1-81d5-4106-acf5-9471a4709c89",
+      "autoSelected": false
+    },
+    {
+      "width": 1280,
+      "kind": "approval_requested",
+      "actions": [
+        "Open listing",
+        "Inbox",
+        "Approval queue",
+        "Select review"
+      ],
+      "complete": true,
+      "clicks": 4,
+      "lastUrl": "/inbox?queue=approval&selected=4698e2b4-d601-44d7-9424-fbcb0111e2dd",
+      "listingUrl": "/listings/96fae142-3730-4e6c-b8a0-b1547cd9e02e",
+      "finalUrl": "/inbox?queue=approval&selected=4698e2b4-d601-44d7-9424-fbcb0111e2dd",
+      "autoSelected": false
+    },
+    {
+      "width": 1280,
+      "kind": "reply_sent_back",
+      "actions": [
+        "Open listing",
+        "Inbox",
+        "Select review"
+      ],
+      "complete": true,
+      "clicks": 3,
+      "lastUrl": "/inbox?selected=d7c3e4b1-81d5-4106-acf5-9471a4709c89",
+      "listingUrl": "/listings/5173ca6d-0d3f-415d-a13c-6882f61facc7",
+      "finalUrl": "/inbox?selected=d7c3e4b1-81d5-4106-acf5-9471a4709c89",
+      "autoSelected": false
+    }
+  ],
+  "after": {
+    "clicksPerNotification": 1,
+    "verifiedTransitions": 8,
+    "source": "Final agenticrun3:2successfulOpenreviewclicks percase\u00d74viewport/theme cases, eachfollowedbyexactselectedURL+selectedreviewtextassertions",
+    "excludes": "app.open setup/reset, modelassertion and screenshots aretestorchestration, notuserflowclicks"
+  }
+}
