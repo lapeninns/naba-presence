@@ -11,8 +11,10 @@ export function mockWebkitShortSeptember() {
   const nativeDateString = Date.prototype.toLocaleDateString
   const nativeDateTimeString = Date.prototype.toLocaleString
   const september = (value: string) => value.replace(/\bSept\b/g, "Sep")
+  // Intl declares format as a method; its runtime descriptor is a getter.
+  const formatAccessor: { readonly format: unknown } = prototype
 
-  vi.spyOn(prototype, "format", "get").mockImplementation(function (
+  vi.spyOn(formatAccessor, "format", "get").mockImplementation(function (
     this: Intl.DateTimeFormat
   ) {
     const format = nativeFormat.call(this) as (date?: Date | number) => string
