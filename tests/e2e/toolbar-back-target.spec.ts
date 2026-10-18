@@ -36,7 +36,7 @@ const toolbarTest = test.extend<
     },
     { scope: "worker" },
   ],
-  toolbarTenant: async ({ harnessAdmin }, provide) => {
+  toolbarTenant: async ({ harnessAdmin, page }, provide) => {
     const tenant = await createTestTenant(harnessAdmin, {
       workspaceMode: "agency",
     })
@@ -52,7 +52,13 @@ const toolbarTest = test.extend<
       `
       await provide({ cookie: tenant.cookie, clientId: client!.id })
     } finally {
-      await destroyTenants(harnessAdmin, [tenant.organisationId])
+      // Stop the page's session/query requests before deleting their tenant.
+      // Otherwise a late 401 can redirect while Chromium closes its context.
+      try {
+        await page.close()
+      } finally {
+        await destroyTenants(harnessAdmin, [tenant.organisationId])
+      }
     }
   },
 })
@@ -296,6 +302,18 @@ for (const width of [390, 767, 768, 1024]) {
                 await expect(page).toHaveURL(
                   (url) => url.pathname === route.destination
                 )
+                await expect(
+                  page.getByRole("heading", {
+                    name:
+                      route.destination === "/clients"
+                        ? "Clients"
+                        : width >= 768
+                          ? "Reply policy"
+                          : "Settings",
+                    level: 1,
+                    exact: true,
+                  })
+                ).toBeVisible()
               }
             )
           }
