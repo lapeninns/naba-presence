@@ -18,20 +18,21 @@ Phase 3 of the frictionless-flows work (AMA-13, verified in AMA-25). It records 
 | Severity | Fixed | Partly fixed | Deferred | Open | Total |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | P0 | 1 | 0 | 0 | 0 | 1 |
-| P1 | 33 | 0 | 0 | 0 | 33 |
+| P1 | 32 | 1 | 0 | 0 | 33 |
 | P2 | 82 | 6 | 1 | 0 | 89 |
-| **All** | **116** | **6** | **1** | **0** | **123** |
+| **All** | **115** | **7** | **1** | **0** | **123** |
 
 On `de999679`, before F1–F9, the totals were 102 fixed, 17 partly fixed, 3 deferred and 1 open.
 
 - **The P0 is fixed.** Food-menu changes read as plain rows at consent (LST-01, `lib/locations/menu-diff.ts:145-151`). A unit test (`tests/menu-diff.test.ts:275-284`) asserts that no row is raw JSON.
-- **Every P1 is now fixed.** The five that were partly fixed closed in the follow-ups:
+- **Four of the five partly fixed P1s closed in the follow-ups.** LST-06 is still partly fixed:
   - INB-05: the notification kinds, in F6 (#214). They need migration 0149 in the target database before deploy; hosted state was not read (see [Release gate on `5fd05fce`](#release-gate-on-5fd05fce)).
-  - LST-06 and LST-07: the profile editor and board trim, in F3 (#205). The lane measured the first field at 28.8% and the first row at 29.4% at 390×844, under the 30% target, on #205 `4a6e507a` (an earlier lane measurement, not one taken on `5fd05fce`; see the rows).
+  - LST-06 and LST-07: the profile editor and board trim, in F3 (#205). LST-07 is fixed. LST-06's phone height target is met. Its desk meta row is not: from `wide` the model note and last-checked line share a row, but the time zone is still its own paragraph on Hours (follow-up 26). The lane measured the first field at 28.8% and the first row at 29.4% at 390×844, under the 30% target, on #205 `4a6e507a` (an earlier lane measurement, not one taken on `5fd05fce`; see the rows).
   - LST-14: Review & publish is streamed in the shared frame, in F3 (#212).
   - CLR-19: wording and bucket order, in F2 (#219).
 - **LST-16's desk regression is fixed**, in F4 (#216).
-- **Partly fixed (all P2):**
+- **Partly fixed:**
+  - LST-06 (P1): from `wide`, the time zone isn't in the meta row with the model note and last-checked line.
   - INB-19: the toolbar moved to the bottom, but Sync isn't pull-to-refresh.
   - INB-21: "Mark N shown as read" still shows under Open or while more pages exist.
   - CLR-05: Reports' empty and collecting states still say "this window", and Keywords still says "Impressions counted from".
@@ -204,7 +205,7 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | LST-03 | P1 | Menu picker is a 20px sliver | L07 | #149 (15 Oct) | fixed | `components/locations/menu-editor.tsx:846` (`basis-full` on a phone, `sm:min-w-56`) |
 | LST-04 | P1 | Editor bar: 3 buttons on 2 rows; idle desk bar (incl. DSK-02) | P02 | #131 (15 Oct) | fixed | `components/editors/editor-footer.tsx:172` returns null when clean; `:195-215` Save here / Discard edits as secondaries; `editor-frame.tsx` has no `min-height:620px` or sticky left |
 | LST-05 | P1 | Review & publish bar docked by hand | P02 | #131 (15 Oct) | fixed | `components/listings/review-publish.tsx:986-988` `<ActionBar dock statusRow>` |
-| LST-06 | P1 | Five header rows before content | L03, F3 | #152, #205 | fixed | Two-row header (`area-frame.tsx`). F3 trims the phone profile editor: Identity's heading is sr-only on phones and shows on keyboard focus (`components/locations/profile/section-card.tsx:49,75`), the caption's Google note moved into the Business name hint (`components/locations/profile/sections/identity-section.tsx:105`), and the frame's top padding and gap are 12 px below md (`components/listings/area-frame.tsx:825`), on `5fd05fce`. G7 at 390×844: first field at 243 px (28.8%) against <30%, from AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb` (17 Oct, 08:24 UTC): an earlier lane measurement on #205 `4a6e507a5b24021d627e9690adfefd9b485c8732`, with plain main `3f335f82104a0183218f5a84a882af5278ea135e` as the comparator. #212 `62d02d3fe8b85625b76fcad58b2fde29762482de` matched main. Not re-measured at the later #205 heads (`5b80f916`, `32fd8843`) or on `5fd05fce`; a re-measurement must cite its own head. The Hours zone line stays a row of its own when the listing's zone differs from the viewer's (`hours-tab.tsx:530-542`) |
+| LST-06 | P1 | Five header rows before content | L03, F3 | #152, #205 | partly fixed | Two-row header (`area-frame.tsx`). F3 trims the phone profile editor: Identity's heading is sr-only on phones and shows on keyboard focus (`components/locations/profile/section-card.tsx:49,75`), the caption's Google note moved into the Business name hint (`components/locations/profile/sections/identity-section.tsx:105`), and the frame's top padding and gap are 12 px below md (`components/listings/area-frame.tsx:825`), on `5fd05fce`. G7 at 390×844: first field at 243 px (28.8%) against <30%, from AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb` (17 Oct, 08:24 UTC): an earlier lane measurement on #205 `4a6e507a5b24021d627e9690adfefd9b485c8732`, with plain main `3f335f82104a0183218f5a84a882af5278ea135e` as the comparator. #212 `62d02d3fe8b85625b76fcad58b2fde29762482de` matched main. Not re-measured at the later #205 heads (`5b80f916`, `32fd8843`) or on `5fd05fce`; a re-measurement must cite its own head. **Remains:** the fix (`findings.md:498`) asks, from `wide`, for the model note, time zone and last-checked line in one meta row under the tabs. `components/listings/area-frame.tsx:317-345` combines the model note and freshness but not the zone, and Hours still draws its own time-zone paragraph when the listing's zone differs from the viewer's (`components/locations/hours-tab.tsx:530-542`), on `5fd05fce`. AMA-34 comment `01a146db-6b50-782e-a0c9-da584870facb` left this item open for F4, and no decision accepts dropping it (follow-up 26) |
 | LST-07 | P1 | Board: five control rows above first listing | L04, F3 | #166, #205 | fixed | `listings-board.tsx` (`hideWhenZero`, one "Order listings" chip, sr-only count, Add listings at the end). F3 trims the board's phone header, on `5fd05fce`. G7 at 390×844: first row at 248 px (29.4%) against <30%, from AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb` (17 Oct, 08:24 UTC): an earlier lane measurement on #205 `4a6e507a5b24021d627e9690adfefd9b485c8732`, with plain main `3f335f82104a0183218f5a84a882af5278ea135e` as the comparator. #212 `62d02d3fe8b85625b76fcad58b2fde29762482de` matched main. Not re-measured at the later #205 heads (`5b80f916`, `32fd8843`) or on `5fd05fce`; a re-measurement must cite its own head |
 | LST-08 | P1 | Two write models in one profile form | L14 | #157 (15 Oct) | fixed | `components/reviewed-write/combined-review.tsx:77` (route note), `:243` (`CombinedReviewSheet`), used at `profile-editor.tsx:1097`. `SaveModelTag` is gone from `section-card.tsx`. Booking and people now also use `ReviewedWriteSheet` (L08, L13) |
 | LST-09 | P1 | Verification page is jargon, offers start on verified | L12 | #119 (15 Oct) | fixed | `verification-tab.tsx:77-90` (`verifiedAtRest` puts tools behind "Verification tools"), `verification-observation.tsx:60` ("Verified. Google confirms you manage this listing."). Residual jargon is listed under item 9 of Phase 2 verification |
@@ -462,7 +463,7 @@ Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earli
 10. **Partly done (F4, #216):** LST-19 zone names are fixed in the Calendar and the Replay name. **Remains:** Posts prints raw zone IDs (`components/locations/posts/post-schedules.tsx:331`, `schedule-post-sheet.tsx:351`). F12 (AMA-47) covers the related `Intl` `month: "short"` sites.
 11. **Done (F5):** SET-22 (#208) and SET-25 (#207).
 12. **Done (F5, #211):** the design baseline is locked at 104.
-13. **Done (F3, #205):** the profile-editor trim. The lane measured the profile at 28.8% and the board at 29.4% at 390×844, on #205 `4a6e507a` (AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb`). It was not re-measured on `5fd05fce`.
+13. **Done (F3, #205):** the profile-editor trim (LST-06's phone part). The lane measured the profile at 28.8% and the board at 29.4% at 390×844, on #205 `4a6e507a` (AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb`). It was not re-measured on `5fd05fce`.
 14. **Still open:** e2e coverage for the client hub (R15) and the client form and archive (R17).
 15. **Done (F4, #216):** the desk Hours rows.
 16. **Partly done:**
@@ -494,6 +495,7 @@ Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earli
 23. **Done (AMA-50, #228):** the `shell-polls` test hardening, and the `lib/workspace/mode.ts` session-query subscription.
 24. **INB-21 remainder (Reviews):** the notifications button still reads "Mark N shown as read" under Open or while more pages exist (`components/notifications/notifications-view.tsx:271-275`). INB-21 asks for plain wording, for example "Mark these read".
 25. **INB-19 remainder (Reviews):** make Sync pull-to-refresh on phones, keeping the bottom-toolbar button as the visible alternative (`findings.md:363`). Nothing in `5fd05fce` implements the gesture.
+26. **LST-06 remainder (Listings):** from `wide`, put the model note, time zone and last-checked line in one meta row under the tabs (`findings.md:498`). The time zone is still its own paragraph on Hours (`components/locations/hours-tab.tsx:530-542`), outside the frame's meta line (`components/listings/area-frame.tsx:317-345`). Left open by F3 (AMA-34 comment `01a146db-6b50-782e-a0c9-da584870facb`) for F4, and not done in F4.
 
 ### Carried from PR bodies (non-blocking)
 - **L02 (#124):** the activity cursor regex lacks `bulk:` and `schedule:` (`lib/contracts/location-activity.ts:41`), so paging past those rows may return `invalid_cursor`.
@@ -552,7 +554,7 @@ The AMA-13 follow-ups merged between 17 Oct (`3f335f82`) and 18 Oct (`5fd05fce`,
 | --- | --- | --- | --- | --- |
 | F1 | AMA-29 | #217 `1c10e0ea` | #220 | INB-21 (partly; follow-up 24); follow-ups 1 and 2 |
 | F2 | AMA-33 | #218 `74712dc2`, #219 `706a10b2` | #220 | INB-09, INB-14, CLR-05 (partly), CLR-06, CLR-19, DSK-10; follow-ups 8 (partly), 9, 16 (`/reports`) and 17 (#418) |
-| F3 | AMA-34 | #212 `62d02d3f`, #205 `32fd8843` | #225, #229 | LST-06, LST-07, LST-14, LST-27, DSK-05 (partly); follow-ups 7 and 13 |
+| F3 | AMA-34 | #212 `62d02d3f`, #205 `32fd8843` | #225, #229 | LST-06 (partly; follow-up 26), LST-07, LST-14, LST-27, DSK-05 (partly); follow-ups 7 and 13 |
 | F4 | AMA-35 | #216 `978f89c5` | #220 | LST-16, LST-19 (partly); follow-ups 10, 15 and 18 |
 | F5 | AMA-36 | #207 `e49c895b`, #208 `8741c72f`, #209 `964cd1ab`, #210 `a54513cc`, #211 `aebee04e` | #220 | SET-22, SET-25; follow-ups 11, 12, 16 (`/sign-in`) and 18 |
 | F6 | AMA-37 | #214 `e75a5128` | #220 | INB-05 (code; needs 0149 in the target database); follow-up 3 |
