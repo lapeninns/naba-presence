@@ -266,29 +266,14 @@ test("filling the ninth additional category returns keyboard focus to its stable
   await page.emulateMedia({ forcedColors: "active" })
   // Only disposable browser responses change. No profile is saved and no
   // request reaches the provider: the ninth selection is an unsaved draft.
-  await page.route(
-    /\/api\/locations\/[^/]+\/business-information$/,
-    async (route) => {
-      const response = await route.fetch()
-      const json = await response.json()
-      json.businessInformation.location.categories.additionalCategories =
-        Array.from({ length: 8 }, (_, index) => ({
-          name: `categories/gcid:focus_fixture_${index}`,
-          displayName: `Fixture category ${index + 1}`,
-        }))
-      await route.fulfill({ response, json })
-    }
-  )
   await page.route(/\/business-information\?type=categories(?:&|$)/, (route) =>
     route.fulfill({
       json: {
         result: {
-          categories: [
-            {
-              name: "categories/gcid:focus_fixture_ninth",
-              displayName: "Ninth fixture category",
-            },
-          ],
+          categories: Array.from({ length: 9 }, (_, index) => ({
+            name: `categories/gcid:focus_fixture_${index}`,
+            displayName: `Fixture category ${index + 1}`,
+          })),
         },
       },
     })
@@ -300,14 +285,19 @@ test("filling the ninth additional category returns keyboard focus to its stable
   })
   await opener.focus()
   await page.keyboard.press("Enter")
-  const choice = page.getByRole("checkbox", {
-    name: "Ninth fixture category",
-    exact: true,
-  })
-  await expect(choice).toBeVisible()
-  await choice.focus()
-  await page.keyboard.press("Space")
-  await expect(choice).toBeChecked()
+  await page
+    .getByLabel("Search Google categories", { exact: true })
+    .fill("fixture")
+  for (let index = 1; index <= 9; index++) {
+    const choice = page.getByRole("checkbox", {
+      name: `Fixture category ${index}`,
+      exact: true,
+    })
+    await expect(choice).toBeVisible()
+    await choice.focus()
+    await page.keyboard.press("Space")
+    await expect(choice).toBeChecked()
+  }
   await page.keyboard.press("Escape")
   await expect(opener).toBeDisabled()
   const label = page.getByText("Additional categories", { exact: true })
