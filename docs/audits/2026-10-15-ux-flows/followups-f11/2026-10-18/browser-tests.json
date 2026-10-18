@@ -1,0 +1,2054 @@
+[
+  {
+    "suite": "G4-touch",
+    "counts": {
+      "expected": 22,
+      "actual": 22,
+      "statuses": {
+        "passed": 22
+      },
+      "allResultsPresent": true,
+      "runErrors": []
+    },
+    "cases": [
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "the project is a touch phone",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 447,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "shell: the tab bar navigates and marks the current tab",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 2528,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "shell: the More sheet opens by tap and closes by tap and by swipe",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3658,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "rows: a left swipe reveals the trailing actions and the button reaches the same ones",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3122,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "shell: a More destination, a pushed page and its Back",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 2263,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: a review opens as a pushed detail with exactly one way back",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1276,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: a left swipe on a row marks the review as needing no reply, with an Undo",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1452,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: a row's visible actions button reaches the same action with no swipe",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1076,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: an open review's \u22ef carries No reply needed and Assign\u2026",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1285,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: search and Filters sit in the bottom third on the tab bar, and a docked bar takes the edge",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 8667,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: search takes the keyboard, the bar rides on it, and Cancel brings the tab bar back",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1843,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: on a short phone the toolbar stays in the band, and rides the keyboard while search has it",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 755,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: on Android, where the keyboard shrinks the page, the bar stays on the tab bar through search and a tapped result",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 6873,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: an open review has no toolbar over it",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 268,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "inbox: the reply composer's docked bar keeps the focused reply clear, with the keyboard up",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1301,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "listings: open a listing, edit its profile, and review the change in the sheet",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 7411,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "listings: the controls inside a sheet take a tap (hours copy sheet)",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3624,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "settings: the grouped index, a policy edit with its docked bar, and a rotation",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 2536,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "setup: the wizard's step bar keeps the focused field clear, with the keyboard up",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1471,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "setup: a blocked step's two-row bar keeps Back and Continue uncovered",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 985,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "setup: on a short phone a blocked step's bar is one row and the chrome stays within a quarter",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1006,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "touch-critical.spec.ts",
+        "title": "reports: a read journey by tap across the report tabs",
+        "project": "touch-390",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1660,
+            "errors": 0
+          }
+        ]
+      }
+    ],
+    "rawReport": {
+      "file": "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/G4-touch-report.json",
+      "bytes": 32226,
+      "sha256": "14b2fd93b9bad0a495f1c72941b9fb582443cc1031bb3d729623dab27a50696c"
+    }
+  },
+  {
+    "suite": "G4-a11y",
+    "counts": {
+      "expected": 64,
+      "actual": 64,
+      "statuses": {
+        "passed": 64
+      },
+      "allResultsPresent": true,
+      "runErrors": []
+    },
+    "cases": [
+      {
+        "file": "accessibility.spec.ts",
+        "title": "design-system proof",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1962,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "application shell",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 536,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "sign-in",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 861,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "password recovery",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 540,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "invitation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 411,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox landing",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1140,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "reports",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 643,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listings board",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1040,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "clients index and hub",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 914,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listing overview and the profile editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3548,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox, review detail, and reply editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3996,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "stale data chip",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3266,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "disconnected review data state",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 566,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "delete published reply confirmation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 932,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "connections",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 589,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "settings policy and the team page",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1358,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "design-system proof",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1912,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "application shell",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 939,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "sign-in",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 819,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "password recovery",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 530,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "invitation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 379,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox landing",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1049,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "reports",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 586,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listings board",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 967,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "clients index and hub",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 858,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listing overview and the profile editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1754,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox, review detail, and reply editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 4819,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "stale data chip",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3448,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "disconnected review data state",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 571,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "delete published reply confirmation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1822,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "connections",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 554,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "settings policy and the team page",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1934,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "design-system proof",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1999,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "application shell",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 544,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "sign-in",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 914,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "password recovery",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 596,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "invitation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 410,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox landing",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1181,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "reports",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 651,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listings board",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1031,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "clients index and hub",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 915,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listing overview and the profile editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1807,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox, review detail, and reply editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3930,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "stale data chip",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3225,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "disconnected review data state",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 568,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "delete published reply confirmation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 961,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "connections",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 603,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "settings policy and the team page",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1451,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "design-system proof",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1978,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "application shell",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 965,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "sign-in",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 822,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "password recovery",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 559,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "invitation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 422,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox landing",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1079,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "reports",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 581,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listings board",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 981,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "clients index and hub",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 847,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "listing overview and the profile editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1763,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "inbox, review detail, and reply editor",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 4902,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "stale data chip",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3458,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "disconnected review data state",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 587,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "delete published reply confirmation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1849,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "connections",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 535,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "accessibility.spec.ts",
+        "title": "settings policy and the team page",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1894,
+            "errors": 0
+          }
+        ]
+      }
+    ],
+    "rawReport": {
+      "file": "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/G4-a11y-report.json",
+      "bytes": 85733,
+      "sha256": "1c16cf6f0141a7861fac6d47cf613c0322f1897ace42a7b57d5ec21845cd134e"
+    }
+  },
+  {
+    "suite": "G5-inbox-operations-approval",
+    "counts": {
+      "expected": 47,
+      "actual": 47,
+      "statuses": {
+        "passed": 47
+      },
+      "allResultsPresent": true,
+      "runErrors": []
+    },
+    "cases": [
+      {
+        "file": "approval-notifications.spec.ts",
+        "title": "opens each addressed review in its queue without changing notification state",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1125,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "approval-notifications.spec.ts",
+        "title": "opens each addressed review in its queue without changing notification state",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 928,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "approval-notifications.spec.ts",
+        "title": "opens each addressed review in its queue without changing notification state",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 933,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "renders the review queue",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 295,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "filters by 5 stars with text in two taps, from chips above the list",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 466,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "keeps rating, client and reply status out of the Filters sheet",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 380,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "keeps the venue readable on a 320px phone",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 286,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "keeps the venue readable on a 360px phone",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 287,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "keeps the venue readable on a 390px phone",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 286,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "a server with no AI provider says so up front instead of offering Generate",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 254,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "offers a location filter only when the org has several locations",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 463,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "reviews redirects to inbox and forwards the query string",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 244,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "is free of console and page errors (light)",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 728,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "is axe-clean including structure (light)",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1186,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "is free of console and page errors (dark)",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 726,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "is axe-clean including structure (dark)",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1169,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "a review thumbnail on a Google media host renders under the CSP",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 334,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "a review photo that fails to load shows a placeholder, not a broken image",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 299,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "a tap on a row's tick box ticks it in select mode",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1238,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "a review opens with no head band, the text box first and its tones inside Generate",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 309,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "the review's \u22ef carries Assign\u2026 and No reply needed",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 587,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "a viewer is offered neither",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 371,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "inbox.spec.ts",
+        "title": "a bulk bar that fails to download keeps the list and the selection, and Try again recovers",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1959,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "reads notifications without resolving them, resolves an event and saves preferences",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1605,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "shows operational health with guarded recovery only",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 788,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "schedules a post across a clock change, approves it and shows it in the calendar",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3710,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "schedules a post once, cancels it, and reviews an old post time (P08-R5)",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3192,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "hides bulk changes from an organisation without the bulk_actions feature",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 491,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "prepares, approves and runs a bulk special-hours change with per-listing confirmation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 6830,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "composes a bulk change list by keyboard, re-previews expired listings and shows each receipt",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 11139,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "reports missing Google figures as no data with coverage and fetch provenance",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 834,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "reads notifications without resolving them, resolves an event and saves preferences",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1493,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "shows operational health with guarded recovery only",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 890,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "schedules a post across a clock change, approves it and shows it in the calendar",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3523,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "schedules a post once, cancels it, and reviews an old post time (P08-R5)",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 2648,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "hides bulk changes from an organisation without the bulk_actions feature",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 364,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "prepares, approves and runs a bulk special-hours change with per-listing confirmation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 7272,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "composes a bulk change list by keyboard, re-previews expired listings and shows each receipt",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 11149,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "reports missing Google figures as no data with coverage and fetch provenance",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 788,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "reads notifications without resolving them, resolves an event and saves preferences",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 1446,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "shows operational health with guarded recovery only",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 773,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "schedules a post across a clock change, approves it and shows it in the calendar",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 3162,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "schedules a post once, cancels it, and reviews an old post time (P08-R5)",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 2340,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "hides bulk changes from an organisation without the bulk_actions feature",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 411,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "prepares, approves and runs a bulk special-hours change with per-listing confirmation",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 7358,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "composes a bulk change list by keyboard, re-previews expired listings and shows each receipt",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 11160,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "file": "operations-features.spec.ts",
+        "title": "reports missing Google figures as no data with coverage and fetch provenance",
+        "project": "",
+        "expectedStatus": "passed",
+        "status": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "retry": 0,
+            "durationMs": 791,
+            "errors": 0
+          }
+        ]
+      }
+    ],
+    "rawReport": {
+      "file": "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/G5-inbox-operations-approval-report.json",
+      "bytes": 65485,
+      "sha256": "cca917fdccbe0271844a7be7b9d6a317b9df88f9e9cefe9f62a30c379e415189"
+    }
+  }
+]

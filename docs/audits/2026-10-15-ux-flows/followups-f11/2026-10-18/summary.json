@@ -1,0 +1,333 @@
+{
+  "baseline": "12ccd4fca84d3c1806197fbb0357605a91ad652b",
+  "candidate": "6b4f47d68bf689dfa05586da5dbc3cbfa473a1f9",
+  "G4G5": {
+    "passed": 133,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "touch": 22,
+    "accessibility": 64,
+    "namedSpecs": 47,
+    "attemptsPerCase": 1
+  },
+  "agenticFinal": {
+    "discovered": 4,
+    "selected": 4,
+    "executed": 4,
+    "passed": 4,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 0
+  },
+  "agenticFinalModelCalls": 4,
+  "agenticTotalCallsIncludingFailedJourneys": 8,
+  "screenshots": {
+    "before": 5,
+    "after": 5,
+    "matrix": [
+      "320light",
+      "390light",
+      "1280light",
+      "320dark",
+      "390dark"
+    ]
+  },
+  "audit": {
+    "before": {
+      "pages": 5,
+      "combos": [
+        {
+          "width": 320,
+          "theme": "light"
+        },
+        {
+          "width": 390,
+          "theme": "light"
+        },
+        {
+          "width": 390,
+          "theme": "dark"
+        },
+        {
+          "width": 1280,
+          "theme": "light"
+        },
+        {
+          "width": 1280,
+          "theme": "dark"
+        }
+      ],
+      "totals": {
+        "pages": 5,
+        "loadErrors": 0,
+        "horizontalOverflow": 0,
+        "clippedText": 0,
+        "targetSize": 0,
+        "touchTargetBelow44": 0,
+        "touchBoxBelow44": 0,
+        "iosZoomInputs": 0,
+        "textUnder12": 0,
+        "textUnder14Phone": 48,
+        "axeViolations": 0,
+        "axeNodes": 0,
+        "axeCritical": 0,
+        "axeSerious": 0,
+        "focusObscured": 0,
+        "chromeOver25Pct": 0,
+        "mainLandmarkNot1": 0,
+        "h1Not1": 0,
+        "missingSkipLink": 0,
+        "consoleErrors": 0,
+        "pageErrors": 0
+      },
+      "extremes": {
+        "phoneChromeMaxPct": 19,
+        "smallestTextPx": 12,
+        "maxOverflowPx": 0
+      }
+    },
+    "after": {
+      "pages": 5,
+      "combos": [
+        {
+          "width": 320,
+          "theme": "light"
+        },
+        {
+          "width": 390,
+          "theme": "light"
+        },
+        {
+          "width": 390,
+          "theme": "dark"
+        },
+        {
+          "width": 1280,
+          "theme": "light"
+        },
+        {
+          "width": 1280,
+          "theme": "dark"
+        }
+      ],
+      "totals": {
+        "pages": 5,
+        "loadErrors": 0,
+        "horizontalOverflow": 0,
+        "clippedText": 0,
+        "targetSize": 0,
+        "touchTargetBelow44": 0,
+        "touchBoxBelow44": 0,
+        "iosZoomInputs": 0,
+        "textUnder12": 0,
+        "textUnder14Phone": 48,
+        "axeViolations": 0,
+        "axeNodes": 0,
+        "axeCritical": 0,
+        "axeSerious": 0,
+        "focusObscured": 0,
+        "chromeOver25Pct": 0,
+        "mainLandmarkNot1": 0,
+        "h1Not1": 0,
+        "missingSkipLink": 0,
+        "consoleErrors": 0,
+        "pageErrors": 0
+      },
+      "extremes": {
+        "phoneChromeMaxPct": 19,
+        "smallestTextPx": 12,
+        "maxOverflowPx": 0
+      }
+    }
+  },
+  "baselineFlowClicks": {
+    "approval_requested": 4,
+    "reply_sent_back": 3
+  },
+  "candidateClicksPerNotification": 1,
+  "JS": {
+    "units": "bytes(raw/gzip);KB=bytes/1024",
+    "metricBoundary": "Union of first-load chunks named by the build manifest; Next merges related route manifests, so this is an upper bound. It is not exact served transfer or a latency measurement.",
+    "notifications": {
+      "before": {
+        "raw": 1266512,
+        "gzip": 421453,
+        "count": 55
+      },
+      "after": {
+        "raw": 1267470,
+        "gzip": 421724,
+        "count": 55
+      },
+      "delta": {
+        "raw": 958,
+        "gzip": 271,
+        "count": 0
+      }
+    },
+    "dashboardShell": {
+      "before": {
+        "raw": 1155310,
+        "gzip": 384068
+      },
+      "after": {
+        "raw": 1155312,
+        "gzip": 384045
+      },
+      "delta": {
+        "raw": 2,
+        "gzip": -23
+      }
+    },
+    "baselineCeilings": {
+      "KB": {
+        "chunk": 70,
+        "shared": 400,
+        "route": 560
+      },
+      "beforeExit": 0,
+      "afterExit": 0,
+      "beforeFailures": [],
+      "afterFailures": []
+    },
+    "aspirationalTarget": {
+      "KB": {
+        "chunk": 50,
+        "shared": 250,
+        "route": 400
+      },
+      "beforeExit": 1,
+      "afterExit": 1,
+      "beforeFailures": [
+        "chunk static/chunks/860-4b0af8739ff5b3a5.js 64.8 KB gzip > 50.0",
+        "chunk static/chunks/a3c2aa7f-a0e3c337bc8b2f24.js 61.7 KB gzip > 50.0",
+        "chunk static/chunks/606-6b29c4c8af757ef4.js 52.0 KB gzip > 50.0",
+        "dashboard shell 375.1 KB gzip > 250.0",
+        "route /design-system 512.8 KB gzip > 400.0",
+        "route /settings/connections 509.9 KB gzip > 400.0",
+        "route /settings/privacy 507.9 KB gzip > 400.0",
+        "route /settings/operations 499.2 KB gzip > 400.0",
+        "route /settings/security 496.4 KB gzip > 400.0",
+        "route /clients/[clientId]/settings 496.2 KB gzip > 400.0",
+        "route /settings/billing/confirming 491.0 KB gzip > 400.0",
+        "route /settings/notifications 490.0 KB gzip > 400.0",
+        "route /settings/billing 487.0 KB gzip > 400.0",
+        "route /listings/bulk/[operationId] 484.4 KB gzip > 400.0",
+        "route /inbox 482.4 KB gzip > 400.0",
+        "route /settings/policy 480.1 KB gzip > 400.0",
+        "route /settings/usage 478.3 KB gzip > 400.0",
+        "route /listings/[id]/booking 477.7 KB gzip > 400.0",
+        "route /listings/[id]/changes 477.7 KB gzip > 400.0",
+        "route /listings/[id]/hours 477.7 KB gzip > 400.0",
+        "route /listings/[id]/menu 477.7 KB gzip > 400.0",
+        "route /listings/[id]/people 477.7 KB gzip > 400.0",
+        "route /listings/[id]/photos 477.7 KB gzip > 400.0",
+        "route /listings/[id]/posts 477.7 KB gzip > 400.0",
+        "route /listings/[id]/profile 477.7 KB gzip > 400.0",
+        "route /listings/[id]/suggestions 477.7 KB gzip > 400.0",
+        "route /listings/[id]/verification 477.7 KB gzip > 400.0",
+        "route /reports 477.7 KB gzip > 400.0",
+        "route /listings/[id] 477.7 KB gzip > 400.0",
+        "route /settings 473.5 KB gzip > 400.0",
+        "route /settings/listing 473.5 KB gzip > 400.0",
+        "route /clients/[clientId] 466.2 KB gzip > 400.0",
+        "route /listings/bulk 451.0 KB gzip > 400.0",
+        "route /calendar 444.1 KB gzip > 400.0",
+        "route /share/report/[token] 444.0 KB gzip > 400.0",
+        "route /team 443.1 KB gzip > 400.0",
+        "route /clients/new 440.2 KB gzip > 400.0",
+        "route /setup 431.0 KB gzip > 400.0",
+        "route /invite/[token] 422.6 KB gzip > 400.0",
+        "route /clients 420.8 KB gzip > 400.0",
+        "route /notifications 411.6 KB gzip > 400.0",
+        "route /sign-in/verify 402.7 KB gzip > 400.0"
+      ],
+      "afterFailures": [
+        "chunk static/chunks/860-4b0af8739ff5b3a5.js 64.8 KB gzip > 50.0",
+        "chunk static/chunks/a3c2aa7f-a0e3c337bc8b2f24.js 61.7 KB gzip > 50.0",
+        "chunk static/chunks/606-6b29c4c8af757ef4.js 52.0 KB gzip > 50.0",
+        "dashboard shell 375.0 KB gzip > 250.0",
+        "route /design-system 512.8 KB gzip > 400.0",
+        "route /settings/connections 509.8 KB gzip > 400.0",
+        "route /settings/privacy 507.9 KB gzip > 400.0",
+        "route /settings/operations 499.2 KB gzip > 400.0",
+        "route /settings/security 496.4 KB gzip > 400.0",
+        "route /clients/[clientId]/settings 496.2 KB gzip > 400.0",
+        "route /settings/billing/confirming 491.0 KB gzip > 400.0",
+        "route /settings/notifications 489.9 KB gzip > 400.0",
+        "route /settings/billing 486.9 KB gzip > 400.0",
+        "route /listings/bulk/[operationId] 484.4 KB gzip > 400.0",
+        "route /inbox 482.4 KB gzip > 400.0",
+        "route /settings/policy 480.0 KB gzip > 400.0",
+        "route /settings/usage 478.3 KB gzip > 400.0",
+        "route /listings/[id]/booking 477.7 KB gzip > 400.0",
+        "route /listings/[id]/changes 477.7 KB gzip > 400.0",
+        "route /listings/[id]/hours 477.7 KB gzip > 400.0",
+        "route /listings/[id]/menu 477.7 KB gzip > 400.0",
+        "route /listings/[id]/people 477.7 KB gzip > 400.0",
+        "route /listings/[id]/photos 477.7 KB gzip > 400.0",
+        "route /listings/[id]/posts 477.7 KB gzip > 400.0",
+        "route /listings/[id]/profile 477.7 KB gzip > 400.0",
+        "route /listings/[id]/suggestions 477.7 KB gzip > 400.0",
+        "route /listings/[id]/verification 477.7 KB gzip > 400.0",
+        "route /reports 477.7 KB gzip > 400.0",
+        "route /listings/[id] 477.6 KB gzip > 400.0",
+        "route /settings 473.5 KB gzip > 400.0",
+        "route /settings/listing 473.5 KB gzip > 400.0",
+        "route /clients/[clientId] 466.2 KB gzip > 400.0",
+        "route /listings/bulk 451.0 KB gzip > 400.0",
+        "route /calendar 444.1 KB gzip > 400.0",
+        "route /share/report/[token] 444.0 KB gzip > 400.0",
+        "route /team 443.1 KB gzip > 400.0",
+        "route /clients/new 440.2 KB gzip > 400.0",
+        "route /setup 431.0 KB gzip > 400.0",
+        "route /invite/[token] 422.6 KB gzip > 400.0",
+        "route /clients 420.8 KB gzip > 400.0",
+        "route /notifications 411.8 KB gzip > 400.0",
+        "route /sign-in/verify 402.6 KB gzip > 400.0"
+      ],
+      "beforeCount": 42,
+      "afterCount": 42,
+      "newViolationClasses": [],
+      "resolvedViolationClasses": [],
+      "verdict": "Not met before or after: 42 breaches each (3 chunks, shared shell, 38 routes). No waiver or PASS claim."
+    },
+    "notificationsPageChunk": {
+      "before": {
+        "file": "static/chunks/app/(dashboard)/notifications/page-35d934dd60bec44c.js",
+        "raw": 45786,
+        "gzip": 15884
+      },
+      "after": {
+        "file": "static/chunks/app/(dashboard)/notifications/page-b1a233d7a1badc1c.js",
+        "raw": 46258,
+        "gzip": 16039
+      },
+      "deltaBytes": {
+        "raw": 472,
+        "gzip": 155
+      }
+    }
+  },
+  "visualInspection": "Inspected before 390 light/320 dark and after 390 light/320 dark/1280 light: distinct ClipboardCheck and Undo2 glyphs, readable actions and Open review links; no observed clipping or overlap. Synthetic location markers and tied incident ordering differ between runs, so this is not a pixel-identical or ordering comparison.",
+  "scope": "Local disposable fixtures only. No backend, schema, provider or deployment change. Root owns final C2 unit/integration/type/lint/design/build gates.",
+  "agenticGuards": {
+    "run1": {
+      "unsafe": 0,
+      "offOrigin": 0,
+      "syntheticMediaFulfilled": 0
+    },
+    "run2": {
+      "unsafe": 0,
+      "offOrigin": 0,
+      "syntheticMediaFulfilled": 4
+    },
+    "finalRun3": {
+      "unsafe": 0,
+      "offOrigin": 0,
+      "syntheticMediaFulfilled": 4
+    },
+    "boundary": "Guard counts cover standalone agentic journeys. Project regression suites can mutate only their authorized local synthetic fixtures/stubs."
+  }
+}

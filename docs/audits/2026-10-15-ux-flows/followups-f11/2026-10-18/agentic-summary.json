@@ -1,0 +1,671 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "status": "failed",
+      "exitCode": 1,
+      "runner": {
+        "name": "e2e",
+        "version": "0.15.1"
+      },
+      "summary": {
+        "discovered": 4,
+        "selected": 4,
+        "executed": 4,
+        "passed": 0,
+        "failed": 4,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "cases": [
+        {
+          "target": "mobile390",
+          "title": [
+            "D2 notification review actions in light"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 0,
+          "agentSteps": [],
+          "notificationClicks": [],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toBeVisible failed\nlocator: locator(\"[role=\\\"list\\\"][aria-label=\\\"Notifications\\\"] [data-slot=\\\"list-row-leading\\\"] svg.lucide-clipboard-check\")\nexpected: visible\nobserved: states: hidden (match count 1)"
+            }
+          ]
+        },
+        {
+          "target": "desktop1280",
+          "title": [
+            "D2 notification review actions in light"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 0,
+          "agentSteps": [],
+          "notificationClicks": [],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toBeVisible failed\nlocator: locator(\"[role=\\\"list\\\"][aria-label=\\\"Notifications\\\"] [data-slot=\\\"list-row-leading\\\"] svg.lucide-clipboard-check\")\nexpected: visible\nobserved: states: hidden (match count 1)"
+            }
+          ]
+        },
+        {
+          "target": "mobile390",
+          "title": [
+            "D2 notification review actions in dark"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 0,
+          "agentSteps": [],
+          "notificationClicks": [],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toBeVisible failed\nlocator: locator(\"[role=\\\"list\\\"][aria-label=\\\"Notifications\\\"] [data-slot=\\\"list-row-leading\\\"] svg.lucide-clipboard-check\")\nexpected: visible\nobserved: states: hidden (match count 1)"
+            }
+          ]
+        },
+        {
+          "target": "desktop1280",
+          "title": [
+            "D2 notification review actions in dark"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 0,
+          "agentSteps": [],
+          "notificationClicks": [],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toBeVisible failed\nlocator: locator(\"[role=\\\"list\\\"][aria-label=\\\"Notifications\\\"] [data-slot=\\\"list-row-leading\\\"] svg.lucide-clipboard-check\")\nexpected: visible\nobserved: states: hidden (match count 1)"
+            }
+          ]
+        }
+      ],
+      "actualModelCalls": 0,
+      "startedAt": "2026-10-18T10:56:19.158Z",
+      "finishedAt": "2026-10-18T10:56:41.726Z",
+      "rawReport": {
+        "file": "/private/tmp/ama46-finish-20261018/qa-harness/.e2e/6b4f47d68bf6-run1/report.json",
+        "bytes": 50049,
+        "sha256": "55122d5d13153cc4513031aeeb5fb211a849218103b5d51100398674d9470804"
+      },
+      "guardEvidence": {
+        "sourceFile": "/private/tmp/ama46-finish-20261018/qa-harness/guard-counts.jsonl",
+        "sourceSha256": "f6a4fdabbc92c5a0417eb616336f1594d5e76aa1234a554ad9f2a63563940061",
+        "lineStart": 1,
+        "lineEnd": 4,
+        "mapping": "Four records per sequential run; one worker and the same four case order; source rows have theme and counters, no session data.",
+        "records": [
+          {
+            "theme": "light",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 0
+          },
+          {
+            "theme": "dark",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 0
+          },
+          {
+            "theme": "light",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 0
+          },
+          {
+            "theme": "dark",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 0
+          }
+        ],
+        "totals": {
+          "unsafe": 0,
+          "offOrigin": 0,
+          "syntheticMediaFulfilled": 0
+        }
+      }
+    },
+    {
+      "run": 2,
+      "status": "failed",
+      "exitCode": 1,
+      "runner": {
+        "name": "e2e",
+        "version": "0.15.1"
+      },
+      "summary": {
+        "discovered": 4,
+        "selected": 4,
+        "executed": 4,
+        "passed": 0,
+        "failed": 4,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "cases": [
+        {
+          "target": "mobile390",
+          "title": [
+            "D2 notification review actions in light"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 2526,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1271,
+                "outputTokens": 53,
+                "peakTokensPerCall": 1324,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            }
+          ],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toContainText failed\nlocator: locator(\"[role=\\\"region\\\"][aria-label=\\\"Selected review\\\"]\")\nexpected: text containing \"Sprint 5 journey review\"\nobserved: no node (match count 0)"
+            }
+          ]
+        },
+        {
+          "target": "desktop1280",
+          "title": [
+            "D2 notification review actions in light"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 3212,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1459,
+                "outputTokens": 53,
+                "peakTokensPerCall": 1512,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            }
+          ],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toContainText failed\nlocator: locator(\"[role=\\\"region\\\"][aria-label=\\\"Selected review\\\"]\")\nexpected: text containing \"Sprint 5 journey review\"\nobserved: no node (match count 0)"
+            }
+          ]
+        },
+        {
+          "target": "mobile390",
+          "title": [
+            "D2 notification review actions in dark"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 2526,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1271,
+                "outputTokens": 52,
+                "peakTokensPerCall": 1323,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            }
+          ],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toContainText failed\nlocator: locator(\"[role=\\\"region\\\"][aria-label=\\\"Selected review\\\"]\")\nexpected: text containing \"Sprint 5 journey review\"\nobserved: no node (match count 0)"
+            }
+          ]
+        },
+        {
+          "target": "desktop1280",
+          "title": [
+            "D2 notification review actions in dark"
+          ],
+          "status": "failed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 3212,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1459,
+                "outputTokens": 52,
+                "peakTokensPerCall": 1511,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            }
+          ],
+          "errors": [
+            {
+              "code": "ASSERTION_FAILED",
+              "message": "expect.toContainText failed\nlocator: locator(\"[role=\\\"region\\\"][aria-label=\\\"Selected review\\\"]\")\nexpected: text containing \"Sprint 5 journey review\"\nobserved: no node (match count 0)"
+            }
+          ]
+        }
+      ],
+      "actualModelCalls": 4,
+      "startedAt": "2026-10-18T10:57:56.388Z",
+      "finishedAt": "2026-10-18T10:58:32.939Z",
+      "rawReport": {
+        "file": "/private/tmp/ama46-finish-20261018/qa-harness/.e2e/6b4f47d68bf6-run2/report.json",
+        "bytes": 75562,
+        "sha256": "468688cb55171e4950d19a459baec12f347759d5d34e9e62d069e7f8a019fb8b"
+      },
+      "guardEvidence": {
+        "sourceFile": "/private/tmp/ama46-finish-20261018/qa-harness/guard-counts.jsonl",
+        "sourceSha256": "f6a4fdabbc92c5a0417eb616336f1594d5e76aa1234a554ad9f2a63563940061",
+        "lineStart": 5,
+        "lineEnd": 8,
+        "mapping": "Four records per sequential run; one worker and the same four case order; source rows have theme and counters, no session data.",
+        "records": [
+          {
+            "theme": "light",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          },
+          {
+            "theme": "dark",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          },
+          {
+            "theme": "light",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          },
+          {
+            "theme": "dark",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          }
+        ],
+        "totals": {
+          "unsafe": 0,
+          "offOrigin": 0,
+          "syntheticMediaFulfilled": 4
+        }
+      }
+    },
+    {
+      "run": 3,
+      "status": "passed",
+      "exitCode": 0,
+      "runner": {
+        "name": "e2e",
+        "version": "0.15.1"
+      },
+      "summary": {
+        "discovered": 4,
+        "selected": 4,
+        "executed": 4,
+        "passed": 4,
+        "failed": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "cases": [
+        {
+          "target": "mobile390",
+          "title": [
+            "D2 notification review actions in light"
+          ],
+          "status": "passed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 2526,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1279,
+                "outputTokens": 53,
+                "peakTokensPerCall": 1332,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            },
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Reply sent back\")",
+              "status": "passed"
+            }
+          ],
+          "errors": []
+        },
+        {
+          "target": "desktop1280",
+          "title": [
+            "D2 notification review actions in light"
+          ],
+          "status": "passed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 3212,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1471,
+                "outputTokens": 56,
+                "peakTokensPerCall": 1527,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            },
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Reply sent back\")",
+              "status": "passed"
+            }
+          ],
+          "errors": []
+        },
+        {
+          "target": "mobile390",
+          "title": [
+            "D2 notification review actions in dark"
+          ],
+          "status": "passed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 2526,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1279,
+                "outputTokens": 63,
+                "peakTokensPerCall": 1342,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            },
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Reply sent back\")",
+              "status": "passed"
+            }
+          ],
+          "errors": []
+        },
+        {
+          "target": "desktop1280",
+          "title": [
+            "D2 notification review actions in dark"
+          ],
+          "status": "passed",
+          "attempts": 1,
+          "actualModelCalls": 1,
+          "agentSteps": [
+            {
+              "api": "agent.assert",
+              "status": "passed",
+              "metrics": {
+                "modelCalls": 1,
+                "actionSteps": 0,
+                "observationBytes": 3212,
+                "contextBytes": 0,
+                "ledgerBytes": 0
+              },
+              "model": {
+                "provider": "chatgpt.responses",
+                "model": "gpt-6-luna",
+                "endpoint": "provider-default",
+                "adapterVersion": "ai-sdk/0.15.1",
+                "policyVersion": "policy-0.3",
+                "calls": 1,
+                "tokenAccounting": "provider",
+                "inputTokens": 1471,
+                "outputTokens": 52,
+                "peakTokensPerCall": 1523,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            }
+          ],
+          "notificationClicks": [
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Approval requested\")",
+              "status": "passed"
+            },
+            {
+              "api": "locator.click",
+              "label": "getByRole(\"link\", name: \"Open review for Reply sent back\")",
+              "status": "passed"
+            }
+          ],
+          "errors": []
+        }
+      ],
+      "actualModelCalls": 4,
+      "startedAt": "2026-10-18T10:59:42.783Z",
+      "finishedAt": "2026-10-18T10:59:56.064Z",
+      "rawReport": {
+        "file": "/private/tmp/ama46-finish-20261018/qa-harness/.e2e/6b4f47d68bf6-run3/report.json",
+        "bytes": 86369,
+        "sha256": "562197f5dc7ce811b3b309e9c463becf25950f54160da48e84c1b44da498efeb"
+      },
+      "guardEvidence": {
+        "sourceFile": "/private/tmp/ama46-finish-20261018/qa-harness/guard-counts.jsonl",
+        "sourceSha256": "f6a4fdabbc92c5a0417eb616336f1594d5e76aa1234a554ad9f2a63563940061",
+        "lineStart": 9,
+        "lineEnd": 12,
+        "mapping": "Four records per sequential run; one worker and the same four case order; source rows have theme and counters, no session data.",
+        "records": [
+          {
+            "theme": "light",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          },
+          {
+            "theme": "dark",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          },
+          {
+            "theme": "light",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          },
+          {
+            "theme": "dark",
+            "unsafe": 0,
+            "offOrigin": 0,
+            "syntheticMediaFulfilled": 1
+          }
+        ],
+        "totals": {
+          "unsafe": 0,
+          "offOrigin": 0,
+          "syntheticMediaFulfilled": 4
+        }
+      }
+    }
+  ],
+  "actualModelCallsTotal": 8,
+  "cache": "off",
+  "retries": 0,
+  "workers": 1,
+  "trace": "off",
+  "video": "off",
+  "finalAssertions": "Both decorative glyphs exactlypresent, CSS-visible and nonzero bounds; visible labels/Openreviewhrefs; livevisualassertion; eachsinglelinkclick reaches exactselectedreviewURL with reviewtextinside semantic Selectedreviewregion.",
+  "guardCountsRawSource": "/private/tmp/ama46-finish-20261018/qa-harness/guard-counts.jsonl",
+  "guardCountsSourceSha256": "f6a4fdabbc92c5a0417eb616336f1594d5e76aa1234a554ad9f2a63563940061"
+}

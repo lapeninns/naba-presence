@@ -9,6 +9,7 @@ import {
   CalendarX2,
   CircleAlert,
   CircleHelp,
+  ClipboardCheck,
   ClockAlert,
   KeyRound,
   Layers,
@@ -16,6 +17,7 @@ import {
   RefreshCw,
   Settings2Icon,
   Star,
+  Undo2,
   Unlink,
   UserRoundX,
   type LucideIcon,
@@ -42,6 +44,7 @@ import {
   NOTIFICATION_EVENT_LABELS,
   type NotificationEventKind,
 } from "@/lib/domain/notification-preferences"
+import { reviewNotificationPath } from "@/lib/notifications/links"
 import {
   applyPendingChanges,
   cachedRowStates,
@@ -86,6 +89,8 @@ const KIND_ICONS: Partial<Record<NotificationEventKind, LucideIcon>> = {
   connection_owner_left: UserRoundX,
   listing_stale: ClockAlert,
   low_rating_review: Star,
+  approval_requested: ClipboardCheck,
+  reply_sent_back: Undo2,
   publication_failed: CircleAlert,
   publication_unresolved: CircleHelp,
   mutation_unconfirmed: CircleHelp,
@@ -424,6 +429,7 @@ function NotificationRow({
 }) {
   const copy = NOTIFICATION_EVENT_LABELS[item.kind]
   const Icon = KIND_ICONS[item.kind] ?? Bell
+  const reviewHref = reviewNotificationPath(item.kind, item.summary)
   const unread = !item.readAt
   const title =
     typeof item.summary.title === "string"
@@ -525,7 +531,15 @@ function NotificationRow({
           // Ghost buttons pulled back by their own padding, so their words
           // line up with the text column.
           <div key="actions" className="-ms-2.5 flex min-w-0 flex-wrap gap-1">
-            {item.locationId ? (
+            {reviewHref ? (
+              <Link
+                href={reviewHref}
+                className={cn(buttonVariants({ variant: "ghost" }))}
+                aria-label={`Open review for ${copy.label}`}
+              >
+                Open review
+              </Link>
+            ) : item.locationId ? (
               <Link
                 href={`/listings/${item.locationId}`}
                 className={cn(buttonVariants({ variant: "ghost" }))}

@@ -1,0 +1,664 @@
+{
+  "baselineInitial": [
+    {
+      "name": "install",
+      "args": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "exit": 0,
+      "seconds": 3.828030824661255
+    },
+    {
+      "name": "build",
+      "args": [
+        "pnpm",
+        "build"
+      ],
+      "exit": 0,
+      "seconds": 73.21455883979797
+    },
+    {
+      "name": "db-start",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "start"
+      ],
+      "exit": 0,
+      "seconds": 0.843425989151001
+    },
+    {
+      "name": "migrate",
+      "args": [
+        "pnpm",
+        "db:migrate"
+      ],
+      "exit": 0,
+      "seconds": 0.8610377311706543
+    },
+    {
+      "name": "runtime-role",
+      "args": [
+        "pnpm",
+        "db:runtime-role"
+      ],
+      "exit": 0,
+      "seconds": 0.2674570083618164
+    },
+    {
+      "name": "db-status",
+      "args": [
+        "pnpm",
+        "db:status",
+        "--expect-current"
+      ],
+      "exit": 0,
+      "seconds": 0.27457618713378906
+    },
+    {
+      "name": "baseline-harness",
+      "args": [
+        "node",
+        "tests/visual/nm-serve.mjs",
+        "--port",
+        "3220",
+        "--stub-port",
+        "3221",
+        "--log",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline/logs/app.log",
+        "--",
+        "node",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-tasks.mjs"
+      ],
+      "exit": 1,
+      "seconds": 1.4778790473937988
+    },
+    {
+      "name": "db-stop",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "stop"
+      ],
+      "exit": 0,
+      "seconds": 0.22848010063171387
+    }
+  ],
+  "baselineCapturesAndBundles": [
+    {
+      "name": "seed",
+      "args": [
+        "node",
+        "/private/tmp/ama46-finish-20261018/qa-harness/seed-notifications.mjs"
+      ],
+      "exit": 0,
+      "seconds": 0.067
+    },
+    {
+      "name": "shoot-light",
+      "args": [
+        "node",
+        "tests/visual/shoot.mjs",
+        "--base",
+        "http://127.0.0.1:3220",
+        "--route",
+        "/notifications",
+        "--widths",
+        "320,390,1280",
+        "--height",
+        "844",
+        "--theme",
+        "light",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/screenshots",
+        "--name",
+        "notifications"
+      ],
+      "exit": 0,
+      "seconds": 6.71
+    },
+    {
+      "name": "shoot-dark",
+      "args": [
+        "node",
+        "tests/visual/shoot.mjs",
+        "--base",
+        "http://127.0.0.1:3220",
+        "--route",
+        "/notifications",
+        "--widths",
+        "320,390",
+        "--height",
+        "844",
+        "--theme",
+        "dark",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/screenshots",
+        "--name",
+        "notifications"
+      ],
+      "exit": 0,
+      "seconds": 4.293
+    },
+    {
+      "name": "mobile-audit",
+      "args": [
+        "pnpm",
+        "audit:mobile",
+        "--base",
+        "http://127.0.0.1:3220",
+        "--routes",
+        "/notifications",
+        "--combos",
+        "320:light,390:light,390:dark,1280:light,1280:dark",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/mobile-audit"
+      ],
+      "exit": 0,
+      "seconds": 5.719
+    },
+    {
+      "name": "route-js",
+      "args": [
+        "node",
+        "tests/perf/route-js.mjs",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/route-js"
+      ],
+      "exit": 0,
+      "seconds": 0.287
+    },
+    {
+      "name": "route-js-baseline-ceilings",
+      "args": [
+        "node",
+        "tests/perf/route-js.mjs",
+        "--max-chunk",
+        "70",
+        "--max-shared",
+        "400",
+        "--max-route",
+        "560",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/route-js-baseline-ceilings"
+      ],
+      "exit": 0,
+      "seconds": 0.211
+    },
+    {
+      "name": "route-js-target-ceilings",
+      "args": [
+        "node",
+        "tests/perf/route-js.mjs",
+        "--max-chunk",
+        "50",
+        "--max-shared",
+        "250",
+        "--max-route",
+        "400",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-run2/route-js-target-ceilings"
+      ],
+      "exit": 1,
+      "seconds": 0.216
+    }
+  ],
+  "baselineFlowFinal": [
+    {
+      "name": "db-start",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "start"
+      ],
+      "exit": 0,
+      "seconds": 0.6506459712982178
+    },
+    {
+      "name": "migrate",
+      "args": [
+        "pnpm",
+        "db:migrate"
+      ],
+      "exit": 0,
+      "seconds": 0.5866379737854004
+    },
+    {
+      "name": "runtime-role",
+      "args": [
+        "pnpm",
+        "db:runtime-role"
+      ],
+      "exit": 0,
+      "seconds": 0.19029927253723145
+    },
+    {
+      "name": "db-status",
+      "args": [
+        "pnpm",
+        "db:status",
+        "--expect-current"
+      ],
+      "exit": 0,
+      "seconds": 0.19083809852600098
+    },
+    {
+      "name": "baseline-harness",
+      "args": [
+        "node",
+        "tests/visual/nm-serve.mjs",
+        "--port",
+        "3220",
+        "--stub-port",
+        "3221",
+        "--log",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-flow-run4/logs/app.log",
+        "--",
+        "node",
+        "/private/tmp/ama46-finish-20261018/qa-harness/baseline-flow-only-run4.mjs"
+      ],
+      "exit": 0,
+      "seconds": 6.084172010421753
+    },
+    {
+      "name": "db-stop",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "stop"
+      ],
+      "exit": 0,
+      "seconds": 0.23421406745910645
+    }
+  ],
+  "candidateGates": [
+    {
+      "name": "build",
+      "args": [
+        "pnpm",
+        "build"
+      ],
+      "exit": 0,
+      "seconds": 71.33387613296509
+    },
+    {
+      "name": "G4-touch-collection",
+      "args": [
+        "pnpm",
+        "test:e2e:touch",
+        "--list",
+        "--reporter=json"
+      ],
+      "exit": 0,
+      "seconds": 1.479588270187378
+    },
+    {
+      "name": "G4-touch",
+      "args": [
+        "pnpm",
+        "test:e2e:touch",
+        "--reporter=list,json",
+        "--workers=1",
+        "--retries=0",
+        "--output",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/G4-touch/artifacts"
+      ],
+      "exit": 0,
+      "seconds": 59.33377695083618
+    },
+    {
+      "name": "G4-a11y-collection",
+      "args": [
+        "pnpm",
+        "test:a11y",
+        "--list",
+        "--reporter=json"
+      ],
+      "exit": 0,
+      "seconds": 0.6295187473297119
+    },
+    {
+      "name": "G4-a11y",
+      "args": [
+        "pnpm",
+        "test:a11y",
+        "--reporter=list,json",
+        "--workers=1",
+        "--retries=0",
+        "--output",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/G4-a11y/artifacts"
+      ],
+      "exit": 0,
+      "seconds": 91.22715210914612
+    },
+    {
+      "name": "G5-inbox-operations-approval-collection",
+      "args": [
+        "pnpm",
+        "test:e2e",
+        "tests/e2e/inbox.spec.ts",
+        "tests/e2e/operations-features.spec.ts",
+        "tests/e2e/approval-notifications.spec.ts",
+        "--list",
+        "--reporter=json"
+      ],
+      "exit": 0,
+      "seconds": 0.7467079162597656
+    },
+    {
+      "name": "G5-inbox-operations-approval",
+      "args": [
+        "pnpm",
+        "test:e2e",
+        "tests/e2e/inbox.spec.ts",
+        "tests/e2e/operations-features.spec.ts",
+        "tests/e2e/approval-notifications.spec.ts",
+        "--reporter=list,json",
+        "--workers=1",
+        "--retries=0",
+        "--output",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/G5-inbox-operations-approval/artifacts"
+      ],
+      "exit": 0,
+      "seconds": 102.00325512886047
+    },
+    {
+      "name": "after-harness",
+      "args": [
+        "node",
+        "tests/visual/nm-serve.mjs",
+        "--port",
+        "3220",
+        "--stub-port",
+        "3221",
+        "--log",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/logs/app.log",
+        "--",
+        "node",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-tasks.mjs"
+      ],
+      "exit": 1,
+      "seconds": 41.10010290145874
+    }
+  ],
+  "candidateCapturesAndBundles": [
+    {
+      "name": "seed",
+      "args": [
+        "node",
+        "/private/tmp/ama46-finish-20261018/qa-harness/seed-notifications.mjs"
+      ],
+      "exit": 0,
+      "seconds": 0.051
+    },
+    {
+      "name": "shoot-light",
+      "args": [
+        "node",
+        "tests/visual/shoot.mjs",
+        "--base",
+        "http://127.0.0.1:3220",
+        "--route",
+        "/notifications",
+        "--widths",
+        "320,390,1280",
+        "--height",
+        "844",
+        "--theme",
+        "light",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/screenshots",
+        "--name",
+        "notifications"
+      ],
+      "exit": 0,
+      "seconds": 6.248
+    },
+    {
+      "name": "shoot-dark",
+      "args": [
+        "node",
+        "tests/visual/shoot.mjs",
+        "--base",
+        "http://127.0.0.1:3220",
+        "--route",
+        "/notifications",
+        "--widths",
+        "320,390",
+        "--height",
+        "844",
+        "--theme",
+        "dark",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/screenshots",
+        "--name",
+        "notifications"
+      ],
+      "exit": 0,
+      "seconds": 4.164
+    },
+    {
+      "name": "mobile-audit",
+      "args": [
+        "pnpm",
+        "audit:mobile",
+        "--base",
+        "http://127.0.0.1:3220",
+        "--routes",
+        "/notifications",
+        "--combos",
+        "320:light,390:light,390:dark,1280:light,1280:dark",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/mobile-audit"
+      ],
+      "exit": 0,
+      "seconds": 4.996
+    },
+    {
+      "name": "route-js",
+      "args": [
+        "node",
+        "tests/perf/route-js.mjs",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/route-js"
+      ],
+      "exit": 0,
+      "seconds": 0.147
+    },
+    {
+      "name": "route-js-baseline-ceilings",
+      "args": [
+        "node",
+        "tests/perf/route-js.mjs",
+        "--max-chunk",
+        "70",
+        "--max-shared",
+        "400",
+        "--max-route",
+        "560",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/route-js-baseline-ceilings"
+      ],
+      "exit": 0,
+      "seconds": 0.137
+    },
+    {
+      "name": "route-js-target-ceilings",
+      "args": [
+        "node",
+        "tests/perf/route-js.mjs",
+        "--max-chunk",
+        "50",
+        "--max-shared",
+        "250",
+        "--max-route",
+        "400",
+        "--out",
+        "/private/tmp/ama46-finish-20261018/qa-harness/after-6b4f47d68bf6/route-js-target-ceilings"
+      ],
+      "exit": 1,
+      "seconds": 0.138
+    },
+    {
+      "name": "agentic",
+      "args": [
+        "pnpm",
+        "exec",
+        "e2e",
+        "run",
+        "tests/notifications.e2e.ts",
+        "--config",
+        "e2e.config.ts",
+        "--workers",
+        "1",
+        "--retries",
+        "0",
+        "--no-cache",
+        "--trace=off",
+        "--video=off",
+        "--output",
+        ".e2e/6b4f47d68bf6-run1"
+      ],
+      "exit": 1,
+      "seconds": 24.178
+    }
+  ],
+  "agenticRun2": [
+    {
+      "name": "db-start",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "start"
+      ],
+      "exit": 0,
+      "seconds": 0.6328029632568359
+    },
+    {
+      "name": "migrate",
+      "args": [
+        "pnpm",
+        "db:migrate"
+      ],
+      "exit": 0,
+      "seconds": 0.6205687522888184
+    },
+    {
+      "name": "runtime-role",
+      "args": [
+        "pnpm",
+        "db:runtime-role"
+      ],
+      "exit": 0,
+      "seconds": 0.19893789291381836
+    },
+    {
+      "name": "db-status",
+      "args": [
+        "pnpm",
+        "db:status",
+        "--expect-current"
+      ],
+      "exit": 0,
+      "seconds": 0.19036388397216797
+    },
+    {
+      "name": "agentic-harness",
+      "args": [
+        "node",
+        "tests/visual/nm-serve.mjs",
+        "--port",
+        "3220",
+        "--stub-port",
+        "3221",
+        "--log",
+        "/private/tmp/ama46-finish-20261018/qa-harness/agentic-run2/logs/app.log",
+        "--",
+        "node",
+        "/private/tmp/ama46-finish-20261018/qa-harness/agentic-only-tasks.mjs"
+      ],
+      "exit": 1,
+      "seconds": 40.275553941726685
+    },
+    {
+      "name": "db-stop",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "stop"
+      ],
+      "exit": 0,
+      "seconds": 0.20755982398986816
+    }
+  ],
+  "agenticRun3": [
+    {
+      "name": "db-start",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "start"
+      ],
+      "exit": 0,
+      "seconds": 0.751755952835083
+    },
+    {
+      "name": "migrate",
+      "args": [
+        "pnpm",
+        "db:migrate"
+      ],
+      "exit": 0,
+      "seconds": 0.7670581340789795
+    },
+    {
+      "name": "runtime-role",
+      "args": [
+        "pnpm",
+        "db:runtime-role"
+      ],
+      "exit": 0,
+      "seconds": 0.23395705223083496
+    },
+    {
+      "name": "db-status",
+      "args": [
+        "pnpm",
+        "db:status",
+        "--expect-current"
+      ],
+      "exit": 0,
+      "seconds": 0.2253551483154297
+    },
+    {
+      "name": "agentic-harness",
+      "args": [
+        "node",
+        "tests/visual/nm-serve.mjs",
+        "--port",
+        "3220",
+        "--stub-port",
+        "3221",
+        "--log",
+        "/private/tmp/ama46-finish-20261018/qa-harness/agentic-run3/logs/app.log",
+        "--",
+        "node",
+        "/private/tmp/ama46-finish-20261018/qa-harness/agentic-only-tasks-run3.mjs"
+      ],
+      "exit": 0,
+      "seconds": 16.161561727523804
+    },
+    {
+      "name": "db-stop",
+      "args": [
+        "node",
+        "scripts/ci/postgres.mjs",
+        "stop"
+      ],
+      "exit": 0,
+      "seconds": 0.2293550968170166
+    }
+  ]
+}

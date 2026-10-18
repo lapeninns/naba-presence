@@ -1,0 +1,10 @@
+{
+  "base": "http://127.0.0.1:3220",
+  "pid": "68113",
+  "cwd": "p68113\nfcwd\nn/Users/amankumarshrestha/LapenInns Project/platform/naba-presence-redesign/codex-ama46-finish-20261018/.next/standalone\n",
+  "buildId": "T4Ofu8u8keLa-fmZnJACI",
+  "standaloneServerSha256": "6df5dc25b7076b207bfb6aceb0b4333f6452bffbf7c5dcc0207a297578c3bb12",
+  "buildProvenance": "build-provenance.json",
+  "sha": "6b4f47d68bf689dfa05586da5dbc3cbfa473a1f9",
+  "chromium": "Google Chrome for Testing 156.0.8078.4"
+}

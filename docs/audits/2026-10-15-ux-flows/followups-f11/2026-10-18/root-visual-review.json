@@ -1,0 +1,43 @@
+{
+  "reviewedAt": "2026-10-18T10:57:35.918611+00:00",
+  "candidate": "6b4f47d68bf689dfa05586da5dbc3cbfa473a1f9",
+  "baseline": "12ccd4fca84d3c1806197fbb0357605a91ad652b",
+  "method": "Root visually inspected original PNG pixels using view_image; no image editing",
+  "files": [
+    {
+      "path": "baseline-run2/screenshots/notifications-chromium-light-390.png",
+      "sha256": "56e8a1c30fbc07f93e9afe76e98c84a12772a24e19106a18389b22be5957383c"
+    },
+    {
+      "path": "after-6b4f47d68bf6/screenshots/notifications-chromium-light-390.png",
+      "sha256": "284f934e32dd48b30d3702d75ec1332fa7b2cd8a54c021845040f5b4c5be8d35"
+    },
+    {
+      "path": "baseline-run2/screenshots/notifications-chromium-light-1280.png",
+      "sha256": "41e1f276f49bc2e8915e2c8f06b241f74262fe7dd5877ed93d81433de0ec2e23"
+    },
+    {
+      "path": "after-6b4f47d68bf6/screenshots/notifications-chromium-light-1280.png",
+      "sha256": "226576896bb93460e25536103c4a590ddec541da107fbe05c6f9c95fedbb0047"
+    },
+    {
+      "path": "after-6b4f47d68bf6/screenshots/notifications-chromium-dark-320.png",
+      "sha256": "7fa5e238c0bfb472b41cb2b57eff95763731b677cbedfa8849409f2bfc4412ab"
+    },
+    {
+      "path": "after-6b4f47d68bf6/screenshots/notifications-chromium-dark-390.png",
+      "sha256": "e69f86acfdaf775fafc07c9adef69af96e85fa03e2ffc902263cc73ee5e239a1"
+    }
+  ],
+  "findings": [],
+  "observations": [
+    "Both baseline rows show Bell and Open listing; candidate rows visibly show ClipboardCheck/Undo2 and Open review.",
+    "390px light and dark, 320px dark, and1280px light layouts have legible labels, preserved row/actions alignment and no visible clipped content or overlapping controls.",
+    "320px dark title/settings and summaries reflow onto extra lines while row actions remain visible.",
+    "Fixture identifiers and equal-timestamp row ordering differ between before/after; comparison matches rows by kind, not position. No source sort/order change."
+  ],
+  "limits": [
+    "Static screenshots establish visible layout/glyphs only; no focused-control screenshot or focus-ring behavior claim.",
+    "Other screenshot variants are left to separate independent evidence review."
+  ]
+}

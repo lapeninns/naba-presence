@@ -1,0 +1,46 @@
+{
+  "sha": "6b4f47d68bf689dfa05586da5dbc3cbfa473a1f9",
+  "checkout": "/Users/amankumarshrestha/LapenInns Project/platform/naba-presence-redesign/codex-ama46-finish-20261018",
+  "capturedAt": 1792320844.167685,
+  "buildId": "T4Ofu8u8keLa-fmZnJACI",
+  "buildIdFile": {
+    "sha256": "4bb88fd1455425a1960075a1ad547927caf24e945cabe542d00550dec2e45baa",
+    "mtime": 1792320682.1760867,
+    "bytes": 21
+  },
+  "standaloneServer": {
+    "sha256": "6df5dc25b7076b207bfb6aceb0b4333f6452bffbf7c5dcc0207a297578c3bb12",
+    "mtime": 1792320704.7047968,
+    "bytes": 9008
+  },
+  "buildLog": {
+    "sha256": "6a7dd240edd4eb9443e311c60df3c81b8a1289f76e86d82f89ebfd2b3dfe6a2d",
+    "mtime": 1792320704.87827,
+    "bytes": 8843
+  },
+  "command": [
+    "pnpm",
+    "build"
+  ],
+  "exit": 0,
+  "toolchain": {
+    "node": "24.18.0",
+    "pnpm": "10.34.5",
+    "postgres": "17.11"
+  },
+  "sourceHashes": {
+    "package.json": "683c10ef19993f33fcb3e75d2318417cfddb643cae73daf744a9b063c6e68a21",
+    "pnpm-lock.yaml": "a46c693a846d5fd8419084db97ff2acc985b49fdd381ca300f431c8f6b8fe20b",
+    "next.config.ts": "f240a040b5c0a58faf7fc1f50d150d1b50abff6f21fc751bf1a6be6ced18d3d9",
+    "scripts/prepare-standalone.mjs": "7d0cf401043e0a507c7c55a23f30e8e39a090ab00f2dda016af7b4d392f2a3de",
+    "tests/visual/nm-serve.mjs": "a0a6b18c679d8ba7c3321fd61b13c243e21f44f79c62c1255aec2335dd7120ac",
+    "tests/visual/shoot.mjs": "3ac1e1971a5a14328825824d9f4395a7aca5c92d68aac59b70b0a7a1dfe3228f",
+    "tests/visual/mobile-audit.mjs": "2f6923e002c7ef0a828b07acd14bc6eb4ce7f866b52c7c5689c3d89aecdd59d4",
+    "tests/visual/mobile-audit-lib.mjs": "ad035c815f2297f8fca3de69b957456369273adcf1c5ec801b7de8e3bee2e251",
+    "tests/perf/route-js.mjs": "2d06e6b84d6b0344f15a7bd2e760f1ecc6334ae3c9ec1bd523c63b1d572507a9",
+    "tests/perf/budgets-baseline.json": "92f736cadf865db368bc2e2d40c7290ce74b7e38ec351e50e9fcb2215d4678b5",
+    "tests/perf/budgets.json": "f1cf03b46cfe1d01f24fb07af69704841264957760d1232d9c28e47a5cab0ca8",
+    "components/notifications/notifications-view.tsx": "1772773d609b7862da13e869f892c2decd195a069dbc05d01ee99aa8bc7280f4",
+    "tests/e2e/approval-notifications.spec.ts": "3b29749a84e16e47572c1357ddf4d489be8b8b7e92f2c15769bb689cbd64f1a2"
+  }
+}

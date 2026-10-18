@@ -1,0 +1,18 @@
+{
+  "ports": {
+    "3220": 1,
+    "3221": 1,
+    "53383": 1
+  },
+  "allPortsFree": true,
+  "pgRemoved": true,
+  "ownLockRemoved": true,
+  "trackedStatus": "",
+  "head": "6b4f47d68bf689dfa05586da5dbc3cbfa473a1f9",
+  "at": 1792321197.650481,
+  "standaloneProcessesRemaining": [],
+  "canonicalLockAbsent": true,
+  "candidateIgnoredStateLinkAbsent": true,
+  "baselineIgnoredStateLinkAbsent": true,
+  "checkedAt": 1792321322.578581
+}
