@@ -134,7 +134,10 @@ for (const width of [390, 1280]) {
     const recipes = [
       ["Input", page.locator('[data-slot="input"]').first()],
       ["Textarea", page.locator('[data-slot="textarea"]').first()],
-      ["SearchInput", page.locator('input[type="search"]')],
+      [
+        "SearchInput",
+        page.getByRole("searchbox", { name: "Search", exact: true }),
+      ],
       ["SelectTrigger", page.locator('[data-slot="select-trigger"]').first()],
       [
         "ValidationSummary",
