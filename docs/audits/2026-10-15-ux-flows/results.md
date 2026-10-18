@@ -269,7 +269,7 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | SET-15 | P2 | Retention is a mono number spinner | P16 | #141 (15 Oct) | fixed | `components/settings/policy-form.tsx:647-669` `Select` of presets, "How long we keep review text" |
 | SET-16 | P2 | "Sidebar" copy; approval said 3 times (incl. DSK-19) | P16 | #141 (15 Oct) | fixed | `policy-form.tsx:553`, `agency-name-form.tsx:139` "at the top of the app"; `policy-form.tsx:595-610` one `Alert` per branch |
 | SET-17 | P2 | Invitation page hides the role | P19b | #176 (15 Oct), #184 (15 Oct, test) | fixed | `app/api/invitations/[token]/route.ts:52-72` role and expiry for a live invite only (410/409 with no details); `components/auth/invitation-view.tsx:69-90` Role and Link expires rows (D8) |
-| SET-18 | P2 | Confirm password and composition rules | P19b | #176 (15 Oct) | fixed | `lib/domain/auth.ts:25-38` length 12–128 code points only (D9); `components/auth/password-requirements.tsx:12-21` one rule; `sign-in-form.tsx:439-450` and `reset-password-form.tsx:204` one `PasswordField` each. Breached-password check is an owner follow-up (D9) |
+| SET-18 | P2 | Confirm password and composition rules | P19b, F7 | #176 (15 Oct), #206 (through #233) | fixed | One `PasswordField` per form, no confirmation field (`components/auth/reset-password-form.tsx:204`, `components/auth/sign-in-form.tsx:419,442`), and one length-only rule with no composition rules (`components/auth/password-requirements.tsx:14-20`). F7 sets it to 15–128 Unicode code points for registration and reset (`lib/domain/auth.ts:17-40`). Those two routes also run a prefix-only (k-anonymity) Pwned Passwords check (`lib/server/breached-password.ts`, called at `app/api/auth/password/register/route.ts:23` and `app/api/auth/password/reset/complete/route.ts:25`). It is on unless `BREACHED_PASSWORD_CHECK_ENABLED` is `false`, and fails open if the service doesn't answer (`lib/server/env.ts:334-336`). Sign-in never applies the new-password schema, so passwords set under the earlier 12-character minimum still work (`lib/domain/auth.ts:24-25,42-48`), on `5fd05fce`. **History:** on `de999679` (#176, D9) the rule was 12–128 code points and the breach check was an owner follow-up. The hosted Auth compatibility check was reported by the owner, not seen in this verification |
 | SET-19 | P2 | Access denied shows 403; wrong primary | P08 | #134 (15 Oct) | fixed | `components/app-shell/access-denied.tsx:165-183` "Ask for access" primary, "Back to <shell target>" secondary; no "403" in the file; `app/(dashboard)/team/page.tsx:21` area "Team" |
 | SET-20 | P2 | 404 shows UUID path, goes to Inbox | P08 (+P22) | #134 (15 Oct), #144 (15 Oct) | fixed | `components/app-shell/not-found-content.tsx:47-60` back target, `:84` path under `SupportDetails`; `components/app-shell/boundary.tsx:96` one title for both 404s (minor tab-title gap, see item 9 of Phase 2 verification) |
 | SET-21 | P2 | Operations in engineering words | P18 | #142 (15 Oct) | fixed | `components/settings/scheduled-jobs-panel.tsx:38-43` one summary `Alert`; `operations-view.tsx:263` `summariseScheduler`; no "Heartbeat" or "Job runner" left |
@@ -464,16 +464,22 @@ Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earli
 11. **Done (F5):** SET-22 (#208) and SET-25 (#207).
 12. **Done (F5, #211):** the design baseline is locked at 104.
 13. **Done (F3, #205):** the profile-editor trim (LST-06's phone part). The lane measured the profile at 28.8% and the board at 29.4% at 390×844, on #205 `4a6e507a` (AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb`). It was not re-measured on `5fd05fce`.
-14. **Still open:** e2e coverage for the client hub (R15) and the client form and archive (R17).
+14. **Done (F2, #219):** e2e coverage for the client hub (R15) and the client form and archive (R17). Commit `ae9194da` (reachable from `5fd05fce`) adds `tests/e2e/client-hub.spec.ts` and `tests/e2e/client-form-archive.spec.ts`, with `tests/e2e/helpers/client-stubs.ts`. The specs are part of the e2e suite, and the `5fd05fce` gate log shows them passing: 10 `client-hub.spec.ts` cases and 13 `client-form-archive.spec.ts` cases, none failed, within the 716 passed. That is test-suite evidence, not a fresh browser run for this document.
 15. **Done (F4, #216):** the desk Hours rows.
 16. **Partly done:**
     - `/reports`: F2 (#219) prefetches it on the server.
     - `/sign-in`: F5 (#210) stops it loading the dashboard 404's chunks.
     - **Remains:** re-run perf-lab on final `main` for `/people` (LCP 1,672 ms against 1,500 ms on `de999679`), `/sign-in` (265.5 KB against the 260 KB budget at #210's review) and the desktop Hours and Photos LCP.
 17. **Partly done:**
-    - F9 (#222) explains the raw post failure code in words.
-    - F2 (#219) fixes the #418 hydration error on Reports.
-    - **Still open:** the approver's bar after a send, cut-off status text in action bars, the untitled More sheet, and the copy points in item 13.
+    - **Approver's bar after a send (F2, #218):** commit `9a7f9584` drops the dead "Submit for approval" once there is nothing left to submit (`components/inbox/action-bar.tsx`). Editing the reply brings it back.
+    - **Inbox status text (F2, #218):** the same commit keeps the reply status sentence whole on a phone, so it is no longer cut to "Sent · waiting…" (`components/inbox/detail/reply-status-line.tsx`).
+    - **Client hub More sheet (F2, #219):** commit `1eba1f3f` titles it "Client actions" (`components/clients/client-hub.tsx`).
+    - **Raw post failure code (F9, #222):** now explained in words.
+    - **#418 hydration error on Reports (F2, #219):** fixed.
+    - All three commits are reachable from `5fd05fce`.
+    - **Still open:**
+      - The listing editors' action-bar status, for example "1 change not on Google · unsave…" (Profile, Hours, Menu). No commit in F1–F9 addresses it.
+      - The smaller copy and layout points listed under item 13 of [Phase 2 verification](#phase-2-verification-what-didnt-match).
 18. **Done:**
     - `journeys.spec.ts:498` selector: F5 (#209).
     - Invitation-sheet contrast and the calendar clock-change flake: F4 (#216).
@@ -481,7 +487,10 @@ Updated 18 Oct 2026 (AMA-32). Items 1–18 keep their original numbers, so earli
 
 ### Found in the follow-up phase (F1–F10)
 19. **Owner, before any deploy:** make sure `0149_approval_notification_kinds` is in the target database, applying it through the release steps if not. This verification did not read any hosted database. Then confirm that `pnpm db:status --expect-current` is clean against production, which `pnpm release:promote` checks itself. Migrations 0132–0148 are also newer than the last promotion (`2b26bcf2`), so the same check covers them. This verification did not read any hosted database.
-20. **PIN-spec flake (e2e).** In the full gate run for #214 (on 17 Oct, under load from two other e2e suites), "Review PIN completion" stayed disabled after the PIN was typed. That is in the verification PIN specs (`tests/e2e/verification-pin-*.spec.ts`). With `--repeat-each=3` they passed 125 of 126 on the merge and 124 of 126 on `main`, so it predates the follow-ups. It did not recur in the final 716-test gate. Owner: Listings (verification).
+20. **Done (AMA-48, #235):** the verification PIN flake.
+    - **History:** in the full gate run for #214 (on 17 Oct, under load from two other e2e suites), "Review PIN completion" stayed disabled after the PIN was typed, in the verification PIN specs (`tests/e2e/verification-pin-*.spec.ts`). With `--repeat-each=3` they passed 125 of 126 on the merge and 124 of 126 on `main`, so it predated the follow-ups.
+    - **Cause and fix:** commit `dbf6d9d7` (#235, reachable from `5fd05fce`) changes `tests/e2e/helpers/verification-backend.ts`. `goto` resolves at the load event, while React is still hydrating, and hydration reset a PIN typed before then, leaving the review action disabled. The helper now waits for the panel's `GET …/verification-workflows?operation=complete` response, which runs only after hydration, before the PIN is entered. It is a test-harness fix with no retries, skips or longer timeouts, and no product change.
+    - **Evidence:** in the `5fd05fce` gate (716 passed, none flaky) `verification-pin-backend.spec.ts` passed 15 cases and `verification-pin-drift.spec.ts` 21, none failed. That is one clean run of this targeted fix, not proof that no PIN flake can recur.
 21. **From the F3 reviews (non-blocking):**
     - On a phone a tap leaves focus on the quiet Identity heading. Check on a real iOS or Android device that a tap doesn't count as `:focus-visible`.
     - Pin the `quietOnPhone` class as an exact token in `tests/components/profile-section-card.test.tsx:47-49`.
@@ -553,17 +562,17 @@ The AMA-13 follow-ups merged between 17 Oct (`3f335f82`) and 18 Oct (`5fd05fce`,
 | Sprint | Issue | Source PRs (exact head) | Integrated by | Findings and follow-ups |
 | --- | --- | --- | --- | --- |
 | F1 | AMA-29 | #217 `1c10e0ea` | #220 | INB-21 (partly; follow-up 24); follow-ups 1 and 2 |
-| F2 | AMA-33 | #218 `74712dc2`, #219 `706a10b2` | #220 | INB-09, INB-14, CLR-05 (partly), CLR-06, CLR-19, DSK-10; follow-ups 8 (partly), 9, 16 (`/reports`) and 17 (#418) |
+| F2 | AMA-33 | #218 `74712dc2`, #219 `706a10b2` | #220 | INB-09, INB-14, CLR-05 (partly), CLR-06, CLR-19, DSK-10; follow-ups 8 (partly), 9, 14, 16 (`/reports`) and 17 (approver's bar, Inbox status text, hub More sheet, #418) |
 | F3 | AMA-34 | #212 `62d02d3f`, #205 `32fd8843` | #225, #229 | LST-06 (partly; follow-up 26), LST-07, LST-14, LST-27, DSK-05 (partly); follow-ups 7 and 13 |
 | F4 | AMA-35 | #216 `978f89c5` | #220 | LST-16, LST-19 (partly); follow-ups 10, 15 and 18 |
 | F5 | AMA-36 | #207 `e49c895b`, #208 `8741c72f`, #209 `964cd1ab`, #210 `a54513cc`, #211 `aebee04e` | #220 | SET-22, SET-25; follow-ups 11, 12, 16 (`/sign-in`) and 18 |
 | F6 | AMA-37 | #214 `e75a5128` | #220 | INB-05 (code; needs 0149 in the target database); follow-up 3 |
-| F7 | AMA-38 | #206 `e9326d0c` | #233 | follow-up 6 |
+| F7 | AMA-38 | #206 `e9326d0c` | #233 | SET-18 (policy and evidence updated); follow-up 6 |
 | F8 | AMA-30 | #226 `cb6bcb21` | #227 | INB-19 (partly; follow-up 25) |
 | F9 | AMA-31 | #230 `3b43fabd`, #222 `350f90cf` | #236 | DSK-23, CLR-19 (Listings label); follow-up 17 (post failure code) |
 | F13 | AMA-49 | #224 `903632a9` | #231 | the `operations-features.spec.ts` wording after CLR-06 |
 | F14 | AMA-50 | #228 `af857a44` | #232 | follow-up 23 |
-| — | AMA-48 | #235 `dbf6d9d7`, with #234 `acac79e7` | #236 | follow-up 18 (services and booking-link timeouts) |
+| — | AMA-48 | #235 `dbf6d9d7`, with #234 `acac79e7` | #236 | follow-ups 18 (services and booking-link timeouts) and 20 (verification PIN) |
 
 Merge order held: #219 before #208, and #211 last in #220. Hosted CI was not a gate (the Actions budget ran out; D-38). Each integration's local gates and the exact-head reviews are the merge evidence. The release gate below is the evidence for the whole batch.
 
