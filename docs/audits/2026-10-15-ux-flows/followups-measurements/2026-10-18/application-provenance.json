@@ -1,0 +1,20 @@
+{
+  "revisions": {
+    "production": "5fd05fce8442f330a6ee1b94afcc0acce6113c53",
+    "main": "f8ba72f0dd557452c3b2375b79588fc2f1b2676e",
+    "measuredCandidate": "400accd44b0feb8bc6ceacb1ea15b792643d144d"
+  },
+  "nonDocumentationTrackedTreeSha256": {
+    "production": "399dc1d4e26a942eb8464fe0539edcc3d2a9abdccacee7bfbbb03821a87c10ba",
+    "main": "399dc1d4e26a942eb8464fe0539edcc3d2a9abdccacee7bfbbb03821a87c10ba",
+    "measuredCandidate": "399dc1d4e26a942eb8464fe0539edcc3d2a9abdccacee7bfbbb03821a87c10ba"
+  },
+  "fingerprintMethod": "SHA-256 of git ls-tree -r --full-tree entries excluding docs/; preserves mode, blob id and repository-relative path.",
+  "allNonDocumentationEntriesIdentical": true,
+  "measuredCandidateDiffFromMain": [
+    "docs/audits/2026-10-15-ux-flows/followups-after/listings--loc--changes-390-dark.webp",
+    "docs/audits/2026-10-15-ux-flows/followups-after/listings--loc--changes-390-light.webp",
+    "docs/audits/2026-10-15-ux-flows/results.md"
+  ],
+  "measurementMeaning": "The measured candidate contains final main and all non-documentation application/test/configuration files match both main and deployed runtime5fd05fce. Later evidence/doc-only commits do not change the measured application."
+}

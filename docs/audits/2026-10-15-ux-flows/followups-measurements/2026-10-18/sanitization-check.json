@@ -1,0 +1,6 @@
+{
+  "selectedFilesChecked": 16,
+  "findings": [],
+  "fixtureState": "nm-serve teardown removed e2e-journey-state.json; no state was copied",
+  "excluded": "DB-start exports, all raw logs, PG data, raw e2e report/artifacts stay scratch; trace/video off."
+}

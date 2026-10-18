@@ -6,6 +6,8 @@ Phase 3 of the frictionless-flows work (AMA-13, verified in AMA-25). It records 
 
 **Release status (added 18 Oct 2026, from the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239)).** `5fd05fce` was promoted to production at 2026-10-18 08:39:32 UTC, after migrations 0132–0149 were applied. This audit's own verification never read a hosted database; the release facts below are quoted from that record, not checked here.
 
+**AMA-32 completion (18 Oct 2026):** the later [follow-up measurements](#follow-up-measurements-18-october-2026) close follow-up 16 with named raw evidence and retain its actual budget breaches. The [later production smoke](#later-production-smoke-18-october-2026) is attributed separately from the historical gate. Original finding totals remain 113 fixed, nine partly fixed and one deferred.
+
 ## Scope and evidence
 
 - **App verified:** `main` at `de999679` (16 Oct 2026, after #202). Every Phase 2 source PR is merged and none are open. All 123 findings are claimed by a slice in the plan's Order table.
@@ -448,7 +450,7 @@ Before counts are copied from findings.md. "Captured" means the taps were perfor
 
 ## Open follow-ups
 
-Updated 17–18 Oct 2026 UTC (AMA-32). Items 1–18 keep their original numbers, so earlier issue comments that cite them still match. Each gives its status on `5fd05fce`.
+Updated 17–18 Oct 2026 UTC (AMA-32). Items 1–18 keep their original numbers, so earlier issue comments that cite them still match. Code statuses cite `5fd05fce`; later measurements and operational evidence name their own tested commits and times.
 
 ### From AMA-13 decisions and reviews
 1. **Done (F1, #217):** the Inbox unread-count model (AMA-29). Its three cases are poll-after-removal, no pin when the badge isn't loaded at the first change, and a notification arriving mid-change. #217 also fences a cancelled poll.
@@ -471,12 +473,11 @@ Updated 17–18 Oct 2026 UTC (AMA-32). Items 1–18 keep their original numbers,
 13. **Done (F3, #205):** the profile-editor trim (LST-06's phone part). The lane measured the profile at 28.8% and the board at 29.4% at 390×844, on #205 `4a6e507a` (AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb`). It was not re-measured on `5fd05fce`.
 14. **Done (F2, #219):** e2e coverage for the client hub (R15) and the client form and archive (R17). Commit `ae9194da` (reachable from `5fd05fce`) adds `tests/e2e/client-hub.spec.ts` and `tests/e2e/client-form-archive.spec.ts`, with `tests/e2e/helpers/client-stubs.ts`. The specs are part of the e2e suite, and the `5fd05fce` gate log shows them passing: 10 `client-hub.spec.ts` cases and 13 `client-form-archive.spec.ts` cases, none failed, within the 716 passed. That is test-suite evidence, not a fresh browser run for this document.
 15. **Done (F4, #216):** the desk Hours rows.
-16. **Partly done:**
-    - `/reports`: F2 (#219) prefetches it on the server.
-    - `/sign-in`: F5 (#210) stops it loading the dashboard 404's chunks.
-    - **Remains:**
-      - Re-run perf-lab on final `main` for `/people` (LCP 1,672 ms against 1,500 ms on `de999679`), `/sign-in` (265.5 KB against the 260 KB budget at #210's review) and the desktop Hours and Photos LCP.
-      - Re-run `audit:mobile` on final `main`: the same 36 routes and five combos as the `de999679` run in [`audit:mobile`](#auditmobile), whose 20 hit areas and 4 clipped texts are the last full figures. F1–F9 changed phone layouts (#205's 12 px frame spacing, #212's Review & publish frame, #226's bottom toolbar, #230's panel) without one. The `5fd05fce` gate's e2e did run the `touch-390` project (22 `touch-critical` cases) and the accessibility spec (64 cases), all passed. Those cover touch journeys and axe at 390 and 1440, not the audit's hit-area, clipped-text and overflow counts across every route.
+16. **Done — measurements completed on 18 Oct at `400accd4`:**
+    - `/reports`: F2 (#219) prefetches it on the server. The later mobile median is 1,252 ms LCP, versus 4,172 ms on `de999679`.
+    - `/sign-in`: F5 (#210) stops it loading the dashboard 404's chunks. The later first-load JS transfer is 250.99 KB, below the 260 KB budget, versus 265.5 KB at #210's review and 285 KB in the full `de999679` run.
+    - The full 36-route × five-combination `audit:mobile` ran (180/180 loads), plus all 15 requested cold perf samples. The measured candidate's non-documentation tracked tree is identical to current main `f8ba72f0` and released `5fd05fce`.
+    - See [Follow-up measurements, 18 October 2026](#follow-up-measurements-18-october-2026) for raw evidence and profiles. Remaining measured budget breaches are tracked in follow-up 29; completion of this measurement task does not claim they are fixed. The historical `5fd05fce` touch/accessibility gate remains separate evidence.
 17. **Partly done:**
     - **Approver's bar after a send (F2, #218):** commit `9a7f9584` drops the dead "Submit for approval" once there is nothing left to submit (`components/inbox/action-bar.tsx`). Editing the reply brings it back.
     - **Inbox status text (F2, #218):** the same commit keeps the reply status sentence whole on a phone, so it is no longer cut to "Sent · waiting…" (`components/inbox/detail/reply-status-line.tsx`).
@@ -519,6 +520,8 @@ Updated 17–18 Oct 2026 UTC (AMA-32). Items 1–18 keep their original numbers,
 27. **CLR-19 remainder (Reviews):** order the urgent health buckets by count, as `findings.md:825` asks. `HEALTH_FILTERS` is a fixed severity order (`lib/clients/health.ts:371-386`, drawn as-is at `components/clients/health-filter.tsx:61`). Or record an owner decision that severity order replaces it.
 28. **CLR-06 remainder (Reviews):** in a business workspace, Reports' scope line says "locations" (`components/performance/performance-view.tsx:85-90`), while `PartialCoverageAlert` says "listings" by default (`components/reporting/partial-coverage-alert.tsx:39-42`). The Google and Keywords tabs pass no `nouns` (`google-performance-tab.tsx:190,207,225,259`, `keywords-tab.tsx:195,212,225,253`). Use one noun per workspace.
 
+29. **Measured performance follow-ups (18 Oct, `400accd4`):** mobile People LCP 1,644 ms exceeds 1,500 ms, People first-load JS 567.04 KB exceeds 520 KB, and Reports first-load JS 521.32 KB exceeds 520 KB. All required samples were valid; the mobile perf command exits 1 for these three budget breaches. Desktop Photos LCP is 846 ms versus the original 580 ms baseline (858 ms on `de999679`); no desktop LCP ceiling is configured. The full audit still records 20 effective hit areas below 44 px and four clipped texts. Retain these as performance/interaction work, with the raw evidence below; they do not change the implementation statuses of the 123 original findings.
+
 ### Carried from PR bodies (non-blocking)
 - **L02 (#124):** the activity cursor regex lacks `bulk:` and `schedule:` (`lib/contracts/location-activity.ts:41`), so paging past those rows may return `invalid_cursor`.
 - **L10 (#151, #174):**
@@ -544,7 +547,7 @@ Updated 17–18 Oct 2026 UTC (AMA-32). Items 1–18 keep their original numbers,
 
 ## How the after evidence was taken
 
-All runs were on `de999679` in the `naba-presence-redesign/ux-results` worktree, after the owner linked `.env` and `.env.local` into it. The env files were not opened. The fixture server and the app ran under the `naba-visual` lock from 19:48 to 20:30 UTC, and both were stopped with SIGINT (fixture tenants destroyed):
+All Phase 3 after-evidence runs were on `de999679` in the `naba-presence-redesign/ux-results` worktree, after the owner linked `.env` and `.env.local` into it. The env files were not opened. The fixture server and the app ran under the `naba-visual` lock from 19:48 to 20:30 UTC, and both were stopped with SIGINT (fixture tenants destroyed):
 
 - Fixtures: `VISUAL_APP_PORT=3220 PLAYWRIGHT_GOOGLE_STUB_PORT=3221 tests/visual/with-visual-db.sh node --experimental-strip-types --import ./tests/visual/ts-resolve-hook.mjs tests/visual/fixture-server.ts`.
 - App: the `visual-app` environment from `.claude/launch.json` with ports 3220/3221 and `PASSWORD_AUTH_ENABLED=false`, served from the production build (`tests/visual/with-visual-db.sh pnpm start`). The before library was taken on `next dev`.
@@ -593,11 +596,11 @@ Merge order held: #219 before #208, and #211 last in #220. Hosted CI was not a g
 
 - [`followups-after/listings--loc--changes-390-light.webp`](followups-after/listings--loc--changes-390-light.webp) and [`-dark`](followups-after/listings--loc--changes-390-dark.webp), at 390×844.
 - Frame padding-top 12 px, row gap 12 px. The h1 is at 108–152 px. The Publish bar's button is at 792–836 px. No horizontal scroll (scroll width 390 = client width).
-- No clipping, sticky overlap or focus-ring problem. The page fits one screen with one area waiting.
+- The captured light/dark layouts show no visible clipping or sticky overlap, and the page fits one screen with one area waiting. Neither image shows a focused control, so these screenshots do not establish focus-ring behavior.
 
 ## Release gate on `5fd05fce`
 
-`pnpm verify:release` ran on `5fd05fce8442f330a6ee1b94afcc0acce6113c53` (final `main`, #236) from 22:10:12 to 23:24:02 UTC on 17 Oct. It ran with no flags and no skips, in a fresh generated worktree with a throwaway PostgreSQL 17.11, on Node 24.18.0 and pnpm 10.34.5. The Codex merge pipeline ran it. Release & QA did not run a second gate; it checked the receipt independently.
+`pnpm verify:release` ran on `5fd05fce8442f330a6ee1b94afcc0acce6113c53` (final `main`, #236) from 22:10:12 to 23:24:02 UTC on 17 Oct. It ran without requested gate skips, in a fresh generated worktree with a throwaway PostgreSQL 17.11, on Node 24.18.0 and pnpm 10.34.5. The Codex merge pipeline ran it. Release & QA did not run a second gate; it checked the receipt independently.
 
 **Receipt:** `docs/release/receipts/local/20261017T232402Z-5fd05fce8442.json` (gitignored), sha256 `4ea0273bc3581b1f9ad2a5dc02bad897f6fb92ab21a1c9bb935196221be27e7e`. `ok: true`, `mode: worktree`, `gateSource.clean: true`, `skip: []`, `failFast: false`. Base `2b26bcf2` (`source: promotion-receipt`), which is the merge base and the SHA of the newest committed promotion receipt (`20261014T103113Z-2b26bcf2ec59.json`).
 
@@ -620,7 +623,7 @@ Merge order held: #219 before #208, and #211 last in #220. Hosted CI was not a g
 
 **Later record: the conditions were met (18 Oct 2026).** According to the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239), migrations 0132–0149 were applied to production, readback showed 149 applied with none pending or unknown, and `5fd05fce` was promoted at 08:39:32 UTC with exact-commit health and readiness passing. This audit did not check those facts itself. The newest promotion receipt is now `5fd05fce`'s, so it is the baseline for the next `verify:release`.
 
-**Release boundary.** This receipt is valid for the runtime commit `5fd05fce` and no other. `pnpm release:promote` (`scripts/release/promote.mjs:14-19`) refuses unless HEAD is exactly `origin/main` and the local receipt is for that SHA. Once any later commit merges to `main`, this documentation included, a fresh `pnpm verify:release` receipt on that final `main` is required before promotion. The `5fd05fce` result stays here as history and does not authorise promoting a later commit. This documentation is not a deployment and doesn't authorise one. It ran no gate, database or deploy.
+**Release boundary.** This receipt is valid for the runtime commit `5fd05fce` and no other. `pnpm release:promote` (`scripts/release/promote.mjs:14-19`) refuses unless HEAD is exactly `origin/main` and the local receipt is for that SHA. Once any later commit merges to `main`, this documentation included, a fresh `pnpm verify:release` receipt on that final `main` is required before promotion. The `5fd05fce` result stays here as history and does not authorise promoting a later commit. This documentation is not a deployment and doesn't authorise one. The historical receipt check ran no additional gate, database or deployment; the later completion section separately records its disposable local measurements and build.
 - `supabase/migrations/0149_approval_notification_kinds.sql` is in `5fd05fce`. At verification time no hosted database was read, so whether 0149 was applied was not known here; the later release record reports it applied. It is in `REQUIRED_MIGRATIONS` (`lib/server/schema-manifest.ts:160`), so a deployment on a schema without it fails readiness.
 - Before deploying `5fd05fce`, the owner was to apply every pending migration, 0149 included, through the release steps. The release record shows this done; it is not outstanding.
 - `pnpm release:promote` refuses while `db:status --expect-current` reports any pending migration (`scripts/release/promote.mjs:20-21`). That stays the owner's check for every later promotion, not this pipeline's.
@@ -628,4 +631,52 @@ Merge order held: #219 before #208, and #211 last in #220. Hosted CI was not a g
 
 **Not covered by this receipt:**
 - Agentic browser journeys: the project's e2e runner had no model login in the lane checkouts. The pipeline separately ran 4 client-side auth checks on the same build: password rules at 375 and 1280, with no password submitted. That is client validation only, not a real account, HIBP or provider journey.
-- The perf-lab and `audit:mobile` re-runs on final `main` (follow-up 16). The gate's `touch-390` and accessibility e2e passed, but they are not those measurements.
+- At receipt time, the perf-lab and full `audit:mobile` re-runs in follow-up 16 were not covered. They were subsequently completed on `400accd4`, whose application files match final main `f8ba72f0` and runtime `5fd05fce`; see the dated measurement section below. The historical gate's `touch-390` and accessibility e2e remain separate from those measurements.
+
+## Follow-up measurements, 18 October 2026
+
+**Tested commit:** `400accd44b0feb8bc6ceacb1ea15b792643d144d`, a clean integration containing current main `f8ba72f0` and repaired source #237 `baebf94f`. The [application provenance](followups-measurements/2026-10-18/application-provenance.json) confirms every tracked non-documentation entry is identical across that candidate, main and deployed runtime `5fd05fce`. Later documentation/evidence commits therefore retain the measured application files.
+
+The production webpack build and measurement harness ran on 18 Oct, approximately 10:12–10:19 UTC (11:12–11:19 Europe/London), with Node 24.18.0, pnpm 10.34.5, native PostgreSQL 17.11 and Chromium 156.0.8078.4. The harness used a separate disposable loopback database, CI placeholders and seeded owner/viewer/anonymous fixture roles; it read no real env files or production services. App, Google-stub and database processes were stopped, their owned ports were read back free, and fixture state was removed. [Runtime provenance](followups-measurements/2026-10-18/provenance.json), [commands and exits](followups-measurements/2026-10-18/measurements.json), [coverage/metric summary](followups-measurements/2026-10-18/summary.json), [cleanup](followups-measurements/2026-10-18/cleanup.json) and the [measurement README](followups-measurements/2026-10-18/README.md) retain the details.
+
+### Full mobile-audit matrix
+
+The same 36 role/route specifications ran at `320:light,390:light,390:dark,1280:light,1280:dark`: **180 unique loads, all HTTP 200**. The audit exited 0. [Raw page results](followups-measurements/2026-10-18/mobile-audit.json), [totals](followups-measurements/2026-10-18/mobile-audit-totals.json) and [readable audit](followups-measurements/2026-10-18/mobile-audit.md) are committed.
+
+| Metric | Earlier full run (`de999679`) | Follow-up (`400accd4`) |
+| --- | ---: | ---: |
+| Effective hit areas below 44 px | 20 | 20 |
+| Drawn boxes below 44 px | 266 | 271 |
+| Clipped texts | 4 | 4 |
+| Small-phone text observations below 14 px | 1,851 | 1,863 |
+| WCAG target-size violations, axe, focus obscured, overflow, load/console/page errors | 0 | 0 |
+| Phone chrome maximum / smallest text | 20.4% / 12 px | 20.4% / 12 px |
+
+The effective-hit-area and drawn-box metrics remain distinct. The 20 effective hit areas are Inbox 4, Listings 3, Profile 6, Clients 3 and viewer Inbox 4; the clipped texts are Inbox 1 and New client 3. They remain measured follow-ups, not a missing audit.
+
+### Focused perf-lab repeats
+
+Profiles and `tests/perf/budgets-baseline.json` were unchanged: mobile 390×844, DPR 3, 4× CPU and Slow 4G, median of three cold runs per route; desktop 1280×800, DPR 1 and unthrottled, median of two. All **nine mobile and six desktop samples** returned HTTP 200, landed on the expected route and recorded no sample, page or console error. [Raw mobile samples](followups-measurements/2026-10-18/perf-mobile.json), [mobile table](followups-measurements/2026-10-18/perf-mobile.md), [raw desktop samples](followups-measurements/2026-10-18/perf-desktop.json) and [desktop table](followups-measurements/2026-10-18/perf-desktop.md) are committed. These are local fixture medians, not production field measurements. Per-sample host load is recorded; the host was not established to be idle.
+
+| Profile / route / metric | Historical comparison | Follow-up value | Budget or comparison | Outcome |
+| --- | --- | ---: | --- | --- |
+| Mobile `/reports` LCP | 4,172 ms, `de999679` | 1,252 ms | 1,500 ms | Within budget |
+| Mobile `/reports` first-load JS | 519 KB, `de999679` | 521.32 KB | 520 KB | Above budget |
+| Mobile `/listings/{loc}/people` LCP | 1,672 ms, `de999679` | 1,644 ms | 1,500 ms | Above budget |
+| Mobile `/listings/{loc}/people` first-load JS | 565 KB, `de999679` | 567.04 KB | 520 KB | Above budget |
+| Mobile `/sign-in` first-load JS | 285 KB, `de999679`; 265.5 KB at #210 review | 250.99 KB | 260 KB | Within budget |
+| Desktop `/listings/{loc}/hours` LCP | 1,358 ms, `de999679`; 992 ms original baseline | 852 ms | No configured desktop LCP ceiling | Lower than both recorded medians |
+| Desktop `/listings/{loc}/photos` LCP | 858 ms, `de999679`; 580 ms original baseline | 846 ms | No configured desktop LCP ceiling | Lower than `de999679`, above original baseline |
+| Desktop `/sign-in` LCP / first-load JS | 56 ms / 285 KB, `de999679` | 58 ms / 250.99 KB | JS 260 KB | Configured budgets met |
+
+JS values are transferred KB as reported by perf-lab (bytes/1,024), separate from build-manifest gzip bounds. The **mobile perf command exited 1 for exactly three budget breaches**: Reports JS, People LCP and People JS. The desktop command exited 0 with all configured budgets met. Follow-up 16 is complete because every requested measurement ran; follow-up 29 preserves the remaining performance work.
+
+### Fixture e2e execution
+
+The e2e runner executed `fixture Reports and listing measurement surfaces render` on `mobile390` and `desktop1280`: **2 passed, zero failed/flaky/skipped/blocked/interrupted**, with **two actual live `gpt-6-luna` model calls**. It checked Reports and People/Hours/Photos routes/headings against the same local production build. Replay, retries, traces and video were off; request guards recorded zero unsafe or off-origin attempts. The [sanitized runner summary](followups-measurements/2026-10-18/agentic-summary.json) retains actual execution and model proof without fixture session values. Raw browser state, database exports and credential-bearing logs were excluded from committed artifacts; see [sanitization checks](followups-measurements/2026-10-18/sanitization-check.json).
+
+## Later production smoke, 18 October 2026
+
+The archived [production smoke evidence](followups-measurements/2026-10-18/production-smoke.json) reports served revision `5fd05fce8442f330a6ee1b94afcc0acce6113c53` and all 149 required migrations at 09:51:35 UTC. After the user completed normal sign-in, deterministic CUA checks at 09:53–09:54 UTC passed for the authenticated home/dashboard redirect, Inbox, Listings and signed-in `/sign-in` redirect. Inbox settled with 50 loaded review rows and Listings with one visible listing row; these describe the loaded account view, not production totals. No browser console errors were captured. The checks made no content, provider, password-reset or email changes; ordinary sign-in/session bookkeeping remained applicable.
+
+Separately, the e2e runner passed four public/anonymous sign-in and authentication-boundary cases at desktop 1280 and mobile 375, with two actual model calls, no failed/flaky/skipped cases and replay off. It did not receive the authenticated session. These are later attributed operational results, not new production checks performed for this documentation completion.

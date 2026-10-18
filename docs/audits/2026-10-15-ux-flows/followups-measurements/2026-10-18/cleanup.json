@@ -1,0 +1,27 @@
+{
+  "pgStartedByThisLane": true,
+  "pgStateRemoved": true,
+  "head": "400accd44b0feb8bc6ceacb1ea15b792643d144d",
+  "trackedStatus": "",
+  "finished": 1792318750.416188,
+  "ports": {
+    "app": {
+      "port": 63270,
+      "listenerPresent": false,
+      "lsofExit": 1
+    },
+    "googleStub": {
+      "port": 63271,
+      "listenerPresent": false,
+      "lsofExit": 1
+    },
+    "postgres": {
+      "port": 63263,
+      "listenerPresent": false,
+      "lsofExit": 1
+    }
+  },
+  "ownedTestResultsSymlinkRemoved": true,
+  "checkedAt": 1792318800.631642,
+  "allOwnedPortsFree": true
+}

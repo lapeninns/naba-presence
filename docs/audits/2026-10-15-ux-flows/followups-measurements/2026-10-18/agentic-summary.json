@@ -1,0 +1,90 @@
+{
+  "runner": {
+    "name": "e2e",
+    "version": "0.15.1"
+  },
+  "startedAt": "2026-10-18T10:18:50.933Z",
+  "finishedAt": "2026-10-18T10:19:08.654Z",
+  "status": "passed",
+  "exitCode": 0,
+  "summary": {
+    "discovered": 2,
+    "selected": 2,
+    "executed": 2,
+    "passed": 2,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 0
+  },
+  "agentSteps": [
+    {
+      "target": "mobile390",
+      "status": "passed",
+      "api": "agent.assert",
+      "metrics": {
+        "modelCalls": 1,
+        "actionSteps": 0,
+        "observationBytes": 10182,
+        "contextBytes": 0,
+        "ledgerBytes": 0
+      },
+      "model": {
+        "provider": "chatgpt.responses",
+        "model": "gpt-6-luna",
+        "endpoint": "provider-default",
+        "adapterVersion": "ai-sdk/0.15.1",
+        "policyVersion": "policy-0.3",
+        "calls": 1,
+        "tokenAccounting": "provider",
+        "inputTokens": 3863,
+        "outputTokens": 66,
+        "peakTokensPerCall": 3929,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0
+      }
+    },
+    {
+      "target": "desktop1280",
+      "status": "passed",
+      "api": "agent.assert",
+      "metrics": {
+        "modelCalls": 1,
+        "actionSteps": 0,
+        "observationBytes": 11051,
+        "contextBytes": 0,
+        "ledgerBytes": 0
+      },
+      "model": {
+        "provider": "chatgpt.responses",
+        "model": "gpt-6-luna",
+        "endpoint": "provider-default",
+        "adapterVersion": "ai-sdk/0.15.1",
+        "policyVersion": "policy-0.3",
+        "calls": 1,
+        "tokenAccounting": "provider",
+        "inputTokens": 4082,
+        "outputTokens": 55,
+        "peakTokensPerCall": 4137,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0
+      }
+    }
+  ],
+  "actualModelCalls": 2,
+  "guardCounts": [
+    {
+      "unsafe": 0,
+      "offOrigin": 0
+    },
+    {
+      "unsafe": 0,
+      "offOrigin": 0
+    }
+  ],
+  "cache": "off",
+  "workers": 1,
+  "retries": 0,
+  "trace": "off",
+  "video": "off",
+  "coverage": "Synthetic Reports heading and real agent.assert, then exact people/hours/photos URL + heading and no visible generic error; desktop1280x800 and mobile390x844. One read-only journey per viewport."
+}
