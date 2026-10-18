@@ -2,6 +2,7 @@
 
 import { Component, type ReactNode } from "react"
 
+import { isLoadFailure } from "@/components/inbox/lazy-dialog-boundary"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 
@@ -14,10 +15,12 @@ type Props = {
    */
   onBack?: () => void
   /**
-   * Before "Try again" renders the review afresh: the pane loads through
-   * `next/dynamic`, and a failed load needs a fresh lazy component.
+   * When the pane's code would not download. It loads through
+   * `next/dynamic`, and React keeps a rejected load for the life of that lazy
+   * component, so a fresh one is made at once: "Try again" and the next
+   * review picked both ask for the code afresh.
    */
-  onReset?: () => void
+  onLoadFailure?: () => void
 }
 type State = { error: Error | null }
 
@@ -28,10 +31,11 @@ class DetailErrorBoundary extends Component<Props, State> {
     return { error }
   }
 
-  reset = () => {
-    this.props.onReset?.()
-    this.setState({ error: null })
+  componentDidCatch(error: unknown) {
+    if (isLoadFailure(error)) this.props.onLoadFailure?.()
   }
+
+  reset = () => this.setState({ error: null })
 
   render() {
     if (this.state.error) {

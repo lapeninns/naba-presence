@@ -118,14 +118,26 @@ describe("the lazy review pane", () => {
       await import("@/components/inbox/lazy-review-pane")
     const { DetailErrorBoundary } =
       await import("@/components/inbox/detail-error-boundary")
-    return render(
-      <RouteBoundary>
-        <p>the review list</p>
-        <DetailErrorBoundary onBack={() => {}} onReset={reloadReviewPane}>
-          <LazyReviewPane reviewId="r1" withActions />
-        </DetailErrorBoundary>
-      </RouteBoundary>
-    )
+    // As inbox-view.tsx: one boundary per open review, keyed by its id.
+    function Inbox({ selected }: { selected: string }) {
+      return (
+        <RouteBoundary>
+          <p>the review list</p>
+          <DetailErrorBoundary
+            key={selected}
+            onBack={() => {}}
+            onLoadFailure={reloadReviewPane}
+          >
+            <LazyReviewPane key={selected} reviewId={selected} withActions />
+          </DetailErrorBoundary>
+        </RouteBoundary>
+      )
+    }
+    const view = render(<Inbox selected="r1" />)
+    return {
+      ...view,
+      open: (id: string) => view.rerender(<Inbox selected={id} />),
+    }
   }
 
   it("keeps the list when its code cannot load, and Try again loads it afresh", async () => {
@@ -138,5 +150,17 @@ describe("the lazy review pane", () => {
     chunk.fails = false
     await user.click(screen.getByRole("button", { name: "Try again" }))
     await waitFor(() => expect(screen.getByText("review r1")).toBeTruthy())
+  })
+
+  it("asks again for the next review picked after a failed load", async () => {
+    const { open } = await renderInbox()
+    expect(
+      await screen.findByText("This review could not be shown.")
+    ).toBeTruthy()
+    const requested = chunk.requested
+    chunk.fails = false
+    open("r2")
+    await waitFor(() => expect(screen.getByText("review r2")).toBeTruthy())
+    expect(chunk.requested).toBeGreaterThan(requested)
   })
 })

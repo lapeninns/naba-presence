@@ -47,7 +47,8 @@ const lazyPane = { Pane: createReviewPane() }
 
 /**
  * After the pane's code failed to load: React caches a rejected load for the
- * life of a lazy component, so "Try again" needs a fresh one to ask afresh.
+ * life of a lazy component, so a fresh one is needed to ask afresh (Try
+ * again, or the next review opened).
  */
 function reloadReviewPane() {
   lazyPane.Pane = createReviewPane()

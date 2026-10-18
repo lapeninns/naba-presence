@@ -888,7 +888,7 @@ function InboxViewInner({
     <DetailErrorBoundary
       key={state.selected}
       onBack={onBackToList}
-      onReset={reloadReviewPane}
+      onLoadFailure={reloadReviewPane}
     >
       <LazyReviewPane
         key={state.selected}
