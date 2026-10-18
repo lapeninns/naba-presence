@@ -1,0 +1,130 @@
+{
+  "evidenceKind": "Archived production smoke, attributed during AMA-32 documentation completion",
+  "newProductionRequestsForThisCompletion": false,
+  "runtimeSha": "5fd05fce8442f330a6ee1b94afcc0acce6113c53",
+  "readiness": {
+    "checkedAt": "2026-10-18T09:51:35.570Z",
+    "httpStatus": 200,
+    "release": {
+      "sha": "5fd05fce8442f330a6ee1b94afcc0acce6113c53",
+      "source": "naba_release_sha"
+    },
+    "schema": {
+      "compatible": true,
+      "requiredCount": 149,
+      "missing": []
+    }
+  },
+  "authenticatedCua": {
+    "target": "https://nabapresence.com",
+    "revision": "5fd05fce8442f330a6ee1b94afcc0acce6113c53",
+    "completedAt": "2026-10-18T09:54:26.090Z",
+    "method": "CUA deterministic read-only UI assertions in the user-authenticated IAB session",
+    "status": "passed",
+    "checks": [
+      {
+        "surface": "sign-in",
+        "status": "passed",
+        "userCompletedNormalLogin": true,
+        "agentSubmittedCredentials": false,
+        "acceptedSessionPath": "/inbox",
+        "inboxHeadingVisible": true,
+        "signInFormAbsent": true,
+        "signedInSignInRouteRedirectedToInbox": true,
+        "redirectCheckedAt": "2026-10-18T09:54:19.117Z"
+      },
+      {
+        "surface": "dashboard",
+        "status": "passed",
+        "checkedAt": "2026-10-18T09:53:10.607Z",
+        "homeRedirectedToInbox": true,
+        "inboxHeadingVisible": true,
+        "inboxNavAnchorVisible": true,
+        "listingsNavAnchorVisible": true,
+        "navAnchorsVerifiedAfterRoundTrip": true
+      },
+      {
+        "surface": "Inbox",
+        "status": "passed",
+        "checkedAt": "2026-10-18T09:53:08.703Z",
+        "toolbarVisible": true,
+        "reviewListPresent": true,
+        "loadedReviewRows": 50,
+        "loadingReviews": false,
+        "queueUnavailable": false,
+        "reviewsLoadError": false,
+        "returnFromListingsPassed": true,
+        "roundTripCheckedAt": "2026-10-18T09:53:55.865Z"
+      },
+      {
+        "surface": "Listings",
+        "status": "passed",
+        "checkedAt": "2026-10-18T09:53:24.570Z",
+        "path": "/listings",
+        "headingVisible": true,
+        "searchboxVisible": true,
+        "healthFiltersVisible": true,
+        "visibleListingRows": 1,
+        "checkingListings": false,
+        "listingsLoadError": false,
+        "listingSummaryError": false,
+        "loadingTextPresent": false,
+        "noListingsYet": false
+      }
+    ],
+    "browserConsole": {
+      "capturedErrorCount": 0,
+      "rawMessagesRetained": false
+    },
+    "scope": {
+      "businessMutationActions": [],
+      "passwordResetActions": [],
+      "emailActions": [],
+      "providerPublishActions": [],
+      "rawCustomerTextRetained": false,
+      "cookiesOrCredentialsExported": false,
+      "authenticatedScreenshotsRetained": false,
+      "normalSessionMaintenance": "Authenticated GETs may update session last-seen and sliding expiry."
+    },
+    "limitations": [
+      "User completed sign-in; the agent observed the resulting valid session and redirect rather than handling the password or MFA.",
+      "Authenticated checks used CUA; e2e runner checks used separate anonymous contexts. No IAB session export or unsupported CDP bridge was used.",
+      "Counts describe visible loaded rows in this account view, not total production records.",
+      "No publishing, provider writes, recovery, email delivery, listing editors, or role-matrix checks were exercised."
+    ],
+    "selectorNotes": [
+      "Inbox link accessible name includes additional content, so visible navigation was verified using the observed /inbox anchor.",
+      "Listings search is a searchbox; the earlier textbox-role probe was replaced by the correct observed role."
+    ]
+  },
+  "authenticatedSourceSha256": "95143cb16f4a09767977d1ce67642d207c71385ef3d0aa5804d00dae3e4d5596",
+  "anonymousE2e": {
+    "runId": "01a14e6c-c2d0-71cd-aa1b-e4a03e6ab242",
+    "status": "passed",
+    "exitCode": 0,
+    "startedAt": "2026-10-18T09:51:53.366Z",
+    "finishedAt": "2026-10-18T09:52:40.788Z",
+    "summary": {
+      "discovered": 4,
+      "selected": 4,
+      "executed": 4,
+      "passed": 4,
+      "failed": 0,
+      "flaky": 0,
+      "skipped": 0
+    },
+    "runner": {
+      "name": "e2e",
+      "version": "0.15.1"
+    },
+    "trace": "off",
+    "video": "off",
+    "replayCache": "off",
+    "retries": 0,
+    "modelCalls": 2,
+    "agentAssertions": 2
+  },
+  "anonymousActualReportSha256": "b786cca92c051d547223d07f4f9f40b5754fd81ac253e1ff2d75dce63dd5208e",
+  "anonymousActualReportUrl": "https://multica.ai/api/attachments/01a14e72-f93f-78af-ad2c-6a48ae6e8bee/download",
+  "proofBoundary": "Authenticated assertions used CUA after user-completed login. The e2e runner used separate anonymous contexts. No authenticated credential/cookie transfer or provider/write journey is asserted."
+}

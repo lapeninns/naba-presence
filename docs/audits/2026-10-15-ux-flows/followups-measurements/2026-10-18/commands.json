@@ -1,0 +1,80 @@
+[
+  {
+    "name": "build",
+    "args": [
+      "pnpm",
+      "build"
+    ],
+    "exit": 0,
+    "started": 1792318364.035298,
+    "seconds": 65.3801999092102
+  },
+  {
+    "name": "db-start",
+    "args": [
+      "node",
+      "scripts/ci/postgres.mjs",
+      "start"
+    ],
+    "exit": 0,
+    "started": 1792318429.4160588,
+    "seconds": 0.8940882682800293
+  },
+  {
+    "name": "migrate",
+    "args": [
+      "pnpm",
+      "db:migrate"
+    ],
+    "exit": 0,
+    "started": 1792318430.310847,
+    "seconds": 0.7035660743713379
+  },
+  {
+    "name": "runtime-role",
+    "args": [
+      "pnpm",
+      "db:runtime-role"
+    ],
+    "exit": 0,
+    "started": 1792318431.014611,
+    "seconds": 0.21317076683044434
+  },
+  {
+    "name": "db-status",
+    "args": [
+      "pnpm",
+      "db:status",
+      "--expect-current"
+    ],
+    "exit": 0,
+    "started": 1792318431.228004,
+    "seconds": 0.21499991416931152
+  },
+  {
+    "name": "measurement-harness",
+    "args": [
+      "node",
+      "tests/visual/nm-serve.mjs",
+      "--log",
+      "/private/tmp/ama32-finish-20261018/measurements/logs/app.log",
+      "--",
+      "node",
+      "/private/tmp/ama32-finish-20261018/measurements/measure.mjs"
+    ],
+    "exit": 0,
+    "started": 1792318431.443556,
+    "seconds": 318.7354428768158
+  },
+  {
+    "name": "db-stop",
+    "args": [
+      "node",
+      "scripts/ci/postgres.mjs",
+      "stop"
+    ],
+    "exit": 0,
+    "started": 1792318750.179523,
+    "seconds": 0.21069812774658203
+  }
+]

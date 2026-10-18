@@ -2,6 +2,12 @@
 
 Phase 3 of the frictionless-flows work (AMA-13, verified in AMA-25). It records what Phase 2 changed against the 123 findings in [findings.md](findings.md) and the slices in [plan.md](plan.md).
 
+**Updated 17–18 Oct 2026 UTC (AMA-32, F10; first written at 23:40 UTC on 17 Oct, then corrected on 18 Oct)** for the AMA-13 follow-ups F1–F9, merged to `main` at `5fd05fce` (#220, #225, #227, #229, #231, #232, #233, #236). The rows these follow-ups changed now cite `5fd05fce`. Every other row still cites `de999679`. See [Follow-up phase (F1–F9)](#follow-up-phase-f1f9) and [Release gate on `5fd05fce`](#release-gate-on-5fd05fce).
+
+**Release status (added 18 Oct 2026, from the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239)).** `5fd05fce` was promoted to production at 2026-10-18 08:39:32 UTC, after migrations 0132–0149 were applied. This audit's own verification never read a hosted database; the release facts below are quoted from that record, not checked here.
+
+**AMA-32 completion (18 Oct 2026):** the later [follow-up measurements](#follow-up-measurements-18-october-2026) close follow-up 16 with named raw evidence and retain its actual budget breaches. The [later production smoke](#later-production-smoke-18-october-2026) is attributed separately from the historical gate. Original finding totals remain 113 fixed, nine partly fixed and one deferred.
+
 ## Scope and evidence
 
 - **App verified:** `main` at `de999679` (16 Oct 2026, after #202). Every Phase 2 source PR is merged and none are open. All 123 findings are claimed by a slice in the plan's Order table.
@@ -16,19 +22,31 @@ Phase 3 of the frictionless-flows work (AMA-13, verified in AMA-25). It records 
 | Severity | Fixed | Partly fixed | Deferred | Open | Total |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | P0 | 1 | 0 | 0 | 0 | 1 |
-| P1 | 28 | 5 | 0 | 0 | 33 |
-| P2 | 73 | 12 | 3 | 1 | 89 |
-| **All** | **102** | **17** | **3** | **1** | **123** |
+| P1 | 31 | 2 | 0 | 0 | 33 |
+| P2 | 81 | 7 | 1 | 0 | 89 |
+| **All** | **113** | **9** | **1** | **0** | **123** |
+
+On `de999679`, before F1–F9, the totals were 102 fixed, 17 partly fixed, 3 deferred and 1 open.
 
 - **The P0 is fixed.** Food-menu changes read as plain rows at consent (LST-01, `lib/locations/menu-diff.ts:145-151`). A unit test (`tests/menu-diff.test.ts:275-284`) asserts that no row is raw JSON.
-- **Partly fixed P1s:**
-  - INB-05: the badge works, and the notification kinds are deferred (D2).
-  - LST-06 and LST-07: the height targets were missed but accepted by the leader: 45.5% and 35% against the target of under 30%.
-  - LST-14: Review & publish is not streamed.
-  - CLR-19: wording and bucket order.
-- **Partly fixed after the re-capture:** LST-16. On a phone, the Hours list is one short row per day, which is what the finding asked for. On desk (`desk` is 768 px and up with a fine pointer, `app/globals.css:61`), every row collapses to a full-width switch with no day name or times. That is a regression introduced by the fix, so it is counted against LST-16 rather than as a new finding (see item 13 under [Phase 2 verification](#phase-2-verification-what-didnt-match)).
-- **Deferred:** SET-27 (P21, D10), DSK-23 (P23, stage 4) and INB-19 (R10, stage 4).
-- **Open:** CLR-06, the location / listing / venue wording in Clients and Reports. P11's helper merged (#136), but no Clients or Reports file uses it.
+- **Three of the five partly fixed P1s closed in the follow-ups.** LST-06 and CLR-19 are still partly fixed:
+  - INB-05: the notification kinds, in F6 (#214). They need migration 0149 in the database. According to the committed release record, 0149 was applied to production before `5fd05fce` was promoted on 18 Oct (see [Release gate on `5fd05fce`](#release-gate-on-5fd05fce)).
+  - LST-06 and LST-07: the profile editor and board trim, in F3 (#205). LST-07 is fixed. LST-06's phone height target is met. Its desk meta row is not: from `wide` the model note and last-checked line share a row, but the time zone is still its own paragraph on Hours (follow-up 26). The lane measured the first field at 28.8% and the first row at 29.4% at 390×844, under the 30% target, on #205 `4a6e507a` (an earlier lane measurement, not one taken on `5fd05fce`; see the rows).
+  - LST-14: Review & publish is streamed in the shared frame, in F3 (#212).
+  - CLR-19: the shared chips, hidden zero buckets and one vocabulary are done (F2, #219; F9's #222 for the Listings label). The urgent buckets are in a fixed severity order, not ordered by count as the fix asks (follow-up 27).
+- **LST-16's desk regression is fixed**, in F4 (#216).
+- **Partly fixed:**
+  - LST-06 (P1): from `wide`, the time zone isn't in the meta row with the model note and last-checked line.
+  - CLR-19 (P1): the urgent health buckets aren't ordered by count.
+  - CLR-06: a business workspace's Reports can say "locations" in the scope line and "listings" in the partial-coverage alert.
+  - INB-19: the toolbar moved to the bottom, but Sync isn't pull-to-refresh.
+  - INB-21: "Mark N shown as read" still shows under Open or while more pages exist.
+  - CLR-05: Reports' empty and collecting states still say "this window", and Keywords still says "Impressions counted from".
+  - LST-19: Posts still prints raw zone IDs.
+  - DSK-05: in a business workspace the trail still repeats the listing's name.
+  - LST-28: "Contact support" waits on P21.
+- **Deferred:** SET-27 only (P21, D10). P21 **needs a support channel from the owner**. DSK-23 (P23) shipped in F9 (#230), and INB-19 (R10) shipped in F8 (#226) apart from pull-to-refresh.
+- **Open:** none. CLR-06 was open on `de999679`. It is partly fixed in F2 (#219).
 
 ## Gates on the final main (`de999679`)
 
@@ -169,22 +187,22 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | INB-02 | P1 | "Publish reply" parks in two-person mode | R01b | #154 | fixed | `lib/inbox/reply-state.ts:230-235` (`publishSubmitsForApproval`), label "Submit for approval" `:111`, `components/inbox/action-bar.tsx:396` |
 | INB-03 | P1 | Requester offered "Approve reply" | R01b | #154, #183 | fixed | Server scope wins `lib/inbox/reply-state.ts:244`; `components/inbox/action-bar.tsx:285-296`; "Waiting for another approver" `components/inbox/detail/reply-exception.tsx:140,156,180`; row `canApprove` `lib/server/reviews-query.ts:203-209` |
 | INB-04 | P1 | Regenerate during approval withdraws it | R02 | #121 | fixed | `components/inbox/reply-composer.tsx:222-232` (parked = read-only), `:495-519` (note, no tone/Generate); "Edit reply" in ⋯ `components/inbox/action-bar.tsx:459` |
-| INB-05 | P1 | Approvers get no badge or notification | R03 | #194 | partly fixed | Badge and title count approvals: `components/app-shell/use-needs-reply-count.ts:37-56`, `lib/inbox/waiting.ts:26`, `lib/server/review-counts.ts:81`. Notification kinds deferred (D2: needs a migration to the kind CHECK in `supabase/migrations/0078_operational_notifications.sql:9-11`) |
+| INB-05 | P1 | Approvers get no badge or notification | R03, F6 | #194, #214 | fixed | Badge and title count approvals (`components/app-shell/use-needs-reply-count.ts:37-56`). F6 adds the `approval_requested` and `reply_sent_back` kinds (`supabase/migrations/0149_approval_notification_kinds.sql:50-51`, required at `lib/server/schema-manifest.ts:160`) and addressed recipients (`lib/server/notifications/evaluate.ts`), on `5fd05fce`. Fixed in code: the kinds need 0149 in the database a deployment runs on. This verification did not read any hosted database. Later, the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239) reports 0132–0149 applied to production, with readback showing 149 applied and none pending or unknown, before `5fd05fce` was promoted on 18 Oct. Row icons and an Open review link in the Notifications view are F11 (AMA-46) |
 | INB-06 | P1 | Connection actions send members to Access denied | R04 | #120 | fixed | `components/inbox/empty-states.tsx:120-160,461-466`; `components/inbox/detail/reply-exception.tsx:78-82,125-129,261-263` |
 | INB-07 | P1 | Scope treated as a filter; Clear all resets it | R05 | #159 | fixed | `components/inbox/inbox-view.tsx:319-332` (keeps `clientId`); `components/inbox/filter-toolbar.tsx:47-55`; `components/inbox/active-filter-chips.tsx:130-135` (chip only when there is no switcher) |
 | INB-08 | P1 | Single triage takes 4 taps via Select | R06a | #162 | fixed | Row swipe + ⋯ `components/inbox/review-list.tsx:349-368`; detail ⋯ with Assign… `components/inbox/review-detail.tsx:349-360`; `components/inbox/review-triage.tsx` |
-| INB-09 | P2 | Confirm dialogs where Undo fits | R06b | #193 | partly fixed | "No reply needed" acts at once with Undo: `components/inbox/review-triage.tsx:47-74,109-111`, `app/api/reviews/bulk/route.ts:154,191` (no migration). Remains: the Regenerate "Discard your edits?" confirm `components/inbox/reply-composer.tsx:414-419,521-550` |
+| INB-09 | P2 | Confirm dialogs where Undo fits | R06b, F2 | #193, #218 | fixed | "No reply needed" acts at once with Undo (`components/inbox/review-triage.tsx:47-74`). F2 removes Regenerate's "Discard your edits?": the "Reply ready" toast carries Undo (`components/inbox/reply-composer.tsx:274-276,386`), on `5fd05fce` |
 | INB-10 | P2 | Filters sheet long and mixed | R07 | #163 | fixed | Sheet groups `components/inbox/more-filters.tsx:176-287` (no Client or Reply status; Venue is a `Select` at `:187-202`); quick chips `components/inbox/filter-controls.tsx:23-78` |
 | INB-11 | P2 | "–" for zero; counts ignore filters | R07 | #163 | fixed | `components/inbox/queue-tabs.tsx:117-160` (no dash; figures hidden while filtered, except Failed) |
 | INB-12 | P2 | Count repeats; badge ignores scope | R07 | #163 | fixed | Scoped badge `components/app-shell/use-needs-reply-count.ts:42-56`; no figure on the active tab or Needs reply `components/inbox/queue-tabs.tsx:122-123` |
 | INB-13 | P2 | Two header bars, name twice | R08 | #164 | fixed | No `HeadFrame`; position and ‹ › on the name row `components/inbox/review-detail.tsx:285-330`; composer h2 is "Reply as {location}" `:1155-1160`. Not in the app bar as the plan said, but the extra band and the second name are gone |
-| INB-14 | P2 | AI unavailable still offers Retry/Generate | R08 | #164 | partly fixed | No Retry, no credits, Generate replaced by text: `components/inbox/reply-composer.tsx:101,476,566,588-596`. Remains: only known after one failed attempt (no server signal), per #164 |
+| INB-14 | P2 | AI unavailable still offers Retry/Generate | R08, F2 | #164, #218 | fixed | No Retry, no credits, Generate replaced by text. F2 adds `aiConfigured` to `GET /api/ai/credits` (`app/api/ai/credits/route.ts:18`, `lib/contracts/ai-credits.ts:41`), so the composer knows up front (`components/inbox/reply-composer.tsx:264-266`), on `5fd05fce` |
 | INB-15 | P2 | Approval copy jargon, "manager" | R01a | #118 | fixed | `components/inbox/detail/reply-exception.tsx:176`; `lib/inbox/actions.ts:209-211` |
 | INB-16 | P2 | Composer pushes the box down; guidance looks tappable | R08 | #164 | fixed | Text box before Generate `components/inbox/reply-composer.tsx:660,709`; count hidden while empty `:724`; guidance only with text `lib/inbox/reply-guidance.ts:72-73`; tick or dot, "Good replies" `reply-composer.tsx:738-775` |
 | INB-17 | P2 | Two Select exits | R09 | #190 | fixed | One "Cancel selection" `components/inbox/list-header.tsx:194`; bulk bar passes no cancel to `SelectionBar` (`components/ui/selection-bar.tsx:131-142` is optional) |
 | INB-18 | P2 | Sticky sync error; no freshness on phones | R09 | #190 | fixed | Toasts with one id `components/inbox/sync-reviews-button.tsx:18-38,79`; freshness on phones `components/inbox/list-header.tsx:156-162` |
-| INB-19 | P2 | List controls out of thumb reach | R10 | none | deferred | Stage 4 (R10), deferred by the leader |
-| INB-21 | P2 | Notifications wait on server, unclear labels | R11 | #191 | partly fixed | Pending-change overlay plus error toast `components/notifications/use-notification-changes.ts:115-129`; empty-state action `components/notifications/notifications-view.tsx:276-282`; button hidden when nothing is unread `:242-247`. Remains: says "Mark shown as read" while more pages exist or under Open (`:244-246`); settings link is icon-only below sm (`:210`); "Open" beside "Unread" still unexplained (`:56-59`) |
+| INB-19 | P2 | List controls out of thumb reach | R10, F8 | #226 | partly fixed | Search, filters and Sync in a bottom toolbar on phones (`components/inbox/inbox-toolbar.tsx:211`, `components/inbox/inbox-bottom-toolbar.tsx`, `components/inbox/inbox-view.tsx:844`), on `5fd05fce`. "Select" stays in the list header, as the finding's fix text doesn't move it. **Remains:** the fix (`findings.md:363`) makes Sync pull-to-refresh, with the button as the visible alternative. No pull gesture runs Sync; the browser's own pull-to-reload on phones (`components/app-shell/app-shell.tsx:214-216`) reloads the page, not Sync |
+| INB-21 | P2 | Notifications wait on server, unclear labels | R11, F1 | #191, #217 | partly fixed | Pending-change overlay and error toast (`components/notifications/use-notification-changes.ts`). F1: the settings link reads "Settings" below sm (`components/notifications/notifications-view.tsx:220-225`), and each filter has a hint, so Open is explained (`:64-69`). **Remains:** the finding calls "Mark shown as read" jargon, and the button still reads "Mark N shown as read" under Open or while more pages exist (`:271-275`), on `5fd05fce` |
 | INB-22 | P2 | Refresh bar ignores reduced motion | R09 | #190 | fixed | `components/inbox/review-list.tsx:274` (`Progress`) |
 | INB-23 | P1 | Inbox ships every dialog; over JS budget | R09 | #190 | fixed | `next/dynamic` at `components/inbox/review-detail.tsx:374,430`, `components/inbox/bulk-action-bar.tsx:137`, `components/inbox/lazy-bulk-action-bar.tsx:24`. perf-lab in #190: 549 KB → 518.8 KB (budget 520 KB) |
 | INB-24 | P2 | Scope-switch toasts pile up | P07 | #133 (15 Oct) | fixed | `components/app-shell/scope-sheet-model.tsx:139` `toast.add({ id: SWITCH_TOAST_ID, … })`; `components/ui/toast.tsx:473` `withReplacementReset`; `lib/queries/use-optimistic-mutation.ts` |
@@ -193,27 +211,27 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | LST-03 | P1 | Menu picker is a 20px sliver | L07 | #149 (15 Oct) | fixed | `components/locations/menu-editor.tsx:846` (`basis-full` on a phone, `sm:min-w-56`) |
 | LST-04 | P1 | Editor bar: 3 buttons on 2 rows; idle desk bar (incl. DSK-02) | P02 | #131 (15 Oct) | fixed | `components/editors/editor-footer.tsx:172` returns null when clean; `:195-215` Save here / Discard edits as secondaries; `editor-frame.tsx` has no `min-height:620px` or sticky left |
 | LST-05 | P1 | Review & publish bar docked by hand | P02 | #131 (15 Oct) | fixed | `components/listings/review-publish.tsx:986-988` `<ActionBar dock statusRow>` |
-| LST-06 | P1 | Five header rows before content | L03 | #152 (15 Oct) | partly fixed | Header is two rows: `area-frame.tsx:574-604` (listing switcher plus overflow; H1 = `AreaTitleSwitcher` `:182`). Freshness is in the pill popover `:294-299`, with one meta line from `md` `:309-335`. **Remains:** G7 is 45.5% against the plan's <30% target (leader accepted). The rest went to AMA-23 (P05b #178: label only, height unchanged) and AMA-18 (profile-editor trim: no PR found). The Hours time-zone line is still its own row (`hours-tab.tsx:541-552`) |
-| LST-07 | P1 | Board: five control rows above first listing | L04 | #166 (15 Oct) | partly fixed | `listings-board.tsx:935` (`hideWhenZero`), `:114,122` (one "Order listings" chip), `:992-994` (count is an sr-only live region), `:445,621,1100` (Add listings at the list end). **Remains:** G7 is 35.0% against <30% (leader accepted). The page description is handed to AMA-23/AMA-18 |
+| LST-06 | P1 | Five header rows before content | L03, F3 | #152, #205 | partly fixed | Two-row header (`area-frame.tsx`). F3 trims the phone profile editor: Identity's heading is sr-only on phones and shows on keyboard focus (`components/locations/profile/section-card.tsx:49,75`), the caption's Google note moved into the Business name hint (`components/locations/profile/sections/identity-section.tsx:105`), and the frame's top padding and gap are 12 px below md (`components/listings/area-frame.tsx:825`), on `5fd05fce`. G7 at 390×844: first field at 243 px (28.8%) against <30%, from AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb` (17 Oct, 08:24 UTC): an earlier lane measurement on #205 `4a6e507a5b24021d627e9690adfefd9b485c8732`, with plain main `3f335f82104a0183218f5a84a882af5278ea135e` as the comparator. #212 `62d02d3fe8b85625b76fcad58b2fde29762482de` matched main. Not re-measured at the later #205 heads (`5b80f916`, `32fd8843`) or on `5fd05fce`; a re-measurement must cite its own head. **Remains:** the fix (`findings.md:498`) asks, from `wide`, for the model note, time zone and last-checked line in one meta row under the tabs. `components/listings/area-frame.tsx:317-345` combines the model note and freshness but not the zone, and Hours still draws its own time-zone paragraph when the listing's zone differs from the viewer's (`components/locations/hours-tab.tsx:530-542`), on `5fd05fce`. AMA-34 comment `01a146db-6b50-782e-a0c9-da584870facb` left this item open for F4, and no decision accepts dropping it (follow-up 26) |
+| LST-07 | P1 | Board: five control rows above first listing | L04, F3 | #166, #205 | fixed | `listings-board.tsx` (`hideWhenZero`, one "Order listings" chip, sr-only count, Add listings at the end). F3 trims the board's phone header, on `5fd05fce`. G7 at 390×844: first row at 248 px (29.4%) against <30%, from AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb` (17 Oct, 08:24 UTC): an earlier lane measurement on #205 `4a6e507a5b24021d627e9690adfefd9b485c8732`, with plain main `3f335f82104a0183218f5a84a882af5278ea135e` as the comparator. #212 `62d02d3fe8b85625b76fcad58b2fde29762482de` matched main. Not re-measured at the later #205 heads (`5b80f916`, `32fd8843`) or on `5fd05fce`; a re-measurement must cite its own head |
 | LST-08 | P1 | Two write models in one profile form | L14 | #157 (15 Oct) | fixed | `components/reviewed-write/combined-review.tsx:77` (route note), `:243` (`CombinedReviewSheet`), used at `profile-editor.tsx:1097`. `SaveModelTag` is gone from `section-card.tsx`. Booking and people now also use `ReviewedWriteSheet` (L08, L13) |
 | LST-09 | P1 | Verification page is jargon, offers start on verified | L12 | #119 (15 Oct) | fixed | `verification-tab.tsx:77-90` (`verifiedAtRest` puts tools behind "Verification tools"), `verification-observation.tsx:60` ("Verified. Google confirms you manage this listing."). Residual jargon is listed under item 9 of Phase 2 verification |
 | LST-10 | P1 | Booking review is a one-off sheet, inline primary | L08 | #150 (15 Oct) | fixed | `place-action-approval-sheet.tsx:119` (`ReviewedWriteSheet`), `:250` (`OutcomeSummary`), `:263` (`ConsentSlot`). `booking-tab.tsx:887-905` (docked `ActionBar`, shown once a URL is entered) |
 | LST-11 | P1 | Post can't be published from composer | L10 | #151 (15 Oct), #174 (16 Oct) | fixed | D4 met. `post-composer-sheet.tsx:1199-1213`: the consent `<p data-slot="publish-consent">` is drawn by the same `gate` condition as the Publish button `:1239-1253`, linked by `aria-describedby={consentId}`, and visible at every width. Publish is bound to the saved revision: `lib/server/posts.ts:1445-1454`, `app/api/locations/[id]/posts/[postId]/route.ts:53` |
 | LST-12 | P1 | Composer has no photo | L10 | #151 (15 Oct) | fixed | `post-composer-sheet.tsx:1037-1043` (Photo row), `:1258` (`PostPhotoPicker`). The consent says ", with its photo," when one is set (`:1209-1213`) |
 | LST-13 | P1 | Publish failure said three times plus raw code | L11 | #147 (15 Oct) | fixed | `lib/editors/use-publish-flow.ts:32` (toast "Publishing stopped. See the steps."), `review-publish.tsx:962-972` (one banner with the next action), `components/ui/publish-steps.tsx:142` (code under `SupportDetails`) |
-| LST-14 | P1 | Seven areas fetch after hydration; header remounts | L16 | #156 (16 Oct) | partly fixed | New `app/(dashboard)/listings/[id]/layout.tsx`. `StreamedTab` is on 9 area pages (profile, menu, booking, people, verification and suggestions added). **Remains:** `changes` (Review & publish) is still not streamed and draws its own header (PR states this). Mobile LCP on `/people` went from 1,244 to 1,952 ms in #156, because real content is now the LCP element. On final main it is 1,672 ms, over the 1,500 ms budget (see perf-lab) |
+| LST-14 | P1 | Seven areas fetch after hydration; header remounts | L16, F3 | #156, #212 | fixed | `StreamedTab` on every area, now including `changes`: `app/(dashboard)/listings/[id]/changes/page.tsx:28-34`, inside the shared `AreaFrame` header, on `5fd05fce`. The `/people` mobile LCP left over from #156 (1,672 ms against the 1,500 ms budget on `de999679`) has not been re-measured: see follow-up 16 |
 | LST-15 | P2 | Photo sheet contradicts itself | L15 | #127 (15 Oct) | fixed | `add-photo-dialog.tsx:334-336` ("Add photos", "Photos go to Google when you tap Upload."), `:588` (one primary); `FileCard` rows `:470` |
-| LST-16 | P2 | Hours list long, closed days repeat | L06 | #155 (16 Oct) | partly fixed | `hours-editor.tsx:545-571` (one `ListRow` per day plus a trailing `Switch`), `:501-509` (one "Copy Monday to…" in the group header). G7: page height 2375 → 1184 px. **Remains:** on desk the rows collapse: `components/ui/settings-row.tsx:202` gives each row child `desk:[&>li>*]:w-full`, so the `Switch` beside the `ListRow` takes the full width and the day name and times get 0 px (`desktop-after/listings--loc--hours.webp`) |
+| LST-16 | P2 | Hours list long, closed days repeat | L06, F4 | #155, #216 | fixed | One `ListRow` per day plus a `Switch`, one "Copy Monday to…". F4 fixes the desk collapse: the day's `<li>` sets `data-row-layout="inline"` and the group's desk width rule skips it (`components/ui/settings-row.tsx:28,205`), on `5fd05fce` |
 | LST-17 | P2 | 24-hour fields, 12-hour confirm | L05 | #148 (15 Oct) | fixed | `lib/locations/hours-diff.ts:27-29` (`clockTime` uses `formatTimeOfDay`), `lib/format/time.ts:20` |
 | LST-18 | P1 | No hours on Google reads green "In sync" | L05 + L18 | #148, #168 (15 Oct) | fixed | Page: `hours-tab.tsx:432,472` (`emptyOnGoogle`), `lib/editors/hours-notes.ts:66` (hint), `:32-40` (service note moved to the service group). Roll-up: `lib/contracts/location-summary.ts:67`, `lib/server/location-summary.ts:120-123`, `lib/listings/health.ts:125,185-188`, `lib/listings/area-state.ts:143-151`. Client health through `lib/server/clients.ts:280-307`. L05's viewer gap is closed by the L18 card state. Seen in the after capture: the "No hours on Google" pill and notice (`desktop-after/listings--loc--hours.webp`) |
-| LST-19 | P2 | Raw IANA zone IDs | L05 | #148 (15 Oct) | partly fixed | Hours: `hours-tab.tsx:436-440` plus `lib/format/time.ts:87-113` ("UK time", hidden when it matches the viewer's zone). **Remains:** Calendar still prints raw IDs (`publication-calendar.tsx:176-178`, `calendar-grid.tsx:93`). See item 5 of Phase 2 verification |
+| LST-19 | P2 | Raw IANA zone IDs | L05, F4 | #148, #216 | partly fixed | Hours (`hours-tab.tsx:425`) and, from F4, the Calendar and the Replay name (`components/calendar/publication-calendar.tsx:179`) use `formatTimeZoneLabel`. **Remains:** Posts still prints the raw ID (`components/locations/posts/post-schedules.tsx:331`, `schedule-post-sheet.tsx:351`), on `5fd05fce` |
 | LST-20 | P2 | Five tool rows for one item; bad plural | L07 | #149 (15 Oct) | fixed | `menu-editor.tsx:74-75,519-522` (threshold), `:1092-1093` (`countNoun`) |
 | LST-21 | P2 | Templated info-sheet title | L03 | #152 (15 Oct) | fixed | `area-frame.tsx:274,294` (fixed title "How changes reach Google"); the template is gone |
 | LST-23 | P2 | Overview repeats health | L04 | #166 (15 Oct) | fixed | `health-strip.tsx:116-172` (two `SettingsRow`s: "Google connection", "Last published") |
 | LST-24 | P2 | Every post headed "Update"; "Lifecycle" | L09 | #123 (15 Oct) | fixed | `post-card.tsx:40` (headline is the first line), `:146` ("History") |
 | LST-25 | P2 | Composer repeats draft copy; bare fields | L09 | #123 (15 Oct) | fixed | Draft note only in the footer (`post-composer-sheet.tsx:1217-1221`), `:533` ("Write the post first."); no `BARE` inputs left |
 | LST-26 | P2 | Invite jumps sheet to panel; jargon toast | L13 | #153 (15 Oct) | fixed | `invite-sheet.tsx:188-192` (one `ReviewedWriteSheet`), `:132` ("Invitation ready to approve"), `invitations.tsx:158` ("Invite someone"), `components/ui/stepper.tsx:83` plus `reviewed-write/steps.tsx:70` (`showLabels`) |
-| LST-27 | P2 | Read-only member view is greyed editor | L11 | #147 (15 Oct) | partly fixed | `editor-frame.tsx:72,111-117` (`readView`), passed by hours/menu/profile (`hours-tab.tsx:465`, `menu-tab.tsx:290`, `profile-editor.tsx:998`). `review-publish.tsx:737` (capability copy). Nav hiding at `lib/listings/area-nav.ts:119-126`. **Remains:** the header "Review & publish (n)" is not gated by role (see item 1 of Phase 2 verification) |
+| LST-27 | P2 | Read-only member view is greyed editor | L11, F3 | #147, #212 | fixed | `readView` on hours/menu/profile. F3 gates "Review & publish (n)" by role in the area header and the phone overflow (`lib/listings/area-nav.ts:75`, `components/listings/area-frame.tsx:411`). A direct link still opens the page read-only, and the server still checks every write, on `5fd05fce` |
 | LST-28 | P2 | Calendar off is a dead end; no current nav item | L17 | #158 (16 Oct) | partly fixed | `publication-calendar.tsx:187-226` (no description, "Go to Listings"), `components/app-shell/app-shell.tsx:265-269` (Calendar stays current while on `/calendar`). **Remains:** "Contact support" for owners is deferred until D10 (P21 not merged; no support address exists) |
 | LST-29 | P2 | "Copy to…" name lacks visible label | L05 (kept by L06) | #148, #155 | fixed | `hours-editor.tsx:1145-1149` (`aria-label="Copy to… (Monday's hours)"`) |
 | LST-31 | P2 | "Action link" jargon in Booking | L08 | #150 (15 Oct) | fixed | No "action link" left in `booking-tab.tsx` or `place-actions/*`. Expiry only within the hour (`place-action-approval-sheet.tsx:42`, `saved-place-action-work.tsx:52`). Server error strings still say "action link" (`lib/server/place-action-attempts.ts:34,43`); PR states this, out of scope |
@@ -221,8 +239,8 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | CLR-02 | P1 | Figures below a screen of chrome | R12a | #161 | fixed | Description hidden below md `app/(dashboard)/reports/page.tsx:23`; one caption with an info sheet `components/reporting/presence-provenance.tsx:160-185`; Refresh in ⋯ `components/reporting/report-actions-menu.tsx:151-164`. "First KPI above the fold" not measured (G7) |
 | CLR-03 | P2 | Provenance lines contradict | R12b | #192 | fixed | Disjoint status `lib/domain/report-coverage.ts:106-191`, used at `lib/server/presence-report.ts:219`; copy `components/reporting/presence-provenance.tsx:105-120` |
 | CLR-04 | P2 | Charts misread; 10px bars | R13 | #129 | fixed | `components/reporting/report-bar-chart.tsx:36-39,84-104,201-233` (dated labels, scrub, weekly grouping, `kind="line"`) |
-| CLR-05 | P2 | Internal words and GBP jargon | R15 | #125 | partly fixed | Hub done: "Google login:" `components/clients/client-hub.tsx:436`, "Past reviews" `:733-736`, "Replies that didn't post" `:247`. Reports half not done: "vs the previous window" `components/reporting/delta-badge.tsx:28-33`; "in this window" `components/reporting/reply-figures.tsx:92,94,197`; "Impressions since" `components/performance/keywords-tab.tsx:93` |
-| CLR-06 | P2 | location / listing / venue | R15 (+P11) | #125 (deferred inside) | open | P11 merged (#136) but no Clients or Reports file adopted it: TODOs still at `components/clients/client-hub.tsx:253,537`; "Venues" `components/share/shared-client-report.tsx:228`; "locations" `components/performance/performance-view.tsx:81`, `components/reporting/partial-coverage-alert.tsx:38` |
+| CLR-05 | P2 | Internal words and GBP jargon | R15, F2 | #125, #219 | partly fixed | Hub done in #125. F2: "the previous period" (`components/reporting/delta-badge.tsx:28-30`), and "Impressions since" became "Impressions counted from". **Remains:** the finding calls "window" internal, and the empty and collecting states still say "this window" (`components/reporting/reporting-states.tsx:20,29`, `components/performance/keywords-tab.tsx:232`, `components/performance/location-performance.tsx:188`). The fix (`findings.md:858`) also replaces "Impressions" with "Times shown in search", and Keywords still says "Impressions counted from" (`components/performance/keywords-tab.tsx:94`), on `5fd05fce` |
+| CLR-06 | P2 | location / listing / venue | R15 (+P11), F2 | #125, #219 | partly fixed | F2 adopts the P11 vocabulary in Clients, Reports, Performance and the shared report (`LISTING_TERMS` in `lib/workspace/terms.ts`). The e2e wording fix landed in #224 (AMA-49). **Remains:** one Reports view can mix nouns in a business workspace. `scopeCountPhrase()` uses the business scope word "locations" (`components/performance/performance-view.tsx:85-90`). `PartialCoverageAlert` defaults to `LISTING_NOUNS`, "listing(s)" (`components/reporting/partial-coverage-alert.tsx:39-42,109`), and the Google and Keywords tabs pass no `nouns` (`components/performance/google-performance-tab.tsx:190,207,225,259`, `components/performance/keywords-tab.tsx:195,212,225,253`). A partial report there can show both, on `5fd05fce` (follow-up 28) |
 | CLR-07 | P2 | Refresh refreshes everyone, no progress | R13, R12b (D7) | #129, #192 | fixed | Polling with "Refreshing…" `components/performance/refresh-google-button.tsx:24-26,77-86`; label "Check for new data across clients" on a client report `components/reporting/report-actions-menu.tsx:160-163` (not "Refresh all clients": see item 8 of Phase 2 verification) |
 | CLR-08 | P2 | Tabs load with different shapes | R13 | #129 | fixed | `components/reporting/reports-skeleton.tsx:97-133`; `components/performance/google-performance-tab.tsx:138`; `components/performance/keywords-tab.tsx:85-87,153` |
 | CLR-09 | P2 | One-location waterfall | R13 | #129 | fixed | `components/performance/location-report.tsx:72-90` (figures mount while the directory loads) |
@@ -235,7 +253,7 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | CLR-16 | P1 | Inline save bar; no leave guard | R17 | #126 | fixed | `components/clients/client-form.tsx:57,167-168,199`; `components/clients/client-settings.tsx:1039-1042` (`dock`, `visible={dirty}`) |
 | CLR-17 | P2 | Colour picker toggles read hex | R17 | #126 | fixed | `components/clients/client-colour-field.tsx:58-97` (`RadioGroup`, preview, "Use the automatic colour") |
 | CLR-18 | P1 | Connect hint points off-screen | R18 | #128 | fixed | Logins first as `OptionRow` `components/setup/step-connect.tsx:127-168`, then "Or sign in with another Google account" `:305`; hint `lib/setup/steps.ts:277`; scroll `components/setup/setup-wizard.tsx:179` |
-| CLR-19 | P1 | Health chips: empty buckets, clipped | R16 | #160 | partly fixed | Shared `FilterChip`, zero buckets hidden, wraps from md `components/clients/health-filter.tsx:53-88`; search on its own row `components/clients/clients-index.tsx:299-316`; "Some listings not checked yet" `lib/clients/health.ts:250`. Remains: "Action needed" wording `lib/clients/health.ts:255`, urgent-bucket ordering, Listings still says "Partially checked" |
+| CLR-19 | P1 | Health chips: empty buckets, clipped | R16, F2 | #160, #219, #222 | partly fixed | Shared `FilterChip`, zero buckets hidden, wraps from md (#160). F2: `disconnected` reads "Can’t reach Google" (`lib/clients/health.ts:258`). F9's #222 aligns the Listings label (`lib/listings/health.ts:328`). **Remains:** the fix (`findings.md:825`) orders the urgent buckets by count. `HealthFilterStrip` maps the static `HEALTH_FILTERS` (`components/clients/health-filter.tsx:61`), which `lib/clients/health.ts:371-386` fixes in severity order. Nothing sorts by count, and no owner decision accepts severity order instead, on `5fd05fce` (follow-up 27) |
 | CLR-20 | P2 | "Synced Not yet"; nested link | R16 | #160 | fixed | `components/clients/clients-index.tsx:464-479` (sentences), `:722-745` (plain text, no link) |
 | CLR-21 | P2 | Second back button; anchor chevrons | R17 | #126 | fixed | `components/clients/client-settings.tsx:180-183` (`max-md:hidden`); phone index removed `:114-117` |
 | CLR-22 | P2 | Archive: confirm, checkbox, then Undo | R17 | #126 | fixed | `components/clients/client-settings.tsx:817-860` (`SettingsDestructiveAction`, one tap, Undo toast) |
@@ -257,45 +275,47 @@ The columns are: ID, severity, short title, slice, PR(s) with merge date, status
 | SET-15 | P2 | Retention is a mono number spinner | P16 | #141 (15 Oct) | fixed | `components/settings/policy-form.tsx:647-669` `Select` of presets, "How long we keep review text" |
 | SET-16 | P2 | "Sidebar" copy; approval said 3 times (incl. DSK-19) | P16 | #141 (15 Oct) | fixed | `policy-form.tsx:553`, `agency-name-form.tsx:139` "at the top of the app"; `policy-form.tsx:595-610` one `Alert` per branch |
 | SET-17 | P2 | Invitation page hides the role | P19b | #176 (15 Oct), #184 (15 Oct, test) | fixed | `app/api/invitations/[token]/route.ts:52-72` role and expiry for a live invite only (410/409 with no details); `components/auth/invitation-view.tsx:69-90` Role and Link expires rows (D8) |
-| SET-18 | P2 | Confirm password and composition rules | P19b | #176 (15 Oct) | fixed | `lib/domain/auth.ts:25-38` length 12–128 code points only (D9); `components/auth/password-requirements.tsx:12-21` one rule; `sign-in-form.tsx:439-450` and `reset-password-form.tsx:204` one `PasswordField` each. Breached-password check is an owner follow-up (D9) |
+| SET-18 | P2 | Confirm password and composition rules | P19b, F7 | #176 (15 Oct), #206 (through #233) | fixed | One `PasswordField` per form, no confirmation field (`components/auth/reset-password-form.tsx:204`, `components/auth/sign-in-form.tsx:419,442`), and one length-only rule with no composition rules (`components/auth/password-requirements.tsx:14-20`). F7 sets it to 15–128 Unicode code points for registration and reset (`lib/domain/auth.ts:17-40`). Those two routes also run a prefix-only (k-anonymity) Pwned Passwords check (`lib/server/breached-password.ts`, called at `app/api/auth/password/register/route.ts:23` and `app/api/auth/password/reset/complete/route.ts:25`). It is on unless `BREACHED_PASSWORD_CHECK_ENABLED` is `false`, and fails open if the service doesn't answer (`lib/server/env.ts:334-336`). Sign-in never applies the new-password schema, so passwords set under the earlier 12-character minimum still work (`lib/domain/auth.ts:24-25,42-48`), on `5fd05fce`. **History:** on `de999679` (#176, D9) the rule was 12–128 code points and the breach check was an owner follow-up. The hosted Auth compatibility check was reported by the owner, not seen in this verification |
 | SET-19 | P2 | Access denied shows 403; wrong primary | P08 | #134 (15 Oct) | fixed | `components/app-shell/access-denied.tsx:165-183` "Ask for access" primary, "Back to <shell target>" secondary; no "403" in the file; `app/(dashboard)/team/page.tsx:21` area "Team" |
 | SET-20 | P2 | 404 shows UUID path, goes to Inbox | P08 (+P22) | #134 (15 Oct), #144 (15 Oct) | fixed | `components/app-shell/not-found-content.tsx:47-60` back target, `:84` path under `SupportDetails`; `components/app-shell/boundary.tsx:96` one title for both 404s (minor tab-title gap, see item 9 of Phase 2 verification) |
 | SET-21 | P2 | Operations in engineering words | P18 | #142 (15 Oct) | fixed | `components/settings/scheduled-jobs-panel.tsx:38-43` one summary `Alert`; `operations-view.tsx:263` `summariseScheduler`; no "Heartbeat" or "Job runner" left |
-| SET-22 | P2 | Settings data loads after hydration | P20 | #195 (16 Oct) | partly fixed | Team, Notifications and Reply policy hydrate from the server: `app/(dashboard)/team/page.tsx:6`, `settings/notifications/page.tsx:15`, `settings/reply-policy-content.tsx:45`. Connections was already hydrated by the layout. **Remains:** Operations, named in the finding, still fetches on the client (`settings/operations/page.tsx` has no prefetch; `operations-view.tsx:122` `useQuery`) |
+| SET-22 | P2 | Settings data loads after hydration | P20, F5 | #195, #208 | fixed | Team, Notifications and Reply policy hydrate from the server (#195). F5 adds Operations: `app/(dashboard)/settings/operations/page.tsx:7,20` (`operationsPrefetch`), on `5fd05fce` |
 | SET-23 | P2 | Auth errors ignore the surface; "agency" | P19a | #143 (15 Oct) | fixed | `lib/api/auth-errors.ts:23-29` titles per surface, `:94` "Sign in to continue.", `:177-180` `surface` required |
 | SET-24 | P2 | Typed email confirm has no @ key | P09 | #139 (15 Oct) | fixed | `components/ui/typed-confirmation.tsx:69-72`, `:187` `inputMode="email"` when expected has "@"; `connection-card.tsx:308-314` no repeated description |
-| SET-25 | P2 | Page primaries scroll away | P17 | #170 (15 Oct) | partly fixed | Connections: `connections-workspace.tsx:58-59` registers a `PageChrome` action; `app-bar.tsx:351-352` shows it once the header actions scroll away. **Remains:** Team's "Invite a teammate", the finding's other example, is still only in the page header (`components/settings/team-view.tsx:102-111`). The plan's P17 covered Connections only |
+| SET-25 | P2 | Page primaries scroll away | P17, F5 | #170, #207 | fixed | Connections registers a `PageChrome` action (#170). F5 does the same for Team's "Invite a teammate" (`components/settings/team-view.tsx:105-107`), on `5fd05fce` |
 | SET-26 | P2 | Theme only in More; "Match system" wraps | P15 | #167 (15 Oct) | fixed | `components/settings/settings-index.tsx:83` `AppearanceRow`; `components/app-shell/account-menu.tsx:511-519` `SegmentedControl` |
-| SET-27 | P2 | No help or feedback route | P21 | none | deferred | D10: no help or feedback channel exists in the repo. Confirmed: nothing in `destinations.ts`, `more-sheet.tsx` or `settings-index.tsx` |
+| SET-27 | P2 | No help or feedback route | P21 | none | deferred | D10: no help or feedback channel exists in the repo. **Needs a support channel from the owner.** Nothing in `destinations.ts`, `more-sheet.tsx` or `settings-index.tsx` on `5fd05fce` |
 | SET-28 | P2 | Disconnect most prominent on card | P17 | #170 (15 Oct) | fixed | `components/settings/connection-card.tsx:547-555` Disconnect is last in a ⋯ menu ("Actions for <email>") |
 | SET-29 | P2 | Email warning to everyone; live selects (incl. DSK-17) | P14 | #169 (15 Oct) | fixed | `notification-preferences.tsx:218-245` reason as text for every role, plus the Operations link only for owners and admins. The cadence rows are left out, not drawn disabled (a choice the PR flagged for review) |
 | SET-30 | P2 | Replay name assumes London time | P18 | #142 (15 Oct) | fixed | `operations-view.tsx:121` org zone from settings, `:226` label via `formatZonedTime` (`lib/operations/zoned-time.ts:20-28`); relative time while the zone is unknown |
 | DSK-01 | P2 | Area tabs overflow at 1280 | L03 (P04 landed) | #152 (15 Oct) | fixed | `area-frame.tsx:154` (`overflow="more"`), `:659` (Review & publish as a header action) |
-| DSK-05 | P2 | Same place four times; crumbs cut to stubs | L03 | #152 (15 Oct) | partly fixed | `context-health-chip.tsx:87-91` (`shrink` plus `title`). Client caption dropped on area pages (`area-frame.tsx:536-558`). **Remains:** no "…" collapse of middle crumbs (`breadcrumbs-context.tsx:107-116` still truncates every crumb), and at `wide` the listing name is still in both the crumb and the header row |
+| DSK-05 | P2 | Same place four times; crumbs cut to stubs | L03, F3 | #152, #212 | partly fixed | F3 folds a trail longer than three crumbs into a "…" menu (`lib/ui/breadcrumb-trail.ts:160`, `components/app-shell/breadcrumbs-context.tsx:126`). An agency listing area reads "Listings / … / Hours", and the client stays in the "…" menu, the sibling switcher and the overview. **Remains:** in a business workspace the trail is three crumbs, so it never folds and the listing name is still in both the crumb and the title, on `5fd05fce` |
 | DSK-06 | P2 | Overview switcher shows the client's name | L03 | #152 (15 Oct) | fixed | `area-frame.tsx:596-603` (the overview H1 is `SiblingSwitcher` with the listing name), `:559-562` (client as plain text) |
 | DSK-07 | P2 | One-crumb trails echo h1; Settings trail | P06 | #138 (15 Oct) | fixed | `components/app-shell/breadcrumbs-context.tsx:93` no trail for a lone unlinked crumb; `:61-62` `/settings` → "Settings / Reply policy" |
 | DSK-08 | P2 | Desk sidebar hides Team and Settings | P06 | #138 (15 Oct) | fixed | `components/app-shell/nav.tsx:148`, `:288` permanent "Workspace" group; the "More" disclosure has been removed |
 | DSK-09 | P2 | Two `aria-current` rows | P06 | #138 (15 Oct) | fixed | `nav.tsx:205-248` one `current` from `currentHref` (`lib/navigation/destinations.ts:313`); Clients gets `containsCurrent`, not `aria-current` |
-| DSK-10 | P2 | Hub listings as phone cards at 1280 | R15 | #125 | partly fixed | Full-width table, cards below `components/clients/client-hub.tsx:275-279,575-580`. Listings-board columns (Health, Waiting) not added: the client payload lacks them, and adding them would change the contract (#125) |
+| DSK-10 | P2 | Hub listings as phone cards at 1280 | R15, F2 | #125, #219 | fixed | Full-width table (#125). F2 adds the board's Health and Waiting per listing to `GET /api/clients/[clientId]` (`app/api/clients/[clientId]/route.ts:79`), shown as columns (`components/clients/client-hub.tsx:668`), with no schema change, on `5fd05fce` |
 | DSK-11 | P2 | "2 to reply" in mono | R16 | #160 | fixed | `components/clients/clients-index.tsx:717,730` (`font-sans`) |
 | DSK-12 | P2 | Venue line wraps rows to 3 lines | R09 | #190 | fixed | `components/inbox/review-list.tsx:488-505` (truncate, full text in `title`) |
 | DSK-14 | P2 | Posts empty state points elsewhere | L09 | #123 (15 Oct) | fixed | `posts-tab.tsx:322-333` (`Empty action={composer}`) |
 | DSK-15 | P2 | Status words and card verbs differ | L03 | #152 (15 Oct) | fixed | `lib/listings/health.ts:264-267` ("In sync"), used by `editor-footer.tsx:23`, `editor-status.tsx:154` and `review-publish.tsx:409`. `area-cards.tsx:283-284` ("Open" instead of "Check"). Non-compared areas keep "On Google"/"Nothing waiting" (`area-state.ts:166,219`) |
 | DSK-18 | P2 | Short fields span the desk column | P09 | #139 (15 Oct) | fixed | `components/ui/field.tsx:55-63`, `:108-111` `measure="short"` → `desk:max-w-md`; applied at `policy-form.tsx:539`, `agency-name-form.tsx:125`, `identity-section.tsx:92`, `:118` |
 | DSK-22 | P2 | Broken-image glyph | R08 | #164 | fixed | `components/inbox/review-detail.tsx:773-779,854-859` ("Photo unavailable") |
-| DSK-23 | P2 | No desk quick-look panel | P23 | none | deferred | Stage 4, deferred by the leader. No panel in `clients-index.tsx` or `listings-board.tsx` |
+| DSK-23 | P2 | No desk quick-look panel | P23, F9 | #230 | fixed | From `lg`, a plain click on a Clients or Listings row opens a quick-look panel (`components/ui/quick-look-panel.tsx`, `components/clients/clients-index.tsx:755`, `components/listings/listings-board.tsx:37`). The name link and keyboard navigation are unchanged, on `5fd05fce` |
 
 ## Deferred by decision
 
 | Item | Findings | Reason |
 | --- | --- | --- |
-| P21 Help and feedback entry | SET-27, and the "Contact support" part of LST-28 | D10: the repo has no help or feedback channel. The only contact is the privacy email in `lib/legal/operator.ts`, which is for privacy requests. Name a channel and P21 comes back. |
-| R03, notification half | INB-05 (the badge and title half is fixed, #194) | D2: the `approval_requested` and `reply_sent_back` kinds need a migration to the kind `CHECK` in `supabase/migrations/0078_operational_notifications.sql:9-11`. |
-| R10 Inbox bottom toolbar | INB-19 | Stage 4, optional. Deferred by the leader. |
-| P23 Desk quick-look panel | DSK-23 | Stage 4, optional. Deferred by the leader. |
-| R06b Undo for "No reply needed" | INB-09 | **Not deferred.** It shipped without a schema change (D3): `app/api/reviews/bulk/route.ts:154,191`, and no migration has landed since `4e0fa805`. The Regenerate "Discard your edits?" confirmation remains (see below). |
+| P21 Help and feedback entry | SET-27, and the "Contact support" part of LST-28 | D10: the repo has no help or feedback channel. The only contact is the privacy email in `lib/legal/operator.ts`, which is for privacy requests. **Needs a support channel from the owner.** Once the owner names one, P21 comes back. |
+| R03, notification half | INB-05 (the badge and title half is fixed, #194) | **Shipped in F6 (#214), not deferred any longer.** Migration `0149_approval_notification_kinds` widens the kind `CHECK`. On `5fd05fce` it is a migration file. According to the committed release record, the owner applied it, with 0132–0148, before promoting `5fd05fce` on 18 Oct. This verification did not read the database itself. |
+| R10 Inbox bottom toolbar | INB-19 | **Shipped in F8 (#226), apart from pull-to-refresh** (see INB-19 and follow-up 25). |
+| P23 Desk quick-look panel | DSK-23 | **Shipped in F9 (#230).** |
+| R06b Undo for "No reply needed" | INB-09 | **Not deferred.** It shipped without a schema change (D3): `app/api/reviews/bulk/route.ts:154,191`. F2 (#218) removed the Regenerate "Discard your edits?" confirmation too. |
 
 ## Phase 2 verification: what didn't match
+
+As found on `de999679`, before F1–F9. For the status on `5fd05fce` see [Findings by status](#findings-by-status) and [Open follow-ups](#open-follow-ups).
 
 Each lane's closing evidence was checked against findings.md and the code on main. One regression against a finding's before state was found, in the re-capture: the Hours day rows on desk (item 13). No other regression was found. No migration has landed since `4e0fa805` (`git log 4e0fa805..de999679 -- supabase/migrations` is empty), which matches D2, D3, D6 and the no-schema rule. D9 is confirmed:
 - `lib/domain/auth.ts:25-38` keeps only the 12–128 length rule, with no character-class rules.
@@ -357,6 +377,8 @@ These items differ from what a PR or the plan claimed, or are new gaps:
 
 ## Steps per flow, before and after
 
+Counted on `de999679`, before F1–F9. These were not re-counted on `5fd05fce`.
+
 Before counts are copied from findings.md. "Captured" means the taps were performed in the after library run on 16 Oct (folder given, under "Naba Presence Mobile - Flows (after)"). "Code" means counted from the code path on main; those flows were not driven in the capture.
 
 | Family | Flow | Task | Before (taps) | After (taps) | Source |
@@ -367,7 +389,7 @@ Before counts are copied from findings.md. "Captured" means the taps were perfor
 | Inbox | Approving | Requester submits, approver approves | Requester 3; approver 3; phone Reject 6 | Requester 3 (open; type; Submit for approval). Approver 3 (Approval tab; row; Approve reply), with no confirmation. Reject not tried | Captured (`…/03 - Approving a reply/`) |
 | Inbox | Review detail ⋯ | See history or details | 2 | 2 (⋯; History or Review details); the sheet was opened, the item not tapped | Captured (`03 - Inbox/01 - Review detail/screen-02`) |
 | Inbox | Filtering | 5★ reviews with text | 4 | 2 (★5 chip; With text chip). Removing one: 1 | Captured (`03 - Inbox/02 - Filtering reviews/`) |
-| Inbox | Searching | Find a review | 1 plus typing; Cancel | 1 plus typing; Cancel (no change) | Code (`components/inbox/inbox-toolbar.tsx:63-134`); R10 deferred |
+| Inbox | Searching | Find a review | 1 plus typing; Cancel | 1 plus typing; Cancel (no change) | Code (`components/inbox/inbox-toolbar.tsx:63-134`); R10 deferred on `de999679`, shipped later in F8 (#226), not re-counted |
 | Inbox | Syncing | Pull new reviews | 1 (owners and admins) | 1 (spinner, then "Up to date" toast) | Captured (`03 - Inbox/03 - Syncing reviews/`) |
 | Inbox | Switching client scope | Work on one client | 2 | 2 (scope chip; client row), "Switched to …" toast. No filter chip or filter-count badge any more | Captured (`03 - Inbox/04 - Switching client scope/`) |
 | Inbox | Inbox › Select | Mark one review "No reply needed" | 4 | 2 (row ⋯; No reply needed), no confirmation; Undo is 1 more tap in the toast | Captured (`03 - Inbox/`) |
@@ -428,34 +450,77 @@ Before counts are copied from findings.md. "Captured" means the taps were perfor
 
 ## Open follow-ups
 
+Updated 17–18 Oct 2026 UTC (AMA-32). Items 1–18 keep their original numbers, so earlier issue comments that cite them still match. Code statuses cite `5fd05fce`; later measurements and operational evidence name their own tested commits and times.
+
 ### From AMA-13 decisions and reviews
-1. **AMA-29: the Inbox unread-count model** (Reviews lane, in backlog). Three cases: poll-after-removal, no pin when the badge isn't loaded at the first change, and a new notification arriving mid-change. These were deferred out of #191 by the owner ("ship 6dd", 16 Oct 2026).
-2. **From the Release & QA review of #191 at `8bcf591f`, not yet ticketed:**
-   - **Inline-confirmation focus loss (a11y, should-fix).** Under All or Unread, "Yes, resolve" or "Cancel" removes the focused button while the row stays, so focus falls to the body (`components/notifications/notifications-view.tsx:337-341,438-458`). Return focus to the row's own action.
-   - **Partial saves revert silently.** A turn that saved fewer rows than it sent (for example 1 of 50) reverts all of them to unread with no toast until the refetch. Only `updated: 0` is tested.
-   - **Duplicate ID in a turn.** The server counts a duplicated ID once, so the turn is treated as unsaved. It's unlikely with cursor paging, and the cost is a revert and a refetch.
-   - **"Load more" failure wording.** A failed "Load more" shows "could not be refreshed".
-   - **Empty list with a failed refetch.** It shows "Nothing matches this filter" without the out-of-date notice.
-3. **D2:** the notification kinds for approval requests and send-backs need a migration (owner).
-4. **D10 / P21:** name a help or feedback channel and P21 can ship. This includes "Contact support" on the Calendar off state (LST-28).
-5. **Stage 4:** R10 (INB-19) and P23 (DSK-23), both optional.
-6. **Passwords (owner):** move to a 15-character minimum with a breached-password check. D9 kept 12–128 because no breached-password check exists in the codebase, and one would need a new external service. Before release, the owner should also confirm that:
-   - hosted Supabase Auth requires no character classes, or letters-only passwords are refused (`lib/server/password-auth.ts:311-313`, `:465`);
-   - whether the provider's 72-byte cap applies.
+1. **Done (F1, #217):** the Inbox unread-count model (AMA-29). Its three cases are poll-after-removal, no pin when the badge isn't loaded at the first change, and a notification arriving mid-change. #217 also fences a cancelled poll.
+2. **Done (F1, #217):** the five notes from the Release & QA review of #191 at `8bcf591f`: inline-confirmation focus loss, partial saves reverting silently, a duplicate ID in a turn, the "Load more" failure wording, and an empty list with a failed refetch.
+3. **Done (F6, #214), and released according to the release record:** D2's notification kinds. Migration `0149_approval_notification_kinds` is in `5fd05fce`. This verification did not read any hosted database. The committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239) reports it applied to production before `5fd05fce` was promoted on 18 Oct (see [Release gate on `5fd05fce`](#release-gate-on-5fd05fce)). F11 (AMA-46) adds row icons and an Open review link to the Notifications view.
+4. **Still open; needs a support channel from the owner:** D10 / P21. Once the owner names a help or feedback channel, P21 can ship (SET-27), along with "Contact support" on the Calendar off state (LST-28).
+5. **Done, apart from one remainder:** P23 (DSK-23) in F9 (#230). R10 (INB-19) shipped in F8 (#226) without pull-to-refresh (follow-up 25).
+6. **Done (F7, #206 through #233):** passwords. Registration and reset need 15–128 Unicode code points and run a prefix-only Pwned Passwords check. Existing sign-in passwords still work. The owner reported, on 17 Oct, that the hosted Auth compatibility check passed. The pipeline did not see that check.
 
 ### Found or confirmed in this verification
-7. Gate "Review & publish (n)" by role in the area header and the phone overflow (item 1 above, Listings).
-8. CLR-06 wording, and the Reports half of CLR-05 (Reviews).
-9. INB-09: replace the Regenerate "Discard your edits?" confirmation with Undo (Reviews).
-10. LST-19: friendly zone names in the Calendar and the Replay name (Listings and Platform).
-11. SET-22: prefetch Operations on the server. SET-25: an app-bar invite action on Team (Platform).
-12. Lower `scripts/design-baseline.json` to 104 with `pnpm check:design --update-baseline` (Platform), so the 2 removed R7 hits can't come back.
-13. The AMA-18 profile-editor trim (section heading and per-field meta lines), which the L03 and L04 height targets were handed to. It has no PR.
-14. e2e coverage for the client hub (R15) and the client form and archive (R17).
-15. **Fix the desk Hours rows** (Listings, with Platform for `SettingsGroup`), and add a 1280 screenshot or layout assertion to the hours spec.
-16. `/reports` LCP: prefetch the overview on the server, or keep a static LCP element on phones (Reviews). `/sign-in` JS +44 KB: find what joined the bundle (Platform). Re-run desktop Hours and Photos LCP.
-17. The approver's bar after a send, cut-off status text in action bars, the raw post failure code, the untitled More sheet, the #418 hydration error on Reports and the copy points in item 13.
-18. The release gate's e2e failures: the `journeys.spec.ts:498` selector, the intermittent axe contrast failure in the invitation sheet, the calendar clock-change flake and the services timeout (see [Release gate](#release-gate-g4-and-g5)).
+7. **Done (F3, #212):** "Review & publish (n)" is gated by role (LST-27).
+8. **Partly done (F2, #219):** CLR-06 and the Reports half of CLR-05 are both partly fixed. **Remains:**
+    - CLR-06's mixed nouns in a business workspace's Reports (follow-up 28).
+    - "this window" in the empty and collecting states (`components/reporting/reporting-states.tsx:20,29`, `components/performance/keywords-tab.tsx:232`, `components/performance/location-performance.tsx:188`). Use "period", as the delta badge does.
+    - "Impressions counted from" (`components/performance/keywords-tab.tsx:94`). The finding's fix replaces "Impressions" with "Times shown in search".
+9. **Done (F2, #218):** INB-09, Undo instead of the Regenerate confirmation.
+10. **Partly done (F4, #216):** LST-19 zone names are fixed in the Calendar and the Replay name. **Remains:** Posts prints raw zone IDs (`components/locations/posts/post-schedules.tsx:331`, `schedule-post-sheet.tsx:351`). F12 (AMA-47) covers the related `Intl` `month: "short"` sites.
+11. **Done (F5):** SET-22 (#208) and SET-25 (#207).
+12. **Done (F5, #211):** the design baseline is locked at 104.
+13. **Done (F3, #205):** the profile-editor trim (LST-06's phone part). The lane measured the profile at 28.8% and the board at 29.4% at 390×844, on #205 `4a6e507a` (AMA-34 comment `01a148f6-368f-7de5-85b4-017936ba17fb`). It was not re-measured on `5fd05fce`.
+14. **Done (F2, #219):** e2e coverage for the client hub (R15) and the client form and archive (R17). Commit `ae9194da` (reachable from `5fd05fce`) adds `tests/e2e/client-hub.spec.ts` and `tests/e2e/client-form-archive.spec.ts`, with `tests/e2e/helpers/client-stubs.ts`. The specs are part of the e2e suite, and the `5fd05fce` gate log shows them passing: 10 `client-hub.spec.ts` cases and 13 `client-form-archive.spec.ts` cases, none failed, within the 716 passed. That is test-suite evidence, not a fresh browser run for this document.
+15. **Done (F4, #216):** the desk Hours rows.
+16. **Done — measurements completed on 18 Oct at `400accd4`:**
+    - `/reports`: F2 (#219) prefetches it on the server. The later mobile median is 1,252 ms LCP, versus 4,172 ms on `de999679`.
+    - `/sign-in`: F5 (#210) stops it loading the dashboard 404's chunks. The later first-load JS transfer is 250.99 KB, below the 260 KB budget, versus 265.5 KB at #210's review and 285 KB in the full `de999679` run.
+    - The full 36-route × five-combination `audit:mobile` ran (180/180 loads), plus all 15 requested cold perf samples. The measured candidate's non-documentation tracked tree is identical to current main `f8ba72f0` and released `5fd05fce`.
+    - See [Follow-up measurements, 18 October 2026](#follow-up-measurements-18-october-2026) for raw evidence and profiles. Remaining measured budget breaches are tracked in follow-up 29; completion of this measurement task does not claim they are fixed. The historical `5fd05fce` touch/accessibility gate remains separate evidence.
+17. **Partly done:**
+    - **Approver's bar after a send (F2, #218):** commit `9a7f9584` drops the dead "Submit for approval" once there is nothing left to submit (`components/inbox/action-bar.tsx`). Editing the reply brings it back.
+    - **Inbox status text (F2, #218):** the same commit keeps the reply status sentence whole on a phone, so it is no longer cut to "Sent · waiting…" (`components/inbox/detail/reply-status-line.tsx`).
+    - **Client hub More sheet (F2, #219):** commit `1eba1f3f` titles it "Client actions" (`components/clients/client-hub.tsx`).
+    - **Raw post failure code (F9, #222):** now explained in words.
+    - **#418 hydration error on Reports (F2, #219):** fixed.
+    - All three commits are reachable from `5fd05fce`.
+    - **Still open:**
+      - The listing editors' action-bar status, for example "1 change not on Google · unsave…" (Profile, Hours, Menu). No commit in F1–F9 addresses it.
+      - The smaller copy and layout points listed under item 13 of [Phase 2 verification](#phase-2-verification-what-didnt-match).
+18. **Done:**
+    - `journeys.spec.ts:498` selector: F5 (#209).
+    - Invitation-sheet contrast and the calendar clock-change flake: F4 (#216).
+    - Services and `place-actions-backend` timeouts: AMA-48 (#235). `services-backend.spec.ts:106` passed at all three widths in the final gate.
+
+### Found in the follow-up phase (F1–F10)
+19. **Done for `5fd05fce`, according to the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239).** Recorded on 18 Oct 2026:
+    - Migrations 0132–0149 were applied to production after an owner-approved private database backup. Readback confirmed 149 applied and no pending or unknown versions, plus 0149's constraint, recipient table, forced tenant RLS and grants.
+    - `5fd05fce` was promoted at 08:39:32 UTC (`dpl_5mtgmBSnJhGbA7qRKnfZjA4KwsCo`). Post-promotion health reported that exact commit with a compatible schema (`requiredCount: 149`, `missing: []`). Readiness passed, with the existing `telemetry_disabled` (`no_endpoint`) degradation.
+    - None of this needs repeating for `5fd05fce`. This audit's verification did not read a hosted database; these facts are the release record's, not checks made here.
+    - **For any later commit** (this documentation included, should it ever be promoted): a fresh `pnpm verify:release` receipt on that exact final `main`, against the new baseline `5fd05fce`, and the owner's usual pending-migration (`db:status --expect-current`) and readiness checks before promotion.
+20. **Done (AMA-48, #235):** the verification PIN flake.
+    - **History:** in the full gate run for #214 (on 17 Oct, under load from two other e2e suites), "Review PIN completion" stayed disabled after the PIN was typed, in the verification PIN specs (`tests/e2e/verification-pin-*.spec.ts`). With `--repeat-each=3` they passed 125 of 126 on the merge and 124 of 126 on `main`, so it predated the follow-ups.
+    - **Cause and fix:** commit `dbf6d9d7` (#235, reachable from `5fd05fce`) changes `tests/e2e/helpers/verification-backend.ts`. `goto` resolves at the load event, while React is still hydrating, and hydration reset a PIN typed before then, leaving the review action disabled. The helper now waits for the panel's `GET …/verification-workflows?operation=complete` response, which runs only after hydration, before the PIN is entered. It is a test-harness fix with no retries, skips or longer timeouts, and no product change.
+    - **Evidence:** in the `5fd05fce` gate (716 passed, none flaky) `verification-pin-backend.spec.ts` passed 15 cases and `verification-pin-drift.spec.ts` 21, none failed. That is one clean run of this targeted fix, not proof that no PIN flake can recur.
+21. **From the F3 reviews (non-blocking):**
+    - On a phone a tap leaves focus on the quiet Identity heading. Check on a real iOS or Android device that a tap doesn't count as `:focus-visible`.
+    - Pin the `quietOnPhone` class as an exact token in `tests/components/profile-section-card.test.tsx:47-49`.
+    - Add a test for the moved "Google may review name changes before they show." hint.
+    - Forced-colors focus outline: F15 (AMA-51).
+22. **From the F3 reviews (non-blocking, Listings):**
+    - DSK-05's business-mode trail, and the design-call follow-up: drop only the listing crumb on area pages, so the client stays visible at a desk.
+    - Review & publish now uses `PageFrame width="workspace"` with no maximum width.
+    - Add an e2e assertion for Escape on the trail's "…" menu.
+    - Lower the `controls` bar's 34rem height threshold (`app/globals.css:31`), so the Publish bar docks at 1280×540.
+23. **Done (AMA-50, #228):** the `shell-polls` test hardening, and the `lib/workspace/mode.ts` session-query subscription.
+24. **INB-21 remainder (Reviews):** the notifications button still reads "Mark N shown as read" under Open or while more pages exist (`components/notifications/notifications-view.tsx:271-275`). INB-21 asks for plain wording, for example "Mark these read".
+25. **INB-19 remainder (Reviews):** make Sync pull-to-refresh on phones, keeping the bottom-toolbar button as the visible alternative (`findings.md:363`). Nothing in `5fd05fce` implements the gesture.
+26. **LST-06 remainder (Listings):** from `wide`, put the model note, time zone and last-checked line in one meta row under the tabs (`findings.md:498`). The time zone is still its own paragraph on Hours (`components/locations/hours-tab.tsx:530-542`), outside the frame's meta line (`components/listings/area-frame.tsx:317-345`). Left open by F3 (AMA-34 comment `01a146db-6b50-782e-a0c9-da584870facb`) for F4, and not done in F4.
+27. **CLR-19 remainder (Reviews):** order the urgent health buckets by count, as `findings.md:825` asks. `HEALTH_FILTERS` is a fixed severity order (`lib/clients/health.ts:371-386`, drawn as-is at `components/clients/health-filter.tsx:61`). Or record an owner decision that severity order replaces it.
+28. **CLR-06 remainder (Reviews):** in a business workspace, Reports' scope line says "locations" (`components/performance/performance-view.tsx:85-90`), while `PartialCoverageAlert` says "listings" by default (`components/reporting/partial-coverage-alert.tsx:39-42`). The Google and Keywords tabs pass no `nouns` (`google-performance-tab.tsx:190,207,225,259`, `keywords-tab.tsx:195,212,225,253`). Use one noun per workspace.
+
+29. **Measured performance follow-ups (18 Oct, `400accd4`):** mobile People LCP 1,644 ms exceeds 1,500 ms, People first-load JS 567.04 KB exceeds 520 KB, and Reports first-load JS 521.32 KB exceeds 520 KB. All required samples were valid; the mobile perf command exits 1 for these three budget breaches. Desktop Photos LCP is 846 ms versus the original 580 ms baseline (858 ms on `de999679`); no desktop LCP ceiling is configured. The full audit still records 20 effective hit areas below 44 px and four clipped texts. Retain these as performance/interaction work, with the raw evidence below; they do not change the implementation statuses of the 123 original findings.
 
 ### Carried from PR bodies (non-blocking)
 - **L02 (#124):** the activity cursor regex lacks `bulk:` and `schedule:` (`lib/contracts/location-activity.ts:41`), so paging past those rows may return `invalid_cursor`.
@@ -463,7 +528,7 @@ Before counts are copied from findings.md. "Captured" means the taps were perfor
   - A lost answer to a save can leave a second draft.
   - After a reconcile, a false-positive 409 is possible.
   - No test asserts that the PATCH route passes `expectedRevision`.
-- **L16 (#156):** Review & publish isn't streamed yet (it needs `review-publish.tsx` split).
+- **L16 (#156), done later:** Review & publish wasn't streamed on `de999679`. F3 (#212) streamed it in the shared frame (LST-14).
 - **L18 (#168):**
   - `listingAttentionReason()` isn't wired into the board or the health strip.
   - The client attention sentence doesn't mention missing hours.
@@ -478,11 +543,11 @@ Before counts are copied from findings.md. "Captured" means the taps were perfor
   - The sticky selection header in landscape (844×390).
 - **R13 (#129):** "Refreshing…" can show for up to 90 s on a sync that changed nothing.
 - **P20 (#195):** old-role controls can show on a replayed page; the server still checks every action.
-- **`tests/server/request-metrics.test.ts`** is flaky on main (#175), and `operations-features.spec.ts` has a calendar clock-change flake (#192).
+- **`tests/server/request-metrics.test.ts`** was flaky on main (#175). It was not rechecked separately. The "Unit" step of the `5fd05fce` gate passed with no reruns, which doesn't prove the flake gone. The `operations-features.spec.ts` calendar clock-change flake (#192) was open on `de999679`. F4 (#216) fixed it (follow-up 18).
 
 ## How the after evidence was taken
 
-All runs were on `de999679` in the `naba-presence-redesign/ux-results` worktree, after the owner linked `.env` and `.env.local` into it. The env files were not opened. The fixture server and the app ran under the `naba-visual` lock from 19:48 to 20:30 UTC, and both were stopped with SIGINT (fixture tenants destroyed):
+All Phase 3 after-evidence runs were on `de999679` in the `naba-presence-redesign/ux-results` worktree, after the owner linked `.env` and `.env.local` into it. The env files were not opened. The fixture server and the app ran under the `naba-visual` lock from 19:48 to 20:30 UTC, and both were stopped with SIGINT (fixture tenants destroyed):
 
 - Fixtures: `VISUAL_APP_PORT=3220 PLAYWRIGHT_GOOGLE_STUB_PORT=3221 tests/visual/with-visual-db.sh node --experimental-strip-types --import ./tests/visual/ts-resolve-hook.mjs tests/visual/fixture-server.ts`.
 - App: the `visual-app` environment from `.claude/launch.json` with ports 3220/3221 and `PASSWORD_AUTH_ENABLED=false`, served from the production build (`tests/visual/with-visual-db.sh pnpm start`). The before library was taken on `next dev`.
@@ -505,3 +570,113 @@ All runs were on `de999679` in the `naba-presence-redesign/ux-results` worktree,
 2. Run `pnpm verify:release` again on the release commit.
 3. Only with a passing receipt, run `pnpm release:promote --local-receipt <file>`.
 
+
+## Follow-up phase (F1–F9)
+
+The AMA-13 follow-ups merged between 16 Oct (`3f335f82`, 22:19 UTC) and 17 Oct (`5fd05fce`, 22:09 UTC). Release & QA reviewed each source PR at the exact head below. Each integration PR merged those heads unchanged with `--no-ff`.
+
+| Sprint | Issue | Source PRs (exact head) | Integrated by | Findings and follow-ups |
+| --- | --- | --- | --- | --- |
+| F1 | AMA-29 | #217 `1c10e0ea` | #220 | INB-21 (partly; follow-up 24); follow-ups 1 and 2 |
+| F2 | AMA-33 | #218 `74712dc2`, #219 `706a10b2` | #220 | INB-09, INB-14, CLR-05 (partly), CLR-06 (partly; follow-up 28), CLR-19 (partly; follow-up 27), DSK-10; follow-ups 8 (partly), 9, 14, 16 (`/reports`) and 17 (approver's bar, Inbox status text, hub More sheet, #418) |
+| F3 | AMA-34 | #212 `62d02d3f`, #205 `32fd8843` | #225, #229 | LST-06 (partly; follow-up 26), LST-07, LST-14, LST-27, DSK-05 (partly); follow-ups 7 and 13 |
+| F4 | AMA-35 | #216 `978f89c5` | #220 | LST-16, LST-19 (partly); follow-ups 10, 15 and 18 |
+| F5 | AMA-36 | #207 `e49c895b`, #208 `8741c72f`, #209 `964cd1ab`, #210 `a54513cc`, #211 `aebee04e` | #220 | SET-22, SET-25; follow-ups 11, 12, 16 (`/sign-in`) and 18 |
+| F6 | AMA-37 | #214 `e75a5128` | #220 | INB-05 (code; 0149 applied to production on 18 Oct according to the release record); follow-up 3 |
+| F7 | AMA-38 | #206 `e9326d0c` | #233 | SET-18 (policy and evidence updated); follow-up 6 |
+| F8 | AMA-30 | #226 `cb6bcb21` | #227 | INB-19 (partly; follow-up 25) |
+| F9 | AMA-31 | #230 `3b43fabd`, #222 `350f90cf` | #236 | DSK-23, CLR-19 (Listings label only; still partly fixed); follow-up 17 (post failure code) |
+| F13 | AMA-49 | #224 `903632a9` | #231 | the `operations-features.spec.ts` wording after CLR-06 |
+| F14 | AMA-50 | #228 `af857a44` | #232 | follow-up 23 |
+| — | AMA-48 | #235 `dbf6d9d7`, with #234 `acac79e7` | #236 | follow-ups 18 (services and booking-link timeouts) and 20 (verification PIN) |
+
+Merge order held: #219 before #208, and #211 last in #220. Hosted CI was not a gate (the Actions budget ran out; D-38). Each integration's local gates and the exact-head reviews are the merge evidence. The release gate below is the evidence for the whole batch.
+
+**Review & publish at 390 after #205 and #212.** #205's 12 px top padding and gap below md (`components/listings/area-frame.tsx:825`) also applies to Review & publish now that #212 moved it into `AreaFrame`. Release & QA captured it on a production build of `5fd05fce` (throwaway PostgreSQL 17, seeded e2e journey tenant, CI placeholder env, no env files), with one saved Business name change waiting:
+
+- [`followups-after/listings--loc--changes-390-light.webp`](followups-after/listings--loc--changes-390-light.webp) and [`-dark`](followups-after/listings--loc--changes-390-dark.webp), at 390×844.
+- Frame padding-top 12 px, row gap 12 px. The h1 is at 108–152 px. The Publish bar's button is at 792–836 px. No horizontal scroll (scroll width 390 = client width).
+- The captured light/dark layouts show no visible clipping or sticky overlap, and the page fits one screen with one area waiting. Neither image shows a focused control, so these screenshots do not establish focus-ring behavior.
+
+## Release gate on `5fd05fce`
+
+`pnpm verify:release` ran on `5fd05fce8442f330a6ee1b94afcc0acce6113c53` (final `main`, #236) from 22:10:12 to 23:24:02 UTC on 17 Oct. It ran without requested gate skips, in a fresh generated worktree with a throwaway PostgreSQL 17.11, on Node 24.18.0 and pnpm 10.34.5. The Codex merge pipeline ran it. Release & QA did not run a second gate; it checked the receipt independently.
+
+**Receipt:** `docs/release/receipts/local/20261017T232402Z-5fd05fce8442.json` (gitignored), sha256 `4ea0273bc3581b1f9ad2a5dc02bad897f6fb92ab21a1c9bb935196221be27e7e`. `ok: true`, `mode: worktree`, `gateSource.clean: true`, `skip: []`, `failFast: false`. Base `2b26bcf2` (`source: promotion-receipt`), which is the merge base and the SHA of the newest committed promotion receipt (`20261014T103113Z-2b26bcf2ec59.json`).
+
+| Step | Result |
+| --- | --- |
+| frozen-install, typecheck, lint, build, migration-policy | passed |
+| unit | passed: 614 files passed, 164 skipped; 7,988 tests passed, 1,413 skipped. The skipped files are DB-backed integration files listed under the unit project (they run in the integration step) and live-provider tests |
+| migrate-fresh, migrate-upgrade (from `2b26bcf2`), migrate-concurrent | passed: 149 files, 149 rows, 149 distinct versions |
+| integration | passed: 163 files, 1,412 of 1,412 tests |
+| e2e (`--forbid-only`) | passed: **716 passed**, none failed, flaky or skipped. `services-backend.spec.ts:106`, `place-actions-backend.spec.ts:59` and `operations-features.spec.ts:682` passed at 375, 768 and 1280 |
+| audit (`--prod --audit-level high`), secret-scan (gitleaks 8.30.1) | passed |
+
+**Independent check (Release & QA, about 23:30 UTC on 17 Oct, 00:30 on 18 Oct Europe/London):**
+- The receipt file's sha256 matches the one above.
+- `origin/main` was `5fd05fce` when checked (about 23:30 UTC on 17 Oct, and again at 00:07 UTC on 18 Oct), and `git merge-base origin/main 2b26bcf2` is `2b26bcf2`.
+- The candidate's own `scripts/release/local-receipt.mjs` returns `latestPromotedRelease` = `2b26bcf2`, and `localReceiptProblems(receipt, { sha: 5fd05fce…, nodeMajor: 24, previousSha: 2b26bcf2… })` = `[]`. All 13 required steps passed.
+- The gate log (`final-verify-release.log`, outside the repo) has no failed test line.
+
+**Verdict (historical, about 23:40 UTC on 17 Oct, before promotion): GO for NabaPresence on `5fd05fce` only, on conditions.** The target database must hold every migration in `5fd05fce` (0132–0149 are all newer than the last promotion, `2b26bcf2`), applied by the owner through the release steps. `pnpm db:status --expect-current` must report it current, and readiness must pass. Hosted state was not read here, so at the time it was not known which migrations were pending.
+
+**Later record: the conditions were met (18 Oct 2026).** According to the committed release record ([release checklist](../../live-certification/release-checklist.md#latest-production-promotion--18-october-2026) and [production receipt](../../release/receipts/20261018T083932Z-5fd05fce8442.json), commit `b28a80b7`, merged by #239), migrations 0132–0149 were applied to production, readback showed 149 applied with none pending or unknown, and `5fd05fce` was promoted at 08:39:32 UTC with exact-commit health and readiness passing. This audit did not check those facts itself. The newest promotion receipt is now `5fd05fce`'s, so it is the baseline for the next `verify:release`.
+
+**Release boundary.** This receipt is valid for the runtime commit `5fd05fce` and no other. `pnpm release:promote` (`scripts/release/promote.mjs:14-19`) refuses unless HEAD is exactly `origin/main` and the local receipt is for that SHA. Once any later commit merges to `main`, this documentation included, a fresh `pnpm verify:release` receipt on that final `main` is required before promotion. The `5fd05fce` result stays here as history and does not authorise promoting a later commit. This documentation is not a deployment and doesn't authorise one. The historical receipt check ran no additional gate, database or deployment; the later completion section separately records its disposable local measurements and build.
+- `supabase/migrations/0149_approval_notification_kinds.sql` is in `5fd05fce`. At verification time no hosted database was read, so whether 0149 was applied was not known here; the later release record reports it applied. It is in `REQUIRED_MIGRATIONS` (`lib/server/schema-manifest.ts:160`), so a deployment on a schema without it fails readiness.
+- Before deploying `5fd05fce`, the owner was to apply every pending migration, 0149 included, through the release steps. The release record shows this done; it is not outstanding.
+- `pnpm release:promote` refuses while `db:status --expect-current` reports any pending migration (`scripts/release/promote.mjs:20-21`). That stays the owner's check for every later promotion, not this pipeline's.
+- No deploy, promotion, hosted migration or hosted database read was part of this verification.
+
+**Not covered by this receipt:**
+- Agentic browser journeys: the project's e2e runner had no model login in the lane checkouts. The pipeline separately ran 4 client-side auth checks on the same build: password rules at 375 and 1280, with no password submitted. That is client validation only, not a real account, HIBP or provider journey.
+- At receipt time, the perf-lab and full `audit:mobile` re-runs in follow-up 16 were not covered. They were subsequently completed on `400accd4`, whose application files match final main `f8ba72f0` and runtime `5fd05fce`; see the dated measurement section below. The historical gate's `touch-390` and accessibility e2e remain separate from those measurements.
+
+## Follow-up measurements, 18 October 2026
+
+**Tested commit:** `400accd44b0feb8bc6ceacb1ea15b792643d144d`, a clean integration containing current main `f8ba72f0` and repaired source #237 `baebf94f`. The [application provenance](followups-measurements/2026-10-18/application-provenance.json) confirms every tracked non-documentation entry is identical across that candidate, main and deployed runtime `5fd05fce`. Later documentation/evidence commits therefore retain the measured application files.
+
+The production webpack build and measurement harness ran on 18 Oct, approximately 10:12–10:19 UTC (11:12–11:19 Europe/London), with Node 24.18.0, pnpm 10.34.5, native PostgreSQL 17.11 and Chromium 156.0.8078.4. The harness used a separate disposable loopback database, CI placeholders and seeded owner/viewer/anonymous fixture roles; it read no real env files or production services. App, Google-stub and database processes were stopped, their owned ports were read back free, and fixture state was removed. [Runtime provenance](followups-measurements/2026-10-18/provenance.json), [commands and exits](followups-measurements/2026-10-18/measurements.json), [coverage/metric summary](followups-measurements/2026-10-18/summary.json), [cleanup](followups-measurements/2026-10-18/cleanup.json) and the [measurement README](followups-measurements/2026-10-18/README.md) retain the details.
+
+### Full mobile-audit matrix
+
+The same 36 role/route specifications ran at `320:light,390:light,390:dark,1280:light,1280:dark`: **180 unique loads, all HTTP 200**. The audit exited 0. [Raw page results](followups-measurements/2026-10-18/mobile-audit.json), [totals](followups-measurements/2026-10-18/mobile-audit-totals.json) and [readable audit](followups-measurements/2026-10-18/mobile-audit.md) are committed.
+
+| Metric | Earlier full run (`de999679`) | Follow-up (`400accd4`) |
+| --- | ---: | ---: |
+| Effective hit areas below 44 px | 20 | 20 |
+| Drawn boxes below 44 px | 266 | 271 |
+| Clipped texts | 4 | 4 |
+| Small-phone text observations below 14 px | 1,851 | 1,863 |
+| WCAG target-size violations, axe, focus obscured, overflow, load/console/page errors | 0 | 0 |
+| Phone chrome maximum / smallest text | 20.4% / 12 px | 20.4% / 12 px |
+
+The effective-hit-area and drawn-box metrics remain distinct. The 20 effective hit areas are Inbox 4, Listings 3, Profile 6, Clients 3 and viewer Inbox 4; the clipped texts are Inbox 1 and New client 3. They remain measured follow-ups, not a missing audit.
+
+### Focused perf-lab repeats
+
+Profiles and `tests/perf/budgets-baseline.json` were unchanged: mobile 390×844, DPR 3, 4× CPU and Slow 4G, median of three cold runs per route; desktop 1280×800, DPR 1 and unthrottled, median of two. All **nine mobile and six desktop samples** returned HTTP 200, landed on the expected route and recorded no sample, page or console error. [Raw mobile samples](followups-measurements/2026-10-18/perf-mobile.json), [mobile table](followups-measurements/2026-10-18/perf-mobile.md), [raw desktop samples](followups-measurements/2026-10-18/perf-desktop.json) and [desktop table](followups-measurements/2026-10-18/perf-desktop.md) are committed. These are local fixture medians, not production field measurements. Per-sample host load is recorded; the host was not established to be idle.
+
+| Profile / route / metric | Historical comparison | Follow-up value | Budget or comparison | Outcome |
+| --- | --- | ---: | --- | --- |
+| Mobile `/reports` LCP | 4,172 ms, `de999679` | 1,252 ms | 1,500 ms | Within budget |
+| Mobile `/reports` first-load JS | 519 KB, `de999679` | 521.32 KB | 520 KB | Above budget |
+| Mobile `/listings/{loc}/people` LCP | 1,672 ms, `de999679` | 1,644 ms | 1,500 ms | Above budget |
+| Mobile `/listings/{loc}/people` first-load JS | 565 KB, `de999679` | 567.04 KB | 520 KB | Above budget |
+| Mobile `/sign-in` first-load JS | 285 KB, `de999679`; 265.5 KB at #210 review | 250.99 KB | 260 KB | Within budget |
+| Desktop `/listings/{loc}/hours` LCP | 1,358 ms, `de999679`; 992 ms original baseline | 852 ms | No configured desktop LCP ceiling | Lower than both recorded medians |
+| Desktop `/listings/{loc}/photos` LCP | 858 ms, `de999679`; 580 ms original baseline | 846 ms | No configured desktop LCP ceiling | Lower than `de999679`, above original baseline |
+| Desktop `/sign-in` LCP / first-load JS | 56 ms / 285 KB, `de999679` | 58 ms / 250.99 KB | JS 260 KB | Configured budgets met |
+
+JS values are transferred KB as reported by perf-lab (bytes/1,024), separate from build-manifest gzip bounds. The **mobile perf command exited 1 for exactly three budget breaches**: Reports JS, People LCP and People JS. The desktop command exited 0 with all configured budgets met. Follow-up 16 is complete because every requested measurement ran; follow-up 29 preserves the remaining performance work.
+
+### Fixture e2e execution
+
+The e2e runner executed `fixture Reports and listing measurement surfaces render` on `mobile390` and `desktop1280`: **2 passed, zero failed/flaky/skipped/blocked/interrupted**, with **two actual live `gpt-6-luna` model calls**. It checked Reports and People/Hours/Photos routes/headings against the same local production build. Replay, retries, traces and video were off; request guards recorded zero unsafe or off-origin attempts. The [sanitized runner summary](followups-measurements/2026-10-18/agentic-summary.json) retains actual execution and model proof without fixture session values. Raw browser state, database exports and credential-bearing logs were excluded from committed artifacts; see [sanitization checks](followups-measurements/2026-10-18/sanitization-check.json).
+
+## Later production smoke, 18 October 2026
+
+The archived [production smoke evidence](followups-measurements/2026-10-18/production-smoke.json) reports served revision `5fd05fce8442f330a6ee1b94afcc0acce6113c53` and all 149 required migrations at 09:51:35 UTC. After the user completed normal sign-in, deterministic CUA checks at 09:53–09:54 UTC passed for the authenticated home/dashboard redirect, Inbox, Listings and signed-in `/sign-in` redirect. Inbox settled with 50 loaded review rows and Listings with one visible listing row; these describe the loaded account view, not production totals. No browser console errors were captured. The checks made no content, provider, password-reset or email changes; ordinary sign-in/session bookkeeping remained applicable.
+
+Separately, the e2e runner passed four public/anonymous sign-in and authentication-boundary cases at desktop 1280 and mobile 375, with two actual model calls, no failed/flaky/skipped cases and replay off. It did not receive the authenticated session. These are later attributed operational results, not new production checks performed for this documentation completion.

@@ -1,0 +1,20 @@
+{
+  "summary.json": "2e0f72fb3f156dd9ac488d7d0452e78f41f53dcf0ac98adbea6fcbe0db68b22f",
+  "provenance.json": "af11bda273cbeb44096b78ae609a5d3d7aeb47af77a346ed87c08eaa752fede4",
+  "perf-mobile.json": "13ee272a55637eb3692cc3a43f6cfca11844dc04fb6e176c0430817a0b61307b",
+  "mobile-audit.md": "0321d2376c86546ff828093705bbc41cb3831efbd5d24c9af347edb76459d88f",
+  "measurements.json": "4408b9764fd131793a534026293164bde05c35e4c4acd504cf09f53e871c09e1",
+  "mobile-audit-totals.json": "60781e98fbdf31ef156cb3294acc89b8c2294adc5516ef2627a75f70d1a26a17",
+  "perf-mobile.md": "d5904b7dfa9808c801433c5cc8683eb3bafc2b7f16bdf810fe70440785167f28",
+  "perf-desktop.md": "be9011c8ed1f577a542b4521282b9bbc8b01e40e71cf41b382e3740ef679fd3b",
+  "commands.json": "b5db7f8ea1d7c466b8fbe6b13fcc3ece470b5bd006b4627b93ca6321a6b718de",
+  "production-smoke.json": "acc5e32eb6c1daf00be929d06f4c6cb36b34e5a79e11dbd679beda5612966ec8",
+  "README.md": "279f77b7a388a8dd31e1dcaff5881fe0d5f93daacecf9c6afd3d34b5cc7ca19b",
+  "cleanup.json": "d18caf6548085c0c5bd0d900c0ef689ebf96824579bdc08cc29ebf0a19445cb6",
+  "target-proof.json": "d20db33f98a81b7afbc0471b0c910645a7c8a6a57ae68baff4e0c40702c4181c",
+  "application-provenance.json": "4684c33985e5881221b9c808a6fe8691eba4dbda462b6ea81ab236bf0401bcd9",
+  "agentic-summary.json": "c091468e045da0512caf3414a72983f3129731e685722e9a6b9a4c9e7dd8ded8",
+  "perf-desktop.json": "06766a1c9a00ee282d0b34ec5eda3fcba2cb7eb6ec3c89fa11bacdba24b93a80",
+  "sanitization-check.json": "b764c45eb4fb712d183eed40382b99331b8b1f5b6d512fe846596f8b27c526cb",
+  "mobile-audit.json": "7887ece3fa5f0af5c3c1e17cc62a3b3eddb111a5e8cabefda19cf4c8a76abef6"
+}

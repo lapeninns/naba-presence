@@ -1,0 +1,228 @@
+{
+  "sha": "400accd44b0feb8bc6ceacb1ea15b792643d144d",
+  "audit": {
+    "expectedPages": 180,
+    "actualPages": 180,
+    "routes": 36,
+    "combos": [
+      {
+        "width": 320,
+        "theme": "light"
+      },
+      {
+        "width": 390,
+        "theme": "light"
+      },
+      {
+        "width": 390,
+        "theme": "dark"
+      },
+      {
+        "width": 1280,
+        "theme": "light"
+      },
+      {
+        "width": 1280,
+        "theme": "dark"
+      }
+    ],
+    "totals": {
+      "pages": 180,
+      "loadErrors": 0,
+      "horizontalOverflow": 0,
+      "clippedText": 4,
+      "targetSize": 0,
+      "touchTargetBelow44": 20,
+      "touchBoxBelow44": 271,
+      "iosZoomInputs": 0,
+      "textUnder12": 0,
+      "textUnder14Phone": 1863,
+      "axeViolations": 0,
+      "axeNodes": 0,
+      "axeCritical": 0,
+      "axeSerious": 0,
+      "focusObscured": 0,
+      "chromeOver25Pct": 0,
+      "mainLandmarkNot1": 0,
+      "h1Not1": 0,
+      "missingSkipLink": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0
+    },
+    "extremes": {
+      "phoneChromeMaxPct": 20.4,
+      "smallestTextPx": 12,
+      "maxOverflowPx": 0
+    },
+    "deltasVsDe999679": {
+      "pages": 0,
+      "loadErrors": 0,
+      "horizontalOverflow": 0,
+      "clippedText": 0,
+      "targetSize": 0,
+      "touchTargetBelow44": 0,
+      "touchBoxBelow44": 5,
+      "iosZoomInputs": 0,
+      "textUnder12": 0,
+      "textUnder14Phone": 12,
+      "axeViolations": 0,
+      "axeNodes": 0,
+      "axeCritical": 0,
+      "axeSerious": 0,
+      "focusObscured": 0,
+      "chromeOver25Pct": 0,
+      "mainLandmarkNot1": 0,
+      "h1Not1": 0,
+      "missingSkipLink": 0,
+      "consoleErrors": 0,
+      "pageErrors": 0
+    },
+    "errors": [],
+    "matrixComplete": true,
+    "httpStatuses": {
+      "200": 180
+    }
+  },
+  "perf": {
+    "mobile": {
+      "expectedSamples": 9,
+      "actualSamples": 9,
+      "routes": [
+        {
+          "route": "/reports",
+          "runs": 3,
+          "status": 200,
+          "lcp": 1252,
+          "lcpElement": "P.text-caption text-ink-muted",
+          "firstLoadJsKB": 521.3203125,
+          "cls": 0,
+          "tbt": 105,
+          "inp": 32,
+          "errors": []
+        },
+        {
+          "route": "/listings/{loc}/people",
+          "runs": 3,
+          "status": 200,
+          "lcp": 1644,
+          "lcpElement": "P.text-ui text-ink-muted",
+          "firstLoadJsKB": 567.041015625,
+          "cls": 0,
+          "tbt": 53,
+          "inp": 88,
+          "errors": []
+        },
+        {
+          "route": "/sign-in",
+          "runs": 3,
+          "status": 200,
+          "lcp": 1236,
+          "lcpElement": "P.text-body text-pretty text-ink-muted",
+          "firstLoadJsKB": 250.994140625,
+          "cls": 0,
+          "tbt": 29,
+          "inp": 32,
+          "errors": []
+        }
+      ],
+      "sampleErrors": [],
+      "allSamplesValid": true,
+      "hostLoad": [
+        5.91357421875,
+        4.4443359375,
+        5.587890625,
+        5.1572265625,
+        5.2119140625,
+        5.97119140625,
+        4.82421875,
+        5.33935546875,
+        6.849609375
+      ],
+      "allLandedOnExpectedRoutes": true
+    },
+    "desktop": {
+      "expectedSamples": 6,
+      "actualSamples": 6,
+      "routes": [
+        {
+          "route": "/listings/{loc}/hours",
+          "runs": 2,
+          "status": 200,
+          "lcp": 852,
+          "lcpElement": "DIV.min-w-0 text-ui text-pretty text-ink group-has-[>svg]/alert:",
+          "firstLoadJsKB": 547.416015625,
+          "cls": 0.0005752360343933106,
+          "tbt": 0,
+          "inp": 24,
+          "errors": []
+        },
+        {
+          "route": "/listings/{loc}/photos",
+          "runs": 2,
+          "status": 200,
+          "lcp": 846,
+          "lcpElement": "DIV.max-w-sm text-caption text-pretty text-ink-muted",
+          "firstLoadJsKB": 523.4365234375,
+          "cls": 0.0005752360343933106,
+          "tbt": 0,
+          "inp": 24,
+          "errors": []
+        },
+        {
+          "route": "/sign-in",
+          "runs": 2,
+          "status": 200,
+          "lcp": 58,
+          "lcpElement": "P.max-w-88 text-display font-semibold text-balance",
+          "firstLoadJsKB": 250.994140625,
+          "cls": 0,
+          "tbt": 0,
+          "inp": 16,
+          "errors": []
+        }
+      ],
+      "sampleErrors": [],
+      "allSamplesValid": true,
+      "hostLoad": [
+        6.62109375,
+        7.42919921875,
+        7.0537109375,
+        7.234375,
+        7.12939453125,
+        7.13525390625
+      ],
+      "allLandedOnExpectedRoutes": true
+    }
+  },
+  "agentic": {
+    "status": "passed",
+    "exit": 0,
+    "counts": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "blocked": 0,
+      "interrupted": 0
+    },
+    "runErrors": [],
+    "reportPath": "/private/tmp/ama32-finish-20261018/measurements/agentic/.e2e/400accd44b0f-run1/report.json",
+    "actualModelCalls": 2,
+    "guardCounts": [
+      {
+        "unsafe": 0,
+        "offOrigin": 0
+      },
+      {
+        "unsafe": 0,
+        "offOrigin": 0
+      }
+    ]
+  },
+  "measurementVerdict": "complete-with-measured-budget-breaches",
+  "budgetBreaches": [
+    "mobile /reports firstLoadJsTransfer 521.3203125KB >520KB",
+    "mobile /listings/{loc}/people LCP1644ms >1500ms",
+    "mobile /listings/{loc}/people firstLoadJsTransfer567.041015625KB >520KB"
+  ],
+  "coverageReconciled": true
+}

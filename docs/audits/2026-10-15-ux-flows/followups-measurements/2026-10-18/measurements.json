@@ -1,0 +1,86 @@
+[
+  {
+    "name": "mobile-audit",
+    "args": [
+      "pnpm",
+      "audit:mobile",
+      "--base",
+      "http://127.0.0.1:63270",
+      "--combos",
+      "320:light,390:light,390:dark,1280:light,1280:dark",
+      "--out",
+      "/private/tmp/ama32-finish-20261018/measurements/mobile-audit"
+    ],
+    "cwd": "/Users/amankumarshrestha/LapenInns Project/platform/naba-presence-redesign/codex-ama32-finish-20261018",
+    "exit": 0,
+    "seconds": 161.964
+  },
+  {
+    "name": "perf-mobile",
+    "args": [
+      "node",
+      "tests/perf/perf-lab.mjs",
+      "--base",
+      "http://127.0.0.1:63270",
+      "--profile",
+      "mobile",
+      "--runs",
+      "3",
+      "--routes",
+      "/reports,/listings/{loc}/people,/sign-in",
+      "--budgets",
+      "tests/perf/budgets-baseline.json",
+      "--out",
+      "/private/tmp/ama32-finish-20261018/measurements/perf-mobile"
+    ],
+    "cwd": "/Users/amankumarshrestha/LapenInns Project/platform/naba-presence-redesign/codex-ama32-finish-20261018",
+    "exit": 1,
+    "seconds": 93.385
+  },
+  {
+    "name": "perf-desktop",
+    "args": [
+      "node",
+      "tests/perf/perf-lab.mjs",
+      "--base",
+      "http://127.0.0.1:63270",
+      "--profile",
+      "desktop",
+      "--runs",
+      "2",
+      "--routes",
+      "/listings/{loc}/hours,/listings/{loc}/photos,/sign-in",
+      "--budgets",
+      "tests/perf/budgets-baseline.json",
+      "--out",
+      "/private/tmp/ama32-finish-20261018/measurements/perf-desktop"
+    ],
+    "cwd": "/Users/amankumarshrestha/LapenInns Project/platform/naba-presence-redesign/codex-ama32-finish-20261018",
+    "exit": 0,
+    "seconds": 42.507
+  },
+  {
+    "name": "agentic",
+    "args": [
+      "pnpm",
+      "exec",
+      "e2e",
+      "run",
+      "tests/measurement-surfaces.e2e.ts",
+      "--config",
+      "e2e.config.ts",
+      "--workers",
+      "1",
+      "--retries",
+      "0",
+      "--no-cache",
+      "--trace=off",
+      "--video=off",
+      "--output",
+      ".e2e/400accd44b0f-run1"
+    ],
+    "cwd": "/private/tmp/ama32-finish-20261018/measurements/agentic",
+    "exit": 0,
+    "seconds": 19.898
+  }
+]

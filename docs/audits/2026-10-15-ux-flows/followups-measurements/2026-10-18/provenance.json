@@ -1,0 +1,31 @@
+{
+  "sha": "400accd44b0feb8bc6ceacb1ea15b792643d144d",
+  "checkout": "/Users/amankumarshrestha/LapenInns Project/platform/naba-presence-redesign/codex-ama32-finish-20261018",
+  "started": 1792318363.838261,
+  "node": "v24.18.0",
+  "pnpm": "10.34.5",
+  "postgres": "postgres (PostgreSQL) 17.11 (Homebrew)",
+  "buildId": "EoMJE5wGs830msM2njvMO",
+  "serverSha256": "441ed3987de1cf46ee1102bafdd1572a1a100ae72123a2d03b4018a16697dc97",
+  "buildCompleted": 1792318429.415947,
+  "pgPort": "63263",
+  "pgState": {
+    "mode": "native",
+    "port": 63263,
+    "bin": "/opt/homebrew/opt/postgresql@17/bin",
+    "dataDir": "/private/tmp/ama32-finish-20261018/measurements/pg-disposable/data"
+  },
+  "chromium": {
+    "version": "Google Chrome for Testing 156.0.8078.4",
+    "executable": "/Users/amankumarshrestha/Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+    "proof": "executed binary --version during run, no browser session added"
+  },
+  "scriptSha256": {
+    "tests/visual/mobile-audit.mjs": "2f6923e002c7ef0a828b07acd14bc6eb4ce7f866b52c7c5689c3d89aecdd59d4",
+    "tests/visual/mobile-audit-lib.mjs": "ad035c815f2297f8fca3de69b957456369273adcf1c5ec801b7de8e3bee2e251",
+    "tests/perf/perf-lab.mjs": "f7fb63ad4f359fd08939fd7f9e629645c0f9f787bae43d77adbc3994607880d5",
+    "tests/perf/budgets-baseline.json": "92f736cadf865db368bc2e2d40c7290ce74b7e38ec351e50e9fcb2215d4678b5",
+    "tests/visual/nm-serve.mjs": "a0a6b18c679d8ba7c3321fd61b13c243e21f44f79c62c1255aec2335dd7120ac",
+    "scripts/ci/postgres.mjs": "d8c53f8f573710a6471ad9fdbc3b96cd63cc7de49ee7633788f18efa106c984b"
+  }
+}

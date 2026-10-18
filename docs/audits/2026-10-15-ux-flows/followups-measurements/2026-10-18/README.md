@@ -1,0 +1,18 @@
+# AMA-32 follow-up16 measurement — 18 October2026 UTC
+
+Measured exact candidate400accd44b0feb8bc6ceacb1ea15b792643d144d with a fresh webpack production build, Node24.18.0/pnpm10.34.5/PostgreSQL17.11, synthetic fixture tenants and a Google stub. Actual Chromium156.0.8078.4. Parent separately records identical non-document application trees against main/runtime. This bundle is local candidate evidence, not a new deployment or exact-final-main release receipt.
+
+The requested measurement is complete; three mobile budget breaches remain. No product fixes, tracked source changes, production/account/provider operations or shared naba_visual usage occurred.
+
+- Full mobile audit:36routes × five combos (320light,390light,390dark,1280light,1280dark) =180/180unique loads; all HTTP200, no load/page/console/axe/focus/overflow errors. Effective targets<44px20 and clipped text4 match de999679; drawn-box271(+5), smallphone text1863(+12). These counts describe the audit's observations; exit0 does not make existing residuals disappear. See raw JSON, compact totals and Markdown.
+- Mobile perf:390×844DPR3,4×CPU/Slow4G, three cold samples per Reports/people/sign-in, all9valid; Reports LCP1252ms (prior4172), people1644ms (prior1672, budget1500), sign-in firstload250.994KB (prior265.5 at#210, budget260). Breaches: Reports firstload521.320KB>520; people firstload567.041KB>520 and LCP1644>1500. Exit1 reports these measurements. All raw samples retained.
+- Desktop perf:1280×800DPR1/unthrottled, two cold samples per hours/photos/sign-in, all6valid; HoursLCP852ms (prior1358, baseline992), Photos846ms (prior858, baseline580), sign-in58ms/250.994KB. All configured baseline budgets met, exit0. There is no desktop LCP ceiling in the baseline budget file; comparative changes are reported without inventing one.
+- Real standalone e2e:two fixture journeys, mobile390/desktop1280;2passed/0failed/flaky/skipped, two live configured chatgpt gpt-6-luna model assertions, cacheoff/retries0/workers1/traceoff/videooff. Deterministic Reports/people/hours/photos URL/heading/error checks plus agent.assert on Reports. Zero browser unsafe or off-origin requests attempted. This is bounded journey coverage alongside quantitative runners.
+
+One-run timings: build65.38s, audit161.96s, mobileperf93.39s, desktopperf42.51s, e2e19.90s. Raw per-sample host1minload was4.44–6.85mobile and6.62–7.43desktop; host load was observed, not an idle-machine guarantee. Measurements ran sequentially without a concurrent build/test lane from this task.
+
+Residual audit hit targets by route: Inbox4, Listings3, Profile6, Clients3, viewerInbox4. Clipped text: Inbox1, Newclient3. Existing9partly-fixed feature classifications are outside this measurement's mutation scope.
+
+Individual commands/exits and provenance are retained in commands.json/measurements.json/provenance.json/target-proof.json. summary.json reconciles the full180matrix and exact3/2valid samples, HTTP200, landed routes and sample errors; no failed samples were discarded to claim completeness. Agentic sanitized proof is agentic-summary.json. Raw actual e2e report stays scratch at /private/tmp/ama32-finish-20261018/measurements/agentic/.e2e/400accd44b0f-run1/report.json.
+
+Cleanup independently checked app63270/stub63271/PG63263: no listening sockets, disposablePG state removed, only this lane's ignored test-results symlink removed. HEAD unchanged and tracked status clean. Logs, DB-start exports, fixture state and raw browser report/artifacts are excluded from this publishable bundle; no cookie/session/DBcredential fields or URLs were detected in selected artifacts (sanitization-check.json). nm-serve teardown removed its fixture-state file.
