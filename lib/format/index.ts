@@ -4,6 +4,9 @@ export {
   formatDayMonth,
   formatMonthYear,
   formatRelativeTime,
+  formatShortDate,
+  formatShortDateRange,
+  type ShortDateOptions,
 } from "./date"
 export { formatDuration } from "./duration"
 export { formatNumber, formatPercent } from "./number"

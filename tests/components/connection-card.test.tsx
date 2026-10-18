@@ -3,6 +3,7 @@ import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { mockWebkitShortSeptember } from "../helpers/webkit-short-month"
 import { ConnectionCard } from "@/components/settings/connection-card"
 import { Toaster } from "@/components/ui/toast"
 import type { ConnectionSummary } from "@/lib/api/connections"
@@ -52,7 +53,11 @@ function renderCard(
   )
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
 
 /** Opens the row's ⋯ menu and chooses Disconnect, as a person would. */
 async function chooseDisconnect(
@@ -64,6 +69,22 @@ async function chooseDisconnect(
 }
 
 describe("ConnectionCard", () => {
+  it("keeps the last refresh on the runtime clock with stable September and no year", () => {
+    vi.stubEnv("TZ", "America/Los_Angeles")
+    mockWebkitShortSeptember()
+    renderCard([connection({ lastRefreshAt: "2026-10-01T00:30:00Z" })])
+    expect(screen.getByText("30 Sept, 17:30")).toBeInTheDocument()
+  })
+
+  it.each<[string | null, string]>([
+    [null, "Never"],
+    ["", "Never"],
+    ["invalid", "Unknown"],
+  ])("keeps the missing or invalid refresh sentinel for %s", (lastRefreshAt, expected) => {
+    renderCard([connection({ lastRefreshAt })])
+    expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+
   it("lists a connected account with its status trailing and Disconnect behind a menu", async () => {
     const user = userEvent.setup()
     renderCard([connection({})])

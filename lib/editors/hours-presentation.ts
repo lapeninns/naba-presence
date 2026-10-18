@@ -10,6 +10,7 @@ import {
   hoursSelectionMask,
 } from "@/lib/domain/hours-vocabulary"
 import { hoursFormSchema, DAY_LABELS } from "@/lib/locations/forms/hours"
+import { formatShortDate } from "@/lib/format"
 import {
   describeDay,
   clockTime,
@@ -171,10 +172,9 @@ export function formatSpecialDate(value: string): string {
   if (!value) return "No date"
   const date = new Date(`${value}T12:00:00`)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString("en-GB", {
+  return formatShortDate(date, {
     weekday: "short",
     day: "numeric",
-    month: "short",
     year: "numeric",
   })
 }

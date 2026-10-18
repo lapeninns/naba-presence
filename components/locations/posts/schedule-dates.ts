@@ -3,6 +3,7 @@ import {
   resolveLocalTime,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
+import { formatShortDate } from "@/lib/format"
 
 /**
  * Wall-date helpers for the schedule sheet's presets and the schedule rows.
@@ -15,13 +16,6 @@ import {
 export const PRESET_TIME = "09:00"
 
 export type SchedulePreset = "tomorrow" | "monday"
-
-const DAY = new Intl.DateTimeFormat("en-GB", {
-  weekday: "short",
-  day: "numeric",
-  month: "short",
-  timeZone: "UTC",
-})
 
 function wallUtc(date: string) {
   const [year, month, day] = date.split("-").map(Number)
@@ -37,7 +31,11 @@ export function addWallDays(date: string, days: number) {
 
 /** `2026-10-15` → "Thu 15 Oct". */
 export function formatWallDay(date: string) {
-  return DAY.format(wallUtc(date))
+  return formatShortDate(wallUtc(date), {
+    weekday: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  })
 }
 
 /**

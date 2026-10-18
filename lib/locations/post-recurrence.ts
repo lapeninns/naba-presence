@@ -13,6 +13,7 @@ import {
   type DayOfWeek,
   type DayOfWeekOccurrence,
 } from "@/lib/contracts/location-posts"
+import { formatShortDate } from "@/lib/format"
 
 export type PostRepeat = "none" | "daily" | "weekly" | "monthly"
 /** Monthly on the start's day of the month, its nth weekday, or its last. */
@@ -290,11 +291,10 @@ export function googleRecurrence(
 function formatDay(date: string): string {
   const parsed = parseDate(date)
   if (!parsed) return ""
-  return new Intl.DateTimeFormat("en-GB", {
+  return formatShortDate(parsed, {
     day: "numeric",
-    month: "short",
     year: "numeric",
-  }).format(parsed)
+  })
 }
 
 /** "Repeats weekly on Fri, Sat until 31 Dec 2026", or "" for a one-off. */

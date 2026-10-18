@@ -1,4 +1,5 @@
 import type { Member, MemberClientTotal } from "@/lib/contracts/members"
+import { formatShortDate } from "@/lib/format"
 import {
   describeMemberAccess,
   summariseClientAccess,
@@ -225,16 +226,15 @@ export function publishingState(
 }
 
 /**
- * "12 Sep 2026", for joined and sent dates: in `timeZone`, or the viewer's
+ * "12 Sept 2026", for joined and sent dates: in `timeZone`, or the viewer's
  * own zone without one. A server-rendered list uses `useFormatDay`
  * (lib/settings/use-format-day.ts) so it hydrates cleanly.
  */
 export function formatDay(iso: string, timeZone?: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ""
-  return date.toLocaleDateString("en-GB", {
+  return formatShortDate(date, {
     day: "numeric",
-    month: "short",
     year: "numeric",
     ...(timeZone ? { timeZone } : {}),
   })

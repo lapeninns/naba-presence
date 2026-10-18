@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { mockWebkitShortSeptember } from "../helpers/webkit-short-month"
 import { LocationActivityPanel } from "@/components/locations/activity-panel"
 import { Toaster } from "@/components/ui/toast"
 import type { ListPaging } from "@/lib/queries/paged-list"
@@ -36,9 +37,28 @@ function renderPanel() {
   )
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
 
 describe("LocationActivityPanel", () => {
+  it.each([
+    ["2026-10-01T00:30:00Z", "30 Sept, 17:30"],
+    ["2027-01-01T07:59:00Z", "31 Dec, 23:59"],
+    ["invalid", "Invalid Date"],
+  ])("keeps activity timestamp %s local, without a year, including its invalid sentinel", (createdAt, expected) => {
+    vi.stubEnv("TZ", "America/Los_Angeles")
+    mockWebkitShortSeptember()
+    usePagesMock.mockReturnValue({
+      data: { canManage: false, total: 1, pageSize: 10, items: [{ ...item("a"), createdAt }], paging: noMore },
+      isPending: false, isError: false, error: null, refetch: vi.fn(),
+    })
+    renderPanel()
+    expect(screen.getByText(expected)).toHaveAttribute("datetime", createdAt)
+  })
+
   it("loads older changes with Load more instead of numbered pages", async () => {
     const user = userEvent.setup()
     const loadMore = vi.fn()

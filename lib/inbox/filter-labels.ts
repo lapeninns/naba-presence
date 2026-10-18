@@ -7,6 +7,7 @@ import {
   REVIEW_SORT_LABELS,
   type ReviewSort,
 } from "@/lib/contracts/review-values"
+import { formatDayMonth } from "@/lib/format"
 
 /**
  * What each filter is called, wherever it is named: the sheet's group
@@ -77,11 +78,7 @@ export function formatDateRangeChip(
     const day = iso.slice(0, 10)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return day
     const date = new Date(`${day}T00:00:00.000Z`)
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "numeric",
-      month: "short",
-      timeZone: "UTC",
-    }).format(date)
+    return formatDayMonth(date, "UTC")
   }
   if (dateFrom && dateTo)
     return `${FILTER_NAMES.dates}: ${fmt(dateFrom)} – ${fmt(dateTo)}`

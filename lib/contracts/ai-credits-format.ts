@@ -4,14 +4,13 @@
 // re-exports everything here under the same names.
 
 import type { AiCredits, CreditPeriodKind } from "@/lib/contracts/ai-credits"
+import { formatDayMonth } from "@/lib/format/date"
 
 /** "1 Nov" in UTC, matching the UTC period boundaries. */
 export function formatResetDate(resetsAt: string): string {
-  return new Date(resetsAt).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  })
+  const date = new Date(resetsAt)
+  if (Number.isNaN(date.getTime())) return "Invalid Date"
+  return formatDayMonth(date, "UTC")
 }
 
 type CreditsCopyInput = Pick<
