@@ -189,7 +189,10 @@ for (const width of [390, 767, 768, 1024]) {
           for (const route of routes) {
             toolbarTest(
               `Back from ${route.path} retains an unobscured 44px hit target`,
-              async ({ baseURL, page, toolbarTenant }, testInfo) => {
+              async (
+                { baseURL, browserName, page, toolbarTenant },
+                testInfo
+              ) => {
                 const [name, value] = toolbarTenant.cookie.split("=", 2)
                 await page
                   .context()
@@ -273,8 +276,9 @@ for (const width of [390, 767, 768, 1024]) {
                 expect(geometry.overlapsHealth).toBe(false)
                 expect(geometry.horizontalOverflow).toBe(false)
 
-                // Reach it through the real tab order, then activate through
-                // the same pointer type whose geometry was checked above.
+                // WebKit's default Tab order skips links; Option-Tab includes
+                // them. Use the browser's real link-navigation shortcut, then
+                // activate with the pointer type checked above.
                 for (let step = 0; step < 40; step++) {
                   if (
                     await back.evaluate(
@@ -282,7 +286,9 @@ for (const width of [390, 767, 768, 1024]) {
                     )
                   )
                     break
-                  await page.keyboard.press("Tab")
+                  await page.keyboard.press(
+                    browserName === "webkit" ? "Alt+Tab" : "Tab"
+                  )
                 }
                 await expect(back).toBeFocused()
                 if (coarse) await back.tap()
