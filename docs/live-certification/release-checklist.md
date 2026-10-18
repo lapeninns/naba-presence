@@ -6,6 +6,28 @@
 > updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
 > separate scheduler process).
 
+## Latest production promotion — 18 October 2026
+
+- Production: [nabapresence.com](https://nabapresence.com).
+- Deployed commit: `5fd05fce8442f330a6ee1b94afcc0acce6113c53`.
+- Vercel deployment: `dpl_5mtgmBSnJhGbA7qRKnfZjA4KwsCo`.
+- Promoted at `2026-10-18T08:39:32Z` (09:39 Europe/London).
+- [Production receipt](../release/receipts/20261018T083932Z-5fd05fce8442.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261018T083932Z-5fd05fce8442.local.json).
+- All 13 local release gates passed for this commit. Production migrations
+  0132–0149 were applied after an owner-approved private database backup;
+  independent readback confirmed 149 applied, no pending or unknown versions,
+  and migration 0149's constraint, recipient table, forced tenant RLS and grants.
+- Post-promotion platform health reported this exact commit and compatible
+  schema (`requiredCount: 149`, `missing: []`). Public HTTP and authorization
+  boundary checks passed. Readiness passed with the existing
+  `telemetry_disabled` degradation (`no_endpoint`).
+
+This records the operational promotion. The certification checklist below
+continues to describe its historical PR #66 candidate and sign-off scope.
+
+## Historical PR #66 certification record
+
 Release candidate: PR #66 integration release (`329490066df2`)
 
 Git SHA (receipt `sha`): `329490066df2b49ed2f2bdeadd902b073e8808b1`
