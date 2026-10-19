@@ -84,7 +84,40 @@ function useIdlePreloadReviewPane() {
 function LazyReviewPane(props: ReviewPaneProps) {
   const [Direct] = React.useState(() => (hydrated ? loadedPane : null))
   if (Direct) return <Direct {...props} />
-  return <lazyPane.Pane {...props} />
+  return <SuspendedReviewPane {...props} />
+}
+
+/**
+ * The lazy path. Until the pane's code is in memory its boundary is handed
+ * one unchanging element, built from the props it mounted with. On a page
+ * opened on `?selected=` the boundary hydrates only once that code arrives,
+ * and an update reaching it first (the Inbox re-renders as it settles, about
+ * 100ms in) makes React discard the server's review and draw it again: the
+ * review flashed back to its skeleton and its ⋯ was replaced under a tap.
+ * Once the code is in memory the props flow again, in a transition, which
+ * waits for the boundary to hydrate. (A context change above the boundary
+ * reaches it too, which is why PageChromeProvider's value never changes.)
+ */
+function SuspendedReviewPane(props: ReviewPaneProps) {
+  const [live, setLive] = React.useState(() => loadedPane !== null)
+  const [firstProps] = React.useState(props)
+  const Pane = lazyPane.Pane
+  const held = React.useMemo(() => <Pane {...firstProps} />, [Pane, firstProps])
+  React.useEffect(() => {
+    if (live) return
+    let current = true
+    loadReviewPane().then(
+      () => {
+        if (current) React.startTransition(() => setLive(true))
+      },
+      // A failed load reaches the DetailErrorBoundary through the lazy pane.
+      () => {}
+    )
+    return () => {
+      current = false
+    }
+  }, [live])
+  return live ? <Pane {...props} /> : held
 }
 
 export { LazyReviewPane, reloadReviewPane, useIdlePreloadReviewPane }

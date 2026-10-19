@@ -76,39 +76,50 @@ export type ShellAction = {
 /** A back target, with the page's own handler when it declared one. */
 export type ShellBackTarget = BackTarget & { onNavigate?: () => void }
 
-type Registry = {
-  override: PageChromeOverride
-  set: (owner: symbol, value: PageChromeOverride | null) => void
-}
-
-const PageChromeContext = React.createContext<Registry | null>(null)
-
-function PageChromeProvider({ children }: { children: React.ReactNode }) {
+/**
+ * The overrides, outside React state. The provider's context value is this
+ * store and never changes, so registering an override re-renders only the
+ * chrome that reads it (`usePageChromeOverride`), not the page below the
+ * provider. A context change would also reach every Suspense boundary still
+ * waiting to hydrate below it, and React then discards that boundary's
+ * server HTML and draws it again: the Inbox's lazily loaded review pane was
+ * replaced, ⋯ and all, just after a page opened on `?selected=`.
+ */
+class OverrideStore {
   // Last writer wins, so a nested override (a detail inside a list page)
   // beats the page's own; removing it restores the previous one.
-  const [entries, setEntries] = React.useState<
-    { owner: symbol; value: PageChromeOverride }[]
-  >([])
-  const set = React.useCallback(
-    (owner: symbol, value: PageChromeOverride | null) => {
-      setEntries((previous) => {
-        const rest = previous.filter((entry) => entry.owner !== owner)
-        return value ? [...rest, { owner, value }] : rest
-      })
-    },
-    []
-  )
-  const override = React.useMemo(
-    () =>
-      entries.reduce<PageChromeOverride>(
-        (merged, entry) => ({ ...merged, ...entry.value }),
-        {}
-      ),
-    [entries]
-  )
-  const value = React.useMemo(() => ({ override, set }), [override, set])
+  private entries: { owner: symbol; value: PageChromeOverride }[] = []
+  private merged: PageChromeOverride = NO_OVERRIDE
+  private listeners = new Set<() => void>()
+
+  set = (owner: symbol, value: PageChromeOverride | null) => {
+    const rest = this.entries.filter((entry) => entry.owner !== owner)
+    this.entries = value ? [...rest, { owner, value }] : rest
+    this.merged = this.entries.reduce<PageChromeOverride>(
+      (merged, entry) => ({ ...merged, ...entry.value }),
+      {}
+    )
+    for (const listener of this.listeners) listener()
+  }
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  current = () => this.merged
+}
+
+const NO_OVERRIDE: PageChromeOverride = {}
+
+const PageChromeContext = React.createContext<OverrideStore | null>(null)
+
+function PageChromeProvider({ children }: { children: React.ReactNode }) {
+  const [store] = React.useState(() => new OverrideStore())
   return (
-    <PageChromeContext.Provider value={value}>
+    <PageChromeContext.Provider value={store}>
       {children}
     </PageChromeContext.Provider>
   )
@@ -213,9 +224,15 @@ function PageChrome({
 
 /** The current page's overrides; empty outside the shell. */
 function usePageChromeOverride(): PageChromeOverride {
-  return React.useContext(PageChromeContext)?.override ?? NO_OVERRIDE
+  const store = React.useContext(PageChromeContext)
+  return React.useSyncExternalStore(
+    store?.subscribe ?? noSubscription,
+    store?.current ?? noOverride,
+    noOverride
+  )
 }
 
-const NO_OVERRIDE: PageChromeOverride = {}
+const noSubscription = () => () => {}
+const noOverride = () => NO_OVERRIDE
 
 export { PageChrome, PageChromeProvider, usePageChromeOverride }
