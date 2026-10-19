@@ -721,6 +721,32 @@ test.describe("touch: critical journeys at 390x844", () => {
     }
   )
 
+  // AMA-146: the open review's code loads apart from the list. A page opened
+  // on a review hydrates the server's pane in place; an update before its
+  // code arrived used to discard it and draw it again, flashing the skeleton
+  // and replacing the ⋯ under a tap.
+  touchTest(
+    "inbox: a review opened from its link keeps the server's pane through hydration",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto(`/inbox?selected=${inboxTenant.reviewId}`, {
+        waitUntil: "commit",
+      })
+      const more = page
+        .getByRole("region", { name: "Selected review" })
+        .getByRole("button", { name: "More actions" })
+      // The server's button, before the pane's code has arrived.
+      const served = await more.elementHandle()
+
+      // Opening the menu needs the pane hydrated, so its code is in by now.
+      await tap(more)
+      await expect(
+        page.getByRole("menuitem", { name: "No reply needed" })
+      ).toBeVisible()
+      expect(await served?.evaluate((node) => node.isConnected)).toBe(true)
+    }
+  )
+
   touchTest(
     "inbox: an open review's ⋯ carries No reply needed and Assign…",
     async ({ page, baseURL, inboxTenant }) => {
