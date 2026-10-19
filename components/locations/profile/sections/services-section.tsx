@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { DraftNotices } from "@/components/editors/draft-notices"
-import { ServiceApprovalSheet } from "./service-approval-sheet"
+import { ServiceApprovalSheet } from "@/components/reviewed-write/lazy-sheets"
 import { HandoffNote, InlineError } from "./setting-rows"
 import { useServiceReview } from "./use-service-review"
 import { useServiceWorkspace } from "./service-workspace"

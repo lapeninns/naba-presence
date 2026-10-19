@@ -1,0 +1,64 @@
+{
+  "firstOpen": [
+    {
+      "ms": 380,
+      "url": "/inbox?selected=9fbe60df-611d-40e7-b876-3b2dd713b21c",
+      "backFocused": "back-control",
+      "errors": []
+    },
+    {
+      "ms": 360,
+      "url": "/inbox?selected=9fbe60df-611d-40e7-b876-3b2dd713b21c",
+      "backFocused": "back-control",
+      "errors": []
+    },
+    {
+      "ms": 366,
+      "url": "/inbox?selected=9fbe60df-611d-40e7-b876-3b2dd713b21c",
+      "backFocused": "back-control",
+      "errors": []
+    },
+    {
+      "ms": 359,
+      "url": "/inbox?selected=9fbe60df-611d-40e7-b876-3b2dd713b21c",
+      "backFocused": "back-control",
+      "errors": []
+    },
+    {
+      "ms": 360,
+      "url": "/inbox?selected=9fbe60df-611d-40e7-b876-3b2dd713b21c",
+      "backFocused": "back-control",
+      "errors": []
+    }
+  ],
+  "checks": {
+    "phone deep link renders the review on the server": {
+      "ok": true,
+      "status": 200
+    },
+    "phone /inbox list HTML has no review pane": {
+      "ok": true,
+      "composerInHtml": false
+    },
+    "desktop /inbox auto-selects and shows the composer": {
+      "ok": true,
+      "errors": []
+    },
+    "phone Back returns to the list and refocuses the row": {
+      "ok": true,
+      "focused": "review-row",
+      "url": "/inbox"
+    },
+    "listings HTML has the health pills": {
+      "ok": true,
+      "notCheckedInHtml": false
+    },
+    "profile review sheet opens, closes and returns focus": {
+      "ok": true,
+      "title": "Review changes",
+      "mentionsChange": true,
+      "focusedText": "Review changes",
+      "errors": []
+    }
+  }
+}

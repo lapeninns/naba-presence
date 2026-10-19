@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { SavedWorkList } from "@/components/reviewed-write"
-import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
+import { SavedWorkList } from "@/components/reviewed-write/saved-work-list"
+import { ReviewChangesSheet } from "@/components/reviewed-write/lazy-sheets"
 import { savedChangeItem } from "./saved-change-work"
 import { approveBusinessInformation, fetchBusinessInformationReviews, publishBusinessInformation } from "@/lib/api/location-business-information"
 import { businessInformationLocationUpdateSchema } from "@/lib/contracts/location-business-information"

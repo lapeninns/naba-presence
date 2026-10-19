@@ -55,6 +55,18 @@ vi.mock("@/lib/navigation/shallow-url", () => ({
   pushUrl: (href: string) => push(href),
 }))
 
+// The open review loads on demand in the app (lazy-review-pane.tsx, covered
+// by lazy-review-surfaces.test.tsx); here it renders in place, so these tests
+// see the Inbox's own behaviour around it.
+vi.mock("@/components/inbox/lazy-review-pane", async () => {
+  const { ReviewPane } = await import("@/components/inbox/review-pane")
+  return {
+    LazyReviewPane: ReviewPane,
+    reloadReviewPane: () => {},
+    useIdlePreloadReviewPane: () => {},
+  }
+})
+
 function row(overrides: Partial<ReviewRow> = {}): ReviewRow {
   return {
     id: "rev-1",

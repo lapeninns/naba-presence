@@ -1,0 +1,173 @@
+{
+  "profile": "mobile",
+  "base": "http://127.0.0.1:53109",
+  "runs": 1,
+  "qualification": {
+    "valid": true,
+    "errors": []
+  },
+  "summary": [
+    {
+      "route": "/listings?health=attention",
+      "runs": 1,
+      "expectedRuns": 1,
+      "valid": true,
+      "validationErrors": [],
+      "finalUrl": "/listings?health=attention",
+      "status": 200,
+      "lcpElement": "DIV.max-w-sm text-caption text-pretty text-ink-muted",
+      "ttfb": 166,
+      "fcp": 1252,
+      "lcp": 1252,
+      "cls": 0,
+      "tbt": 58,
+      "longestTask": 90,
+      "load": 3583,
+      "jsRequests": 65,
+      "firstLoadJsRequests": 62,
+      "firstLoadJsTransfer": 521328,
+      "firstLoadJsDecoded": 1501817,
+      "otherJsTransfer": 6381,
+      "jsTransfer": 527709,
+      "jsDecoded": 1511902,
+      "requests": 73,
+      "transfer": 610864,
+      "fetchRequests": 4,
+      "rscRequests": 0,
+      "rscTransfer": 0,
+      "cssTransfer": 40439,
+      "fontTransfer": 21793,
+      "documentTransfer": 15865,
+      "apiRequests": 4,
+      "fontRequests": 1,
+      "imageRequests": 0,
+      "redirect": 0,
+      "domNodes": 289,
+      "inp": 64,
+      "probe": "[role=\"group\"][aria-label=\"Filter by health\"] [data-slot=\"filter-chip\"][aria-pressed=\"false\"]",
+      "fetchUrls": [
+        "/api/organisations",
+        "/api/notifications?filter=unread",
+        "/api/billing",
+        "/api/listings/summary"
+      ],
+      "errors": []
+    }
+  ],
+  "samples": {
+    "/listings?health=attention": [
+      {
+        "route": "/listings?health=attention",
+        "finalUrl": "/listings?health=attention",
+        "status": 200,
+        "ttfb": 166,
+        "redirect": 0,
+        "fcp": 1252,
+        "lcp": 1252,
+        "lcpElement": "DIV.max-w-sm text-caption text-pretty text-ink-muted",
+        "cls": 0,
+        "tbt": 58,
+        "longTasks": 3,
+        "longestTask": 90,
+        "domContentLoaded": 1197,
+        "load": 3583,
+        "jsRequests": 65,
+        "firstLoadJsRequests": 62,
+        "firstLoadJsTransfer": 521328,
+        "firstLoadJsDecoded": 1501817,
+        "otherJsTransfer": 6381,
+        "jsTransfer": 527709,
+        "jsDecoded": 1511902,
+        "requests": 73,
+        "transfer": 610864,
+        "fetchRequests": 4,
+        "fetchUrls": [
+          "/api/organisations",
+          "/api/notifications?filter=unread",
+          "/api/billing",
+          "/api/listings/summary"
+        ],
+        "rscRequests": 0,
+        "rscTransfer": 0,
+        "cssTransfer": 40439,
+        "fontTransfer": 21793,
+        "documentTransfer": 15865,
+        "apiRequests": 4,
+        "fontRequests": 1,
+        "imageRequests": 0,
+        "domNodes": 289,
+        "probe": {
+          "selector": "[role=\"group\"][aria-label=\"Filter by health\"] [data-slot=\"filter-chip\"][aria-pressed=\"false\"]",
+          "actionCompleted": true,
+          "outcomeRequired": true,
+          "outcomeVerified": true,
+          "inp": 64,
+          "event": "click",
+          "input": 21.799999952316284,
+          "processing": 33.10000002384186,
+          "timingSource": "event",
+          "interactionId": 4386,
+          "timingEvidence": [
+            {
+              "name": "click",
+              "t": 9202.800000011921,
+              "d": 64,
+              "id": 4386,
+              "matchesProbe": true,
+              "input": 21.799999952316284,
+              "proc": 33.10000002384186
+            },
+            {
+              "name": "pointerdown",
+              "t": 9202.800000011921,
+              "d": 16,
+              "id": 4386,
+              "matchesProbe": true,
+              "input": 17.69999998807907,
+              "proc": 0.5
+            },
+            {
+              "name": "pointerup",
+              "t": 9202.800000011921,
+              "d": 16,
+              "id": 4386,
+              "matchesProbe": true,
+              "input": 18.599999964237213,
+              "proc": 0.10000002384185791
+            },
+            {
+              "name": "pointerdown",
+              "t": 9202.800000011921,
+              "d": 16,
+              "id": 4386,
+              "first": true,
+              "matchesProbe": true,
+              "input": 17.69999998807907,
+              "proc": 0.5
+            }
+          ],
+          "timingEntries": 4,
+          "outcome": "health-filter",
+          "health": {
+            "before": "attention",
+            "after": "all",
+            "label": "All"
+          },
+          "startedAt": 9191.300000011921,
+          "endedAt": 9277.699999988079,
+          "unavailableTypes": []
+        },
+        "errors": [],
+        "quietWindow": {
+          "completed": true,
+          "requiredMs": 5000,
+          "calmMs": 5204,
+          "inflight": 0,
+          "elapsedMs": 9145,
+          "timeoutMs": 30000
+        },
+        "hostLoad": 4.73095703125
+      }
+    ]
+  }
+}

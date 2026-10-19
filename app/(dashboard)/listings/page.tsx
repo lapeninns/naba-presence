@@ -1,6 +1,9 @@
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
+
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { ListingsBoard } from "@/components/listings/listings-board-entry"
 import { bulkActionsEnabled } from "@/lib/server/bulk-listings"
+import { listingsBoardPrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
 export const metadata = { title: "Listings · NabaPresence" }
@@ -16,10 +19,14 @@ export const metadata = { title: "Listings · NabaPresence" }
 export default async function ListingsPage() {
   const session = await getSession()
   const canManage = session?.role === "owner" || session?.role === "admin"
-  const bulkEnabled =
+  // The summaries are pure SQL: read them alongside, so the health pills
+  // paint with the rows rather than after hydration.
+  const [bulkEnabled, state] = await Promise.all([
     canManage && session
-      ? await bulkActionsEnabled(session.organisationId)
-      : false
+      ? bulkActionsEnabled(session.organisationId)
+      : Promise.resolve(false),
+    prefetch(session, listingsBoardPrefetch()),
+  ])
   return (
     <PageFrame width="wide">
       <PageHeader
@@ -33,7 +40,9 @@ export default async function ListingsPage() {
           </span>
         }
       />
-      <ListingsBoard role={session?.role ?? null} bulkEnabled={bulkEnabled} />
+      <HydrationBoundary state={state}>
+        <ListingsBoard role={session?.role ?? null} bulkEnabled={bulkEnabled} />
+      </HydrationBoundary>
     </PageFrame>
   )
 }

@@ -1,0 +1,25 @@
+{
+  "inboxPane": {
+    "ok": true,
+    "blocked": [
+      "8989.0e8ff356243de0dd.js",
+      "3830.38e286b51becda66.js",
+      "3830.38e286b51becda66.js"
+    ],
+    "backVisible": 1
+  },
+  "profileDiag": {
+    "blocked": [],
+    "errors": [],
+    "dialogs": 1,
+    "text": "Skip to content\nN\nSprint 5 Journey tenant\nNabaPresence\nInbox\n2\nListings\nClients\nJourney Hospitality\n, Some listings not checked yet\nReports\nWorkspace\nTeam\nSettings\nHU\nHarness user\nOwner · Sprint 5 Journey tenant\nListings\n/\n…\n/\nBusiness profile\nJourney Hospitality: Some listings not checked yet\nSearc",
+    "toasts": [
+      "",
+      ""
+    ]
+  },
+  "profileSheet": {
+    "ok": false,
+    "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Could not open the review')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Could not open the review') with timeout 5000ms\n  - waiting for getByText('Could not open the review')\n"
+  }
+}

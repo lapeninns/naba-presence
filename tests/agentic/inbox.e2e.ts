@@ -79,7 +79,10 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         'Publish the reply to Google with the "Publish reply" button (it reads "Update reply" if a reply is already live)'
       )
       await expect(
-        screen.getByText("Reply published", { exact: true }).first()
+        // "Reply sent" when Google holds the reply for moderation (the stub
+        // can answer PENDING); either way it reached Google
+        // (lib/inbox/actions.ts describeOutcomeToast).
+        screen.getByText(/^Reply (published|sent)$/).first()
       ).toBeVisible({
         timeout: 30_000,
       })
@@ -165,7 +168,10 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
 
       await agent.act('Approve the reply with the "Approve reply" button')
       await expect(
-        screen.getByText("Reply published", { exact: true }).first()
+        // "Reply sent" when Google holds the reply for moderation (the stub
+        // can answer PENDING); either way it reached Google
+        // (lib/inbox/actions.ts describeOutcomeToast).
+        screen.getByText(/^Reply (published|sent)$/).first()
       ).toBeVisible({
         timeout: 30_000,
       })
