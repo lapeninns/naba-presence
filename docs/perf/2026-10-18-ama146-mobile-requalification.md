@@ -100,10 +100,11 @@ before the override) and 0 for both B blocks.
   1,256). Single samples reached 1,496, 1,524 and 1,976 ms, so the 1,500 ms
   ceiling has little headroom for this route.
 
-A confirmation block on the final head's build (C, BUILD_ID
-`5yrJjh-1Eh_HLduzj93L0`; it differs from B only by the review pane's error
-fallback and tests) measured the same bytes (507.4, 509.8 and 586.4 KB) and
-LCP of 1,248 to 1,256 ms, and passed every baseline budget (`confirm/`).
+Two confirmation blocks followed. Build C (BUILD_ID `5yrJjh-1Eh_HLduzj93L0`)
+differs from B only in the review pane's error fallback and in tests. Build
+D (`08df800a`, BUILD_ID `svaVErX3Gf1U7AmCQmsF7`) adds the review fix below.
+Both measured the same bytes as B (507.4, 509.8 and 586.4 KB) with LCP of
+1,228 to 1,256 ms, and both passed every baseline budget (`confirm/`).
 
 ## Aspirational `budgets.json` (separate targets)
 
@@ -138,6 +139,16 @@ with 30 model calls. Mobile, the new phone review and Listings journey passed,
 journeys had expected "Reply published", but since `c76d6e64` a reply that
 Google holds for moderation toasts "Reply sent". That expectation was out of
 date on `main` too, and it was updated here.
+
+An independent review of `20808e7d` approved it with one should-fix. After a
+failed download of the pane's code, choosing a different review failed
+straight away, because the lazy component was only replaced by "Try again".
+`08df800a` replaces it as soon as the load fails. A component test for this
+fails before the fix and passes after it. A browser probe that blocks the
+chunk, then recovers both through Try again and through Back plus another
+review, also passed (`behaviour/recovery-final.json`). The same reviewer
+approved `08df800a`. On that build, unit and component tests (8,121 passed)
+and the full Playwright suite (751 of 751) passed again.
 
 ## Limits
 
