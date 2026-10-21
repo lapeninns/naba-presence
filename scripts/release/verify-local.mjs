@@ -335,6 +335,26 @@ export function mergeVitestSummaries(summaries) {
 
 const DATABASE = "nabareview_test"
 const TAIL_LIMIT = 256 * 1024
+
+/**
+ * A child process's collected output: the last `limit` characters (enough
+ * for test counts and a failure's context), or everything when `limit` is
+ * null. Schema dumps need everything: the migrated schema's dump is about
+ * 500 KB, so a tail compared only its last half (fixed 2026-10-22).
+ * @param {number | null} limit
+ */
+export function outputCollector(limit) {
+  let text = ""
+  return {
+    /** @param {string} chunk */
+    add(chunk) {
+      text = limit === null ? text + chunk : (text + chunk).slice(-limit)
+    },
+    get value() {
+      return text
+    },
+  }
+}
 const FAILED_TAIL_LINES = 80
 
 /** Raised by a step that cannot run because something it needs failed. */
@@ -498,7 +518,7 @@ async function main() {
     sink,
     command,
     args,
-    { extraEnv = {}, dbEnv = {}, input } = {}
+    { extraEnv = {}, dbEnv = {}, input, stdoutOnly = false } = {}
   ) {
     return new Promise((done) => {
       const child = spawn(command, args, {
@@ -506,21 +526,23 @@ async function main() {
         env: { ...env, ...dbEnv, ...extraEnv },
         stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       })
-      let tail = ""
-      const collect = (chunk) => {
+      // stdoutOnly: the whole of stdout, nothing from stderr (a schema dump
+      // must be complete and must not have warnings mixed into it).
+      const output = outputCollector(stdoutOnly ? null : TAIL_LIMIT)
+      const collect = (chunk, keep = true) => {
         const text = chunk.toString()
-        tail = (tail + text).slice(-TAIL_LIMIT)
+        if (keep) output.add(text)
         sink.write(text)
       }
-      child.stdout.on("data", collect)
-      child.stderr.on("data", collect)
+      child.stdout.on("data", (chunk) => collect(chunk))
+      child.stderr.on("data", (chunk) => collect(chunk, !stdoutOnly))
       if (input !== undefined) child.stdin.end(input)
       child.on("error", (error) => {
         collect(`${command}: ${error.message}\n`)
-        done({ code: 127, output: tail })
+        done({ code: 127, output: output.value })
       })
       child.on("close", (code, signal) =>
-        done({ code: code ?? (signal ? 128 : 1), output: tail })
+        done({ code: code ?? (signal ? 128 : 1), output: output.value })
       )
     })
   }
@@ -629,7 +651,7 @@ async function main() {
       { write() {} },
       "scripts/ci/pg-client.sh",
       ["pg_dump", "--schema-only", "--no-owner", dbEnv.DIRECT_DATABASE_URL],
-      { dbEnv }
+      { dbEnv, stdoutOnly: true }
     )
     return result.output
   }

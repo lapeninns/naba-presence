@@ -20,6 +20,7 @@ import {
   childEnv,
   mergeVitestSummaries,
   normalizeSchemaDump,
+  outputCollector,
   parseArgs,
   parseExports,
   summarizeOutput,
@@ -252,6 +253,38 @@ describe("verify:release steps", () => {
         "postgresql://postgres:postgres@127.0.0.1:5555/nabareview_test",
       NABA_PG_PORT: "5555",
     })
+  })
+
+  it("compares whole schema dumps, not a tail of them", () => {
+    // The migrated schema dumps to about 500 KB; a 256 KB tail compared
+    // only its second half, so a difference early in the dump passed.
+    const filler = Array.from(
+      { length: 20_000 },
+      (_, index) => `create index i${index} on t (c);`
+    ).join("\n")
+    const scratch = `create table a (id int not null);\n${filler}\n`
+    const upgraded = `create table a (id int);\n${filler}\n`
+    const tail = outputCollector(256 * 1024)
+    const whole = outputCollector(null)
+    for (const collector of [tail, whole]) collector.add(scratch)
+    const tailUpgraded = outputCollector(256 * 1024)
+    const wholeUpgraded = outputCollector(null)
+    for (const collector of [tailUpgraded, wholeUpgraded]) {
+      collector.add(upgraded)
+    }
+    expect(scratch.length).toBeGreaterThan(256 * 1024)
+    // The old collection could not see the difference...
+    expect(normalizeSchemaDump(tail.value)).toEqual(
+      normalizeSchemaDump(tailUpgraded.value)
+    )
+    // ...the dump the gate now compares can.
+    expect(normalizeSchemaDump(whole.value)).not.toEqual(
+      normalizeSchemaDump(wholeUpgraded.value)
+    )
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toMatch(
+      /"pg_dump", "--schema-only"[^)]*\{ dbEnv, stdoutOnly: true \}/s
+    )
   })
 
   it("normalises schema dumps as ci.yml does", () => {
