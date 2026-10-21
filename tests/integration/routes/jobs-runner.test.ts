@@ -939,7 +939,10 @@ describeDatabase("durable background jobs", () => {
         status: 200,
         json: {
           reviewId: "stub",
-          reviewReply: { comment: body, updateTime: "2026-08-20T10:00:00.000Z" },
+          reviewReply: {
+            comment: body,
+            updateTime: "2026-08-20T10:00:00.000Z",
+          },
         },
       }))
       const retryId = await seedPublishAttempt(

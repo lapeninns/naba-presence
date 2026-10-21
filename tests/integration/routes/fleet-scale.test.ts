@@ -123,12 +123,16 @@ describeDatabase("fleet coverage at 150 organisations", () => {
       const count = await covered(syncType, since)
       progress.push(count)
       if (count === FLEET) {
-        console.info(`[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`)
+        console.info(
+          `[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`
+        )
         return tick
       }
       await advanceOneMinute()
     }
-    console.info(`[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`)
+    console.info(
+      `[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`
+    )
     return null
   }
 

@@ -100,7 +100,11 @@ describeDatabase("vercel cron tick shims", () => {
     const response = await authed("/api/sync/reconcile?maxOrganisations=100")
     expect(response.status).toBe(200)
     const body = (await response.json()) as Record<string, unknown>
-    expect(body).toMatchObject({ skipped: false, nextCursor: null, failures: [] })
+    expect(body).toMatchObject({
+      skipped: false,
+      nextCursor: null,
+      failures: [],
+    })
     expect(typeof body.processed).toBe("number")
     expect(typeof body.queued).toBe("number")
     // The cron branch never carries the session-only locations payload.
@@ -132,22 +136,16 @@ describeDatabase("vercel cron tick shims", () => {
     })
   })
 
-  it(
-    "walks the fleet through GET /api/sync/sweep",
-    async () => {
-      const response = await authed(
-        "/api/sync/sweep"
-      )
-      expect(response.status).toBe(200)
-      const body = (await response.json()) as Record<string, unknown>
-      expect(typeof body.processed).toBe("number")
-      expect(typeof body.queued).toBe("number")
-      expect(body.nextCursor).toBeNull()
-      expect(Array.isArray(body.failures)).toBe(true)
-      expect("locations" in body).toBe(false)
-    },
-    30_000
-  )
+  it("walks the fleet through GET /api/sync/sweep", async () => {
+    const response = await authed("/api/sync/sweep")
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as Record<string, unknown>
+    expect(typeof body.processed).toBe("number")
+    expect(typeof body.queued).toBe("number")
+    expect(body.nextCursor).toBeNull()
+    expect(Array.isArray(body.failures)).toBe(true)
+    expect("locations" in body).toBe(false)
+  }, 30_000)
 
   it("enqueues the fleet through GET /api/sync/keywords", async () => {
     const response = await authed(

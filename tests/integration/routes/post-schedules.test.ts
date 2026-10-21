@@ -392,16 +392,22 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     // occurrence, so later ticks update this one open incident (the
     // notification_incident upsert) rather than open another per tick.
     await tick()
-    const incidents = await admin<{ reason: string; subject_id: string }[]>`select reason, subject_id from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_blocked'`
+    const incidents = await admin<
+      { reason: string; subject_id: string }[]
+    >`select reason, subject_id from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_blocked'`
     expect(incidents).toHaveLength(1)
     expect(incidents[0].reason).toBe("billing_read_only")
-    expect(incidents[0].subject_id).toContain(`schedule_occurrence:${occurrence.id}`)
+    expect(incidents[0].subject_id).toContain(
+      `schedule_occurrence:${occurrence.id}`
+    )
     expect((await t.occurrences(s.id))[0].status).toBe("scheduled")
     expect(await t.scheduleRow(s.id)).toMatchObject({ status: "active" })
     await admin`update organisation_billing set state = 'pilot' where organisation_id = ${t.owner.organisationId}`
     await tick()
     expect(creates()).toHaveLength(1)
-    expect((await t.occurrences(s.id))[0]).toMatchObject({ status: "published" })
+    expect((await t.occurrences(s.id))[0]).toMatchObject({
+      status: "published",
+    })
   })
 
   it("records a slot missed, never published late, when billing stays read-only past its window", async () => {
@@ -450,7 +456,9 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     const summary = await tick()
     expect(summary.schedules).toMatchObject({ readOnly: 0 })
     expect(creates()).toHaveLength(1)
-    expect((await t.occurrences(s.id))[0]).toMatchObject({ status: "published" })
+    expect((await t.occurrences(s.id))[0]).toMatchObject({
+      status: "published",
+    })
   })
 
   it("requires a different approver under two-person policy and invalidates approval when content is edited", async () => {

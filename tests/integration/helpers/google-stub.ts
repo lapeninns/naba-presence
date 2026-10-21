@@ -14,7 +14,9 @@ export type GoogleStubResponse = {
   delayMs?: number
 }
 
-type Handler = (call: GoogleStubCall) => GoogleStubResponse | Promise<GoogleStubResponse>
+type Handler = (
+  call: GoogleStubCall
+) => GoogleStubResponse | Promise<GoogleStubResponse>
 type Matcher =
   | { method: string; pathIncludes: string; pathEndsWith?: undefined }
   | { method: string; pathIncludes?: undefined; pathEndsWith: string }
@@ -104,8 +106,7 @@ export async function startGoogleStub(
   })
   const configuredPort = process.env.GOOGLE_STUB_PORT
   const port =
-    options.port ??
-    (configuredPort ? Number.parseInt(configuredPort, 10) : 0)
+    options.port ?? (configuredPort ? Number.parseInt(configuredPort, 10) : 0)
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new Error("GOOGLE_STUB_PORT must be a valid TCP port.")
   }
@@ -126,7 +127,9 @@ export async function startGoogleStub(
       const hold: GoogleStubHold = {
         entered(target = 1) {
           if (count >= target) return Promise.resolve()
-          return new Promise((resolve) => waiters.push({ count: target, resolve }))
+          return new Promise((resolve) =>
+            waiters.push({ count: target, resolve })
+          )
         },
         get calls() {
           return count

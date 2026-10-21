@@ -122,10 +122,10 @@ describeDatabase("scheduler fleet leases", () => {
   it("skips jobs while another session holds the jobs lease", async () => {
     const { owner, linked } = await linkedFixture()
     stub.reset()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      () => ({ status: 200, json: { reviews: [] } })
-    )
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 200,
+      json: { reviews: [] },
+    }))
     await admin`
       insert into processed_webhook_event (
         organisation_id,
@@ -351,7 +351,9 @@ describeDatabase("scheduler fleet leases", () => {
 
   it("keeps a hand-run retention page off the cron heartbeat and the cycle", async () => {
     const before = await ledger("retention")
-    const response = await cronPost("/api/cron/retention?batch_size=100&cursor=")
+    const response = await cronPost(
+      "/api/cron/retention?batch_size=100&cursor="
+    )
     expect(response.status, await response.clone().text()).toBe(200)
     const after = await ledger("retention")
     expect(after.lastManualCompletedAt).not.toBeNull()
@@ -409,14 +411,10 @@ describeDatabase("scheduler fleet leases", () => {
     const bodies = await Promise.all(
       responses.map(
         (response) =>
-          response.json() as Promise<
-            { skipped: true } | { processed: number }
-          >
+          response.json() as Promise<{ skipped: true } | { processed: number }>
       )
     )
-    expect(
-      bodies.filter((body) => "skipped" in body).length
-    ).toBe(1)
+    expect(bodies.filter((body) => "skipped" in body).length).toBe(1)
     // The skip envelope now carries `processed: 0` so a lock miss cannot read
     // as a finished walk, so `"processed" in body` no longer discriminates.
     const completed = bodies.filter(
@@ -427,8 +425,7 @@ describeDatabase("scheduler fleet leases", () => {
     expect(
       stub.calls.filter(
         (call) =>
-          call.method === "GET" &&
-          call.path.includes(linked.googleLocationName)
+          call.method === "GET" && call.path.includes(linked.googleLocationName)
       )
     ).toHaveLength(1)
   })
