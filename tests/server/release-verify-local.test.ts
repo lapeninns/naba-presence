@@ -15,8 +15,10 @@ import {
 } from "../../scripts/release/local-receipt.mjs"
 import {
   CI_PLACEHOLDER_ENV,
+  DEFAULT_INTEGRATION_SHARDS,
   SECRET_SCAN_ARGS,
   childEnv,
+  mergeVitestSummaries,
   normalizeSchemaDump,
   parseArgs,
   parseExports,
@@ -68,14 +70,16 @@ const receiptInput = (steps: StepResult[]) => ({
 })
 
 describe("verify:release steps", () => {
-  it("covers every CI job's checks and the nightly audit", () => {
+  it("is the whole CI graph, and ci.yml runs it rather than restating it", () => {
     const ids = GATE_STEPS.map((step: { id: string }) => step.id)
     expect(ids).toEqual([
       "frozen-install",
       "typecheck",
       "lint",
       "unit",
+      "design",
       "build",
+      "bundle-budget",
       "migration-policy",
       "migrate-fresh",
       "migrate-upgrade",
@@ -83,31 +87,41 @@ describe("verify:release steps", () => {
       "integration",
       "e2e",
       "audit",
+      "workflow-lint",
       "secret-scan",
     ])
-    // Every step is required, the secret scan included (SEC-13 follow-up).
+    // Every step is required, the secret scan included (SEC-13 follow-up),
+    // except the workflow lint, whose tools may be missing.
     expect(
       GATE_STEPS.filter((step: { required: boolean }) => !step.required).map(
         (step: { id: string }) => step.id
       )
-    ).toEqual([])
+    ).toEqual(["workflow-lint"])
     const ci = readRepoText(".github/workflows/ci.yml")
-    for (const command of [
-      "pnpm typecheck",
-      "pnpm lint",
-      "pnpm build",
-      "node scripts/ci/migration-policy.mjs",
-      "DB_MIGRATE_EXPECT_NOOP=1 pnpm db:migrate",
-      "pnpm db:runtime-role",
-      "pnpm test:integration",
-      "pnpm test:e2e",
-      "gitleaks",
-    ]) {
-      expect(ci).toContain(command)
+    expect(ci).toContain("node scripts/release/verify-local.mjs")
+  })
+
+  it("orders every step after the steps it needs", () => {
+    const seen = new Set<string>()
+    for (const step of GATE_STEPS as { id: string; needs: string[] }[]) {
+      for (const need of step.needs) {
+        expect(seen.has(need), `${step.id} needs ${need}`).toBe(true)
+      }
+      seen.add(step.id)
     }
-    expect(readRepoText(".github/workflows/nightly.yml")).toContain(
-      "pnpm audit --prod --audit-level high"
-    )
+    // Anything that runs project code waits for the install; the database
+    // and browser suites wait for the build they start.
+    const needsOf = (id: string) =>
+      (GATE_STEPS as { id: string; needs: string[] }[]).find(
+        (step) => step.id === id
+      )!.needs
+    for (const id of ["typecheck", "lint", "unit", "design", "build"]) {
+      expect(needsOf(id)).toContain("frozen-install")
+    }
+    expect(needsOf("integration")).toContain("build")
+    expect(needsOf("e2e")).toContain("build")
+    expect(needsOf("bundle-budget")).toContain("build")
+    expect(needsOf("migrate-upgrade")).toContain("migrate-fresh")
   })
 
   it("scans the released commit's history, not every ref the worktree shares", () => {
@@ -120,8 +134,8 @@ describe("verify:release steps", () => {
     ])
     // The step passes exactly these arguments, and only it runs gitleaks.
     const source = readRepoText("scripts/release/verify-local.mjs")
-    expect(source).toContain('must("gitleaks", [...SECRET_SCAN_ARGS])')
-    expect(source.match(/must\("gitleaks"/g)).toHaveLength(1)
+    expect(source).toContain('must(sink, "gitleaks", [...SECRET_SCAN_ARGS])')
+    expect(source.match(/must\(sink, "gitleaks"/g)).toHaveLength(1)
   })
 
   it("uses ci.yml's placeholder environment exactly", () => {
@@ -181,7 +195,25 @@ describe("verify:release steps", () => {
       baseRef: null,
       receiptsDir: null,
       keepWorktree: false,
+      serial: false,
+      integrationShards: DEFAULT_INTEGRATION_SHARDS,
     })
+    expect(
+      parseArgs(["--serial", "--integration-shards", "2"])
+    ).toMatchObject({ serial: true, integrationShards: 2 })
+    expect(
+      parseArgs([], { NABA_GATE_INTEGRATION_SHARDS: "3" }).integrationShards
+    ).toBe(3)
+    expect(
+      parseArgs(["--integration-shards", "1"], {
+        NABA_GATE_INTEGRATION_SHARDS: "3",
+      }).integrationShards
+    ).toBe(1)
+    for (const bad of ["0", "17", "two", "1.5", ""]) {
+      expect(() => parseArgs(["--integration-shards", bad])).toThrow(
+        /--integration-shards/
+      )
+    }
     expect(
       parseArgs(["--skip", "e2e,audit", "--skip", "e2e", "--fail-fast"])
     ).toMatchObject({ skip: ["e2e", "audit"], failFast: true })
@@ -234,6 +266,42 @@ describe("verify:release steps", () => {
       summarizeOutput("  166 passed (4.1m)\n  18 skipped\nnoise\n")
     ).toEqual(["166 passed (4.1m)", "18 skipped"])
     expect(summarizeOutput("")).toEqual([])
+  })
+
+  it("adds up the shards' vitest counts, in vitest's own wording", () => {
+    expect(
+      mergeVitestSummaries([
+        ["Test Files 41 passed (41)", "Tests 356 passed (356)"],
+        ["Test Files 40 passed (40)", "Tests 300 passed | 2 skipped (302)"],
+        ["Test Files 1 failed | 40 passed (41)", "Tests 1 failed | 410 passed (411)"],
+      ])
+    ).toEqual([
+      "Test Files 1 failed | 121 passed (122)",
+      "Tests 1 failed | 1066 passed | 2 skipped (1069)",
+    ])
+    // The merged line is what the receipt judges: skips still fail it.
+    expect(
+      gateProblems(
+        allPassed().map((step) =>
+          step.id === "integration"
+            ? {
+                ...step,
+                summary: mergeVitestSummaries([
+                  ["Tests 10 passed (10)"],
+                  ["Tests 9 passed | 1 skipped (10)"],
+                ]),
+              }
+            : step
+        )
+      )
+    ).toEqual([
+      'step "integration" skipped tests (Tests 19 passed | 1 skipped (20))',
+    ])
+    // A shard that reported nothing leaves no count to trust.
+    expect(
+      mergeVitestSummaries([["Tests 10 passed (10)"], []])
+    ).toEqual([])
+    expect(mergeVitestSummaries([])).toEqual([])
   })
 })
 

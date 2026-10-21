@@ -7,7 +7,9 @@
 import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
 export const LOCAL_RECEIPT_KIND = "naba-local-release-gate"
-export const LOCAL_RECEIPT_VERSION = 2
+// 3: steps run concurrently by their `needs`; adds the design,
+// bundle-budget and workflow-lint steps.
+export const LOCAL_RECEIPT_VERSION = 3
 
 /**
  * Gitignored: running the gate must not dirty the checkout that promotion
@@ -34,58 +36,109 @@ export const GATE_SOURCE_PATHS = [
 ]
 
 /**
- * Every step of the CI-equivalent run, in the order it runs. `required:
- * false` steps may be skipped only because their tool is not installed (the
- * receipt says so); a failure in any step still fails the gate.
+ * Every step of the CI-equivalent run, in receipt order. `needs` lists the
+ * steps that must pass first: verify-local.mjs starts each step as soon as
+ * its needs have passed, so independent steps run at the same time, and
+ * `--serial` runs them one by one in this order (every need comes earlier).
+ * `required: false` steps may be skipped only because their tool is not
+ * installed (the receipt says so); a failure in any step still fails the
+ * gate.
  */
 export const GATE_STEPS = [
   {
     id: "frozen-install",
     title: "Frozen install (pnpm install --frozen-lockfile)",
     required: true,
+    needs: [],
   },
-  { id: "typecheck", title: "Typecheck (pnpm typecheck)", required: true },
-  { id: "lint", title: "Lint, zero warnings (pnpm lint)", required: true },
-  { id: "unit", title: "Unit tests (pnpm test)", required: true },
+  {
+    id: "typecheck",
+    title: "Typecheck (pnpm typecheck)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "lint",
+    title: "Lint, zero warnings (pnpm lint)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "unit",
+    title: "Unit and component tests (pnpm test)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "design",
+    title:
+      "Design ratchet and contrast (check:design --ratchet, check:contrast)",
+    required: true,
+    needs: ["frozen-install"],
+  },
   {
     id: "build",
     title: "Standalone build (pnpm build, webpack)",
     required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "bundle-budget",
+    title: "First-load JS ceilings (tests/perf/route-js.mjs)",
+    required: true,
+    needs: ["build"],
   },
   {
     id: "migration-policy",
     title: "Migration policy against the base (append-only history)",
     required: true,
+    needs: [],
   },
   {
     id: "migrate-fresh",
     title: "Migrate from scratch, no-op re-run, runtime role, db:status",
     required: true,
+    needs: ["frozen-install"],
   },
   {
     id: "migrate-upgrade",
     title: "Upgrade from the merge base matches from scratch",
     required: true,
+    needs: ["migrate-fresh"],
   },
   {
     id: "migrate-concurrent",
     title: "Concurrent migrate runs serialise on the lock",
     required: true,
+    needs: ["frozen-install"],
   },
   {
     id: "integration",
-    title: "Integration tests (pnpm test:integration)",
+    title: "Integration tests (pnpm test:integration), sharded",
     required: true,
+    needs: ["frozen-install", "build"],
   },
   {
     id: "e2e",
     title: "Browser journeys (pnpm test:e2e --forbid-only)",
     required: true,
+    needs: ["frozen-install", "build"],
   },
   {
     id: "audit",
     title: "Production dependency audit (pnpm audit --prod --audit-level high)",
     required: true,
+    needs: [],
+  },
+  {
+    // Workflow injection, permissions and pinning, while CodeQL's `actions`
+    // analysis cannot run (code scanning is unavailable on this private
+    // repository). Optional: skipped, with a note, where the tools are not
+    // installed (brew install actionlint zizmor); a finding still fails.
+    id: "workflow-lint",
+    title: "Workflow lint (actionlint, zizmor --offline)",
+    required: false,
+    needs: [],
   },
   {
     // Required since the SEC-13 follow-up: a receipt with no secret scan
@@ -93,8 +146,19 @@ export const GATE_STEPS = [
     id: "secret-scan",
     title: "Secret scan (gitleaks, full history)",
     required: true,
+    needs: [],
   },
 ]
+
+/** route-js.mjs ceilings in gzip KB (tests/perf/budgets-baseline.json). */
+export const BUNDLE_BUDGET_ARGS = Object.freeze([
+  "--max-chunk",
+  "70",
+  "--max-shared",
+  "400",
+  "--max-route",
+  "560",
+])
 
 /**
  * Test-running steps and what their receipt summary (verify-local.mjs

@@ -20,7 +20,12 @@ export default defineConfig({
     baseURL,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    ...(process.env.CI ? {} : { channel: "chrome" as const }),
+    // Playwright's pinned Chromium everywhere, so the gate does not depend on
+    // whichever Chrome a machine has installed (`playwright install
+    // chromium`). PLAYWRIGHT_CHANNEL=chrome opts into the system browser.
+    ...(process.env.PLAYWRIGHT_CHANNEL
+      ? { channel: process.env.PLAYWRIGHT_CHANNEL }
+      : {}),
   },
   projects: [
     // The existing suites, unchanged: unnamed, so titles, output folders and
