@@ -6,10 +6,11 @@
 # tests; no database), then a gitleaks scan of the commits being pushed when
 # gitleaks is installed.
 #
-# Skipped entirely when every ref in the push either deletes a branch or only
+# A push that only deletes branches runs nothing. One whose every ref only
 # changes documentation (`docs/**` and `*.md`, but not AGENTS.md; the same rule
-# as scripts/vercel-ignore-build.mjs). When git cannot tell what a push
-# changes, the checks run.
+# as scripts/vercel-ignore-build.mjs) skips the format check and `pnpm verify`
+# but still gets the secret scan: a token pasted into a Markdown file is still
+# a leak. When git cannot tell what a push changes, everything runs.
 #
 # Skip once: SKIP_VERIFY=1 git push   or   git push --no-verify
 set -eu
@@ -53,6 +54,21 @@ ref_needs_nothing() {
   printf '%s\n' "$changed" | docs_only
 }
 
+secret_scan() {
+  if command -v gitleaks >/dev/null 2>&1; then
+    if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+      range='@{u}..HEAD'
+    else
+      # New branch without an upstream: scan what is not on origin/main yet.
+      range='origin/main..HEAD'
+    fi
+    echo "pre-push: gitleaks git --log-opts=$range"
+    gitleaks git --no-banner --redact --log-opts="$range" .
+  else
+    echo "pre-push: gitleaks not installed, skipping secret scan (brew install gitleaks)"
+  fi
+}
+
 # Git writes `<local ref> <local sha> <remote ref> <remote sha>` per ref on
 # stdin. Run by hand from a terminal there is nothing to read, so run the checks.
 if [ ! -t 0 ]; then
@@ -72,7 +88,8 @@ if [ ! -t 0 ]; then
     if [ "$deletes" -eq "$seen" ]; then
       echo "pre-push: push only deletes branches, skipping checks"
     else
-      echo "pre-push: push changes only documentation, skipping checks"
+      echo "pre-push: push changes only documentation, skipping format check and pnpm verify"
+      secret_scan
     fi
     exit 0
   fi
@@ -84,15 +101,4 @@ node scripts/format-changed.mjs --check
 echo "pre-push: pnpm verify"
 pnpm verify
 
-if command -v gitleaks >/dev/null 2>&1; then
-  if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-    range='@{u}..HEAD'
-  else
-    # New branch without an upstream: scan what is not on origin/main yet.
-    range='origin/main..HEAD'
-  fi
-  echo "pre-push: gitleaks git --log-opts=$range"
-  gitleaks git --no-banner --redact --log-opts="$range" .
-else
-  echo "pre-push: gitleaks not installed, skipping secret scan (brew install gitleaks)"
-fi
+secret_scan

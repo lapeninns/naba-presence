@@ -7,7 +7,7 @@
 import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
 export const LOCAL_RECEIPT_KIND = "naba-local-release-gate"
-// 3: steps run concurrently by their `needs`; adds the design,
+// 3: steps run concurrently by their `needs`; adds the format, design,
 // bundle-budget and workflow-lint steps.
 export const LOCAL_RECEIPT_VERSION = 3
 
@@ -66,6 +66,15 @@ export const GATE_STEPS = [
   {
     id: "unit",
     title: "Unit and component tests (pnpm test)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    // The files this change touches must be Prettier-formatted (a ratchet:
+    // about 775 older files are not). Compared with origin/main, the scope
+    // of a pull request; on main itself there is nothing new to check.
+    id: "format",
+    title: "Formatting of changed files (scripts/format-changed.mjs)",
     required: true,
     needs: ["frozen-install"],
   },

@@ -304,16 +304,16 @@ describe("pre-push hook skip rules", () => {
     expect(result.out).toContain("only deletes")
   })
 
-  it("skips an update that only touches docs and markdown", () => {
+  it("only scans for secrets when an update touches docs and markdown", () => {
     const result = push(line(docsCommit, rootCommit))
     expect(result.status).toBe(0)
-    expect(result.ran).toEqual([])
+    expect(result.ran).toEqual([CHECKS[2]])
     expect(result.out).toContain("only documentation")
   })
 
-  it("skips a new branch whose commits are all documentation", () => {
+  it("only scans for secrets on a new branch whose commits are all documentation", () => {
     const result = push(line(docsCommit, ZERO))
-    expect(result.ran).toEqual([])
+    expect(result.ran).toEqual([CHECKS[2]])
   })
 
   it("runs verify and the format check when code changed", () => {

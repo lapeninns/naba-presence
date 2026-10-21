@@ -253,7 +253,9 @@ describe("ci.yml wiring", () => {
     expect(gate).toContain("fetch-depth: 0")
     expect(gate).toContain("persist-credentials: false")
     // Pull requests compare migrations with their base branch.
-    expect(gate).toContain("BASE_SHA: ${{ github.event.pull_request.base.sha }}")
+    expect(gate).toContain(
+      "BASE_SHA: ${{ github.event.pull_request.base.sha }}"
+    )
     expect(gate).toContain('--base-ref "$BASE_SHA"')
     // The steps run nowhere else in the workflow.
     for (const command of ["pnpm test", "pnpm build", "pnpm db:migrate"]) {

@@ -39,8 +39,10 @@
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:design": "node scripts/check-design.mjs",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
+    "format:check": "node scripts/format-changed.mjs --check",
+    "format:changed": "node scripts/format-changed.mjs --write",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm check:design --ratchet",
+    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm check:design --ratchet",
     "hooks:install": "git config core.hooksPath .githooks"
   },
   "dependencies": {

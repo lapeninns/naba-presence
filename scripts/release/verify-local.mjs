@@ -10,8 +10,8 @@
 // directory, so no .env file, untracked file or local build output takes
 // part, then runs every step of local-receipt.mjs GATE_STEPS:
 //
-//   frozen install, typecheck, lint, unit and component tests, the design
-//   ratchet, build, first-load JS ceilings, migration policy against the
+//   frozen install, typecheck, lint, unit and component tests, formatting
+//   of the files the change touches, the design ratchet, build, first-load JS ceilings, migration policy against the
 //   base, migrate from scratch + no-op + runtime role + db:status, upgrade
 //   from the merge base (schema diff), concurrent migrate, integration, e2e
 //   (port 3100 when free), actionlint and zizmor over .github/ (optional:
@@ -646,6 +646,13 @@ async function main() {
     typecheck: (sink) => must(sink, "pnpm", ["typecheck"]),
     lint: (sink) => must(sink, "pnpm", ["lint"]),
     unit: (sink) => must(sink, "pnpm", ["test"]),
+    format: (sink) =>
+      must(sink, "node", [
+        "scripts/format-changed.mjs",
+        "--check",
+        "--base",
+        "origin/main",
+      ]),
     design: async (sink) => {
       await must(sink, "pnpm", ["check:design", "--ratchet"])
       await must(sink, "pnpm", ["check:contrast"])

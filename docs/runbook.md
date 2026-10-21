@@ -9,7 +9,8 @@ production audit and, when installed, gitleaks, on a fresh worktree and a
 throwaway PostgreSQL 17 through the runtime test role, and writes the receipt
 promotion requires (`docs/ci.md` §5). The GitHub workflows (`CI result`) run
 the same graph but are not a gate and are not needed for a release; nothing
-here waits on them. `pnpm verify:full` is the quicker check minus e2e.
+here waits on them. `pnpm verify` (typecheck, lint, unit and component tests,
+design ratchet; no database) is the quick check before a push.
 
 Production migrations are **manual**: Vercel's build runs only
 `next build --webpack`, and Production has no `DIRECT_DATABASE_URL`. The
@@ -1007,28 +1008,15 @@ The incident resolves on the first health tick after the condition clears.
 The health tick cannot alert on its own absence; the readiness probe is that
 signal (below).
 
-### Hosted readiness probe
+### Scheduled readiness probe
 
-`.github/workflows/readiness-probe.yml` probes production every 5 minutes
-(docs/observability.md, "The hosted probe"). Operator setup, once:
-
-1. Create the secret, entering production's `CRON_SECRET` at the prompt (never
-   on the command line):
-   `gh secret set NABA_READINESS_TOKEN -R lapeninns/naba-presence`.
-2. Point it at production:
-   `gh variable set NABA_READINESS_URL --body https://<production origin> -R lapeninns/naba-presence`.
-3. Optionally, `gh variable set NABA_READINESS_EXPECT_PROMOTED --body true`
-   to fail when production does not serve the newest promotion receipt's
-   commit. This fails between a promotion and the merge of its receipt.
-4. Run it once by hand: `gh workflow run readiness-probe.yml`, then
-   `gh run list --workflow readiness-probe.yml`.
-5. Check that the GitHub account that last edited the workflow's cron gets
-   Actions failure emails (Settings → Notifications → Actions).
-
-The job needs hosted Actions minutes, about 8,600 a month at one billed
-minute per run. While the Actions budget blocks hosted jobs (docs/ci.md), it
-does not run. When the secret is rotated with `CRON_SECRET`, update
-`NABA_READINESS_TOKEN` too, or every run fails `unauthorised`.
+No hosted schedule exists (the GitHub workflow was removed on 2026-10-21; see
+docs/observability.md, "Scheduling the probe"). To watch production between
+releases, run `pnpm ops:readiness` every five minutes from a launchd agent on
+an operator's Mac or from an uptime service that sends the bearer header,
+with production's `CRON_SECRET` in `READINESS_PROBE_TOKEN` in that job's own
+environment (never in a file in the repository). When `CRON_SECRET` is
+rotated, update the scheduled job too, or every run fails `unauthorised`.
 
 ### Readiness probe failure
 

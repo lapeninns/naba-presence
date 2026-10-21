@@ -185,14 +185,13 @@ the Actions cache.
 ## 5. Local workflow
 
 ```bash
-pnpm verify        # typecheck + lint + unit tests; no database. Before every push.
-pnpm verify:full   # verify + build + integration; needs the local Supabase stack.
+pnpm verify        # typecheck + lint + unit and component tests + design ratchet; no database. Before every push.
 pnpm test:e2e      # browser journeys; pnpm test:a11y for accessibility only.
 pnpm verify:release # the whole CI graph on a fresh worktree and throwaway Postgres; writes a receipt.
 ```
 
-Run `verify` before pushing. Run `verify:full`, `test:e2e` and `test:a11y`
-as well when you touch server code, the database or UI flows. CI runs
+Run `verify` before pushing. Run `test:integration`, `test:e2e` and
+`test:a11y` as well when you touch server code, the database or UI flows. CI runs
 everything, plus migrations, secret scanning, dependency review and CodeQL.
 
 ### Local release gate (`pnpm verify:release`)

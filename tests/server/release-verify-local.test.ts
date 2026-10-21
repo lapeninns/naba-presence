@@ -77,6 +77,7 @@ describe("verify:release steps", () => {
       "typecheck",
       "lint",
       "unit",
+      "format",
       "design",
       "build",
       "bundle-budget",
@@ -115,7 +116,14 @@ describe("verify:release steps", () => {
       (GATE_STEPS as { id: string; needs: string[] }[]).find(
         (step) => step.id === id
       )!.needs
-    for (const id of ["typecheck", "lint", "unit", "design", "build"]) {
+    for (const id of [
+      "typecheck",
+      "lint",
+      "unit",
+      "format",
+      "design",
+      "build",
+    ]) {
       expect(needsOf(id)).toContain("frozen-install")
     }
     expect(needsOf("integration")).toContain("build")
@@ -198,9 +206,10 @@ describe("verify:release steps", () => {
       serial: false,
       integrationShards: DEFAULT_INTEGRATION_SHARDS,
     })
-    expect(
-      parseArgs(["--serial", "--integration-shards", "2"])
-    ).toMatchObject({ serial: true, integrationShards: 2 })
+    expect(parseArgs(["--serial", "--integration-shards", "2"])).toMatchObject({
+      serial: true,
+      integrationShards: 2,
+    })
     expect(
       parseArgs([], { NABA_GATE_INTEGRATION_SHARDS: "3" }).integrationShards
     ).toBe(3)
@@ -273,7 +282,10 @@ describe("verify:release steps", () => {
       mergeVitestSummaries([
         ["Test Files 41 passed (41)", "Tests 356 passed (356)"],
         ["Test Files 40 passed (40)", "Tests 300 passed | 2 skipped (302)"],
-        ["Test Files 1 failed | 40 passed (41)", "Tests 1 failed | 410 passed (411)"],
+        [
+          "Test Files 1 failed | 40 passed (41)",
+          "Tests 1 failed | 410 passed (411)",
+        ],
       ])
     ).toEqual([
       "Test Files 1 failed | 121 passed (122)",
@@ -298,9 +310,7 @@ describe("verify:release steps", () => {
       'step "integration" skipped tests (Tests 19 passed | 1 skipped (20))',
     ])
     // A shard that reported nothing leaves no count to trust.
-    expect(
-      mergeVitestSummaries([["Tests 10 passed (10)"], []])
-    ).toEqual([])
+    expect(mergeVitestSummaries([["Tests 10 passed (10)"], []])).toEqual([])
     expect(mergeVitestSummaries([])).toEqual([])
   })
 })
