@@ -253,12 +253,27 @@ passes promotion. `--list` prints the steps; `--keep-worktree` keeps the
 worktree for debugging. Rules are unit-tested in
 `tests/server/release-verify-local.test.ts`.
 
-`test:integration`, `test:e2e` and `test:a11y` go through
-`scripts/run-test-command.mjs`, which refuses a non-local host in
-`TEST_RUNTIME_DATABASE_URL`, `DIRECT_DATABASE_URL` or `DATABASE_SESSION_URL`
-(the advisory-lock connection) unless `ALLOW_REMOTE_TEST_DB=1` is set
-deliberately. The harness seeds and deletes tenants in whatever those URLs
-reach.
+`test:integration`, `test:e2e`, `test:e2e:touch` and `test:a11y` go through
+`scripts/run-test-command.mjs`. It never runs them against a database it was
+merely handed. By default it starts a throwaway PostgreSQL 17 for the run
+(`scripts/ci/postgres.mjs`, its own temp `NABA_PG_DIR`; about 1-3 s with the
+migrations and runtime role), points `DIRECT_DATABASE_URL`,
+`TEST_RUNTIME_DATABASE_URL`, `DATABASE_URL` and `DATABASE_SESSION_URL` at it,
+and stops it when the command exits or on Ctrl-C/SIGTERM. A cluster from
+`postgres.mjs start` (the local gate, ci.yml, or the recipe in "Reproduce a CI
+database locally") is reused instead: `start` exports
+`NABA_PG_DISPOSABLE=<host:port>`, and the wrapper checks that every URL
+reaches that port and that the cluster carries `naba.disposable_cluster = on`.
+`NABA_TEST_DB=existing` runs against the configured URLs. The guard
+(`scripts/test-database.mjs`, shared with the integration helpers and
+`scripts/cleanup-harness-data.mjs`) refuses a non-local host in any of those
+four variables unless `ALLOW_REMOTE_TEST_DB=1`, and the local Supabase
+database port 54322 (the dev tenant) unless `NABA_ALLOW_DEV_DB=1`, even with
+`NABA_TEST_DB=existing`. The default needs Homebrew `postgresql@17` on macOS,
+or Docker with `NABA_PG_MODE=docker`. Before the first integration file and
+after the last, `tests/integration/helpers/global-setup.ts` lifts pauses,
+ends `naba:%` fleet leases and drops unused test billing plans, only on such
+a throwaway cluster.
 
 **Pre-push hook (opt-in):** `pnpm hooks:install` sets
 `core.hooksPath=.githooks`. `.githooks/pre-push` then runs `pnpm verify` and,
@@ -763,11 +778,14 @@ does not help: it re-reads the same job results and fails the same way.
 **Reproduce a CI database locally:** this uses the same script as CI.
 
 ```bash
-eval "$(node scripts/ci/postgres.mjs start)"   # exports DIRECT_DATABASE_URL, DATABASE_URL, TEST_RUNTIME_DATABASE_URL
+eval "$(node scripts/ci/postgres.mjs start)"   # exports DIRECT_DATABASE_URL, DATABASE_URL, TEST_RUNTIME_DATABASE_URL, NABA_PG_DISPOSABLE
 pnpm db:migrate && pnpm db:runtime-role
 pnpm test:integration
 node scripts/ci/postgres.mjs stop
 ```
+
+Plain `pnpm test:integration` does this on its own; start a cluster by hand
+only to keep it between runs or inspect it.
 
 On macOS it uses Homebrew `postgresql@17` (`NABA_PG_BIN` overrides the bin
 folder). `NABA_PG_MODE=docker` uses `postgres:17-alpine` instead. It picks a

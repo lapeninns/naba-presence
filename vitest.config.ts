@@ -56,6 +56,10 @@ export default defineConfig({
           // within half a minute; tests that need longer say so.
           testTimeout: 30_000,
           hookTimeout: 60_000,
+          // Lifts pauses, ends naba:% leases and drops unused test plans
+          // before the first file and after the last; a no-op unless the
+          // database is a throwaway cluster (RUN_DB_TESTS and the stamp).
+          globalSetup: ["tests/integration/helpers/global-setup.ts"],
         },
       },
     ],
