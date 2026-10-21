@@ -7,6 +7,7 @@ import {
   readCode,
   routeConfigString,
   routeConfigStrings,
+  routeConfigValue,
   routeHandlers,
   scanRouteSource,
   scanRoutes,
@@ -285,8 +286,12 @@ describe("route authorisation contract", () => {
   })
 
   it("never lets a roles declaration include viewers", () => {
+    // Any `roles:` the scan cannot read as a literal list (a constant, a
+    // spread) counts as loose: it cannot be shown to exclude viewers.
     const loose = handlers
-      .filter((handler) => routeConfigStrings(handler.config, "roles"))
+      .filter(
+        (handler) => routeConfigValue(handler.config, "roles") !== undefined
+      )
       .filter((handler) => !declaresNonViewerRoles(handler.config))
       .map((handler) => handler.key)
     expect(loose).toEqual([])
@@ -335,6 +340,11 @@ describe("route authorisation contract", () => {
     expect(declaresNonViewerRoles('route({ roles: ["owner", "admin"] })')).toBe(
       true
     )
+    // A list the scan cannot read is not proof of anything.
+    expect(declaresNonViewerRoles("route({ roles: EDITORS })")).toBe(false)
+    expect(
+      declaresNonViewerRoles('route({ roles: [...EDITORS, "owner"] })')
+    ).toBe(false)
   })
 
   it("does not take a handler that reads its input as a refusal", () => {

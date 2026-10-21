@@ -12,7 +12,9 @@ import { fileURLToPath } from "node:url"
  * own `route(...)` call, not everything from its export to the next one, so a
  * guard in a neighbouring handler or a module helper the handler never calls
  * cannot stand in for its own. Route config keys are read at the top level of
- * that call's object only. Any other way of exporting an HTTP method is
+ * that call's object only. Any other way of exporting an HTTP method (a
+ * function, a wrapped or `let` route, a re-export, `export *`, a
+ * destructured export), and any declaration the reader lost track of, is
  * reported as unrecognised, so a handler the scans cannot read fails loudly
  * instead of escaping every check.
  */
@@ -48,8 +50,9 @@ type Views = {
 }
 
 const REGEX_AFTER = new Set([..."(,=:[!&|?{};+-*%<>~^"])
+// A keyword, not a property of the same name (`range.in / 2` divides).
 const REGEX_AFTER_WORD =
-  /\b(return|typeof|case|do|else|in|of|new|delete|void|throw|yield|await)$/
+  /(?:^|[^\w$.])(return|typeof|case|do|else|in|of|new|delete|void|throw|yield|await)$/
 
 /**
  * Blanks comments (and, in the skeleton, literal contents) with spaces,
@@ -76,6 +79,11 @@ function views(source: string): Views {
     index += 1
     while (index < source.length && source[index] !== quote) {
       if (source[index] === "\\") index += 1
+      // A quote string cannot span lines: reaching one means a regex or a
+      // division was misread, and everything after it would be misread too.
+      else if (source[index] === "\n") {
+        throw new Error(`unterminated string from offset ${start}`)
+      }
       index += 1
     }
     blank(start + 1, index, false)
@@ -141,7 +149,7 @@ function views(source: string): Views {
       (last === "" ||
         REGEX_AFTER.has(last) ||
         REGEX_AFTER_WORD.test(
-          source.slice(Math.max(0, index - 12), index).trimEnd()
+          source.slice(Math.max(0, index - 13), index).trimEnd()
         ))
     ) {
       const start = index
@@ -224,19 +232,28 @@ export type ScannedRoute = {
   unrecognised: string[]
 }
 
+/** `export` as a keyword anywhere, not only at the start of a line. */
+const EXPORT = "(?<![\\w$.])export"
+
 const RECOGNISED = new RegExp(
-  `^export const (${METHOD})\\s*(?::[^=\\n]+)?=\\s*route\\s*(?:<[^>]*>)?\\s*\\(`,
-  "gm"
+  `${EXPORT}\\s+const\\s+(${METHOD})\\s*(?::[^=\\n]+)?=\\s*route\\s*(?:<[^>]*>)?\\s*\\(`,
+  "g"
 )
 
-const ANY_METHOD_EXPORT = [
-  new RegExp(`^export\\s+(?:const|let|var)\\s+(${METHOD})\\b`, "gm"),
-  new RegExp(
-    `^export\\s+(?:async\\s+)?function\\s*\\*?\\s*(${METHOD})\\b`,
-    "gm"
-  ),
-  new RegExp(`^export\\s+(?:type\\s+)?\\{([^}]*)\\}`, "gm"),
-]
+/** Declares an HTTP method by name: const, let, var or function. */
+const DECLARED = new RegExp(
+  `${EXPORT}\\s+(?:const|let|var|(?:async\\s+)?function\\s*\\*?)\\s+(${METHOD})\\b`,
+  "g"
+)
+const RE_EXPORT = new RegExp(`${EXPORT}\\s+(?:type\\s+)?\\{([^}]*)\\}`, "g")
+const EXPORT_ALL = new RegExp(`${EXPORT}\\s*\\*`, "g")
+const DESTRUCTURED = new RegExp(
+  `${EXPORT}\\s+(?:const|let|var)\\s*[{[]([^=]*)=`,
+  "g"
+)
+
+const methodNamed = (name: string | undefined) =>
+  name !== undefined && (HTTP_METHODS as readonly string[]).includes(name)
 
 /** Reads one route module (`file` relative to the repository root). */
 export function scanRouteSource(file: string, source: string): ScannedRoute {
@@ -256,29 +273,45 @@ export function scanRouteSource(file: string, source: string): ScannedRoute {
     })
   }
   const unrecognised: string[] = []
-  for (const pattern of ANY_METHOD_EXPORT) {
-    for (const match of skeleton.matchAll(pattern)) {
-      if (pattern.source.startsWith("^export\\s+(?:type")) {
-        // Re-exports: `export { handler as POST }` or `export { GET } from`.
-        for (const part of code
-          .slice(match.index, match.index + match[0].length)
-          .replace(/^export\s+(?:type\s+)?\{/, "")
-          .replace(/\}$/, "")
-          .split(",")) {
-          const name = part
-            .trim()
-            .split(/\s+as\s+/)
-            .at(-1)
-            ?.trim()
-          if (name && (HTTP_METHODS as readonly string[]).includes(name)) {
-            unrecognised.push(`${name} (re-export)`)
-          }
-        }
-        continue
-      }
-      if (recognisedAt.has(match.index)) continue
-      unrecognised.push(match[1]!)
+  const declared: string[] = []
+  for (const match of skeleton.matchAll(DECLARED)) {
+    declared.push(match[1]!)
+    if (!recognisedAt.has(match.index)) unrecognised.push(match[1]!)
+  }
+  for (const match of skeleton.matchAll(RE_EXPORT)) {
+    // Re-exports: `export { handler as POST }` or `export { GET } from`.
+    const names = code
+      .slice(match.index, match.index + match[0].length)
+      .replace(/^[^{]*\{/, "")
+      .replace(/\}$/, "")
+      .split(",")
+      .map((part) =>
+        part
+          .trim()
+          .split(/\s+as\s+/)
+          .at(-1)
+          ?.trim()
+      )
+    for (const name of names) {
+      if (methodNamed(name)) unrecognised.push(`${name} (re-export)`)
     }
+  }
+  for (let count = [...skeleton.matchAll(EXPORT_ALL)].length; count; count--) {
+    unrecognised.push("* (export all)")
+  }
+  for (const match of skeleton.matchAll(DESTRUCTURED)) {
+    for (const name of match[1]!.match(/[A-Z]+/g) ?? []) {
+      if (methodNamed(name)) unrecognised.push(`${name} (destructured)`)
+    }
+  }
+  // Cross-check against the code with only comments removed: a method
+  // declared there that the literal-aware reading did not see means the
+  // reader lost its place, so it is reported rather than silently skipped.
+  const seen = [...declared]
+  for (const match of code.matchAll(DECLARED)) {
+    const at = seen.indexOf(match[1]!)
+    if (at === -1) unrecognised.push(`${match[1]} (unread)`)
+    else seen.splice(at, 1)
   }
   return { file, code, handlers, unrecognised }
 }
@@ -369,13 +402,22 @@ export function routeConfigString(
   return value === undefined ? undefined : /^"([^"]*)"$/.exec(value)?.[1]
 }
 
-/** The string literals of a route config array key, e.g. `roles: [...]`. */
+/**
+ * The string literals of a route config array key, e.g. `roles: [...]`, or
+ * undefined when the key is absent or not a plain list of literals.
+ */
 export function routeConfigStrings(
   config: string,
   key: string
 ): string[] | undefined {
   const value = routeConfigValue(config, key)
-  if (value === undefined || !value.startsWith("[")) return undefined
+  // Only a list of string literals: a spread or a constant is not readable.
+  if (
+    value === undefined ||
+    !/^\[\s*(?:(["'])[^"']*\1\s*(?:,\s*)?)*\]$/.test(value)
+  ) {
+    return undefined
+  }
   return [...value.matchAll(/["']([^"']*)["']/g)].map((match) => match[1]!)
 }
 

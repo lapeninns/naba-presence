@@ -26,12 +26,12 @@ import type { Session } from "@/lib/server/session"
 import { cookies } from "next/headers"
 
 import {
-  calls,
   MUTATING_METHODS,
   routeConfigString,
   routeConfigStrings,
   routeHandlers,
   scanRouteFile,
+  withoutLiterals,
 } from "./helpers/route-scanner"
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }))
@@ -150,7 +150,9 @@ describe("route entitlements: static scan of app/api", () => {
         scanRouteFile(`app/api/${handler!.path}/route.ts`).code,
         key
       ).not.toContain("INTEGRATION")
-      expect(calls(handler!.config, "refuseSupportSession"), key).toBe(true)
+      expect(withoutLiterals(handler!.config), key).toMatch(
+        /\brefuseSupportSession\(\s*session\s*\)/
+      )
     }
   })
 

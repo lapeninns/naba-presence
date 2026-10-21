@@ -135,6 +135,60 @@ describe("scanRouteSource", () => {
   })
 })
 
+describe("scanRouteSource never loses a handler silently", () => {
+  const route = "route({ handler: async () => write() })"
+
+  it("reads an export that is indented or shares its line", () => {
+    for (const source of [
+      `  export const POST = ${route}\n`,
+      `const a = 1; export const POST = ${route}\n`,
+    ]) {
+      const scanned = scanRouteSource("app/api/x/route.ts", source)
+      expect(
+        scanned.handlers.map((handler) => handler.method),
+        source
+      ).toEqual(["POST"])
+      expect(scanned.unrecognised, source).toEqual([])
+    }
+  })
+
+  it("reads a division after a property named like a keyword", () => {
+    const scanned = scanRouteSource(
+      "app/api/x/route.ts",
+      `const r = range.in / 2; const s = "a/b"\nexport const POST = ${route}\n`
+    )
+    expect(scanned.handlers.map((handler) => handler.method)).toEqual(["POST"])
+  })
+
+  it("fails loudly when it misreads a regex as a division", () => {
+    // A regex straight after `)` is read as division: the quote inside it
+    // then opens a string that would run to the next quote.
+    expect(() =>
+      scanRouteSource(
+        "app/api/x/route.ts",
+        `if (ok) /'/.test(s)\nexport const POST = ${route}\n`
+      )
+    ).toThrow(/unterminated string/)
+    // A backtick there opens a template, which may span lines: the export it
+    // swallows is reported as unread rather than skipped.
+    expect(
+      scanRouteSource(
+        "app/api/x/route.ts",
+        `if (ok) /\`/.test(s)\nexport const POST = ${route}\nconst t = \`\`\n`
+      ).unrecognised
+    ).toContain("POST (unread)")
+  })
+
+  it("reports export-all and destructured exports", () => {
+    expect(
+      scanRouteSource(
+        "app/api/x/route.ts",
+        'export * from "../other/route"\nexport const { GET, POST } = make()\n'
+      ).unrecognised.sort()
+    ).toEqual(["* (export all)", "GET (destructured)", "POST (destructured)"])
+  })
+})
+
 describe("functionBodyIn", () => {
   it("takes the implementation after overloads, past a type-literal return type", () => {
     const source = [
