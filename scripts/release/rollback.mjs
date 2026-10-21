@@ -45,6 +45,9 @@
 // `--database-restored` once the database matches the target; the flag is
 // recorded in the rollback receipt.
 //
+// The operator and a provisional receipt (redaction included) are checked
+// before `vercel promote`, so neither can fail after production has changed.
+//
 // The decision is the pure `planRollback`; `runRollback` is the whole CLI
 // with the file system, Vercel CLI, probe and clock injected (unit-tested in
 // tests/server/release-rollback.test.ts with all of them mocked). `main()`
@@ -59,6 +62,7 @@ import { PROMOTION_RECEIPTS_DIR } from "./local-receipt.mjs"
 import {
   PRODUCTION_PROBE_ATTEMPTS,
   describeProbeAttempt,
+  pendingProductionProbe,
   productionProbeArgs,
   productionProbeReport,
   promoteArgs,
@@ -422,7 +426,8 @@ export function planRollback({
  *   target: Promotion,
  *   drift: MigrationDrift | null,
  *   databaseRestored: boolean,
- *   productionProbe: import("./promote.mjs").ProductionVerification,
+ *   productionProbe: import("./promote.mjs").ProductionVerification |
+ *     import("./promote.mjs").PendingProductionProbe,
  *   operator: string,
  *   timestamp: string,
  * }} input
@@ -545,6 +550,40 @@ export async function runRollback({
     databaseRestored: options.databaseRestored,
   })
   const production = resolveProductionUrl(options.productionUrl, env)
+  // Who rolls back, and a receipt that can be written, before anything
+  // changes (promote.mjs validates its receipt before deploying the same way):
+  // neither may fail once production serves the target.
+  let operatorName = ""
+  let receiptProblem = null
+  if (plan.current && plan.target && production.url) {
+    try {
+      operatorName = String(operator() ?? "").trim()
+      if (!operatorName) throw new Error("it is empty")
+    } catch (failure) {
+      receiptProblem = `cannot name the operator for the receipt (git config user.name): ${failure instanceof Error ? failure.message : failure}`
+    }
+    if (!receiptProblem) {
+      const timestamp = now().toISOString()
+      try {
+        buildRollbackReceipt({
+          current: plan.current,
+          target: plan.target,
+          drift: plan.drift,
+          databaseRestored: options.databaseRestored,
+          productionProbe: pendingProductionProbe(
+            production.url,
+            plan.target.sha,
+            timestamp
+          ),
+          operator: operatorName,
+          timestamp,
+        })
+      } catch (failure) {
+        receiptProblem =
+          failure instanceof Error ? failure.message : String(failure)
+      }
+    }
+  }
   const problems = [
     ...history.problems.map((problem) => `receipts: ${problem}`),
     ...plan.problems,
@@ -554,6 +593,7 @@ export async function runRollback({
           "set READINESS_PROBE_TOKEN to production's CRON_SECRET, so the probe can confirm production serves the target",
         ]
       : []),
+    ...(receiptProblem ? [receiptProblem] : []),
   ]
 
   const { current, target } = plan
@@ -634,7 +674,7 @@ export async function runRollback({
     drift: plan.drift,
     databaseRestored: options.databaseRestored,
     productionProbe,
-    operator: operator(),
+    operator: operatorName,
     timestamp: now().toISOString(),
   })
   const receiptPath = join(receiptsDir, rollbackReceiptFileName(receipt))

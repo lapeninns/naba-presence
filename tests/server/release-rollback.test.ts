@@ -602,6 +602,55 @@ describe("release:rollback CLI", () => {
     expect(retry.out).toContain(`roll back to: dpl_b at ${SHA_B} (${B.name})`)
   })
 
+  it("names the operator and validates the receipt before vercel promote", async () => {
+    const order: string[] = []
+    const { run, io } = cli([A, B, C])
+    io.operator = () => {
+      order.push("operator")
+      return "release-operator"
+    }
+    io.promote.mockImplementation(() => {
+      order.push("promote")
+    })
+    expect(await run(["--yes", "--production-url", PRODUCTION])).toBe(EXIT.ok)
+    expect(order).toEqual(["operator", "promote"])
+  })
+
+  it("refuses before any production change when the operator cannot be named", async () => {
+    for (const yes of [true, false]) {
+      const { run, io, err } = cli([A, B, C])
+      io.operator = () => {
+        throw new Error("Command failed: git config user.name")
+      }
+      const argv = ["--production-url", PRODUCTION, ...(yes ? ["--yes"] : [])]
+      expect(await run(argv)).toBe(EXIT.refused)
+      expect(err).toEqual([
+        "refused: cannot name the operator for the receipt (git config user.name): Command failed: git config user.name",
+      ])
+      expect(io.promote).not.toHaveBeenCalled()
+      expect(io.probe).not.toHaveBeenCalled()
+      expect(io.writeReceipt).not.toHaveBeenCalled()
+    }
+    const blank = cli([A, B, C])
+    blank.io.operator = () => "  "
+    expect(await blank.run(["--yes", "--production-url", PRODUCTION])).toBe(
+      EXIT.refused
+    )
+    expect(blank.err[0]).toMatch(/cannot name the operator .*it is empty/)
+    expect(blank.io.promote).not.toHaveBeenCalled()
+  })
+
+  it("refuses before any production change when the receipt would carry a secret", async () => {
+    const { run, io, err } = cli([A, B, C])
+    io.operator = () => "Bearer abcdefghijklmnopqrstuvwxyz0123456789"
+    expect(await run(["--yes", "--production-url", PRODUCTION])).toBe(
+      EXIT.refused
+    )
+    expect(err.join("\n")).toMatch(/secret-like values at \$\.operator/)
+    expect(io.promote).not.toHaveBeenCalled()
+    expect(io.writeReceipt).not.toHaveBeenCalled()
+  })
+
   it("writes no receipt when vercel promote fails", async () => {
     const { run, io, err } = cli([A, B, C])
     io.promote.mockImplementation(() => {
