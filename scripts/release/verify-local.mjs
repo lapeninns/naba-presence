@@ -40,8 +40,8 @@
 // output goes to logs/<step>.log in the run directory, and all of it to
 // verify.log there, whose path is printed; a failed step's tail is printed.
 //
-// The base is what production runs: the SHA in the newest committed
-// promotion receipt (docs/release/receipts/), or --base-ref <production SHA>
+// The base is the release the committed receipts say production serves
+// (docs/release/receipts/, local-receipt.mjs servingRelease), or --base-ref <production SHA>
 // before the first promotion. Promotion refuses a receipt whose base is not
 // the last promoted commit, or whose merge base is HEAD itself (the policy
 // and upgrade steps would compare HEAD with itself). Without either, the

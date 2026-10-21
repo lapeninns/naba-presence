@@ -287,8 +287,10 @@ READINESS_PROBE_TOKEN=... pnpm ops:readiness --url https://<production> \
 http off localhost. It exits 0 for ready (and degraded, unless
 `--fail-on-degraded`), 1 for degraded with `--fail-on-degraded`, 2 for not
 ready, unreachable, 401, an unreadable answer or a SHA mismatch, and 64 for a
-usage error. `--expect-sha <sha>` or `--expect-promoted` (the newest receipt in
-`docs/release/receipts/`) fails a deployment serving another commit; `--json`
+usage error. `--expect-sha <sha>` or `--expect-promoted` (the release production serves according to
+`docs/release/receipts/`: the newest promotion or a later confirmed
+rollback's target; an unreadable receipt is a usage error, 64) fails a
+deployment serving another commit; `--json`
 prints one machine-readable line; `--notify` raises a macOS notification on
 any non-zero exit. Run it every five minutes; a non-zero exit is the page.
 

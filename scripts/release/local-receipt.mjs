@@ -432,8 +432,8 @@ export function localReceiptFileName(receipt) {
 /**
  * Why a local receipt cannot stand as promotion evidence for `sha`; empty
  * when it can. The receipt is re-judged from its steps, so a hand-edited
- * `ok: true` over a failed step does not pass. `previousSha` is the commit
- * the newest committed promotion receipt shipped (latestPromotedRelease), or
+ * `ok: true` over a failed step does not pass. `previousSha` is the release
+ * production serves according to the receipts (servingRelease), or
  * null before the first promotion; the receipt's base must be it, and in any
  * case must not be the commit itself, or the migration policy and upgrade
  * steps compared HEAD with itself.
@@ -481,7 +481,7 @@ export function localReceiptProblems(
     }
     if (previousSha && base.sha !== previousSha) {
       problems.push(
-        `the local gate's base is ${base.sha.slice(0, 12)}, not ${previousSha.slice(0, 12)}, the commit the newest promotion receipt shipped`
+        `the local gate's base is ${base.sha.slice(0, 12)}, not ${previousSha.slice(0, 12)}, the release production serves according to the receipts`
       )
     }
   }

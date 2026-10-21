@@ -489,7 +489,7 @@ describe("verify:release receipt", () => {
         previousSha: other,
       })
     ).toEqual([
-      `the local gate's base is ${PROD_SHA.slice(0, 12)}, not ${other.slice(0, 12)}, the commit the newest promotion receipt shipped`,
+      `the local gate's base is ${PROD_SHA.slice(0, 12)}, not ${other.slice(0, 12)}, the release production serves according to the receipts`,
     ])
     expect(
       localReceiptProblems(

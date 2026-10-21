@@ -12,7 +12,7 @@ afterwards. File name: `<UTC time>-<first 12 of the SHA>.json`.
 | `localGate` | The local release gate's receipt (`pnpm verify:release`): file name, sha256 of its bytes, finish time, base (ref, SHA, merge base, source), each step's status, and `copy`, the committed `<receipt>.local.json` holding its exact bytes. Hosted CI is not a gate |
 | `migrations` | Every migration version the commit ships, with the file's sha256; the database had none pending |
 | `configNames` | Production environment variable names only, never values |
-| `productionProbe` | The production origin probed after `vercel promote`: `url`, expected and served SHA, `ok`, `status`, every attempt. `ok: false` means production did not serve the SHA when the release finished (the script exited 3); receipts before 2026-10-22 have no such field |
+| `productionProbe` | The production origin probed after `vercel promote`: `url`, expected and served SHA, `ok`, `status`, every attempt. `ok: false` means production did not serve the SHA when the release finished (the script exited 3); `status: "pending"` (with `startedAt` and no attempts) means the script stopped after `vercel promote` and before the probe finished, so production was promoted but not verified; receipts before 2026-10-22 have no such field |
 | `operator`, `timestamp` | `git config user.name` of the operator, and when |
 
 The script refuses to write a receipt containing anything
@@ -45,5 +45,7 @@ sha256 can be checked after `local/` is cleaned.
 deployment production serves after the rollback, `to` and `from` (the
 receipts rolled back to and from), `migrations` (`databaseRestored` and any
 drift between the two releases' migrations), `productionProbe`, `operator`
-and `timestamp`. Commit it like a promotion receipt. The gate's default base
-still comes from the newest promotion receipt.
+and `timestamp`. Commit it like a promotion receipt. A rollback counts, for
+the gate's default base, promotion and `--expect-promoted`, only when its
+`productionProbe.ok` is `true` with `servedSha` equal to the target's `sha`;
+otherwise it is kept as a record of the attempt.

@@ -197,8 +197,10 @@ alone 34-38 and e2e 17-31 (receipts of five promotions). `--serial` runs one
 step at a time in the table's order, with integration in one shard, for a
 busy or small machine.
 
-The base is what production runs: the `sha` of the newest committed
-promotion receipt in `docs/release/receipts/`, read at `HEAD`. Before the
+The base is the release production serves according to the committed
+receipts in `docs/release/receipts/`, read at `HEAD` (`servingRelease` in
+`scripts/release/local-receipt.mjs`): the newest promotion, or the target of
+a later rollback whose production probe confirmed it. Before the
 first promotion there is none: pass `--base-ref <the SHA production runs>`
 (`release.sha` from the platform health check). Without either it falls back
 to `origin/main`, which suits a branch; on the `origin/main` commit itself the
@@ -451,8 +453,9 @@ The script refuses, before deploying anything, unless every gate holds
   produced in a fresh worktree on the `.nvmrc` Node major, with no
   `--skip`, and every step `passed` (`secret-scan` included; the
   integration and e2e steps must show tests ran), no uncommitted edits to the gate's own
-  code, and a base equal to the `sha` of the newest committed promotion
-  receipt (with no promotion receipt yet, any base whose merge base is not
+  code, and a base equal to the release production serves according to the
+  committed receipts (the newest promotion, or a later confirmed rollback's
+  target; with no promotion receipt yet, any base whose merge base is not
   the commit itself). The gate re-judges the steps
   (`scripts/release/local-receipt.mjs`), so a receipt edited to say `ok`
   over a failed step still refuses. Hosted check runs are not consulted.
@@ -485,10 +488,15 @@ unit-tested with the Vercel CLI and the probe mocked):
 4. **Verify production:** `readiness-probe.mjs --url <production origin>
    --expect-sha <sha> --json`, up to 5 attempts 15 s apart (each killed after
    30 s); it passes only when production answers with the promoted SHA. The
-   result is recorded in the receipt as `productionProbe`. If production
-   does not serve the SHA, the receipt is still written (production has
-   changed) and the script exits 3: commit the receipt, check `vercel promote
-   status`, and roll back with `pnpm release:rollback` (below).
+   result is recorded in the receipt as `productionProbe`. The receipt is
+   written as soon as `vercel promote` succeeds, with `productionProbe:
+   { status: "pending", ok: false, url, expectSha, startedAt }`, and
+   rewritten with the probe's result; a committed receipt still `pending`
+   means the script stopped before the probe finished (production promoted
+   but not verified: check it with `pnpm ops:readiness --url <production
+   origin> --expect-sha <sha>`). If production does not serve the SHA the
+   script exits 3: commit the receipt, check `vercel promote status`, and
+   roll back with `pnpm release:rollback` (below).
 
 After the promotion it writes `docs/release/receipts/<UTC time>-<sha12>.json`:
 
@@ -506,8 +514,8 @@ The script refuses to write a receipt in which any value would be changed by
 `lib/domain/redaction.ts`, or a configuration entry that is not a variable
 name. It validates a provisional receipt before deploying, so those refusals
 happen before production changes, and prints the deployment ID and URL as soon
-as the deploy returns. If the receipt write still fails after that, roll back
-or write the receipt by hand from the printed values. Commit the receipt and
+as the deploy returns. If the first receipt write fails, roll back or write
+the receipt by hand from the printed values. Commit the receipt and
 its `.local.json` copy; the next release's gate takes its base from it.
 
 Smoke check after the receipt: its `productionProbe.ok` is `true`, and
@@ -528,12 +536,17 @@ pnpm release:rollback --production-url https://<production origin> --yes    # ac
 ```
 
 The dry run prints what production serves according to the receipts, the
-deployment it would return to (the promotion before, or `--to <receipt |
-deploymentId>`) and the exact commands. `--yes` runs `vercel promote
+deployment it would return to (the release production served before the
+current one, skipping any it was rolled back from, or `--to <receipt |
+deploymentId>`, which can name any recorded promotion, including a roll
+forward) and the exact commands. The operator (`git config user.name`) and a
+provisional receipt are checked before `vercel promote`. `--yes` runs `vercel promote
 <deploymentId>`, probes production for the target's SHA (as phase 4 above)
 and writes `docs/release/receipts/<UTC time>-<sha12>.rollback.json`; commit
 it. Exit 3 means production does not serve the target: check `vercel promote
-status`.
+status`. A rollback whose probe did not confirm the target is recorded but
+does not count: the receipts still name the release it tried to leave, so
+rerun the rollback to retry.
 
 It refuses when the target ships different migrations from production:
 migrations are roll-forward-only and a deployment rollback cannot undo one.
@@ -543,9 +556,8 @@ records. Afterwards read the deployed cron list back against the target's
 `vercel.json` (ledger OPS-09). The script trusts the receipts for what
 production serves; compare its dry run with `vercel promote status`. It has
 not been drilled on a staging project yet (owner, OPS-09). After a
-`--database-restored` rollback, run the next `verify:release` with
-`--base-ref <the rollback target's sha>`: the gate's default base is still
-the newest promotion receipt.
+confirmed rollback, the gate's default base, promotion's required base and
+`--expect-promoted` are the rollback target.
 
 ### Ignored build step
 

@@ -41,8 +41,9 @@ Production is promoted only through `pnpm release:promote`
 does not deploy. In order:
 
 1. Run `pnpm verify:release` on the `origin/main` commit and keep the receipt
-   path it prints. Its base is the commit the newest committed promotion
-   receipt shipped; before the first promotion, pass
+   path it prints. Its base is the release production serves according to
+   the committed receipts (the newest promotion, or a later confirmed
+   rollback's target); before the first promotion, pass
    `--base-ref <the SHA production runs>` (`release.sha` from the platform
    health check). Do not touch the production database until it has passed:
    it is what proves the migrations apply from scratch and from production's
@@ -97,8 +98,8 @@ a restorable database snapshot and note the currently deployed Vercel
 deployment. If the migration or post-migration verification fails, restore the
 snapshot and promote that exact previous deployment as one rollback unit; do
 not run ad-hoc down migrations. The previous deployment is the `deploymentId`
-(and `sha`) of the newest committed receipt before this release's in
-`docs/release/receipts/`. `pnpm release:rollback --production-url
+(and `sha`) of the release production served before this one (the
+dry run of `pnpm release:rollback` prints it). `pnpm release:rollback --production-url
 https://<production origin>` prints that plan without acting; `--yes`
 promotes the previous deployment, probes production for its SHA and writes a
 rollback receipt. It refuses while the database still has this release's
