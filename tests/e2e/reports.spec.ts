@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page, test } from "@playwright/test"
 
+import { pageSettled, trackRequests } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
@@ -167,12 +168,15 @@ test.describe("reports", () => {
       const pageErrors: string[] = []
       page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()) })
       page.on("pageerror", (e) => pageErrors.push(e.message))
+      const requests = trackRequests(page)
       await page.emulateMedia({ colorScheme: theme })
       await page.goto("/reports")
       await expect(page.getByRole("tab", { name: "Reply performance" })).toBeVisible()
       await page.getByRole("tab", { name: "Google performance" }).click()
       await page.getByRole("tab", { name: "Keywords" }).click()
-      await page.waitForLoadState("networkidle")
+      await expect(page.getByRole("tab", { name: "Keywords", selected: true })).toBeVisible()
+      await pageSettled(page)
+      await requests.idle()
       expect(consoleErrors, `${theme} console`).toEqual([])
       expect(pageErrors, `${theme} pageerror`).toEqual([])
     })
@@ -181,7 +185,7 @@ test.describe("reports", () => {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto("/reports")
       await expect(page.getByRole("heading", { name: "Reports", level: 1 })).toBeVisible()
-      await page.waitForLoadState("networkidle")
+      await pageSettled(page)
       const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
       expect(wcag.violations, `${theme} wcag`).toEqual([])
       const best = await new AxeBuilder({ page }).withTags(["best-practice"]).analyze()

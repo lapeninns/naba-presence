@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 
+import { pageSettled } from "./helpers/settled"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 /** The health chip's words: agency wording, then business (lib/clients/health.ts). */
@@ -150,7 +151,7 @@ test.describe("rebuild foundation", () => {
       await page.emulateMedia({ colorScheme: theme })
       for (const path of ["/inbox", "/design-system"]) {
         await page.goto(path)
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
         const wcag = await new AxeBuilder({ page })
           .withTags(WCAG_TAGS)
           .analyze()
@@ -183,7 +184,7 @@ test.describe("foundation layout and theme (RC3)", () => {
     test(`/design-system never scrolls sideways at ${width}px (#21)`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 })
       await page.goto("/design-system")
-      await page.waitForLoadState("networkidle")
+      await pageSettled(page)
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,

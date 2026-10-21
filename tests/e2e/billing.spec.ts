@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page, type Route, test } from "@playwright/test"
 
+import { pageSettled } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 /**
@@ -222,7 +223,7 @@ test.describe("billing", () => {
         await expect(
           page.getByRole("heading", { name: heading, level: 1 })
         ).toBeVisible()
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
         const wcag = await new AxeBuilder({ page })
           .withTags(WCAG_TAGS)
           .analyze()

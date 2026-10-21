@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test"
 
+import { profileLoadedFromGoogle } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 async function signIn(page: Page, baseURL: string | undefined) {
@@ -46,7 +47,7 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 })
     await page.emulateMedia({ forcedColors: "active" })
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
-    await page.waitForLoadState("networkidle")
+    await profileLoadedFromGoogle(page)
     expect(
       await page.evaluate(() => matchMedia("(forced-colors: active)").matches)
     ).toBe(true)
@@ -195,7 +196,7 @@ test("Identity stays quiet after emulated touch, reveals for keyboard, and hides
     const page = await context.newPage()
     const state = await signIn(page, baseURL)
     await page.goto(`${baseURL}/listings/${state.primaryLocationId}/profile`)
-    await page.waitForLoadState("networkidle")
+    await profileLoadedFromGoogle(page)
     const nav = page.getByRole("navigation", { name: "Profile sections" })
     const heading = page.locator("#section-identity-heading")
     const quiet = async () => {

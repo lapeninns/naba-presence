@@ -1,5 +1,6 @@
 import { expect, type Page, type Request, test } from "@playwright/test"
 
+import { pageSettled, trackRequests } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // WP-08 / W5-01 (docs/audits/2026-10-14-full-stack-audit): the inbox keeps
@@ -21,13 +22,17 @@ async function openInbox(page: Page, baseURL: string | undefined) {
   const [name, value] = state.cookie.split("=", 2)
   await page.context().addCookies([{ name, value, url: baseURL! }])
   await page.setViewportSize({ width: 1440, height: 900 })
+  const requests = trackRequests(page)
   await page.goto("/inbox?queue=all")
   const rows = page.locator('[data-slot="review-row"]')
   await expect(rows.first()).toBeVisible()
   // The desktop auto-selects the first row on load.
   await expect(page).toHaveURL(/selected=/)
-  await page.waitForLoadState("networkidle")
-  return rows
+  await pageSettled(page)
+  await requests.idle()
+  // `requests.idle()` is also the point where a test asserts that something
+  // did not happen: every request so far has been answered.
+  return { rows, requests }
 }
 
 test.describe("inbox URL state", () => {
@@ -35,7 +40,7 @@ test.describe("inbox URL state", () => {
     baseURL,
     page,
   }) => {
-    const rows = await openInbox(page, baseURL)
+    const { rows, requests } = await openInbox(page, baseURL)
     const flights: string[] = []
     page.on("request", (request) => {
       if (isInboxFlight(request)) flights.push(request.url())
@@ -48,7 +53,7 @@ test.describe("inbox URL state", () => {
       await row.click()
       await expect(row).toHaveAttribute("aria-current", "true")
     }
-    await page.waitForLoadState("networkidle")
+    await requests.idle()
 
     expect(flights).toEqual([])
   })
@@ -57,7 +62,7 @@ test.describe("inbox URL state", () => {
     baseURL,
     page,
   }) => {
-    const rows = await openInbox(page, baseURL)
+    const { rows } = await openInbox(page, baseURL)
     const before = await page.evaluate(() => window.history.length)
     const count = Math.min(await rows.count(), 5)
     for (let index = count - 1; index >= 0; index -= 1) {
@@ -74,7 +79,7 @@ test.describe("inbox URL state", () => {
   }) => {
     // R07: the chips above the list write `rating` and `written` through the
     // same history-API path as every other filter (replace, not push).
-    await openInbox(page, baseURL)
+    const { requests } = await openInbox(page, baseURL)
     const flights: string[] = []
     page.on("request", (request) => {
       if (isInboxFlight(request)) flights.push(request.url())
@@ -89,13 +94,13 @@ test.describe("inbox URL state", () => {
         return [params.get("rating"), params.get("written")]
       })
       .toEqual(["5", "with_text"])
-    await page.waitForLoadState("networkidle")
+    await requests.idle()
     expect(await page.evaluate(() => window.history.length)).toBe(before)
     expect(flights).toEqual([])
   })
 
   test("the loaded rows survive a selection", async ({ baseURL, page }) => {
-    const rows = await openInbox(page, baseURL)
+    const { rows, requests } = await openInbox(page, baseURL)
     // Past the first page where the tenant has one (50 rows a page): that
     // is the case a re-hydrated first page used to cut back to 50.
     const more = page.getByRole("button", { name: "Load more" })
@@ -107,7 +112,7 @@ test.describe("inbox URL state", () => {
     const loaded = await rows.count()
     await rows.nth(loaded - 1).click()
     await expect(rows.nth(loaded - 1)).toHaveAttribute("aria-current", "true")
-    await page.waitForLoadState("networkidle")
+    await requests.idle()
     expect(await rows.count()).toBe(loaded)
   })
 

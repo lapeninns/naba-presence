@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page, test } from "@playwright/test"
 
+import { pageSettled, trackRequests } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
@@ -457,6 +458,7 @@ test.describe("inbox", () => {
         if (message.type() === "error") consoleErrors.push(message.text())
       })
       page.on("pageerror", (error) => pageErrors.push(error.message))
+      const requests = trackRequests(page)
       await page.emulateMedia({ colorScheme: theme })
       await page.goto("/inbox")
       // Anchored on the search box, not the location combobox: the latter is
@@ -465,7 +467,8 @@ test.describe("inbox", () => {
       await expect(
         page.getByRole("searchbox", { name: "Search reviews" })
       ).toBeVisible()
-      await page.waitForLoadState("networkidle")
+      await pageSettled(page)
+      await requests.idle()
       expect(consoleErrors, `${theme} console`).toEqual([])
       expect(pageErrors, `${theme} pageerror`).toEqual([])
     })
@@ -479,7 +482,7 @@ test.describe("inbox", () => {
       await expect(
         page.getByRole("searchbox", { name: "Search reviews" })
       ).toBeVisible()
-      await page.waitForLoadState("networkidle")
+      await pageSettled(page)
       const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
       expect(wcag.violations, `${theme} wcag`).toEqual([])
       const best = await new AxeBuilder({ page })

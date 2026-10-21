@@ -2,6 +2,12 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page, test } from "@playwright/test"
 import { mediaQuery } from "@/lib/ui/breakpoints"
 
+import {
+  GOOGLE_READS_TIMEOUT,
+  pageSettled,
+  profileLoadedFromGoogle,
+  trackRequests,
+} from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
@@ -181,6 +187,7 @@ test.describe("listings", () => {
           if (message.type() === "error") consoleErrors.push(message.text())
         })
         page.on("pageerror", (error) => pageErrors.push(error.message))
+        const requests = trackRequests(page)
         await page.emulateMedia({ colorScheme: theme })
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
@@ -199,7 +206,9 @@ test.describe("listings", () => {
             .getByRole("navigation", { name: "Primary" })
             .getByRole("link", { name: "Listings", exact: true })
         ).toHaveAttribute("aria-current", "page")
-        await page.waitForLoadState("networkidle")
+        // Google's paced reads can keep a page loading past the heading.
+        await pageSettled(page)
+        await requests.idle()
         const label = tab.label
         expect(consoleErrors, `${theme} ${label} console`).toEqual([])
         expect(pageErrors, `${theme} ${label} pageerror`).toEqual([])
@@ -290,8 +299,8 @@ test.describe("listings", () => {
     baseURL,
     browser,
   }) => {
-    // Five roles, each waiting for the profile editor's paced Google reads
-    // before networkidle, so the default budget is too tight.
+    // Five roles, each waiting for the profile editor's paced Google reads,
+    // so the default budget is too tight.
     test.setTimeout(120_000)
     const state = await readJourneyState()
     const cases: Array<[string, boolean]> = [
@@ -325,11 +334,15 @@ test.describe("listings", () => {
 
       // The business profile is read-open for every role; only editing is
       // gated, never the whole area.
+      const requests = trackRequests(page)
       await page.goto(`/listings/${state.primaryLocationId}/profile`)
-      await page.waitForLoadState("networkidle")
       await expect(
         page.getByRole("heading", { name: "Identity" })
-      ).toBeVisible()
+      ).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
+      // Every read the profile makes is answered before the negative
+      // assertion below, which is about a request that must never fire.
+      await pageSettled(page)
+      await requests.idle()
       const name = page.getByRole("textbox", { name: "Business name" })
       if (canManage) {
         await expect(name).toBeEnabled()
@@ -425,7 +438,8 @@ test.describe("listings", () => {
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
     const name = page.getByRole("textbox", { name: "Business name" })
     await expect(name).toBeVisible()
-    await page.waitForLoadState("networkidle")
+    // Google's half of the profile arrives after the NabaPresence copy.
+    await profileLoadedFromGoogle(page)
     await name.fill("Riverside Rooms & Suites")
     // Save the change in NabaPresence only, so Review & publish has it waiting.
     // "Save here" is a secondary of the editor's bar: inline from `md`, and on
@@ -572,10 +586,9 @@ test.describe("listings", () => {
     // and makes the plain label lookup ambiguous (strict-mode violation).
     // getByRole pins the accessible role too, so it resolves to the single
     // textbox unambiguously.
-    await page.waitForLoadState("networkidle")
-    await page
-      .getByRole("textbox", { name: "Link", exact: true })
-      .fill("https://book.e2e/reserve")
+    const link = page.getByRole("textbox", { name: "Link", exact: true })
+    await expect(link).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
+    await link.fill("https://book.e2e/reserve")
     // A link change is reviewed, approved, then sent as a separate step.
     await page
       .getByRole("button", { name: "Review booking link", exact: true })
@@ -624,9 +637,8 @@ test.describe("listings", () => {
     // Google's half of the listing fans out across several of its APIs, paced
     // by the per-connection rate limiter, so the fields it owns arrive after
     // the NabaPresence copy the editor opens on.
-    await page.waitForLoadState("networkidle")
     const storeCode = page.getByRole("textbox", { name: "Store code" })
-    await expect(storeCode).toBeVisible()
+    await expect(storeCode).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
     await storeCode.fill("RIVERSIDE-2")
     await page.getByRole("button", { name: "Review changes" }).click()
     // Hash-pinned: the PATCH carries `expectedGoogleHash` from the page's own
@@ -657,11 +669,11 @@ test.describe("listings", () => {
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
     // See the note in the listing publish journey: the industry sections load
     // after the editor's first paint.
-    await page.waitForLoadState("networkidle")
     const lodging = page.getByRole("region", {
       name: "Lodging details",
       exact: true,
     })
+    await expect(lodging).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
     await lodging
       .getByRole("searchbox", { name: "Find a lodging detail" })
       .fill("Checkin time")
@@ -707,10 +719,8 @@ test.describe("listings", () => {
     // Administration fans out 7 Google calls, each paced ~500ms apart on the
     // shared connection (lib/server/google.ts's per-connection rate limiter)
     // — a real, deliberate characteristic of the protected server code, not
-    // a bug — so wait for the network to settle before asserting content
-    // rather than racing the default 5s expect timeout (same pattern as the
-    // clean-load loop above).
-    await page.waitForLoadState("networkidle")
+    // a bug — so the assertion that proves the answer arrived waits for it
+    // (GOOGLE_READS_TIMEOUT) rather than racing the default 5s expect timeout.
     // The area page's h1 is "Verification"; the console's first section
     // heading is the one that proves Google's answer loaded.
     await expect(
@@ -718,7 +728,7 @@ test.describe("listings", () => {
         name: "How Google sees this listing",
         level: 2,
       })
-    ).toBeVisible()
+    ).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
     // The stub listing is verified with nothing pending, so the answer leads
     // and the tools sit behind one disclosure.
     await expect(
@@ -759,13 +769,12 @@ test.describe("listings", () => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto(`/listings/${state.primaryLocationId}/people`)
-    // See the same note in the publish journey above: Administration's 7-way
-    // Google fan-out is genuinely slower than the default 5s expect timeout
-    // budgets for.
-    await page.waitForLoadState("networkidle")
+    // See the same note in the verification journey above: Administration's
+    // 7-way Google fan-out is genuinely slower than the default 5s expect
+    // timeout budgets for.
     await expect(
       page.getByRole("heading", { name: "Danger zone" })
-    ).toBeVisible()
+    ).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
 
     await page.getByRole("button", { name: "Delete this location" }).click()
     await page
@@ -805,11 +814,10 @@ test.describe("listings", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
-    await page.waitForLoadState("networkidle")
     // The industry sections load after the editor's first paint.
     await expect(
       page.getByRole("heading", { name: "Lodging", exact: true })
-    ).toBeAttached()
+    ).toBeAttached({ timeout: GOOGLE_READS_TIMEOUT })
     // A rendered box, not toBeVisible: an sr-only heading is a 1 px clipped
     // box and passes that.
     const headings = await page
@@ -861,7 +869,7 @@ test.describe("profile section nav focus at 390", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
-    await page.waitForLoadState("networkidle")
+    await profileLoadedFromGoogle(page)
     const nav = page.getByRole("navigation", { name: "Profile sections" })
     const identityTab = nav.getByRole("link", { name: "Identity" })
     const heading = page.locator("#section-identity-heading")
@@ -994,6 +1002,7 @@ for (const skew of [60_000, 360_000]) {
         hoursReads.push(request.method())
     })
     const problems: string[] = []
+    const requests = trackRequests(page)
     page.on("pageerror", (error) => problems.push(error.message))
     page.on("console", (message) => {
       if (message.type() === "error" && /#418|hydrat/i.test(message.text()))
@@ -1008,7 +1017,8 @@ for (const skew of [60_000, 360_000]) {
     await expect(page.getByRole("heading", { name: "Opening hours", level: 1 })).toBeVisible()
     // The editor itself, from the streamed read: not the tab's pending line.
     await expect(page.getByRole("switch", { name: "Monday open" })).toBeVisible()
-    await page.waitForLoadState("networkidle")
+    // Every request answered: only then is "no hours read" a finding.
+    await requests.idle()
     expect(hoursReads).toEqual([])
     expect(problems).toEqual([])
   })
