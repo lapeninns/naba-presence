@@ -283,7 +283,7 @@ describe("verify:release steps", () => {
     )
     const source = readRepoText("scripts/release/verify-local.mjs")
     expect(source).toMatch(
-      /"pg_dump", "--schema-only"[^)]*\{ dbEnv, stdoutOnly: true \}/s
+      /"pg_dump", "--schema-only"[\s\S]*?\{ dbEnv, stdoutOnly: true \}/
     )
   })
 
