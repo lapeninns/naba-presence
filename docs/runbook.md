@@ -52,7 +52,7 @@ does not deploy. In order:
 3. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
    `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`.
 4. From a fresh worktree of `origin/main`:
-   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --dry-run`,
+   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --production-url https://<production origin> --dry-run`,
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
    with `--skip`, from a base other than the last promoted commit, or with
@@ -63,9 +63,12 @@ does not deploy. In order:
    `--skip-domain`, runs the readiness probe against the new deployment's
    URL, and only when that passes runs `vercel promote`. A failed probe
    exits 1 with production still on the previous deployment: nothing to roll
-   back. After promoting it writes a receipt under `docs/release/receipts/`,
-   with the local receipt's bytes copied beside it as `<receipt>.local.json`.
-5. Smoke: `pnpm ops:readiness --url <production> --expect-promoted`, and
+   back. After promoting it probes the production origin until it serves the
+   SHA (up to 5 attempts) and writes a receipt under `docs/release/receipts/`
+   recording that probe, with the local receipt's bytes copied beside it as
+   `<receipt>.local.json`. Exit 3 means production does not serve the SHA:
+   commit the receipt and roll back with `pnpm release:rollback` (below).
+5. Smoke: the receipt's `productionProbe.ok` is `true`, and
    `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
@@ -95,7 +98,12 @@ deployment. If the migration or post-migration verification fails, restore the
 snapshot and promote that exact previous deployment as one rollback unit; do
 not run ad-hoc down migrations. The previous deployment is the `deploymentId`
 (and `sha`) of the newest committed receipt before this release's in
-`docs/release/receipts/`. After a rollback, read the deployed cron list back
+`docs/release/receipts/`. `pnpm release:rollback --production-url
+https://<production origin>` prints that plan without acting; `--yes`
+promotes the previous deployment, probes production for its SHA and writes a
+rollback receipt. It refuses while the database still has this release's
+migrations: restore the snapshot first, then pass `--database-restored`
+(`docs/ci.md` §7). After a rollback, read the deployed cron list back
 against that commit's `vercel.json`: Instant Rollback is not known to restore
 cron configuration (ledger OPS-09).
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request

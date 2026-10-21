@@ -435,8 +435,8 @@ passed, never before. Then, from a fresh worktree of `origin/main`
 linked (`vercel link`) and the production admin URL in the environment:
 
 ```bash
-DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --dry-run
-DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt>
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --production-url https://<production origin> --dry-run
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --production-url https://<production origin>
 ```
 
 The script refuses, before deploying anything, unless every gate holds
@@ -460,8 +460,10 @@ The script refuses, before deploying anything, unless every gate holds
   stand in for production.
 
 It also refuses unless `READINESS_PROBE_TOKEN` (production's `CRON_SECRET`)
-is set for the probe below. It then promotes in three phases
-(`stagedPromotion`, unit-tested with the Vercel CLI and the probe mocked):
+is set for the probes below, and a production origin is given with
+`--production-url https://<production origin>` (or `READINESS_URL`). It then
+promotes in four phases (`stagedPromotion` and `verifyProduction`,
+unit-tested with the Vercel CLI and the probe mocked):
 
 1. **Stage:** `vercel deploy --prod --skip-domain --yes --format json
    --build-env NABA_RELEASE_SHA=<sha> --env NABA_RELEASE_SHA=<sha>
@@ -478,6 +480,13 @@ is set for the probe below. It then promotes in three phases
    --yes`. If every probe attempt failed the script exits 1, writes no
    receipt and production still serves the previous deployment: there is
    nothing to roll back. Inspect the staged deployment's logs from its URL.
+4. **Verify production:** `readiness-probe.mjs --url <production origin>
+   --expect-sha <sha> --json`, up to 5 attempts 15 s apart (each killed after
+   30 s); it passes only when production answers with the promoted SHA. The
+   result is recorded in the receipt as `productionProbe`. If production
+   does not serve the SHA, the receipt is still written (production has
+   changed) and the script exits 3: commit the receipt, check `vercel promote
+   status`, and roll back with `pnpm release:rollback` (below).
 
 After the promotion it writes `docs/release/receipts/<UTC time>-<sha12>.json`:
 
@@ -499,11 +508,42 @@ as the deploy returns. If the receipt write still fails after that, roll back
 or write the receipt by hand from the printed values. Commit the receipt and
 its `.local.json` copy; the next release's gate takes its base from it.
 
-Smoke check after the receipt: `pnpm ops:readiness --url <production>
---expect-promoted`, and `GET /api/operations/health?scope=platform` with the cron
-bearer returns `release.sha` (equal to the receipt's `sha`, with `source`
+Smoke check after the receipt: its `productionProbe.ok` is `true`, and
+`GET /api/operations/health?scope=platform` with the cron bearer returns
+`release.sha` (equal to the receipt's `sha`, with `source`
 `naba_release_sha`) and `schema.compatible: true`. Only the platform scope
 reports these; the session scope does not.
+
+### Rollback (`pnpm release:rollback`)
+
+From a checkout holding every promotion receipt (fetch `origin/main`; include
+an uncommitted receipt if the release just failed), with the project linked
+and `READINESS_PROBE_TOKEN` set:
+
+```bash
+pnpm release:rollback --production-url https://<production origin>          # dry run: prints the plan, runs nothing
+pnpm release:rollback --production-url https://<production origin> --yes    # acts
+```
+
+The dry run prints what production serves according to the receipts, the
+deployment it would return to (the promotion before, or `--to <receipt |
+deploymentId>`) and the exact commands. `--yes` runs `vercel promote
+<deploymentId>`, probes production for the target's SHA (as phase 4 above)
+and writes `docs/release/receipts/<UTC time>-<sha12>.rollback.json`; commit
+it. Exit 3 means production does not serve the target: check `vercel promote
+status`.
+
+It refuses when the target ships different migrations from production:
+migrations are roll-forward-only and a deployment rollback cannot undo one.
+Restore the snapshot taken before the migration (`docs/runbook.md`), confirm
+`db:status`, then rerun with `--database-restored`, which the receipt
+records. Afterwards read the deployed cron list back against the target's
+`vercel.json` (ledger OPS-09). The script trusts the receipts for what
+production serves; compare its dry run with `vercel promote status`. It has
+not been drilled on a staging project yet (owner, OPS-09). After a
+`--database-restored` rollback, run the next `verify:release` with
+`--base-ref <the rollback target's sha>`: the gate's default base is still
+the newest promotion receipt.
 
 ### Ignored build step
 

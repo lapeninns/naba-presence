@@ -17,6 +17,7 @@
     "db:runtime-role": "node scripts/db-create-runtime-role.mjs",
     "db:status": "node scripts/db-status.mjs",
     "release:promote": "node scripts/release/promote.mjs",
+    "release:rollback": "node scripts/release/rollback.mjs",
     "verify:release": "node scripts/release/verify-local.mjs",
     "ops:revoke-support-sessions": "node scripts/revoke-support-sessions.mjs",
     "ops:mfa-recover": "node scripts/mfa-recover.mjs",
