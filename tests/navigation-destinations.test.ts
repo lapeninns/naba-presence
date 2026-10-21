@@ -18,7 +18,6 @@ import {
   TAB_COUNT,
   visibleDestinations,
   type Destination,
-  type NavigationContext,
 } from "@/lib/navigation/destinations"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
@@ -30,38 +29,112 @@ const ids = (destinations: Destination[]) => destinations.map((d) => d.id)
 
 const ROLES = ["owner", "admin", "member", "viewer", null] as const
 const MODES: WorkspaceMode[] = ["agency", "business"]
-const managers = new Set<string | null>(["owner", "admin"])
 
-function expectedVisible({
-  role,
-  mode,
-  hideCalendar = false,
-}: NavigationContext): string[] {
-  return [
-    "inbox",
-    "listings",
-    ...(mode === "agency" ? ["clients"] : []),
-    ...(hideCalendar ? [] : ["calendar"]),
-    "reports",
-    "notifications",
-    ...(managers.has(role) ? ["team"] : []),
-    "settings",
-  ]
-}
+type Role = (typeof ROLES)[number]
+
+/** What each session sees, written out rather than re-derived. */
+const VISIBLE: [WorkspaceMode, readonly Role[], boolean, string[]][] = [
+  [
+    "agency",
+    ["owner", "admin"],
+    false,
+    [
+      "inbox",
+      "listings",
+      "clients",
+      "calendar",
+      "reports",
+      "notifications",
+      "team",
+      "settings",
+    ],
+  ],
+  [
+    "agency",
+    ["owner", "admin"],
+    true,
+    [
+      "inbox",
+      "listings",
+      "clients",
+      "reports",
+      "notifications",
+      "team",
+      "settings",
+    ],
+  ],
+  [
+    "agency",
+    ["member", "viewer", null],
+    false,
+    [
+      "inbox",
+      "listings",
+      "clients",
+      "calendar",
+      "reports",
+      "notifications",
+      "settings",
+    ],
+  ],
+  [
+    "agency",
+    ["member", "viewer", null],
+    true,
+    ["inbox", "listings", "clients", "reports", "notifications", "settings"],
+  ],
+  [
+    "business",
+    ["owner", "admin"],
+    false,
+    [
+      "inbox",
+      "listings",
+      "calendar",
+      "reports",
+      "notifications",
+      "team",
+      "settings",
+    ],
+  ],
+  [
+    "business",
+    ["owner", "admin"],
+    true,
+    ["inbox", "listings", "reports", "notifications", "team", "settings"],
+  ],
+  [
+    "business",
+    ["member", "viewer", null],
+    false,
+    ["inbox", "listings", "calendar", "reports", "notifications", "settings"],
+  ],
+  [
+    "business",
+    ["member", "viewer", null],
+    true,
+    ["inbox", "listings", "reports", "notifications", "settings"],
+  ],
+]
 
 describe("visibleDestinations", () => {
-  for (const mode of MODES) {
-    for (const role of ROLES) {
-      for (const hideCalendar of [false, true]) {
-        const context = { role, mode, hideCalendar }
-        it(`gates ${mode} / ${role ?? "unknown role"}${hideCalendar ? " / scheduling off" : ""}`, () => {
-          expect(ids(visibleDestinations(context))).toEqual(
-            expectedVisible(context)
-          )
-        })
-      }
+  for (const [mode, roles, hideCalendar, expected] of VISIBLE) {
+    for (const role of roles) {
+      it(`gates ${mode} / ${role ?? "unknown role"}${hideCalendar ? " / scheduling off" : ""}`, () => {
+        expect(ids(visibleDestinations({ role, mode, hideCalendar }))).toEqual(
+          expected
+        )
+      })
     }
   }
+
+  it("lists every mode, role and scheduling setting exactly once", () => {
+    const covered = VISIBLE.flatMap(([mode, roles, hideCalendar]) =>
+      roles.map((role) => `${mode}/${role}/${hideCalendar}`)
+    )
+    expect(new Set(covered).size).toBe(covered.length)
+    expect(covered).toHaveLength(MODES.length * ROLES.length * 2)
+  })
 
   it("hides Team while the role is unknown, so it never appears then vanishes", () => {
     expect(

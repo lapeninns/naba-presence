@@ -155,5 +155,29 @@ describe("loadAnalyticsOverview series buckets", () => {
       }
     )
     expect(seriesTotal(overview.series)).toBe(overview.summary.reviewVolume)
+    const series = (
+      overview.series as unknown as Array<{
+        period: Date | string
+        reviewCount: number
+      }>
+    ).map((point) => ({
+      period: new Date(point.period).toISOString(),
+      reviewCount: point.reviewCount,
+    }))
+    // Weeks start on Monday at local midnight in Auckland: 12:00Z before the
+    // 27 Sep 2026 clock change, 11:00Z after it.
+    expect(series).toHaveLength(14)
+    expect(series[0]!.period).toBe("2026-07-12T12:00:00.000Z")
+    expect(series.at(-1)!.period).toBe("2026-10-11T11:00:00.000Z")
+    expect(
+      series
+        .filter((point) => point.reviewCount > 0)
+        .map((point) => [point.period, point.reviewCount])
+    ).toEqual([
+      // Sunday 20 Sep 15:00 NZST counts in the week of Monday 14 Sep.
+      ["2026-09-13T12:00:00.000Z", 1],
+      // Monday 5 Oct 16:00 NZDT opens its own week.
+      ["2026-10-04T11:00:00.000Z", 1],
+    ])
   })
 })

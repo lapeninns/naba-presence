@@ -5,37 +5,16 @@ import { ApiError } from "@/lib/server/http"
 import {
   classifyProviderFailure,
   decideRecovery,
-  executePublish,
-  executeReplyDelete,
   googleReplyFromReview,
   googleReplyMatches,
   parseGoogleReply,
   parseGoogleReview,
-  recoverAttempt,
-  retryPublishAttempt,
-  writePublishAttemptEvent,
 } from "@/lib/server/publishing"
 
 // The reply pipeline's pure phases (docs/architecture.md, "Three-phase reply
 // mutation and recovery"): provider-failure classification, the recovery
 // decision, and the Google reply readers. The database-backed phases are
 // covered by tests/integration/routes/publish-lifecycle.test.ts.
-
-describe("publishing barrel", () => {
-  it("keeps the public pipeline entry points", () => {
-    for (const fn of [
-      executePublish,
-      executeReplyDelete,
-      retryPublishAttempt,
-      recoverAttempt,
-      writePublishAttemptEvent,
-      googleReplyFromReview,
-      googleReplyMatches,
-    ]) {
-      expect(typeof fn).toBe("function")
-    }
-  })
-})
 
 describe("classifyProviderFailure", () => {
   it("keeps an ambiguous provider write distinct from rejection", () => {

@@ -29,16 +29,11 @@ describe("design token contrast", () => {
       result,
     ] as const)
   )("%s clears its target", (_label, result) => {
-    expect({
-      ratio: result.ratio,
-      target: result.minimum,
-      note: result.pair.note,
-    }).toEqual({
-      ratio: expect.any(Number),
-      target: result.minimum,
-      note: result.pair.note,
-    })
-    expect(result.ratio).toBeGreaterThanOrEqual(result.minimum)
+    expect(Number.isFinite(result.ratio)).toBe(true)
+    expect(
+      result.ratio,
+      `target ${result.minimum}${result.pair.note ? `: ${result.pair.note}` : ""}`
+    ).toBeGreaterThanOrEqual(result.minimum)
   })
 
   it("specifies every measured colour inside sRGB", () => {

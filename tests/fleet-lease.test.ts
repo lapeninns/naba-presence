@@ -1,4 +1,9 @@
+import { readdirSync } from "node:fs"
+import { join } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { calls, readCode, repoRoot, routeFiles } from "./helpers/route-scanner"
 
 /**
  * withFleetLease (0145, audit W8-05): an expiring row, renewed while the
@@ -53,7 +58,41 @@ describe("withFleetLease", () => {
   })
 
   it("expires above every leased route's maxDuration", () => {
-    expect(FLEET_LEASE_SECONDS).toBeGreaterThan(60)
+    // Routes that take a fleet lease: they call withFleetLease, or import a
+    // lib module that does. Raising one's maxDuration past the expiry would
+    // let a healthy tick lose its lease mid-run.
+    const libFiles = (dir: string): string[] =>
+      readdirSync(join(repoRoot, dir), { withFileTypes: true }).flatMap(
+        (entry) =>
+          entry.isDirectory()
+            ? libFiles(`${dir}/${entry.name}`)
+            : entry.name.endsWith(".ts")
+              ? [`${dir}/${entry.name}`]
+              : []
+      )
+    const leasingModules = libFiles("lib")
+      .filter((file) => file !== "lib/server/leases.ts")
+      .filter((file) => calls(readCode(file), "withFleetLease"))
+      .map((file) => `"@/${file.replace(/\.ts$/, "")}"`)
+    const budgets = routeFiles()
+      .map((file) => ({ file, code: readCode(file) }))
+      .filter(
+        ({ code }) =>
+          calls(code, "withFleetLease") ||
+          leasingModules.some((module) => code.includes(module))
+      )
+      .map(({ file, code }) => {
+        const seconds = /^export const maxDuration = (\d+)$/m.exec(code)?.[1]
+        expect(
+          seconds,
+          `${file} takes a lease without a maxDuration`
+        ).toBeDefined()
+        return { file, seconds: Number(seconds) }
+      })
+    expect(budgets.length).toBeGreaterThanOrEqual(9)
+    for (const { file, seconds } of budgets) {
+      expect(FLEET_LEASE_SECONDS, file).toBeGreaterThan(seconds)
+    }
   })
 
   it("skips without running when another holder's lease is live", async () => {
