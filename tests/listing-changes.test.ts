@@ -41,9 +41,9 @@ function locationHandler(method: string, file: string): RouteHandler {
 
 /** The kinds a handler submits: `submitListingChange("kind"` in its own code. */
 function submittedKinds(handler: RouteHandler): string[] {
-  return [
-    ...handler.config.matchAll(/\bsubmitListingChange\(\s*"(\w+)"/g),
-  ].map((match) => match[1]!)
+  return [...handler.config.matchAll(/\bsubmitListingChange\(\s*"(\w+)"/g)].map(
+    (match) => match[1]!
+  )
 }
 
 /**
@@ -164,7 +164,10 @@ describe("deciding a listing change", () => {
     expect(details).toEqual([
       { label: "Media format", value: "PHOTO" },
       { label: "Category", value: "INTERIOR" },
-      { label: "Source web address", value: "https://phish.example.com/bar.jpg" },
+      {
+        label: "Source web address",
+        value: "https://phish.example.com/bar.jpg",
+      },
       { label: "Description", value: "The snug" },
     ])
 

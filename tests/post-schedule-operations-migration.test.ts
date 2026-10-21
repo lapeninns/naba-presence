@@ -472,7 +472,11 @@ describe("0121 scheduled post operations migration", () => {
         updatedDaysAgo: 400,
       })
       await asTenant(ORG)
-      const run = async (dataset: string, limit: number | null, dryRun: boolean) =>
+      const run = async (
+        dataset: string,
+        limit: number | null,
+        dryRun: boolean
+      ) =>
         (
           await db.query<{ count: number }>(
             "select purge_post_schedule_dataset($1, 180, $2, $3) as count",

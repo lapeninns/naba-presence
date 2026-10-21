@@ -263,9 +263,7 @@ describe("claim_due_jobs contract (0048 -> 0092)", () => {
 
     it("filters by kind", async () => {
       // Every kind is due; each call takes only the kinds it names.
-      expect((await claim(["retry"])).map((row) => row.kind)).toEqual([
-        "retry",
-      ])
+      expect((await claim(["retry"])).map((row) => row.kind)).toEqual(["retry"])
       expect(
         (await claim(["mutation_recover"])).map((row) => row.kind)
       ).toEqual(["mutation_recover"])
@@ -372,7 +370,11 @@ describe("claim_due_jobs contract (0092 -> 0144)", () => {
 
     const claim = async (limit: number, perOrg: number) =>
       (
-        await db.query<{ kind: string; job_id: string; organisation_id: string }>(
+        await db.query<{
+          kind: string
+          job_id: string
+          organisation_id: string
+        }>(
           `select kind, job_id::text, organisation_id::text
              from claim_due_jobs($1, 60, $2)`,
           [limit, perOrg]
@@ -485,7 +487,9 @@ describe("claim_due_jobs contract (0092 -> 0144)", () => {
           [id(10)]
         )
         // Nothing spent: the retry budget counts failures, not claims.
-        expect(webhook).toEqual([{ status: "failed", retry_count: 2, lease: null }])
+        expect(webhook).toEqual([
+          { status: "failed", retry_count: 2, lease: null },
+        ])
         const { rows: checkpoints } = await db.query<{ status: string }>(
           `select status from sync_checkpoint where id = any($1::uuid[]) order by id`,
           [[id(11), id(12), id(13)]]

@@ -174,9 +174,13 @@ describe("retention batches", () => {
     expect(migration).toMatch(
       /add column resumes integer not null default 0 check \(resumes >= 0\)/
     )
-    expect(migration).toMatch(/on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null/)
+    expect(migration).toMatch(
+      /on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null/
+    )
     expect(migration).toContain("on review_media_item (review_id)")
-    expect(migration).toContain("on hours_sync_attempt (organisation_id, expires_at)")
+    expect(migration).toContain(
+      "on hours_sync_attempt (organisation_id, expires_at)"
+    )
     expect(migration).not.toMatch(/create index concurrently/i)
     expect(migration).toContain("'0099_retention_batches'")
   })
@@ -193,7 +197,10 @@ describe("retention batches", () => {
 
 describe("0100 AI usage retention migration", () => {
   const migration = readFileSync(
-    new URL("../supabase/migrations/0100_ai_usage_retention.sql", import.meta.url),
+    new URL(
+      "../supabase/migrations/0100_ai_usage_retention.sql",
+      import.meta.url
+    ),
     "utf8"
   )
 
@@ -210,14 +217,17 @@ describe("0100 AI usage retention migration", () => {
     const create = migration.search(
       /create index if not exists review_unredacted_expiry_v2_idx\s+on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null\s+or reviewer_display_name is not null\s+or reviewer_profile_photo_url is not null\s+or raw_payload is not null;/
     )
-    const drop = migration.indexOf("drop index if exists review_unredacted_expiry_idx;")
+    const drop = migration.indexOf(
+      "drop index if exists review_unredacted_expiry_idx;"
+    )
     const version = migration.indexOf("insert into schema_migration")
     expect(create).toBeGreaterThan(-1)
     // DROP INDEX holds ACCESS EXCLUSIVE (blocking reads) until commit, so it
     // must come after the build and be the last statement before the version row.
     expect(drop).toBeGreaterThan(create)
     expect(version).toBeGreaterThan(drop)
-    expect(migration.slice(drop, version)).not.toMatch(/^\s*(create|alter|update|insert|delete|grant)\b/im)
+    expect(migration.slice(drop, version)).not.toMatch(
+      /^\s*(create|alter|update|insert|delete|grant)\b/im
+    )
   })
 })
-

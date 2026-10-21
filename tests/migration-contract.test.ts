@@ -388,7 +388,9 @@ describe("db:migrate transaction handling", () => {
         /^create\s+(unique\s+)?index\b/i.test(statement)
       )
       expect(creates, file).toHaveLength(1)
-      expect(creates[0], file).toMatch(/^create\s+(unique\s+)?index\s+concurrently\b/i)
+      expect(creates[0], file).toMatch(
+        /^create\s+(unique\s+)?index\s+concurrently\b/i
+      )
     }
   })
 

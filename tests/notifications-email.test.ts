@@ -385,12 +385,10 @@ describe("runDeliveries", () => {
       mayHaveSent: true,
     }
     const unsent: Row = { ...stale, id: "never-tried", mayHaveSent: false }
-    const send = vi.fn(
-      async (): Promise<SendResult> => ({
-        status: "sent",
-        providerMessageId: "m",
-      })
-    )
+    const send = vi.fn(async (): Promise<SendResult> => ({
+      status: "sent",
+      providerMessageId: "m",
+    }))
     const settled: Record<string, Settlement> = {}
     const outcome = await runDeliveries<Row>({
       name: "test",
