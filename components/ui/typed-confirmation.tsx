@@ -26,9 +26,9 @@ export type ConfirmationMatcher = (value: string, expected: string) => boolean
  *   name itself is the evidence (a lifecycle request sent to Google).
  * - `trimmed-insensitive`: both sides trimmed and lowercased
  *   (`toLowerCase`), inner spaces kept as typed, so "camden  hotel" (two
- *   spaces) does NOT match "Camden Hotel". The rule a guard such as
- *   DangerZoneDialog already enforces; pick it so the "Matches" line and
- *   that guard agree.
+ *   spaces) does NOT match "Camden Hotel". The rule of a hand-rolled guard
+ *   that trims and lowercases; pick it so the "Matches" line and that guard
+ *   agree.
  * - `matcher` (when given) replaces `match` entirely.
  *
  * An empty or blank `expected` never matches, not even an empty value, in
@@ -89,11 +89,6 @@ export function typedConfirmationHints(expected: string) {
  * caller's confirm button stays disabled until `onMatchChange(true)`.
  *
  * Consumers to migrate:
- * - `components/locations/danger-zone-dialog.tsx` — trims and lowercases
- *   without collapsing inner spaces; pass `match="trimmed-insensitive"` and
- *   gate the button with `confirmationMatches(typed, expectedName,
- *   "trimmed-insensitive")` (or `onMatchChange`), so the line and the
- *   button use one rule and the guard is exactly as strict as before.
  * - `components/locations/administration/lifecycle-review.tsx` — compares
  *   `typedName !== locationName` raw; use `match="exact"`. Note "exact" trims,
  *   so a stray trailing space from autofill no longer blocks sending.
