@@ -164,19 +164,66 @@ describe("settings billing routes with billing on", () => {
     expect(stubs.redirect).toHaveBeenCalledWith("/settings/billing/confirming")
   })
 
-  it("billing and confirming still say access denied to anyone but the owner", async () => {
-    stubs.getSession.mockResolvedValue({ role: "admin", organisationId: "o1" })
-    render(await SettingsBillingPage({ searchParams: searchParams() }))
-    expect(screen.queryByLabelText("Billing card")).not.toBeInTheDocument()
+  it.each([
+    ["billing", () => SettingsBillingPage({ searchParams: searchParams() })],
+    ["billing/confirming", () => BillingConfirmingPage()],
+  ] as const)(
+    "%s still says access denied to anyone but the owner",
+    async (_name, call) => {
+      for (const session of [
+        { role: "admin", organisationId: "o1" },
+        { role: "member", organisationId: "o1" },
+        null,
+      ]) {
+        stubs.getSession.mockResolvedValue(session)
+        const { unmount } = render(await call())
+        // What they are told, in place of the page: not the 404, not nothing.
+        expect(
+          screen.getByRole("heading", {
+            name: "You don’t have access to this page",
+          })
+        ).toBeInTheDocument()
+        expect(screen.getByText(/^Billing is limited to /)).toBeInTheDocument()
+        expect(
+          screen.getByRole("button", { name: /Ask for access/ })
+        ).toBeInTheDocument()
+        // None of the owner's page: no header, tab row or card.
+        expect(
+          screen.queryByRole("heading", { level: 1, name: "Billing" })
+        ).not.toBeInTheDocument()
+        expect(screen.queryByRole("navigation")).not.toBeInTheDocument()
+        expect(
+          screen.queryByLabelText(/card|confirming/i)
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByText("This page doesn’t exist")
+        ).not.toBeInTheDocument()
+        unmount()
+      }
+      expect(stubs.redirect).not.toHaveBeenCalled()
+    }
+  )
+
+  it("usage renders its header, tab row and both cards", async () => {
+    render(await SettingsUsagePage())
     expect(
-      screen.queryByText("This page doesn’t exist")
-    ).not.toBeInTheDocument()
+      screen.getByRole("heading", { level: 1, name: "Usage" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("navigation", { name: "Settings sections" })
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText("Usage card")).toBeInTheDocument()
+    expect(screen.getByLabelText("Plan usage card")).toBeInTheDocument()
   })
 
-  it("usage and confirming render their own screens", async () => {
-    render(await SettingsUsagePage())
-    expect(screen.getByLabelText("Usage card")).toBeInTheDocument()
+  it("confirming renders the owner's header, tab row and screen", async () => {
     render(await BillingConfirmingPage())
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Billing" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("navigation", { name: "Settings sections" })
+    ).toBeInTheDocument()
     expect(screen.getByLabelText("Billing confirming")).toBeInTheDocument()
   })
 
