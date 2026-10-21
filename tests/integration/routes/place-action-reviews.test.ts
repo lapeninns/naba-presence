@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { UNCACHED_PAUSES } from "../helpers/app-server"
 import { lifecycleHarness } from "../helpers/google-lifecycle"
 import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { placeActionAttemptResponseSchema, placeActionReviewResponseSchema, type ReviewedPlaceActionRequest } from "@/lib/contracts/place-action-review"
@@ -8,7 +9,7 @@ import { lifecycleReviewResponseSchema } from "@/lib/contracts/google-lifecycle-
 
 const describeDatabase = process.env.RUN_DB_TESTS === "true" ? describe : describe.skip
 describeDatabase("reviewed Place Actions", { timeout: 30_000 }, () => {
-  const harness = lifecycleHarness({ GBP_PLACE_ACTIONS_ENABLED: "true" })
+  const harness = lifecycleHarness({ GBP_PLACE_ACTIONS_ENABLED: "true", ...UNCACHED_PAUSES })
   const payload = { uri: "https://shop.example.test/catalogue", placeActionType: "SHOP_ONLINE", isPreferred: false }
   async function fixture() {
     const base = await harness.fixture()
@@ -166,12 +167,11 @@ describeDatabase("reviewed Place Actions", { timeout: 30_000 }, () => {
     expect(f.writes()).toHaveLength(0)
   })
   // The env flag is on here: only the operator pause table (0090) holds the
-  // send. Its 5s cache means waiting past PAUSE_CACHE_TTL_MS each way.
-  it("holds an approved link off while placeActions is paused in the operator table, sending and recording nothing", { timeout: 40_000 }, async () => {
+  // send. The server reads the table on every check (UNCACHED_PAUSES).
+  it("holds an approved link off while placeActions is paused in the operator table, sending and recording nothing", async () => {
     const f = await fixture(), review = await f.approved()
     const setPause = (paused: boolean) => harness.database()`select * from set_ops_pause('placeActions', ${paused}, 'Integration test pause', 'place-action-reviews.test')`
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 5_300))
-    await setPause(true); await settle()
+    await setPause(true)
     try {
       const response = await f.request(`/${review.changeSet.id}/execute`, "POST", { expectedPayloadHash: review.changeSet.payloadHash })
       expect(response.status).toBe(503)
@@ -181,7 +181,7 @@ describeDatabase("reviewed Place Actions", { timeout: 30_000 }, () => {
       expect(rows).toHaveLength(0)
     } finally {
       // The table is platform-wide: never leave a pause behind.
-      await setPause(false); await settle()
+      await setPause(false)
     }
   })
   it("blocks action links after an unresolved lifecycle request for the same Google account", async () => {

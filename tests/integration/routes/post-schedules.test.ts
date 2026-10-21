@@ -14,7 +14,7 @@ import {
   resolveLocalSlot,
   scheduledPublishIntentId,
 } from "@/lib/domain/publication-schedule"
-import { startAppServer } from "../helpers/app-server"
+import { UNCACHED_PAUSES, startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
   createTestTenant,
@@ -70,6 +70,8 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 2 })
     google = await startGoogleStub()
     server = await startAppServer({
+      // Two tests pause a scope and tick straight away.
+      ...UNCACHED_PAUSES,
       GOOGLE_API_PROXY_BASE: google.baseUrl,
       // Only the slow-token case refreshes a token.
       GOOGLE_CLIENT_ID: "post-schedules-client",
@@ -763,13 +765,10 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       })
     await t.approve(s)
     // The whole job runner is paused, so the tick claims nothing at all;
-    // the sweep still runs. The app caches the pause table for 5 seconds.
-    const settlePauses = () =>
-      new Promise((resolve) => setTimeout(resolve, 5_300))
+    // the sweep still runs.
     await admin`
       update ops_pause_control set paused = true, reason = 'post-schedules test', changed_by = 'post-schedules test'
       where scope = 'jobs'`
-    await settlePauses()
     try {
       await t.age((await t.occurrences(s.id))[0].id, 6)
       await tick()
@@ -783,7 +782,6 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       })
     } finally {
       await admin`update ops_pause_control set paused = false where scope = 'jobs'`
-      await settlePauses()
     }
     await tick()
     expect(creates()).toHaveLength(0)
@@ -2325,11 +2323,8 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       await admin`update post_publication_schedule set claim_lease_expires_at = null where id = ${s.id}`
       const pause = (paused: boolean) =>
         admin`select * from set_ops_pause('scheduled_post', ${paused}, 'post-schedules R6 test', 'post-schedules.test')`
-      // The server caches the pause table for PAUSE_CACHE_TTL_MS (5 s).
-      const settle = () => new Promise((resolve) => setTimeout(resolve, 5_500))
       await pause(true)
       try {
-        await settle()
         await healthTick()
         expect(await platformIncidents(t.owner.organisationId)).toEqual([])
       } finally {
