@@ -73,6 +73,11 @@ describeDatabase("durable reply deletion", () => {
     stub = await startGoogleStub()
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      // The timeout tests wait out a real client timeout; production's 15 s
+      // and 20 s (lib/server/env.ts) would make them wait that long. The
+      // 750 ms stub delays elsewhere stay well inside 2.5 s.
+      GOOGLE_TIMEOUT_MS: "2500",
+      GOOGLE_MUTATION_TIMEOUT_MS: "2500",
     })
   })
 
@@ -329,7 +334,8 @@ describeDatabase("durable reply deletion", () => {
     stub.respond({ method: "DELETE", pathIncludes: "/reply" }, () => ({
       status: 200,
       json: {},
-      delayMs: 25_000,
+      // Past GOOGLE_MUTATION_TIMEOUT_MS; the stub stops when the app hangs up.
+      delayMs: 10_000,
     }))
 
     const first = await deleteReply(fixture)
@@ -370,5 +376,5 @@ describeDatabase("durable reply deletion", () => {
       status: "succeeded",
       publish_generation: 1,
     })
-  }, 35_000)
+  }, 15_000)
 })

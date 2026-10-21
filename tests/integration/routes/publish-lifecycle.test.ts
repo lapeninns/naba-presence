@@ -40,6 +40,11 @@ describeDatabase("durable publish lifecycle", () => {
     stub = await startGoogleStub()
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      // The timeout tests wait out a real client timeout; production's 15 s
+      // and 20 s (lib/server/env.ts) would make them wait that long. The
+      // 750 ms stub delays elsewhere stay well inside 2.5 s.
+      GOOGLE_TIMEOUT_MS: "2500",
+      GOOGLE_MUTATION_TIMEOUT_MS: "2500",
     })
   })
 
@@ -348,7 +353,8 @@ describeDatabase("durable publish lifecycle", () => {
     stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
       status: 200,
       json: {},
-      delayMs: 25_000,
+      // Past GOOGLE_MUTATION_TIMEOUT_MS; the stub stops when the app hangs up.
+      delayMs: 10_000,
     }))
 
     const response = await publish(fixture)
@@ -363,7 +369,7 @@ describeDatabase("durable publish lifecycle", () => {
         limit 1
       `
     expect(attempt.status).toBe("ambiguous")
-  }, 35_000)
+  }, 15_000)
 
   it("marks a 500 response ambiguous without retrying", async () => {
     const fixture = await createFixture()
@@ -1312,7 +1318,8 @@ describeDatabase("durable publish lifecycle", () => {
     stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
       status: 200,
       json: {},
-      delayMs: 20_000,
+      // Past GOOGLE_TIMEOUT_MS; the stub stops when the app hangs up.
+      delayMs: 10_000,
     }))
 
     const response = await publish(fixture)
@@ -1324,5 +1331,5 @@ describeDatabase("durable publish lifecycle", () => {
         select status from publish_attempt where id = ${seeded.attemptId}
       `
     expect(attempt.status).toBe("ambiguous")
-  }, 25_000)
+  }, 15_000)
 })
