@@ -81,10 +81,13 @@ describeDatabase("listing writes - two-person change approval", () => {
       status: 200,
       json: { mediaItems: items },
     }))
-    google.respond({ method: "GET", pathIncludes: "/media/merchant-" }, (call) => ({
-      status: 200,
-      json: items.find((item) => call.path.endsWith(String(item.name))) ?? {},
-    }))
+    google.respond(
+      { method: "GET", pathIncludes: "/media/merchant-" },
+      (call) => ({
+        status: 200,
+        json: items.find((item) => call.path.endsWith(String(item.name))) ?? {},
+      })
+    )
     google.respond({ method: "POST", pathIncludes: "/media" }, (call) => {
       const created = {
         name: `${parent}/media/merchant-${items.length}`,
@@ -546,6 +549,113 @@ describeDatabase("listing writes - two-person change approval", () => {
     60_000
   )
 
+  // Hours and food menus park through the same registry as photos (NP2 G03):
+  // until now only a source substring check (tests/listing-changes.test.ts)
+  // protected them.
+  const publishes = [
+    {
+      kind: "hours_publish",
+      path: "hours",
+      body: {
+        confirmation: "publish_nabapresence_hours_to_google",
+        expectedCanonicalRevision: "1",
+        expectedCanonicalHash: "0".repeat(64),
+        expectedGoogleHash: "0".repeat(64),
+        approvedUpdateMask: ["regularHours"],
+      },
+      fieldMask: ["regularHours"],
+    },
+    {
+      kind: "food_menus_publish",
+      path: "food-menus",
+      body: {
+        confirmation: "publish_nabapresence_food_menus_to_google",
+        expectedCanonicalRevision: "1",
+        expectedCanonicalHash: "0".repeat(64),
+        expectedGoogleHash: "0".repeat(64),
+        confirmFullReplacement: true,
+      },
+      fieldMask: ["foodMenus"],
+    },
+  ] as const
+
+  const changeRequests = async (organisationId: string) =>
+    admin<{ kind: string; state: string; fieldMask: string[] }[]>`
+      select change_request ->> 'kind' as kind, state,
+             field_mask as "fieldMask"
+      from mutation_operation
+      where organisation_id = ${organisationId}
+        and change_request is not null
+    `
+
+  it.each(publishes)(
+    "parks a $kind for a second publisher and sends nothing to Google",
+    async ({ kind, path, body, fieldMask }) => {
+      const { owner, second, base } = await tenant({
+        twoPerson: true,
+        feature: true,
+      })
+
+      const parked = await send(owner.cookie, "POST", `${base}/${path}`, body)
+      expect(parked.status, await parked.clone().text()).toBe(202)
+      const change = (await parked.json()).changeRequest
+      expect(change).toMatchObject({
+        kind,
+        isOwn: true,
+        outcome: "awaiting_approval",
+      })
+      expect(await changeRequests(owner.organisationId)).toEqual([
+        { kind, state: "awaiting_approval", fieldMask: [...fieldMask] },
+      ])
+      expect(google.calls.filter((call) => call.method !== "GET")).toEqual([])
+
+      // Any other publisher may decide; the author may not approve their own.
+      const list = await (
+        await fetch(`${base}/change-requests`, {
+          headers: { cookie: second.cookie },
+        })
+      ).json()
+      expect(list.changeRequests).toMatchObject([
+        { id: change.id, kind, isOwn: false, canDecide: true },
+      ])
+      const self = await send(
+        owner.cookie,
+        "POST",
+        `${base}/change-requests/${change.id}`,
+        { decision: "approve", payloadHash: change.payloadHash }
+      )
+      expect(self.status).toBe(403)
+      expect((await self.json()).error).toBe("listing_second_approver_required")
+
+      const rejected = await send(
+        second.cookie,
+        "POST",
+        `${base}/change-requests/${change.id}`,
+        { decision: "reject", payloadHash: change.payloadHash }
+      )
+      expect(rejected.status, await rejected.clone().text()).toBe(200)
+      expect(await stored(change.id)).toMatchObject({
+        state: "failed",
+        errorCode: "approval_rejected",
+      })
+      expect(google.calls.filter((call) => call.method !== "GET")).toEqual([])
+    },
+    60_000
+  )
+
+  it.each(publishes)(
+    "sends a $kind as before when the organisation has approval off",
+    async ({ path, body }) => {
+      const { owner, base } = await tenant({ twoPerson: false, feature: true })
+      const response = await send(owner.cookie, "POST", `${base}/${path}`, body)
+      // Straight to the publish path, which refuses these made-up hashes;
+      // what matters is that nothing parked.
+      expect(response.status, await response.clone().text()).not.toBe(202)
+      expect(await changeRequests(owner.organisationId)).toEqual([])
+    },
+    60_000
+  )
+
   it("requires the authoring route's roles of a decider", async () => {
     const { owner, second, base } = await tenant({
       twoPerson: true,
@@ -713,12 +823,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     try {
       const pausedBase = base.replace(server.baseUrl, paused.baseUrl)
       const parked = await (
-        await send(
-          owner.cookie,
-          "POST",
-          `${pausedBase}/media`,
-          createBody()
-        )
+        await send(owner.cookie, "POST", `${pausedBase}/media`, createBody())
       ).json()
       const refused = await send(
         second.cookie,
