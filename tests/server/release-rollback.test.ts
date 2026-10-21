@@ -1,7 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { describe, expect, it, vi } from "vitest"
 
-import { latestPromotedRelease } from "../../scripts/release/local-receipt.mjs"
+import {
+  latestPromotedRelease,
+  servingRelease,
+} from "../../scripts/release/local-receipt.mjs"
 import { promoteArgs } from "../../scripts/release/promote.mjs"
 import {
   buildRollbackReceipt,
@@ -18,6 +21,7 @@ import {
 const SHA_A = "a".repeat(40)
 const SHA_B = "b".repeat(40)
 const SHA_C = "c".repeat(40)
+const SHA_D = "d".repeat(40)
 const PRODUCTION = "https://app.nabapresence.example"
 const DIR = "/receipts"
 
@@ -46,6 +50,48 @@ const promotion = (
 const A = promotion("20261010T120000Z-aaaaaaaaaaaa.json", SHA_A, "dpl_a")
 const B = promotion("20261011T120000Z-bbbbbbbbbbbb.json", SHA_B, "dpl_b")
 const C = promotion("20261012T120000Z-cccccccccccc.json", SHA_C, "dpl_c")
+const D = promotion("20261014T120000Z-dddddddddddd.json", SHA_D, "dpl_d")
+const SHAS: Record<string, string> = {
+  dpl_a: SHA_A,
+  dpl_b: SHA_B,
+  dpl_c: SHA_C,
+  dpl_d: SHA_D,
+}
+
+// A rollback receipt as runRollback writes it. `served` is what its
+// production probe saw: the target's SHA (confirmed, the default), or
+// another one (the probe failed and production still served that).
+const rollbackTo = (
+  file: string,
+  target: { name: string },
+  deploymentId: string,
+  {
+    restored = false,
+    served = SHAS[deploymentId],
+  }: { restored?: boolean; served?: string } = {}
+) => {
+  const sha = SHAS[deploymentId]
+  const ok = served === sha
+  return {
+    name: file,
+    content: JSON.stringify({
+      kind: ROLLBACK_RECEIPT_KIND,
+      version: 1,
+      sha,
+      deploymentId,
+      to: { receipt: target.name, sha, deploymentId },
+      migrations: { databaseRestored: restored },
+      productionProbe: {
+        url: PRODUCTION,
+        expectSha: sha,
+        ok,
+        status: ok ? "ready" : "release_mismatch",
+        servedSha: served,
+        exitCode: ok ? 0 : 2,
+      },
+    }),
+  }
+}
 const NOISE = [
   { name: "20261012T120000Z-cccccccccccc.local.json", content: "{}" },
   { name: "README.md", content: "# Release receipts" },
@@ -133,17 +179,126 @@ describe("release:rollback planning", () => {
   })
 
   it("after a rollback, serves its target and goes back one more", () => {
-    const rolledBack = {
-      name: "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
-      content: JSON.stringify({
-        kind: ROLLBACK_RECEIPT_KIND,
-        to: { receipt: B.name, deploymentId: "dpl_b" },
-        migrations: { databaseRestored: false },
-      }),
-    }
+    const rolledBack = rollbackTo(
+      "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
+      B,
+      "dpl_b"
+    )
     const result = plan([A, B, C, rolledBack])
     expect(result.current?.deploymentId).toBe("dpl_b")
     expect(result.target?.deploymentId).toBe("dpl_a")
+    expect(result.unconfirmed).toEqual([])
+  })
+
+  it("never defaults back to a release production was rolled back from", () => {
+    // A, B, C; C is rolled back to B; then D is promoted. Production served
+    // D after B, so D's predecessor is B, not C (by time, C is the promotion
+    // before D, and it was rolled away from as bad).
+    const rolledBack = rollbackTo(
+      "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
+      B,
+      "dpl_b"
+    )
+    const result = plan([A, B, C, rolledBack, D])
+    expect(result.ok).toBe(true)
+    expect(result.current?.deploymentId).toBe("dpl_d")
+    expect(result.target?.deploymentId).toBe("dpl_b")
+  })
+
+  it("after a rollback to the start, has no earlier release to default to", () => {
+    const toA = rollbackTo(
+      "20261013T090000Z-aaaaaaaaaaaa.rollback.json",
+      A,
+      "dpl_a"
+    )
+    const result = plan([A, B, C, toA])
+    expect(result.current?.deploymentId).toBe("dpl_a")
+    expect(result.ok).toBe(false)
+    expect(result.problems[0]).toMatch(/earliest promotion receipt/)
+    // --to still names any recorded promotion, including ones rolled away
+    // from: a roll forward.
+    for (const to of ["dpl_b", "dpl_c", C.name]) {
+      expect(plan([A, B, C, toA], { to }).ok).toBe(true)
+    }
+  })
+
+  it("after a roll forward via --to, defaults to where it came from", () => {
+    // A, B, C; rolled back to A; then forward to C with --to. Production
+    // served A just before C, so that is the default, not B.
+    const toA = rollbackTo(
+      "20261013T090000Z-aaaaaaaaaaaa.rollback.json",
+      A,
+      "dpl_a"
+    )
+    const forwardToC = rollbackTo(
+      "20261013T100000Z-cccccccccccc.rollback.json",
+      C,
+      "dpl_c"
+    )
+    const result = plan([A, B, C, toA, forwardToC])
+    expect(result.current?.deploymentId).toBe("dpl_c")
+    expect(result.target?.deploymentId).toBe("dpl_a")
+    expect(plan([A, B, C, toA, forwardToC], { to: "dpl_b" }).ok).toBe(true)
+  })
+
+  it("does not count a rollback whose production probe failed", () => {
+    // C was rolled back to B, but every probe still saw C: production may
+    // still serve C, so the next plan retries B instead of going on to A.
+    const failed = rollbackTo(
+      "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
+      B,
+      "dpl_b",
+      { served: SHA_C }
+    )
+    const result = plan([A, B, C, failed])
+    expect(result.ok).toBe(true)
+    expect(result.current?.deploymentId).toBe("dpl_c")
+    expect(result.target?.deploymentId).toBe("dpl_b")
+    expect(result.unconfirmed).toEqual([failed.name])
+    // Nor does one with no recorded probe, or one that never finished.
+    for (const productionProbe of [
+      undefined,
+      { status: "pending", ok: false },
+    ]) {
+      const content = { ...JSON.parse(failed.content), productionProbe }
+      const unprobed = { name: failed.name, content: JSON.stringify(content) }
+      expect(plan([A, B, C, unprobed]).current?.deploymentId).toBe("dpl_c")
+    }
+  })
+
+  it("agrees with servingRelease on what production serves", () => {
+    const toB = rollbackTo(
+      "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
+      B,
+      "dpl_b"
+    )
+    const toA = rollbackTo(
+      "20261013T093000Z-aaaaaaaaaaaa.rollback.json",
+      A,
+      "dpl_a"
+    )
+    const failedToA = rollbackTo(
+      "20261013T093000Z-aaaaaaaaaaaa.rollback.json",
+      A,
+      "dpl_a",
+      { served: SHA_B }
+    )
+    const forwardToC = rollbackTo(
+      "20261013T100000Z-cccccccccccc.rollback.json",
+      C,
+      "dpl_c"
+    )
+    for (const files of [
+      [A],
+      [A, B, C],
+      [A, B, C, toB],
+      [A, B, C, toB, toA],
+      [A, B, C, toB, failedToA],
+      [A, B, C, toB, toA, forwardToC],
+      [A, B, C, toB, D],
+    ]) {
+      expect(servingRelease(files)?.file).toBe(plan(files).current?.file)
+    }
   })
 
   it("picks --to by receipt file, file without .json, path or deploymentId", () => {
@@ -231,14 +386,10 @@ describe("release:rollback planning", () => {
       ...BASE_MIGRATIONS,
       m("0003_reply_drafts"),
     ])
-    const rollback = (restored: boolean) => ({
-      name: "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
-      content: JSON.stringify({
-        kind: ROLLBACK_RECEIPT_KIND,
-        to: { receipt: B.name, deploymentId: "dpl_b" },
-        migrations: { databaseRestored: restored },
-      }),
-    })
+    const rollback = (restored: boolean) =>
+      rollbackTo("20261013T090000Z-bbbbbbbbbbbb.rollback.json", B, "dpl_b", {
+        restored,
+      })
     // Not restored: the database still has 0003, which A does not ship.
     expect(plan([A, B, withMigration, rollback(false)]).ok).toBe(false)
     // Restored to B's schema: A ships the same migrations.
@@ -273,21 +424,28 @@ describe("release:rollback planning", () => {
   })
 
   it("refuses a rollback receipt naming a promotion that is not there", () => {
-    const { promotions, rollbacks } = history([
-      A,
-      C,
-      {
-        name: "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
-        content: JSON.stringify({
-          kind: ROLLBACK_RECEIPT_KIND,
-          to: { receipt: B.name, deploymentId: "dpl_b" },
-        }),
-      },
-    ])
+    const toB = rollbackTo(
+      "20261013T090000Z-bbbbbbbbbbbb.rollback.json",
+      B,
+      "dpl_b"
+    )
+    const { promotions, rollbacks } = history([A, C, toB])
     const result = planRollback({ promotions, rollbacks })
     expect(result.ok).toBe(false)
     expect(result.problems[0]).toMatch(
       /which no promotion receipt here matches/
+    )
+    // Nor a promotion recorded only after the rollback.
+    const early = rollbackTo(
+      "20261010T130000Z-cccccccccccc.rollback.json",
+      C,
+      "dpl_c"
+    )
+    expect(plan([A, B, C, early]).problems[0]).toMatch(
+      /which no promotion receipt here matches before it/
+    )
+    expect(() => servingRelease([A, B, C, early])).toThrow(
+      /names no earlier promotion receipt/
     )
   })
 
@@ -420,6 +578,28 @@ describe("release:rollback CLI", () => {
     expect(err).toContain(
       `FAILED: production ${PRODUCTION} does not serve ${SHA_B} after 5 probe attempt(s): it reports another release (exit 2), it serves ${SHA_C}.`
     )
+
+    // Replayed, the failed receipt does not advance history: production
+    // still serves C per the receipts, and the next plan retries B rather
+    // than skipping on to A.
+    const failed = { name: written[0].path, content: written[0].content }
+    const next = plan([A, B, C, failed])
+    expect(next.ok).toBe(true)
+    expect(next.current?.deploymentId).toBe("dpl_c")
+    expect(next.target?.deploymentId).toBe("dpl_b")
+    expect(next.unconfirmed).toEqual([
+      "20261013T093000Z-bbbbbbbbbbbb.rollback.json",
+    ])
+    expect(servingRelease([A, B, C, failed])).toEqual({
+      file: C.name,
+      sha: SHA_C,
+    })
+    const retry = cli([A, B, C, failed])
+    expect(await retry.run(["--production-url", PRODUCTION])).toBe(EXIT.ok)
+    expect(retry.out[0]).toBe(
+      "note: 20261013T093000Z-bbbbbbbbbbbb.rollback.json did not confirm production serves its target (its probe failed or never finished), so it does not count"
+    )
+    expect(retry.out).toContain(`roll back to: dpl_b at ${SHA_B} (${B.name})`)
   })
 
   it("writes no receipt when vercel promote fails", async () => {
@@ -567,17 +747,16 @@ describe("release:rollback receipt", () => {
     expect(rollbackReceiptFileName(receipt)).toBe(
       "20261013T093000Z-bbbbbbbbbbbb.rollback.json"
     )
-    // The promotion-receipt reader (the next gate's base, promote's
-    // previous SHA) does not take it for a promotion.
-    expect(
-      latestPromotedRelease([
-        A,
-        {
-          name: rollbackReceiptFileName(receipt),
-          content: JSON.stringify(receipt),
-        },
-      ])
-    ).toEqual({ file: A.name, sha: SHA_A })
+    // The gate's base, promote's previous SHA and --expect-promoted read it
+    // as production serving its target, not as a promotion of its own.
+    const written = {
+      name: rollbackReceiptFileName(receipt),
+      content: JSON.stringify(receipt),
+    }
+    expect(latestPromotedRelease([A, B, C, written])).toEqual({
+      file: B.name,
+      sha: SHA_B,
+    })
   })
 
   it("refuses anything redaction would touch", () => {

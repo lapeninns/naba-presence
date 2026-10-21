@@ -23,9 +23,10 @@
 // printed either.
 //
 // `--expect-sha` fails unless the deployment reports that commit;
-// `--expect-promoted` takes it from the newest promotion receipt in
-// docs/release/receipts/ (pnpm release:promote), so a probe after a promotion
-// confirms production is serving what was promoted.
+// `--expect-promoted` takes it from the receipts in docs/release/receipts/:
+// the release production serves after the promotions (pnpm release:promote)
+// and confirmed rollbacks (pnpm release:rollback) recorded there
+// (servingRelease), so a scheduled probe keeps passing after a rollback.
 //
 // Exit codes: 0 ready (or degraded without --fail-on-degraded), 1 degraded
 // with --fail-on-degraded, 2 not ready, unreachable, unauthorised, an
@@ -39,8 +40,8 @@ import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 
 import {
-  latestPromotedRelease,
   PROMOTION_RECEIPTS_DIR,
+  servingRelease,
 } from "../release/local-receipt.mjs"
 
 export const EXIT = { ok: 0, degraded: 1, notReady: 2, usage: 64 }
@@ -198,7 +199,11 @@ export function judgeReadiness({
   return { exitCode, status: verdict, lines }
 }
 
-/** The newest promoted SHA in `dir`, or a UsageError when there is none. */
+/**
+ * The SHA production serves according to the receipts in `dir`
+ * (servingRelease: promotions and confirmed rollbacks), or a UsageError when
+ * nothing has been promoted or a receipt cannot be read.
+ */
 export function promotedSha(dir) {
   let names
   try {
@@ -206,14 +211,19 @@ export function promotedSha(dir) {
   } catch {
     throw new UsageError(`cannot read ${dir}`)
   }
-  const latest = latestPromotedRelease(
-    names.map((name) => ({
-      name,
-      content: readFileSync(join(dir, name), "utf8"),
-    }))
-  )
-  if (!latest) throw new UsageError(`no promotion receipt in ${dir}`)
-  return latest.sha
+  let serving
+  try {
+    serving = servingRelease(
+      names.map((name) => ({
+        name,
+        content: readFileSync(join(dir, name), "utf8"),
+      }))
+    )
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : String(error))
+  }
+  if (!serving) throw new UsageError(`no promotion receipt in ${dir}`)
+  return serving.sha
 }
 
 async function ask(options) {

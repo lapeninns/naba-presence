@@ -207,36 +207,87 @@ export function testCountProblem(id, summary) {
 export const STEP_STATUSES = ["passed", "failed", "skipped", "not-run"]
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/
+const ROLLBACK_RECEIPT_NAME = /^\d{8}T\d{6}Z-[0-9a-f]{12}\.rollback\.json$/
 
 /**
- * The release production last received: the `sha` of the newest committed
- * promotion receipt (by file name, which sorts by time). Both the gate (its
- * default upgrade base) and promotion (the base it requires) read it, so a
- * receipt's migration policy and upgrade steps start from what production
- * runs. `null` before the first promotion. Throws on an unreadable newest
- * receipt rather than silently fall back to an older one.
+ * The release production serves according to the receipts: the one rule the
+ * gate (its default upgrade base), promotion (the base it requires), the
+ * readiness probe's `--expect-promoted` and rollback (scripts/release/
+ * rollback.mjs `planRollback`) share. Replays the promotion receipts
+ * (`<UTC time>-<sha12>.json`) and rollback receipts (`….rollback.json`) in
+ * file-name order, which is time order:
+ *   - a promotion serves its release once written. `vercel promote` has
+ *     succeeded by then, and its migrations were applied before it, so this
+ *     holds whatever its `productionProbe` says (`pending` after an
+ *     interrupted promotion, or `ok: false`).
+ *   - a rollback serves its target only when its production probe confirmed
+ *     the target's SHA (`productionProbe.ok` and `servedSha`). A rollback
+ *     whose probe failed stays on record but changes nothing: production may
+ *     still serve the release it tried to leave, and the next rollback retries.
+ * Returns the promotion receipt of the serving release (`file`) and its
+ * `sha`; `null` before the first promotion. Pure. Throws, rather than fall
+ * back to an older release, on any receipt it cannot read and on a rollback
+ * that names no earlier promotion receipt.
+ *
+ * @param {{ name: string, content: string }[]} files
+ * @returns {{ file: string, sha: string } | null}
+ */
+export function servingRelease(files) {
+  const receipts = files
+    .map((file) => ({ ...file, name: file.name.split("/").pop() ?? "" }))
+    .filter(
+      (file) =>
+        PROMOTION_RECEIPT_NAME.test(file.name) ||
+        ROLLBACK_RECEIPT_NAME.test(file.name)
+    )
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  /** @type {Map<string, string>} promotion receipt file -> sha */
+  const promoted = new Map()
+  /** @type {{ file: string, sha: string } | null} */
+  let serving = null
+  for (const receipt of receipts) {
+    let parsed
+    try {
+      parsed = JSON.parse(receipt.content)
+    } catch {
+      parsed = undefined
+    }
+    if (PROMOTION_RECEIPT_NAME.test(receipt.name)) {
+      const sha = parsed?.sha
+      if (typeof sha !== "string" || !SHA_PATTERN.test(sha)) {
+        throw new Error(
+          `promotion receipt ${receipt.name} has no readable commit SHA`
+        )
+      }
+      promoted.set(receipt.name, sha)
+      serving = { file: receipt.name, sha }
+      continue
+    }
+    const target = parsed?.to?.receipt
+    const sha = typeof target === "string" ? promoted.get(target) : undefined
+    if (parsed?.kind !== "naba-rollback" || sha === undefined) {
+      throw new Error(
+        `rollback receipt ${receipt.name} names no earlier promotion receipt`
+      )
+    }
+    const probe = parsed.productionProbe
+    if (probe?.ok === true && probe.servedSha === sha) {
+      serving = { file: /** @type {string} */ (target), sha }
+    }
+  }
+  return serving
+}
+
+/**
+ * The release production last received, for the gate's default base and
+ * promotion's required base: `servingRelease`, under the name the gate
+ * (verify-local.mjs) imports.
  *
  * @param {{ name: string, content: string }[]} files
  * @returns {{ file: string, sha: string } | null}
  */
 export function latestPromotedRelease(files) {
-  const newest = files
-    .map((file) => ({ ...file, name: file.name.split("/").pop() ?? "" }))
-    .filter((file) => PROMOTION_RECEIPT_NAME.test(file.name))
-    .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0))[0]
-  if (!newest) return null
-  let sha
-  try {
-    sha = JSON.parse(newest.content)?.sha
-  } catch {
-    sha = undefined
-  }
-  if (typeof sha !== "string" || !SHA_PATTERN.test(sha)) {
-    throw new Error(
-      `promotion receipt ${newest.name} has no readable commit SHA`
-    )
-  }
-  return { file: newest.name, sha }
+  return servingRelease(files)
 }
 
 /**

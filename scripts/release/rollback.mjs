@@ -22,10 +22,18 @@
 //      said, since production has changed. Exit 3 when production does not
 //      serve the target's SHA.
 //
-// What production serves is the last event in the receipts, sorted by time:
-// a promotion receipt's deployment, or a rollback receipt's target. The
-// default target is the promotion before the one serving. `--to` picks any
-// other promotion receipt by file name or deploymentId.
+// What production serves comes from replaying the receipts in time order,
+// by the rule local-receipt.mjs `servingRelease` gives the gate, promotion
+// and the readiness probe (tests/server/release-rollback.test.ts checks the
+// two agree): a promotion serves its deployment; a rollback serves
+// its target only when its production probe confirmed the target's SHA. A
+// rollback whose probe failed stays on record and changes nothing, so the
+// next run retries it. The default target is the release production served
+// before the current one, skipping any it was rolled back from: replay keeps
+// a stack of served promotions, a promotion pushes, and a rollback to X cuts
+// the stack back to X (or pushes X, rolling forward to one no longer on it).
+// After promotions A, B, C and a rollback to B, the default is A, never C.
+// `--to` picks any promotion receipt by file name or deploymentId.
 //
 // Migrations are roll-forward-only, and a deployment rollback cannot undo
 // one. Each promotion receipt lists every migration its commit ships, and
@@ -74,7 +82,9 @@ const ROLLBACK_RECEIPT_NAME = /^\d{8}T\d{6}Z-[0-9a-f]{12}\.rollback\.json$/
  * @typedef {{ file: string, sha: string, deploymentId: string, url: string,
  *   migrations: Migration[] | null }} Promotion
  * @typedef {{ file: string, to: { receipt: string, deploymentId: string },
- *   databaseRestored: boolean }} Rollback
+ *   databaseRestored: boolean, confirmedSha: string | null }} Rollback
+ *   `confirmedSha`: the SHA its production probe confirmed production
+ *   serves, or null when the probe failed, never finished or is missing.
  * @typedef {{ notInTarget: string[], notInProduction: string[],
  *   changed: string[] }} MigrationDrift
  */
@@ -191,6 +201,11 @@ export function readReceiptHistory(files) {
           deploymentId: parsed.to.deploymentId,
         },
         databaseRestored: parsed.migrations?.databaseRestored === true,
+        confirmedSha:
+          parsed.productionProbe?.ok === true &&
+          typeof parsed.productionProbe.servedSha === "string"
+            ? parsed.productionProbe.servedSha
+            : null,
       })
     }
   }
@@ -260,7 +275,9 @@ function listVersions(versions) {
  *   databaseRestored?: boolean,
  * }} input
  * @returns {{ ok: boolean, problems: string[], current: Promotion | null,
- *   target: Promotion | null, drift: MigrationDrift | null }}
+ *   target: Promotion | null, drift: MigrationDrift | null,
+ *   unconfirmed: string[] }} `unconfirmed`: rollback receipts whose probe did
+ *   not confirm their target, which the replay does not count.
  */
 export function planRollback({
   promotions,
@@ -269,12 +286,15 @@ export function planRollback({
   databaseRestored = false,
 }) {
   const problems = []
+  /** @type {string[]} */
+  const unconfirmed = []
   const refuse = (current = null, target = null, drift = null) => ({
     ok: false,
     problems,
     current,
     target,
     drift,
+    unconfirmed,
   })
   if (promotions.length === 0) {
     problems.push(
@@ -283,35 +303,45 @@ export function planRollback({
     return refuse()
   }
 
-  // Replay the history: each promotion, and each rollback to a promotion.
-  const byFile = new Map(
-    promotions.map((promotion) => [promotion.file, promotion])
-  )
+  // Replay the history in time order with a stack of the promotions
+  // production served: a promotion pushes; a confirmed rollback to X cuts the
+  // stack back to X, or pushes X when it is no longer on the stack (a roll
+  // forward). A rollback whose probe did not confirm X changes nothing.
+  /** @type {Map<string, Promotion>} promotions recorded so far */
+  const recorded = new Map()
   const events = [
     ...promotions.map((promotion) => ({ file: promotion.file, promotion })),
     ...rollbacks.map((rollback) => ({ file: rollback.file, rollback })),
   ].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))
-  /** @type {Promotion | null} */
-  let current = null
+  /** @type {Promotion[]} */
+  const served = []
   /** @type {Migration[] | null} */
   let schema = null
   for (const event of events) {
     if ("promotion" in event) {
-      current = event.promotion
+      recorded.set(event.promotion.file, event.promotion)
+      served.push(event.promotion)
       schema = event.promotion.migrations
       continue
     }
-    const rolledTo = byFile.get(event.rollback.to.receipt)
-    if (!rolledTo || rolledTo.deploymentId !== event.rollback.to.deploymentId) {
+    const { rollback } = event
+    const rolledTo = recorded.get(rollback.to.receipt)
+    if (!rolledTo || rolledTo.deploymentId !== rollback.to.deploymentId) {
       problems.push(
-        `${event.rollback.file} rolls back to ${event.rollback.to.receipt} (${event.rollback.to.deploymentId}), which no promotion receipt here matches`
+        `${rollback.file} rolls back to ${rollback.to.receipt} (${rollback.to.deploymentId}), which no promotion receipt here matches before it`
       )
       return refuse()
     }
-    current = rolledTo
-    if (event.rollback.databaseRestored) schema = rolledTo.migrations
+    if (rollback.confirmedSha !== rolledTo.sha) {
+      unconfirmed.push(rollback.file)
+      continue
+    }
+    const index = served.lastIndexOf(rolledTo)
+    if (index >= 0) served.length = index + 1
+    else served.push(rolledTo)
+    if (rollback.databaseRestored) schema = rolledTo.migrations
   }
-  current = /** @type {Promotion} */ (current)
+  const current = /** @type {Promotion} */ (served.at(-1))
 
   /** @type {Promotion | null} */
   let target = null
@@ -329,8 +359,9 @@ export function planRollback({
       return refuse(current)
     }
   } else {
-    const index = promotions.indexOf(current)
-    target = index > 0 ? promotions[index - 1] : null
+    // The stack's bottom is always the first promotion: cuts keep it and a
+    // roll forward pushes above it.
+    target = served.length > 1 ? served[served.length - 2] : null
     if (!target) {
       problems.push(
         `${current.file} is the earliest promotion receipt: there is no earlier promotion to return to`
@@ -380,6 +411,7 @@ export function planRollback({
     current,
     target,
     drift,
+    unconfirmed,
   }
 }
 
@@ -525,6 +557,11 @@ export async function runRollback({
   ]
 
   const { current, target } = plan
+  for (const file of plan.unconfirmed) {
+    log(
+      `note: ${file} did not confirm production serves its target (its probe failed or never finished), so it does not count`
+    )
+  }
   if (current) {
     log(
       `production serves (per the receipts): ${current.deploymentId} at ${current.sha} (${current.file})`
@@ -606,7 +643,8 @@ export async function runRollback({
   const report = productionProbeReport(productionProbe, {
     nextSteps: [
       "the rollback receipt records the failed probe; commit it whatever you decide next.",
-      `check vercel promote status and the production domains; ${target.url || target.deploymentId} is the deployment they should reach.`,
+      `it does not count: the receipts still say production serves ${current.deploymentId} (${current.file}), so the gate, promotion, --expect-promoted and the next rollback start from there.`,
+      `check vercel promote status and the production domains; ${target.url || target.deploymentId} is the deployment they should reach. Rerun this rollback to retry and record a confirmed one.`,
     ],
   })
   for (const line of report.lines) (report.exitCode === 0 ? log : error)(line)

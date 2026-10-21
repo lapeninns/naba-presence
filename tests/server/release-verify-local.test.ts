@@ -516,6 +516,44 @@ describe("verify:release receipt", () => {
         { name: "20261011T090000Z-fedcba987654.json", content: "{" },
       ])
     ).toThrow(/no readable commit SHA/)
+
+    // After a rollback the base is what production serves again: the
+    // target, once the rollback's probe confirmed it; never the release it
+    // rolled away from. An unconfirmed one changes nothing.
+    const promotions = [
+      {
+        name: "docs/release/receipts/20261001T090000Z-0123456789ab.json",
+        content: JSON.stringify({ sha: SHA }),
+      },
+      {
+        name: "docs/release/receipts/20261011T090000Z-fedcba987654.json",
+        content: JSON.stringify({ sha: PROD_SHA }),
+      },
+    ]
+    const rollback = (time: string, served: string) => ({
+      name: `docs/release/receipts/${time}-0123456789ab.rollback.json`,
+      content: JSON.stringify({
+        kind: "naba-rollback",
+        sha: SHA,
+        to: { receipt: "20261001T090000Z-0123456789ab.json", sha: SHA },
+        productionProbe: { ok: served === SHA, servedSha: served },
+      }),
+    })
+    expect(
+      latestPromotedRelease([
+        ...promotions,
+        rollback("20261012T090000Z", PROD_SHA),
+      ])
+    ).toEqual({ file: "20261011T090000Z-fedcba987654.json", sha: PROD_SHA })
+    expect(
+      latestPromotedRelease([...promotions, rollback("20261012T090000Z", SHA)])
+    ).toEqual({ file: "20261001T090000Z-0123456789ab.json", sha: SHA })
+    expect(() =>
+      latestPromotedRelease([
+        ...promotions,
+        { name: "20261012T090000Z-0123456789ab.rollback.json", content: "{" },
+      ])
+    ).toThrow(/names no earlier promotion receipt/)
   })
 
   it("writes into a gitignored directory", () => {

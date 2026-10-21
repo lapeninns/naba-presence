@@ -6,6 +6,7 @@ import {
   GATE_STEPS,
   LOCAL_RECEIPT_KIND,
   LOCAL_RECEIPT_VERSION,
+  servingRelease,
 } from "../../scripts/release/local-receipt.mjs"
 import {
   buildReceipt,
@@ -869,6 +870,16 @@ describe("production probe after vercel promote (G01)", () => {
       ).rejects.toThrow("SIGINT")
       expect(writes).toHaveLength(1)
       expect(isProbePending(writes[0])).toBe(true)
+      // vercel promote succeeded, so the pending receipt is what production
+      // serves for the gate, the next promotion and --expect-promoted.
+      expect(
+        servingRelease([
+          {
+            name: receiptFileName(writes[0]),
+            content: JSON.stringify(writes[0]),
+          },
+        ])
+      ).toEqual({ file: "20261010T120100Z-0123456789ab.json", sha: SHA })
     })
 
     it("writes nothing when the receipt would be refused", async () => {

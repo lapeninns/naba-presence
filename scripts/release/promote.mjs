@@ -14,8 +14,9 @@
 //   - HEAD is exactly origin/main after a fetch,
 //   - the local receipt is for that SHA, ran in a fresh worktree on the
 //     .nvmrc Node major with no requested skips and no uncommitted edits to
-//     the gate's own code, its base is the commit the newest committed
-//     promotion receipt shipped (and not HEAD itself), and every required
+//     the gate's own code, its base is the commit production serves according
+//     to the committed receipts (servingRelease: the newest promotion, or a
+//     later confirmed rollback's target; not HEAD itself), and every required
 //     step passed (re-judged from its steps, scripts/release/local-receipt.mjs),
 //   - `pnpm db:status --expect-current` against the operator's admin URL
 //     reports no pending migration.
@@ -63,8 +64,8 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { listMigrationVersions } from "../migration-rules.mjs"
 import {
   PROMOTION_RECEIPTS_DIR,
-  latestPromotedRelease,
   localReceiptProblems,
+  servingRelease,
 } from "./local-receipt.mjs"
 import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
@@ -840,7 +841,7 @@ async function main() {
   let previousUnreadable = false
   try {
     const dir = join(root, PROMOTION_RECEIPTS_DIR)
-    const previous = latestPromotedRelease(
+    const previous = servingRelease(
       readdirSync(dir).map((name) => ({
         name,
         content: name.endsWith(".json")
@@ -859,7 +860,9 @@ async function main() {
       }
     }
     if (previous)
-      console.log(`last promoted: ${previous.sha} (${previous.file})`)
+      console.log(
+        `production serves (per the receipts): ${previous.sha} (${previous.file})`
+      )
   } catch (error) {
     previousUnreadable = true
     console.error(`refused: ${error.message}`)
