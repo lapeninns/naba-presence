@@ -1,27 +1,28 @@
 // Removes leftover test-harness tenants (organisation slug 'harness-%') that
 // interrupted integration/e2e runs left behind, mirroring destroyTenants in
 // tests/integration/helpers/tenant.ts. Dry run by default; pass --yes to
-// delete. Refuses to touch a non-local database.
+// delete. Shares the harness guard (scripts/test-database.mjs): refuses a
+// non-local database (with no override), and the local Supabase dev
+// database on port 54322 unless NABA_ALLOW_DEV_DB=1 says that is the one to
+// clean.
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import nextEnv from "@next/env"
 import postgres from "postgres"
 
+import { assertLocalDatabaseUrl } from "./test-database.mjs"
+
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 nextEnv.loadEnvConfig(root)
 
 const url = process.env.DIRECT_DATABASE_URL
 if (!url) throw new Error("DIRECT_DATABASE_URL is required.")
-
-const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"])
-const hostname = new URL(url).hostname.replace(/^\[|\]$/g, "")
-if (!LOCAL_DB_HOSTS.has(hostname) && !hostname.endsWith(".localhost")) {
-  throw new Error(
-    `Refusing to run against non-local host "${hostname}". This script ` +
-      "deletes organisations and is meant for local databases only."
-  )
-}
+// No remote override here: this script only ever cleans a local database.
+assertLocalDatabaseUrl("DIRECT_DATABASE_URL", {
+  ...process.env,
+  ALLOW_REMOTE_TEST_DB: undefined,
+})
 
 const apply = process.argv.includes("--yes")
 const sql = postgres(url, { max: 1 })

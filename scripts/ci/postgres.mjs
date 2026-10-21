@@ -12,6 +12,10 @@
 //
 // Variables are appended to $GITHUB_ENV when it is set; otherwise they are
 // printed as `export` lines, e.g. `eval "$(node scripts/ci/postgres.mjs start)"`.
+// Besides the URLs, NABA_PG_DISPOSABLE=<host:port> marks them as this
+// throwaway cluster, and the cluster itself carries the setting
+// naba.disposable_cluster = on: scripts/run-test-command.mjs checks both
+// before it lets the suites wipe it (scripts/test-database.mjs).
 // State lives in NABA_PG_DIR (default: $RUNNER_TEMP or the OS temp dir, plus
 // a per-job name), which is where pg.log is written on the native path.
 
@@ -33,6 +37,11 @@ const SUPERUSER = "postgres"
 const PASSWORD = "postgres"
 const RUNTIME_ROLE = "naba_test_runtime"
 const IMAGE = "postgres:17-alpine"
+// Kept in step with DISPOSABLE_SETTING in scripts/test-database.mjs.
+const DISPOSABLE_SETTING = "naba.disposable_cluster"
+// `supabase start` listens on 54321-54329 (54322 is the dev database);
+// never hand one of those out, even when it happens to be free.
+const SUPABASE_PORTS = { first: 54320, last: 54329 }
 
 const instance = [
   "naba-pg",
@@ -72,7 +81,7 @@ async function start() {
   const mode =
     process.env.NABA_PG_MODE ??
     (process.platform === "darwin" ? "native" : "docker")
-  const port = await freePort()
+  const port = await freeClusterPort()
   rmSync(stateDir, { recursive: true, force: true })
   mkdirSync(stateDir, { recursive: true })
 
@@ -94,6 +103,7 @@ async function start() {
     DATABASE_URL: runtime,
     TEST_RUNTIME_DATABASE_URL: runtime,
     NABA_PG_PORT: String(port),
+    NABA_PG_DISPOSABLE: `127.0.0.1:${port}`,
   })
   console.error(
     `PostgreSQL (${mode}) ready on 127.0.0.1:${port}, database ${DATABASE}`
@@ -122,6 +132,8 @@ function startDocker(state) {
     "synchronous_commit=off",
     "-c",
     "full_page_writes=off",
+    "-c",
+    `${DISPOSABLE_SETTING}=on`,
   ])
   // The image's entrypoint runs a socket-only temporary server during init,
   // so only a TCP check proves the final server is up.
@@ -179,6 +191,7 @@ function startNative(state) {
       "fsync = off",
       "synchronous_commit = off",
       "full_page_writes = off",
+      `${DISPOSABLE_SETTING} = on`,
       "",
     ].join("\n")
   )
@@ -259,6 +272,14 @@ async function ports() {
     }
   }
   throw new Error("could not find two adjacent free ports")
+}
+
+async function freeClusterPort() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const port = await freePort()
+    if (port < SUPABASE_PORTS.first || port > SUPABASE_PORTS.last) return port
+  }
+  throw new Error("could not find a free port outside the Supabase range")
 }
 
 function freePort() {
