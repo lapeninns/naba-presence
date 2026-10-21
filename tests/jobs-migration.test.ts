@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { PGlite } from "@electric-sql/pglite"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
 
@@ -167,6 +167,15 @@ describe("claim_due_jobs contract (0048 -> 0092)", () => {
       `)
       await db.exec(read("0086_mutation_operation.sql"))
       await db.exec(latest)
+    })
+
+    // Every case starts from the same due rows, so none depends on what an
+    // earlier one claimed or released.
+    beforeEach(async () => {
+      await db.exec(`
+        truncate processed_webhook_event, sync_checkpoint, publish_attempt,
+          mutation_operation;
+      `)
       const past = "now() - interval '1 minute'"
       await db.exec(`
         insert into processed_webhook_event (id, organisation_id, status, retry_count, next_attempt_at)
@@ -224,6 +233,7 @@ describe("claim_due_jobs contract (0048 -> 0092)", () => {
     })
 
     it("leases the receipt and pushes its due time to the lease end", async () => {
+      expect((await claim()).map((row) => row.job_id)).toContain(id(7))
       const {
         rows: [row],
       } = await db.query<{ leased: boolean; due: boolean }>(
@@ -237,6 +247,7 @@ describe("claim_due_jobs contract (0048 -> 0092)", () => {
     })
 
     it("releases the lease on mutation_operation", async () => {
+      expect(await claim(["mutation_recover"])).toHaveLength(1)
       await db.query(`select release_job_lease('mutation_recover', $1, $2)`, [
         ORG,
         id(7),
@@ -251,13 +262,14 @@ describe("claim_due_jobs contract (0048 -> 0092)", () => {
     })
 
     it("filters by kind", async () => {
-      await db.exec(
-        `update mutation_operation set next_recovery_at = now() - interval '1 minute' where id = '${id(7)}'`
-      )
-      expect((await claim(["retry"])).map((row) => row.kind)).toEqual([])
+      // Every kind is due; each call takes only the kinds it names.
+      expect((await claim(["retry"])).map((row) => row.kind)).toEqual([
+        "retry",
+      ])
       expect(
         (await claim(["mutation_recover"])).map((row) => row.kind)
       ).toEqual(["mutation_recover"])
+      expect(await claim(["retry", "mutation_recover"])).toEqual([])
     })
   })
 })

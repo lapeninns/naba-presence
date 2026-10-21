@@ -16,8 +16,10 @@ describe("Google transport", () => {
   let respond: ((response: ServerResponse) => void) | null
   let server: Server
   let stubBaseUrl: string
+  let savedEnv: NodeJS.ProcessEnv
 
   beforeEach(async () => {
+    savedEnv = { ...process.env }
     vi.resetModules()
     calls = 0
     mode = StubMode.retryOnce
@@ -67,8 +69,11 @@ describe("Google transport", () => {
   })
 
   afterEach(async () => {
-    delete process.env.GOOGLE_API_PROXY_BASE
-    delete process.env.GOOGLE_RATE_BUDGET_ENABLED
+    // Every variable this file set, including the server URL, goes back.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) delete process.env[key]
+    }
+    Object.assign(process.env, savedEnv)
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) reject(error)
@@ -357,7 +362,7 @@ describe("Google transport", () => {
       const { withGoogleWriteDeadline } = await import(
         "@/lib/server/google/transport"
       )
-      const startedAt = performance.now()
+      const abortAfter = vi.spyOn(AbortSignal, "timeout")
 
       // When: a safe read runs in the session.
       const request = withGoogleWriteDeadline(Date.now() + 200, () =>
@@ -369,9 +374,16 @@ describe("Google transport", () => {
         )
       )
 
-      // Then: it times out at the session deadline.
+      // Then: it times out, and the request was only ever given until the
+      // session deadline (200 ms), never its own 1000 ms timeout. Read from
+      // the abort the transport armed, not the wall clock, so a loaded
+      // machine cannot fail it.
       await expect(request).rejects.toMatchObject({ code: "google_timeout" })
-      expect(performance.now() - startedAt).toBeLessThan(800)
+      expect(abortAfter).toHaveBeenCalled()
+      for (const [ms] of abortAfter.mock.calls) {
+        expect(ms).toBeGreaterThan(0)
+        expect(ms).toBeLessThanOrEqual(200)
+      }
     })
   })
 
@@ -385,7 +397,7 @@ describe("Google transport", () => {
       response.end(JSON.stringify({ error: { status: "UNAVAILABLE" } }))
     }
     const { googleRequest } = await import("@/lib/server/google")
-    const startedAt = performance.now()
+    const timers = vi.spyOn(globalThis, "setTimeout")
 
     // When: a safe read is retried.
     const request = googleRequest(
@@ -402,6 +414,11 @@ describe("Google transport", () => {
       code: "UNAVAILABLE",
     })
     expect(calls).toBe(1)
-    expect(performance.now() - startedAt).toBeLessThan(500)
+    // No sleep was armed: not Retry-After's 5 s, nor the call's remaining
+    // second. (fetch's own bookkeeping tick, 499 ms, is the only timer.)
+    const sleeps = timers.mock.calls
+      .map(([, ms]) => Number(ms ?? 0))
+      .filter((ms) => ms >= 500)
+    expect(sleeps).toEqual([])
   })
 })

@@ -219,9 +219,13 @@ describe("0121 scheduled post operations migration", () => {
       // Not stuck: started recently.
       await occurrence(a, "publishing", { minutesAgo: 2, startedMinutesAgo: 2 })
       // Not stuck: an old start, but its schedule still holds a live lease.
-      const leased = await schedule("active", {
-        lease: new Date(Date.now() + 60_000).toISOString(),
-      })
+      // Every time here is the database's clock, as the function reads it.
+      const {
+        rows: [{ inAMinute }],
+      } = await db.query<{ inAMinute: string }>(
+        `select (now() + interval '1 minute')::text as "inAMinute"`
+      )
+      const leased = await schedule("active", { lease: inAMinute })
       await occurrence(leased, "publishing", {
         minutesAgo: 30,
         startedMinutesAgo: 30,
@@ -261,10 +265,14 @@ describe("0121 scheduled post operations migration", () => {
         },
       ])
       // The stuck one is the 20-minute-old start.
-      const startedAgo =
-        Date.now() - new Date(rows[0]!.oldest_started_at!).getTime()
-      expect(startedAgo).toBeGreaterThan(19 * 60_000)
-      expect(startedAgo).toBeLessThan(21 * 60_000)
+      const {
+        rows: [{ minutes }],
+      } = await db.query<{ minutes: number }>(
+        `select extract(epoch from now() - $1::timestamptz)::float8 / 60 as minutes`,
+        [rows[0]!.oldest_started_at]
+      )
+      expect(minutes).toBeGreaterThan(19)
+      expect(minutes).toBeLessThan(21)
       // The overdue slots move on, and the report clears.
       await db.exec(
         "update post_publication_occurrence set status = 'missed', finished_at = now() where status in ('scheduled', 'publishing')"

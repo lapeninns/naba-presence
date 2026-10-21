@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { GoogleLocationProfile } from "@/lib/domain/profile"
 import type { Session } from "@/lib/server/session"
@@ -167,6 +167,9 @@ beforeEach(() => {
       }
     }
   )
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 function resetCounters() {
