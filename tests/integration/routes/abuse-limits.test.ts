@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { inOneAbuseWindow } from "../helpers/abuse-window"
 import { startAppServer } from "../helpers/app-server"
 import { startAuthProviderStub } from "../helpers/auth-provider"
 import { createTestTenant, destroyTenants } from "../helpers/tenant"
@@ -17,18 +18,6 @@ const LOGIN_WINDOW_SECONDS = 15 * 60
 // ABUSE_POLICIES.sync_manual: per person, per 10 minutes.
 const SYNC_USER_LIMIT = 10
 const SYNC_WINDOW_SECONDS = 10 * 60
-
-/**
- * Windows are aligned to multiples of their length, so a run that straddles
- * a boundary would see its counts reset half way. Start well inside one.
- */
-async function awayFromWindowEdge(windowSeconds: number, marginSeconds = 60) {
-  const intoWindow = (Date.now() / 1000) % windowSeconds
-  const left = windowSeconds - intoWindow
-  if (left < marginSeconds) {
-    await new Promise((resolve) => setTimeout(resolve, (left + 1) * 1000))
-  }
-}
 
 /** A random documentation-range address, unique per call in practice. */
 function testIp() {
@@ -86,120 +75,128 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
   }
 
   it("refuses the attempt after the email's limit, from any address, with Retry-After", async () => {
-    await awayFromWindowEdge(LOGIN_WINDOW_SECONDS)
-    const email = `abuse-${randomUUID()}@nabapresence.test`
-    for (let attempt = 0; attempt < LOGIN_EMAIL_LIMIT; attempt += 1) {
-      const response = await login(email, testIp())
-      expect(response.status).toBe(401)
-    }
-    const limited = await login(email, testIp())
-    expect(limited.status).toBe(429)
-    const retryAfter = Number(limited.headers.get("retry-after"))
-    expect(retryAfter).toBeGreaterThan(0)
-    expect(retryAfter).toBeLessThanOrEqual(LOGIN_WINDOW_SECONDS)
-    expect(await limited.json()).toMatchObject({
-      error: "auth_rate_limited",
-      details: { retryAfter },
+    await inOneAbuseWindow(admin, LOGIN_WINDOW_SECONDS, async () => {
+      const email = `abuse-${randomUUID()}@nabapresence.test`
+      for (let attempt = 0; attempt < LOGIN_EMAIL_LIMIT; attempt += 1) {
+        const response = await login(email, testIp())
+        expect(response.status).toBe(401)
+      }
+      const limited = await login(email, testIp())
+      expect(limited.status).toBe(429)
+      const retryAfter = Number(limited.headers.get("retry-after"))
+      expect(retryAfter).toBeGreaterThan(0)
+      expect(retryAfter).toBeLessThanOrEqual(LOGIN_WINDOW_SECONDS)
+      expect(await limited.json()).toMatchObject({
+        error: "auth_rate_limited",
+        details: { retryAfter },
+      })
+      // The email itself is never stored.
+      const [stored] = await admin<{ count: number }[]>`
+          select count(*)::int as count from abuse_rate_bucket
+          where key_hash ilike ${`%${email.split("@")[0]}%`}
+        `
+      expect(stored.count).toBe(0)
     })
-    // The email itself is never stored.
-    const [stored] = await admin<{ count: number }[]>`
-        select count(*)::int as count from abuse_rate_bucket
-        where key_hash ilike ${`%${email.split("@")[0]}%`}
-      `
-    expect(stored.count).toBe(0)
-  }, 120_000)
+  }, 20_000)
 
   it("does not let one address lock an account out", async () => {
-    await awayFromWindowEdge(LOGIN_WINDOW_SECONDS)
-    const email = `abuse-${randomUUID()}@nabapresence.test`
-    const attacker = testIp()
-    for (let attempt = 0; attempt < LOGIN_IP_LIMIT; attempt += 1) {
-      expect((await login(email, attacker)).status).toBe(401)
-    }
-    expect((await login(email, attacker)).status).toBe(429)
-    // The owner, elsewhere, is still judged on the password alone.
-    expect((await login(email, testIp())).status).toBe(401)
-  }, 120_000)
+    await inOneAbuseWindow(admin, LOGIN_WINDOW_SECONDS, async () => {
+      const email = `abuse-${randomUUID()}@nabapresence.test`
+      const attacker = testIp()
+      for (let attempt = 0; attempt < LOGIN_IP_LIMIT; attempt += 1) {
+        expect((await login(email, attacker)).status).toBe(401)
+      }
+      expect((await login(email, attacker)).status).toBe(429)
+      // The owner, elsewhere, is still judged on the password alone.
+      expect((await login(email, testIp())).status).toBe(401)
+    })
+  }, 20_000)
 
   it("keeps separate buckets for separate addresses", async () => {
-    await awayFromWindowEdge(LOGIN_WINDOW_SECONDS)
-    const busy = testIp()
-    for (let attempt = 0; attempt < LOGIN_IP_LIMIT; attempt += 1) {
-      const response = await login(
+    await inOneAbuseWindow(admin, LOGIN_WINDOW_SECONDS, async () => {
+      const busy = testIp()
+      for (let attempt = 0; attempt < LOGIN_IP_LIMIT; attempt += 1) {
+        const response = await login(
+          `abuse-${randomUUID()}@nabapresence.test`,
+          busy
+        )
+        expect(response.status).toBe(401)
+      }
+      const limited = await login(
         `abuse-${randomUUID()}@nabapresence.test`,
         busy
       )
-      expect(response.status).toBe(401)
-    }
-    const limited = await login(`abuse-${randomUUID()}@nabapresence.test`, busy)
-    expect(limited.status).toBe(429)
-    // A spoofed x-forwarded-for does not move the request to a new bucket.
-    const spoofed = await fetch(`${server.baseUrl}/api/auth/password/login`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-vercel-forwarded-for": busy,
-        "x-forwarded-for": testIp(),
-      },
-      body: JSON.stringify({
-        email: `abuse-${randomUUID()}@nabapresence.test`,
-        password: "Wrong password!1",
-      }),
+      expect(limited.status).toBe(429)
+      // A spoofed x-forwarded-for does not move the request to a new bucket.
+      const spoofed = await fetch(`${server.baseUrl}/api/auth/password/login`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-vercel-forwarded-for": busy,
+          "x-forwarded-for": testIp(),
+        },
+        body: JSON.stringify({
+          email: `abuse-${randomUUID()}@nabapresence.test`,
+          password: "Wrong password!1",
+        }),
+      })
+      expect(spoofed.status).toBe(429)
+      const other = await login(
+        `abuse-${randomUUID()}@nabapresence.test`,
+        testIp()
+      )
+      expect(other.status).toBe(401)
     })
-    expect(spoofed.status).toBe(429)
-    const other = await login(
-      `abuse-${randomUUID()}@nabapresence.test`,
-      testIp()
-    )
-    expect(other.status).toBe(401)
-  }, 120_000)
+  }, 20_000)
 
   it("refuses a burst of Sync now presses per person, and not another tenant's", async () => {
-    await awayFromWindowEdge(SYNC_WINDOW_SECONDS)
-    const busy = await createTestTenant(admin)
-    const other = await createTestTenant(admin)
-    organisations.push(busy.organisationId, other.organisationId)
-    const syncNow = (cookie: string) =>
-      fetch(`${server.baseUrl}/api/sync/reconcile`, {
-        method: "POST",
-        headers: { cookie, "content-type": "application/json" },
-        body: "{}",
+    await inOneAbuseWindow(admin, SYNC_WINDOW_SECONDS, async () => {
+      const busy = await createTestTenant(admin)
+      const other = await createTestTenant(admin)
+      organisations.push(busy.organisationId, other.organisationId)
+      const syncNow = (cookie: string) =>
+        fetch(`${server.baseUrl}/api/sync/reconcile`, {
+          method: "POST",
+          headers: { cookie, "content-type": "application/json" },
+          body: "{}",
+        })
+      for (let attempt = 0; attempt < SYNC_USER_LIMIT; attempt += 1) {
+        const response = await syncNow(busy.cookie)
+        expect(response.status, await response.clone().text()).toBe(200)
+      }
+      const limited = await syncNow(busy.cookie)
+      expect(limited.status).toBe(429)
+      const retryAfter = Number(limited.headers.get("retry-after"))
+      expect(retryAfter).toBeGreaterThan(0)
+      expect(retryAfter).toBeLessThanOrEqual(SYNC_WINDOW_SECONDS)
+      expect(await limited.json()).toMatchObject({
+        error: "sync_rate_limited",
+        details: { retryAfter },
       })
-    for (let attempt = 0; attempt < SYNC_USER_LIMIT; attempt += 1) {
-      const response = await syncNow(busy.cookie)
-      expect(response.status, await response.clone().text()).toBe(200)
-    }
-    const limited = await syncNow(busy.cookie)
-    expect(limited.status).toBe(429)
-    const retryAfter = Number(limited.headers.get("retry-after"))
-    expect(retryAfter).toBeGreaterThan(0)
-    expect(retryAfter).toBeLessThanOrEqual(SYNC_WINDOW_SECONDS)
-    expect(await limited.json()).toMatchObject({
-      error: "sync_rate_limited",
-      details: { retryAfter },
+      // Counted per person and organisation, so another tenant is untouched.
+      expect((await syncNow(other.cookie)).status).toBe(200)
     })
-    // Counted per person and organisation, so another tenant is untouched.
-    expect((await syncNow(other.cookie)).status).toBe(200)
-  }, 120_000)
+  }, 20_000)
 
   it("counts concurrent hits exactly and allows no more than the limit", async () => {
-    await awayFromWindowEdge(3600)
-    const key = randomUUID().replaceAll("-", "")
-    const results = await Promise.all(
-      Array.from(
-        { length: 50 },
-        () => runtime<{ allowed: boolean }[]>`
-          select allowed from take_abuse_budget('it_concurrency', ${key}, 20, 3600)
-        `
+    await inOneAbuseWindow(admin, 3600, async () => {
+      const key = randomUUID().replaceAll("-", "")
+      const results = await Promise.all(
+        Array.from(
+          { length: 50 },
+          () => runtime<{ allowed: boolean }[]>`
+            select allowed from take_abuse_budget('it_concurrency', ${key}, 20, 3600)
+          `
+        )
       )
-    )
-    expect(results.filter(([row]) => row.allowed)).toHaveLength(20)
-    const [bucket] = await admin<{ hits: number }[]>`
-      select hits from abuse_rate_bucket
-      where scope = 'it_concurrency' and key_hash = ${key}
-    `
-    expect(bucket.hits).toBe(50)
-  }, 120_000)
+      expect(results.filter(([row]) => row.allowed)).toHaveLength(20)
+      const [bucket] = await admin<{ hits: number }[]>`
+        select hits from abuse_rate_bucket
+        where scope = 'it_concurrency' and key_hash = ${key}
+      `
+      expect(bucket.hits).toBe(50)
+    })
+  }, 20_000)
 
   it("keeps the table behind its functions for the runtime role", async () => {
     // Select is granted but RLS has no policy, so no row is ever visible;
