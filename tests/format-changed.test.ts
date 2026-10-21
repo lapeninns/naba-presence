@@ -288,7 +288,7 @@ describe("pre-push hook skip rules", () => {
     put("README.md", "root\n")
     rootCommit = commit("root")
     git("update-ref", "refs/remotes/origin/main", rootCommit)
-    put("docs/ci.md", "docs\n")
+    put("docs/specs/plan.md", "docs\n")
     put("lib/NOTES.md", "notes\n")
     docsCommit = commit("docs only")
     put("lib/code.ts", "export {}\n")
@@ -320,6 +320,22 @@ describe("pre-push hook skip rules", () => {
     const result = push(line(codeCommit, rootCommit))
     expect(result.status).toBe(0)
     expect(result.ran).toEqual(CHECKS)
+  })
+
+  it("treats the docs that tests read as code", () => {
+    for (const path of ["docs/runbook.md", "docs/release/receipts/x.json"]) {
+      put(path, `${path}\n`)
+      const change = commit(`touch ${path}`)
+      expect(push(line(change, docsCommit)).ran, path).toEqual(CHECKS)
+    }
+  })
+
+  it("treats moving code into docs/ as a code change", () => {
+    git("mv", "lib/code.ts", "docs/archive-code.ts")
+    const moved = commit("move code into docs")
+    expect(push(line(moved, codeCommit)).ran).toEqual(CHECKS)
+    git("mv", "docs/archive-code.ts", "lib/code.ts")
+    commit("move it back")
   })
 
   it("does not treat AGENTS.md as documentation", () => {

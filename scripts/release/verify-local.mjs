@@ -197,6 +197,7 @@ export function parseArgs(argv, env = {}) {
       env.NABA_GATE_INTEGRATION_SHARDS ?? DEFAULT_INTEGRATION_SHARDS
     ),
   }
+  let shardsGiven = env.NABA_GATE_INTEGRATION_SHARDS !== undefined
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--skip") {
@@ -214,6 +215,7 @@ export function parseArgs(argv, env = {}) {
     else if (arg === "--serial") options.serial = true
     else if (arg === "--integration-shards") {
       options.integrationShards = argv[++index] ?? ""
+      shardsGiven = true
     } else throw new Error(`Unknown argument: ${arg}`)
   }
   const unknown = options.skip.filter(
@@ -228,7 +230,8 @@ export function parseArgs(argv, env = {}) {
   if (!Number.isInteger(shards) || shards < 1 || shards > 16) {
     throw new Error("--integration-shards needs a whole number from 1 to 16")
   }
-  options.integrationShards = shards
+  // --serial is for a busy machine: one integration shard unless asked.
+  options.integrationShards = options.serial && !shardsGiven ? 1 : shards
   options.skip = [...new Set(options.skip)]
   return options
 }
@@ -553,15 +556,15 @@ async function main() {
       const dir = join(runDir, `pg-${name}`)
       // SHARD names the docker container on the docker path.
       const extraEnv = { NABA_PG_DIR: dir, SHARD: name }
+      // Tracked before it starts, so an interrupt mid-start still stops it
+      // (postgres.mjs stop is idempotent).
+      clusters.push({ dir, name })
       const result = await exec(
         sink,
         "node",
         ["scripts/ci/postgres.mjs", "start"],
-        {
-          extraEnv,
-        }
+        { extraEnv }
       )
-      clusters.push({ dir, name })
       if (result.code !== 0) {
         throw new Error(
           `PostgreSQL did not start for ${name} (scripts/ci/postgres.mjs start)`

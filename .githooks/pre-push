@@ -7,8 +7,9 @@
 # gitleaks is installed.
 #
 # A push that only deletes branches runs nothing. One whose every ref only
-# changes documentation (`docs/**` and `*.md`, but not AGENTS.md; the same rule
-# as scripts/vercel-ignore-build.mjs) skips the format check and `pnpm verify`
+# changes documentation (`docs/**` and `*.md`, but not AGENTS.md or the docs
+# tests read; the same rule as scripts/vercel-ignore-build.mjs and ci.yml's
+# plan job) skips the format check and `pnpm verify`
 # but still gets the secret scan: a token pasted into a Markdown file is still
 # a leak. When git cannot tell what a push changes, everything runs.
 #
@@ -29,6 +30,7 @@ docs_only() {
     case "$path" in
       AGENTS.md | */AGENTS.md) return 1 ;;
       .github/* | scripts/* | supabase/*) return 1 ;;
+      README.md | docs/architecture.md | docs/ci.md | docs/frontend-backend-feature-map.md | docs/release/* | docs/runbook.md) return 1 ;;
       docs/* | *.md) ;;
       *) return 1 ;;
     esac
@@ -50,7 +52,8 @@ ref_needs_nothing() {
     *) from=$(git merge-base origin/main "$local_sha" 2>/dev/null) || return 1 ;;
   esac
   git cat-file -e "$from^{commit}" 2>/dev/null || return 1
-  changed=$(git diff --name-only "$from" "$local_sha" 2>/dev/null) || return 1
+  # Both sides of a rename: moving code into docs/ is a code change.
+  changed=$(git diff --name-only --no-renames "$from" "$local_sha" 2>/dev/null) || return 1
   printf '%s\n' "$changed" | docs_only
 }
 

@@ -210,6 +210,12 @@ describe("verify:release steps", () => {
       serial: true,
       integrationShards: 2,
     })
+    // --serial alone means one shard; an explicit count still wins.
+    expect(parseArgs(["--serial"]).integrationShards).toBe(1)
+    expect(
+      parseArgs(["--serial"], { NABA_GATE_INTEGRATION_SHARDS: "2" })
+        .integrationShards
+    ).toBe(2)
     expect(
       parseArgs([], { NABA_GATE_INTEGRATION_SHARDS: "3" }).integrationShards
     ).toBe(3)

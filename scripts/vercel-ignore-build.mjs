@@ -10,7 +10,9 @@
 //     and nobody opens their previews, or
 //   - every file changed since the branch's last deployment
 //     (VERCEL_GIT_PREVIOUS_SHA..VERCEL_GIT_COMMIT_SHA) is documentation:
-//     `docs/**` or `*.md`, but not AGENTS.md. This matches ci.yml's `plan` job.
+//     `docs/**` or `*.md`, but not AGENTS.md and not TEST_INPUT_DOCS. The
+//     same rule decides ci.yml's `plan` job and .githooks/pre-push
+//     (tests/server/vercel-ignore-build.test.ts keeps the three in step).
 
 import { execFileSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
@@ -18,8 +20,30 @@ import { pathToFileURL } from "node:url"
 export const BUILD = 1
 export const SKIP = 0
 
+/**
+ * Documentation that tests or the release gate read: a change to one of
+ * these can fail `pnpm test` (the docs path and command checks, the receipt
+ * and retention-inventory tests), so it is not docs-only. Entries ending in
+ * `/` are folders.
+ */
+export const TEST_INPUT_DOCS = [
+  "README.md",
+  "docs/architecture.md",
+  "docs/ci.md",
+  "docs/frontend-backend-feature-map.md",
+  "docs/release/",
+  "docs/runbook.md",
+]
+
 export function isDocsOnlyFile(file) {
   if (file === "AGENTS.md" || file.endsWith("/AGENTS.md")) return false
+  if (
+    TEST_INPUT_DOCS.some((entry) =>
+      entry.endsWith("/") ? file.startsWith(entry) : file === entry
+    )
+  ) {
+    return false
+  }
   if (file.startsWith(".github/") || file.startsWith("scripts/")) return false
   if (file.startsWith("supabase/")) return false
   return file.startsWith("docs/") || file.endsWith(".md")
@@ -71,7 +95,8 @@ function gitChangedFiles(from, to) {
     // throw, and the caller then builds.
     const output = execFileSync(
       "git",
-      ["diff", "--name-only", `${from}..${to}`],
+      // Both sides of a rename: moving code into docs/ is a code change.
+      ["diff", "--name-only", "--no-renames", `${from}..${to}`],
       {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
