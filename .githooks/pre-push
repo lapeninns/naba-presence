@@ -2,8 +2,14 @@
 # Opt-in pre-push check: `pnpm hooks:install` (git config core.hooksPath .githooks).
 # Undo with `git config --unset core.hooksPath`.
 #
-# Runs `pnpm verify` (typecheck, lint, unit tests; no database), then a
-# gitleaks scan of the commits being pushed when gitleaks is installed.
+# Runs the changed-files format check and `pnpm verify` (typecheck, lint, unit
+# tests; no database), then a gitleaks scan of the commits being pushed when
+# gitleaks is installed.
+#
+# Skipped entirely when every ref in the push either deletes a branch or only
+# changes documentation (`docs/**` and `*.md`, but not AGENTS.md; the same rule
+# as scripts/vercel-ignore-build.mjs). When git cannot tell what a push
+# changes, the checks run.
 #
 # Skip once: SKIP_VERIFY=1 git push   or   git push --no-verify
 set -eu
@@ -12,6 +18,68 @@ if [ "${SKIP_VERIFY:-}" = 1 ]; then
   echo "pre-push: SKIP_VERIFY=1, skipping checks"
   exit 0
 fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+# 0 when every path on stdin is documentation, 1 otherwise. An empty list
+# counts as documentation: nothing that needs checking changed.
+docs_only() {
+  while IFS= read -r path; do
+    case "$path" in
+      AGENTS.md | */AGENTS.md) return 1 ;;
+      .github/* | scripts/* | supabase/*) return 1 ;;
+      docs/* | *.md) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# 0 when the pushed ref needs no checks. Arguments are git's stdin fields:
+# local sha, remote sha.
+ref_needs_nothing() {
+  local_sha=$1
+  remote_sha=$2
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) return 0 ;; # all zeros: the push deletes the remote ref
+  esac
+  case "$remote_sha" in
+    *[!0]*) from=$remote_sha ;;
+    *) from=$(git merge-base origin/main "$local_sha" 2>/dev/null) || return 1 ;;
+  esac
+  git cat-file -e "$from^{commit}" 2>/dev/null || return 1
+  changed=$(git diff --name-only "$from" "$local_sha" 2>/dev/null) || return 1
+  printf '%s\n' "$changed" | docs_only
+}
+
+# Git writes `<local ref> <local sha> <remote ref> <remote sha>` per ref on
+# stdin. Run by hand from a terminal there is nothing to read, so run the checks.
+if [ ! -t 0 ]; then
+  seen=0
+  needed=0
+  deletes=0
+  while read -r _local_ref local_sha _remote_ref remote_sha; do
+    [ -n "${local_sha:-}" ] || continue
+    seen=$((seen + 1))
+    case "$local_sha" in
+      *[!0]*) ;;
+      *) deletes=$((deletes + 1)) ;;
+    esac
+    ref_needs_nothing "$local_sha" "$remote_sha" || needed=$((needed + 1))
+  done
+  if [ "$seen" -gt 0 ] && [ "$needed" -eq 0 ]; then
+    if [ "$deletes" -eq "$seen" ]; then
+      echo "pre-push: push only deletes branches, skipping checks"
+    else
+      echo "pre-push: push changes only documentation, skipping checks"
+    fi
+    exit 0
+  fi
+fi
+
+echo "pre-push: format check (changed files)"
+node scripts/format-changed.mjs --check
 
 echo "pre-push: pnpm verify"
 pnpm verify
