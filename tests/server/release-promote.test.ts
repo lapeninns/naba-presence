@@ -16,12 +16,20 @@ import {
   parseDeployOutput,
   parseEnvNames,
   PROBE_ATTEMPTS,
+  PROBE_TIMEOUT_EXIT,
+  PRODUCTION_MISMATCH_EXIT,
+  PRODUCTION_PROBE_ATTEMPTS,
   probeArgs,
+  probeResultFromSpawn,
+  productionProbeArgs,
+  productionProbeReport,
   promoteArgs,
   readLocalReceipt,
   receiptFileName,
+  resolveProductionUrl,
   secretLikePaths,
   stagedPromotion,
+  verifyProduction,
   worktreeIssues,
 } from "../../scripts/release/promote.mjs"
 
@@ -547,5 +555,232 @@ describe("staged promotion (W7-2): deploy, probe, then promote", () => {
       },
     })
     expect(order[0]).toBe("deployed dpl_staged")
+  })
+})
+
+describe("production probe after vercel promote (G01)", () => {
+  const PRODUCTION = "https://app.nabapresence.example"
+
+  const served = (sha: string | null, status = "ready", exitCode = 0) => ({
+    exitCode,
+    status,
+    servedSha: sha,
+  })
+
+  function mockProbe(results: ReturnType<typeof served>[]) {
+    const queue = [...results]
+    return {
+      probe: vi.fn((url: string, sha: string) => {
+        expect(url).toBe(PRODUCTION)
+        expect(sha).toBe(SHA)
+        return queue.shift() ?? served(null, "unreachable", 2)
+      }),
+      sleep: vi.fn(async () => {}),
+      now: () => new Date("2026-10-10T12:05:00.000Z"),
+    }
+  }
+
+  it("asks the probe for JSON, so the served SHA can be recorded", () => {
+    expect(productionProbeArgs(PRODUCTION, SHA)).toEqual([
+      "--url",
+      PRODUCTION,
+      "--expect-sha",
+      SHA,
+      "--json",
+    ])
+  })
+
+  it("needs an https production origin, from the flag or READINESS_URL", () => {
+    expect(resolveProductionUrl(`${PRODUCTION}/dashboard`, {})).toEqual({
+      url: PRODUCTION,
+      problem: null,
+    })
+    expect(resolveProductionUrl(null, { READINESS_URL: PRODUCTION }).url).toBe(
+      PRODUCTION
+    )
+    expect(resolveProductionUrl(null, {}).problem).toMatch(/--production-url/)
+    expect(resolveProductionUrl("http://app.example", {}).problem).toMatch(
+      /https/
+    )
+    expect(resolveProductionUrl("not a url", {}).problem).toMatch(/valid URL/)
+  })
+
+  it("passes when production serves the promoted SHA", async () => {
+    const io = mockProbe([served(SHA)])
+    const verification = await verifyProduction({
+      url: PRODUCTION,
+      sha: SHA,
+      ...io,
+    })
+    expect(verification).toEqual({
+      url: PRODUCTION,
+      expectSha: SHA,
+      ok: true,
+      status: "ready",
+      servedSha: SHA,
+      exitCode: 0,
+      attempts: [{ attempt: 1, exitCode: 0, status: "ready", servedSha: SHA }],
+      checkedAt: "2026-10-10T12:05:00.000Z",
+    })
+    expect(io.sleep).not.toHaveBeenCalled()
+    expect(productionProbeReport(verification, { nextSteps: ["x"] })).toEqual({
+      exitCode: 0,
+      lines: [`production: ${PRODUCTION} serves ${SHA} (ready, attempt 1)`],
+    })
+  })
+
+  it("retries while the domains still reach the old deployment", async () => {
+    const io = mockProbe([
+      served(OTHER_SHA, "release_mismatch", 2),
+      served(SHA, "degraded"),
+    ])
+    const verification = await verifyProduction({
+      url: PRODUCTION,
+      sha: SHA,
+      retryMs: 5,
+      ...io,
+    })
+    expect(verification.ok).toBe(true)
+    expect(verification.attempts).toHaveLength(2)
+    expect(io.sleep).toHaveBeenCalledWith(5)
+  })
+
+  it("fails loudly with exit 3 when production keeps serving another SHA", async () => {
+    const io = mockProbe(
+      Array(PRODUCTION_PROBE_ATTEMPTS).fill(
+        served(OTHER_SHA, "release_mismatch", 2)
+      )
+    )
+    const verification = await verifyProduction({
+      url: PRODUCTION,
+      sha: SHA,
+      ...io,
+    })
+    expect(verification).toMatchObject({
+      ok: false,
+      status: "release_mismatch",
+      servedSha: OTHER_SHA,
+      exitCode: 2,
+    })
+    expect(io.probe).toHaveBeenCalledTimes(PRODUCTION_PROBE_ATTEMPTS)
+    expect(io.sleep).toHaveBeenCalledTimes(PRODUCTION_PROBE_ATTEMPTS - 1)
+    const report = productionProbeReport(verification, {
+      nextSteps: ["pnpm release:rollback"],
+    })
+    expect(report.exitCode).toBe(PRODUCTION_MISMATCH_EXIT)
+    expect(report.exitCode).not.toBe(0)
+    expect(report.lines[0]).toBe(
+      `FAILED: production ${PRODUCTION} does not serve ${SHA} after ${PRODUCTION_PROBE_ATTEMPTS} probe attempt(s): it reports another release (exit 2), it serves ${OTHER_SHA}.`
+    )
+    expect(report.lines[1]).toBe("Next: pnpm release:rollback")
+  })
+
+  it("never passes on exit 0 without the promoted SHA in the answer", async () => {
+    const io = mockProbe(Array(PRODUCTION_PROBE_ATTEMPTS).fill(served(null)))
+    const verification = await verifyProduction({
+      url: PRODUCTION,
+      sha: SHA,
+      ...io,
+    })
+    expect(verification.ok).toBe(false)
+    expect(io.probe).toHaveBeenCalledTimes(PRODUCTION_PROBE_ATTEMPTS)
+  })
+
+  it("records a probe that timed out on every attempt as a failure", async () => {
+    const timedOut = probeResultFromSpawn({
+      status: null,
+      signal: "SIGTERM",
+      error: { code: "ETIMEDOUT" },
+      stdout: "",
+    })
+    expect(timedOut).toEqual({
+      exitCode: PROBE_TIMEOUT_EXIT,
+      status: "timeout",
+      servedSha: null,
+    })
+    const io = mockProbe(Array(PRODUCTION_PROBE_ATTEMPTS).fill(timedOut))
+    const verification = await verifyProduction({
+      url: PRODUCTION,
+      sha: SHA,
+      ...io,
+    })
+    expect(verification).toMatchObject({
+      ok: false,
+      status: "timeout",
+      exitCode: PROBE_TIMEOUT_EXIT,
+    })
+    expect(verification.attempts).toHaveLength(PRODUCTION_PROBE_ATTEMPTS)
+    const report = productionProbeReport(verification, { nextSteps: [] })
+    expect(report.exitCode).toBe(PRODUCTION_MISMATCH_EXIT)
+    expect(report.lines[0]).toMatch(/the probe timed out \(exit 124\)\.$/)
+  })
+
+  it("stops at once on a probe usage error", async () => {
+    const io = mockProbe([served(null, "unreadable", 64)])
+    const verification = await verifyProduction({
+      url: PRODUCTION,
+      sha: SHA,
+      ...io,
+    })
+    expect(verification.ok).toBe(false)
+    expect(io.probe).toHaveBeenCalledTimes(1)
+  })
+
+  it("reads the probe's JSON line, and never trusts unreadable output", () => {
+    const json = (body: unknown, status: string) =>
+      JSON.stringify({ exitCode: 0, status, httpStatus: 200, body })
+    expect(
+      probeResultFromSpawn({
+        status: 0,
+        stdout: `${json({ status: "ready", release: { sha: SHA } }, "ready")}\n`,
+      })
+    ).toEqual({ exitCode: 0, status: "ready", servedSha: SHA })
+    expect(
+      probeResultFromSpawn({
+        status: 2,
+        stdout: json(
+          { status: "ready", release: { sha: OTHER_SHA } },
+          "release_mismatch"
+        ),
+      })
+    ).toEqual({ exitCode: 2, status: "release_mismatch", servedSha: OTHER_SHA })
+    expect(
+      probeResultFromSpawn({ status: 0, stdout: "readiness: ready" })
+    ).toEqual({ exitCode: 2, status: "unreadable", servedSha: null })
+    expect(
+      probeResultFromSpawn({
+        status: 2,
+        stdout: json({ release: { sha: "unknown" } }, "unreachable"),
+      })
+    ).toEqual({ exitCode: 2, status: "unreachable", servedSha: null })
+  })
+
+  it("records the production probe in the promotion receipt", async () => {
+    const io = mockProbe([served(SHA)])
+    const productionProbe = await verifyProduction({
+      url: PRODUCTION,
+      sha: SHA,
+      ...io,
+    })
+    const receipt = buildReceipt({
+      sha: SHA,
+      deployment: { id: "dpl_abc123", url: "https://naba-abc.vercel.app" },
+      evidence: {
+        localGate: {
+          file: "20261010T112000Z-0123456789ab.json",
+          sha256: sha256("receipt"),
+          finishedAt: "2026-10-10T11:20:00.000Z",
+          base: { ref: OTHER_SHA, sha: OTHER_SHA, mergeBase: OTHER_SHA },
+          steps: [{ id: "unit", status: "passed" }],
+        },
+      },
+      migrations: [],
+      configNames: ["CRON_SECRET"],
+      operator: "release-operator",
+      timestamp: "2026-10-10T12:00:00.000Z",
+      productionProbe,
+    })
+    expect(receipt.productionProbe).toEqual(productionProbe)
+    expect(secretLikePaths(receipt)).toEqual([])
   })
 })
