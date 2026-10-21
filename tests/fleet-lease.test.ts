@@ -1,9 +1,15 @@
-import { readdirSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { calls, readCode, repoRoot, routeFiles } from "./helpers/route-scanner"
+import {
+  calls,
+  readCode,
+  repoRoot,
+  routeFiles,
+  stripComments,
+} from "./helpers/route-scanner"
 
 /**
  * withFleetLease (0145, audit W8-05): an expiring row, renewed while the
@@ -72,7 +78,13 @@ describe("withFleetLease", () => {
       )
     const leasingModules = libFiles("lib")
       .filter((file) => file !== "lib/server/leases.ts")
-      .filter((file) => calls(readCode(file), "withFleetLease"))
+      .filter((file) => {
+        const text = readFileSync(join(repoRoot, file), "utf8")
+        return (
+          text.includes("withFleetLease") &&
+          calls(stripComments(text), "withFleetLease")
+        )
+      })
       .map((file) => `"@/${file.replace(/\.ts$/, "")}"`)
     const budgets = routeFiles()
       .map((file) => ({ file, code: readCode(file) }))

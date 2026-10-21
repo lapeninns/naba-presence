@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { readdir, readFile } from "node:fs/promises"
 
 import { PGlite } from "@electric-sql/pglite"
-import { describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import {
   KNOWN_VERSION_GAPS,
@@ -116,19 +116,28 @@ describe("database migration contract", () => {
     ).toBe(versions.length)
   })
 
-  it("applies cleanly to a fresh PostgreSQL-compatible database", async () => {
-    const database = new PGlite()
-    try {
+  describe("on a fresh PostgreSQL-compatible database", () => {
+    // Booting PGlite is setup, as in the other PGlite files. The migration is
+    // applied here too, so a failure to apply it fails this describe.
+    let database: PGlite
+
+    beforeAll(async () => {
+      database = new PGlite()
       await database.exec(
         migration.replace("create extension if not exists pgcrypto;", "")
       )
+    })
+
+    afterAll(async () => {
+      await database.close()
+    })
+
+    it("applies cleanly and records itself", async () => {
       const result = await database.query<{ version: string }>(
         "select version from schema_migration"
       )
       expect(result.rows).toEqual([{ version: "0001_initial" }])
-    } finally {
-      await database.close()
-    }
+    })
   })
 
   it.each(tenantTables)("enables RLS routing for %s", (table) => {

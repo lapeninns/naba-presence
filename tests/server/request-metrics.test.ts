@@ -160,12 +160,16 @@ describe("withRequestMetrics", () => {
   })
 
   it("counts nothing outside a request", async () => {
-    const before = await points("nabapresence.http.server.db_transactions")
+    // Attributes and values only: each collection stamps a new endTime, so
+    // two reads a millisecond apart differ there even when nothing counted.
+    const counts = async () =>
+      (await points("nabapresence.http.server.db_transactions")).map(
+        ({ attributes, value }) => ({ attributes, value })
+      )
+    const before = await counts()
     subject.countDbTransaction()
     subject.countGoogleCall("x.googleapis.com")
-    expect(await points("nabapresence.http.server.db_transactions")).toEqual(
-      before
-    )
+    expect(await counts()).toEqual(before)
   })
 
   it("keeps concurrent requests' counts apart", async () => {
