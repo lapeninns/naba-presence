@@ -49,6 +49,13 @@ export default defineConfig({
           environment: "node",
           fileParallelism: false,
           include: ["tests/integration/**/*.test.ts"],
+          // Real HTTP against a real server and database: vitest's 5 s
+          // default sat close to how long a multi-page sync test takes on a
+          // quiet machine, so load alone failed them (deep-reconcile timed
+          // out at 5,009 ms in the 2026-10-21 baseline). A hang still fails
+          // within half a minute; tests that need longer say so.
+          testTimeout: 30_000,
+          hookTimeout: 60_000,
         },
       },
     ],
