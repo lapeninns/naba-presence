@@ -262,7 +262,26 @@ function retryDelayMs(attempt, everyMs) {
   return Math.round(backoff * (0.5 + Math.random() / 2))
 }
 
-function recurring(name, task, everyMs, initialDelayMs, options = {}) {
+// Test-only: SCHEDULER_INITIAL_DELAY_MS_<TICK> (for example
+// SCHEDULER_INITIAL_DELAY_MS_RECONCILIATION=0) brings one tick's first fire
+// forward. It can only shorten the delay below, never lengthen it, so the
+// ticks keep their stagger unless a caller asks otherwise. The parity suite
+// (tests/integration/routes/scheduler-parity.test.ts) fires reconciliation at
+// once instead of waiting 5 s, while jobs keeps its 10 s.
+const initialDelaysMs = {}
+
+function initialDelay(name, fallbackMs) {
+  const value =
+    process.env[`SCHEDULER_INITIAL_DELAY_MS_${name.toUpperCase()}`] ?? ""
+  const delay = /^\d+$/.test(value)
+    ? Math.min(Number(value), fallbackMs)
+    : fallbackMs
+  initialDelaysMs[name] = delay
+  return delay
+}
+
+function recurring(name, task, everyMs, defaultInitialDelayMs, options = {}) {
+  const initialDelayMs = initialDelay(name, defaultInitialDelayMs)
   const maxRetries = options.retries ?? 0
   let running = false
   let retryTimer
@@ -383,4 +402,5 @@ log("info", "scheduler.started", {
   presenceResourceIntervalSeconds: presenceResourceIntervalMs / 1000,
   sweepIntervalSeconds: sweepIntervalMs / 1000,
   billingReconcileIntervalSeconds: billingReconcileIntervalMs / 1000,
+  initialDelaysMs,
 })
