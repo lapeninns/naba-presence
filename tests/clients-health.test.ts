@@ -423,7 +423,9 @@ describe("healthBucket", () => {
     // The clients index filters with healthBucket(client.health) === chip,
     // so a state without its own chip would be unreachable from any filter.
     expect(
-      Object.fromEntries(CLIENT_HEALTH.map((state) => [state, healthBucket(state)]))
+      Object.fromEntries(
+        CLIENT_HEALTH.map((state) => [state, healthBucket(state)])
+      )
     ).toEqual({
       not_connected: "not_connected",
       disconnected: "disconnected",
@@ -435,7 +437,8 @@ describe("healthBucket", () => {
       unpublished: "unpublished",
     })
     const chips = new Set<string>(HEALTH_FILTERS.map((filter) => filter.value))
-    for (const state of CLIENT_HEALTH) expect(chips.has(healthBucket(state))).toBe(true)
+    for (const state of CLIENT_HEALTH)
+      expect(chips.has(healthBucket(state))).toBe(true)
   })
 
   it("counts an importing client as In sync", () => {
