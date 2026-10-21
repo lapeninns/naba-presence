@@ -648,9 +648,11 @@ describeDatabase("listing writes - two-person change approval", () => {
     async ({ path, body }) => {
       const { owner, base } = await tenant({ twoPerson: false, feature: true })
       const response = await send(owner.cookie, "POST", `${base}/${path}`, body)
-      // Straight to the publish path, which refuses these made-up hashes;
-      // what matters is that nothing parked.
-      expect(response.status, await response.clone().text()).not.toBe(202)
+      // Not parked: straight to the publish path, which asks Google (the
+      // stub has no answer for it here, so the read fails as a Google 404).
+      expect(response.status, await response.clone().text()).toBe(404)
+      expect(await response.json()).toMatchObject({ error: "NOT_FOUND" })
+      expect(google.calls.length).toBeGreaterThan(0)
       expect(await changeRequests(owner.organisationId)).toEqual([])
     },
     60_000
