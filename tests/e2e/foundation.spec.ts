@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, test } from "@playwright/test"
+import { expect, type Page, test } from "@playwright/test"
 
-import { pageSettled } from "./helpers/settled"
+import { pageSettled, transitionsSettled } from "./helpers/settled"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 /** The health chip's words: agency wording, then business (lib/clients/health.ts). */
@@ -12,6 +12,17 @@ const HEALTH_WORDS =
 const INBOX_TAB = /^Inbox(, \d+ (?:needs? a reply|awaiting your approval|needs? your attention: \d+ to reply, \d+ to approve))?$/
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
+
+/**
+ * The page is rendered and still. /design-system is a showcase: it shows
+ * skeletons and busy controls on purpose, so no "nothing is busy" state ever
+ * arrives there. It is ready when its heading is up and nothing is moving.
+ */
+async function settle(page: Page, path: string) {
+  if (path !== "/design-system") return pageSettled(page)
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+  await transitionsSettled(page)
+}
 
 test.describe("rebuild foundation", () => {
   // The shell's two shapes (components/app-shell/app-shell.tsx): the phone
@@ -151,7 +162,7 @@ test.describe("rebuild foundation", () => {
       await page.emulateMedia({ colorScheme: theme })
       for (const path of ["/inbox", "/design-system"]) {
         await page.goto(path)
-        await pageSettled(page)
+        await settle(page, path)
         const wcag = await new AxeBuilder({ page })
           .withTags(WCAG_TAGS)
           .analyze()
@@ -184,7 +195,7 @@ test.describe("foundation layout and theme (RC3)", () => {
     test(`/design-system never scrolls sideways at ${width}px (#21)`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 })
       await page.goto("/design-system")
-      await pageSettled(page)
+      await settle(page, "/design-system")
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
