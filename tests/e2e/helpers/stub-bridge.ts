@@ -66,9 +66,17 @@ export type JourneyState = {
   memberUnassignedCookie: string
 }
 
+/** How long the journey tenants' sessions last: well past any plausible full serial run. */
+const JOURNEY_SESSION_HOURS = 8
+
+/**
+ * Where the shared journey tenant's state is written and read. `E2E_JOURNEY_STATE_PATH`
+ * moves it, so two Playwright invocations on one checkout never share (or, via
+ * Playwright's clean-up of its output folder, delete) each other's file.
+ */
 export const journeyStatePath = resolve(
   process.cwd(),
-  "test-results/e2e-journey-state.json"
+  process.env.E2E_JOURNEY_STATE_PATH ?? "test-results/e2e-journey-state.json"
 )
 
 export async function readJourneyState() {
@@ -774,6 +782,24 @@ export default async function startJourneyBridge(config: FullConfig) {
       memberAssignedCookie: memberAssigned.cookie,
       memberUnassignedCookie: memberUnassigned.cookie,
     }
+    // Every seeded session, and the Google connection's access token, lasts
+    // one hour from here (the integration helpers' default). The journey
+    // cookies are minted once, here, and the specs run serially on one worker,
+    // so on a slow or busy machine a long run outlives them and later specs
+    // fail on auth redirects that look like product bugs. Stretch both for
+    // these two tenants only; this is the harness's own database, and
+    // production session lifetimes are not touched.
+    const journeyOrganisations = [organisationId, approvalTenant.organisationId]
+    await admin`
+      update app_session
+      set expires_at = now() + make_interval(hours => ${JOURNEY_SESSION_HOURS})
+      where organisation_id in ${admin(journeyOrganisations)}
+    `
+    await admin`
+      update google_connection
+      set access_token_expires_at = now() + make_interval(hours => ${JOURNEY_SESSION_HOURS})
+      where organisation_id in ${admin(journeyOrganisations)}
+    `
     await mkdir(dirname(journeyStatePath), { recursive: true })
     await writeFile(journeyStatePath, JSON.stringify(state), "utf8")
   } catch (error) {

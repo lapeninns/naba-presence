@@ -6,6 +6,23 @@ import { createTestTenant, destroyTenants, seedGoogleConnection, seedLinkedRevie
 
 export type StartMethod = "EMAIL" | "PHONE_CALL" | "SMS" | "ADDRESS" | "AUTO"
 
+/**
+ * `startAppServer` picks a free port by probing and closing it, so the port can
+ * be taken again before the server binds it. A second Playwright invocation
+ * running beside this one (the isolated specs run concurrently with the shared
+ * journeys) makes that window real: the server then exits at once, and a fresh
+ * port is a complete fix. Anything else is a real failure and is rethrown.
+ */
+async function startIsolatedAppServer(env: Record<string, string>) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await startAppServer(env)
+    } catch (error) {
+      if (attempt >= 3 || !/Server exited|EADDRINUSE/.test(String(error))) throw error
+    }
+  }
+}
+
 export async function startVerificationBackend() {
   if (!process.env.DIRECT_DATABASE_URL) throw new Error("Isolated PostgreSQL required")
   const admin = postgres(process.env.DIRECT_DATABASE_URL, { max: 1 })
@@ -17,7 +34,7 @@ export async function startVerificationBackend() {
   // verification send makes a dozen exact reads around one write, which at
   // that pace outlasts the assertions; the integration suites raise it the
   // same way.
-  const server = await startAppServer({ GOOGLE_API_PROXY_BASE: google.baseUrl, GOOGLE_REQUESTS_PER_SECOND: "100", GBP_PROFILE_WRITES_ENABLED: "true", PUBLISH_ENABLED: "true", RESEND_API_KEY: "" })
+  const server = await startIsolatedAppServer({ GOOGLE_API_PROXY_BASE: google.baseUrl, GOOGLE_REQUESTS_PER_SECOND: "100", GBP_PROFILE_WRITES_ENABLED: "true", PUBLISH_ENABLED: "true", RESEND_API_KEY: "" })
   return {
     admin, google, server,
     async stop() { await server.stop(); await google.stop(); await destroyTenants(admin, organisations); await admin.end() },
