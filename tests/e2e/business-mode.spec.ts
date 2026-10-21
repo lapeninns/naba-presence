@@ -1,6 +1,7 @@
 import { expect } from "@playwright/test"
 
-import { NO_BUSINESS_TENANT, test } from "./helpers/business-tenant"
+import { test } from "./helpers/business-tenant"
+import { pageSettled, trackRequests } from "./helpers/settled"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 /**
@@ -9,8 +10,8 @@ import { pageWorkspaceMode } from "./helpers/workspace-mode"
  * Written for the port-3100 harness. The shared harness tenants (the
  * cookie-less local bootstrap organisation and the journey tenant) are agency
  * organisations, so each test signs its page in to a dedicated business-mode
- * organisation it creates and destroys (helpers/business-tenant.ts). It skips
- * only when that tenant cannot be created.
+ * organisation it creates and destroys (helpers/business-tenant.ts). A tenant
+ * that cannot be created fails the test: nothing here skips.
  *
  * The scan reads the visible text of each page and fails on the words
  * "client" and "agency". The allowlist is for text that is not the
@@ -38,20 +39,19 @@ async function isBusinessTenant(page: import("@playwright/test").Page) {
 }
 
 for (const { path, heading } of PAGES) {
-  test(`${path} never says client or agency`, async ({
-    page,
-    businessTenant,
-  }) => {
-    test.skip(!businessTenant, NO_BUSINESS_TENANT)
+  test(`${path} never says client or agency`, async ({ page }) => {
     expect(await isBusinessTenant(page)).toBe(true)
+    const requests = trackRequests(page)
     await page.goto(path)
     if (heading) {
       await expect(
         page.getByRole("heading", { name: heading, level: 1 })
       ).toBeVisible()
     }
-    // Settle the shell's queries so the text is the loaded page's.
-    await page.waitForLoadState("networkidle")
+    // Settle the shell's queries so the text is the loaded page's: no region
+    // busy, no skeleton left, and every request answered.
+    await pageSettled(page)
+    await requests.idle()
 
     const text = await page.locator("body").innerText()
     const scrubbed = ALLOWED.reduce(
@@ -84,14 +84,9 @@ for (const step of [
   "client",
   "connect&google=error&status=403",
 ]) {
-  test(`/setup?step=${step} never says client or agency`, async ({
-    page,
-    businessTenant,
-  }) => {
-    test.skip(!businessTenant, NO_BUSINESS_TENANT)
+  test(`/setup?step=${step} never says client or agency`, async ({ page }) => {
     expect(await isBusinessTenant(page)).toBe(true)
     await page.goto(`/setup?step=${step}`)
-    await page.waitForLoadState("networkidle")
     await expect(
       page.getByRole("heading", { name: "Setup", level: 1 })
     ).toBeVisible()
@@ -99,6 +94,7 @@ for (const step of [
     // body below it is the loaded one and not the skeleton.
     const rail = page.getByRole("list", { name: "Setup steps" })
     await expect(rail).toBeVisible()
+    await pageSettled(page)
     const text = await page.locator("body").innerText()
     const scrubbed = ALLOWED.reduce(
       (current, allowed) => current.replace(allowed, ""),
@@ -117,11 +113,7 @@ for (const step of [
   })
 }
 
-test("the client pages redirect a business to Listings and Settings", async ({
-  page,
-  businessTenant,
-}) => {
-  test.skip(!businessTenant, NO_BUSINESS_TENANT)
+test("the client pages redirect a business to Listings and Settings", async ({ page }) => {
   expect(await isBusinessTenant(page)).toBe(true)
   for (const [from, to] of [
     ["/clients", "/listings"],
@@ -136,11 +128,7 @@ test("the client pages redirect a business to Listings and Settings", async ({
   }
 })
 
-test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async ({
-  page,
-  businessTenant,
-}) => {
-  test.skip(!businessTenant, NO_BUSINESS_TENANT)
+test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async ({ page }) => {
   expect(await isBusinessTenant(page)).toBe(true)
   // The desk sidebar (from 1180px): its More disclosure is open on /team.
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -158,11 +146,7 @@ test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async
   await expect(page.getByRole("button", { name: /^Client:/ })).toHaveCount(0)
 })
 
-test("a phone's tabs have no Clients, and More holds Team and Settings", async ({
-  page,
-  businessTenant,
-}) => {
-  test.skip(!businessTenant, NO_BUSINESS_TENANT)
+test("a phone's tabs have no Clients, and More holds Team and Settings", async ({ page }) => {
   expect(await isBusinessTenant(page)).toBe(true)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/reports")
