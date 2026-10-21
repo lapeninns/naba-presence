@@ -1,8 +1,18 @@
-import { readdirSync, readFileSync } from "node:fs"
-import { join, relative } from "node:path"
-import { fileURLToPath } from "node:url"
-
 import { describe, expect, it } from "vitest"
+
+import {
+  calls,
+  functionBody,
+  MUTATING_METHODS,
+  readCode,
+  routeConfigString,
+  routeConfigStrings,
+  routeHandlers,
+  scanRouteSource,
+  scanRoutes,
+  withoutLiterals,
+  type RouteHandler,
+} from "./helpers/route-scanner"
 
 /**
  * Route visibility never authorises a mutation (ledger PERM-02).
@@ -30,14 +40,17 @@ import { describe, expect, it } from "vitest"
  * tests/integration/routes/review-bulk.test.ts.
  */
 
-const repoRoot = fileURLToPath(new URL("../", import.meta.url))
-
 /**
  * A call that enforces an action, not merely visibility. canPublishLocation
  * answers a boolean, so it only counts in its refusing form.
  */
 const ACTION_GUARD =
   /\b(requireLocationAction|requireLocationActionForAll|requirePublishGrant)\(|if \(!\(await canPublishLocation\(/
+
+/** An action guard in `code` itself: not in a comment or a string. */
+function guarded(code: string): boolean {
+  return ACTION_GUARD.test(withoutLiterals(code))
+}
 
 /**
  * "module#function" links, from the function the route calls to the guard.
@@ -50,9 +63,9 @@ type Chain = readonly string[]
 
 const REGISTRY = "lib/server/listing-change-registry.ts"
 
-/** The source of one kind's entry in the listing change registry. */
+/** The code of one kind's entry in the listing change registry. */
 function registryEntry(kind: string): string {
-  const source = readFileSync(join(repoRoot, REGISTRY), "utf8")
+  const source = readCode(REGISTRY)
   const start = source.indexOf(`\n  ${kind}: entry({`)
   if (start === -1) throw new Error(`${REGISTRY} has no entry ${kind}`)
   const rest = source.slice(start + 1)
@@ -167,38 +180,11 @@ const DELEGATED: Record<string, readonly Chain[]> = {
   ],
 }
 
-/** Calls `name(` (or `await name(`) in `source`. */
-function calls(source: string, name: string): boolean {
-  return new RegExp(`\\b${name}\\(`).test(source)
-}
-
-/**
- * The source of one top-level function in a module: from its last
- * `function name(` (the implementation, after any overload signatures) to
- * the first closing brace at column zero.
- */
-function functionBody(module: string, name: string): string {
-  const source = readFileSync(join(repoRoot, module), "utf8")
-  const starts = [
-    ...source.matchAll(
-      new RegExp(`^(?:export )?(?:async )?function ${name}\\b`, "gm")
-    ),
-  ]
-  const start = starts.at(-1)?.index
-  if (start === undefined) throw new Error(`${module} has no function ${name}`)
-  const rest = source.slice(start)
-  const close = rest.search(/\n\}\n/)
-  return close === -1 ? rest : rest.slice(0, close + 2)
-}
-
 /** Why `chain` does not prove a guard for `config`, or null when it does. */
 function chainGap(config: string, chain: Chain): string | null {
   if (chain[0]?.startsWith("registry:")) {
     const kind = chain[0].slice("registry:".length)
-    if (
-      !calls(config, "submitListingChange") ||
-      !config.includes(`"${kind}"`)
-    ) {
+    if (!new RegExp(`\\bsubmitListingChange\\(\\s*"${kind}"`).test(config)) {
       return `the handler does not submit ${kind}`
     }
     const next = chain[1]?.split("#")[1]
@@ -223,17 +209,17 @@ function chainGap(config: string, chain: Chain): string | null {
     if (next) {
       if (!calls(body, next.name))
         return `${current.link} does not call ${next.name}`
-    } else if (!ACTION_GUARD.test(body)) {
+    } else if (!guarded(body)) {
       return `${current.link} has no action guard`
     }
   }
   return null
 }
 
-/** `roles: [...]` on route(), when it excludes viewers. */
+/** `roles: [...]` on route() itself, when it excludes viewers. */
 function declaresNonViewerRoles(config: string): boolean {
-  const roles = /\broles:\s*\[([^\]]*)\]/.exec(config)?.[1]
-  return roles !== undefined && !/["']viewer["']/.test(roles)
+  const roles = routeConfigStrings(config, "roles")
+  return roles !== undefined && !roles.includes("viewer")
 }
 
 const NO_LOCATION: Record<string, string> = {
@@ -274,35 +260,12 @@ function onlyRefuses(config: string): boolean {
   )
 }
 
-type Handler = { key: string; file: string; config: string }
-
-function routeFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) return routeFiles(path)
-    return entry.name === "route.ts" ? [path] : []
-  })
-}
-
-function sessionMutations(): Handler[] {
-  const handlers: Handler[] = []
-  for (const path of routeFiles(join(repoRoot, "app/api"))) {
-    const file = relative(repoRoot, path).split("\\").join("/")
-    const source = readFileSync(path, "utf8")
-    const exports = [
-      ...source.matchAll(/export const (GET|POST|PUT|PATCH|DELETE)\s*=/g),
-    ]
-    exports.forEach((match, index) => {
-      const method = match[1]
-      if (method === "GET") return
-      const end = exports[index + 1]?.index ?? source.length
-      const config = source.slice(match.index, end)
-      const auth = /auth:\s*"(\w+)"/.exec(config)?.[1] ?? "session"
-      if (auth !== "session") return
-      handlers.push({ key: `${method} ${file}`, file, config })
-    })
-  }
-  return handlers
+function sessionMutations(): RouteHandler[] {
+  return routeHandlers().filter(
+    (handler) =>
+      MUTATING_METHODS.has(handler.method) &&
+      (routeConfigString(handler.config, "auth") ?? "session") === "session"
+  )
 }
 
 describe("route authorisation contract", () => {
@@ -312,18 +275,18 @@ describe("route authorisation contract", () => {
     expect(handlers.length).toBeGreaterThan(40)
   })
 
-  it("never exports a raw mutation handler that bypasses route()", () => {
-    const raw = routeFiles(join(repoRoot, "app/api")).filter((path) =>
-      /export (async )?function (POST|PUT|PATCH|DELETE)\b/.test(
-        readFileSync(path, "utf8")
-      )
-    )
-    expect(raw).toEqual([])
+  it("never exports a handler the scan cannot read", () => {
+    // A raw `export async function POST`, a re-export or a wrapped route()
+    // would bypass route() or every check below.
+    const unread = scanRoutes()
+      .filter((route) => route.unrecognised.length > 0)
+      .map((route) => `${route.file}: ${route.unrecognised.join(", ")}`)
+    expect(unread).toEqual([])
   })
 
   it("never lets a roles declaration include viewers", () => {
     const loose = handlers
-      .filter((handler) => /\broles:/.test(handler.config))
+      .filter((handler) => routeConfigStrings(handler.config, "roles"))
       .filter((handler) => !declaresNonViewerRoles(handler.config))
       .map((handler) => handler.key)
     expect(loose).toEqual([])
@@ -333,7 +296,7 @@ describe("route authorisation contract", () => {
     "%s declares roles or reaches an action guard",
     (_key, handler) => {
       if (declaresNonViewerRoles(handler.config)) return
-      if (ACTION_GUARD.test(handler.config)) return
+      if (guarded(handler.config)) return
       if (REFUSES[handler.key]) {
         expect(onlyRefuses(handler.config), handler.key).toBe(true)
         return
@@ -356,18 +319,22 @@ describe("route authorisation contract", () => {
   // be caught, so a loosened matcher cannot pass silently.
   it("catches a guard removed from one function of a guarded module", () => {
     const body = functionBody("lib/server/posts.ts", "createLocalPostDraft")
-    expect(ACTION_GUARD.test(body)).toBe(true)
-    expect(
-      ACTION_GUARD.test(body.replace(/requireLocationAction\(/g, "noop("))
-    ).toBe(false)
+    expect(guarded(body)).toBe(true)
+    expect(guarded(body.replace(/requireLocationAction\(/g, "noop("))).toBe(
+      false
+    )
   })
 
   it("does not count a boolean permission read or a viewer role list", () => {
+    expect(guarded("const ok = await canPublishLocation(sql, s, id)")).toBe(
+      false
+    )
     expect(
-      ACTION_GUARD.test("const ok = await canPublishLocation(sql, s, id)")
+      declaresNonViewerRoles('route({ roles: ["owner", "viewer"] })')
     ).toBe(false)
-    expect(declaresNonViewerRoles('roles: ["owner", "viewer"],')).toBe(false)
-    expect(declaresNonViewerRoles('roles: ["owner", "admin"],')).toBe(true)
+    expect(declaresNonViewerRoles('route({ roles: ["owner", "admin"] })')).toBe(
+      true
+    )
   })
 
   it("does not take a handler that reads its input as a refusal", () => {
@@ -424,13 +391,83 @@ describe("route authorisation contract", () => {
     ).toBe("the media_update registry entry does not call createMedia")
   })
 
+  it("polices only the handler's own code, and every way of exporting one", () => {
+    const scan = (source: string) => scanRouteSource("fixture/route.ts", source)
+    const policed = (source: string) =>
+      scan(source)
+        .handlers.filter(
+          (handler) =>
+            MUTATING_METHODS.has(handler.method) &&
+            (routeConfigString(handler.config, "auth") ?? "session") ===
+              "session"
+        )
+        .map((handler) => [handler.method, guarded(handler.config)])
+    // A commented-out or quoted guard is not a guard.
+    expect(
+      policed(
+        [
+          "export const POST = route({",
+          "  handler: async ({ session, params }) => {",
+          '    // await requireLocationAction(sql, session, params.id, "publish")',
+          "    return write(params)",
+          "  },",
+          "})",
+          "export const PUT = route({",
+          '  handler: async () => log("requireLocationAction(sql)"),',
+          "})",
+        ].join("\n")
+      )
+    ).toEqual([
+      ["POST", false],
+      ["PUT", false],
+    ])
+    // A guard in a GET, or in a module helper after the last handler, does
+    // not guard the mutation.
+    expect(
+      policed(
+        [
+          "export const GET = route({",
+          "  handler: async ({ session }) => requireLocationAction(sql, session),",
+          "})",
+          "export const DELETE = route({",
+          "  handler: async () => remove(),",
+          "})",
+          "async function unused(session) {",
+          "  await requireLocationAction(sql, session)",
+          "}",
+        ].join("\n")
+      )
+    ).toEqual([["DELETE", false]])
+    // `auth: "public"` in a comment does not take a handler off the scan.
+    expect(
+      policed(
+        'export const PATCH = route({\n  // auth: "public",\n  handler: async () => write(),\n})\n'
+      )
+    ).toEqual([["PATCH", false]])
+    // A typed export is read; any other export form is reported.
+    expect(
+      policed(
+        "export const POST: RouteHandler = route({\n  handler: async () => write(),\n})\n"
+      )
+    ).toEqual([["POST", false]])
+    expect(
+      scan(
+        [
+          "export async function POST() {}",
+          "export const PUT = withAudit(route({ handler: async () => ok() }))",
+          "const remove = route({ handler: async () => ok() })",
+          "export { remove as DELETE }",
+        ].join("\n")
+      ).unrecognised.sort()
+    ).toEqual(["DELETE (re-export)", "POST", "PUT"])
+  })
+
   it("keeps no stale allowlist entries", () => {
     const keys = new Set(
       handlers
         .filter(
           (handler) =>
-            !declaresNonViewerRoles(handler.config) &&
-            !ACTION_GUARD.test(handler.config)
+            !declaresNonViewerRoles(handler.config) && !guarded(handler.config)
         )
         .map((handler) => handler.key)
     )
