@@ -15,9 +15,13 @@ import {
 } from "../../scripts/release/local-receipt.mjs"
 import {
   CI_PLACEHOLDER_ENV,
+  CpuBudget,
   DEFAULT_INTEGRATION_SHARDS,
+  HEAVY_STEP_PRIORITY,
   SECRET_SCAN_ARGS,
   childEnv,
+  defaultCpuBudget,
+  heavyStepWeights,
   mergeVitestSummaries,
   normalizeSchemaDump,
   outputCollector,
@@ -253,6 +257,73 @@ describe("verify:release steps", () => {
         "postgresql://postgres:postgres@127.0.0.1:5555/nabareview_test",
       NABA_PG_PORT: "5555",
     })
+  })
+
+  it("gives the heavy steps a CPU budget, build first and nothing oversubscribed", async () => {
+    expect(defaultCpuBudget(18)).toBe(13)
+    expect(defaultCpuBudget(2)).toBe(4)
+    expect(HEAVY_STEP_PRIORITY[0]).toBe("build")
+    const weights = heavyStepWeights(13, 4)
+    for (const id of HEAVY_STEP_PRIORITY) {
+      expect(weights[id], id).toBeGreaterThan(0)
+      expect(
+        GATE_STEPS.some((step: { id: string }) => step.id === id),
+        id
+      ).toBe(true)
+    }
+    expect(weights.unit).toBe(6)
+
+    const settle = () => new Promise((done) => setTimeout(done, 0))
+    const budget = new CpuBudget(10)
+    const started: string[] = []
+    const take = (id: string, weight: number, priority: number) =>
+      budget.acquire(weight, priority).then((release) => {
+        started.push(id)
+        return release
+      })
+    // Waiting steps start in priority order, whatever order they asked in.
+    const releaseFull = await take("full", 10, 9)
+    const lint = take("lint", 2, 5)
+    const build = take("build", 4, 0)
+    await settle()
+    expect(started).toEqual(["full"])
+    releaseFull()
+    const [releaseBuild, releaseLint] = await Promise.all([build, lint])
+    expect(started).toEqual(["full", "build", "lint"])
+    expect(budget.used).toBe(6)
+    releaseBuild()
+    releaseLint()
+    releaseLint() // releasing twice frees once
+    expect(budget.used).toBe(0)
+
+    // Strict order: a small step that would fit still waits behind a
+    // waiting build, so small steps cannot hold the build back.
+    const releaseUnit = await take("unit", 6, 3)
+    const build2 = take("build2", 8, 0)
+    const lint2 = take("lint2", 2, 5)
+    await settle()
+    expect(started.slice(-1)).toEqual(["unit"])
+    releaseUnit()
+    const [releaseBuild2, releaseLint2] = await Promise.all([build2, lint2])
+    expect(started.slice(-2)).toEqual(["build2", "lint2"])
+    releaseBuild2()
+    releaseLint2()
+    expect(budget.used).toBe(0)
+    // A step bigger than the whole budget still runs, alone.
+    const big = new CpuBudget(3)
+    const releaseBig = await big.acquire(8, 0)
+    expect(big.used).toBe(8)
+    releaseBig()
+    expect(big.used).toBe(0)
+  })
+
+  it("parses the CPU budget", () => {
+    expect(parseArgs([]).cpus).toBeNull()
+    expect(parseArgs(["--cpus", "6"]).cpus).toBe(6)
+    expect(parseArgs([], { NABA_GATE_CPUS: "8" }).cpus).toBe(8)
+    for (const bad of ["0", "two", "1.5", ""]) {
+      expect(() => parseArgs(["--cpus", bad])).toThrow(/--cpus/)
+    }
   })
 
   it("compares whole schema dumps, not a tail of them", () => {

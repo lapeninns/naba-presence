@@ -3,7 +3,7 @@
 //
 //   pnpm verify:release [--skip <id,...>] [--fail-fast] [--base-ref <ref>]
 //                       [--receipts-dir <dir>] [--keep-worktree] [--list]
-//                       [--serial] [--integration-shards <n>]
+//                       [--serial] [--integration-shards <n>] [--cpus <n>]
 //
 // Hosted CI is not a release gate (docs/ci.md §5); this run is the evidence.
 // It checks HEAD out into a fresh detached git worktree under the OS temp
@@ -29,8 +29,11 @@
 // (scripts/ci/postgres.mjs), stopped afterwards. Integration is split into
 // --integration-shards (default 4, or NABA_GATE_INTEGRATION_SHARDS) vitest
 // shards, each on its own cluster; their counts are added up for the
-// receipt. --serial runs one step at a time, in receipt order, for a busy or
-// small machine.
+// receipt. The CPU-heavy steps (build, e2e, integration, unit, typecheck,
+// lint) share a budget of three quarters of the cores (--cpus or
+// NABA_GATE_CPUS), served in that order, so the machine is not
+// oversubscribed. --serial runs one step at a time, in receipt order, for a
+// busy or small machine.
 //
 // It writes a receipt (scripts/release/local-receipt.mjs) to
 // docs/release/receipts/local/ in the invoking checkout (gitignored), with
@@ -64,7 +67,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { createServer } from "node:net"
-import { tmpdir } from "node:os"
+import { availableParallelism, tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -140,6 +143,105 @@ export const E2E_PORT = 3100
 export const DEFAULT_INTEGRATION_SHARDS = 4
 
 /**
+ * The CPU-heavy steps, in the order they get CPU when several are ready:
+ * the build first (everything after it waits for it), then e2e (the longest
+ * step, one Playwright worker), integration, unit, typecheck and lint. The
+ * other steps are light and start whenever their needs have passed.
+ */
+export const HEAVY_STEP_PRIORITY = [
+  "build",
+  "e2e",
+  "integration",
+  "unit",
+  "typecheck",
+  "lint",
+]
+
+/**
+ * How many cores' worth of heavy steps run at once: three quarters of the
+ * machine, so a Mac shared with other work is not oversubscribed (running
+ * unit, build, typecheck and lint all at once tripled each one's time and
+ * timed out component tests in the 2026-10-22 trial run).
+ * @param {number} cores
+ */
+export function defaultCpuBudget(cores) {
+  return Math.max(4, Math.floor(cores * 0.75))
+}
+
+/**
+ * Each heavy step's share of the CPU budget. The unit step also gets its
+ * share as VITEST_MAX_WORKERS, so vitest does not start more workers than
+ * the budget allows it.
+ * @param {number} budget
+ * @param {number} integrationShards
+ * @returns {Record<string, number>}
+ */
+export function heavyStepWeights(budget, integrationShards) {
+  return {
+    build: 4,
+    e2e: 2,
+    integration: integrationShards + 2,
+    unit: Math.min(8, Math.max(2, Math.floor(budget / 2))),
+    typecheck: 2,
+    lint: 2,
+  }
+}
+
+/**
+ * A budget of CPU shares that steps acquire before they start. Waiters are
+ * served strictly in priority order: when the first does not fit, later ones
+ * wait too, so a stream of small steps cannot hold back the build. A step
+ * bigger than the whole budget runs alone.
+ */
+export class CpuBudget {
+  /** @param {number} capacity */
+  constructor(capacity) {
+    this.capacity = capacity
+    this.used = 0
+    this.order = 0
+    /** @type {{ weight: number, priority: number, order: number, grant: () => void }[]} */
+    this.waiting = []
+  }
+
+  /**
+   * Resolves to a release function once `weight` shares are free.
+   * @param {number} weight
+   * @param {number} priority lower runs first
+   * @returns {Promise<() => void>}
+   */
+  acquire(weight, priority) {
+    return new Promise((resolve) => {
+      this.waiting.push({
+        weight,
+        priority,
+        order: this.order++,
+        grant: () => {
+          this.used += weight
+          let released = false
+          resolve(() => {
+            if (released) return
+            released = true
+            this.used -= weight
+            this.pump()
+          })
+        },
+      })
+      this.pump()
+    })
+  }
+
+  pump() {
+    this.waiting.sort((a, b) => a.priority - b.priority || a.order - b.order)
+    while (this.waiting.length > 0) {
+      const next = this.waiting[0]
+      if (this.used > 0 && this.used + next.weight > this.capacity) return
+      this.waiting.shift()
+      next.grant()
+    }
+  }
+}
+
+/**
  * gitleaks arguments for the `secret-scan` step. The worktree shares the
  * checkout's refs, and gitleaks' default log is `--all`: other branches'
  * commits would decide this commit's receipt. `--log-opts=HEAD` scans the
@@ -196,6 +298,7 @@ export function parseArgs(argv, env = {}) {
     integrationShards: /** @type {number | string} */ (
       env.NABA_GATE_INTEGRATION_SHARDS ?? DEFAULT_INTEGRATION_SHARDS
     ),
+    cpus: /** @type {number | string | null} */ (env.NABA_GATE_CPUS ?? null),
   }
   let shardsGiven = env.NABA_GATE_INTEGRATION_SHARDS !== undefined
   for (let index = 0; index < argv.length; index += 1) {
@@ -216,7 +319,8 @@ export function parseArgs(argv, env = {}) {
     else if (arg === "--integration-shards") {
       options.integrationShards = argv[++index] ?? ""
       shardsGiven = true
-    } else throw new Error(`Unknown argument: ${arg}`)
+    } else if (arg === "--cpus") options.cpus = argv[++index] ?? ""
+    else throw new Error(`Unknown argument: ${arg}`)
   }
   const unknown = options.skip.filter(
     (id) => !GATE_STEPS.some((step) => step.id === id)
@@ -229,6 +333,13 @@ export function parseArgs(argv, env = {}) {
   const shards = Number(options.integrationShards)
   if (!Number.isInteger(shards) || shards < 1 || shards > 16) {
     throw new Error("--integration-shards needs a whole number from 1 to 16")
+  }
+  if (options.cpus !== null) {
+    const cpus = Number(options.cpus)
+    if (!Number.isInteger(cpus) || cpus < 1 || cpus > 256) {
+      throw new Error("--cpus needs a whole number from 1 to 256")
+    }
+    options.cpus = cpus
   }
   // --serial is for a busy machine: one integration shard unless asked.
   options.integrationShards = options.serial && !shardsGiven ? 1 : shards
@@ -477,6 +588,8 @@ async function main() {
   mkdirSync(logDir, { recursive: true })
   const log = createWriteStream(logPath)
   const env = childEnv(process.env)
+  const cpuBudget = options.cpus ?? defaultCpuBudget(availableParallelism())
+  const weights = heavyStepWeights(cpuBudget, options.integrationShards)
   let worktreeAdded = false
 
   /** Progress lines: the terminal and verify.log. */
@@ -670,7 +783,10 @@ async function main() {
       must(sink, "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]),
     typecheck: (sink) => must(sink, "pnpm", ["typecheck"]),
     lint: (sink) => must(sink, "pnpm", ["lint"]),
-    unit: (sink) => must(sink, "pnpm", ["test"]),
+    unit: (sink) =>
+      must(sink, "pnpm", ["test"], {
+        extraEnv: { VITEST_MAX_WORKERS: String(weights.unit) },
+      }),
     format: (sink) =>
       must(sink, "node", [
         "scripts/format-changed.mjs",
@@ -893,6 +1009,7 @@ async function main() {
   }
 
   const startedAt = new Date().toISOString()
+  const budget = new CpuBudget(cpuBudget)
   /** @type {Map<string, import("./local-receipt.mjs").StepResult>} */
   const results = new Map()
   /** @type {Map<string, Promise<import("./local-receipt.mjs").StepResult>>} */
@@ -929,6 +1046,11 @@ async function main() {
         note: `needs ${missing.join(", ")}, which did not pass`,
       }
     }
+    const priority = HEAVY_STEP_PRIORITY.indexOf(step.id)
+    const release =
+      options.serial || priority === -1
+        ? () => {}
+        : await budget.acquire(weights[step.id], priority)
     say(`=== ${step.id}: started (${step.title})\n`)
     const sink = stepLog(step.id)
     const started = performance.now()
@@ -954,6 +1076,7 @@ async function main() {
         note: String(error.message).slice(0, 300),
       }
     }
+    release()
     await sink.close()
     say(
       `=== ${step.id}: ${result.status} in ${(result.durationMs / 1000).toFixed(1)}s${result.note ? ` (${result.note})` : ""}\n`
@@ -979,7 +1102,7 @@ async function main() {
     git(root, "worktree", "add", "--detach", worktree, sha)
     worktreeAdded = true
     say(
-      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\nlogs: ${logDir}\n${options.serial ? "serial" : `concurrent, integration in ${options.integrationShards} shard(s)`}\n\n`
+      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\nlogs: ${logDir}\n${options.serial ? "serial" : `concurrent, CPU budget ${cpuBudget} (${availableParallelism()} cores), integration in ${options.integrationShards} shard(s)`}\n\n`
     )
     if (options.serial) {
       for (const step of GATE_STEPS) {
@@ -1033,6 +1156,7 @@ async function main() {
       failFast: options.failFast,
       serial: options.serial,
       integrationShards: options.integrationShards,
+      cpuBudget: options.serial ? null : cpuBudget,
     },
     startedAt,
     finishedAt: new Date().toISOString(),

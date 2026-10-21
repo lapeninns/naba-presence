@@ -37,6 +37,10 @@ export default defineConfig({
             "tests/components/**/*.test.ts",
           ],
           setupFiles: ["tests/components/setup.ts"],
+          // Whole views rendered in jsdom (a 101-item bulk change, a profile
+          // editor) take a few seconds alone and passed vitest's 5 s default
+          // only on a quiet machine; under load they timed out (2026-10-22).
+          testTimeout: 15_000,
         },
       },
       {
