@@ -6,10 +6,12 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 /**
- * Keeps `docs/architecture.md` and `docs/frontend-backend-feature-map.md`
- * honest about the files they cite. Both documents are handoff documents: they
- * are read as a map of the codebase, so a backticked path that no longer
- * resolves sends the reader somewhere that does not exist.
+ * Keeps the handoff documents honest about the files and `pnpm` commands they
+ * cite: `docs/architecture.md` and `docs/frontend-backend-feature-map.md`,
+ * plus the operator-facing `README.md`, `AGENTS.md`, `docs/runbook.md` and
+ * `docs/ci.md`. They are read as a map of the codebase and as instructions to
+ * run, so a backticked path that no longer resolves, or a `pnpm <name>` that
+ * is not a script, sends the reader somewhere that does not exist.
  *
  * The job here is the citations, not the prose. The heuristic below is
  * deliberately conservative — it would rather ignore a real path than flag a
@@ -27,7 +29,19 @@ const repoRootPath = fileURLToPath(new URL("../", import.meta.url))
 const DOCUMENTS = [
   "docs/architecture.md",
   "docs/frontend-backend-feature-map.md",
+  "README.md",
+  "AGENTS.md",
+  "docs/runbook.md",
+  "docs/ci.md",
 ] as const
+
+const packageJson = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8")
+) as {
+  scripts: Record<string, string>
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+}
 
 /**
  * The top-level entry set comes from the git index, never from a directory
@@ -118,30 +132,152 @@ function isPathCandidate(token: string): boolean {
   return topLevelEntries.has(token.split("/")[0])
 }
 
+/**
+ * What a document says in code: every backticked span outside a fence, and
+ * every line inside one. Fenced lines are split into shell words so a command
+ * such as `node scripts/ci/postgres.mjs start` yields its path.
+ */
+function codeSpans(
+  text: string
+): { line: number; span: string; fenced: boolean }[] {
+  const spans: { line: number; span: string; fenced: boolean }[] = []
+  let inFence = false
+  text.split("\n").forEach((line, index) => {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence
+      return
+    }
+    if (inFence) {
+      spans.push({ line: index + 1, span: line, fenced: true })
+      return
+    }
+    for (const match of line.matchAll(/`([^`\n]+)`/g)) {
+      spans.push({ line: index + 1, span: match[1].trim(), fenced: false })
+    }
+  })
+  return spans
+}
+
+function readDocument(doc: string): string {
+  return readFileSync(new URL(`../${doc}`, import.meta.url), "utf8")
+}
+
+/**
+ * A backticked span is one claim, tested whole. A fenced line is a command,
+ * so each shell word is tested instead.
+ */
+function pathTokens(span: string, fenced: boolean): string[] {
+  if (!fenced) return isPathCandidate(span) ? [span] : []
+  return span
+    .split(/[\s"'=<>|;&()]+/)
+    .map((word) => word.replace(/[,\\]+$/, ""))
+    .filter(isPathCandidate)
+}
+
 function citations(): Citation[] {
   const found: Citation[] = []
   for (const doc of DOCUMENTS) {
-    const text = readFileSync(new URL(`../${doc}`, import.meta.url), "utf8")
-    let inFence = false
-    text.split("\n").forEach((line, index) => {
-      // Keep code samples out of the candidate set, even though neither
-      // document currently fences any.
-      if (line.trimStart().startsWith("```")) {
-        inFence = !inFence
-        return
-      }
-      if (inFence) return
-      for (const match of line.matchAll(/`([^`\n]+)`/g)) {
-        const token = match[1].trim()
-        if (!isPathCandidate(token)) continue
+    for (const { line, span, fenced } of codeSpans(readDocument(doc))) {
+      for (const token of pathTokens(span, fenced)) {
         for (const expanded of expandBraces(token)) {
           const tested = normalise(expanded)
-          if (tested) found.push({ doc, line: index + 1, token, tested })
+          if (tested) found.push({ doc, line, token, tested })
         }
       }
-    })
+    }
   }
   return found
+}
+
+type ScriptReference = { doc: string; line: number; command: string }
+
+/** Commands pnpm itself runs, which are not entries in `scripts`. */
+const PNPM_BUILTINS = new Set([
+  "add",
+  "audit",
+  "config",
+  "create",
+  "dlx",
+  "env",
+  "exec",
+  "fetch",
+  "i",
+  "import",
+  "init",
+  "install",
+  "link",
+  "list",
+  "ls",
+  "outdated",
+  "pack",
+  "patch",
+  "prune",
+  "publish",
+  "rebuild",
+  "remove",
+  "rm",
+  "run",
+  "run-script",
+  "store",
+  "unlink",
+  "up",
+  "update",
+  "why",
+])
+
+/** Global options that take a separate value: `pnpm --filter web build`. */
+const PNPM_OPTIONS_WITH_VALUE = new Set(["-C", "--dir", "-F", "--filter"])
+
+/**
+ * The command a `pnpm ...` invocation runs, or null when `span` has none
+ * (`pnpm` alone, or a word that only happens to follow the name in prose).
+ * `pnpm run <name>` resolves to `<name>`.
+ */
+function pnpmCommand(words: string[]): string | null {
+  let index = 0
+  while (index < words.length && words[index].startsWith("-")) {
+    index += PNPM_OPTIONS_WITH_VALUE.has(words[index]) ? 2 : 1
+  }
+  let command = words[index]
+  if (!command || !/^[a-z][\w:.-]*$/.test(command)) return null
+  if (command === "run" || command === "run-script") {
+    index += 1
+    while (index < words.length && words[index].startsWith("-")) index += 1
+    command = words[index]
+    if (!command || !/^[a-z][\w:.-]*$/.test(command)) return null
+  }
+  return command
+}
+
+function scriptReferences(): ScriptReference[] {
+  const found: ScriptReference[] = []
+  for (const doc of DOCUMENTS) {
+    for (const { line, span } of codeSpans(readDocument(doc))) {
+      for (const match of span.matchAll(
+        /(?<![\w/.:-])pnpm(?=\s)([^|;&\n]*)/g
+      )) {
+        const command = pnpmCommand(
+          match[1].trim().split(/\s+/).filter(Boolean)
+        )
+        if (command) found.push({ doc, line, command })
+      }
+    }
+  }
+  return found
+}
+
+/**
+ * A `pnpm <name>` is real when it is a package script, a pnpm command, or a
+ * dependency: pnpm runs an installed package's binary when no script matches
+ * (`pnpm supabase link`).
+ */
+function isRunnableWithPnpm(command: string): boolean {
+  if (command in packageJson.scripts) return true
+  if (PNPM_BUILTINS.has(command)) return true
+  return (
+    command in (packageJson.dependencies ?? {}) ||
+    command in (packageJson.devDependencies ?? {})
+  )
 }
 
 describe("documentation paths", () => {
@@ -161,16 +297,60 @@ describe("documentation paths", () => {
     expect(broken).toEqual([])
   })
 
+  it("names only pnpm commands that exist", () => {
+    const broken = scriptReferences()
+      .filter(({ command }) => !isRunnableWithPnpm(command))
+      .map(({ doc, line, command }) => `${doc}:${line} \`pnpm ${command}\``)
+    expect(broken).toEqual([])
+  })
+
+  it("still finds the pnpm commands it is meant to check", () => {
+    const references = scriptReferences()
+    const scripts = new Set(
+      references
+        .map(({ command }) => command)
+        .filter((command) => command in packageJson.scripts)
+    )
+    // Today: 114 references to 27 distinct scripts across the six documents.
+    // The floors sit around 70% of that.
+    expect(references.length).toBeGreaterThanOrEqual(80)
+    expect(scripts.size).toBeGreaterThanOrEqual(18)
+    for (const doc of ["README.md", "docs/runbook.md", "docs/ci.md"]) {
+      expect(references.some((entry) => entry.doc === doc)).toBe(true)
+    }
+  })
+
+  it("resolves pnpm invocations the way pnpm does", () => {
+    const command = (text: string) =>
+      pnpmCommand(text.split(/\s+/).filter(Boolean))
+    expect(command("verify:release")).toBe("verify:release")
+    expect(command("--filter web build")).toBe("build")
+    expect(command("-C docs run lint")).toBe("lint")
+    expect(command("run --silent test:e2e")).toBe("test:e2e")
+    expect(command("exec playwright test")).toBe("exec")
+    expect(command("--version")).toBeNull()
+    expect(command("")).toBeNull()
+    expect(command("Store")).toBeNull()
+    // Existing, built-in and dependency commands pass; an invented one fails.
+    expect(isRunnableWithPnpm("db:migrate")).toBe(true)
+    expect(isRunnableWithPnpm("install")).toBe(true)
+    expect(isRunnableWithPnpm("supabase")).toBe(true)
+    expect(isRunnableWithPnpm("db:migrate-everything")).toBe(false)
+    expect(isRunnableWithPnpm("format:check")).toBe(
+      "format:check" in packageJson.scripts
+    )
+  })
+
   it("still finds the citations it is meant to check", () => {
     // Guards against a regex or heuristic change that silently matches
-    // nothing. The two documents currently yield 91 citations across 63
+    // nothing. The six documents currently yield 514 citations across 312
     // distinct paths; the floors sit around 70% of that, low enough to
     // survive ordinary editing and high enough that a rule which collapses
     // to a near-empty set fails here rather than passing quietly.
-    expect(cited.length).toBeGreaterThanOrEqual(65)
+    expect(cited.length).toBeGreaterThanOrEqual(360)
     expect(
       new Set(cited.map((entry) => entry.tested)).size
-    ).toBeGreaterThanOrEqual(45)
+    ).toBeGreaterThanOrEqual(215)
     for (const doc of DOCUMENTS) {
       expect(cited.some((entry) => entry.doc === doc)).toBe(true)
     }
