@@ -28,8 +28,12 @@
 // deployment serving and exits non-zero, with nothing to roll back. After the
 // promotion the same probe runs against the production origin
 // (`--production-url`, or READINESS_URL) with bounded retries, because only
-// that proves the domains moved to the promoted SHA. It then writes a receipt
-// to docs/release/receipts/, the probe's result included: the build (SHA,
+// that proves the domains moved to the promoted SHA. The receipt is written to
+// docs/release/receipts/ as soon as `vercel promote` succeeds, with
+// `productionProbe: { status: "pending" }`, and rewritten in place with the
+// probe's result, so an interrupted probe still leaves production's change on
+// record (a receipt still `pending` is one whose probe never finished; see
+// `isProbePending`). It records the build (SHA,
 // deployment ID and URL, the local gate's receipt file, sha256, base and step
 // results), the migrations the commit ships (version and sha256), and the
 // production configuration NAMES. Never values. The local receipt's exact
@@ -197,7 +201,7 @@ export function migrationReceipt(files) {
  *   configNames: string[],
  *   operator: string,
  *   timestamp: string,
- *   productionProbe?: ProductionVerification | null,
+ *   productionProbe?: ProductionVerification | PendingProductionProbe | null,
  * }} input
  */
 export function buildReceipt({
@@ -398,7 +402,47 @@ export const PRODUCTION_MISMATCH_EXIT = 3
  *   attempts: { attempt: number, exitCode: number, status: string,
  *     servedSha: string | null }[],
  *   checkedAt: string }} ProductionVerification
+ * @typedef {{ url: string, expectSha: string, ok: false, status: "pending",
+ *   startedAt: string }} PendingProductionProbe
  */
+
+/** `productionProbe.status` in a receipt written before the probe finished. */
+export const PROBE_PENDING_STATUS = "pending"
+
+/**
+ * The `productionProbe` a receipt records between `vercel promote` and the
+ * end of the production probe. `ok: false`, so nothing reading `ok` takes it
+ * for a pass.
+ * @param {string} url
+ * @param {string} sha
+ * @param {string} startedAt
+ * @returns {PendingProductionProbe}
+ */
+export function pendingProductionProbe(url, sha, startedAt) {
+  return {
+    url,
+    expectSha: sha,
+    ok: false,
+    status: PROBE_PENDING_STATUS,
+    startedAt,
+  }
+}
+
+/**
+ * Whether a receipt's production probe never finished: production was
+ * changed, then the script stopped (interrupted, killed, crashed) before
+ * recording the probe's result. Check production by hand
+ * (`pnpm ops:readiness --url <production origin> --expect-sha <sha>`).
+ * @param {unknown} receipt
+ */
+export function isProbePending(receipt) {
+  const probe =
+    receipt && typeof receipt === "object"
+      ? /** @type {{ productionProbe?: { status?: unknown } }} */ (receipt)
+          .productionProbe
+      : undefined
+  return probe?.status === PROBE_PENDING_STATUS
+}
 
 /**
  * readiness-probe.mjs arguments for the production origin: as for the staged
@@ -615,6 +659,57 @@ export async function stagedPromotion({
   return { promoted: true, deployment, probeExitCode }
 }
 
+/**
+ * Once `vercel promote` has succeeded: write the receipt with the production
+ * probe pending, probe production, then rewrite the same receipt (same
+ * timestamp, so the same file) with the result. Production has already
+ * changed and the probe can take minutes, so the receipt must exist before
+ * it starts: an interrupted probe leaves a `pending` receipt, never none.
+ * Returns the final receipt. `buildReceipt` refusals propagate.
+ *
+ * @param {{
+ *   receiptInput: { sha: string, evidence: { localGate: LocalGateEvidence },
+ *     migrations: { version: string, sha256: string }[],
+ *     configNames: string[], operator: string },
+ *   deployment: { id: string, url: string },
+ *   productionUrl: string,
+ *   verify: () => Promise<ProductionVerification>,
+ *   write: (receipt: ReturnType<typeof buildReceipt>) => void,
+ *   now?: () => Date,
+ * }} input
+ */
+export async function recordPromotion({
+  receiptInput,
+  deployment,
+  productionUrl,
+  verify,
+  write,
+  now = () => new Date(),
+}) {
+  const timestamp = now().toISOString()
+  write(
+    buildReceipt({
+      ...receiptInput,
+      deployment,
+      timestamp,
+      productionProbe: pendingProductionProbe(
+        productionUrl,
+        receiptInput.sha,
+        timestamp
+      ),
+    })
+  )
+  const productionProbe = await verify()
+  const receipt = buildReceipt({
+    ...receiptInput,
+    deployment,
+    timestamp,
+    productionProbe,
+  })
+  write(receipt)
+  return receipt
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -824,8 +919,10 @@ async function main() {
   const operator = run("git", ["config", "user.name"], { cwd: root })
 
   // Validate the receipt before deploying, with placeholder deployment
-  // fields, so a configuration name or operator that would make buildReceipt
-  // throw refuses here rather than after production has changed.
+  // fields and the pending production probe it is first written with, so a
+  // configuration name or operator that would make buildReceipt throw
+  // refuses here rather than after production has changed.
+  const productionUrl = /** @type {string} */ (production.url)
   const receiptInput = {
     sha,
     evidence: evaluation.evidence,
@@ -833,10 +930,16 @@ async function main() {
     configNames,
     operator,
   }
+  const provisionalTimestamp = new Date().toISOString()
   buildReceipt({
     ...receiptInput,
     deployment: { id: "dpl_pending", url: "https://pending.invalid" },
-    timestamp: new Date().toISOString(),
+    timestamp: provisionalTimestamp,
+    productionProbe: pendingProductionProbe(
+      productionUrl,
+      sha,
+      provisionalTimestamp
+    ),
   })
 
   const vercelDeploy = deployArgs(sha)
@@ -849,7 +952,7 @@ async function main() {
       `Dry run: then, only if the probe passed, vercel ${promoteArgs("<deployment id>").join(" ")}`
     )
     console.log(
-      `Dry run: then node scripts/ops/readiness-probe.mjs ${productionProbeArgs(production.url, sha).join(" ")}, up to ${PRODUCTION_PROBE_ATTEMPTS} attempts, recorded in the receipt; exit ${PRODUCTION_MISMATCH_EXIT} if production does not serve ${sha}`
+      `Dry run: then node scripts/ops/readiness-probe.mjs ${productionProbeArgs(production.url, sha).join(" ")}, up to ${PRODUCTION_PROBE_ATTEMPTS} attempts, recorded in the receipt (written with the probe pending right after vercel promote, then rewritten with the result); exit ${PRODUCTION_MISMATCH_EXIT} if production does not serve ${sha}`
     )
     console.log(
       `Dry run: ${migrations.length} migration(s), ${configNames.length} configuration name(s), operator ${operator}`
@@ -900,35 +1003,46 @@ async function main() {
   // Production has changed: print what the operator needs to roll back or
   // write the receipt by hand before anything else can fail.
   console.log(`Promoted ${deployment.url} (${deployment.id}) at ${sha}`)
-  const productionUrl = /** @type {string} */ (production.url)
-  const productionProbe = await verifyProduction({
-    url: productionUrl,
-    sha,
-    probe: spawnReadinessProbe(root),
-    onAttempt: (attempt, result) => {
-      const write = result.exitCode === 0 ? console.log : console.error
-      write(describeProbeAttempt(attempt, result))
-    },
-  })
-  const receipt = buildReceipt({
-    ...receiptInput,
-    deployment,
-    timestamp: new Date().toISOString(),
-    productionProbe,
-  })
   const receiptsDir = resolve(
     root,
     options.receiptsDir ?? "docs/release/receipts"
   )
-  mkdirSync(receiptsDir, { recursive: true })
-  // The copy first, so a written receipt never names a missing copy.
-  const copyPath = join(receiptsDir, receipt.localGate.copy)
-  writeFileSync(copyPath, /** @type {Buffer} */ (localReceiptBytes))
-  const receiptPath = join(receiptsDir, receiptFileName(receipt))
-  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
+  let receiptPath = ""
+  let copyPath = ""
+  const { productionProbe } = await recordPromotion({
+    receiptInput,
+    deployment,
+    productionUrl,
+    verify: () =>
+      verifyProduction({
+        url: productionUrl,
+        sha,
+        probe: spawnReadinessProbe(root),
+        onAttempt: (attempt, result) => {
+          const write = result.exitCode === 0 ? console.log : console.error
+          write(describeProbeAttempt(attempt, result))
+        },
+      }),
+    write: (receipt) => {
+      mkdirSync(receiptsDir, { recursive: true })
+      // The copy first, so a written receipt never names a missing copy.
+      copyPath = join(receiptsDir, receipt.localGate.copy)
+      writeFileSync(copyPath, /** @type {Buffer} */ (localReceiptBytes))
+      receiptPath = join(receiptsDir, receiptFileName(receipt))
+      writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
+      if (isProbePending(receipt)) {
+        console.log(
+          `Receipt (production probe pending until it is rewritten below): ${relative(root, receiptPath)}`
+        )
+      }
+    },
+  })
   console.log(`Receipt: ${relative(root, receiptPath)}`)
   console.log(`Local gate receipt copy: ${relative(root, copyPath)}`)
-  const report = productionProbeReport(productionProbe, {
+  const productionCheck = /** @type {ProductionVerification} */ (
+    productionProbe
+  )
+  const report = productionProbeReport(productionCheck, {
     nextSteps: [
       "the promotion happened and the receipt records the failed probe; commit both files whatever you decide next.",
       `check vercel promote status, the production domains and ${deployment.url}'s logs.`,

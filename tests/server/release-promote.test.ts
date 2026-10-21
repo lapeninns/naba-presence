@@ -11,11 +11,14 @@ import {
   buildReceipt,
   checkCandidate,
   deployArgs,
+  isProbePending,
   localReceiptCopyName,
   migrationReceipt,
   parseDeployOutput,
   parseEnvNames,
+  pendingProductionProbe,
   PROBE_ATTEMPTS,
+  PROBE_PENDING_STATUS,
   PROBE_TIMEOUT_EXIT,
   PRODUCTION_MISMATCH_EXIT,
   PRODUCTION_PROBE_ATTEMPTS,
@@ -26,6 +29,7 @@ import {
   promoteArgs,
   readLocalReceipt,
   receiptFileName,
+  recordPromotion,
   resolveProductionUrl,
   secretLikePaths,
   stagedPromotion,
@@ -782,5 +786,122 @@ describe("production probe after vercel promote (G01)", () => {
     })
     expect(receipt.productionProbe).toEqual(productionProbe)
     expect(secretLikePaths(receipt)).toEqual([])
+  })
+
+  describe("recordPromotion: the receipt exists before the probe", () => {
+    const deployment = {
+      id: "dpl_abc123",
+      url: "https://naba-abc.vercel.app",
+    }
+    const receiptInput = {
+      sha: SHA,
+      evidence: {
+        localGate: {
+          file: "20261010T112000Z-0123456789ab.json",
+          sha256: sha256("receipt"),
+          finishedAt: "2026-10-10T11:20:00.000Z",
+          base: { ref: OTHER_SHA, sha: OTHER_SHA, mergeBase: OTHER_SHA },
+          steps: [{ id: "unit", status: "passed" }],
+        },
+      },
+      migrations: [],
+      configNames: ["CRON_SECRET"],
+      operator: "release-operator",
+    }
+    const now = () => new Date("2026-10-10T12:01:00.000Z")
+
+    it("writes it with the probe pending, then rewrites the same file with the result", async () => {
+      const writes: ReturnType<typeof buildReceipt>[] = []
+      const io = mockProbe([served(SHA)])
+      const receipt = await recordPromotion({
+        receiptInput,
+        deployment,
+        productionUrl: PRODUCTION,
+        now,
+        write: (written) => {
+          writes.push(structuredClone(written))
+        },
+        verify: async () => {
+          // Production has changed: the receipt is already on disk.
+          expect(writes).toHaveLength(1)
+          return verifyProduction({ url: PRODUCTION, sha: SHA, ...io })
+        },
+      })
+      expect(writes).toHaveLength(2)
+      const [pending, final] = writes
+      expect(pending.productionProbe).toEqual({
+        url: PRODUCTION,
+        expectSha: SHA,
+        ok: false,
+        status: PROBE_PENDING_STATUS,
+        startedAt: "2026-10-10T12:01:00.000Z",
+      })
+      expect(isProbePending(pending)).toBe(true)
+      expect(receiptFileName(pending)).toBe(receiptFileName(final))
+      expect(pending.localGate.copy).toBe(final.localGate.copy)
+      expect({ ...pending, productionProbe: undefined }).toEqual({
+        ...final,
+        productionProbe: undefined,
+      })
+      expect(final.productionProbe).toMatchObject({
+        ok: true,
+        status: "ready",
+        servedSha: SHA,
+      })
+      expect(isProbePending(final)).toBe(false)
+      expect(receipt).toEqual(final)
+      expect(secretLikePaths(pending)).toEqual([])
+    })
+
+    it("leaves a recognisable pending receipt when the probe is interrupted", async () => {
+      const writes: ReturnType<typeof buildReceipt>[] = []
+      await expect(
+        recordPromotion({
+          receiptInput,
+          deployment,
+          productionUrl: PRODUCTION,
+          now,
+          write: (written) => {
+            writes.push(structuredClone(written))
+          },
+          verify: () => Promise.reject(new Error("SIGINT")),
+        })
+      ).rejects.toThrow("SIGINT")
+      expect(writes).toHaveLength(1)
+      expect(isProbePending(writes[0])).toBe(true)
+    })
+
+    it("writes nothing when the receipt would be refused", async () => {
+      const write = vi.fn()
+      const verify = vi.fn()
+      await expect(
+        recordPromotion({
+          receiptInput: {
+            ...receiptInput,
+            operator: "Bearer abcdefghijklmnopqrstuvwxyz0123456789",
+          },
+          deployment,
+          productionUrl: PRODUCTION,
+          now,
+          write,
+          verify,
+        })
+      ).rejects.toThrow(/secret-like values at \$\.operator/)
+      expect(write).not.toHaveBeenCalled()
+      expect(verify).not.toHaveBeenCalled()
+    })
+
+    it("tells a pending probe from a finished or missing one", () => {
+      expect(
+        isProbePending({
+          productionProbe: pendingProductionProbe(PRODUCTION, SHA, "t"),
+        })
+      ).toBe(true)
+      expect(
+        isProbePending({ productionProbe: { ok: false, status: "timeout" } })
+      ).toBe(false)
+      expect(isProbePending({})).toBe(false)
+      expect(isProbePending(null)).toBe(false)
+    })
   })
 })
