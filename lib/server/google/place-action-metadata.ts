@@ -24,9 +24,3 @@ export async function listGooglePlaceActionMetadata(accessToken: string, locatio
   }
   throw new ApiError(502, "place_action_metadata_page_limit", "Google action-type pagination exceeded the safety limit.")
 }
-
-export async function requireGooglePlaceActionType(accessToken: string, locationName: string, type: GooglePlaceActionType, options: { readonly connectionKey?: string } = {}) {
-  const metadata = await listGooglePlaceActionMetadata(accessToken, locationName, options)
-  if (!metadata.supportedTypes.includes(type)) throw new ApiError(409, "place_action_not_supported", "Google does not offer this action type for the exact location. Refresh the available actions.")
-  return metadata
-}

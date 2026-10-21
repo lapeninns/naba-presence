@@ -68,8 +68,3 @@ export function operationalSubjectKey(event: OperationalEvent): string {
       : `${event.source.type}:${event.source.id}`
   return `${event.organisationId}:${target}:${source}`
 }
-
-/** Optional email categories remain opt-in until recipient preferences exist. */
-export function operationalEmailMode(event: OperationalEvent, explicitlyEnabled: boolean) {
-  return explicitlyEnabled ? OPERATIONAL_EVENT_POLICY[event.kind].email : "none"
-}

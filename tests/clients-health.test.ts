@@ -8,7 +8,6 @@ import {
   connectionNeedsReconnect,
   diagnoseClient,
   HEALTH_FILTERS,
-  healthFilterMatches,
   FRESHNESS_WINDOW_MS,
   attentionDescription,
   freshnessSentence,
@@ -301,7 +300,7 @@ describe("health filters", () => {
     const buckets = HEALTH_FILTERS.filter((filter) => filter.value !== "all")
     for (const state of all) {
       expect(
-        buckets.filter((filter) => healthFilterMatches(filter.value, state))
+        buckets.filter((filter) => filter.value === healthBucket(state))
       ).toHaveLength(1)
     }
   })
@@ -420,16 +419,23 @@ describe("diagnoseClient", () => {
 })
 
 describe("healthBucket", () => {
-  it("puts every health state in the one filter bucket that matches it", () => {
-    const buckets = HEALTH_FILTERS.filter((filter) => filter.value !== "all")
-    for (const state of CLIENT_HEALTH) {
-      const matching = buckets.filter((filter) =>
-        healthFilterMatches(filter.value, state)
-      )
-      expect(matching.map((filter) => filter.value)).toEqual([
-        healthBucket(state),
-      ])
-    }
+  it("maps every health state to a chip the filter strip draws", () => {
+    // The clients index filters with healthBucket(client.health) === chip,
+    // so a state without its own chip would be unreachable from any filter.
+    expect(
+      Object.fromEntries(CLIENT_HEALTH.map((state) => [state, healthBucket(state)]))
+    ).toEqual({
+      not_connected: "not_connected",
+      disconnected: "disconnected",
+      attention: "attention",
+      syncing: "healthy",
+      healthy: "healthy",
+      unchecked: "unchecked",
+      partially_checked: "partially_checked",
+      unpublished: "unpublished",
+    })
+    const chips = new Set<string>(HEALTH_FILTERS.map((filter) => filter.value))
+    for (const state of CLIENT_HEALTH) expect(chips.has(healthBucket(state))).toBe(true)
   })
 
   it("counts an importing client as In sync", () => {

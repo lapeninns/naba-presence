@@ -13,9 +13,9 @@ const env = {
 vi.mock("@/lib/server/env", () => ({ getServerEnv: () => env }))
 
 const {
+  activeKeyDescriptor,
   decryptSecret,
   encryptSecret,
-  isOnActiveKey,
   reencryptSecret,
   signOAuthState,
   verifyOAuthState,
@@ -32,6 +32,17 @@ function legacyCiphertext(secret: string, value: string) {
   const cipher = createCipheriv("aes-256-gcm", key, iv)
   const body = Buffer.concat([cipher.update(value, "utf8"), cipher.final()])
   return Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), body])
+}
+
+/**
+ * The predicate key rotation's SQL applies to stored bytes
+ * (lib/server/key-rotation.ts offActiveKey), negated: the format byte, and for
+ * the keyed format the 4-byte key id after it, read from activeKeyDescriptor.
+ */
+function isOnActiveKey(value: Buffer) {
+  const active = activeKeyDescriptor()
+  if (active.format === 1) return value[0] === 1
+  return value[0] === 2 && value.subarray(1, 5).equals(active.keyId)
 }
 
 beforeEach(() => {

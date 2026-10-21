@@ -2,9 +2,8 @@ import assert from "node:assert/strict"
 import { describe, it } from "vitest"
 
 import {
-  currencyOf, hydrateMenus, insertAt, menuIssues, menuStructureSummary,
-  moveBy, parseMenuPrice, readLabel, readPrice, restoreRemoval,
-  serializeMenus, withLabel, withPrice, type MenuRecord,
+  currencyOf, hydrateMenus, insertAt, moveBy, parseMenuPrice, readLabel,
+  readPrice, withLabel, withPrice, type MenuRecord,
 } from "@/lib/locations/forms/menu-editor"
 
 const item = (name = "Soup", code = "GBP", units = "6", nanos = 500_000_000): MenuRecord => ({
@@ -58,13 +57,24 @@ describe("exact menu prices", () => {
 })
 
 describe("passthrough preservation and editor identity", () => {
-  it("round-trips all menus, options, translations and unknown fields", () => {
+  it("hydrates every menu, section and item around the untouched provider record", () => {
     const original = menus()
-    assert.deepEqual(serializeMenus(hydrateMenus(original)), original)
+    const tree = hydrateMenus(original)
+    assert.equal(tree.length, 2)
+    assert.equal(tree[0]!.data, original[0])
+    assert.equal(tree[0]!.sections[0]!.data, (original[0]!.sections as MenuRecord[])[0])
+    assert.equal(tree[0]!.sections[0]!.items[1]!.data, ((original[0]!.sections as MenuRecord[])[0]!.items as MenuRecord[])[1])
+    assert.deepEqual(original, menus())
   })
-  it("does not add empty structural properties to a no-op round trip", () => {
-    const original = [{ labels: [{ displayName: "Empty" }], opaque: true }]
-    assert.deepEqual(serializeMenus(hydrateMenus(original)), original)
+  it("seeds each item's price draft and currency from the provider price", () => {
+    const tree = hydrateMenus(menus())
+    assert.deepEqual(tree[0]!.sections[0]!.items.map((entry) => [entry.priceText, entry.currencyCode]), [["6.50", "GBP"], ["6.50", "GBP"]])
+    assert.deepEqual(tree[1]!.sections[0]!.items.map((entry) => [entry.priceText, entry.currencyCode]), [["12.00", "EUR"]])
+  })
+  it("gives every node a distinct editor ID", () => {
+    const tree = hydrateMenus(menus())
+    const ids = tree.flatMap((menu) => [menu.id, ...menu.sections.flatMap((section) => [section.id, ...section.items.map((entry) => entry.id)])])
+    assert.equal(new Set(ids).size, ids.length)
   })
   it("changes only the primary label", () => {
     const original = item()
@@ -81,14 +91,6 @@ describe("passthrough preservation and editor identity", () => {
     assert.equal(attributes.custom, "keep-attributes")
     assert.equal((attributes.price as MenuRecord).custom, "keep-price")
     assert.deepEqual(result.options, item().options)
-  })
-  it("edits the second menu without altering the first", () => {
-    const original = menus()
-    const tree = hydrateMenus(original)
-    tree[1] = { ...tree[1]!, data: withLabel(tree[1]!.data, { displayName: "Evening menu" }) }
-    const output = serializeMenus(tree)
-    assert.deepEqual(output[0], original[0])
-    assert.equal(readLabel(output[1]!).displayName, "Evening menu")
   })
   it("keeps IDs and unfinished decimals attached to the item when reordered", () => {
     const tree = hydrateMenus(menus())
@@ -110,64 +112,5 @@ describe("passthrough preservation and editor identity", () => {
   it("clamps insert positions", () => {
     assert.deepEqual(insertAt([1], 50, 2), [1, 2])
     assert.deepEqual(insertAt([1], -10, 2), [2, 1])
-  })
-  it("does not serialize editor IDs, currency memory or raw price drafts", () => {
-    const tree = hydrateMenus(menus())
-    tree[0]!.sections[0]!.items[0]!.priceText = "invalid"
-    const wire = JSON.stringify(serializeMenus(tree))
-    assert.equal(wire.includes('"priceText"'), false)
-    assert.equal(wire.includes('"id":"menu-'), false)
-    assert.equal(wire.includes("invalid"), false)
-  })
-})
-
-describe("validation and safe undo", () => {
-  it("validates hidden menus, not only the first", () => {
-    const tree = hydrateMenus(menus())
-    tree[1]!.sections[0]!.items[0]!.priceText = "1,50"
-    const issues = menuIssues(tree)
-    assert.equal(issues.length, 1)
-    assert.equal(issues[0]!.menuId, tree[1]!.id)
-    assert.equal(issues[0]!.field, "price")
-  })
-  it("reports missing names at every level with focusable IDs", () => {
-    const tree = hydrateMenus([{ labels: [], sections: [{ labels: [], items: [{ labels: [] }] }] }])
-    assert.deepEqual(menuIssues(tree).map((issue) => issue.message), ["Give this menu a name.", "Give this section a name.", "Give this item a name."])
-  })
-  it("allows a deliberately empty full replacement", () => assert.deepEqual(menuIssues([]), []))
-  it("undoes an item removal without overwriting a later edit", () => {
-    const tree = hydrateMenus(menus())
-    const menu = tree[0]!, section = menu.sections[0]!, removed = section.items[0]!
-    const remaining = { ...section.items[1]!, data: withLabel(section.items[1]!.data, { displayName: "Edited salad" }) }
-    const current = [{ ...menu, sections: [{ ...section, items: [remaining] }] }, tree[1]!]
-    const result = restoreRemoval(current, { kind: "item", node: removed, index: 0, menuId: menu.id, sectionId: section.id })
-    assert.equal(result[0]!.sections[0]!.items[0]!.id, removed.id)
-    assert.equal(readLabel(result[0]!.sections[0]!.items[1]!.data).displayName, "Edited salad")
-    assert.equal(current[0]!.sections[0]!.items.length, 1)
-  })
-  it("restores a whole section including its raw price and options", () => {
-    const tree = hydrateMenus(menus())
-    const menu = tree[0]!, section = menu.sections[0]!
-    section.items[0]!.priceText = "12."
-    const current = [{ ...menu, sections: [] }, tree[1]!]
-    const restored = restoreRemoval(current, { kind: "section", node: section, index: 0, menuId: menu.id })
-    assert.deepEqual(restored[0]!.sections[0], section)
-  })
-  it("restores a deleted menu without reverting another menu's edit", () => {
-    const tree = hydrateMenus(menus())
-    const current = [{ ...tree[1]!, data: withLabel(tree[1]!.data, { displayName: "Updated dinner" }) }]
-    const restored = restoreRemoval(current, { kind: "menu", node: tree[0]!, index: 0 })
-    assert.equal(restored[0]!.id, tree[0]!.id)
-    assert.equal(readLabel(restored[1]!.data).displayName, "Updated dinner")
-  })
-  it("includes menu names, section names, item order and descriptions in review", () => {
-    const original = menus()
-    const summary = menuStructureSummary(original)
-    assert.match(summary, /Lunch/)
-    assert.match(summary, /Starters — To begin/)
-    assert.match(summary, /Made fresh daily/)
-    const tree = hydrateMenus(original)
-    tree[0]!.sections[0]!.items = moveBy(tree[0]!.sections[0]!.items, 0, 1)
-    assert.notEqual(menuStructureSummary(serializeMenus(tree)), summary)
   })
 })

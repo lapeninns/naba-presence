@@ -90,29 +90,10 @@ export type RangeFor<T extends ReportTab> = T extends "reply"
     ? PresenceRangeId
     : KeywordRangeId
 
-const OPTIONS: Record<ReportTab, ReadonlyArray<{ id: string }>> = {
-  reply: REPLY_RANGES,
-  google: PRESENCE_RANGES,
-  keywords: KEYWORD_RANGES,
-}
-
 export const DEFAULT_RANGES: { [T in ReportTab]: RangeFor<T> } = {
   reply: "28d",
   google: "28d",
   keywords: "6m",
-}
-
-/**
- * The period a tab shows for `?range=`: the value when that tab offers it,
- * otherwise the tab's default. One parameter serves all three tabs, so a
- * period two tabs share survives switching between them.
- */
-export function parseRange<T extends ReportTab>(
-  tab: T,
-  raw: string | null | undefined
-): RangeFor<T> {
-  const found = OPTIONS[tab].find((option) => option.id === raw)
-  return (found ? found.id : DEFAULT_RANGES[tab]) as RangeFor<T>
 }
 
 /**

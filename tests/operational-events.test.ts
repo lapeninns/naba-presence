@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { operationalEmailMode, operationalEventSchema, operationalSubjectKey, OPERATIONAL_EVENT_POLICY } from "@/lib/contracts/operational-events"
+import { operationalEventSchema, operationalSubjectKey, OPERATIONAL_EVENT_POLICY } from "@/lib/contracts/operational-events"
 
 const organisationId = "11111111-1111-4111-8111-111111111111"
 const locationId = "22222222-2222-4222-8222-222222222222"
@@ -27,12 +27,14 @@ describe("operational event contracts", () => {
     expect(operationalEventSchema.safeParse({ ...base, kind: "verification_changed", source: { type: "verification", id }, state: "pending", pin: "12345" }).success).toBe(false)
   })
 
-  it("requires explicit optional email preferences and does not email recovery", () => {
-    const failed = operationalEventSchema.parse({ ...unresolved, kind: "publication_failed", reason: "provider_rejected" })
-    expect(operationalEmailMode(failed, false)).toBe("none")
-    expect(operationalEmailMode(failed, true)).toBe("immediate")
-    const confirmed = operationalEventSchema.parse({ ...base, kind: "publication_confirmed", source: unresolved.source })
-    expect(operationalEmailMode(confirmed, true)).toBe("none")
+  it("never opens an incident or sends email for a confirming or recovering event", () => {
+    // recordOperationalEvent resolves on `resolves` and opens only on `incident`.
+    const recovering = Object.entries(OPERATIONAL_EVENT_POLICY).filter(([, policy]) => policy.resolves)
+    expect(recovering.map(([kind]) => kind).sort()).toEqual(["publication_confirmed", "resource_recovered"])
+    for (const [, policy] of recovering) expect(policy).toMatchObject({ incident: null, email: "none" })
+    for (const [kind, policy] of Object.entries(OPERATIONAL_EVENT_POLICY)) {
+      if (!policy.resolves) expect(policy.incident).toBe(kind)
+    }
   })
 
   it("requires a failure and bounds total batch results to the frozen 100 targets", () => {

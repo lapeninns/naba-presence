@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
-import {
-  compareMenuReplacement,
-  menuChangeRows,
-} from "@/lib/locations/menu-diff"
+import { compareMenuReplacement } from "@/lib/locations/menu-diff"
+
+/** The rows the review sheet renders, from the live outbound comparison. */
+const menuChangeRows = (input: Parameters<typeof compareMenuReplacement>[0]) =>
+  compareMenuReplacement(input).rows
 
 function item(description = "Fresh soup", units = "6") {
   return {

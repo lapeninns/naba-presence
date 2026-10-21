@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { listGooglePlaceActionMetadata, requireGooglePlaceActionType } from "@/lib/server/google/place-action-metadata"
+import { listGooglePlaceActionMetadata } from "@/lib/server/google/place-action-metadata"
 import { googleRequest } from "@/lib/server/google/transport"
 
 vi.mock("@/lib/server/google/transport", () => ({ googleRequest: vi.fn() }))
@@ -29,7 +29,6 @@ describe("exact location place-action metadata", () => {
   it("does not invent enum-wide support from an empty provider response", async () => {
     request.mockResolvedValue({})
     expect(await listGooglePlaceActionMetadata("token", "locations/fixture")).toMatchObject({ supportedTypes: [], unsupportedTypes: [] })
-    await expect(requireGooglePlaceActionType("token", "locations/fixture", "SHOP_ONLINE")).rejects.toMatchObject({ code: "place_action_not_supported" })
   })
   it("rejects malformed provider data without exposing a supported type", async () => {
     request.mockResolvedValue({ placeActionTypeMetadata: [{ placeActionType: 3 }] })

@@ -142,19 +142,6 @@ export function decryptSecret(value: Buffer): string {
 }
 
 /**
- * True when `value` was written by the active key in the current write
- * format, i.e. a re-encryption pass has nothing to do for it.
- */
-export function isOnActiveKey(value: Buffer): boolean {
-  const ring = keyRing()
-  if (!ring.keyedWrites) return value[0] === LEGACY_FORMAT
-  return (
-    value[0] === KEYED_FORMAT &&
-    value.subarray(1, 1 + KEY_ID_BYTES).equals(ring.active.id)
-  )
-}
-
-/**
  * What "on the active key" looks like in the stored bytes, so SQL can find
  * the rows a rotation still has to move without decrypting anything: the
  * format byte, and for the keyed format the 4-byte key id after it.
