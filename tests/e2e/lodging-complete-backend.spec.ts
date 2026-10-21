@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { captureLodging as capture, captureLodgingDialog, lodgingSheet } from "./helpers/lodging-capture"
 import { startLodgingBackend } from "./helpers/lodging-backend"
@@ -16,15 +17,15 @@ async function search(page: Page, value: string) {
 const PINNED_GROUPS = ["Property", "Policies", "Guest units", "Common living area", "Accessibility", "Parking", "Connectivity", "Food and drink", "Housekeeping", "Wellness", "Pools", "Activities", "Business", "Families", "Pets", "Services", "Health and safety", "Sustainability", "Transportation"]
 
 /**
- * Opens every pinned group by keyboard, checking each one on its own: it
- * expands, its select controls keep readable values at this width, and (for
- * Guest units) the nested item control appears. One axe scan and capture of the
- * editor with all 19 open then covers every group's content, and closing each
- * one again proves the toggle. Each group used to be its own test with its own
- * fixture, axe scan and screenshot, because walking all 19 with a scan each
- * took 22-28 s of a 30 s budget; the per-group scan is what is not repeated.
+ * Opens every pinned group by keyboard (each expands, and Guest units shows its
+ * nested item control), then checks all of them together: every select control
+ * keeps a readable value at this width, and one axe scan of the editor with all
+ * 19 open covers every group's content. Closing each one again proves the
+ * toggle. Each group used to be its own test with its own fixture, axe scan and
+ * screenshot, because walking all 19 with a scan each took 22-28 s of a 30 s
+ * budget; the per-group scan and screenshot are what is not repeated.
  */
-async function walkPinnedGroups(page: Page, info: TestInfo, width: number) {
+async function walkPinnedGroups(page: Page, width: number) {
   await search(page, "")
   for (const group of PINNED_GROUPS) {
     const button = editor(page).getByRole("button", { name: group, exact: true })
@@ -34,11 +35,17 @@ async function walkPinnedGroups(page: Page, info: TestInfo, width: number) {
       await editor(page).getByRole("button", { name: "Add guest units item", exact: true }).click()
       await expect(editor(page).getByRole("spinbutton", { name: "Beds count", exact: true })).toBeVisible()
     }
-    const narrowControls = await editor(page).getByRole("combobox").evaluateAll((controls) => controls.filter((control) => control.getBoundingClientRect().width < 160).map((control) => ({ label: control.getAttribute("aria-labelledby"), width: control.getBoundingClientRect().width })))
-    expect(narrowControls, `${group} controls must keep readable values at ${width}px`).toEqual([])
   }
+  // Every select control keeps a readable value at this width. Measured once,
+  // with all 19 groups open: each measurement lays the whole editor out again.
+  const narrowControls = await editor(page).getByRole("combobox").evaluateAll((controls) => controls.filter((control) => control.getBoundingClientRect().width < 160).map((control) => ({ label: control.getAttribute("aria-labelledby"), width: control.getBoundingClientRect().width })))
+  expect(narrowControls, `lodging controls must keep readable values at ${width}px`).toEqual([])
   for (const group of PINNED_GROUPS) await expect(editor(page).getByRole("button", { name: group, exact: true })).toHaveAttribute("aria-expanded", "true")
-  await capture(page, info, "groups-expanded")
+  // One axe scan and overflow check of the editor with every group open. No
+  // screenshot: stitching the editor's full height with all 19 groups open is
+  // slower than the rest of the walk, and a screenshot here is only an artefact.
+  expect((await new AxeBuilder({ page }).include('section[aria-labelledby$="-title"]').analyze()).violations).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   for (const group of PINNED_GROUPS) {
     const button = editor(page).getByRole("button", { name: group, exact: true })
     await button.click()
@@ -123,8 +130,10 @@ test.describe(`Complete lodging journeys at ${JOURNEY_WIDTH}px`, () => {
     await captureLodgingDialog(page, info, "collection-review")
   })
   test("shows every pinned writable lodging group and its nested guest-unit control", async ({ page }, info) => {
+    // One test now does what 19 did, each with its own 30 s: three times the budget, not 19.
+    test.slow()
     const fixture = await backend.lodgingFixture(page); await fixture.open()
-    await walkPinnedGroups(page, info, JOURNEY_WIDTH)
+    await walkPinnedGroups(page, JOURNEY_WIDTH)
     expect(fixture.writes()).toHaveLength(0)
   })
   test("restores an expired confirmed request after disconnection without a provider resend", async ({ page }, info) => {
@@ -158,10 +167,11 @@ test.describe(`Complete lodging journeys at ${JOURNEY_WIDTH}px`, () => {
 for (const width of LAYOUT_WIDTHS) test.describe(`Complete lodging layout at ${width}px`, () => {
   test.use({ viewport: viewportAt(width) })
   test("keeps the editor and every pinned group usable", async ({ page }, info) => {
+    test.slow() // the same 19-group walk
     const fixture = await backend.lodgingFixture(page); await fixture.open()
     await search(page, "Parking available")
     await capture(page, info, "unknown")
-    await walkPinnedGroups(page, info, width)
+    await walkPinnedGroups(page, width)
     expect(fixture.writes()).toHaveLength(0)
   })
   test("keeps the review, consent and confirmed outcome sheet usable", async ({ page }, info) => {
