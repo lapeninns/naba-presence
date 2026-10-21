@@ -7,8 +7,11 @@
 #   ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/naba-runner/post-job.sh
 #
 # Makes a persistent runner behave nearly like an ephemeral one: no database,
-# server or browser survives a job, and the workspace is cleaned. The pnpm
-# store and the Playwright browser cache are kept on purpose.
+# server or browser of this job survives it, and the workspace is deleted,
+# .git included, so nothing a job wrote there (.git/config, hooks) reaches the
+# next job. Only this job's processes are stopped; the other instance runs as
+# the same user and keeps its live job. The pnpm store and the Playwright
+# browser cache are kept on purpose.
 set -uo pipefail
 
 temp="${RUNNER_TEMP:-}"
@@ -26,15 +29,32 @@ if [ -n "$temp" ] && [ -d "$temp" ]; then
   done
 fi
 
-pkill -u "$(id -un)" -f 'standalone/server.js|postgres -D|playwright' 2>/dev/null || true
+# shellcheck source=scripts/ci/runner-hooks/job-processes.sh
+if . "$(dirname "${BASH_SOURCE[0]}")/job-processes.sh"; then
+  stop_job_processes "$temp" "$workspace"
+else
+  echo "post-job: job-processes.sh is missing; no processes stopped" >&2
+fi
 
 if [ -n "$temp" ] && [ -d "$temp" ]; then
   rm -rf "${temp:?}"/* "${temp:?}"/.[!.]* 2>/dev/null || true
 fi
 
-if [ -n "$workspace" ] && [ -d "$workspace/.git" ]; then
-  git -C "$workspace" clean -ffdx -q || true
-fi
+# Only a workspace inside a runner's _work folder (config.sh --work _work) is
+# deleted, never /, $HOME or anything a misconfigured variable points at.
+case "$workspace" in
+  /*/_work/?*)
+    if [ -d "$workspace" ] && [ "${workspace%/}" != "${HOME%/}" ]; then
+      cd / || exit 0
+      rm -rf "${workspace:?}" 2>/dev/null || true
+      # The runner expects the folder; actions/checkout fills it again.
+      mkdir -p "$workspace" 2>/dev/null || true
+      echo "post-job: deleted workspace $workspace"
+    fi
+    ;;
+  "") ;;
+  *) echo "post-job: workspace $workspace is outside _work; left alone" >&2 ;;
+esac
 
 echo "post-job: cleanup done"
 exit 0
