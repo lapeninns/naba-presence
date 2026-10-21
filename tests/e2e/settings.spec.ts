@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page, test } from "@playwright/test"
 
 import { readJourneyState } from "./helpers/stub-bridge"
+import { pageSettled, trackRequests } from "./helpers/settled"
 import { seedTeamTenant } from "./helpers/team-tenant"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
@@ -50,12 +51,14 @@ test.describe("settings", () => {
           if (message.type() === "error") consoleErrors.push(message.text())
         })
         page.on("pageerror", (error) => pageErrors.push(error.message))
+        const requests = trackRequests(page)
         await page.emulateMedia({ colorScheme: theme })
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.goto(area.path)
         await expect(page.getByRole("heading", { name: area.heading, level: 1 })).toBeVisible()
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
+        await requests.idle()
         expect(consoleErrors, `${theme} ${area.heading} console`).toEqual([])
         expect(pageErrors, `${theme} ${area.heading} pageerror`).toEqual([])
         const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
@@ -564,7 +567,6 @@ test.describe("team after a downgrade and Back", () => {
     baseURL,
     page,
   }) => {
-    test.setTimeout(90_000)
     const now = Date.now()
     const tenant = await seedTeamTenant({
       invitations: [
@@ -588,6 +590,10 @@ test.describe("team after a downgrade and Back", () => {
     const copyLabel = "Copy invite link for pending@example.test"
     const copyLink = main.getByRole("button", { name: copyLabel })
 
+    // The shell's 30-second session-age refresh runs on the page's clock, so
+    // install a controllable one before the page loads and fast-forward it
+    // instead of waiting out the age.
+    await page.clock.install()
     await page.goto("/team")
     await expect(page.getByRole("heading", { name: "Team", level: 1 })).toBeVisible()
     await expect(copyLink).toBeVisible()
@@ -615,7 +621,7 @@ test.describe("team after a downgrade and Back", () => {
         new URL(response.url()).pathname === "/api/session" &&
         response.ok() &&
         (await response.json()).session?.role === "viewer",
-      { timeout: 60_000 }
+      { timeout: 15_000 }
     )
     await page
       .locator('aside[aria-label="Sidebar"]')
@@ -626,19 +632,19 @@ test.describe("team after a downgrade and Back", () => {
     // The tab learns of the downgrade. The Inbox's payload is stamped for
     // the viewer, so the boundary refuses it and asks at once. Failing that
     // (a build without the stamp), the shell asks on focus once its session
-    // is 30 s old, as a tab always has.
-    const quick = await Promise.race([
-      learnt.then(() => true),
-      page.waitForTimeout(5_000).then(() => false),
-    ])
-    if (!quick) {
-      await page.waitForTimeout(27_000)
-      await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
-    }
+    // is 30 s old, as a tab always has. Take the second path every time: age
+    // the session on the page's clock, then focus, so the downgrade is learnt
+    // whichever of the two a build offers.
+    let learntAtOnce = false
+    void learnt.then(() => {
+      learntAtOnce = true
+    })
+    await page.clock.fastForward(30_000)
+    await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
     await learnt
     test.info().annotations.push({
       type: "learnt",
-      description: quick ? "refused Inbox payload" : "focus refetch",
+      description: learntAtOnce ? "refused Inbox payload" : "focus refetch",
     })
 
     // Any render from here on that shows the link.
@@ -664,8 +670,10 @@ test.describe("team after a downgrade and Back", () => {
     ).toBe(true)
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
     await expect(copyLink).toHaveCount(0)
-    // Let the last observer reports land.
-    await page.evaluate(() => new Promise((done) => setTimeout(done, 100)))
+    // Let the last observer reports land: the page's reports reach this side
+    // over the same ordered channel as an evaluate, so one round trip after
+    // them means every report is in `shown`.
+    await page.evaluate(() => undefined)
     expect(shown).not.toContain(true)
     // The server ran the page again for the viewer and refused it.
     await expect(

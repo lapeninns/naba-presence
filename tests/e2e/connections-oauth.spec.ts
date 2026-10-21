@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page, test } from "@playwright/test"
 
+import { transitionsSettled } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 async function applyCookie(page: Page, baseURL: string | undefined, cookie: string) {
@@ -56,7 +57,7 @@ test.describe("connections OAuth return", () => {
     // samples computed colours, so mid-transition it reads the buttons at
     // partial opacity and reports a contrast failure that no one can see.
     await expect(dialog).not.toHaveAttribute("data-starting-style", /.*/)
-    await page.waitForTimeout(400)
+    await transitionsSettled(page)
     const wcag = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
       .analyze()
