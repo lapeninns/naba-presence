@@ -1,8 +1,9 @@
 import postgres from "postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
+import { resetFleetState } from "../helpers/platform-state"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -41,6 +42,13 @@ describeDatabase("vercel cron tick shims", () => {
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
       GOOGLE_TIMEOUT_MS: "3000",
     })
+  })
+
+  // The ticks below assert `skipped: false`, and each takes a
+  // database-global fleet lease: start every test with none held and nothing
+  // paused, whatever an earlier file's server left behind.
+  beforeEach(async () => {
+    await resetFleetState(admin)
   })
 
   afterAll(async () => {
@@ -138,7 +146,7 @@ describeDatabase("vercel cron tick shims", () => {
       expect(Array.isArray(body.failures)).toBe(true)
       expect("locations" in body).toBe(false)
     },
-    120_000
+    30_000
   )
 
   it("enqueues the fleet through GET /api/sync/keywords", async () => {
