@@ -23,16 +23,28 @@ describe("industryCapability", () => {
 
   it("asks when Google says the listing can operate lodging data", () => {
     const hotel = { metadata: { canOperateLodgingData: true } }
-    expect(industryCapability(hotel)).toMatchObject({ lodging: true, any: true })
+    expect(industryCapability(hotel)).toMatchObject({
+      lodging: true,
+      any: true,
+    })
   })
 
   it("does not mount a second healthcare model from the legacy health-data flag", () => {
     const clinic = { metadata: { canOperateHealthData: true } }
-    expect(industryCapability(clinic)).toMatchObject({ health: false, any: false })
+    expect(industryCapability(clinic)).toMatchObject({
+      health: false,
+      any: false,
+    })
   })
 
   it("treats a missing, null or non-object metadata as no capability", () => {
-    for (const location of [null, undefined, {}, { metadata: null }, "nonsense"]) {
+    for (const location of [
+      null,
+      undefined,
+      {},
+      { metadata: null },
+      "nonsense",
+    ]) {
       expect(industryCapability(location).any).toBe(false)
     }
   })
@@ -40,6 +52,8 @@ describe("industryCapability", () => {
   it("does not accept a truthy non-true value as a capability", () => {
     // Google's booleans are booleans; anything else is a shape we do not know,
     // and guessing "yes" costs three and a half seconds of failing calls.
-    expect(industryCapability({ metadata: { canOperateLodgingData: "yes" } }).any).toBe(false)
+    expect(
+      industryCapability({ metadata: { canOperateLodgingData: "yes" } }).any
+    ).toBe(false)
   })
 })

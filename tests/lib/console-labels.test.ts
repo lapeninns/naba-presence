@@ -16,9 +16,13 @@ import {
 
 describe("console-labels humanisation (§7 — no raw enums to users)", () => {
   it("prefers a category's displayName and never leaks a raw gcid", () => {
-    expect(categoryLabel({ name: "categories/gcid:hotel", displayName: "Hotel" })).toBe("Hotel")
+    expect(
+      categoryLabel({ name: "categories/gcid:hotel", displayName: "Hotel" })
+    ).toBe("Hotel")
     // No displayName -> a humanised gcid tail, never the raw "gcid:" string.
-    const fallback = categoryLabel({ name: "categories/gcid:bed_and_breakfast" })
+    const fallback = categoryLabel({
+      name: "categories/gcid:bed_and_breakfast",
+    })
     expect(fallback).not.toMatch(/gcid|_|categories\//)
     expect(fallback.length).toBeGreaterThan(0)
   })

@@ -17,5 +17,4 @@ describe("inbox queue nav", () => {
     expect(adjacentReviewId(reviews, "missing", "next")).toBeNull()
     expect(adjacentReviewId([], "a", "next")).toBeNull()
   })
-
 })

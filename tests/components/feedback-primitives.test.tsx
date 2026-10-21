@@ -9,7 +9,13 @@ import { Kbd } from "@/components/ui/kbd"
 import { LoadMore } from "@/components/ui/load-more"
 import { OperationOutcomeNotice } from "@/components/ui/operation-outcome"
 import { QueryStates } from "@/components/ui/query-states"
-import { TabNav, Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
+import {
+  TabNav,
+  Tabs,
+  TabsList,
+  TabsPanel,
+  TabsTab,
+} from "@/components/ui/tabs"
 import {
   ERROR_TOAST_TIMEOUT,
   ACTION_TOAST_TIMEOUT,

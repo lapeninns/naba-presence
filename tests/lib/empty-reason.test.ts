@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { emptyCounts, emptyReason, type EmptyFacts } from "@/lib/inbox/empty-reason"
+import {
+  emptyCounts,
+  emptyReason,
+  type EmptyFacts,
+} from "@/lib/inbox/empty-reason"
 
 const NONE = { running: 0, failed: 0, succeeded: 0, notStarted: 0 }
 const facts = (over: Partial<EmptyFacts> = {}): EmptyFacts => ({
@@ -10,7 +14,10 @@ const facts = (over: Partial<EmptyFacts> = {}): EmptyFacts => ({
   clients: [],
   ...over,
 })
-const client = (backfill: Partial<typeof NONE>, lastSyncAt: string | null = null) => ({
+const client = (
+  backfill: Partial<typeof NONE>,
+  lastSyncAt: string | null = null
+) => ({
   backfill: { ...NONE, ...backfill },
   lastSyncAt,
 })
@@ -43,7 +50,9 @@ describe("emptyReason", () => {
   })
 
   it("only says Google has none once an import has finished", () => {
-    expect(emptyReason(facts({ clients: [client({ succeeded: 3 })] }))).toBe("checked")
+    expect(emptyReason(facts({ clients: [client({ succeeded: 3 })] }))).toBe(
+      "checked"
+    )
     // Linked but never imported must NOT read as "Google has none".
     expect(emptyReason(facts({ clients: [client({ notStarted: 2 })] }))).toBe(
       "never_imported"

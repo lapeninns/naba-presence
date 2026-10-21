@@ -41,7 +41,10 @@ describe("parseReviewText", () => {
   // "(Original)" is a plausible thing for a reviewer to type; only the leading
   // "(Translated by Google)" marker makes it a translation.
   it("does not treat a stray '(Original)' as a translation marker", () => {
-    const parsed = parseReviewText("Great, better than the (Original) branch.", "en")
+    const parsed = parseReviewText(
+      "Great, better than the (Original) branch.",
+      "en"
+    )
     expect(parsed?.original).toBeNull()
     expect(parsed?.body).toBe("Great, better than the (Original) branch.")
   })
@@ -68,7 +71,10 @@ describe("parseReviewText", () => {
   })
 
   it("falls back to the raw string when one side of the marker is empty", () => {
-    const parsed = parseReviewText("(Translated by Google) Nice. (Original)", "it")
+    const parsed = parseReviewText(
+      "(Translated by Google) Nice. (Original)",
+      "it"
+    )
     expect(parsed?.original).toBeNull()
     expect(parsed?.bodyLang).toBe("it")
   })

@@ -4,7 +4,14 @@ import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 
 describe("deriveAutoSelection", () => {
   it("returns nulls when there are no connections", () => {
-    expect(deriveAutoSelection({ connections: [], accounts: [], selectedConnectionId: null, selectedAccountName: null })).toEqual({
+    expect(
+      deriveAutoSelection({
+        connections: [],
+        accounts: [],
+        selectedConnectionId: null,
+        selectedAccountName: null,
+      })
+    ).toEqual({
       connectionId: null,
       accountName: null,
     })
@@ -12,8 +19,14 @@ describe("deriveAutoSelection", () => {
 
   it("keeps a still-valid selection", () => {
     const result = deriveAutoSelection({
-      connections: [{ id: "c1", status: "active" }, { id: "c2", status: "active" }],
-      accounts: [{ googleAccountName: "accounts/1", isActive: true }, { googleAccountName: "accounts/2", isActive: true }],
+      connections: [
+        { id: "c1", status: "active" },
+        { id: "c2", status: "active" },
+      ],
+      accounts: [
+        { googleAccountName: "accounts/1", isActive: true },
+        { googleAccountName: "accounts/2", isActive: true },
+      ],
       selectedConnectionId: "c2",
       selectedAccountName: "accounts/2",
     })
@@ -22,7 +35,10 @@ describe("deriveAutoSelection", () => {
 
   it("prefers the first active connection when nothing valid is selected", () => {
     const result = deriveAutoSelection({
-      connections: [{ id: "c1", status: "revoked" }, { id: "c2", status: "active" }],
+      connections: [
+        { id: "c1", status: "revoked" },
+        { id: "c2", status: "active" },
+      ],
       accounts: [],
       selectedConnectionId: "gone",
       selectedAccountName: null,
@@ -34,7 +50,10 @@ describe("deriveAutoSelection", () => {
     expect(
       deriveAutoSelection({
         connections: [{ id: "c1", status: "active" }],
-        accounts: [{ googleAccountName: "accounts/only", isActive: true }, { googleAccountName: "accounts/off", isActive: false }],
+        accounts: [
+          { googleAccountName: "accounts/only", isActive: true },
+          { googleAccountName: "accounts/off", isActive: false },
+        ],
         selectedConnectionId: null,
         selectedAccountName: null,
       }).accountName
@@ -42,7 +61,10 @@ describe("deriveAutoSelection", () => {
     expect(
       deriveAutoSelection({
         connections: [{ id: "c1", status: "active" }],
-        accounts: [{ googleAccountName: "accounts/a", isActive: true }, { googleAccountName: "accounts/b", isActive: true }],
+        accounts: [
+          { googleAccountName: "accounts/a", isActive: true },
+          { googleAccountName: "accounts/b", isActive: true },
+        ],
         selectedConnectionId: null,
         selectedAccountName: null,
       }).accountName

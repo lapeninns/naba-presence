@@ -118,7 +118,9 @@ describe("google-values attributes", () => {
       describeAttributeValue(bool, { name: "attributes/wifi", values: [true] })
     ).toBe("Yes")
     expect(describeAttributeValue(bool, undefined)).toBe("Not set")
-    expect(describeAttributeValue(bool, { name: "attributes/wifi", values: [false] })).toBe("No")
+    expect(
+      describeAttributeValue(bool, { name: "attributes/wifi", values: [false] })
+    ).toBe("No")
     expect(
       describeAttributeValue(enumMeta, {
         name: enumMeta.parent,

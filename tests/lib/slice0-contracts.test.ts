@@ -64,7 +64,10 @@ describe("slice 0 form contracts", () => {
   })
 
   it("still parses a retired industry operation so the route can answer 410", () => {
-    for (const operation of ["update_business_calls", "update_healthcare_provider_attributes"]) {
+    for (const operation of [
+      "update_business_calls",
+      "update_healthcare_provider_attributes",
+    ]) {
       expect(
         industryMutationSchema.parse({
           operation,

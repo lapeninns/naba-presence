@@ -43,14 +43,30 @@ describe("location resource gating", () => {
 describe("LocationTab gate helpers", () => {
   it("gateSatisfied is false while capabilities are unknown, never a false positive", () => {
     expect(gateSatisfied(undefined, "canEditCanonical")).toBe(false)
-    expect(gateSatisfied({ canEditCanonical: false, canPublish: true }, "canEditCanonical")).toBe(false)
-    expect(gateSatisfied({ canEditCanonical: true, canPublish: false }, "canEditCanonical")).toBe(true)
-    expect(gateSatisfied({ canEditCanonical: true, canPublish: false }, "canPublish")).toBe(false)
+    expect(
+      gateSatisfied(
+        { canEditCanonical: false, canPublish: true },
+        "canEditCanonical"
+      )
+    ).toBe(false)
+    expect(
+      gateSatisfied(
+        { canEditCanonical: true, canPublish: false },
+        "canEditCanonical"
+      )
+    ).toBe(true)
+    expect(
+      gateSatisfied({ canEditCanonical: true, canPublish: false }, "canPublish")
+    ).toBe(false)
     expect(gateSatisfied(undefined, undefined)).toBe(true)
   })
 
   it("tabGateReasons returns null reasons while capabilities are unknown", () => {
-    expect(tabGateReasons(undefined, "hours", true)).toEqual({ disabled: false, editReason: null, publishReason: null })
+    expect(tabGateReasons(undefined, "hours", true)).toEqual({
+      disabled: false,
+      editReason: null,
+      publishReason: null,
+    })
   })
 
   it("tabGateReasons derives the edit and resource gates independently", () => {
@@ -60,13 +76,19 @@ describe("LocationTab gate helpers", () => {
     expect(reasons.editReason).toMatch(/owners and admins/i)
     expect(reasons.publishReason).toMatch(/permission to publish/i)
 
-    const owner = { canEditCanonical: true, canPublish: true, resources: { hours: { state: "readOnly" as const } } }
+    const owner = {
+      canEditCanonical: true,
+      canPublish: true,
+      resources: { hours: { state: "readOnly" as const } },
+    }
     expect(tabGateReasons(owner, "hours", true)).toEqual({
       disabled: false,
       editReason: null,
       publishReason: "This section is read-only right now.",
     })
     // No resource key -> the plain publish gate (writes paused).
-    expect(tabGateReasons(owner, undefined, false).publishReason).toMatch(/unavailable/i)
+    expect(tabGateReasons(owner, undefined, false).publishReason).toMatch(
+      /unavailable/i
+    )
   })
 })

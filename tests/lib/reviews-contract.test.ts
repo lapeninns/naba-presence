@@ -52,7 +52,9 @@ describe("reviews contract: cursor codec", () => {
     expect(decodeReviewsCursor(null)).toBeUndefined()
     expect(decodeReviewsCursor("")).toBeUndefined()
     expect(decodeReviewsCursor("not*base64")).toBeUndefined()
-    expect(decodeReviewsCursor(Buffer.from("{oops").toString("base64url"))).toBeUndefined()
+    expect(
+      decodeReviewsCursor(Buffer.from("{oops").toString("base64url"))
+    ).toBeUndefined()
   })
 })
 
@@ -140,9 +142,13 @@ describe("reviews contract: wire codec", () => {
     // components/home/attention-list.tsx links with one `location_id`, and so
     // does every bookmark a user has saved.
     const decoded = decodeReviewsQuery(
-      new URLSearchParams("location_id=0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f&rating=1,2")
+      new URLSearchParams(
+        "location_id=0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f&rating=1,2"
+      )
     )
-    expect(decoded.locationIds).toEqual(["0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f"])
+    expect(decoded.locationIds).toEqual([
+      "0c9d8e7f-6a5b-4c3d-8e2f-1a2b3c4d5e6f",
+    ])
     expect(decoded.ratings).toEqual([1, 2])
   })
 
@@ -186,7 +192,9 @@ describe("reviews contract: wire codec", () => {
     // place in the publish pipeline. They are gone, but a stale bookmark must
     // still load the inbox — unrecognised, not invalid.
     const query = decodeReviewsQuery(
-      new URLSearchParams("verification=pass&publish_status=failed&sync_status=failed")
+      new URLSearchParams(
+        "verification=pass&publish_status=failed&sync_status=failed"
+      )
     )
     expect(query).not.toHaveProperty("verification")
     expect(query).not.toHaveProperty("publishStatus")

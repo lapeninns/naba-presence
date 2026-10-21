@@ -24,8 +24,16 @@ function summary(overrides: Partial<ListingSummary> = {}): ListingSummary {
       reconnectRequired: false,
       googleEmail: "a@b.c",
     },
-    profile: { status: "in_sync", dirtyCount: 0, observedAt: new Date().toISOString() },
-    hours: { status: "in_sync", dirtyCount: 0, observedAt: new Date().toISOString() },
+    profile: {
+      status: "in_sync",
+      dirtyCount: 0,
+      observedAt: new Date().toISOString(),
+    },
+    hours: {
+      status: "in_sync",
+      dirtyCount: 0,
+      observedAt: new Date().toISOString(),
+    },
     menu: {
       status: "in_sync",
       dirtyCount: 0,
@@ -293,7 +301,11 @@ describe("listing access loss", () => {
         linked: true,
         summary: {
           ...lost,
-          connection: { status: "revoked", reconnectRequired: true, googleEmail: null },
+          connection: {
+            status: "revoked",
+            reconnectRequired: true,
+            googleEmail: null,
+          },
         },
       })
     ).toBe("disconnected")
