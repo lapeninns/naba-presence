@@ -625,7 +625,14 @@ can write `runs-on: self-hosted` whatever `plan` says. The layers are:
    a push, schedule or dispatch on `main`, or a same-repo, non-Dependabot
    `pull_request`. `pull_request_target`, `issue_comment`, `workflow_run` and
    anything else are refused. The live hook lives outside any checkout, so a
-   PR cannot change it. Reference copy: `scripts/ci/runner-hooks/pre-job.sh`.
+   PR cannot change it. Reference copy: `scripts/ci/runner-hooks/pre-job.sh`;
+   its behaviour is tested by `tests/server/runner-pre-job-hook.test.ts`.
+   Owner decision before switching the lane on: every MultiCA agent pushes
+   as the single admin account, so "same-repository pull request" means any
+   agent branch runs its own `ci.yml` on the Mac. The safer minimum keeps
+   pull requests hosted (proven by the local gate) and runs only pushes and
+   dispatches on `main` on the Mac (drop the `pull_request` arm in Plan's
+   `runs-on`, its lane step and `pre-job.sh`).
 3. **Least privilege:** register the runner at repo level only, with the
    `naba-trusted` label. Run it as a dedicated non-admin macOS user
    `gh-runner` with no SSH keys, no `gh` auth, no keychain items and no access
@@ -659,19 +666,29 @@ automates:
    integration shards and e2e side by side):
    `./config.sh --url https://github.com/lapeninns/naba-presence --labels naba-trusted --name mac-N --work _work --unattended`.
    `self-hosted`, `macOS` and `ARM64` are added automatically.
-3. Copy `scripts/ci/runner-hooks/{pre,post}-job.sh` to
+3. Copy `scripts/ci/runner-hooks/{pre-job,post-job,job-processes}.sh` to
    `/usr/local/libexec/naba-runner/`, owned by root and not writable by
-   `gh-runner`. In each runner folder's `.env`, set
+   `gh-runner` (both hooks source `job-processes.sh`; pre-job refuses
+   every job if it is missing). In each runner folder's `.env`, set
    `ACTIONS_RUNNER_HOOK_JOB_STARTED` and `ACTIONS_RUNNER_HOOK_JOB_COMPLETED`
    to those paths. Changing a reference copy in the repo does nothing until
    you copy it again.
 4. Run each instance as a LaunchDaemon with `UserName=gh-runner`, not
    `svc.sh`'s LaunchAgent, so it runs without anyone logged in. Disable sleep
    on AC power (`sudo pmset -c sleep 0`). Leave runner auto-update on.
-5. The post-job hook stops any throwaway cluster under `$RUNNER_TEMP`, kills
-   leftover `standalone/server.js`, `postgres -D` and Playwright processes,
-   empties `$RUNNER_TEMP`, and runs `git clean -ffdx` on the workspace. The
-   pnpm store and Playwright browsers persist.
+5. The post-job hook stops any throwaway cluster under `$RUNNER_TEMP`, stops
+   this job's processes only (same user, and the command line names, or the
+   working directory lies in, this job's `$RUNNER_TEMP` or
+   `$GITHUB_WORKSPACE`), empties `$RUNNER_TEMP`, and deletes the whole
+   workspace, `.git` included, so nothing a job writes there reaches the
+   next job. `mac-1` and `mac-2` share the `gh-runner` user, so cleanup is
+   never by user: one instance's job would kill the other's. The pre-job
+   hook runs the same scoped cleanup as a backstop. The pnpm store, the
+   Playwright browsers and `gh-runner`'s home persist.
+   - Loopback is not per user: a job can reach every service on
+     `127.0.0.1`, including a local Supabase on 54322. Keep the dev stack
+     stopped, or block it from `gh-runner` with a pf rule, while the runner
+     is online.
    - Why not `--ephemeral`: one-job registration needs an admin token stored
      on the Mac to mint registration tokens, which is a bigger risk than a
      persistent runner with cleanup hooks.

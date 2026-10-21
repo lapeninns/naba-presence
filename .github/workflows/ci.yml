@@ -41,7 +41,7 @@ jobs:
     runs-on: >-
       ${{ (vars.SELF_HOSTED_ENABLED == 'true'
         && github.repository == 'lapeninns/naba-presence'
-        && ((github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
+        && ((contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main')
           || (github.event_name == 'pull_request'
             && github.event.pull_request.head.repo.full_name == github.repository
             && github.event.pull_request.user.login != 'dependabot[bot]'

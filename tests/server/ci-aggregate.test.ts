@@ -229,6 +229,9 @@ describe("ci.yml wiring", () => {
       "vars.SELF_HOSTED_ENABLED == 'true'",
       "github.repository == 'lapeninns/naba-presence'",
       "github.ref == 'refs/heads/main'",
+      // An explicit event list, not "anything but a pull request", so a
+      // future caller (workflow_call, issue_comment) cannot reach the Mac.
+      `contains(fromJSON('["push","workflow_dispatch"]'), github.event_name)`,
       "github.event.pull_request.head.repo.full_name == github.repository",
       "github.event.pull_request.user.login != 'dependabot[bot]'",
       "github.actor != 'dependabot[bot]'",
