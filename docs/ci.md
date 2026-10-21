@@ -1,136 +1,110 @@
 # CI and deployment
 
-How changes are checked before they reach production: which workflows run,
-on which runner, what is required to merge, and how to debug a red run.
+How changes are checked before they reach production: what the gate runs,
+where it runs, what is required to merge, and how to debug a red run.
 
-The project runs locally. The release evidence is the local gate,
-`pnpm verify:release` (§5), and its receipt, which `pnpm release:promote`
-(§7) requires. The GitHub workflows below are kept in the repository and
-describe the same graph, but they are not a release gate, they have not run
-since about 2026-10-04, and nothing in a release waits for them to run again.
-The cause is billing, not the workflows: every hosted job is annotated "The
-job was not started because an Actions budget is preventing further use"
-(checked 2026-10-14 with `gh run view`; Actions is enabled, all workflows
-are active, and the `pull_request` triggers fire). Hosted CI returns when the
-`lapeninns` account's Actions budget allows it, or for same-repository PRs
-when the self-hosted lane (§8) is switched on.
-Sections 1 to 4 and 8 to 11 describe the hosted setup as configured, for when
-it runs.
+**One gate, two places to run it.** Every check lives in
+`scripts/release/verify-local.mjs` (`pnpm verify:release`, §5): the same
+steps, rules and receipt whether it runs on the owner's Mac or in GitHub
+Actions. `.github/workflows/ci.yml` only chooses a runner, skips docs-only
+pull requests, installs the tools the gate needs and calls the script, so the
+two cannot drift (they did, before 2026-10-21: see
+[the audit](audits/2026-10-21-test-ci-modernization/AUDIT_REPORT.md)).
 
-- Workflows: `.github/workflows/ci.yml`, `nightly.yml`, `codeql.yml`,
-  `claude-review.yml`; Dependabot: `.github/dependabot.yml`.
+**The release evidence is local.** Hosted Actions has not started a job
+since about 2026-10-04: every hosted job is annotated "The job was not
+started because an Actions budget is preventing further use" (checked
+2026-10-21; Actions is enabled and the triggers fire). `pnpm verify:release`
+and its receipt are what `pnpm release:promote` (§7) requires; hosted check
+runs are not consulted. Hosted CI returns when the `lapeninns` account's
+Actions budget allows it, or for same-repository PRs when the self-hosted
+lane (§8) is switched on. Until then, a pull request carries the gate's
+summary in its description (`.github/pull_request_template.md`).
+
+- Workflows: `.github/workflows/ci.yml` (the required `CI result`) and
+  `codeql.yml` (dormant: code scanning is unavailable on this private
+  repository); Dependabot: `.github/dependabot.yml`.
 - Shared install step: `.github/actions/setup` (pnpm from `packageManager`,
   Node from `.nvmrc`, `pnpm install --frozen-lockfile`).
-- Node runtime: Node 24 everywhere. `.nvmrc` (`24`) drives local nvm, CI and
-  nightly; `package.json` `engines.node` (`>=24 <25`) drives Vercel and, with
+- Node runtime: Node 24 everywhere. `.nvmrc` (`24`) drives local nvm and CI;
+  `package.json` `engines.node` (`>=24 <25`) drives Vercel and, with
   `engineStrict: true` in `pnpm-workspace.yaml`, makes `pnpm install` refuse
   another major. `tests/server/toolchain-parity.test.ts` fails on any drift.
 - CI scripts: `scripts/ci/` (throwaway Postgres, migration policy, PG client,
-  runner-hook reference copies), `scripts/db-migrate.mjs`,
-  `scripts/vercel-ignore-build.mjs`; local release gate:
-  `scripts/release/verify-local.mjs` (§5); production promotion:
-  `scripts/release/promote.mjs` (§7).
+  result aggregation, runner-hook reference copies), `scripts/db-migrate.mjs`,
+  `scripts/vercel-ignore-build.mjs`; the gate:
+  `scripts/release/verify-local.mjs` (§5); production promotion and
+  rollback: `scripts/release/promote.mjs`, `scripts/release/rollback.mjs`
+  (§7). How tests are organised: [docs/testing.md](testing.md).
 
 ## 1. What runs when
 
-| Situation | CI graph (`ci.yml`) | Lane | CodeQL | Claude review | Vercel |
-|---|---|---|---|---|---|
-| Local, before push | `pnpm verify` via the opt-in pre-push hook | your machine | – | – | – |
-| Same-repo PR | every job | hosted; Mac when enabled | yes | once on open / ready / reopen; label or comment on demand | preview build |
-| Same-repo PR, docs-only | Plan, Secret scan, Dependency review, `CI result`; code jobs skipped | hosted | yes | as above | preview skipped |
-| Draft PR | every job | as same-repo | yes | never (label ignored) | preview build |
-| Fork PR | every job, **after a maintainer approves the run** | always hosted | yes | never (no secrets; comment path re-checks) | preview build |
-| Dependabot PR | every job | always hosted | yes | never | preview skipped |
-| Push to `main` | every job, never cancelled | hosted; Mac when enabled | yes | – | none; production is promoted by `pnpm release:promote` (§7) |
-| Nightly 04:17 UTC | `ci.yml` with `full: true` (full-history gitleaks) + `pnpm audit` | hosted; Mac when enabled | weekly, Mon 05:41 UTC | – | – |
+| Situation | What runs | Where |
+|---|---|---|
+| Before a push | `pnpm verify` (typecheck, lint, format check of changed files, unit and component tests, design ratchet) and gitleaks over the pushed commits, through the opt-in pre-push hook; documentation-only pushes get gitleaks only | your machine |
+| Before a merge, and before a release | `pnpm verify:release` on the head commit; paste its summary into the PR | your machine (the evidence) |
+| Same-repo PR | `ci.yml`: Plan, Gate (the whole of `verify:release`), Secret scan, `CI result` | hosted; Mac when enabled |
+| Same-repo PR, docs-only | Plan, Secret scan, `CI result`; Gate skipped | as above |
+| Fork or Dependabot PR | as a same-repo PR, a fork **after a maintainer approves the run** | always hosted |
+| Push to `main` | as a same-repo PR, never cancelled; the upgrade test starts from the last promotion | hosted; Mac when enabled |
+| Release | `pnpm verify:release`, then `pnpm release:promote` (§7) | operator's Mac |
 
-"Docs-only" means every changed file is under `docs/` or ends in `.md`,
-except any `AGENTS.md`; anything under `.github/`, `scripts/` or `supabase/`
-always counts as code. `ci.yml`'s `plan` job and
-`scripts/vercel-ignore-build.mjs` use the same rule.
+"Docs-only" means every changed file (both names of a rename) is under
+`docs/` or ends in `.md`, except any `AGENTS.md` and the documentation tests
+read: `README.md`, `docs/runbook.md`, `docs/ci.md`, `docs/architecture.md`,
+`docs/frontend-backend-feature-map.md` and everything under `docs/release/`
+(`TEST_INPUT_DOCS` in `scripts/vercel-ignore-build.mjs`). Anything under
+`.github/`, `scripts/` or `supabase/` always counts as code. `ci.yml`'s Plan,
+the pre-push hook and the Vercel ignored-build step use the same rule
+(`tests/server/vercel-ignore-build.test.ts` keeps them in step).
 
-CI needs no real secrets: `ci.yml` sets placeholder `NEXTAUTH_SECRET`,
-`TOKEN_ENCRYPTION_KEY` and `CRON_SECRET`, so fork and Dependabot PRs run the
-whole graph. The only workflow that uses a secret is `claude-review.yml`.
+CI needs no secrets: `ci.yml` sets placeholder `NEXTAUTH_SECRET`,
+`TOKEN_ENCRYPTION_KEY` and `CRON_SECRET` (the gate sets the same values), so
+fork and Dependabot PRs run the whole gate. No workflow reads a repository
+secret.
 
 ## 2. The job graph
 
 ```mermaid
 flowchart LR
-  plan[Plan] --> gate1["Gate (typecheck + lint)"]
-  plan --> gate2["Gate (unit 1/2)"]
-  plan --> gate3["Gate (unit 2/2)"]
-  plan --> mig[Migrations]
-  plan --> build[Build]
-  build --> int1["Integration (shard 1/2)"]
-  build --> int2["Integration (shard 2/2)"]
-  build --> e2e1["E2E (shard 1/2)"]
-  build --> e2e2["E2E (shard 2/2)"]
-  scan[Secret scan]
-  dep["Dependency review (PR only)"]
-  gate1 & gate2 & gate3 & mig & int1 & int2 & e2e1 & e2e2 & scan & dep --> result[CI result]
+  plan[Plan: lane and docs-only] --> gate["Gate: node scripts/release/verify-local.mjs"]
+  plan --> scan["Secret scan: gitleaks over the new commits"]
+  gate & scan --> result[CI result]
 ```
 
-Measured on hosted `ubuntu-24.04` (run
-[36105562256](https://github.com/lapeninns/naba-presence/actions/runs/36105562256)):
+| Job | Timeout | What it does |
+|---|---|---|
+| Plan | 5 | Picks the lane (§8) and whether the PR changes code |
+| Gate | 90 | Checkout with full history, install, pinned gitleaks and Playwright Chromium, then `verify-local.mjs` (`--base-ref` the PR's base, or the last promotion on `main`); uploads the receipt, per-step logs and browser traces |
+| Secret scan | 5 | Pinned, checksum-verified gitleaks over the PR's or push's new commits; runs on docs-only PRs too |
+| CI result | 5 | Aggregates the three jobs (§3) |
 
-| Job | Timeout | Measured | What it does |
-|---|---|---|---|
-| Plan | 5 | 3s | Picks the lane and whether code changed |
-| Gate (typecheck + lint) | 10 | 1m10 | `pnpm typecheck`, `pnpm lint` |
-| Gate (unit 1/2, 2/2) | 10 | 1m38 / 1m56 | `pnpm test --shard=N/2` |
-| Migrations | 10 | 33s | See [Migrations](#6-migrations) |
-| Build | 15 | 1m36 | `pnpm build`, packs `.next/standalone` as an artifact |
-| Integration (shard 1/2, 2/2) | 20 | 3m41 / 4m50 | Own Postgres, migrate, runtime role, `pnpm test:integration --shard` |
-| E2E (shard 1/2, 2/2) | 20 | 4m13 / 5m00 | Own Postgres, Playwright Chromium, `pnpm test:e2e --shard` |
-| Secret scan | 5 | 5s | Pinned gitleaks CLI, SHA256-verified |
-| Dependency review | 5 | 4s | `fail-on-severity: high`, PRs only |
-| CI result | 5 | 2s | Aggregates everything above |
-
-The critical path is Plan → Build → E2E (shard 2/2), about **6m50s**
-end to end. The old single serial job took 18–21.5 minutes. CodeQL runs
-separately in about 1m40.
-
-Gate is split three ways because on a 4-vCPU hosted runner, typecheck, lint
-and tests in one job took over 3 minutes. Integration is sharded because one
-job took about 7.5 minutes and sat on the critical path.
-
-`next build` needs no database (checked by building with no `DATABASE_URL`),
-so Build starts straight after Plan. Integration and E2E both need the
-standalone server that Build produced, and each shard runs against its own
-cluster, so shards never share advisory locks or roles.
+Inside the Gate, the steps run as soon as the steps they need have passed
+(§5): the static checks side by side, then integration (two shards on a
+4-vCPU hosted runner, four on the Mac, each on its own throwaway cluster) and
+e2e at the same time after the build. Before 2026-10-21 the workflow spread
+the same checks over 13 jobs (median 7 minutes wall, 33 billed minutes per run
+on hosted, n=39, 2026-09-25 to 2026-10-03) while the local gate ran them one
+after another (54-74 minutes); the workflow now calls the local gate.
 
 ## 3. Required checks
 
 **`CI result` is the only check to require.** It runs with `if: always()`,
 checks out only `scripts/ci`, and runs `node scripts/ci/aggregate-results.mjs`
-with `needs`, Plan's `code` output and the event. Aggregation is strict: every
-job that applies to the change must be `success`. `skipped`, `failure` and
-`cancelled` all fail, except for these planned skips:
+with `needs`, Plan's `code` output and the event. Every job that applies must
+be `success`; `skipped`, `failure` and `cancelled` all fail, except one
+planned skip: the Gate, when Plan succeeded and reported `code=false` on a
+pull request (a docs-only PR). Anything uncertain fails closed: Plan not
+`success`, a missing or unexpected `code` output, `code=false` on an event
+other than `pull_request`, a job missing from `needs`, or a job in `needs`
+the script does not classify. The rules are unit-tested in
+`tests/server/ci-aggregate.test.ts`, which also reads `ci.yml`.
 
-| Jobs | May skip when |
-|---|---|
-| Plan, Secret scan | never |
-| Gate, Build, Migrations, Integration, E2E | Plan succeeded and reported `code=false` on a pull request (docs-only PR) |
-| Dependency review | the event is not `pull_request` |
-
-Anything uncertain fails closed: Plan not `success`, a missing or unexpected
-`code` output, `code=false` on an event other than `pull_request`, a job
-missing from `needs`, or a job in `needs` the script does not classify. So a
-skipped Build no longer turns Integration and E2E into silent passes, and a
-broken Plan cannot make a code PR look docs-only. The rules are unit-tested in
-`tests/server/ci-aggregate.test.ts`, which also reads `ci.yml` and fails if
-`result`'s `needs` differs from the script's job sets.
-
-To add, split or shard a job, add it to `result`'s `needs` list and to one of
-the job sets in `scripts/ci/aggregate-results.mjs` (`REQUIRED_ALWAYS`,
-`CODE_JOBS` or `PR_ONLY`); a code job also needs
-`if: needs.plan.outputs.code == 'true'`. No ruleset change is needed, because
-the ruleset only knows `CI result`. Job `name:`s
-use the same string on both lanes, so moving between hosted and the Mac
-never renames a check either.
-
-CodeQL and Claude review are not required checks.
+To add a job, add it to `result`'s `needs` and to `REQUIRED_ALWAYS` or
+`CODE_JOBS` in `scripts/ci/aggregate-results.mjs`. A new check belongs in
+the gate (`GATE_STEPS` in `scripts/release/local-receipt.mjs`), not in a new
+job, so it runs locally too. No ruleset change is needed: the ruleset only
+knows `CI result`, and job names are the same on both lanes.
 
 **Ruleset "main protection"** (id `23895031`, applied 2026-09-25 as
 `lapeninns`). Source of truth: `.github/rulesets/main.json`.
@@ -139,13 +113,14 @@ CodeQL and Claude review are not required checks.
 - A PR is required, with 0 approvals.
 - `CI result` (GitHub Actions, integration 15368) is required, and the
   branch must be up to date.
-- Admins can bypass only through a PR, so there are no direct pushes. The
-  bypass also lets an admin merge a PR whose `CI result` failed: PR #57 was
-  merged on 2026-10-09 with `CI result` failing. Record any such bypass in
-  `docs/release/ledger.md` (CI-04).
+- Admins can bypass only through a PR, so there are no direct pushes. While
+  hosted CI cannot run, every merge uses that bypass: 178 PRs between
+  2026-10-04 and 2026-10-21 merged with `CI result` failing. Record the
+  gate's receipt summary in the PR (the template asks for it) and any
+  bypass in `docs/release/ledger.md` (CI-04).
 
 Merges are squash merges from an up-to-date branch, so the tree on `main`
-is the tree CI tested.
+is the tree the gate tested.
 
 To change the ruleset, edit the JSON in a PR, then re-apply it and read it
 back:
@@ -155,65 +130,72 @@ gh api -X PUT repos/lapeninns/naba-presence/rulesets/23895031 --input .github/ru
 gh api repos/lapeninns/naba-presence/rules/branches/main
 ```
 
-Repository Actions settings, also applied 2026-09-25:
-
-- Fork PR runs need approval from all external contributors
-  (`actions/permissions/fork-pr-contributor-approval`:
-  `all_external_contributors`).
-- The default `GITHUB_TOKEN` is read-only, and Actions cannot approve PRs
-  (`actions/permissions/workflow`). The full graph still runs on the push to
-  `main`: it gives release-checklist run URLs and writes the caches, which PRs
-  can only read from `main`. The repository is private, so these runs consume
-  metered Actions minutes; since about 2026-10-04 the Actions budget has
-  stopped every job from starting.
+Repository Actions settings, also applied 2026-09-25: fork PR runs need
+approval from all external contributors, the default `GITHUB_TOKEN` is
+read-only, and Actions cannot approve PRs. The repository is private, so
+hosted runs consume metered minutes.
 
 ## 4. Caching and artifacts
 
 | What | Key | Lifetime |
 |---|---|---|
 | pnpm store (hosted only) | `actions/setup-node` `cache: pnpm`, keyed on `pnpm-lock.yaml` | GitHub cache (7 days unused) |
-| `.next/cache` (Build) | `next-<os>-<arch>-<lockfile hash>-<app/components/lib/next.config.ts hash>`, restores by lockfile prefix | GitHub cache |
-| Playwright Chromium (E2E) | `ms-playwright-<os>-<arch>-<playwright version>` | GitHub cache; on a hit Linux runs `playwright install-deps chromium` only |
-| `standalone-<os>-<arch>` artifact | `tar -czf` of `.next/standalone` (tar keeps pnpm's symlinks) | 1 day |
-| `e2e-traces-shard-N` artifact | `test-results/`, uploaded **only when that shard fails** | 7 days |
+| Playwright Chromium | `ms-playwright-<os>-<arch>-<playwright version>` | GitHub cache; on a hit Linux runs `playwright install-deps chromium` only |
+| `gate-<attempt>` artifact | the receipt, `verify.log`, per-step logs and e2e `test-results/` (the gate keeps its worktree in CI) | 7 days, uploaded always |
 
-The standalone build holds platform-native binaries (`sharp`/`@img`), so the
-artifact name carries OS and arch, and Build → Integration → E2E always run
-on the same lane. The Mac keeps its pnpm store and browsers on disk instead of
-the Actions cache.
+The Mac keeps its pnpm store and browsers on disk instead of the Actions
+cache. The gate builds once and reuses the build for integration and e2e
+inside the same job, so there is no build artifact to pass between jobs.
 
 ## 5. Local workflow
 
 ```bash
-pnpm verify        # typecheck + lint + unit and component tests + design ratchet; no database. Before every push.
-pnpm test:e2e      # browser journeys; pnpm test:a11y for accessibility only.
-pnpm verify:release # the whole CI graph on a fresh worktree and throwaway Postgres; writes a receipt.
+pnpm verify            # typecheck, lint, format check of changed files, unit + component tests, design ratchet; no database
+pnpm test:integration  # integration suite on its own throwaway PostgreSQL 17
+pnpm build && pnpm test:e2e   # browser journeys (pnpm test:a11y: accessibility only)
+pnpm format:changed    # Prettier-format the files your branch changed
+pnpm lint:workflows    # actionlint + zizmor over .github/
+pnpm verify:release    # the whole gate on a fresh worktree; writes the receipt
 ```
 
-Run `verify` before pushing. Run `test:integration`, `test:e2e` and
-`test:a11y` as well when you touch server code, the database or UI flows. CI runs
-everything, plus migrations, secret scanning, dependency review and CodeQL.
+Run `verify` before pushing (the opt-in hook does). Run `test:integration`,
+`test:e2e` and `test:a11y` as well when you touch server code, the database
+or UI flows, and `verify:release` before asking for a merge. How the suites
+are organised and the rules they follow: [docs/testing.md](testing.md).
 
 ### Local release gate (`pnpm verify:release`)
 
-Hosted CI is not a release gate: GitHub Actions has not run since about
-2026-10-04 and the project runs locally. The release evidence is
-`pnpm verify:release` (`scripts/release/verify-local.mjs`), which runs the
-`ci.yml` graph plus the nightly audit on this machine, in order:
+The release evidence is `pnpm verify:release`
+(`scripts/release/verify-local.mjs`), and `ci.yml` runs the same script.
+Each step starts as soon as the steps it needs (`GATE_STEPS` in
+`scripts/release/local-receipt.mjs`) have passed, so independent steps run
+side by side; every step that needs a database gets its own throwaway
+PostgreSQL 17 cluster, started one at a time:
 
-| Step | What runs |
-|---|---|
-| `frozen-install` | `pnpm install --frozen-lockfile` |
-| `typecheck`, `lint`, `unit` | `pnpm typecheck`, `pnpm lint` (zero warnings), `pnpm test` |
-| `build` | `pnpm build` (webpack standalone) |
-| `migration-policy` | `node scripts/ci/migration-policy.mjs` against the base (see below) |
-| `migrate-fresh` | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current` |
-| `migrate-upgrade` | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one |
-| `migrate-concurrent` | two `db:migrate` runs at once; each version recorded exactly once |
-| `integration` | `pnpm test:integration` on a freshly migrated database; passes only if its `Tests` line shows more than 0 passed and none skipped |
-| `e2e` | `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100 (a free pair if 3100/3101 are busy); passes only if more than 0 passed |
-| `audit` | `pnpm audit --prod --audit-level high` |
-| `secret-scan` | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see). **Required**: without gitleaks installed the step is skipped with a note and the gate fails (SEC-13 follow-up) |
+| Step | Needs | What runs |
+|---|---|---|
+| `frozen-install` | | `pnpm install --frozen-lockfile` |
+| `typecheck`, `lint` | install | `pnpm typecheck`, `pnpm lint` (zero warnings) |
+| `unit` | install | `pnpm test`: the unit and component projects, files in parallel |
+| `format` | install | `scripts/format-changed.mjs --check --base origin/main`: the files the change touches are Prettier-formatted (a ratchet: about 775 older files are not; on `main` itself nothing is new) |
+| `design` | install | `pnpm check:design --ratchet` and `pnpm check:contrast` |
+| `build` | install | `pnpm build` (webpack standalone) |
+| `bundle-budget` | build | `tests/perf/route-js.mjs` with the ceilings from `tests/perf/budgets-baseline.json` (gzip KB: chunk 70, shared 400, route 560) |
+| `migration-policy` | | `node scripts/ci/migration-policy.mjs` against the base (see below) |
+| `migrate-fresh` | install | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current` |
+| `migrate-upgrade` | migrate-fresh | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one |
+| `migrate-concurrent` | install | two `db:migrate` runs at once on a fresh cluster; each version recorded exactly once |
+| `integration` | install, build | `pnpm test:integration` in `--integration-shards` vitest shards (default 4, `NABA_GATE_INTEGRATION_SHARDS`), each on its own migrated cluster; the shards' counts are added up, and the step passes only if more than 0 passed and none skipped |
+| `e2e` | install, build | installs Playwright's pinned Chromium (a no-op when present), then `pnpm test:e2e --forbid-only` on its own migrated cluster, port 3100 (a free pair if 3100/3101 are busy); passes only if more than 0 passed |
+| `audit` | | `pnpm audit --prod --audit-level high` |
+| `workflow-lint` | | `actionlint` and `zizmor --offline .github/`. Optional: skipped with a note where the tools are not installed (`brew install actionlint zizmor`); a finding fails the gate |
+| `secret-scan` | | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see). **Required**: without gitleaks installed the step is skipped with a note and the gate fails (SEC-13 follow-up) |
+
+On an M-series Mac the integration shards and e2e dominate: before this
+change the same steps ran one after another in 54-74 minutes, integration
+alone 34-38 and e2e 17-31 (receipts of five promotions). `--serial` runs one
+step at a time in the table's order, with integration in one shard, for a
+busy or small machine.
 
 The base is what production runs: the `sha` of the newest committed
 promotion receipt in `docs/release/receipts/`, read at `HEAD`. Before the
@@ -230,8 +212,8 @@ part (uncommitted changes in your checkout are not tested; it warns). The
 gate's own code runs from your checkout, so uncommitted changes under
 `scripts/release/`, `scripts/ci/`, `lib/domain/redaction.ts`, `package.json`
 or `.nvmrc` are recorded in the receipt (`gateSource`) and promotion refuses
-it. It starts its own PostgreSQL 17 with `scripts/ci/postgres.mjs` and stops
-it at the end, even on failure or Ctrl-C. The steps inherit only an allowlist
+it. It starts its own PostgreSQL 17 clusters with `scripts/ci/postgres.mjs` and
+stops them at the end, even on failure or Ctrl-C. The steps inherit only an allowlist
 of your shell's variables (`PATH`, `HOME`, temp and terminal variables, the
 pnpm, npm config, corepack and nvm ones, `NABA_PG_BIN`/`NABA_PG_MODE`, Docker,
 proxy and Playwright browser locations; `INHERITED_ENV` in
@@ -241,12 +223,15 @@ never reaches the shared dev database on 54322. It sets `ci.yml`'s
 placeholder `env:` values and `LC_ALL`/`LANG` (Homebrew Postgres needs a
 UTF-8 locale). It must run on the `.nvmrc` Node major.
 
-Every step runs even after a failure, unless `--fail-fast`. A step whose
-prerequisite failed is `not-run`. The full output goes to `verify.log` in the
-printed run directory. The receipt is written to
+Every step runs even after a failure, unless `--fail-fast` (steps not yet
+started are then `not-run`). A step whose need failed is `not-run`. Each
+step's output goes to `logs/<step>.log` in the printed run directory, all of
+it to `verify.log` there with each line prefixed by its step, and a failed
+step's last 80 lines are printed. The receipt (version 3) is written to
 `docs/release/receipts/local/<UTC time>-<sha12>.json` (gitignored, so the
 checkout stays clean for promotion): SHA, base ref, base and merge-base SHAs,
-Node, pnpm, PostgreSQL and gitleaks versions, and each step's status,
+Node, pnpm, PostgreSQL, gitleaks, actionlint, zizmor and Playwright versions,
+the options (skips, `--serial`, shard count), and each step's status,
 duration, test counts and note. The exit code is 0 only when the gate passed.
 `--skip <id,...>` and `--fail-fast` are for iterating; such a receipt never
 passes promotion. `--list` prints the steps; `--keep-worktree` keeps the
@@ -369,22 +354,24 @@ not delete them. For a full-document navigation inside the app, use
 | `DB_MIGRATE_LOCK_TIMEOUT` | `600` | Seconds to wait for the lock |
 | `MIGRATION_LOCK_TIMEOUT` | `5s` | PostgreSQL `lock_timeout` for each transactional file (`0` for none); a file's `-- migrate:lock-timeout` header wins |
 
-### What CI checks (the Migrations job)
+### What the gate checks (the migration steps)
 
-1. **Policy:** `node scripts/ci/migration-policy.mjs origin/main` checks the
-   rules above against the merge base, and writes `MIGRATION_BASE_SHA` to
-   `$GITHUB_ENV` for step 3.
-2. **From scratch:** `db:migrate`, then again with `DB_MIGRATE_EXPECT_NOOP=1`,
-   `db:runtime-role` twice, then `db:status`. The schema is dumped.
-3. **Upgrade:** the database is recreated, the merge base's migrations are
-   applied (`git archive` → `MIGRATIONS_DIR`), then head's migrations. The
-   schema must match step 2's dump exactly. The diff ignores comments, blank
-   lines and pg_dump 17's random `\restrict` lines.
-4. **Lock:** two `db:migrate` runs start at once on a fresh database. Both
-   must succeed, and each version must appear exactly once.
+1. **Policy (`migration-policy`):** `node scripts/ci/migration-policy.mjs
+   <base>` checks the rules above against the merge base with the gate's base
+   (the last promotion, or the PR's base in CI).
+2. **From scratch (`migrate-fresh`):** `db:migrate`, then again with
+   `DB_MIGRATE_EXPECT_NOOP=1`, `db:runtime-role` twice, then `db:status
+   --expect-current`. The schema is dumped.
+3. **Upgrade (`migrate-upgrade`):** the database is recreated, the merge
+   base's migrations are applied (`git archive` → `MIGRATIONS_DIR`), then
+   head's migrations. The schema must match step 2's dump exactly. The diff
+   ignores comments, blank lines and pg_dump 17's random `\restrict` lines.
+4. **Lock (`migrate-concurrent`):** two `db:migrate` runs start at once on a
+   fresh cluster. Both must succeed, and each version must appear exactly
+   once.
 
-Integration and E2E then migrate their own databases and create the runtime
-role, and every test runs through that non-superuser role.
+The integration shards and e2e then migrate their own clusters and create the
+runtime role, and every test runs through that non-superuser role.
 
 ### Required-migrations manifest
 
@@ -590,17 +577,16 @@ working.
 
 ### The lane switch
 
-`plan` puts gate, build, migrations, integration and e2e on
+`plan` puts every job (Plan itself, Gate, Secret scan and `CI result`) on
 `["self-hosted","macOS","ARM64","naba-trusted"]` only when **all** of these
 hold:
 
 - repo variable `SELF_HOSTED_ENABLED` is `true` (unset means hosted);
 - the repository is `lapeninns/naba-presence`;
-- the run is a push, schedule or dispatch on `refs/heads/main`, or a
-  same-repo pull request whose author and actor are not Dependabot.
+- the run is a push or dispatch on `refs/heads/main`, or a same-repo pull
+  request whose author and actor are not Dependabot.
 
-Plan, Secret scan, Dependency review, `CI result`, CodeQL and Claude review
-always run hosted.
+Fork and Dependabot pull requests, and `codeql.yml`, always run hosted.
 
 ```bash
 gh variable set SELF_HOSTED_ENABLED --body true  -R lapeninns/naba-presence   # Mac lane on
@@ -656,8 +642,9 @@ that. Re-run it after changing a hook's reference copy. The steps it
 automates:
 
 1. `brew install postgresql@17 gitleaks jq`. Create the `gh-runner` user.
-2. Two runner instances, `mac-1` and `mac-2`, in separate folders so
-   integration and e2e run in parallel:
+2. Two runner instances, `mac-1` and `mac-2`, in separate folders, so two
+   pull requests' gates can run at once (each Gate already runs its
+   integration shards and e2e side by side):
    `./config.sh --url https://github.com/lapeninns/naba-presence --labels naba-trusted --name mac-N --work _work --unattended`.
    `self-hosted`, `macOS` and `ARM64` are added automatically.
 3. Copy `scripts/ci/runner-hooks/{pre,post}-job.sh` to
@@ -679,101 +666,81 @@ automates:
 
 ### Before switching the lane on
 
-Run the full graph on both lanes and compare. `CI` is set on both, so
-Playwright uses bundled Chromium on both. macOS and musl sort
+Run the gate on both lanes and compare. Both use Playwright's pinned
+Chromium (`playwright.config.ts` uses a system browser only with
+`PLAYWRIGHT_CHANNEL`). macOS and musl sort
 `en_US.UTF-8` differently, so fix or note any `ORDER BY` assertion that
 fails on one lane only.
 
-## 9. Claude review
+## 9. Removed workflows and owner decisions
 
-`claude-review.yml` reviews a PR **once** when it is opened, marked ready for
-review, or reopened. Pushes do not trigger it. To ask for another review:
+Removed on 2026-10-21 (restore any of them from git history if its premise
+changes):
 
-- add the **`claude-review`** label. The run removes the label afterwards,
-  so adding it again starts a new review. On a draft the label does nothing;
-  marking the PR ready reviews it anyway. Or:
-- comment **`@claude review`** (at the start of the comment) as an owner,
-  member or collaborator. Comments from anyone else, and from bots, are
-  ignored.
+- **`claude-review.yml`.** A `pull_request` run executes the head branch's
+  copy of the workflow, so anyone who could push a branch could read the
+  repository's only secret, `CLAUDE_CODE_OAUTH_TOKEN`; and it had not
+  completed since the Actions budget block. Owner action: delete that secret
+  (Settings → Secrets and variables → Actions). Reviews now come from a
+  separate reviewer account through MultiCA.
+- **`nightly.yml`.** Failed 27 of 27 runs (the first nine were real critical
+  advisories ignored for nine days, the rest the budget). Its CI half
+  duplicated the push run and its `pnpm audit --prod` is a required gate
+  step. Dependabot alerts cover advisories between releases.
+- **`readiness-probe.yml`.** Every run was skipped (never configured), and
+  once configured it would bill at least a minute every five minutes. Schedule
+  `pnpm ops:readiness` outside Actions instead (docs/observability.md,
+  "Scheduling the probe").
+- **Dependency review job.** The dependency-graph compare API answers 403 on
+  this private repository (checked 2026-10-21), so `CI result` could never
+  pass with it.
 
-Drafts, fork PRs and Dependabot PRs are never reviewed. `issue_comment` runs
-always use the workflow from `main` and receive secrets even for a fork PR,
-so the comment path first checks the PR with `gh pr view` and stops if it is
-cross-repository, a draft or Dependabot's. It then checks out the head SHA it
-verified, not the mutable `refs/pull/N/head`. Concurrency is set per PR at
-job level, so an unrelated comment cannot cancel a review in progress.
+Owner decisions, not taken here: restoring hosted CI (an Actions budget, or a
+public repository, which would also bring back dependency review and code
+scanning, and with them `codeql.yml`); switching on the Mac lane (§8);
+turning Dependabot security updates on (Settings → Code security), and
+fixing Dependabot npm updates, which have failed with
+`ERR_PNPM_NO_MATURE_MATCHING_VERSION` since 2026-10-09 (cause not found in
+the repository's pnpm settings).
 
-**Known issues:**
+## 10. Gate maintenance
 
-- **Reviews post nothing.** Every run since 2026-09-24 has ended after 2
-  turns with 5–32 permission denials, and has posted no comments. That
-  includes the review of the CI redesign PR (#36). The output is hidden, so
-  the denied tools are not visible. The likely fix is to widen `claude_args`
-  `--allowedTools` (for example `Read`, `Grep`, `Glob`, `Bash(git diff:*)`).
-  Confirm with one labelled review.
-- **Open CodeQL alert.** "Checkout of untrusted code in a privileged
-  context" on the comment path is accepted on purpose. Reviewing a PR means
-  checking it out, and only same-repo PRs commented on by owners, members or
-  collaborators get that far, and they can push anyway.
-
-## 10. Nightly
-
-`nightly.yml` runs at 04:17 UTC on `main`, and on dispatch:
-
-- **CI (full):** `ci.yml` via `workflow_call` with `full: true`. This is the
-  whole graph, including the full e2e suite with `accessibility.spec.ts`,
-  migrate-from-scratch, and a full-history gitleaks scan.
-  `.gitleaksignore` lists the historical findings by fingerprint.
-- **Audit production dependencies:** `pnpm audit --prod --audit-level high`.
-
-A failed scheduled run emails the repository owner.
-
-**Known follow-ups:**
-
-- **`pnpm audit` is red** until dependencies are updated: 4 critical, 27 high,
-  31 moderate and 5 low production findings on 2026-10-09 (triage in
-  `docs/release/dependency-disposition.md`). Dependabot alerts (48 on `main`: 4
-  critical, 21 high) and the grouped weekly Dependabot PRs are how that
-  clears.
-- **No visual job yet.** The planned report-only screenshot job
-  (`tests/visual`) needs `.env.local` and a local Supabase stack, which CI
-  does not have. Add it once `tests/visual/with-visual-db.sh` can run against
-  the `scripts/ci/postgres.mjs` cluster.
-- The token committed under `.superpowers/` in history is in
-  `.gitleaksignore`. Its rotation still needs the owner's confirmation.
+- A new check goes in `GATE_STEPS` (`scripts/release/local-receipt.mjs`) with
+  the steps it `needs`, and in the `steps` map of
+  `scripts/release/verify-local.mjs`; `tests/server/release-verify-local.test.ts`
+  pins the list and the order. Changing the steps changes the receipt
+  version, and promotion accepts only the current version.
+- Prefer a step to a new workflow job: it then runs on the Mac and in CI
+  alike, and in every receipt.
+- A step that needs a tool which may be missing is `required: false` and
+  returns `skipped` with a note when the tool is absent; a finding still
+  fails the gate.
 
 ## 11. Debugging a red run
 
-**Start with `CI result`.** Its log lists every job's result, then one
-`::error::` line per problem, each naming the job, its result and the rule it
-broke (for example `integration: skipped (code changed)`). Open the first job
-that is not `success` upstream of the others: under strict aggregation a job
-skipped because its dependency failed (Integration and E2E after a failed
-Build) is reported too, but it is a consequence, not the cause.
+**Start with `CI result`.** Its log lists the three jobs' results, then one
+`::error::` line per problem (for example `gate: failure (code changed)`).
 
-**E2E traces:** a failing shard uploads `e2e-traces-shard-N`.
+**Gate:** its log ends with the gate's summary table, one line per step with
+its duration and counts, then `gate: <problem>` lines. Download the
+`gate-<attempt>` artifact for the receipt, `verify.log` and the per-step logs
+(`logs/<step>.log`); a failed step's last 80 lines are already in the job
+log. Browser traces are under `naba-verify-*/src/test-results/`:
 
 ```bash
-gh run download <run-id> -n e2e-traces-shard-1 -D /tmp/traces
-pnpm exec playwright show-trace /tmp/traces/<test>/trace.zip
+gh run download <run-id> -n gate-1 -D /tmp/gate
+pnpm exec playwright show-trace /tmp/gate/<run dir>/src/test-results/<test>/trace.zip
 ```
 
-**Re-run one job or shard:** in the UI, re-run that job, or run
-`gh run rerun <run-id> --job <job-id>`. `gh run view <run-id> --json jobs`
-lists the job IDs. GitHub also re-runs every job that depends on it, so
-`CI result` aggregates again with the new result. Re-running only `CI result`
-does not help: it re-reads the same job results and fails the same way.
+**Reproduce it locally:** `pnpm verify:release` runs exactly what the Gate
+ran (`--keep-worktree` keeps the checkout; `--skip`/`--fail-fast` to
+iterate). One suite on its own: `pnpm test:integration [files]` or
+`pnpm build && pnpm test:e2e -g "<test name>"`.
 
-- **Re-run failed jobs** covers the failed jobs and their
-  dependents, which includes Integration and E2E skipped behind a failed
-  Build. Prefer it to re-running a single shard.
-- A job skipped because Plan failed or reported no `code` output can only
-  recover through Plan: re-run Plan (or all jobs), because a re-run job keeps
-  the old Plan outputs.
-- A cancelled run (a newer push to the same PR supersedes it) stays red;
-  look at the newest run instead of re-running the cancelled one.
-- A re-run reuses the run's standalone artifact, which expires after 1 day;
-  after that, re-run all jobs so Build runs again.
+**Re-run:** Re-run all jobs (a re-run of only `CI result` re-reads the same
+results). A job skipped because Plan failed recovers only through Plan, so
+re-run all jobs. A cancelled run (superseded by a newer push to the PR) stays
+red; look at the newest run.
 
 **Reproduce a CI database locally:** this uses the same script as CI.
 
@@ -785,34 +752,30 @@ node scripts/ci/postgres.mjs stop
 ```
 
 Plain `pnpm test:integration` does this on its own; start a cluster by hand
-only to keep it between runs or inspect it.
-
-On macOS it uses Homebrew `postgresql@17` (`NABA_PG_BIN` overrides the bin
-folder). `NABA_PG_MODE=docker` uses `postgres:17-alpine` instead. It picks a
-free port, so it never collides with the Supabase stack on 54322.
+only to keep it between runs or inspect it. On macOS it uses Homebrew
+`postgresql@17` (`NABA_PG_BIN` overrides the bin folder);
+`NABA_PG_MODE=docker` uses `postgres:17-alpine`. It picks a free port and
+never one in 54320-54329, so it never collides with the Supabase stack.
 
 **Postgres logs:** when `start` fails, it prints the log itself: `pg.log`
-under `NABA_PG_DIR` (default `$RUNNER_TEMP` or the OS temp dir, plus
-`naba-pg-…`) in native mode, and `docker logs` in docker mode.
+under `NABA_PG_DIR` in native mode, and `docker logs` in docker mode. In the
+gate each cluster's directory is `pg-<step or shard>` in the run directory.
 
-**Migrations job:**
-
-- *policy* failures name the file and the rule.
-- *upgrade* failures print a unified diff of the two schemas.
-- For *lock* failures, both `db:migrate` logs are printed.
+**Migration steps:** *policy* failures name the file and the rule; *upgrade*
+failures print the lines only in the from-scratch or only in the upgraded
+schema; for *lock* failures both `db:migrate` logs are in the step's log.
 
 **Lane mismatch:** a job passes on hosted but fails on the Mac, or the other
-way round. Check `Plan`'s log line `Lane: …`. Usual causes are collation
-order, timing, and a leftover process (the post-job hook should have killed
-it). Setting `SELF_HOSTED_ENABLED=false` and re-running all jobs confirms
-whether it is lane-specific.
+way round. Check `Plan`'s `Lane: …` line. Usual causes are collation order,
+timing and a leftover process. Setting `SELF_HOSTED_ENABLED=false` and
+re-running all jobs confirms whether it is lane-specific.
 
 **Stuck "Queued" jobs:** a self-hosted job waits for a `naba-trusted` runner.
-Check Settings → Actions → Runners. If `mac-1`/`mac-2` are offline, flip the
+Check Settings → Actions → Runners. If the Mac runners are offline, flip the
 variable to `false` and re-run all jobs.
 
-**Docs-only PR shows no Gate/Build:** expected. `Plan` printed `Code jobs:
-false`, and `CI result` stays green because the aggregation allows code jobs
-to skip on a docs-only pull request. If `CI result` is red with
-`plan output code: missing`, Plan failed or did not write its output: fix or
-re-run Plan; the code jobs are then required.
+**Docs-only PR shows no Gate:** expected. `Plan` printed `Gate: false`, and
+`CI result` stays green because the aggregation allows the Gate to skip on a
+docs-only pull request. If `CI result` is red with `plan output code:
+missing`, Plan failed or did not write its output: re-run all jobs; the Gate
+is then required.
