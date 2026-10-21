@@ -1,11 +1,4 @@
-import {
-  act,
-  cleanup,
-  createEvent,
-  fireEvent,
-  screen,
-  waitFor,
-} from "@testing-library/react"
+import { act, cleanup, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
