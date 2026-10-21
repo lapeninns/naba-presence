@@ -173,12 +173,12 @@ describeDatabase("publish attempt and approval decision FK indexes", () => {
       limit 1
     `
     ;({ reviewId, draftId, attemptId } = row)
-  }, 300_000)
+  }, 60_000)
 
   afterAll(async () => {
     if (admin) await destroyTenants(admin, [organisationId])
     await admin?.end()
-  }, 120_000)
+  }, 30_000)
 
   it("plans each RI statement on the three foreign keys as an index scan", async () => {
     // The statements PostgreSQL's RI triggers run, as the table owner and

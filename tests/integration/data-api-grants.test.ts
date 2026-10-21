@@ -191,7 +191,7 @@ describeDatabase("Data API exposure of the public schema (SEC-11)", () => {
       env: { ...process.env, DIRECT_DATABASE_URL: simulatedUrl.toString() },
       maxBuffer: 16 * 1024 * 1024,
     })
-  }, 300_000)
+  }, 60_000)
 
   afterAll(async () => {
     await simulated?.end()

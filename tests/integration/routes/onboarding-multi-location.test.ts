@@ -314,7 +314,7 @@ describeDatabase(
       from google_connection where id = ${connectionId}
     `
       expect(row.connectedBy).toBe(owner.userId)
-    }, 240_000)
+    }, 30_000)
 
     it("keeps one client's account choice from touching another client's", async () => {
       const owner = await createTestTenant(admin)
@@ -380,7 +380,7 @@ describeDatabase(
       expect(active.get(logins[1].accountIds[0])).toBe(true)
       expect(active.get(logins[1].accountIds[1])).toBe(true)
       expect((await setup(owner.cookie, second)).accountsActive).toBe(2)
-    }, 120_000)
+    }, 30_000)
 
     it("keeps an account on for a client that shares the login", async () => {
       const owner = await createTestTenant(admin)
@@ -462,7 +462,7 @@ describeDatabase(
         select is_active as active from google_account where id = ${y.id}
       `
       expect(yAfter.active).toBe(false)
-    }, 120_000)
+    }, 30_000)
 
     it("moves a listing to a newly discovered login only when its own login is broken", async () => {
       const owner = await createTestTenant(admin)
@@ -563,6 +563,6 @@ describeDatabase(
       expect(owners.get(onWorking)).toBe(working)
       // ...a broken one's listing moves to the login that just reached it.
       expect(owners.get(onBroken)).toBe(discoverer)
-    }, 120_000)
+    }, 30_000)
   }
 )
