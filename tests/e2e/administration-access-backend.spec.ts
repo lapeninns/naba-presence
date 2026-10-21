@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { startAdministrationBackend } from "./helpers/administration-backend"
 import { captureVerificationSection } from "./helpers/verification-capture"
 import { captureAccessSheet } from "./helpers/administration-capture"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startAdministrationBackend>>
 test.beforeAll(async () => { backend = await startAdministrationBackend() })
@@ -36,50 +37,54 @@ async function approveAndSend(page: Page, info: TestInfo, typedName?: string, su
   await expect(review.getByText("Independently confirmed", { exact: true })).toBeVisible()
   await shot("outcome")
 }
-for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}px`, () => {
-  test.use({ viewport: { width, height: 1100 } })
-  for (const scope of ["location", "account"] as const) test(`invites at the exact ${scope} scope and restores the pending invitation outcome`, async ({ page }, info) => {
-    const fixture = await backend.accessFixture(page); await fixture.open()
-    await expect(page.getByText("Fixture Account Owner", { exact: true })).toBeVisible()
-    await captureVerificationSection(page, info, { name: "location-admins", section: "people-location" })
-    await captureVerificationSection(page, info, { name: "account-admins", section: "people-account" })
-    await captureVerificationSection(page, info, { name: "lifecycle-consequences", section: "danger-zone-heading" })
-    await page.getByRole("button", { name: "Invite someone" }).click()
-    await captureAccessSheet(page, info, "invitation-empty")
-    if (scope === "account") { await page.getByRole("combobox", { name: "Scope", exact: true }).click(); await page.getByRole("option", { name: "The whole Google account", exact: true }).click() }
-    await page.getByLabel("Email address", { exact: true }).fill("invitee@example.test")
-    await captureAccessSheet(page, info, "invitation-filled")
-    await page.getByRole("button", { name: "Review invitation", exact: true }).click()
-    expect(fixture.writes()).toHaveLength(0)
-    await approveAndSend(page, info, undefined, "sheet")
-    expect(fixture.writes()).toHaveLength(1)
-    expect(fixture.writes()[0]).toMatchObject({ body: { admin: "invitee@example.test", role: "MANAGER" } })
-    expect(fixture.writes()[0].path).toContain(`${scope === "account" ? fixture.connection.googleAccountName : fixture.linked.googleLocationName}/admins`)
-    const sheet = page.locator('[data-slot="sheet-content"]')
-    await expect(sheet.getByText("Google lists the invitation. They get access once they accept it.", { exact: true })).toBeVisible()
-    await page.reload(); await page.getByRole("button", { name: "Open outcome", exact: true }).click()
-    await expect(sheet.getByText("Independently confirmed", { exact: true })).toBeVisible()
-    await captureAccessSheet(page, info, "restored")
-    await sheet.getByRole("button", { name: "Back to access", exact: true }).click()
-    await expect(sheet).toBeHidden()
-    await captureVerificationSection(page, info, { name: "saved-work", section: "access-saved-work" })
-    expect(fixture.writes()).toHaveLength(1)
-  })
-  test("reviews the current and proposed role before changing the exact administrator", async ({ page }, info) => {
-    const fixture = await backend.accessFixture(page); await fixture.open()
-    await page.getByRole("combobox", { name: "Role for manager@example.test", exact: true }).click()
-    // Choosing the role saves the review: one action.
-    await page.getByRole("option", { name: "Owner", exact: true }).click()
-    await expect(panel(page).getByRole("heading", { name: "Review access request" })).toBeFocused()
-    await expect(panel(page).locator("dl > div").filter({ has: page.getByText("Current role", { exact: true }) }).locator("dd")).toHaveText("Manager")
-    await expect(panel(page).getByText("Administrator manager@example.test on this listing", { exact: true })).toBeVisible()
-    await technicalReference(page, /^locations\/.+\/admins\/manager$/)
-    await expect(page.getByRole("combobox", { name: "Role for manager@example.test", exact: true })).toHaveText("Manager")
-    await approveAndSend(page, info)
-    expect(fixture.writes()).toHaveLength(1)
-    expect(fixture.state.locationAdmins[1].role).toBe("OWNER")
-    await expect(page.getByRole("combobox", { name: "Role for manager@example.test", exact: true })).toHaveText("Owner")
-  })
+/** Invites at the exact scope on its own sheet, then restores the pending outcome: the sheet and both people panels. */
+async function inviteAndRestore(page: Page, info: TestInfo, scope: "location" | "account") {
+  const fixture = await backend.accessFixture(page); await fixture.open()
+  await expect(page.getByText("Fixture Account Owner", { exact: true })).toBeVisible()
+  await captureVerificationSection(page, info, { name: "location-admins", section: "people-location" })
+  await captureVerificationSection(page, info, { name: "account-admins", section: "people-account" })
+  await captureVerificationSection(page, info, { name: "lifecycle-consequences", section: "danger-zone-heading" })
+  await page.getByRole("button", { name: "Invite someone" }).click()
+  await captureAccessSheet(page, info, "invitation-empty")
+  if (scope === "account") { await page.getByRole("combobox", { name: "Scope", exact: true }).click(); await page.getByRole("option", { name: "The whole Google account", exact: true }).click() }
+  await page.getByLabel("Email address", { exact: true }).fill("invitee@example.test")
+  await captureAccessSheet(page, info, "invitation-filled")
+  await page.getByRole("button", { name: "Review invitation", exact: true }).click()
+  expect(fixture.writes()).toHaveLength(0)
+  await approveAndSend(page, info, undefined, "sheet")
+  expect(fixture.writes()).toHaveLength(1)
+  expect(fixture.writes()[0]).toMatchObject({ body: { admin: "invitee@example.test", role: "MANAGER" } })
+  expect(fixture.writes()[0].path).toContain(`${scope === "account" ? fixture.connection.googleAccountName : fixture.linked.googleLocationName}/admins`)
+  const sheet = page.locator('[data-slot="sheet-content"]')
+  await expect(sheet.getByText("Google lists the invitation. They get access once they accept it.", { exact: true })).toBeVisible()
+  await page.reload(); await page.getByRole("button", { name: "Open outcome", exact: true }).click()
+  await expect(sheet.getByText("Independently confirmed", { exact: true })).toBeVisible()
+  await captureAccessSheet(page, info, "restored")
+  await sheet.getByRole("button", { name: "Back to access", exact: true }).click()
+  await expect(sheet).toBeHidden()
+  await captureVerificationSection(page, info, { name: "saved-work", section: "access-saved-work" })
+  expect(fixture.writes()).toHaveLength(1)
+}
+/** A role change in the page panel: review, approval, consent and the confirmed outcome. */
+async function changeRole(page: Page, info: TestInfo) {
+  const fixture = await backend.accessFixture(page); await fixture.open()
+  await page.getByRole("combobox", { name: "Role for manager@example.test", exact: true }).click()
+  // Choosing the role saves the review: one action.
+  await page.getByRole("option", { name: "Owner", exact: true }).click()
+  await expect(panel(page).getByRole("heading", { name: "Review access request" })).toBeFocused()
+  await expect(panel(page).locator("dl > div").filter({ has: page.getByText("Current role", { exact: true }) }).locator("dd")).toHaveText("Manager")
+  await expect(panel(page).getByText("Administrator manager@example.test on this listing", { exact: true })).toBeVisible()
+  await technicalReference(page, /^locations\/.+\/admins\/manager$/)
+  await expect(page.getByRole("combobox", { name: "Role for manager@example.test", exact: true })).toHaveText("Manager")
+  await approveAndSend(page, info)
+  expect(fixture.writes()).toHaveLength(1)
+  expect(fixture.state.locationAdmins[1].role).toBe("OWNER")
+  await expect(page.getByRole("combobox", { name: "Role for manager@example.test", exact: true })).toHaveText("Owner")
+}
+test.describe(`Reviewed access journeys at ${JOURNEY_WIDTH}px`, () => {
+  test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
+  for (const scope of ["location", "account"] as const) test(`invites at the exact ${scope} scope and restores the pending invitation outcome`, async ({ page }, info) => { await inviteAndRestore(page, info, scope) })
+  test("reviews the current and proposed role before changing the exact administrator", async ({ page }, info) => { await changeRole(page, info) })
   test("reviews administrator removal and asks for the typed listing name at the send step", async ({ page }, info) => {
     const fixture = await backend.accessFixture(page); await fixture.open()
     await page.getByRole("button", { name: "Remove manager@example.test", exact: true }).click()
@@ -102,4 +107,11 @@ for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}
     await expect(panel(page).getByText(action === "accept" ? "Reviewed account and role independently accessible" : "Reviewed invitation no longer pending", { exact: true })).toBeVisible()
     expect(fixture.writes()).toHaveLength(1)
   })
+})
+// The two surfaces whose layout width changes: the invitation sheet with the
+// people panels behind it, and the review panel a role change opens in the page.
+for (const width of LAYOUT_WIDTHS) test.describe(`Reviewed access layout at ${width}px`, () => {
+  test.use({ viewport: viewportAt(width) })
+  test("fits the people panels and the invitation sheet", async ({ page }, info) => { await inviteAndRestore(page, info, "location") })
+  test("fits the role-change review panel", async ({ page }, info) => { await changeRole(page, info) })
 })

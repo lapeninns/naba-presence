@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { seedMemberUser } from "../integration/helpers/tenant"
 import { startAdministrationBackend } from "./helpers/administration-backend"
 import { captureVerificationSection } from "./helpers/verification-capture"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startAdministrationBackend>>
 test.beforeAll(async () => { backend = await startAdministrationBackend() })
@@ -19,8 +20,33 @@ async function send(page: Page) {
   await panel(page).getByRole("button", { name: "Send approved access request" }).click()
 }
 const capture = (page: Page, info: TestInfo, name: string) => captureVerificationSection(page, info, { name, section: "access-review-workspace" })
-for (const width of [375, 768, 1280]) test.describe(`Administration recovery at ${width}px`, () => {
-  test.use({ viewport: { width, height: 1100 } })
+/** The unresolved outcome: every other action blocked, then recovery through reads alone. The richest screen set in the panel. */
+async function unresolvedRecovery(page: Page, info: TestInfo) {
+  const fixture = await backend.accessFixture(page); await fixture.open(); await reviewRole(page)
+  fixture.state.status = 503; fixture.state.apply = false
+  await send(page)
+  await expect(panel(page).getByText("Independent confirmation unresolved", { exact: true })).toBeVisible()
+  await expect(panel(page).getByRole("button", { name: "Back to access" })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Invite someone" })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Transfer this location", exact: true })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Delete this location", exact: true })).toBeDisabled()
+  await capture(page, info, "unresolved")
+  fixture.state.readStatus = 503
+  const unavailable = page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().endsWith("/execute"))
+  await panel(page).getByRole("button", { name: "Refresh Google access state" }).click()
+  expect((await unavailable).status()).toBe(200)
+  await expect(panel(page).getByText(/previous observation is retained/)).toBeVisible()
+  await capture(page, info, "refresh-unavailable")
+  fixture.state.readStatus = 200; fixture.state.locationAdmins[1].role = "OWNER"
+  const refreshed = page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().endsWith("/execute"))
+  await panel(page).getByRole("button", { name: "Refresh Google access state" }).click()
+  expect((await refreshed).status()).toBe(200)
+  await expect(panel(page).getByText("Independently confirmed", { exact: true })).toBeVisible()
+  await capture(page, info, "recovered")
+  expect(fixture.writes()).toHaveLength(1)
+}
+test.describe(`Administration recovery journeys at ${JOURNEY_WIDTH}px`, () => {
+  test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
   test("keeps acknowledgement unknown after independently confirming the exact applied role", async ({ page }, info) => {
     const fixture = await backend.accessFixture(page); await fixture.open(); await reviewRole(page)
     fixture.state.status = 503
@@ -35,30 +61,7 @@ for (const width of [375, 768, 1280]) test.describe(`Administration recovery at 
     expect(fixture.writes()).toHaveLength(1)
     await capture(page, info, "restored-unknown-acknowledgement")
   })
-  test("blocks another action while unresolved and recovers only through reads", async ({ page }, info) => {
-    const fixture = await backend.accessFixture(page); await fixture.open(); await reviewRole(page)
-    fixture.state.status = 503; fixture.state.apply = false
-    await send(page)
-    await expect(panel(page).getByText("Independent confirmation unresolved", { exact: true })).toBeVisible()
-    await expect(panel(page).getByRole("button", { name: "Back to access" })).toBeDisabled()
-    await expect(page.getByRole("button", { name: "Invite someone" })).toBeDisabled()
-    await expect(page.getByRole("button", { name: "Transfer this location", exact: true })).toBeDisabled()
-    await expect(page.getByRole("button", { name: "Delete this location", exact: true })).toBeDisabled()
-    await capture(page, info, "unresolved")
-    fixture.state.readStatus = 503
-    const unavailable = page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().endsWith("/execute"))
-    await panel(page).getByRole("button", { name: "Refresh Google access state" }).click()
-    expect((await unavailable).status()).toBe(200)
-    await expect(panel(page).getByText(/previous observation is retained/)).toBeVisible()
-    await capture(page, info, "refresh-unavailable")
-    fixture.state.readStatus = 200; fixture.state.locationAdmins[1].role = "OWNER"
-    const refreshed = page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().endsWith("/execute"))
-    await panel(page).getByRole("button", { name: "Refresh Google access state" }).click()
-    expect((await refreshed).status()).toBe(200)
-    await expect(panel(page).getByText("Independently confirmed", { exact: true })).toBeVisible()
-    await capture(page, info, "recovered")
-    expect(fixture.writes()).toHaveLength(1)
-  })
+  test("blocks another action while unresolved and recovers only through reads", async ({ page }, info) => { await unresolvedRecovery(page, info) })
   test("blocks baseline drift after approval and clears consent on reopening the saved review", async ({ page }, info) => {
     const fixture = await backend.accessFixture(page); await fixture.open(); await reviewRole(page)
     await panel(page).getByRole("button", { name: "Approve access request" }).click()
@@ -94,4 +97,9 @@ for (const width of [375, 768, 1280]) test.describe(`Administration recovery at 
     expect(fixture.writes()).toHaveLength(0)
     await capture(page, info, "manager-revoked")
   })
+})
+// The panel's unresolved states, at the widths whose layout differs.
+for (const width of LAYOUT_WIDTHS) test.describe(`Administration recovery layout at ${width}px`, () => {
+  test.use({ viewport: viewportAt(width) })
+  test("fits the unresolved, refresh-unavailable and recovered outcome", async ({ page }, info) => { await unresolvedRecovery(page, info) })
 })

@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { startPlaceActionsBackend } from "./helpers/place-actions-backend"
 import { captureServicesPanel } from "./helpers/services-capture"
 import { seedMemberUser } from "../integration/helpers/tenant"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 let backend: Awaited<ReturnType<typeof startPlaceActionsBackend>>
 // The sheet is titled as a review until a request is recorded, then as its outcome.
 const actionLinkSheet =
@@ -53,9 +54,15 @@ async function prepare(page: Page) {
     .click()
   return page.getByRole("dialog", { name: actionLinkSheet })
 }
-for (const width of [375, 768, 1280])
+// Each state journey runs once, at JOURNEY_WIDTH. The three tests that reach
+// this screen's distinct layouts (the editor and review sheet, the stacked
+// drift diff, the managed-links rows with their overflow menus) also run at
+// every layout width, and the empty-set handoff runs at the phone width too,
+// where "Check Google now" moves into the status pill's sheet.
+for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
   test.describe(`Reviewed booking links at ${width}px`, () => {
-    test.use({ viewport: { width, height: 1100 } })
+    test.use({ viewport: viewportAt(width) })
+    const journeyOnly = width === JOURNEY_WIDTH
     test("reads provider-supported retail action types and prepares approval before a single independently confirmed create", async ({
       page,
     }, info) => {
@@ -162,7 +169,8 @@ for (const width of [375, 768, 1280])
       ).toHaveCount(0)
       await capture(page, info, "metadata-drift")
     })
-    test("recovers a lost response and discovers its expired saved outcome while disconnected", async ({
+    if (journeyOnly)
+      test("recovers a lost response and discovers its expired saved outcome while disconnected", async ({
       page,
     }, info) => {
       const f = await backend.actionFixture(page)
@@ -258,7 +266,8 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "expired-disconnected-outcome")
       expect(f.writes()).toHaveLength(1)
     })
-    test("preserves unknown acknowledgement, blocks further writes, then confirms through a separate observation", async ({
+    if (journeyOnly)
+      test("preserves unknown acknowledgement, blocks further writes, then confirms through a separate observation", async ({
       page,
     }, info) => {
       const f = await backend.actionFixture(page)
@@ -329,7 +338,8 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "unknown-confirmed")
       expect(f.writes()).toHaveLength(1)
     })
-    test("shows an observed empty action set and hands unknown future action types to Google", async ({
+    if (width !== 768)
+      test("shows an observed empty action set and hands unknown future action types to Google", async ({
       page,
     }, info) => {
       const f = await backend.actionFixture(page)
@@ -569,7 +579,8 @@ for (const width of [375, 768, 1280])
       await expect(sheet.getByText("Removed", { exact: true })).toBeVisible()
       await capture(page, info, "removal-confirmed")
     })
-    test("shows a failed review preparation inside the dialog that started it", async ({
+    if (journeyOnly)
+      test("shows a failed review preparation inside the dialog that started it", async ({
       page,
     }, info) => {
       const f = await backend.actionFixture(page),
@@ -612,7 +623,8 @@ for (const width of [375, 768, 1280])
       )
       expect(f.writes()).toHaveLength(0)
     })
-    test("a second manager approves by keyboard and a revoked approver blocks sending without a write", async ({
+    if (journeyOnly)
+      test("a second manager approves by keyboard and a revoked approver blocks sending without a write", async ({
       page,
     }, info) => {
       const f = await backend.actionFixture(page)

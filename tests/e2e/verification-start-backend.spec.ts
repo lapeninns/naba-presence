@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { startVerificationBackend, type StartMethod } from "./helpers/verification-backend"
 import { captureVerificationStart } from "./helpers/verification-capture"
 import { seedMemberUser } from "../integration/helpers/tenant"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startVerificationBackend>>
 test.beforeAll(async () => { backend = await startVerificationBackend() })
@@ -30,54 +31,46 @@ async function selectMethod(page: Page, method: StartMethod) {
   return panel
 }
 
-for (const width of [375, 768, 1280]) {
-  for (const method of ["EMAIL", "PHONE_CALL", "SMS", "ADDRESS", "AUTO"] as const) {
-    test(`real backend reviewed ${method} start at ${width}px`, async ({ page }, info) => {
-      await page.setViewportSize({ width, height: 1100 })
-      const fixture = await backend.fixture(page, method); await fixture.open()
-      const panel = await selectMethod(page, method)
-      await captureVerificationStart(page, info, `${method}-${width}-destination`)
-      await panel.getByRole("button", { name: "Review verification request" }).click()
-      await expect(panel.getByRole("button", { name: "Approve verification request" })).toBeEnabled()
-      expect(fixture.writes()).toHaveLength(0)
-      await captureVerificationStart(page, info, `${method}-${width}-review`)
-      await panel.getByRole("button", { name: "Approve verification request" }).click()
-      const send = panel.getByRole("button", { name: "Send approved verification request" })
-      await expect(send).toBeDisabled()
-      await expect(panel.getByRole("region", { name: "Approved verification request actions" })).toContainText("Confirm the exact approved request before sending.")
-      await captureVerificationStart(page, info, `${method}-${width}-approved`)
-      await panel.getByRole("checkbox", { name: "Send this exact approved verification request to Google." }).focus()
-      await page.keyboard.press("Space")
-      await expect(panel.getByRole("region", { name: "Approved verification request actions" })).toContainText("Send only this exact approved request to Google.")
-      await send.focus()
-      await captureVerificationStart(page, info, `${method}-${width}-keyboard-ready`)
-      await page.keyboard.press("Enter")
-      await expect(panel.getByText("Accepted by Google", { exact: true })).toBeVisible()
-      await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
-      await expect(panel.getByText("Google hasn't yet confirmed you can manage this listing", { exact: true })).toBeVisible()
-      expect(fixture.writes()).toHaveLength(1)
-      expect(fixture.writes()[0].body).toEqual({ method, languageCode: "en-GB", ...(method === "EMAIL" ? { emailAddress: "operations@example.test" } : method === "PHONE_CALL" || method === "SMS" ? { phoneNumber: "+44 20 0000 0001" } : method === "ADDRESS" ? { mailerContact: "Fixture Manager", context: { address: fixture.address } } : {}) })
-      const writeIndex = backend.google.calls.findIndex((call) => call.path.endsWith(":verify"))
-      expect(backend.google.calls.slice(writeIndex + 1).some((call) => call.method === "GET" && call.path.includes(`${fixture.linked.googleLocationName}/verifications`))).toBe(true)
-      await captureVerificationStart(page, info, `${method}-${width}-outcome`)
-      await page.reload()
-      await panel.getByRole("button", { name: "Open saved outcome" }).click()
-      await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
-      expect(fixture.writes()).toHaveLength(1)
-      expect(backend.google.calls.some((call) => call.path.includes("/admins"))).toBe(false)
-      const ordinary = await backend.admin`select requested_payload, google_response, confirmation_response from gbp_management_mutation where organisation_id = ${fixture.owner.organisationId}`
-      expect(ordinary).toHaveLength(1)
-      expect(JSON.stringify(ordinary)).not.toContain(fixture.address.addressLines[0])
-      expect(await page.evaluate(() => `${location.href} ${JSON.stringify(localStorage)} ${JSON.stringify(sessionStorage)}`)).not.toContain(fixture.address.addressLines[0])
-    })
-  }
+/** The reviewed start from destination to saved outcome by keyboard, with an exact independent readback. `width` only names the captures. */
+async function reviewedStart(page: Page, info: TestInfo, method: StartMethod, width: number) {
+  const fixture = await backend.fixture(page, method); await fixture.open()
+  const panel = await selectMethod(page, method)
+  await captureVerificationStart(page, info, `${method}-${width}-destination`)
+  await panel.getByRole("button", { name: "Review verification request" }).click()
+  await expect(panel.getByRole("button", { name: "Approve verification request" })).toBeEnabled()
+  expect(fixture.writes()).toHaveLength(0)
+  await captureVerificationStart(page, info, `${method}-${width}-review`)
+  await panel.getByRole("button", { name: "Approve verification request" }).click()
+  const send = panel.getByRole("button", { name: "Send approved verification request" })
+  await expect(send).toBeDisabled()
+  await expect(panel.getByRole("region", { name: "Approved verification request actions" })).toContainText("Confirm the exact approved request before sending.")
+  await captureVerificationStart(page, info, `${method}-${width}-approved`)
+  await panel.getByRole("checkbox", { name: "Send this exact approved verification request to Google." }).focus()
+  await page.keyboard.press("Space")
+  await expect(panel.getByRole("region", { name: "Approved verification request actions" })).toContainText("Send only this exact approved request to Google.")
+  await send.focus()
+  await captureVerificationStart(page, info, `${method}-${width}-keyboard-ready`)
+  await page.keyboard.press("Enter")
+  await expect(panel.getByText("Accepted by Google", { exact: true })).toBeVisible()
+  await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
+  await expect(panel.getByText("Google hasn't yet confirmed you can manage this listing", { exact: true })).toBeVisible()
+  expect(fixture.writes()).toHaveLength(1)
+  expect(fixture.writes()[0].body).toEqual({ method, languageCode: "en-GB", ...(method === "EMAIL" ? { emailAddress: "operations@example.test" } : method === "PHONE_CALL" || method === "SMS" ? { phoneNumber: "+44 20 0000 0001" } : method === "ADDRESS" ? { mailerContact: "Fixture Manager", context: { address: fixture.address } } : {}) })
+  const writeIndex = backend.google.calls.findIndex((call) => call.path.endsWith(":verify"))
+  expect(backend.google.calls.slice(writeIndex + 1).some((call) => call.method === "GET" && call.path.includes(`${fixture.linked.googleLocationName}/verifications`))).toBe(true)
+  await captureVerificationStart(page, info, `${method}-${width}-outcome`)
+  await page.reload()
+  await panel.getByRole("button", { name: "Open saved outcome" }).click()
+  await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
+  expect(fixture.writes()).toHaveLength(1)
+  expect(backend.google.calls.some((call) => call.path.includes("/admins"))).toBe(false)
+  const ordinary = await backend.admin`select requested_payload, google_response, confirmation_response from gbp_management_mutation where organisation_id = ${fixture.owner.organisationId}`
+  expect(ordinary).toHaveLength(1)
+  expect(JSON.stringify(ordinary)).not.toContain(fixture.address.addressLines[0])
+  expect(await page.evaluate(() => `${location.href} ${JSON.stringify(localStorage)} ${JSON.stringify(sessionStorage)}`)).not.toContain(fixture.address.addressLines[0])
 }
-
-for (const width of [375, 768, 1280]) {
-test.describe(`recovery at ${width}px`, () => {
-test.use({ viewport: { width, height: 1100 } })
-
-test("real backend lost response recovers after navigation and disconnection without another send", async ({ page }, info) => {
+/** A lost response recovered after navigation and disconnection, without another send. */
+async function lostResponseRecovery(page: Page, info: TestInfo) {
   const fixture = await backend.fixture(page); await fixture.open()
   const panel = await selectMethod(page, "EMAIL")
   await panel.getByRole("button", { name: "Review verification request" }).click()
@@ -104,7 +97,16 @@ test("real backend lost response recovers after navigation and disconnection wit
   await expect(panel.getByText(/earlier evidence, not a fresh observation/)).toBeVisible()
   await captureVerificationStart(page, info, "disconnected-recovery")
   expect(fixture.writes()).toHaveLength(1)
+}
+test.describe(`reviewed start journeys at ${JOURNEY_WIDTH}px`, () => {
+  test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
+  for (const method of ["EMAIL", "PHONE_CALL", "SMS", "ADDRESS", "AUTO"] as const) test(`real backend reviewed ${method} start at ${JOURNEY_WIDTH}px`, async ({ page }, info) => { await reviewedStart(page, info, method, JOURNEY_WIDTH) })
 })
+
+test.describe(`recovery journeys at ${JOURNEY_WIDTH}px`, () => {
+test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
+
+test("real backend lost response recovers after navigation and disconnection without another send", async ({ page }, info) => { await lostResponseRecovery(page, info) })
 
 test("real backend expired approval cannot send", async ({ page }, info) => {
   const fixture = await backend.fixture(page); await fixture.open()
@@ -219,4 +221,11 @@ for (const method of ["VETTED_PARTNER", "FUTURE_METHOD"] as const) {
   })
 }
 })
-}
+// What width changes on the start panel: EMAIL shows the shortest form and
+// ADDRESS the longest (the postcard address fields), and the saved outcome is
+// the panel's last screen. The other methods differ only in the destination.
+for (const width of LAYOUT_WIDTHS) test.describe(`reviewed start layout at ${width}px`, () => {
+  test.use({ viewport: viewportAt(width) })
+  for (const method of ["EMAIL", "ADDRESS"] as const) test(`fits the ${method} start from destination to saved outcome`, async ({ page }, info) => { await reviewedStart(page, info, method, width) })
+  test("fits the lost-response and disconnected recovery", async ({ page }, info) => { await lostResponseRecovery(page, info) })
+})

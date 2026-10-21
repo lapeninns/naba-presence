@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { startLifecycleBackend } from "./helpers/lifecycle-backend"
 import { captureVerificationSection } from "./helpers/verification-capture"
 import { captureAccessDialog } from "./helpers/administration-capture"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startLifecycleBackend>>
 test.beforeAll(async () => { backend = await startLifecycleBackend() })
@@ -30,25 +31,27 @@ async function prepare(page: Page, fixture: Awaited<ReturnType<typeof backend.li
   await captureVerificationSection(page, info, { name: "approved-keyboard-consent", section: "lifecycle-review-title" })
   return send
 }
-for (const width of [375, 768, 1280]) test.describe(`Lifecycle at ${width}px`, () => {
-  test.use({ viewport: { width, height: 1100 } })
-  for (const transfer of [true, false]) test(`separate review, approval and ${transfer ? "transfer" : "deletion"} send with saved recovery`, async ({ page }, info) => {
-    const fixture = await backend.lifecycleFixture(page)
-    await prepare(page, fixture, transfer, info); await page.keyboard.press("Enter")
-    await expect(outcomePanel(page).getByText("Accepted by Google", { exact: true })).toBeVisible()
-    await expect(outcomePanel(page).getByText("Independently confirmed", { exact: true })).toBeVisible()
-    expect(fixture.lifecycleWrites()).toHaveLength(1)
-    if (transfer) {
-      expect(fixture.lifecycleWrites()[0].body).toEqual({ destinationAccount: fixture.destinationAccount })
-      await expect(outcomePanel(page).getByText("NabaPresence is linked to the independently confirmed destination account.")).toBeVisible()
-    } else await expect(outcomePanel(page).getByText("Search/Maps removal and customer-review deletion are not confirmed.", { exact: false })).toBeVisible()
-    await captureVerificationSection(page, info, { name: "confirmed-outcome", section: "lifecycle-outcome-title" })
-    await fixture.disconnect(); await page.reload()
-    await page.getByRole("button", { name: "Open lifecycle outcome", exact: true }).click()
-    await expect(outcomePanel(page).getByText("Independently confirmed", { exact: true })).toBeVisible()
-    await captureVerificationSection(page, info, { name: "disconnected-saved-outcome", section: "lifecycle-outcome-title" })
-    expect(fixture.lifecycleWrites()).toHaveLength(1)
-  })
+/** Prepare, review, approve and send, then restore the saved outcome after disconnection: every screen the lifecycle flow has. */
+async function sendAndRecover(page: Page, info: TestInfo, transfer: boolean) {
+  const fixture = await backend.lifecycleFixture(page)
+  await prepare(page, fixture, transfer, info); await page.keyboard.press("Enter")
+  await expect(outcomePanel(page).getByText("Accepted by Google", { exact: true })).toBeVisible()
+  await expect(outcomePanel(page).getByText("Independently confirmed", { exact: true })).toBeVisible()
+  expect(fixture.lifecycleWrites()).toHaveLength(1)
+  if (transfer) {
+    expect(fixture.lifecycleWrites()[0].body).toEqual({ destinationAccount: fixture.destinationAccount })
+    await expect(outcomePanel(page).getByText("NabaPresence is linked to the independently confirmed destination account.")).toBeVisible()
+  } else await expect(outcomePanel(page).getByText("Search/Maps removal and customer-review deletion are not confirmed.", { exact: false })).toBeVisible()
+  await captureVerificationSection(page, info, { name: "confirmed-outcome", section: "lifecycle-outcome-title" })
+  await fixture.disconnect(); await page.reload()
+  await page.getByRole("button", { name: "Open lifecycle outcome", exact: true }).click()
+  await expect(outcomePanel(page).getByText("Independently confirmed", { exact: true })).toBeVisible()
+  await captureVerificationSection(page, info, { name: "disconnected-saved-outcome", section: "lifecycle-outcome-title" })
+  expect(fixture.lifecycleWrites()).toHaveLength(1)
+}
+test.describe(`Lifecycle journeys at ${JOURNEY_WIDTH}px`, () => {
+  test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
+  for (const transfer of [true, false]) test(`separate review, approval and ${transfer ? "transfer" : "deletion"} send with saved recovery`, async ({ page }, info) => { await sendAndRecover(page, info, transfer) })
   test("accepted deletion with forbidden read stays unresolved until independent recovery", async ({ page }, info) => {
     const fixture = await backend.lifecycleFixture(page); fixture.lifecycleState.afterDeleteStatus = 403
     const send = await prepare(page, fixture, false, info); await send.click()
@@ -107,4 +110,10 @@ for (const width of [375, 768, 1280]) test.describe(`Lifecycle at ${width}px`, (
     expect(fixture.lifecycleWrites()).toHaveLength(0)
     await captureVerificationSection(page, info, { name: "expired-approval-blocked", section: "lifecycle-review-title" })
   })
+})
+// The transfer flow touches every lifecycle screen; deletion differs only in
+// the words it shows, which the journey above asserts.
+for (const width of LAYOUT_WIDTHS) test.describe(`Lifecycle layout at ${width}px`, () => {
+  test.use({ viewport: viewportAt(width) })
+  test("fits the prepare dialog, review, approval, outcome and saved outcome", async ({ page }, info) => { await sendAndRecover(page, info, true) })
 })

@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright"
 
 import { startOperationsBackend } from "./helpers/operations-backend"
 import { captureServicesPanel } from "./helpers/services-capture"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startOperationsBackend>>
 test.beforeAll(async () => {
@@ -86,9 +87,14 @@ async function tabToAndPress(page: Page, name: string, limit = 150) {
 const nextDecember = () =>
   `${new Date().getUTCMonth() === 11 && new Date().getUTCDate() >= 24 ? new Date().getUTCFullYear() + 1 : new Date().getUTCFullYear()}-12-24`
 
-for (const width of [375, 768, 1280])
+// Each state journey runs once, at JOURNEY_WIDTH. The five tests that reach a
+// screen whose layout width changes (notifications and preferences, operations
+// health, the schedule dialogs and calendar, the bulk-change pages, the reports
+// caption) also run at every layout width.
+for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
   test.describe(`Operations features at ${width}px`, () => {
-    test.use({ viewport: { width, height: 1100 } })
+    test.use({ viewport: viewportAt(width) })
+    const journeyOnly = width === JOURNEY_WIDTH
 
     test("reads notifications without resolving them, resolves an event and saves preferences", async ({
       page,
@@ -378,7 +384,8 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "calendar-month")
     })
 
-    test("schedules a post once, cancels it, and reviews an old post time (P08-R5)", async ({
+    if (journeyOnly)
+      test("schedules a post once, cancels it, and reviews an old post time (P08-R5)", async ({
       page,
     }, info) => {
       const f = await backend.fixture(page, 1)
@@ -519,7 +526,8 @@ for (const width of [375, 768, 1280])
       expect(backend.posts).toHaveLength(0)
     })
 
-    test("hides bulk changes from an organisation without the bulk_actions feature", async ({
+    if (journeyOnly)
+      test("hides bulk changes from an organisation without the bulk_actions feature", async ({
       page,
     }) => {
       const f = await backend.fixture(page, 1)
@@ -603,7 +611,8 @@ for (const width of [375, 768, 1280])
       ).toHaveLength(2)
     })
 
-    test("composes a bulk change list by keyboard, re-previews expired listings and shows each receipt", async ({
+    if (journeyOnly)
+      test("composes a bulk change list by keyboard, re-previews expired listings and shows each receipt", async ({
       page,
     }, info) => {
       const f = await backend.fixture(page, 2)

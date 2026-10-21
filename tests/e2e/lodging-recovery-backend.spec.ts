@@ -1,6 +1,7 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { startLodgingBackend } from "./helpers/lodging-backend"
 import { captureLodgingDialog, lodgingEditor, lodgingSheet } from "./helpers/lodging-capture"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startLodgingBackend>>
 test.beforeAll(async () => { backend = await startLodgingBackend() })
@@ -16,22 +17,24 @@ async function approved(page: Page) {
   await dialog.getByRole("checkbox", { name: "Send these exact approved lodging changes to Google." }).check()
   return { fixture, dialog }
 }
-for (const width of [375, 768, 1280]) test.describe(`Lodging recovery at ${width}px`, () => {
-  test.use({ viewport: { width, height: 1100 } })
-  test("rejects baseline drift before a Google write", async ({ page }, info) => {
-    const { fixture, dialog } = await approved(page)
-    fixture.state.lodging.property = { roomsCount: 999, floorsCount: 0 }
-    await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
-    await expect(dialog.getByRole("alert")).toBeVisible()
-    await expect(dialog.getByText("This review needs a fresh preview before sending.", { exact: true })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Send approved lodging changes", exact: true })).toBeDisabled()
-    // Under 560px the diff stacks and drops its header row, so check the
-    // label each value carries at every width.
-    await expect(dialog.locator('td[data-label="Before (reviewed)"]').first()).toBeVisible()
-    await expect(dialog.locator('td[data-label="On Google now"]')).toHaveCount(0)
-    await captureLodgingDialog(page, info, "baseline-drift")
-    expect(fixture.writes()).toHaveLength(0)
-  })
+/** The stale review: its diff stacks under 560px, so this is the surface whose layout width really changes. */
+async function baselineDrift(page: Page, info: TestInfo) {
+  const { fixture, dialog } = await approved(page)
+  fixture.state.lodging.property = { roomsCount: 999, floorsCount: 0 }
+  await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
+  await expect(dialog.getByRole("alert")).toBeVisible()
+  await expect(dialog.getByText("This review needs a fresh preview before sending.", { exact: true })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Send approved lodging changes", exact: true })).toBeDisabled()
+  // Under 560px the diff stacks and drops its header row, so check the
+  // label each value carries at every width.
+  await expect(dialog.locator('td[data-label="Before (reviewed)"]').first()).toBeVisible()
+  await expect(dialog.locator('td[data-label="On Google now"]')).toHaveCount(0)
+  await captureLodgingDialog(page, info, "baseline-drift")
+  expect(fixture.writes()).toHaveLength(0)
+}
+test.describe(`Lodging recovery journeys at ${JOURNEY_WIDTH}px`, () => {
+  test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
+  test("rejects baseline drift before a Google write", async ({ page }, info) => { await baselineDrift(page, info) })
   test("reads a lost browser acknowledgement without replaying the accepted provider request", async ({ page }, info) => {
     const { fixture, dialog } = await approved(page)
     let intercepted = false
@@ -67,4 +70,8 @@ for (const width of [375, 768, 1280]) test.describe(`Lodging recovery at ${width
     await captureLodgingDialog(page, info, "separate-observation")
     expect(fixture.writes()).toHaveLength(1)
   })
+})
+for (const width of LAYOUT_WIDTHS) test.describe(`Lodging recovery layout at ${width}px`, () => {
+  test.use({ viewport: viewportAt(width) })
+  test("stacks the stale review's diff with each value labelled", async ({ page }, info) => { await baselineDrift(page, info) })
 })

@@ -1,6 +1,7 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { captureLodging as capture, captureLodgingDialog, lodgingSheet } from "./helpers/lodging-capture"
 import { startLodgingBackend } from "./helpers/lodging-backend"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startLodgingBackend>>
 test.beforeAll(async () => { backend = await startLodgingBackend() })
@@ -14,8 +15,39 @@ async function search(page: Page, value: string) {
 /** Every writable lodging group the editor pins, in the order it shows them. */
 const PINNED_GROUPS = ["Property", "Policies", "Guest units", "Common living area", "Accessibility", "Parking", "Connectivity", "Food and drink", "Housekeeping", "Wellness", "Pools", "Activities", "Business", "Families", "Pets", "Services", "Health and safety", "Sustainability", "Transportation"]
 
-for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width}px`, () => {
-  test.use({ viewport: { width, height: 1100 } })
+/**
+ * Opens every pinned group by keyboard, checking each one on its own: it
+ * expands, its select controls keep readable values at this width, and (for
+ * Guest units) the nested item control appears. One axe scan and capture of the
+ * editor with all 19 open then covers every group's content, and closing each
+ * one again proves the toggle. Each group used to be its own test with its own
+ * fixture, axe scan and screenshot, because walking all 19 with a scan each
+ * took 22-28 s of a 30 s budget; the per-group scan is what is not repeated.
+ */
+async function walkPinnedGroups(page: Page, info: TestInfo, width: number) {
+  await search(page, "")
+  for (const group of PINNED_GROUPS) {
+    const button = editor(page).getByRole("button", { name: group, exact: true })
+    await button.focus(); await page.keyboard.press("Enter")
+    await expect(button).toHaveAttribute("aria-expanded", "true")
+    if (group === "Guest units") {
+      await editor(page).getByRole("button", { name: "Add guest units item", exact: true }).click()
+      await expect(editor(page).getByRole("spinbutton", { name: "Beds count", exact: true })).toBeVisible()
+    }
+    const narrowControls = await editor(page).getByRole("combobox").evaluateAll((controls) => controls.filter((control) => control.getBoundingClientRect().width < 160).map((control) => ({ label: control.getAttribute("aria-labelledby"), width: control.getBoundingClientRect().width })))
+    expect(narrowControls, `${group} controls must keep readable values at ${width}px`).toEqual([])
+  }
+  for (const group of PINNED_GROUPS) await expect(editor(page).getByRole("button", { name: group, exact: true })).toHaveAttribute("aria-expanded", "true")
+  await capture(page, info, "groups-expanded")
+  for (const group of PINNED_GROUPS) {
+    const button = editor(page).getByRole("button", { name: group, exact: true })
+    await button.click()
+    await expect(button).toHaveAttribute("aria-expanded", "false")
+  }
+}
+
+test.describe(`Complete lodging journeys at ${JOURNEY_WIDTH}px`, () => {
+  test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
   test("edits an unknown boolean without overwriting unknown siblings or conditional details", async ({ page }, info) => {
     const fixture = await backend.lodgingFixture(page); await fixture.open()
     await search(page, "Parking available")
@@ -90,24 +122,9 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     expect(fixture.writes()).toHaveLength(0)
     await captureLodgingDialog(page, info, "collection-review")
   })
-  // One test per pinned group, each with its own fixture, axe scan and
-  // capture: walking all 19 in one test took 22-28 s of the 30 s budget on
-  // main and timed out whenever the shared machine was busy.
-  for (const group of PINNED_GROUPS) test(`shows the pinned writable lodging group ${group}${group === "Guest units" ? " and its nested guest-unit control" : ""}`, async ({ page }, info) => {
+  test("shows every pinned writable lodging group and its nested guest-unit control", async ({ page }, info) => {
     const fixture = await backend.lodgingFixture(page); await fixture.open()
-    await search(page, "")
-    const button = editor(page).getByRole("button", { name: group, exact: true })
-    await button.focus(); await page.keyboard.press("Enter")
-    await expect(button).toHaveAttribute("aria-expanded", "true")
-    if (group === "Guest units") {
-      await editor(page).getByRole("button", { name: "Add guest units item", exact: true }).click()
-      await expect(editor(page).getByRole("spinbutton", { name: "Beds count", exact: true })).toBeVisible()
-    }
-    const narrowControls = await editor(page).getByRole("combobox").evaluateAll((controls) => controls.filter((control) => control.getBoundingClientRect().width < 160).map((control) => ({ label: control.getAttribute("aria-labelledby"), width: control.getBoundingClientRect().width })))
-    expect(narrowControls, `${group} controls must keep readable values at ${width}px`).toEqual([])
-    await capture(page, info, `group-${group.toLowerCase().replaceAll(" ", "-")}`)
-    await button.click()
-    await expect(button).toHaveAttribute("aria-expanded", "false")
+    await walkPinnedGroups(page, info, JOURNEY_WIDTH)
     expect(fixture.writes()).toHaveLength(0)
   })
   test("restores an expired confirmed request after disconnection without a provider resend", async ({ page }, info) => {
@@ -132,6 +149,35 @@ for (const width of [375, 768, 1280]) test.describe(`Complete lodging at ${width
     await expect(page.getByRole("dialog", { name: "Saved lodging outcome" })).toBeVisible()
     await expect(dialog.getByText(/fresh preview|Approval expired/)).toHaveCount(0)
     await captureLodgingDialog(page, info, "disconnected-expired-outcome")
+    expect(fixture.writes()).toHaveLength(1)
+  })
+})
+// What width changes on this screen: the editor's controls and the review sheet
+// reflow. The journeys above make the same axe and overflow assertions at
+// JOURNEY_WIDTH.
+for (const width of LAYOUT_WIDTHS) test.describe(`Complete lodging layout at ${width}px`, () => {
+  test.use({ viewport: viewportAt(width) })
+  test("keeps the editor and every pinned group usable", async ({ page }, info) => {
+    const fixture = await backend.lodgingFixture(page); await fixture.open()
+    await search(page, "Parking available")
+    await capture(page, info, "unknown")
+    await walkPinnedGroups(page, info, width)
+    expect(fixture.writes()).toHaveLength(0)
+  })
+  test("keeps the review, consent and confirmed outcome sheet usable", async ({ page }, info) => {
+    const fixture = await backend.lodgingFixture(page); await fixture.open()
+    await search(page, "Pets allowed")
+    await editor(page).getByRole("radiogroup", { name: "Pets allowed", exact: true }).getByRole("radio", { name: "Yes", exact: true }).click()
+    await capture(page, info, "draft")
+    await page.getByRole("button", { name: "Review lodging changes", exact: true }).click()
+    const dialog = page.getByRole("dialog", { name: lodgingSheet })
+    await captureLodgingDialog(page, info, "review")
+    await dialog.getByRole("button", { name: "Approve lodging changes", exact: true }).click()
+    await dialog.getByRole("checkbox", { name: "Send these exact approved lodging changes to Google." }).check()
+    await captureLodgingDialog(page, info, "consent")
+    await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
+    await expect(dialog.getByText("Independently confirmed", { exact: true })).toBeVisible()
+    await captureLodgingDialog(page, info, "confirmed")
     expect(fixture.writes()).toHaveLength(1)
   })
 })

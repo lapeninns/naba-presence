@@ -1,7 +1,8 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { startVerificationBackend } from "./helpers/verification-backend"
 import { approvePin, assertPinPrivacy, capturePin, pinPanel, previewPin, reviewedPin, sendPin, type VerificationBackend } from "./helpers/verification-pin-backend"
 import { seedMemberUser } from "../integration/helpers/tenant"
+import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: VerificationBackend
 test.beforeAll(async () => { backend = await startVerificationBackend() })
@@ -9,31 +10,42 @@ test.afterAll(async () => { await backend.stop() })
 test.beforeEach(async ({ context }) => {
   await context.route("**/*", (route) => new URL(route.request().url()).origin === backend.server.baseUrl ? route.continue() : route.abort("blockedbyclient"))
 })
-for (const width of [375, 768, 1280]) {
-  test.describe(`PIN recovery at ${width}px`, () => {
-    test.use({ viewport: { width, height: 1100 } })
-    test("restores a lost real response while disconnected without another PIN send", async ({ page }, info) => {
-      const fixture = await backend.fixture(page, "EMAIL", true); await fixture.open()
-      const panel = await approvePin(page), reviewId = await fixture.reviewId("verification_complete")
-      await page.route(`**/verification-completion-reviews/${reviewId}/execute`, async route => {
-        if (route.request().method() !== "POST") return route.continue()
-        const response = await route.fetch(); expect(response.status()).toBe(200)
-        await route.abort("failed")
-      })
-      await sendPin(page)
-      await expect(panel.getByText(/send response was unavailable/)).toBeVisible()
-      await expect(panel.getByRole("button", { name: "Check saved PIN outcome" })).toBeEnabled()
-      await expect(panel.getByLabel("Re-enter reviewed PIN")).toHaveValue("")
-      await capturePin(page, info, "lost-response")
-      await fixture.disconnect(); await page.reload()
-      await panel.getByRole("button", { name: "Open saved outcome" }).click()
-      await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
-      await panel.getByRole("button", { name: "Refresh saved outcome" }).click()
-      await expect(panel.getByText(/earlier evidence, not a fresh observation/)).toBeVisible()
-      await capturePin(page, info, "disconnected-outcome")
-      expect(fixture.completionWrites()).toHaveLength(1)
-      await assertPinPrivacy(backend, fixture)
-    })
+/** A lost real response restored from the saved outcome after disconnection, without another PIN send. */
+async function lostResponseWhileDisconnected(page: Page, info: TestInfo) {
+  const fixture = await backend.fixture(page, "EMAIL", true); await fixture.open()
+  const panel = await approvePin(page), reviewId = await fixture.reviewId("verification_complete")
+  await page.route(`**/verification-completion-reviews/${reviewId}/execute`, async route => {
+    if (route.request().method() !== "POST") return route.continue()
+    const response = await route.fetch(); expect(response.status()).toBe(200)
+    await route.abort("failed")
+  })
+  await sendPin(page)
+  await expect(panel.getByText(/send response was unavailable/)).toBeVisible()
+  await expect(panel.getByRole("button", { name: "Check saved PIN outcome" })).toBeEnabled()
+  await expect(panel.getByLabel("Re-enter reviewed PIN")).toHaveValue("")
+  await capturePin(page, info, "lost-response")
+  await fixture.disconnect(); await page.reload()
+  await panel.getByRole("button", { name: "Open saved outcome" }).click()
+  await expect(panel.getByText("Independently confirmed", { exact: true })).toBeVisible()
+  await panel.getByRole("button", { name: "Refresh saved outcome" }).click()
+  await expect(panel.getByText(/earlier evidence, not a fresh observation/)).toBeVisible()
+  await capturePin(page, info, "disconnected-outcome")
+  expect(fixture.completionWrites()).toHaveLength(1)
+  await assertPinPrivacy(backend, fixture)
+}
+/** A method Google completes itself: a handoff link and no PIN entry. */
+async function externalHandoff(page: Page, info: TestInfo, method: "AUTO" | "VETTED_PARTNER" | "FUTURE_METHOD") {
+  const fixture = await backend.fixture(page, method, true); fixture.setPhase("PENDING"); await fixture.open()
+  const panel = pinPanel(page)
+  await expect(panel.getByText(/cannot accept a PIN here/)).toBeVisible()
+  await expect(panel.getByLabel("PIN from Google")).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Continue verification in Google" })).toHaveAttribute("href", "https://business.google.com/")
+  expect(fixture.completionWrites()).toHaveLength(0)
+  await capturePin(page, info, `external-${method}`)
+}
+test.describe(`PIN recovery journeys at ${JOURNEY_WIDTH}px`, () => {
+    test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
+    test("restores a lost real response while disconnected without another PIN send", async ({ page }, info) => { await lostResponseWhileDisconnected(page, info) })
     test("retains definitive rejection and sends a corrected PIN only after fresh approval", async ({ page }, info) => {
       const fixture = await backend.fixture(page, "ADDRESS", true); await fixture.open()
       const panel = await approvePin(page)
@@ -102,16 +114,12 @@ for (const width of [375, 768, 1280]) {
       expect(fixture.completionWrites()).toHaveLength(0)
       await capturePin(page, info, "revoked-approver")
     })
-    for (const method of ["AUTO", "VETTED_PARTNER", "FUTURE_METHOD"] as const) {
-      test(`pending ${method} uses Google handoff without PIN entry`, async ({ page }, info) => {
-        const fixture = await backend.fixture(page, method, true); fixture.setPhase("PENDING"); await fixture.open()
-        const panel = pinPanel(page)
-        await expect(panel.getByText(/cannot accept a PIN here/)).toBeVisible()
-        await expect(panel.getByLabel("PIN from Google")).toHaveCount(0)
-        await expect(panel.getByRole("link", { name: "Continue verification in Google" })).toHaveAttribute("href", "https://business.google.com/")
-        expect(fixture.completionWrites()).toHaveLength(0)
-        await capturePin(page, info, `external-${method}`)
-      })
-    }
+    for (const method of ["AUTO", "VETTED_PARTNER", "FUTURE_METHOD"] as const) test(`pending ${method} uses Google handoff without PIN entry`, async ({ page }, info) => { await externalHandoff(page, info, method) })
   })
-}
+// The two PIN screens recovery adds: the saved outcome after a lost response,
+// and the Google handoff with no PIN field.
+for (const width of LAYOUT_WIDTHS) test.describe(`PIN recovery layout at ${width}px`, () => {
+  test.use({ viewport: viewportAt(width) })
+  test("fits the lost-response and disconnected outcome", async ({ page }, info) => { await lostResponseWhileDisconnected(page, info) })
+  test("fits the Google handoff without PIN entry", async ({ page }, info) => { await externalHandoff(page, info, "AUTO") })
+})
