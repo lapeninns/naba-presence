@@ -241,8 +241,10 @@ describe("pre-push hook skip rules", () => {
       encoding: "utf8",
       input: stdin,
       env: {
+        ...process.env,
         PATH: `${join(dir, "bin")}:${process.env.PATH}`,
         HOME: dir,
+        SKIP_VERIFY: "",
         ...env,
       },
     })
