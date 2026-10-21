@@ -70,31 +70,16 @@ describe("0101 privacy request retry migration", () => {
   })
 })
 
-describe("privacy withdrawal wiring", () => {
-  const jobs = read("lib/server/jobs.ts")
+// Job-tick dispatch, the pause switch, the owner re-check and the PATCH
+// actor are behavioural in tests/integration/routes/privacy-fulfilment.test.ts
+// ("retries a parked withdrawal on the job tick...", "keeps a withdrawal
+// pending ... while publishing is off", "stops retrying as an owner who lost
+// the owner role", and the successor-owner case reading withdrawal_actor_id).
+// No integration case covers a read-only organisation, so this guard stays.
+describe("privacy withdrawal worker", () => {
   const worker = read("lib/server/privacy/withdrawals.ts")
-  const route = read("app/api/privacy/requests/route.ts")
 
-  it("runs from the job tick behind the runner switch only", () => {
-    expect(jobs).toMatch(
-      /scopesEnabled\(env, pauses, \["jobs"\]\)\) \{\s+summary\.privacy = await runDuePrivacyWithdrawals/
-    )
-  })
-
-  it("re-derives the owner's grant at dispatch instead of trusting a session", () => {
-    expect(worker).toContain("actorScopeFromMembership(")
-    expect(worker).toContain("recheckAuthorisation(")
-    expect(worker).toContain('action: "publish"')
-    expect(worker).toContain('scope.role !== "owner"')
-    // Read-only organisations still honour erasures: no entitlement gate.
+  it("honours erasures for read-only organisations: no entitlement gate", () => {
     expect(worker).not.toMatch(/entitlement:/)
-  })
-
-  it("keeps the PATCH on the shared fulfilment module", () => {
-    expect(route).toContain('from "@/lib/server/privacy/fulfil"')
-    expect(route).not.toMatch(
-      /async function (eraseReviews|withdrawReplies|scrubAttemptBodies)/
-    )
-    expect(route).toContain("withdrawal_actor_id = ${session.userId}")
   })
 })

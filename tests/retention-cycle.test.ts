@@ -87,18 +87,11 @@ describe("0097_retention_cycle migration", () => {
   })
 })
 
-describe("retention route", () => {
-  const route = readFileSync(
-    new URL("../app/api/cron/retention/route.ts", import.meta.url),
-    "utf8"
-  )
-
-  it("dispatches the cycle unless a page cursor is given", () => {
-    expect(route).toContain('searchParams.has("cursor")')
-    expect(route).toContain("runRetentionCycle(")
-    expect(route).toMatch(/retainPage\([\s\S]*trigger: "manual"/)
-  })
-})
+// The route's cycle-versus-page dispatch is behavioural in
+// tests/integration/routes/leases.test.ts ("keeps a hand-run retention page off
+// the cron heartbeat and the cycle", and the cycle fires before it) and
+// tests/integration/routes/retention-purge.test.ts ("through a dispatcher
+// cycle, not only a hand page").
 
 describe("tick_cycle_failures alert", () => {
   it("names the cycle, the failed organisations and their codes, and repeats", () => {
@@ -189,61 +182,14 @@ describe("retention batches", () => {
   })
 })
 
-describe("retention purge statements", () => {
-  const purge = readFileSync(
-    new URL("../lib/server/retention/purge.ts", import.meta.url),
-    "utf8"
-  )
-
-  it("bounds every dataset statement by the batch", () => {
-    // Every delete and update the purge issues goes through boundedRows,
-    // apart from the two in-flight reapers it calls once per run.
-    expect(purge.match(/delete from /g)).toHaveLength(1)
-    expect(purge.match(/\bupdate \$\{target\}/g)).toHaveLength(1)
-    expect(purge).toMatch(/select id from \$\{target\} where \$\{where\(\)\} limit \$\{limit\}/)
-  })
-  it("redacts the reviewer's photo link with the rest of an expired review", () => {
-    const step = purge.slice(
-      purge.indexOf('rowsStep("reviews"'),
-      purge.indexOf('rowsStep("accounts"')
-    )
-    expect(step).toContain("or reviewer_profile_photo_url is not null")
-    expect(step).toContain("reviewer_profile_photo_url = null")
-    // Legal holds still win over the expiry.
-    expect(step).toMatch(/not exists \(\s*select 1 from legal_hold h/)
-  })
-
-  it("deletes ai_usage only behind the deletion switch and the closed-period guard", () => {
-    const step = purge.slice(
-      purge.indexOf('rowsStep("aiUsage"'),
-      purge.indexOf('rowsStep("placeActionMutations"')
-    )
-    expect(step).toContain("destructive: true")
-    expect(step).toContain('table: "ai_usage"')
-    expect(step).toContain(
-      "created_at < now() - make_interval(months => ${AI_USAGE_RETENTION_MONTHS})"
-    )
-    expect(step).toContain("${aiUsageInClosedPeriod(sql)}")
-    // ai_usage is deleted nowhere else in the purge.
-    expect(purge.match(/table: "ai_usage"/g)).toHaveLength(1)
-    const guard = purge.slice(
-      purge.indexOf("export function aiUsageInClosedPeriod"),
-      purge.indexOf("/**\n * Every dataset the purge retains")
-    )
-    expect(guard).toContain("ai_usage.status in ('settled', 'released')")
-    expect(guard).toContain(
-      "< (date_trunc('month', now() at time zone 'utc'))::date"
-    )
-    // An allowance period (P07) that has not ended keeps its rows, and so
-    // does an open adjustment applying to it.
-    expect(guard).toMatch(
-      /and not exists \(\s*select 1 from ai_credit_period p\s+where p\.organisation_id = ai_usage\.organisation_id/
-    )
-    expect(guard).toContain("p.id = ai_usage.credit_period_id")
-    expect(guard).toContain("or p.applies_to_period_id = ai_usage.credit_period_id")
-    expect(guard).toContain("and p.ends_at > now()")
-  })
-})
+// The purge statements are behavioural in
+// tests/integration/routes/retention-purge.test.ts: batch bounds ("changes at
+// most the batch per statement and resumes across runs", "bounds destructive
+// deletes and the stranded reapers"), reviewer photo redaction under legal
+// holds ("drops an expired review's photo link, keeps live and held ones") and
+// the ai_usage deletion guard ("deletes settled AI usage past 13 months but
+// never a reserved row, an open month or allowance period, or with deletions
+// off").
 
 describe("0100 AI usage retention migration", () => {
   const migration = readFileSync(
