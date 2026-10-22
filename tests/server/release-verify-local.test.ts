@@ -1,6 +1,4 @@
-import assert from "node:assert/strict"
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,7 +10,6 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runInNewContext } from "node:vm"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
@@ -36,6 +33,7 @@ import {
   SECRET_SCAN_ARGS,
   acquireUnlessStopped,
   childEnv,
+  createRunDir,
   defaultCpuBudget,
   gateRunRoot,
   heavyStepWeights,
@@ -484,44 +482,26 @@ describe("verify:release steps", () => {
       writeFileSync(oldFile, "retained evidence")
       utimesSync(oldFile, old, old)
 
-      // Execute the actual allocation span in main, stopping before any log,
-      // Git, PostgreSQL or child-process setup. No copied cleanup algorithm.
-      const source = readRepoText("scripts/release/verify-local.mjs")
-      const start = source.indexOf("  const runRoot = gateRunRoot(")
-      const end = source.indexOf("\n  const worktree = join(runDir,", start)
-      assert(start >= 0 && end > start, "gate startup span must be located")
-      const startup = source.slice(start, end) + "\nrunDir"
-      const context = {
-        gateRunRoot,
-        process: { env: { NABA_GATE_DIR: fixture } },
-        tmpdir: () => fixture,
-        homedir: () => fixture,
-        mkdirSync,
-        mkdtempSync,
-        readdirSync,
-        statSync,
-        rmSync,
-        join,
-        sha: SHA,
-        // Lets the same regression execute the pre-fix startup as a negative
-        // control without changing its original seven-day retention value.
-        RUN_DIR_RETENTION_DAYS: 7,
+      const first = createRunDir(fixture, SHA)
+      const second = createRunDir(fixture, SHA)
+      expect(first).not.toBe(second)
+      for (const dir of [first, second]) {
+        expect(statSync(dir).isDirectory()).toBe(true)
+        expect(readdirSync(dir)).toEqual([])
+        expect(
+          dir.startsWith(join(fixture, `naba-verify-${SHA.slice(0, 12)}-`))
+        ).toBe(true)
       }
-      const first = runInNewContext(startup, { ...context })
-      const second = runInNewContext(startup, { ...context })
-      assert.notEqual(first, second, "new runs need separate owned directories")
-      assert(statSync(first).isDirectory() && statSync(second).isDirectory())
-      assert.equal(readdirSync(first).length, 0)
-      assert.equal(readdirSync(second).length, 0)
       for (const name of siblings) {
-        const checkpoint = join(fixture, name, "src", "checkpoint.txt")
-        assert(
-          existsSync(checkpoint),
+        expect(
+          readFileSync(join(fixture, name, "src", "checkpoint.txt"), "utf8"),
           `starting a gate removed sibling ${name}`
-        )
-        assert.equal(readFileSync(checkpoint, "utf8"), name)
+        ).toBe(name)
       }
-      assert.equal(readFileSync(oldFile, "utf8"), "retained evidence")
+      expect(readFileSync(oldFile, "utf8")).toBe("retained evidence")
+      // A run root that does not exist yet is created.
+      const fresh = createRunDir(join(fixture, "new-root", "nested"), SHA)
+      expect(statSync(fresh).isDirectory()).toBe(true)
     } finally {
       // Remove only this test's freshly owned fixture, never a shared root.
       rmSync(fixture, { recursive: true, force: true })

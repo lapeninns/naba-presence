@@ -93,7 +93,12 @@ async function start() {
     else throw new Error(`unknown NABA_PG_MODE ${mode}`)
   } catch (error) {
     printLog(state)
-    stop(state)
+    try {
+      stop(state)
+    } catch (cleanupError) {
+      // Report it, but keep the start failure as the error: it is the cause.
+      console.error(`postgres.mjs start: ${cleanupError.message}`)
+    }
     throw error
   }
 

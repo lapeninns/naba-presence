@@ -158,6 +158,19 @@ export function gateRunRoot(env, { tmp, home }) {
   return tmp
 }
 
+/**
+ * A fresh, empty directory for one gate run under `runRoot`. It never
+ * touches siblings: one may be another run still in progress, a worktree
+ * kept for diagnosis or a failed run's evidence, and its age does not prove
+ * it is safe to remove. Its own run cleans up its worktree and clusters.
+ * @param {string} runRoot
+ * @param {string} sha
+ */
+export function createRunDir(runRoot, sha) {
+  mkdirSync(runRoot, { recursive: true })
+  return mkdtempSync(join(runRoot, `naba-verify-${sha.slice(0, 12)}-`))
+}
+
 /** Integration shards when neither the flag nor the variable sets them. */
 export const DEFAULT_INTEGRATION_SHARDS = 4
 
@@ -692,11 +705,10 @@ async function main() {
     )
   }
 
-  const runRoot = gateRunRoot(process.env, { tmp: tmpdir(), home: homedir() })
-  mkdirSync(runRoot, { recursive: true })
-  // A sibling may be paused or retained for diagnosis. Age does not prove
-  // it is safe to remove; starting a gate must not delete another run.
-  const runDir = mkdtempSync(join(runRoot, `naba-verify-${sha.slice(0, 12)}-`))
+  const runDir = createRunDir(
+    gateRunRoot(process.env, { tmp: tmpdir(), home: homedir() }),
+    sha
+  )
   const worktree = join(runDir, "src")
   const logDir = join(runDir, "logs")
   const logPath = join(runDir, "verify.log")
