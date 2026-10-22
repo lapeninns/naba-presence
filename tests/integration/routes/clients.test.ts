@@ -331,6 +331,116 @@ describeDatabase("clients", () => {
     expect(archive.status).toBe(409)
   })
 
+  // NP8-G05: the guards fix f88afef6 added, with no test until now. The
+  // database triggers of 0061 refuse the same moves with a 500; the routes
+  // answer 409 home_client_required before any write.
+  it("keeps a business location under the home client, assigning and unassigning", async () => {
+    const owner = await fixture({ workspaceMode: "business" })
+    const [home] = await admin<{ id: string }[]>`
+      select id::text as id from client
+      where organisation_id = ${owner.organisationId} and is_home
+    `
+    const seeded = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
+    const assignHome = await request(
+      `/api/clients/${home.id}/locations`,
+      owner.cookie,
+      {
+        method: "POST",
+        body: JSON.stringify({ locationIds: [seeded.locationId] }),
+      }
+    )
+    expect(assignHome.status, await assignHome.clone().text()).toBe(200)
+
+    // The only other client a business organisation can hold is an
+    // archived one (0102 refuses a second active client), as a switch from
+    // agency mode leaves behind. Owners still reach it by id.
+    const otherId = randomUUID()
+    await admin`
+      insert into client (id, organisation_id, name, slug, archived_at)
+      values (
+        ${otherId}, ${owner.organisationId}, 'Former agency client',
+        'former-agency-client', now()
+      )
+    `
+    const clientOf = async () => {
+      const [row] = await admin<{ clientId: string | null }[]>`
+        select client_id::text as "clientId" from location
+        where id = ${seeded.locationId}
+      `
+      return row.clientId
+    }
+    const move = await request(
+      `/api/clients/${otherId}/locations`,
+      owner.cookie,
+      {
+        method: "POST",
+        body: JSON.stringify({ locationIds: [seeded.locationId] }),
+      }
+    )
+    expect(move.status, await move.clone().text()).toBe(409)
+    expect(await move.json()).toMatchObject({
+      error: "home_client_required",
+    })
+    expect(await clientOf()).toBe(home.id)
+
+    const unassign = await request(
+      `/api/clients/${home.id}/locations`,
+      owner.cookie,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ locationIds: [seeded.locationId] }),
+      }
+    )
+    expect(unassign.status, await unassign.clone().text()).toBe(409)
+    expect(await unassign.json()).toMatchObject({
+      error: "home_client_required",
+    })
+    expect(await clientOf()).toBe(home.id)
+  })
+
+  it("refuses unassigning from a home client that an agency organisation kept", async () => {
+    // An organisation switched from business to agency keeps its home
+    // client; the database trigger no longer guards it, the route does.
+    const owner = await fixture()
+    const homeId = randomUUID()
+    await admin`
+      insert into client (id, organisation_id, name, slug, is_home)
+      values (${homeId}, ${owner.organisationId}, 'Former home', 'former-home', true)
+    `
+    const seeded = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
+    const assign = await request(
+      `/api/clients/${homeId}/locations`,
+      owner.cookie,
+      {
+        method: "POST",
+        body: JSON.stringify({ locationIds: [seeded.locationId] }),
+      }
+    )
+    expect(assign.status, await assign.clone().text()).toBe(200)
+
+    const unassign = await request(
+      `/api/clients/${homeId}/locations`,
+      owner.cookie,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ locationIds: [seeded.locationId] }),
+      }
+    )
+    expect(unassign.status, await unassign.clone().text()).toBe(409)
+    expect(await unassign.json()).toMatchObject({
+      error: "home_client_required",
+    })
+    const [row] = await admin<{ clientId: string | null }[]>`
+      select client_id::text as "clientId" from location
+      where id = ${seeded.locationId}
+    `
+    expect(row.clientId).toBe(homeId)
+  })
+
   it("keeps every business-mode organisation at one active client and no unassigned locations", async () => {
     const violations = await admin`
       select o.id::text as id
