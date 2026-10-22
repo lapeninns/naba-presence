@@ -1,3 +1,18 @@
+import assert from "node:assert/strict"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { runInNewContext } from "node:vm"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
@@ -445,6 +460,72 @@ describe("verify:release steps", () => {
         { tmp: "/var/folders/a/b/T", home }
       )
     ).toBe("/Volumes/fast/gate")
+  })
+
+  it("preserves old and unknown siblings when a gate starts", () => {
+    const fixture = mkdtempSync(join(tmpdir(), "naba-gate-preservation-"))
+    try {
+      const old = new Date(Date.now() - 30 * 86_400_000)
+      const siblings = [
+        "naba-verify-paused",
+        "naba-verify-unknown",
+        "naba-verify-kept-worktree",
+        "naba-verify-failed-evidence",
+        "unrelated-directory",
+      ]
+      for (const name of siblings) {
+        const directory = join(fixture, name)
+        mkdirSync(join(directory, "src"), { recursive: true })
+        writeFileSync(join(directory, "src", "checkpoint.txt"), name)
+        // Nested work can be fresh while the top-level directory looks old.
+        utimesSync(directory, old, old)
+      }
+      const oldFile = join(fixture, "naba-verify-unknown-file")
+      writeFileSync(oldFile, "retained evidence")
+      utimesSync(oldFile, old, old)
+
+      // Execute the actual allocation span in main, stopping before any log,
+      // Git, PostgreSQL or child-process setup. No copied cleanup algorithm.
+      const source = readRepoText("scripts/release/verify-local.mjs")
+      const start = source.indexOf("  const runRoot = gateRunRoot(")
+      const end = source.indexOf("\n  const worktree = join(runDir,", start)
+      assert(start >= 0 && end > start, "gate startup span must be located")
+      const startup = source.slice(start, end) + "\nrunDir"
+      const context = {
+        gateRunRoot,
+        process: { env: { NABA_GATE_DIR: fixture } },
+        tmpdir: () => fixture,
+        homedir: () => fixture,
+        mkdirSync,
+        mkdtempSync,
+        readdirSync,
+        statSync,
+        rmSync,
+        join,
+        sha: SHA,
+        // Lets the same regression execute the pre-fix startup as a negative
+        // control without changing its original seven-day retention value.
+        RUN_DIR_RETENTION_DAYS: 7,
+      }
+      const first = runInNewContext(startup, { ...context })
+      const second = runInNewContext(startup, { ...context })
+      assert.notEqual(first, second, "new runs need separate owned directories")
+      assert(statSync(first).isDirectory() && statSync(second).isDirectory())
+      assert.equal(readdirSync(first).length, 0)
+      assert.equal(readdirSync(second).length, 0)
+      for (const name of siblings) {
+        const checkpoint = join(fixture, name, "src", "checkpoint.txt")
+        assert(
+          existsSync(checkpoint),
+          `starting a gate removed sibling ${name}`
+        )
+        assert.equal(readFileSync(checkpoint, "utf8"), name)
+      }
+      assert.equal(readFileSync(oldFile, "utf8"), "retained evidence")
+    } finally {
+      // Remove only this test's freshly owned fixture, never a shared root.
+      rmSync(fixture, { recursive: true, force: true })
+    }
   })
 
   it("compares whole schema dumps, not a tail of them", () => {

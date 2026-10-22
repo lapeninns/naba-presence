@@ -227,6 +227,13 @@ never reaches the shared dev database on 54322. It sets `ci.yml`'s
 placeholder `env:` values and `LC_ALL`/`LANG` (Homebrew Postgres needs a
 UTF-8 locale). It must run on the `.nvmrc` Node major.
 
+Starting a gate never prunes sibling run directories automatically: age does
+not establish that a run is finished or that its files are no longer needed.
+The gate still cleans up its own worktree and clusters through its existing
+cleanup path; retained logs and failed or kept artifacts can consume disk space.
+Review them manually and confirm a run is inactive and its evidence is no longer
+needed before removing it. This also applies to directories under `NABA_GATE_DIR`.
+
 Every step runs even after a failure, unless `--fail-fast` (steps not yet
 started are then `not-run`). A step whose need failed is `not-run`. Each
 step's output goes to `logs/<step>.log` in the printed run directory, all of

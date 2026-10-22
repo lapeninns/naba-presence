@@ -65,12 +65,11 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs"
 import { createServer } from "node:net"
 import { availableParallelism, homedir, tmpdir } from "node:os"
-import { dirname, join, relative, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import {
@@ -158,9 +157,6 @@ export function gateRunRoot(env, { tmp, home }) {
   }
   return tmp
 }
-
-/** Run directories older than this are removed when a new run starts. */
-export const RUN_DIR_RETENTION_DAYS = 7
 
 /** Integration shards when neither the flag nor the variable sets them. */
 export const DEFAULT_INTEGRATION_SHARDS = 4
@@ -698,19 +694,8 @@ async function main() {
 
   const runRoot = gateRunRoot(process.env, { tmp: tmpdir(), home: homedir() })
   mkdirSync(runRoot, { recursive: true })
-  // Old runs' logs (their worktrees and clusters are already gone).
-  for (const name of readdirSync(runRoot)) {
-    if (!name.startsWith("naba-verify-")) continue
-    const path = join(runRoot, name)
-    try {
-      const age = Date.now() - statSync(path).mtimeMs
-      if (age > RUN_DIR_RETENTION_DAYS * 86_400_000) {
-        rmSync(path, { recursive: true, force: true })
-      }
-    } catch {
-      // Another run's directory vanishing under us is fine.
-    }
-  }
+  // A sibling may be paused or retained for diagnosis. Age does not prove
+  // it is safe to remove; starting a gate must not delete another run.
   const runDir = mkdtempSync(join(runRoot, `naba-verify-${sha.slice(0, 12)}-`))
   const worktree = join(runDir, "src")
   const logDir = join(runDir, "logs")
@@ -807,7 +792,7 @@ async function main() {
   // its own directory. They start one at a time: postgres.mjs picks a free
   // port before the server binds it, so two concurrent starts could pick
   // the same one.
-  /** @type {{ dir: string, name: string }[]} */
+  /** @type {{ dir: string, shard: string }[]} */
   const clusters = []
   let clusterQueue = Promise.resolve()
 
@@ -819,11 +804,12 @@ async function main() {
   function startCluster(sink, name) {
     const started = clusterQueue.then(async () => {
       const dir = join(runDir, `pg-${name}`)
-      // SHARD names the docker container on the docker path.
-      const extraEnv = { NABA_PG_DIR: dir, SHARD: name }
+      // Namespace Docker names by the unique mkdtemp run, not only the step.
+      const shard = `${basename(runDir)}-${name}`
+      const extraEnv = { NABA_PG_DIR: dir, SHARD: shard }
       // Tracked before it starts, so an interrupt mid-start still stops it
       // (postgres.mjs stop is idempotent).
-      clusters.push({ dir, name })
+      clusters.push({ dir, shard })
       const result = await exec(
         sink,
         "node",
@@ -840,7 +826,7 @@ async function main() {
         throw new Error("postgres.mjs start exported no DIRECT_DATABASE_URL")
       }
       sink.write(`PostgreSQL for ${name} on 127.0.0.1:${dbEnv.NABA_PG_PORT}\n`)
-      return { ...dbEnv, NABA_PG_DIR: dir, SHARD: name }
+      return { ...dbEnv, ...extraEnv }
     })
     clusterQueue = started.then(
       () => undefined,
@@ -850,10 +836,10 @@ async function main() {
   }
 
   function stopClusters() {
-    for (const { dir, name } of clusters.splice(0)) {
+    for (const { dir, shard } of clusters.splice(0)) {
       spawnSync("node", ["scripts/ci/postgres.mjs", "stop"], {
         cwd: worktreeAdded ? worktree : root,
-        env: { ...env, NABA_PG_DIR: dir, SHARD: name },
+        env: { ...env, NABA_PG_DIR: dir, SHARD: shard },
         stdio: "ignore",
       })
     }
@@ -1243,6 +1229,10 @@ async function main() {
             budget.acquire(weights[step.id], priority)
           )
     if (!release) return stoppedByFailFast(step.id)
+    if (run.stop) {
+      release()
+      return stoppedByFailFast(step.id)
+    }
     say(`=== ${step.id}: started (${step.title})\n`)
     const sink = stepLog(step.id)
     const started = performance.now()

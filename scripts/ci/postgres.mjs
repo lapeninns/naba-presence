@@ -55,6 +55,7 @@ const instance = [
 const stateDir =
   process.env.NABA_PG_DIR ?? join(process.env.RUNNER_TEMP ?? tmpdir(), instance)
 const stateFile = join(stateDir, "state.json")
+const containerIdFile = join(stateDir, "container.id")
 const logFile = join(stateDir, "pg.log")
 const dataDir = join(stateDir, "data")
 
@@ -111,14 +112,18 @@ async function start() {
 }
 
 function startDocker(state) {
-  state.container = instance.toLowerCase()
+  // Persist the mode before creation, but never acquire cleanup authority by name.
+  // Docker writes this fresh cidfile only for a container it actually creates;
+  // stop can recover it even if this process is interrupted before run returns.
   writeState(state)
   run("docker", [
     "run",
     "-d",
     "--rm",
+    "--cidfile",
+    containerIdFile,
     "--name",
-    state.container,
+    instance.toLowerCase(),
     "-p",
     `127.0.0.1:${state.port}:5432`,
     "-e",
@@ -135,6 +140,9 @@ function startDocker(state) {
     "-c",
     `${DISPOSABLE_SETTING}=on`,
   ])
+  state.container = dockerContainerId(state)
+  if (!state.container) throw new Error("docker run created no container ID")
+  writeState(state)
   // The image's entrypoint runs a socket-only temporary server during init,
   // so only a TCP check proves the final server is up.
   const deadline = Date.now() + 60_000
@@ -230,12 +238,40 @@ function nativeBin() {
   )
 }
 
+// A Docker name can be reused after a container disappears. Only the full ID
+// captured from this invocation's cidfile is safe to use for logs or removal.
+function dockerContainerId(state) {
+  const id =
+    state.container ??
+    (existsSync(containerIdFile)
+      ? readFileSync(containerIdFile, "utf8").trim()
+      : null)
+  if (id !== null && !/^[a-f0-9]{64}$/.test(id)) {
+    throw new Error(
+      "refusing Docker cleanup with a legacy name or invalid container ID; " +
+        `leaving state in ${stateDir} for manual identification`
+    )
+  }
+  return id
+}
+
 function stop(known) {
   const state = known ?? readState()
-  if (state?.mode === "docker" && state.container) {
-    spawnSync("docker", ["rm", "-f", "-v", state.container], {
-      stdio: "ignore",
-    })
+  if (state?.mode === "docker") {
+    const container = dockerContainerId(state)
+    if (container) {
+      const removal = spawnSync("docker", ["rm", "-f", "-v", container], {
+        stdio: "ignore",
+      })
+      // Any uncertain removal must retain the ID for a later retry. A nonzero
+      // exit also covers an already absent container; do not guess from stderr.
+      if (removal.error || removal.status !== 0) {
+        const detail = removal.error?.message ?? `exit ${removal.status}`
+        throw new Error(
+          `Docker cleanup failed (${detail}); preserving state in ${stateDir}`
+        )
+      }
+    }
   }
   if (
     state?.mode === "native" &&
@@ -322,10 +358,19 @@ function printLog(state) {
   if (state.mode === "native" && existsSync(logFile)) {
     console.error(`--- ${logFile} ---\n${readFileSync(logFile, "utf8")}`)
   }
-  if (state.mode === "docker" && state.container) {
-    spawnSync("docker", ["logs", state.container], {
-      stdio: ["ignore", "inherit", "inherit"],
-    })
+  if (state.mode === "docker") {
+    let container
+    try {
+      container = dockerContainerId(state)
+    } catch (error) {
+      console.error(error.message)
+      return
+    }
+    if (container) {
+      spawnSync("docker", ["logs", container], {
+        stdio: ["ignore", "inherit", "inherit"],
+      })
+    }
   }
 }
 
