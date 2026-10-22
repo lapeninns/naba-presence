@@ -6,8 +6,9 @@
 //                       [--serial] [--integration-shards <n>] [--cpus <n>]
 //
 // Hosted CI is not a release gate (docs/ci.md §5); this run is the evidence.
-// It checks HEAD out into a fresh detached git worktree under the OS temp
-// directory, so no .env file, untracked file or local build output takes
+// It checks HEAD out into a fresh detached git worktree (under
+// ~/Library/Caches/naba-verify on macOS, see gateRunRoot; NABA_GATE_DIR
+// overrides), so no .env file, untracked file or local build output takes
 // part, then runs every step of local-receipt.mjs GATE_STEPS:
 //
 //   frozen install, typecheck, lint, unit and component tests, formatting
@@ -64,10 +65,11 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { createServer } from "node:net"
-import { availableParallelism, tmpdir } from "node:os"
+import { availableParallelism, homedir, tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -138,6 +140,27 @@ export const INHERITED_ENV_PREFIXES = [
 
 /** Preferred e2e port: the harness origin the same-origin guard expects. */
 export const E2E_PORT = 3100
+
+/**
+ * Where each run's directory (worktree, clusters, logs) goes. Not the macOS
+ * per-user temp folder: launchd's dirhelper empties /var/folders/<..>/T every
+ * day at 03:35 of files that look three days untouched, and pnpm's cloned
+ * package files keep the store's old timestamps, so a run crossing 03:35 lost
+ * node_modules files mid-suite (2026-10-22). NABA_GATE_DIR overrides; CI
+ * points TMPDIR at its own runner folder, which is used as is.
+ * @param {Record<string, string | undefined>} env
+ * @param {{ tmp: string, home: string }} dirs
+ */
+export function gateRunRoot(env, { tmp, home }) {
+  if (env.NABA_GATE_DIR) return env.NABA_GATE_DIR
+  if (/^\/(private\/)?var\/folders\//.test(tmp)) {
+    return join(home, "Library", "Caches", "naba-verify")
+  }
+  return tmp
+}
+
+/** Run directories older than this are removed when a new run starts. */
+export const RUN_DIR_RETENTION_DAYS = 7
 
 /** Integration shards when neither the flag nor the variable sets them. */
 export const DEFAULT_INTEGRATION_SHARDS = 4
@@ -673,7 +696,22 @@ async function main() {
     )
   }
 
-  const runDir = mkdtempSync(join(tmpdir(), `naba-verify-${sha.slice(0, 12)}-`))
+  const runRoot = gateRunRoot(process.env, { tmp: tmpdir(), home: homedir() })
+  mkdirSync(runRoot, { recursive: true })
+  // Old runs' logs (their worktrees and clusters are already gone).
+  for (const name of readdirSync(runRoot)) {
+    if (!name.startsWith("naba-verify-")) continue
+    const path = join(runRoot, name)
+    try {
+      const age = Date.now() - statSync(path).mtimeMs
+      if (age > RUN_DIR_RETENTION_DAYS * 86_400_000) {
+        rmSync(path, { recursive: true, force: true })
+      }
+    } catch {
+      // Another run's directory vanishing under us is fine.
+    }
+  }
+  const runDir = mkdtempSync(join(runRoot, `naba-verify-${sha.slice(0, 12)}-`))
   const worktree = join(runDir, "src")
   const logDir = join(runDir, "logs")
   const logPath = join(runDir, "verify.log")

@@ -208,9 +208,11 @@ merge base is `HEAD`, so `migration-policy` and `migrate-upgrade` would
 compare `HEAD` with itself, and promotion refuses that receipt. The receipt
 records the base and where it came from (`base.source`).
 
-It checks `HEAD` out into a fresh detached worktree under the OS temp
-directory, so no `.env*` file, untracked file or local build output takes
-part (uncommitted changes in your checkout are not tested; it warns). The
+It checks `HEAD` out into a fresh detached worktree (under
+`~/Library/Caches/naba-verify` on macOS, not the per-user temp folder that
+macOS empties every day at 03:35; `NABA_GATE_DIR` overrides; in CI the
+runner's temp folder), so no `.env*` file, untracked file or local build
+output takes part (uncommitted changes in your checkout are not tested; it warns). The
 gate's own code runs from your checkout, so uncommitted changes under
 `scripts/release/`, `scripts/ci/`, `lib/domain/redaction.ts`, `package.json`
 or `.nvmrc` are recorded in the receipt (`gateSource`) and promotion refuses

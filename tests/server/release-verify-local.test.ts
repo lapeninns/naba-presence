@@ -22,6 +22,7 @@ import {
   acquireUnlessStopped,
   childEnv,
   defaultCpuBudget,
+  gateRunRoot,
   heavyStepWeights,
   mergePlaywrightSummaries,
   mergeVitestSummaries,
@@ -419,6 +420,31 @@ describe("verify:release steps", () => {
     for (const bad of ["0", "two", "1.5", ""]) {
       expect(() => parseArgs(["--cpus", bad])).toThrow(/--cpus/)
     }
+  })
+
+  it("keeps its run directory out of the folder macOS empties at 03:35", () => {
+    const home = "/Users/x"
+    // The per-user temp folder dirhelper cleans: not used.
+    for (const tmp of [
+      "/var/folders/t4/abc/T/",
+      "/private/var/folders/t4/abc/T",
+    ]) {
+      expect(gateRunRoot({}, { tmp, home })).toBe(
+        "/Users/x/Library/Caches/naba-verify"
+      )
+    }
+    // A CI runner's own temp folder (TMPDIR=RUNNER_TEMP) is used as is.
+    expect(
+      gateRunRoot({}, { tmp: "/Users/gh-runner/mac-1/_work/_temp", home })
+    ).toBe("/Users/gh-runner/mac-1/_work/_temp")
+    expect(gateRunRoot({}, { tmp: "/tmp", home })).toBe("/tmp")
+    // An explicit choice wins.
+    expect(
+      gateRunRoot(
+        { NABA_GATE_DIR: "/Volumes/fast/gate" },
+        { tmp: "/var/folders/a/b/T", home }
+      )
+    ).toBe("/Volumes/fast/gate")
   })
 
   it("compares whole schema dumps, not a tail of them", () => {
