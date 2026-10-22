@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
@@ -29,6 +29,7 @@ import {
   CI_PLACEHOLDER_ENV,
   CpuBudget,
   DEFAULT_INTEGRATION_SHARDS,
+  GATE_SIGNAL_EXIT_CODES,
   HEAVY_STEP_PRIORITY,
   SECRET_SCAN_ARGS,
   acquireUnlessStopped,
@@ -47,6 +48,7 @@ import {
   releaseAfter,
   summarizeOutput,
 } from "../../scripts/release/verify-local.mjs"
+import { SIGNAL_EXIT_CODES } from "../../scripts/run-test-command.mjs"
 import { readRepoText } from "../helpers/repo-text"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -459,6 +461,24 @@ describe("verify:release steps", () => {
         { tmp: "/var/folders/a/b/T", home }
       )
     ).toBe("/Volumes/fast/gate")
+    // A relative one is made absolute, so the printed retry lines are too.
+    expect(gateRunRoot({ NABA_GATE_DIR: "gates" }, { tmp: "/tmp", home })).toBe(
+      resolve("gates")
+    )
+  })
+
+  it("cleans up on the harness's signals and logs that cleanup at once", () => {
+    // A closed terminal sends SIGHUP; 128 plus the signal's number, as the
+    // harness exits.
+    expect(GATE_SIGNAL_EXIT_CODES).toEqual(SIGNAL_EXIT_CODES)
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toContain("Object.entries(GATE_SIGNAL_EXIT_CODES)")
+    // The process exits before a queued write lands, so after a signal the
+    // cleanup report goes to verify.log synchronously.
+    expect(source).toMatch(
+      /process\.once\(signal, \(\) => \{\s*interrupted = true\s*cleanup\(\)/
+    )
+    expect(source).toContain('if (interrupted && typeof log.fd === "number")')
   })
 
   it("preserves old and unknown siblings when a gate starts", () => {

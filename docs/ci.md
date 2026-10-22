@@ -802,11 +802,14 @@ On the docker path `start` records the container's full ID (`docker run
 a container found by name or label. When the removal fails, `stop` exits 1
 and keeps the state; run it again once Docker answers. The gate and
 `pnpm test:integration`/`test:e2e` print that retry command. State without a
-full ID (written by an older script, or a CLI killed before it wrote one) is
-refused. A run killed before it could stop (kill -9, a closed terminal, a
-reboot) leaves its container and data volume behind: list them with
-`docker ps -a --filter label=naba.throwaway-pg=1` and remove each one you
-know is finished with `docker rm -f -v <id>`, then delete its state
+full ID is refused. An older script recorded the container's name
+(`state.json`) and set no label: once that container is finished, remove it
+with `docker rm -f -v <name>`, then delete the directory. An empty
+`container.id` means a CLI was killed before it wrote the ID: find the
+container with the filter below. A run killed before it could stop (kill -9,
+a crash, a reboot) leaves its container and data volume behind: list them
+with `docker ps -a --filter label=naba.throwaway-pg=1` and remove each one
+you know is finished with `docker rm -f -v <id>`, then delete its state
 directory.
 
 The Docker CLI writes the ID file itself, so it must be able to write the

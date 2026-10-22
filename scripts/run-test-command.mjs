@@ -117,6 +117,7 @@ function startThrowawayCluster(root) {
       pgDir,
       shard: basename(pgDir),
       script: join(root, "scripts/ci/postgres.mjs"),
+      env: clusterEnv,
     })
     if (report) log(report.trimEnd())
   }

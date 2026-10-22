@@ -154,7 +154,8 @@ export const E2E_PORT = 3100
  * @param {{ tmp: string, home: string }} dirs
  */
 export function gateRunRoot(env, { tmp, home }) {
-  if (env.NABA_GATE_DIR) return env.NABA_GATE_DIR
+  // Absolute, so the cluster directories and printed retry lines are too.
+  if (env.NABA_GATE_DIR) return resolve(env.NABA_GATE_DIR)
   if (/^\/(private\/)?var\/folders\//.test(tmp)) {
     return join(home, "Library", "Caches", "naba-verify")
   }
@@ -176,8 +177,11 @@ export function createRunDir(runRoot, sha) {
 
 /**
  * One gate cluster's postgres.mjs environment: its own directory in the run,
- * and a SHARD (which names the Docker container) unique to the run, so two
- * gates running at once never share a container name.
+ * and a SHARD (which names the Docker container) carrying the run
+ * directory's random mkdtemp suffix, so two gates running at once do not
+ * share a container name (Docker lowercases it, so the suffix only makes a
+ * clash vanishingly unlikely; if one happens, start fails on the name and
+ * removes nothing).
  * @param {string} runDir
  * @param {string} name the step or shard
  */
@@ -187,6 +191,13 @@ export function gateClusterEnv(runDir, name) {
     SHARD: `${basename(runDir)}-${name}`,
   }
 }
+
+/** The signals that stop a gate run after cleaning up, and its exit codes. */
+export const GATE_SIGNAL_EXIT_CODES = Object.freeze({
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+})
 
 /** Integration shards when neither the flag nor the variable sets them. */
 export const DEFAULT_INTEGRATION_SHARDS = 4
@@ -741,8 +752,13 @@ async function main() {
   const say = (text) => {
     process.stdout.write(text)
     // After a signal the process exits before a queued write would land.
-    if (interrupted && typeof log.fd === "number") writeSync(log.fd, text)
-    else log.write(text)
+    if (interrupted && typeof log.fd === "number") {
+      try {
+        writeSync(log.fd, text)
+      } catch {
+        // Already on stdout; a failed copy must not stop the cleanup.
+      }
+    } else log.write(text)
   }
 
   /**
@@ -877,6 +893,7 @@ async function main() {
         pgDir: clusterEnv.NABA_PG_DIR,
         shard: clusterEnv.SHARD,
         script: join(root, "scripts/ci/postgres.mjs"),
+        env,
       })
       if (report) say(report)
     }
@@ -1207,12 +1224,14 @@ async function main() {
       worktreeAdded = false
     }
   }
-  for (const signal of ["SIGINT", "SIGTERM"]) {
+  // As the harness does: a closed terminal or SSH session sends SIGHUP, and
+  // the exit code is 128 plus the signal's number.
+  for (const [signal, code] of Object.entries(GATE_SIGNAL_EXIT_CODES)) {
     process.once(signal, () => {
       interrupted = true
       cleanup()
       console.error(`verify:release interrupted (${signal}); log: ${logPath}`)
-      process.exit(130)
+      process.exit(code)
     })
   }
 
