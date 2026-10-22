@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto"
 import postgres from "postgres"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
-import { startAppServer } from "../helpers/app-server"
+import { UNCACHED_PAUSES, startAppServer } from "../helpers/app-server"
 import {
   createTestTenant,
   destroyTenants,
@@ -14,12 +14,6 @@ import {
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
-
-// The app caches the pause table for PAUSE_CACHE_TTL_MS (5s,
-// lib/server/pause-controls.ts); wait past it after each change.
-const PAUSE_PROPAGATION_MS = 5_300
-const settle = () =>
-  new Promise((resolve) => setTimeout(resolve, PAUSE_PROPAGATION_MS))
 
 type EventRow = {
   status: string
@@ -134,7 +128,6 @@ describeDatabase("webhook replay", () => {
         'sync', ${value}, 'Integration test pause', 'webhook-replay.test'
       )
     `
-    await settle()
   }
 
   beforeAll(async () => {
@@ -167,14 +160,16 @@ describeDatabase("webhook replay", () => {
       organisationId: owner.organisationId,
       role: "viewer",
     })
-    server = await startAppServer()
+    // The pause table is read on every request (no cache), so a pause
+    // change applies at once instead of after the 5 s production TTL.
+    server = await startAppServer({ ...UNCACHED_PAUSES })
   })
 
   afterEach(async () => {
     // The pause table is platform-wide: never leave sync paused for the
     // next suite sharing the database.
     if (paused) await setSyncPause(false)
-  }, 20_000)
+  })
 
   afterAll(async () => {
     await server?.stop()
@@ -318,5 +313,5 @@ describeDatabase("webhook replay", () => {
     })
     expect(await readEvent(eventId)).toEqual(before)
     expect(await replayAudits(owner.organisationId, eventId)).toEqual([])
-  }, 30_000)
+  })
 })
