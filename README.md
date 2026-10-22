@@ -184,7 +184,7 @@ rules and how to debug a red run.
 Development runs on Turbopack, the default bundler in Next.js 16. This note
 previously pinned both dev and build to the webpack path because Turbopack
 was spawning runaway PostCSS workers here. That stopped reproducing on
-16.2.6 (the pin is now 16.3.8): a cold Turbopack server compiled every dashboard route in
+16.2.6 (the pin is now 16.4.1): a cold Turbopack server compiled every dashboard route in
 0.17–0.52s against webpack’s 1–3.6s, holding one PostCSS worker throughout.
 
 Production builds stay on webpack (`next build --webpack`). That is the path
