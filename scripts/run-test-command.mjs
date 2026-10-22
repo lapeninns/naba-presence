@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import nextEnv from "@next/env"
@@ -38,6 +38,17 @@ export {
 const CHILD_STOP_GRACE_MS = 30_000
 
 /**
+ * Signals that end the run (and stop its cluster), mapped to the status the
+ * wrapper then exits with: 128 + the signal's number, as a shell reports it.
+ * SIGHUP comes from a closed terminal or SSH session.
+ */
+export const SIGNAL_EXIT_CODES = Object.freeze({
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+})
+
+/**
  * `export KEY='value'` lines from `postgres.mjs start`.
  * @param {string} stdout
  */
@@ -57,20 +68,40 @@ function log(message) {
 }
 
 /**
- * Starts, migrates and prepares a throwaway cluster. Synchronous, so a
- * signal that arrives meanwhile is handled once it returns.
- * @param {string} root
+ * The environment `postgres.mjs start` and `stop`, and the setup scripts
+ * between them, run with for this run's cluster.
+ * @param {Record<string, string | undefined>} env
+ * @param {string} pgDir a directory made for this run alone (mkdtemp)
  */
-function startThrowawayCluster(root) {
-  const pgDir = mkdtempSync(join(tmpdir(), "naba-pg-run-"))
+export function throwawayClusterEnv(env, pgDir) {
   /** @type {Record<string, string | undefined>} */
-  const clusterEnv = { ...process.env, NABA_PG_DIR: pgDir }
+  const clusterEnv = {
+    ...env,
+    NABA_PG_DIR: pgDir,
+    // postgres.mjs names the docker container from GITHUB_RUN_ID, GITHUB_JOB
+    // and SHARD, the same for every local run ("naba-pg-local"). A second
+    // run's `docker run --name` would then fail, and its failed-start cleanup
+    // would remove the first run's container. The directory is unique, so
+    // its name replaces any SHARD the caller exported.
+    SHARD: basename(pgDir),
+  }
   // Print the exports rather than append them to a CI job's environment.
   delete clusterEnv.GITHUB_ENV
   // The runtime URL postgres.mjs exports names its default role; a .env
   // override would create a role nothing connects as.
   delete clusterEnv.RUNTIME_ROLE_NAME
   delete clusterEnv.RUNTIME_ROLE_PASSWORD
+  return clusterEnv
+}
+
+/**
+ * Starts, migrates and prepares a throwaway cluster. Synchronous, so a
+ * signal that arrives meanwhile is handled once it returns.
+ * @param {string} root
+ */
+function startThrowawayCluster(root) {
+  const pgDir = mkdtempSync(join(tmpdir(), "naba-pg-run-"))
+  const clusterEnv = throwawayClusterEnv(process.env, pgDir)
   let running = false
   const stop = () => {
     if (!running) return
@@ -159,25 +190,25 @@ async function main() {
   let stopCluster = null
   /** @type {import("node:child_process").ChildProcess | null} */
   let child = null
-  /** @type {NodeJS.Signals | null} */
+  /** @type {keyof typeof SIGNAL_EXIT_CODES | null} */
   let interrupted = null
   const cleanup = () => {
     stopCluster?.()
     stopCluster = null
   }
   process.on("exit", cleanup)
-  for (const signal of /** @type {NodeJS.Signals[]} */ ([
-    "SIGINT",
-    "SIGTERM",
-  ])) {
+  for (const signal of /** @type {(keyof typeof SIGNAL_EXIT_CODES)[]} */ (
+    Object.keys(SIGNAL_EXIT_CODES)
+  )) {
     process.on(signal, () => {
       interrupted ??= signal
       if (!child) {
         cleanup()
-        process.exit(signal === "SIGINT" ? 130 : 143)
+        process.exit(SIGNAL_EXIT_CODES[signal])
       }
-      // A terminal ^C reaches the command too; `kill <pid>` reaches only
-      // this process, so pass it on and stop the cluster once it exits.
+      // A terminal ^C or hangup may reach the command too; `kill <pid>`
+      // reaches only this process, so pass it on and stop the cluster once
+      // the command exits.
       child.kill(signal)
       setTimeout(() => child?.kill("SIGKILL"), CHILD_STOP_GRACE_MS).unref()
     })
@@ -250,7 +281,7 @@ async function main() {
   })
   child.on("exit", (code, signal) => {
     cleanup()
-    if (interrupted) process.exit(interrupted === "SIGINT" ? 130 : 143)
+    if (interrupted) process.exit(SIGNAL_EXIT_CODES[interrupted])
     process.exit(code ?? (signal ? 128 : 1))
   })
 }

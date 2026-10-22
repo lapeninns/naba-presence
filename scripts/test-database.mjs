@@ -58,9 +58,14 @@ function hostOf(url) {
   return url.hostname.replace(/^\[|\]$/g, "")
 }
 
-/** @param {URL} url */
-function portOf(url) {
-  return Number(url.port || 5432)
+/**
+ * The port a client connects to: one the URL leaves out comes from PGPORT,
+ * as postgres.js resolves it, and only then the default 5432.
+ * @param {URL} url
+ * @param {Record<string, string | undefined>} env
+ */
+function portOf(url, env) {
+  return Number(url.port || env.PGPORT || 5432)
 }
 
 /**
@@ -82,7 +87,7 @@ export function assertLocalDatabaseUrl(name, env = process.env) {
   }
   if (
     local &&
-    portOf(url) === SUPABASE_DEV_DB_PORT &&
+    portOf(url, env) === SUPABASE_DEV_DB_PORT &&
     env.NABA_ALLOW_DEV_DB !== "1"
   ) {
     throw new Error(
@@ -119,7 +124,7 @@ export function urlsMatchDisposableMarker(env) {
     } catch {
       return false
     }
-    return `${hostOf(url)}:${portOf(url)}` === marker
+    return `${hostOf(url)}:${portOf(url, env)}` === marker
   })
 }
 

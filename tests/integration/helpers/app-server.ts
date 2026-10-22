@@ -33,7 +33,8 @@ async function freePort(): Promise<number> {
   })
 }
 
-function serverEnv(
+/** Exported for tests/server/run-test-command-guard.test.ts. */
+export function serverEnv(
   port: number,
   overrides: Record<string, string>
 ): NodeJS.ProcessEnv {
@@ -43,6 +44,13 @@ function serverEnv(
     HOSTNAME: "127.0.0.1",
     PORT: String(port),
     DATABASE_URL: process.env.TEST_RUNTIME_DATABASE_URL!,
+    // Set here so the server never takes it from a .env file copied into
+    // .next/standalone, which Next loads for any variable left unset: the
+    // lease and session-pool connections (lib/server/db.ts) would reach
+    // whatever database that file names.
+    DATABASE_SESSION_URL:
+      process.env.DATABASE_SESSION_URL ??
+      process.env.TEST_RUNTIME_DATABASE_URL!,
     NEXTAUTH_URL: `http://127.0.0.1:${port}`,
     NEXTAUTH_SECRET: "route-harness-secret-value-32-characters!",
     TOKEN_ENCRYPTION_KEY:

@@ -1,14 +1,19 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
 import { createServer } from "node:net"
+import { constants, tmpdir } from "node:os"
+import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   GUARDED_DATABASE_URL_VARS,
+  SIGNAL_EXIT_CODES,
   assertLocalDatabaseUrl,
   assertLocalTestDatabases,
   chooseTestDatabase,
   parseExports,
+  throwawayClusterEnv,
 } from "../../scripts/run-test-command.mjs"
 import {
   DISPOSABLE_MARKER,
@@ -17,6 +22,7 @@ import {
   runtimeUrlFor,
   urlsMatchDisposableMarker,
 } from "../../scripts/test-database.mjs"
+import { serverEnv } from "../integration/helpers/app-server"
 
 const remote = "postgresql://user:pass@db.example.supabase.co:5432/postgres"
 const devDatabase = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
@@ -117,6 +123,28 @@ describe("run-test-command database guard", () => {
     }
   })
 
+  it("takes a URL's missing port from PGPORT, as postgres.js does", () => {
+    const portless = "postgresql://u:p@localhost/postgres"
+    expect(() =>
+      assertLocalDatabaseUrl("DIRECT_DATABASE_URL", {
+        DIRECT_DATABASE_URL: portless,
+        PGPORT: "54322",
+      })
+    ).toThrow(/54322/)
+    for (const name of GUARDED_DATABASE_URL_VARS) {
+      expect(() =>
+        assertLocalTestDatabases({ [name]: portless, PGPORT: "54322" })
+      ).toThrow(new RegExp(`${name} points at port 54322`))
+    }
+    // A port in the URL wins over PGPORT, as it does for the client.
+    expect(() =>
+      assertLocalDatabaseUrl("DIRECT_DATABASE_URL", {
+        DIRECT_DATABASE_URL: "postgresql://u:p@localhost:5432/postgres",
+        PGPORT: "54322",
+      })
+    ).not.toThrow()
+  })
+
   it("allows port 54322 only with NABA_ALLOW_DEV_DB=1", () => {
     for (const name of GUARDED_DATABASE_URL_VARS) {
       expect(() =>
@@ -207,6 +235,25 @@ describe("run-test-command database choice", () => {
     ).toBe(true)
   })
 
+  it("matches a URL that leaves the port out on the port PGPORT names", () => {
+    const portless = { DIRECT_DATABASE_URL: "postgresql://u:p@127.0.0.1/db" }
+    expect(
+      urlsMatchDisposableMarker({
+        ...portless,
+        PGPORT: "55001",
+        [DISPOSABLE_MARKER]: "127.0.0.1:55001",
+      })
+    ).toBe(true)
+    // The client would connect to 54322, not the marker's 5432.
+    expect(
+      urlsMatchDisposableMarker({
+        ...portless,
+        PGPORT: "54322",
+        [DISPOSABLE_MARKER]: "127.0.0.1:5432",
+      })
+    ).toBe(false)
+  })
+
   it("uses the configured URLs only with NABA_TEST_DB=existing", () => {
     expect(
       chooseTestDatabase({
@@ -259,6 +306,50 @@ describe("run-test-command database choice", () => {
       DIRECT_DATABASE_URL: cluster.admin,
       [DISPOSABLE_MARKER]: "127.0.0.1:55001",
     })
+  })
+})
+
+describe("run-test-command cluster lifecycle", () => {
+  it("gives each run its own SHARD, which names the docker container", () => {
+    const caller = {
+      PATH: "/usr/bin",
+      SHARD: "2",
+      GITHUB_ENV: "/runner/env",
+      RUNTIME_ROLE_NAME: "role",
+      RUNTIME_ROLE_PASSWORD: "secret",
+    }
+    const firstDir = join(tmpdir(), "naba-pg-run-aB3xYz")
+    const secondDir = join(tmpdir(), "naba-pg-run-Qr7kLm")
+    const first = throwawayClusterEnv(caller, firstDir)
+    const second = throwawayClusterEnv(caller, secondDir)
+
+    // postgres.mjs names the container naba-pg-<run id>-<job>-<SHARD>: a
+    // SHARD the caller exported, or none, would be shared by concurrent runs.
+    expect(first).toEqual({
+      PATH: "/usr/bin",
+      NABA_PG_DIR: firstDir,
+      SHARD: "naba-pg-run-aB3xYz",
+    })
+    expect(second).toEqual({
+      PATH: "/usr/bin",
+      NABA_PG_DIR: secondDir,
+      SHARD: "naba-pg-run-Qr7kLm",
+    })
+    expect(throwawayClusterEnv({}, firstDir).SHARD).toBe("naba-pg-run-aB3xYz")
+    expect(caller.SHARD).toBe("2")
+  })
+
+  it("exits 128 + the signal's number for each signal that ends a run", () => {
+    expect(SIGNAL_EXIT_CODES).toEqual({
+      SIGHUP: 129,
+      SIGINT: 130,
+      SIGTERM: 143,
+    })
+    for (const [signal, code] of Object.entries(SIGNAL_EXIT_CODES)) {
+      expect(code).toBe(
+        128 + constants.signals[signal as keyof typeof constants.signals]
+      )
+    }
   })
 })
 
@@ -340,5 +431,99 @@ describe("run-test-command entry point", () => {
     const result = wrapper({}, ["unit", process.execPath, ...printEnv])
     expect(result.code).toBe(1)
     expect(result.output).toContain("Unsupported test mode: unit")
+  })
+
+  it("passes a hangup on to the command and exits 129", async () => {
+    const local = "postgresql://u:p@127.0.0.1:55009/db"
+    // Reports its pid, then waits for SIGHUP; gives up on its own so a
+    // wrapper that dies without passing the signal on leaves nothing behind.
+    const command = [
+      "process.on('SIGHUP', () => process.stdout.write('COMMAND GOT SIGHUP\\n', () => process.exit(0)))",
+      "setTimeout(() => process.exit(3), 4000)",
+      "console.log('READY ' + process.pid)",
+    ].join(";")
+    const run = spawn(
+      process.execPath,
+      [
+        "scripts/run-test-command.mjs",
+        "integration",
+        process.execPath,
+        "-e",
+        command,
+      ],
+      {
+        env: {
+          NODE_ENV: "test",
+          PATH: process.env.PATH ?? "",
+          HOME: process.env.HOME ?? "",
+          NABA_TEST_DB: "existing",
+          DIRECT_DATABASE_URL: local,
+          TEST_RUNTIME_DATABASE_URL: local,
+          DATABASE_SESSION_URL: local,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    )
+    let output = ""
+    let commandPid: number | undefined
+    const ready = new Promise<"ready">((resolve) => {
+      run.stdout.on("data", (chunk) => {
+        output += chunk
+        const match = /READY (\d+)/.exec(output)
+        if (match) {
+          commandPid = Number(match[1])
+          resolve("ready")
+        }
+      })
+    })
+    run.stderr.on("data", (chunk) => (output += chunk))
+    const exited = once(run, "exit")
+    const closed = once(run, "close")
+    try {
+      expect(
+        await Promise.race([ready, exited.then(() => "exited")]),
+        output
+      ).toBe("ready")
+      // Only the wrapper is signalled, as `kill -HUP <pid>` would.
+      run.kill("SIGHUP")
+      const [code, signal] = await exited
+      expect({ code, signal }, output).toEqual({ code: 129, signal: null })
+      await closed
+      expect(output).toContain("COMMAND GOT SIGHUP")
+    } finally {
+      if (run.exitCode === null && run.signalCode === null) run.kill("SIGKILL")
+      if (commandPid) {
+        try {
+          process.kill(commandPid, "SIGKILL")
+        } catch {
+          // already gone
+        }
+      }
+    }
+  })
+})
+
+describe("integration app server environment", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("sets the session URL, so a .env in the standalone build cannot", () => {
+    const session =
+      "postgresql://naba_test_runtime:naba_test_runtime@127.0.0.1:55001/sessions"
+    vi.stubEnv("TEST_RUNTIME_DATABASE_URL", cluster.runtime)
+    vi.stubEnv("DATABASE_SESSION_URL", undefined)
+    expect(serverEnv(3100, {})).toMatchObject({
+      DATABASE_URL: cluster.runtime,
+      DATABASE_SESSION_URL: cluster.runtime,
+    })
+
+    vi.stubEnv("DATABASE_SESSION_URL", session)
+    expect(serverEnv(3100, {}).DATABASE_SESSION_URL).toBe(session)
+    // A suite's own override still wins.
+    expect(
+      serverEnv(3100, { DATABASE_SESSION_URL: cluster.admin })
+        .DATABASE_SESSION_URL
+    ).toBe(cluster.admin)
   })
 })
