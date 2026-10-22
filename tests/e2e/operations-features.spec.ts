@@ -197,7 +197,10 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       // this fixture: paused jobs are not overdue, and an overdue job is one
       // the server flags or that has never completed.
       const health = (await (
-        await page.request.get("/api/operations/health")
+        // This fixture's own server, not the config's baseURL: a relative URL
+        // would reach the shared journey server (or nothing, in an invocation
+        // that starts none).
+        await page.request.get(`${backend.server.baseUrl}/api/operations/health`)
       ).json()) as {
         schedulerHeartbeatStale: boolean
         schedulerTicks: Array<{
