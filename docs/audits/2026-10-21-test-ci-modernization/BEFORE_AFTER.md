@@ -20,10 +20,31 @@ below repeats the old gate on a quiet machine.
 | A/B before: old gate, quiet machine                     | `50df9739`     | old, serial                   | 3.2 / 11                  | **67.9 min**           | passed                                                                                                                                               |
 | Quiet run of the new gate                               | `4aa8ee73`     | concurrent                    | 5.1 / 8                   | 10.6 min               | failed: macOS dirhelper (daily 03:35) deleted node_modules files from the run's temp worktree mid-run; pre-existing gate hazard, fixed in `a0e91025` |
 | **A/B after: new gate, quiet machine**                  | **`a0e91025`** | **concurrent**                | **4.3 / 8**               | **14.7 min**           | **passed, every step**                                                                                                                               |
+| Exact head before the ownership fixes                   | `96371c6d`     | concurrent                    | 3.8 / 8                   | 14.7 min               | passed, every step                                                                                                                                   |
+| Supervisor's ownership fixes                            | `62ba62b0`     | concurrent                    | 7.5 / 13                  | 15.2 min               | passed, every step (unit 8,433, integration 1,568, e2e 593); older run directories were left in place                                                |
 
 **Controlled comparison (both on the quiet machine, 02:18-03:56): 67.9 min
 → 14.7 min, 4.6 times faster, with more checks and more real-boundary
 tests.**
+
+The two gates did not run the same tests: unit and component tests grew by
+307, integration by 156, the browser suite shrank from 752 to 593 with the
+width variants folded, and new checks were added. The 4.6 times is the
+delivery gate's wall clock, not an identical-test speed-up.
+
+Every later commit was gated again on its exact SHA; a receipt never
+carries over to a newer head. The final head's receipt is named in the PR.
+The 62ba62b0 run was not a controlled comparison (load median 7.5).
+
+The Mac gate runs PostgreSQL natively, so the Docker path that hosted CI
+uses was smoke-tested on its own against real Docker (29.8.0) at
+`de0a80b0`, touching only its own containers by ID. A normal start and stop
+used the captured 64-character ID, labelled the container, kept stdout to
+the export lines, and removed the container and its state. A container
+killed during startup kept its logs, which `start` printed to stderr before
+removing it by ID. The same kill under the `62ba62b0` script, which used
+`--rm`, lost them ("No such container"). The 71 containers present before
+were all still there afterwards, and none was added.
 
 | Step (quiet machine) | Before `50df9739`      | After `a0e91025`                     |
 | -------------------- | ---------------------- | ------------------------------------ |
@@ -61,7 +82,7 @@ the budget (`--cpus`) and shard count are flags.
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Test files (`tests/**`, static count)           | 831                                                                                                      | 836                                                                                                                |
 | Static test cases (`it`/`test` call sites)      | 7,689                                                                                                    | 8,052                                                                                                              |
-| Executed tests in the gate                      | 8,121 unit/component + 1,409 integration + 752 e2e                                                       | 8,427 unit/component + 1,568 integration + 593 e2e                                                                 |
+| Executed tests in the gate                      | 8,121 unit/component + 1,409 integration + 752 e2e                                                       | 8,427 unit/component + 1,568 integration + 593 e2e at `0372232f` (8,433 + 1,568 + 593 at `62ba62b0`)               |
 | Playwright tests                                | 752 (291 from 61 journeys tripled across widths)                                                         | 593 (each journey once, one layout check per width)                                                                |
 | Skipped tests in the gate                       | 1,413 collected-and-skipped integration tests in `pnpm test`, 5 conditional e2e skips                    | 1 (the gated live OpenAI test); skips now fail the receipt                                                         |
 | Known flaky or load-failing tests               | lease tests (advisory lock), deep-reconcile and jobs-runner timing, 1 e2e, several heavy component files | none in the final run; root causes fixed (owned clusters, latches, injected clocks, measured timeouts, CPU budget) |

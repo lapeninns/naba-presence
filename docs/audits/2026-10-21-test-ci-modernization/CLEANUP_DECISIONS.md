@@ -72,6 +72,21 @@ assertion; see BEFORE_AFTER.md for the final state.
 - Cross-tenant GET sweep, support-impersonation boundary tests, runner-hook
   tests (C7); two-person approval parking (C5); Google-write form tests
   (C6); RLS catalogue and route-auth surface (C2).
+- Docker-mode clusters are owned by the full container ID that
+  `docker run --cidfile` records, never by name. A run that loses a name
+  conflict cannot remove another run's container. A removal that fails
+  keeps the state, and the gate and the harness print the command that
+  retries it. Each gate run names its containers after its own run
+  directory.
+  - Containers no longer use `--rm`, so one that dies while starting keeps
+    its logs. A label lists any left behind by a killed run.
+  - Found by the Codex supervisor; tested against a stub Docker CLI and
+    smoke-tested against real Docker (BEFORE_AFTER.md).
+- Starting a gate no longer deletes older run directories by age: one may
+  be another gate still running or a failed run's evidence. Cleanup is
+  manual (docs/ci.md).
+- A step that waited for the CPU budget checks `--fail-fast` again before
+  it starts.
 
 ## Risks and their safeguards
 
@@ -81,4 +96,5 @@ assertion; see BEFORE_AFTER.md for the final state.
 | A test-only knob reaches production                                                                                 | Each knob only shortens a delay, is bounded, and is ignored on Vercel; unit tests prove the production defaults                                   |
 | Hosted CI's restructured workflow has not run on GitHub                                                             | Static validation (actionlint, zizmor) and the same script running locally; the first hosted or Mac-lane run should be watched                    |
 | `pnpm test:integration` now needs PostgreSQL 17 locally                                                             | `NABA_TEST_DB=existing` escape hatch, still refusing the dev database                                                                             |
+| Gate run directories accumulate, since nothing prunes them                                                          | Each run removes its own worktree and clusters; about 1.3 MB of logs per run stays for review and manual removal (docs/ci.md)                     |
 | Managers are granted any location id (`grantsFor`), so five routes answer 200 instead of 404 for a foreign location | Row-level security still hides the data; the sweep pins the five routes and fails when the product fix lands. Product follow-up, not changed here |

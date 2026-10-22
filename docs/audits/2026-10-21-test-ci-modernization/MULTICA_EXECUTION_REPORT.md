@@ -79,6 +79,56 @@ integrator owned `package.json`, the lockfile, `vitest.config.ts`,
   and found that the upgrade check compared only the last 262,144 characters
   of a 497,304-byte schema dump; the integrator confirmed it on a real
   cluster and fixed it with a regression test.
+- **The supervisor's second proposal** (a composed patch) found three gate
+  defects: Docker cleanup by container name could remove another run's
+  container, starting a gate deleted older run directories by age, and a
+  step that waited for CPU did not recheck `--fail-fast`. All three were
+  accepted and applied exactly (`abecb4d8`), with behavioural tests by the
+  integrator (`62ba62b0`). The supervisor's review of those tests found no
+  introduced defect and one untested pair: a failed start whose cleanup
+  also fails. It also noted that two earlier integrator claims (typecheck
+  exit 0, a 166-test run) were not exit-captured on the exact head; the
+  exact-SHA gate on `62ba62b0` supplied them.
+- **A third review workflow** (43 agents, two verifiers per finding and a
+  completeness critic) over `96371c6d..62ba62b0`: 18 findings, 9
+  confirmed, 6 disputed, 3 refuted. Fixed in `13bd2deb`, each new test shown
+  failing when its fix is undone:
+  - the start-plus-cleanup failure pair;
+  - container logs written to stdout, where `eval` would run them;
+  - `--rm` deleting a dead container's logs;
+  - a non-atomic state rewrite;
+  - failed stops that were discarded unreported;
+  - untested per-run container names;
+  - two stale passages in the docs.
+  - Not changed, only documented: a confined (snap) Docker CLI cannot
+    write the ID file in a private temp directory, and no environment the
+    repository runs in uses one.
+
+  The supervisor then judged the six disputed findings on their own and
+  found no new P1 or P2 regression.
+
+- **A fourth review workflow** (49 agents) over the fixes
+  (`62ba62b0..13bd2deb`): 22 findings, all low or nit; 13 confirmed, 7
+  disputed, 2 refuted. Fixed in `de0a80b0`, again each new test shown
+  failing when its fix is undone:
+  - one shared report for a failed stop, whose retry line repeats the stop
+    exactly;
+  - cleanup lines reach `verify.log` after an interrupt;
+  - a label to find containers a killed run left behind;
+  - a corrected comment on when Docker keeps the ID file;
+  - tests that pin no `--rm`, logs read by ID, and a reused name;
+  - the confined-CLI note naming the variable each entry point honours.
+- **A fifth review workflow** (32 agents) over `13bd2deb..de0a80b0`: 14
+  findings, none above low; 6 confirmed, 3 disputed, 5 refuted. Fixed in
+  `ddaaa4d9`, each new test shown failing when its fix is undone:
+  - the gate cleans up on SIGHUP (a closed terminal) as the harness does;
+  - the retry line names the Docker daemon the stop used;
+  - a relative `NABA_GATE_DIR` is resolved;
+  - a failed log copy cannot abort the remaining cleanup (untested: it
+    needs a failing disk).
+
+  The review rounds stopped there, with every finding below medium.
+
 - **Every package's claims were re-checked by the integrator** on the merged
   tree (typecheck, lint, the package's tests, the format ratchet) and finally
   by full gate runs (BEFORE_AFTER.md).
