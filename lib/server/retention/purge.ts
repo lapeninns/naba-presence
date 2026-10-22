@@ -303,8 +303,8 @@ export const AI_USAGE_RETENTION_MONTHS = 13
  *   before 0107) has only the calendar-month rule above.
  *
  * This is the one place the purge decides whether a period is closed.
- * tests/retention-cycle.test.ts holds the purge's ai_usage statement to this
- * guard.
+ * tests/integration/routes/retention-purge.test.ts proves the purge's
+ * ai_usage deletes against it ("deletes settled AI usage past 13 months").
  */
 export function aiUsageInClosedPeriod(sql: TransactionSql): Fragment {
   return sql`
