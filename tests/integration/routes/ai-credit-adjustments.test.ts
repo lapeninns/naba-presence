@@ -287,4 +287,42 @@ describeDatabase("operator AI credit adjustments", () => {
     `
     expect(after.override).toBeNull()
   })
+  // NP1-G03 / NP8-G10: the chart's per-day read, through the real route
+  // with two tenants spending in the same day.
+  it("returns only the caller's organisation in the daily spend", async () => {
+    const a = await tenant()
+    const b = await tenant()
+    const periodOf = async (organisationId: string) => {
+      const response = await call("GET", organisationId)
+      expect(response.status).toBe(200)
+      return ((await response.json()) as { credits: { periodId: string } })
+        .credits.periodId
+    }
+    await spend(a.organisationId, await periodOf(a.organisationId), 2)
+    await spend(b.organisationId, await periodOf(b.organisationId), 3)
+
+    const daily = async (cookie?: string) =>
+      fetch(`${server.baseUrl}/api/ai/credits/daily`, {
+        headers: cookie ? { cookie } : {},
+      })
+    const total = (body: { days: { credits: number }[] }) =>
+      body.days.reduce((sum, day) => sum + day.credits, 0)
+
+    const forA = await daily(a.cookie)
+    expect(forA.status, await forA.clone().text()).toBe(200)
+    const bodyA = (await forA.json()) as {
+      days: { date: string; credits: number }[]
+    }
+    // Spent just now: one day carries it, whichever UTC day that was.
+    expect(bodyA.days.filter((day) => day.credits > 0)).toEqual([
+      { date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), credits: 2 },
+    ])
+    expect(total(bodyA)).toBe(2)
+
+    const forB = await daily(b.cookie)
+    expect(forB.status).toBe(200)
+    expect(total(await forB.json())).toBe(3)
+
+    expect((await daily()).status).toBe(401)
+  })
 })
