@@ -35,6 +35,7 @@ import {
   childEnv,
   createRunDir,
   defaultCpuBudget,
+  gateClusterEnv,
   gateRunRoot,
   heavyStepWeights,
   mergePlaywrightSummaries,
@@ -506,6 +507,33 @@ describe("verify:release steps", () => {
       // Remove only this test's freshly owned fixture, never a shared root.
       rmSync(fixture, { recursive: true, force: true })
     }
+    // main() allocates its run directory only through createRunDir.
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toContain("const runDir = createRunDir(")
+    expect(source.match(/mkdtempSync\(/g)).toHaveLength(1)
+  })
+
+  it("gives each run's clusters their own directory and container name", () => {
+    const fixture = mkdtempSync(join(tmpdir(), "naba-gate-clusters-"))
+    try {
+      // Two gates of one commit at once, each with an integration-1 shard.
+      const [a, b] = [createRunDir(fixture, SHA), createRunDir(fixture, SHA)]
+      const envA = gateClusterEnv(a, "integration-1")
+      const envB = gateClusterEnv(b, "integration-1")
+      expect(envA.NABA_PG_DIR).toBe(join(a, "pg-integration-1"))
+      expect(envB.NABA_PG_DIR).toBe(join(b, "pg-integration-1"))
+      expect(envA.SHARD).not.toBe(envB.SHARD)
+      for (const env of [envA, envB]) {
+        expect(env.SHARD).toMatch(/^naba-verify-[0-9a-f]{12}-.+-integration-1$/)
+        // postgres.mjs puts SHARD into the Docker name as it is.
+        expect(env.SHARD).toMatch(/^[a-zA-Z0-9_.-]+$/)
+      }
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+    // startCluster uses it, so start and stop agree on both.
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toContain("const extraEnv = gateClusterEnv(runDir, name)")
   })
 
   it("compares whole schema dumps, not a tail of them", () => {

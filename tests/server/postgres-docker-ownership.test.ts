@@ -16,8 +16,11 @@ import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 // scripts/ci/postgres.mjs on its docker path, run for real against a stub
-// `docker` that keeps a registry of containers by name and by full ID, and
-// refuses a duplicate name the way Docker does (exit 125, no --cidfile).
+// `docker` that keeps a registry of containers by name and by full ID and
+// behaves as the Docker CLI does: a duplicate name exits 125 with no
+// --cidfile, `rm -f` of a container that is already gone exits 0, and
+// STUB_DOCKER_RUN_FAIL creates the container and writes the cidfile before
+// run fails (a host port taken in between).
 const script = fileURLToPath(
   new URL("../../scripts/ci/postgres.mjs", import.meta.url)
 )
@@ -45,20 +48,28 @@ case "$cmd" in
     echo "$id" > "$reg/names/$name"
     echo "$name" > "$reg/ids/$id"
     [ -n "$cid" ] && printf '%s' "$id" > "$cid"
+    if [ -n "$STUB_DOCKER_RUN_FAIL" ]; then
+      echo "Error response from daemon: Bind for 127.0.0.1 failed: port is already allocated" >&2
+      exit 125
+    fi
     echo "$id"
     ;;
   rm)
-    target=""; for arg in "$@"; do target=$arg; done
+    target=""; force=""
+    for arg in "$@"; do [ "$arg" = "-f" ] && force=1; target=$arg; done
     if [ -n "$STUB_DOCKER_RM_FAIL" ]; then echo "simulated failure" >&2; exit 1; fi
     if [ -e "$reg/ids/$target" ]; then
       name=$(cat "$reg/ids/$target"); rm -f "$reg/ids/$target" "$reg/names/$name"
     elif [ -e "$reg/names/$target" ]; then
       id=$(cat "$reg/names/$target"); rm -f "$reg/names/$target" "$reg/ids/$id"
     else
-      echo "Error: No such container: $target" >&2; exit 1
+      echo "Error response from daemon: No such container: $target" >&2
+      [ -n "$force" ] && exit 0
+      exit 1
     fi
     echo "$target"
     ;;
+  logs) echo "stub log of $1" ;;
   *) exit 0 ;;
 esac
 `
@@ -132,11 +143,17 @@ describe("postgres.mjs on docker: only the container this run created", () => {
     const owner = stateOf("a").container
 
     // A second run with the same name fails to start, and its cleanup must
-    // not reach the first run's container (it used to `docker rm` by name).
+    // not reach the first run's container (it used to `docker rm` by name):
+    // its only docker call is the refused run.
+    const before = calls().length
     const second = postgres("start", "b", "same")
     expect(second.status).not.toBe(0)
     expect(second.stderr).toContain("already in use")
-    expect(calls().filter((call) => call.startsWith("rm "))).toEqual([])
+    expect(
+      calls()
+        .slice(before)
+        .map((call) => call.split(" ")[0])
+    ).toEqual(["run"])
     expect(live()).toEqual(["naba-pg-local-same"])
     expect(stateOf("a").container).toBe(owner)
   })
@@ -156,6 +173,66 @@ describe("postgres.mjs on docker: only the container this run created", () => {
     expect(existsSync(join(root, "c"))).toBe(false)
   })
 
+  it("reports a failed start, not its failed cleanup, and keeps the ID", () => {
+    // Docker created the container and wrote the cidfile, then the run
+    // failed; removing it fails too.
+    const failed = postgres("start", "d", "pair", {
+      STUB_DOCKER_RUN_FAIL: "1",
+      STUB_DOCKER_RM_FAIL: "1",
+    })
+    expect(failed.status).toBe(1)
+    // The container's log goes to stderr: stdout is for `eval` export lines.
+    expect(failed.stdout).toBe("")
+    expect(failed.stderr).toContain("stub log of")
+    expect(failed.stderr).toContain("Docker cleanup failed")
+    const reported = failed.stderr.slice(
+      failed.stderr.lastIndexOf("postgres.mjs start: ")
+    )
+    expect(reported).toContain("port is already allocated")
+    expect(reported).not.toContain("Docker cleanup failed")
+
+    // state.json never learnt the ID; stop recovers it from the cidfile.
+    expect(stateOf("d")).toEqual({ mode: "docker", port: expect.any(Number) })
+    const id = readFileSync(join(root, "d", "container.id"), "utf8")
+    expect(id).toMatch(/^[a-f0-9]{64}$/)
+    expect(live()).toEqual(["naba-pg-local-pair"])
+
+    const retried = postgres("stop", "d", "pair")
+    expect(retried.status, retried.stderr).toBe(0)
+    expect(calls()).toContain(`rm -f -v ${id}`)
+    expect(live()).toEqual([])
+    expect(existsSync(join(root, "d"))).toBe(false)
+  })
+
+  it("stops cleanly when its container is already gone", () => {
+    expect(postgres("start", "e", "gone").status).toBe(0)
+    const { container = "" } = stateOf("e")
+    expect(container).toMatch(/^[a-f0-9]{64}$/)
+    // Removed outside this run (a daemon restart, a manual `docker rm`).
+    rmSync(join(registry, "names", "naba-pg-local-gone"))
+    rmSync(join(registry, "ids", container))
+
+    const stopped = postgres("stop", "e", "gone")
+    expect(stopped.status, stopped.stderr).toBe(0)
+    expect(calls()).toContain(`rm -f -v ${container}`)
+    expect(existsSync(join(root, "e"))).toBe(false)
+  })
+
+  it("keeps the state when docker run recorded no ID", () => {
+    // A CLI killed between creating the cidfile and writing the ID.
+    mkdirSync(join(root, "empty"))
+    writeFileSync(
+      join(root, "empty", "state.json"),
+      JSON.stringify({ mode: "docker", port: 1 })
+    )
+    writeFileSync(join(root, "empty", "container.id"), "")
+    const stopped = postgres("stop", "empty", "empty")
+    expect(stopped.status).toBe(1)
+    expect(stopped.stderr).toContain("recorded no container ID")
+    expect(calls()).toEqual([])
+    expect(existsSync(join(root, "empty", "state.json"))).toBe(true)
+  })
+
   it("refuses to remove a container it only knows by name", () => {
     // State written by the old script held the container name.
     mkdirSync(join(registry, "names"), { recursive: true })
@@ -172,7 +249,8 @@ describe("postgres.mjs on docker: only the container this run created", () => {
     const stopped = postgres("stop", "legacy", "legacy")
     expect(stopped.status).not.toBe(0)
     expect(stopped.stderr).toContain("legacy name or invalid container ID")
-    expect(calls().filter((call) => call.startsWith("rm "))).toEqual([])
+    expect(calls()).toEqual([])
+    expect(live()).toEqual(["naba-pg-local-legacy"])
     expect(existsSync(join(root, "legacy", "state.json"))).toBe(true)
   })
 })

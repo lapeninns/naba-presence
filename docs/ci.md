@@ -794,6 +794,17 @@ only to keep it between runs or inspect it. On macOS it uses Homebrew
 `postgresql@17` (`NABA_PG_BIN` overrides the bin folder);
 `NABA_PG_MODE=docker` uses `postgres:17-alpine`. It picks a free port and
 never one in 54320-54329, so it never collides with the Supabase stack.
+Start one cluster per `NABA_PG_DIR` at a time.
+
+On the docker path `start` records the container's full ID (`docker run
+--cidfile` into `NABA_PG_DIR`, so the Docker CLI must be able to write there;
+a confined CLI such as the Ubuntu `docker` snap needs it under `$HOME`), and
+`stop` removes only that ID, never a container found by name. When the
+removal fails, `stop` exits 1 and keeps the state; run it again once Docker
+answers. The gate and `pnpm test:integration`/`test:e2e` print that retry
+command. State without a full ID (written by an older script, or a CLI killed
+before it wrote one) is refused: find the container with `docker ps -a`,
+remove it, then delete the directory.
 
 **Postgres logs:** when `start` fails, it prints the log itself: `pg.log`
 under `NABA_PG_DIR` in native mode, and `docker logs` in docker mode. In the

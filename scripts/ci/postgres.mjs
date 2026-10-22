@@ -2,7 +2,9 @@
 // Throwaway PostgreSQL 17 for CI jobs and local reproduction. No dependencies.
 //
 //   node scripts/ci/postgres.mjs start   start a fresh cluster on a free port
-//   node scripts/ci/postgres.mjs stop    stop it and delete its data (idempotent)
+//   node scripts/ci/postgres.mjs stop    stop it and delete its data (idempotent;
+//                                        a failed Docker removal keeps the state
+//                                        and exits 1, so stop can be retried)
 //   node scripts/ci/postgres.mjs ports   pick a free PLAYWRIGHT_PORT
 //
 // Modes (NABA_PG_MODE): `docker` (default on Linux) runs postgres:17-alpine;
@@ -17,7 +19,9 @@
 // naba.disposable_cluster = on: scripts/run-test-command.mjs checks both
 // before it lets the suites wipe it (scripts/test-database.mjs).
 // State lives in NABA_PG_DIR (default: $RUNNER_TEMP or the OS temp dir, plus
-// a per-job name), which is where pg.log is written on the native path.
+// a per-job name), which is where pg.log is written on the native path. Start
+// one cluster per NABA_PG_DIR at a time. On the docker path the Docker CLI
+// writes the container ID file there, so it must be able to reach that path.
 
 import { execFileSync, spawnSync } from "node:child_process"
 import {
@@ -25,6 +29,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -117,14 +122,17 @@ async function start() {
 }
 
 function startDocker(state) {
-  // Persist the mode before creation, but never acquire cleanup authority by name.
-  // Docker writes this fresh cidfile only for a container it actually creates;
-  // stop can recover it even if this process is interrupted before run returns.
+  // Persist the mode before creation, but never acquire cleanup authority by
+  // name. The Docker CLI creates the cidfile empty before it creates the
+  // container, writes the full ID once the container exists, and deletes the
+  // file when run fails; only a CLI killed mid-run leaves it empty. stop
+  // recovers the ID from it even if this process is interrupted meanwhile.
   writeState(state)
+  // No --rm: a container that exits during startup keeps its logs for
+  // printLog, and stop removes it by ID either way.
   run("docker", [
     "run",
     "-d",
-    "--rm",
     "--cidfile",
     containerIdFile,
     "--name",
@@ -251,6 +259,13 @@ function dockerContainerId(state) {
     (existsSync(containerIdFile)
       ? readFileSync(containerIdFile, "utf8").trim()
       : null)
+  if (id === "") {
+    throw new Error(
+      `docker run recorded no container ID in ${containerIdFile} (still ` +
+        `running, or killed first); check docker ps -a --filter ` +
+        `name=${instance.toLowerCase()} and leave ${stateDir} until resolved`
+    )
+  }
   if (id !== null && !/^[a-f0-9]{64}$/.test(id)) {
     throw new Error(
       "refusing Docker cleanup with a legacy name or invalid container ID; " +
@@ -268,8 +283,10 @@ function stop(known) {
       const removal = spawnSync("docker", ["rm", "-f", "-v", container], {
         stdio: "ignore",
       })
-      // Any uncertain removal must retain the ID for a later retry. A nonzero
-      // exit also covers an already absent container; do not guess from stderr.
+      // `docker rm -f` exits 0 when the container is already gone (Docker
+      // CLI 20.10 and later), so a nonzero exit means the removal itself is
+      // uncertain (daemon unreachable, removal in progress): keep the ID for
+      // a retry rather than guess from stderr.
       if (removal.error || removal.status !== 0) {
         const detail = removal.error?.message ?? `exit ${removal.status}`
         throw new Error(
@@ -372,9 +389,9 @@ function printLog(state) {
       return
     }
     if (container) {
-      spawnSync("docker", ["logs", container], {
-        stdio: ["ignore", "inherit", "inherit"],
-      })
+      // Both streams to stderr: stdout carries only the export lines that
+      // `eval "$(node scripts/ci/postgres.mjs start)"` runs.
+      spawnSync("docker", ["logs", container], { stdio: ["ignore", 2, 2] })
     }
   }
 }
@@ -388,7 +405,10 @@ function readState() {
 }
 
 function writeState(state) {
-  writeFileSync(stateFile, JSON.stringify(state))
+  // Atomic, so a rewrite cut short never loses the state written before it.
+  const temporary = `${stateFile}.tmp`
+  writeFileSync(temporary, JSON.stringify(state))
+  renameSync(temporary, stateFile)
 }
 
 function run(file, args, options = {}) {

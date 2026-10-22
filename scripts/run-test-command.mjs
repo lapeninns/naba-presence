@@ -80,9 +80,9 @@ export function throwawayClusterEnv(env, pgDir) {
     NABA_PG_DIR: pgDir,
     // postgres.mjs names the docker container from GITHUB_RUN_ID, GITHUB_JOB
     // and SHARD, the same for every local run ("naba-pg-local"). A second
-    // run's `docker run --name` would then fail, and its failed-start cleanup
-    // would remove the first run's container. The directory is unique, so
-    // its name replaces any SHARD the caller exported.
+    // run's `docker run --name` would then fail on the name (its cleanup
+    // removes only the container ID it created, never the first run's). The
+    // directory is unique, so its name replaces any SHARD the caller exported.
     SHARD: basename(pgDir),
   }
   // Print the exports rather than append them to a CI job's environment.
@@ -106,11 +106,20 @@ function startThrowawayCluster(root) {
   const stop = () => {
     if (!running) return
     running = false
-    spawnSync("node", ["scripts/ci/postgres.mjs", "stop"], {
+    const stopped = spawnSync("node", ["scripts/ci/postgres.mjs", "stop"], {
       cwd: root,
       env: clusterEnv,
-      stdio: "ignore",
+      stdio: ["ignore", "ignore", "pipe"],
+      encoding: "utf8",
     })
+    // postgres.mjs keeps the state when it cannot be sure the cluster is
+    // gone; say so, since nothing else retries it.
+    if (stopped.status !== 0) {
+      log(
+        `PostgreSQL cleanup failed: ${stopped.stderr?.trim() || stopped.error?.message}; ` +
+          `retry: NABA_PG_DIR=${pgDir} node scripts/ci/postgres.mjs stop`
+      )
+    }
   }
   const run = (/** @type {string[]} */ args, extraEnv = {}) => {
     const result = spawnSync("node", args, {

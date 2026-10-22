@@ -171,6 +171,20 @@ export function createRunDir(runRoot, sha) {
   return mkdtempSync(join(runRoot, `naba-verify-${sha.slice(0, 12)}-`))
 }
 
+/**
+ * One gate cluster's postgres.mjs environment: its own directory in the run,
+ * and a SHARD (which names the Docker container) unique to the run, so two
+ * gates running at once never share a container name.
+ * @param {string} runDir
+ * @param {string} name the step or shard
+ */
+export function gateClusterEnv(runDir, name) {
+  return {
+    NABA_PG_DIR: join(runDir, `pg-${name}`),
+    SHARD: `${basename(runDir)}-${name}`,
+  }
+}
+
 /** Integration shards when neither the flag nor the variable sets them. */
 export const DEFAULT_INTEGRATION_SHARDS = 4
 
@@ -804,7 +818,7 @@ async function main() {
   // its own directory. They start one at a time: postgres.mjs picks a free
   // port before the server binds it, so two concurrent starts could pick
   // the same one.
-  /** @type {{ dir: string, shard: string }[]} */
+  /** @type {ReturnType<typeof gateClusterEnv>[]} */
   const clusters = []
   let clusterQueue = Promise.resolve()
 
@@ -815,13 +829,10 @@ async function main() {
    */
   function startCluster(sink, name) {
     const started = clusterQueue.then(async () => {
-      const dir = join(runDir, `pg-${name}`)
-      // Namespace Docker names by the unique mkdtemp run, not only the step.
-      const shard = `${basename(runDir)}-${name}`
-      const extraEnv = { NABA_PG_DIR: dir, SHARD: shard }
+      const extraEnv = gateClusterEnv(runDir, name)
       // Tracked before it starts, so an interrupt mid-start still stops it
       // (postgres.mjs stop is idempotent).
-      clusters.push({ dir, shard })
+      clusters.push(extraEnv)
       const result = await exec(
         sink,
         "node",
@@ -848,12 +859,22 @@ async function main() {
   }
 
   function stopClusters() {
-    for (const { dir, shard } of clusters.splice(0)) {
-      spawnSync("node", ["scripts/ci/postgres.mjs", "stop"], {
+    for (const clusterEnv of clusters.splice(0)) {
+      const stopped = spawnSync("node", ["scripts/ci/postgres.mjs", "stop"], {
         cwd: worktreeAdded ? worktree : root,
-        env: { ...env, NABA_PG_DIR: dir, SHARD: shard },
-        stdio: "ignore",
+        env: { ...env, ...clusterEnv },
+        stdio: ["ignore", "ignore", "pipe"],
+        encoding: "utf8",
       })
+      // postgres.mjs keeps the state when it cannot be sure the cluster is
+      // gone; say so, since nothing else retries it. The verdict stands.
+      if (stopped.status !== 0) {
+        const reason = stopped.stderr?.trim() || stopped.error?.message
+        say(
+          `PostgreSQL cleanup failed for ${clusterEnv.SHARD}: ${reason}\n` +
+            `  retry: NABA_PG_DIR=${clusterEnv.NABA_PG_DIR} node scripts/ci/postgres.mjs stop\n`
+        )
+      }
     }
   }
 
