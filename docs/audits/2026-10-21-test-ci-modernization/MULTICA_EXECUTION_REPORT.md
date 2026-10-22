@@ -51,17 +51,17 @@ pushed, and delivered `git format-patch` series plus a handoff. The
 integrator owned `package.json`, the lockfile, `vitest.config.ts`,
 `playwright.config.ts`, `scripts/release/**`, `.github/**` and `docs/ci.md`.
 
-| Package                                                                 | Issue   | Account | Ran         | Integrated                                                                 |
-| ----------------------------------------------------------------------- | ------- | ------- | ----------- | -------------------------------------------------------------------------- |
-| C1 test-database isolation, deterministic integration                   | AMA-211 | claude1 | 23:25-00:09 | 8 patches + teardown wiring, docs, ledger                                  |
-| C2 RLS catalogue (P0), route gaps, text-only migration test replacement | AMA-212 | claude3 | from 00:54  | see BEFORE_AFTER.md                                                        |
-| C3 format ratchet, pre-push hook, docs path checks                      | AMA-213 | claude7 | 23:09-23:22 | 4 patches + wiring; hook fixed to keep the secret scan on docs-only pushes |
-| C4 Playwright consolidation and determinism                             | AMA-214 | claude6 | from 23:41  | see BEFORE_AFTER.md                                                        |
-| C5 unit cleanup, route scanner, unit gaps                               | AMA-215 | claude2 | 22:53-23:54 | 12 patches + formatting, ledger                                            |
-| C6 component cleanup, Google-write form tests                           | AMA-216 | claude5 | 23:41-00:43 | 13 patches                                                                 |
-| C7 runner hooks, gitleaks hygiene, two P1 security suites               | AMA-217 | claude3 | 23:58-00:46 | 5 patches + Plan event allowlist, docs                                     |
-| C8 post-promotion probe, rollback                                       | AMA-218 | claude4 | 23:14-23:27 | 2 patches + docs                                                           |
-| C8b release fixes from the independent review                           | AMA-228 | claude4 | 00:11-00:29 | 3 patches + docs                                                           |
+| Package                                                                 | Issue   | Account | Ran         | Integrated                                                                                                                        |
+| ----------------------------------------------------------------------- | ------- | ------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| C1 test-database isolation, deterministic integration                   | AMA-211 | claude1 | 23:25-00:09 | 8 patches + teardown wiring, docs, ledger                                                                                         |
+| C2 RLS catalogue (P0), route gaps, text-only migration test replacement | AMA-212 | claude3 | 00:54-01:23 | 10 patches; replay test moved to C1's uncached pauses; ledger repointed                                                           |
+| C3 format ratchet, pre-push hook, docs path checks                      | AMA-213 | claude7 | 23:09-23:22 | 4 patches + wiring; hook fixed to keep the secret scan on docs-only pushes                                                        |
+| C4 Playwright consolidation and determinism                             | AMA-214 | claude6 | 23:41-01:30 | 10 patches + Playwright suite split and the two-suite gate step; one test's wait fixed by the integrator after the gate caught it |
+| C5 unit cleanup, route scanner, unit gaps                               | AMA-215 | claude2 | 22:53-23:54 | 12 patches + formatting, ledger                                                                                                   |
+| C6 component cleanup, Google-write form tests                           | AMA-216 | claude5 | 23:41-00:43 | 13 patches                                                                                                                        |
+| C7 runner hooks, gitleaks hygiene, two P1 security suites               | AMA-217 | claude3 | 23:58-00:46 | 5 patches + Plan event allowlist, docs                                                                                            |
+| C8 post-promotion probe, rollback                                       | AMA-218 | claude4 | 23:14-23:27 | 2 patches + docs                                                                                                                  |
+| C8b release fixes from the independent review                           | AMA-228 | claude4 | 00:11-00:29 | 3 patches + docs                                                                                                                  |
 
 ## Independent verification
 
@@ -69,6 +69,12 @@ integrator owned `package.json`, the lockfile, `vitest.config.ts`,
   each finding attacked by a separate verifier) over the integrated branch:
   7 defects confirmed, 4 refuted. The integrator fixed the gate and docs-only
   rule defects; the release ones went back to claude4 as C8b.
+- **A second review workflow** (13 agents, same structure) over the next
+  wave (harness, deletions, gate scheduler, runner hooks): 9 defects
+  confirmed, none refuted, one high (the runner-hook test would fail on the
+  Mac lane). Fixed by four agents in isolated worktrees on disjoint files,
+  each with a test shown failing first, then cherry-picked and re-checked by
+  the integrator.
 - **The Codex overnight supervisor** independently reviewed C8 and the gate
   and found that the upgrade check compared only the last 262,144 characters
   of a 497,304-byte schema dump; the integrator confirmed it on a real
