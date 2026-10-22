@@ -634,12 +634,17 @@ test.describe("listings", () => {
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
+    const requests = trackRequests(page)
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
     // Google's half of the listing fans out across several of its APIs, paced
     // by the per-connection rate limiter, so the fields it owns arrive after
-    // the NabaPresence copy the editor opens on.
+    // the NabaPresence copy the editor opens on. The store code says the
+    // profile's half is in; the publish below carries the hash of everything
+    // Google answered, so wait until every one of those reads has finished
+    // (what networkidle used to give this test) before editing.
     const storeCode = page.getByRole("textbox", { name: "Store code" })
     await expect(storeCode).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
+    await requests.idle()
     await storeCode.fill("RIVERSIDE-2")
     await page.getByRole("button", { name: "Review changes" }).click()
     // Hash-pinned: the PATCH carries `expectedGoogleHash` from the page's own
