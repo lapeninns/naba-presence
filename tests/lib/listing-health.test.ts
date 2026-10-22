@@ -278,6 +278,32 @@ describe("listingHealth", () => {
       summariseListingHealth(["attention", "unpublished", "unpublished"])
     ).toBe("1 needs attention · 2 have changes to publish")
   })
+
+  it("never says a board with unchecked or partly checked listings is in sync", () => {
+    const captions = {
+      unchecked: summariseListingHealth(["unchecked"]),
+      partial: summariseListingHealth(["partially_checked"]),
+      mixed: summariseListingHealth([
+        "healthy",
+        "unchecked",
+        "partially_checked",
+      ]),
+      alongside: summariseListingHealth([
+        "attention",
+        "healthy",
+        "partially_checked",
+      ]),
+    }
+    expect(captions).toEqual({
+      unchecked: "1 needs checking",
+      partial: "1 needs checking",
+      mixed: "2 need checking",
+      alongside: "1 needs attention · 1 needs checking",
+    })
+    for (const caption of Object.values(captions)) {
+      expect(caption).not.toMatch(/in sync/i)
+    }
+  })
 })
 
 describe("listing access loss", () => {
