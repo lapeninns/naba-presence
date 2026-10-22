@@ -22,6 +22,7 @@ import {
   childEnv,
   defaultCpuBudget,
   heavyStepWeights,
+  mergePlaywrightSummaries,
   mergeVitestSummaries,
   normalizeSchemaDump,
   outputCollector,
@@ -387,6 +388,29 @@ describe("verify:release steps", () => {
     expect(summarizeOutput("")).toEqual([])
   })
 
+  it("adds up the two Playwright runs' counts", () => {
+    expect(
+      mergePlaywrightSummaries([
+        ["461 passed (12.0m)"],
+        ["130 passed (8.1m)", "2 failed", "1 flaky"],
+      ])
+    ).toEqual(["591 passed", "2 failed", "1 flaky"])
+    // A skip in either run reaches the receipt, which refuses it.
+    const merged = mergePlaywrightSummaries([
+      ["461 passed (12.0m)"],
+      ["131 passed (8.1m)", "1 skipped"],
+    ])
+    expect(merged).toEqual(["592 passed", "1 skipped"])
+    expect(
+      gateProblems(
+        allPassed().map((step) =>
+          step.id === "e2e" ? { ...step, summary: merged } : step
+        )
+      )
+    ).toEqual(['step "e2e" skipped tests (1 skipped)'])
+    expect(mergePlaywrightSummaries([[], []])).toEqual([])
+  })
+
   it("adds up the shards' vitest counts, in vitest's own wording", () => {
     expect(
       mergeVitestSummaries([
@@ -494,10 +518,12 @@ describe("verify:release receipt", () => {
     expect(buildLocalReceipt(receiptInput(withSummary("integration"))).ok).toBe(
       false
     )
-    // e2e may skip (fixture-dependent journeys) but must run something.
+    // e2e must run something and skip nothing: Playwright reports skips on
+    // a line of their own.
+    expect(gateProblems(withSummary("e2e", ["570 passed (19.0m)"]))).toEqual([])
     expect(
       gateProblems(withSummary("e2e", ["570 passed (19.0m)", "2 skipped"]))
-    ).toEqual([])
+    ).toEqual(['step "e2e" skipped tests (2 skipped)'])
     expect(gateProblems(withSummary("e2e", ["0 passed (1.0s)"]))).toEqual([
       'step "e2e" passed with 0 tests run',
     ])

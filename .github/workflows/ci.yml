@@ -211,7 +211,7 @@ jobs:
             ${{ runner.temp }}/receipts/
             ${{ runner.temp }}/naba-verify-*/verify.log
             ${{ runner.temp }}/naba-verify-*/logs/
-            ${{ runner.temp }}/naba-verify-*/src/test-results/
+            ${{ runner.temp }}/naba-verify-*/src/test-results*/
           retention-days: 7
           if-no-files-found: ignore
 

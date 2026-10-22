@@ -179,7 +179,7 @@ export function defaultCpuBudget(cores) {
 export function heavyStepWeights(budget, integrationShards) {
   return {
     build: 4,
-    e2e: 2,
+    e2e: 4,
     integration: integrationShards + 2,
     unit: Math.min(8, Math.max(2, Math.floor(budget / 2))),
     typecheck: 2,
@@ -404,6 +404,39 @@ export function summarizeOutput(output) {
 }
 
 const VITEST_COUNT_KINDS = ["failed", "passed", "skipped", "todo"]
+const PLAYWRIGHT_COUNT_KINDS = [
+  "passed",
+  "failed",
+  "flaky",
+  "skipped",
+  "did not run",
+]
+
+/**
+ * One Playwright summary from the summaries of several runs (the gate runs
+ * the shared and the isolated suites side by side): each `N <kind>` line
+ * added up across runs, so testCountProblem judges the whole suite.
+ * @param {string[][]} summaries
+ * @returns {string[]}
+ */
+export function mergePlaywrightSummaries(summaries) {
+  const merged = []
+  for (const kind of PLAYWRIGHT_COUNT_KINDS) {
+    let total = 0
+    let seen = false
+    for (const summary of summaries) {
+      for (const line of summary) {
+        const match = new RegExp(`^(\\d+) ${kind}\\b`).exec(line)
+        if (match) {
+          total += Number(match[1])
+          seen = true
+        }
+      }
+    }
+    if (seen) merged.push(`${total} ${kind}`)
+  }
+  return merged
+}
 
 /**
  * One vitest summary from the summaries of several shards: `Test Files` and
@@ -954,11 +987,65 @@ async function main() {
         if (!port) throw new Error("could not choose an e2e port")
         sink.write(`Port ${E2E_PORT} is busy; e2e uses ${port}\n`)
       }
-      const result = await must(sink, "pnpm", ["test:e2e", "--forbid-only"], {
-        dbEnv,
-        extraEnv: { PLAYWRIGHT_PORT: String(port) },
-      })
-      return { output: result.output, note: `port ${port}` }
+      // Two Playwright runs on the same database, side by side (one after
+      // the other with --serial): the shared suite against the :3100 server
+      // and its journey tenants, and the isolated backend specs, which start
+      // their own servers, stubs and tenants (playwright.config.ts
+      // PLAYWRIGHT_SUITE).
+      const suites = [
+        {
+          name: "shared",
+          env: {
+            PLAYWRIGHT_SUITE: "shared",
+            PLAYWRIGHT_PORT: String(port),
+            PLAYWRIGHT_OUTPUT_DIR: "test-results-shared",
+            E2E_JOURNEY_STATE_PATH:
+              "test-results-shared/e2e-journey-state.json",
+          },
+        },
+        {
+          name: "isolated",
+          env: {
+            PLAYWRIGHT_SUITE: "isolated",
+            PLAYWRIGHT_PORT: String(port + 10),
+            PLAYWRIGHT_OUTPUT_DIR: "test-results-isolated",
+          },
+        },
+      ]
+      const runSuite = async ({ name, env: suiteEnv }) => {
+        const suiteSink = {
+          write: (text) => sink.write(text.replace(/^(?=.)/gm, `[${name}] `)),
+        }
+        const result = await exec(
+          suiteSink,
+          "pnpm",
+          ["test:e2e", "--forbid-only"],
+          {
+            dbEnv,
+            extraEnv: suiteEnv,
+          }
+        )
+        return {
+          name,
+          code: result.code,
+          summary: summarizeOutput(result.output),
+        }
+      }
+      const runs = options.serial
+        ? [await runSuite(suites[0]), await runSuite(suites[1])]
+        : await Promise.all(suites.map(runSuite))
+      const summary = mergePlaywrightSummaries(runs.map((run) => run.summary))
+      const note = `shared and isolated suites, port ${port}`
+      const failed = runs.filter((run) => run.code !== 0)
+      if (failed.length > 0) {
+        const error = new Error(
+          `e2e suite(s) ${failed.map((run) => run.name).join(", ")} failed`
+        )
+        error.exitCode = failed[0].code
+        error.summary = summary
+        throw error
+      }
+      return { summary, note }
     },
     "workflow-lint": async (sink) => {
       const missing = ["actionlint", "zizmor"].filter(

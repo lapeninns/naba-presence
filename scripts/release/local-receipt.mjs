@@ -177,7 +177,9 @@ export const BUNDLE_BUDGET_ARGS = Object.freeze([
  */
 export const TEST_COUNT_STEPS = {
   integration: { pattern: /^Tests (\d+) passed\b/, noSkips: true },
-  e2e: { pattern: /^(\d+) passed\b/, noSkips: false },
+  // No skips: the business-mode journeys fail instead of skipping since
+  // C4, so a skipped browser test now means something did not run.
+  e2e: { pattern: /^(\d+) passed\b/, noSkips: true },
 }
 
 /**
@@ -198,9 +200,11 @@ export function testCountProblem(id, summary) {
     .find((match) => match !== null)
   if (!counted) return `step "${id}" passed but reported no test count`
   if (Number(counted[1]) === 0) return `step "${id}" passed with 0 tests run`
-  if (rule.noSkips && /\bskipped\b/.test(counted.input)) {
-    return `step "${id}" skipped tests (${counted.input})`
-  }
+  // Vitest puts skips on its `Tests` line, Playwright on a line of its own.
+  const skipped = rule.noSkips
+    ? lines.find((line) => /\b[1-9]\d* skipped\b/.test(line))
+    : undefined
+  if (skipped) return `step "${id}" skipped tests (${skipped})`
   return null
 }
 
