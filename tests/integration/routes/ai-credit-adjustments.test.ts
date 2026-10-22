@@ -299,7 +299,23 @@ describeDatabase("operator AI credit adjustments", () => {
         .credits.periodId
     }
     await spend(a.organisationId, await periodOf(a.organisationId), 2)
-    await spend(b.organisationId, await periodOf(b.organisationId), 3)
+    // B's spend is legacy: no period id, counted by the pilot month it
+    // names. The month alone would match A's month too, so only the
+    // organisation keeps it out of A's chart.
+    await periodOf(b.organisationId)
+    for (let i = 0; i < 3; i += 1) {
+      await admin`
+        insert into ai_usage (
+          organisation_id, kind, status, credits, model, request_id,
+          period_start
+        )
+        values (
+          ${b.organisationId}, 'draft', 'settled', 1, 'test-model',
+          ${`legacy-${crypto.randomUUID()}`},
+          (date_trunc('month', now() at time zone 'utc'))::date
+        )
+      `
+    }
 
     const daily = async (cookie?: string) =>
       fetch(`${server.baseUrl}/api/ai/credits/daily`, {
