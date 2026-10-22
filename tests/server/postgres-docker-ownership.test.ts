@@ -130,6 +130,10 @@ describe("postgres.mjs on docker: only the container this run created", () => {
     const { container } = stateOf("a")
     expect(container).toMatch(/^[a-f0-9]{64}$/)
     expect(live()).toEqual(["naba-pg-local-same"])
+    // No --rm: a container that dies while starting keeps its logs.
+    const runArgs = calls().find((call) => call.startsWith("run "))
+    expect(runArgs?.split(" ")).not.toContain("--rm")
+    expect(runArgs).toContain("--label naba.throwaway-pg=1")
 
     const stopped = postgres("stop", "a", "same")
     expect(stopped.status, stopped.stderr).toBe(0)
@@ -181,9 +185,12 @@ describe("postgres.mjs on docker: only the container this run created", () => {
       STUB_DOCKER_RM_FAIL: "1",
     })
     expect(failed.status).toBe(1)
-    // The container's log goes to stderr: stdout is for `eval` export lines.
+    const id = readFileSync(join(root, "d", "container.id"), "utf8")
+    expect(id).toMatch(/^[a-f0-9]{64}$/)
+    // The container's log, read by its ID, goes to stderr: stdout is for the
+    // export lines `eval` runs.
     expect(failed.stdout).toBe("")
-    expect(failed.stderr).toContain("stub log of")
+    expect(failed.stderr).toContain(`stub log of ${id}`)
     expect(failed.stderr).toContain("Docker cleanup failed")
     const reported = failed.stderr.slice(
       failed.stderr.lastIndexOf("postgres.mjs start: ")
@@ -193,8 +200,6 @@ describe("postgres.mjs on docker: only the container this run created", () => {
 
     // state.json never learnt the ID; stop recovers it from the cidfile.
     expect(stateOf("d")).toEqual({ mode: "docker", port: expect.any(Number) })
-    const id = readFileSync(join(root, "d", "container.id"), "utf8")
-    expect(id).toMatch(/^[a-f0-9]{64}$/)
     expect(live()).toEqual(["naba-pg-local-pair"])
 
     const retried = postgres("stop", "d", "pair")
@@ -208,13 +213,20 @@ describe("postgres.mjs on docker: only the container this run created", () => {
     expect(postgres("start", "e", "gone").status).toBe(0)
     const { container = "" } = stateOf("e")
     expect(container).toMatch(/^[a-f0-9]{64}$/)
-    // Removed outside this run (a daemon restart, a manual `docker rm`).
+    // Removed outside this run (a manual `docker rm -f`), and its name since
+    // taken by another run's container.
     rmSync(join(registry, "names", "naba-pg-local-gone"))
     rmSync(join(registry, "ids", container))
+    expect(postgres("start", "f", "gone").status).toBe(0)
+    const other = stateOf("f").container
+    expect(other).not.toBe(container)
 
+    const before = calls().length
     const stopped = postgres("stop", "e", "gone")
     expect(stopped.status, stopped.stderr).toBe(0)
-    expect(calls()).toContain(`rm -f -v ${container}`)
+    expect(calls().slice(before)).toEqual([`rm -f -v ${container}`])
+    expect(live()).toEqual(["naba-pg-local-gone"])
+    expect(stateOf("f").container).toBe(other)
     expect(existsSync(join(root, "e"))).toBe(false)
   })
 

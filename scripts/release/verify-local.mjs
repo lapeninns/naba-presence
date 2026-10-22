@@ -66,11 +66,14 @@ import {
   readdirSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from "node:fs"
 import { createServer } from "node:net"
 import { availableParallelism, homedir, tmpdir } from "node:os"
 import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+
+import { stopFailureReport } from "../ci/pg-stop-report.mjs"
 
 import {
   BUNDLE_BUDGET_ARGS,
@@ -733,10 +736,13 @@ async function main() {
   const weights = heavyStepWeights(cpuBudget, options.integrationShards)
   let worktreeAdded = false
 
+  let interrupted = false
   /** Progress lines: the terminal and verify.log. */
   const say = (text) => {
     process.stdout.write(text)
-    log.write(text)
+    // After a signal the process exits before a queued write would land.
+    if (interrupted && typeof log.fd === "number") writeSync(log.fd, text)
+    else log.write(text)
   }
 
   /**
@@ -866,15 +872,13 @@ async function main() {
         stdio: ["ignore", "ignore", "pipe"],
         encoding: "utf8",
       })
-      // postgres.mjs keeps the state when it cannot be sure the cluster is
-      // gone; say so, since nothing else retries it. The verdict stands.
-      if (stopped.status !== 0) {
-        const reason = stopped.stderr?.trim() || stopped.error?.message
-        say(
-          `PostgreSQL cleanup failed for ${clusterEnv.SHARD}: ${reason}\n` +
-            `  retry: NABA_PG_DIR=${clusterEnv.NABA_PG_DIR} node scripts/ci/postgres.mjs stop\n`
-        )
-      }
+      // The verdict stands; the report only says what is left to remove.
+      const report = stopFailureReport(stopped, {
+        pgDir: clusterEnv.NABA_PG_DIR,
+        shard: clusterEnv.SHARD,
+        script: join(root, "scripts/ci/postgres.mjs"),
+      })
+      if (report) say(report)
     }
   }
 
@@ -1205,6 +1209,7 @@ async function main() {
   }
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.once(signal, () => {
+      interrupted = true
       cleanup()
       console.error(`verify:release interrupted (${signal}); log: ${logPath}`)
       process.exit(130)

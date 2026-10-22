@@ -1473,10 +1473,11 @@ Do not "finish" the rename on any of these:
   out; the `naba` prefix is brand-neutral.
 - Database roles `naba_app_runtime`, `naba_app`, and `naba_test_runtime`, the
   `app.*` GUC namespace, and any future `naba:*` advisory-lock keys.
-- The CI database `nabareview_test`, created in each throwaway cluster
-  `scripts/ci/postgres.mjs` starts: one per database step and integration
-  shard of the release gate (`scripts/release/verify-local.mjs`, run locally
-  and by ci.yml's Gate job).
+- The CI database `nabareview_test`, created in every throwaway cluster
+  `scripts/ci/postgres.mjs` starts: for `pnpm test:integration`, `test:e2e`
+  and the other suites run through `scripts/run-test-command.mjs`, and for
+  the release gate's database steps and integration shards
+  (`scripts/release/verify-local.mjs`, run locally and by ci.yml's Gate job).
 - Historical plan and evidence documents under
   `docs/archive/2026-07-frontend-rebuild/`, which keep pre-rename spellings
   except where they specify a not-yet-implemented metric name or user-facing

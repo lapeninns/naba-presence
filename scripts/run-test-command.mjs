@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import nextEnv from "@next/env"
 import postgres from "postgres"
 
+import { stopFailureReport } from "./ci/pg-stop-report.mjs"
 import {
   DISPOSABLE_MARKER,
   DISPOSABLE_SETTING,
@@ -112,14 +113,12 @@ function startThrowawayCluster(root) {
       stdio: ["ignore", "ignore", "pipe"],
       encoding: "utf8",
     })
-    // postgres.mjs keeps the state when it cannot be sure the cluster is
-    // gone; say so, since nothing else retries it.
-    if (stopped.status !== 0) {
-      log(
-        `PostgreSQL cleanup failed: ${stopped.stderr?.trim() || stopped.error?.message}; ` +
-          `retry: NABA_PG_DIR=${pgDir} node scripts/ci/postgres.mjs stop`
-      )
-    }
+    const report = stopFailureReport(stopped, {
+      pgDir,
+      shard: basename(pgDir),
+      script: join(root, "scripts/ci/postgres.mjs"),
+    })
+    if (report) log(report.trimEnd())
   }
   const run = (/** @type {string[]} */ args, extraEnv = {}) => {
     const result = spawnSync("node", args, {

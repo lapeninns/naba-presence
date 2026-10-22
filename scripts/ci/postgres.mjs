@@ -124,17 +124,22 @@ async function start() {
 function startDocker(state) {
   // Persist the mode before creation, but never acquire cleanup authority by
   // name. The Docker CLI creates the cidfile empty before it creates the
-  // container, writes the full ID once the container exists, and deletes the
-  // file when run fails; only a CLI killed mid-run leaves it empty. stop
-  // recovers the ID from it even if this process is interrupted meanwhile.
+  // container and writes the full ID once the container exists. It keeps the
+  // ID when starting the container then fails, and deletes the file only
+  // when creation fails; only a CLI killed between the two leaves it empty.
+  // stop recovers the ID from it even if this process is interrupted.
   writeState(state)
   // No --rm: a container that exits during startup keeps its logs for
-  // printLog, and stop removes it by ID either way.
+  // printLog, and stop removes it by ID. Nothing else does: a run killed
+  // before stop (kill -9, a reboot) leaves the container and its data volume,
+  // which the label lets docs/ci.md list for manual removal.
   run("docker", [
     "run",
     "-d",
     "--cidfile",
     containerIdFile,
+    "--label",
+    "naba.throwaway-pg=1",
     "--name",
     instance.toLowerCase(),
     "-p",
@@ -263,7 +268,8 @@ function dockerContainerId(state) {
     throw new Error(
       `docker run recorded no container ID in ${containerIdFile} (still ` +
         `running, or killed first); check docker ps -a --filter ` +
-        `name=${instance.toLowerCase()} and leave ${stateDir} until resolved`
+        `label=naba.throwaway-pg=1 --filter name=${instance.toLowerCase()} ` +
+        `and leave ${stateDir} until resolved`
     )
   }
   if (id !== null && !/^[a-f0-9]{64}$/.test(id)) {

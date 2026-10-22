@@ -522,18 +522,20 @@ describe("verify:release steps", () => {
       const envB = gateClusterEnv(b, "integration-1")
       expect(envA.NABA_PG_DIR).toBe(join(a, "pg-integration-1"))
       expect(envB.NABA_PG_DIR).toBe(join(b, "pg-integration-1"))
-      expect(envA.SHARD).not.toBe(envB.SHARD)
+      // postgres.mjs lowercases SHARD into the Docker name.
+      expect(envA.SHARD.toLowerCase()).not.toBe(envB.SHARD.toLowerCase())
       for (const env of [envA, envB]) {
         expect(env.SHARD).toMatch(/^naba-verify-[0-9a-f]{12}-.+-integration-1$/)
-        // postgres.mjs puts SHARD into the Docker name as it is.
         expect(env.SHARD).toMatch(/^[a-zA-Z0-9_.-]+$/)
       }
     } finally {
       rmSync(fixture, { recursive: true, force: true })
     }
-    // startCluster uses it, so start and stop agree on both.
+    // startCluster builds it and stopClusters stops with the same object.
     const source = readRepoText("scripts/release/verify-local.mjs")
     expect(source).toContain("const extraEnv = gateClusterEnv(runDir, name)")
+    expect(source).toContain("clusters.push(extraEnv)")
+    expect(source).toContain("env: { ...env, ...clusterEnv }")
   })
 
   it("compares whole schema dumps, not a tail of them", () => {

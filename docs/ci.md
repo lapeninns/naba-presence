@@ -797,14 +797,24 @@ never one in 54320-54329, so it never collides with the Supabase stack.
 Start one cluster per `NABA_PG_DIR` at a time.
 
 On the docker path `start` records the container's full ID (`docker run
---cidfile` into `NABA_PG_DIR`, so the Docker CLI must be able to write there;
-a confined CLI such as the Ubuntu `docker` snap needs it under `$HOME`), and
-`stop` removes only that ID, never a container found by name. When the
-removal fails, `stop` exits 1 and keeps the state; run it again once Docker
-answers. The gate and `pnpm test:integration`/`test:e2e` print that retry
-command. State without a full ID (written by an older script, or a CLI killed
-before it wrote one) is refused: find the container with `docker ps -a`,
-remove it, then delete the directory.
+--cidfile` into its state directory) and labels the container
+`naba.throwaway-pg=1`; `stop` removes only that ID (`docker rm -f -v`), never
+a container found by name or label. When the removal fails, `stop` exits 1
+and keeps the state; run it again once Docker answers. The gate and
+`pnpm test:integration`/`test:e2e` print that retry command. State without a
+full ID (written by an older script, or a CLI killed before it wrote one) is
+refused. A run killed before it could stop (kill -9, a closed terminal, a
+reboot) leaves its container and data volume behind: list them with
+`docker ps -a --filter label=naba.throwaway-pg=1` and remove each one you
+know is finished with `docker rm -f -v <id>`, then delete its state
+directory.
+
+The Docker CLI writes the ID file itself, so it must be able to write the
+state directory. A confined CLI such as the Ubuntu `docker` snap cannot see
+`/tmp`: put the directory in a non-hidden folder under `$HOME` with
+`NABA_PG_DIR` for a cluster started by hand, `TMPDIR` for
+`pnpm test:integration`/`test:e2e` (they make their own directory there), or
+`NABA_GATE_DIR` for the gate.
 
 **Postgres logs:** when `start` fails, it prints the log itself: `pg.log`
 under `NABA_PG_DIR` in native mode, and `docker logs` in docker mode. In the
