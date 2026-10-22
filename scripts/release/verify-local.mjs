@@ -192,6 +192,12 @@ export function heavyStepWeights(budget, integrationShards) {
  * served strictly in priority order: when the first does not fit, later ones
  * wait too, so a stream of small steps cannot hold back the build. A step
  * bigger than the whole budget runs alone.
+ *
+ * Shares are handed out in one microtask after the acquires and releases of
+ * the current turn, not inside each call: the steps that become ready
+ * together when the install passes (or the build, for integration and e2e)
+ * are then all waiting before any is served, so the build goes first even
+ * when the budget was idle.
  */
 export class CpuBudget {
   /** @param {number} capacity */
@@ -199,6 +205,7 @@ export class CpuBudget {
     this.capacity = capacity
     this.used = 0
     this.order = 0
+    this.scheduled = false
     /** @type {{ weight: number, priority: number, order: number, grant: () => void }[]} */
     this.waiting = []
   }
@@ -222,10 +229,20 @@ export class CpuBudget {
             if (released) return
             released = true
             this.used -= weight
-            this.pump()
+            this.schedulePump()
           })
         },
       })
+      this.schedulePump()
+    })
+  }
+
+  /** Queues one pump for the end of this turn, however often it is asked. */
+  schedulePump() {
+    if (this.scheduled) return
+    this.scheduled = true
+    queueMicrotask(() => {
+      this.scheduled = false
       this.pump()
     })
   }
@@ -239,6 +256,48 @@ export class CpuBudget {
       next.grant()
     }
   }
+}
+
+/**
+ * The run's --fail-fast state, shared by every step.
+ * @typedef {{ failFast: boolean, stop: boolean }} FailFastRun
+ */
+
+/**
+ * Waits for a step's CPU share. A step can wait there long after it checked
+ * whether the run was stopped, so it checks again once served: when
+ * --fail-fast stopped the run meanwhile, it gives the share straight back and
+ * resolves to null, and the step does not start.
+ * @param {FailFastRun} run
+ * @param {() => Promise<() => void>} acquire
+ * @returns {Promise<(() => void) | null>}
+ */
+export async function acquireUnlessStopped(run, acquire) {
+  const release = await acquire()
+  if (run.stop) {
+    release()
+    return null
+  }
+  return release
+}
+
+/**
+ * Gives a finished step's CPU share back. Under --fail-fast a step that did
+ * not pass stops the run first, so the share it frees cannot start a step
+ * that was waiting for it.
+ * @param {FailFastRun} run
+ * @param {{ status: string }} result
+ * @param {() => void} release
+ */
+export function releaseAfter(run, result, release) {
+  if (
+    run.failFast &&
+    result.status !== "passed" &&
+    result.status !== "skipped"
+  ) {
+    run.stop = true
+  }
+  release()
 }
 
 /**
@@ -1101,7 +1160,19 @@ async function main() {
   const results = new Map()
   /** @type {Map<string, Promise<import("./local-receipt.mjs").StepResult>>} */
   const running = new Map()
-  let stop = false
+  /** @type {FailFastRun} */
+  const run = { failFast: options.failFast, stop: false }
+
+  /**
+   * @param {string} id
+   * @returns {import("./local-receipt.mjs").StepResult}
+   */
+  const stoppedByFailFast = (id) => ({
+    id,
+    status: "not-run",
+    durationMs: 0,
+    note: "stopped by --fail-fast",
+  })
 
   /** @param {typeof GATE_STEPS[number]} step */
   async function runStep(step) {
@@ -1114,14 +1185,7 @@ async function main() {
         note: "skipped by --skip",
       }
     }
-    if (stop) {
-      return {
-        id: step.id,
-        status: "not-run",
-        durationMs: 0,
-        note: "stopped by --fail-fast",
-      }
-    }
+    if (run.stop) return stoppedByFailFast(step.id)
     const missing = step.needs.filter(
       (need) => results.get(need)?.status !== "passed"
     )
@@ -1137,7 +1201,10 @@ async function main() {
     const release =
       options.serial || priority === -1
         ? () => {}
-        : await budget.acquire(weights[step.id], priority)
+        : await acquireUnlessStopped(run, () =>
+            budget.acquire(weights[step.id], priority)
+          )
+    if (!release) return stoppedByFailFast(step.id)
     say(`=== ${step.id}: started (${step.title})\n`)
     const sink = stepLog(step.id)
     const started = performance.now()
@@ -1163,7 +1230,7 @@ async function main() {
         note: String(error.message).slice(0, 300),
       }
     }
-    release()
+    releaseAfter(run, result, release)
     await sink.close()
     say(
       `=== ${step.id}: ${result.status} in ${(result.durationMs / 1000).toFixed(1)}s${result.note ? ` (${result.note})` : ""}\n`
@@ -1174,13 +1241,6 @@ async function main() {
       say(
         `--- last ${Math.min(lines.length, FAILED_TAIL_LINES)} lines of ${sink.path}\n${lines.slice(-FAILED_TAIL_LINES).join("\n")}\n---\n`
       )
-    }
-    if (
-      options.failFast &&
-      result.status !== "passed" &&
-      result.status !== "skipped"
-    ) {
-      stop = true
     }
     return result
   }

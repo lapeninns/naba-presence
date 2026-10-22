@@ -19,6 +19,7 @@ import {
   DEFAULT_INTEGRATION_SHARDS,
   HEAVY_STEP_PRIORITY,
   SECRET_SCAN_ARGS,
+  acquireUnlessStopped,
   childEnv,
   defaultCpuBudget,
   heavyStepWeights,
@@ -28,6 +29,7 @@ import {
   outputCollector,
   parseArgs,
   parseExports,
+  releaseAfter,
   summarizeOutput,
 } from "../../scripts/release/verify-local.mjs"
 import { readRepoText } from "../helpers/repo-text"
@@ -316,6 +318,98 @@ describe("verify:release steps", () => {
     expect(big.used).toBe(8)
     releaseBig()
     expect(big.used).toBe(0)
+  })
+
+  it("serves steps that become ready in the same turn in priority order, build first", async () => {
+    // When frozen-install passes, typecheck, lint, unit and build all ask
+    // for CPU in one turn, in receipt order, while nothing holds the budget.
+    const settle = () => new Promise((done) => setTimeout(done, 0))
+    const budget = new CpuBudget(6)
+    const priority = (id: string) => HEAVY_STEP_PRIORITY.indexOf(id)
+    const started: string[] = []
+    const releases = new Map<string, () => void>()
+    const take = (id: string, weight: number) =>
+      budget.acquire(weight, priority(id)).then((release) => {
+        started.push(id)
+        releases.set(id, release)
+        return release
+      })
+    const lint = take("lint", 2)
+    const typecheck = take("typecheck", 2)
+    const build = take("build", 4)
+    await settle()
+    // Build first; typecheck fits beside it; lint waits for a share.
+    expect(started).toEqual(["build", "typecheck"])
+    expect(budget.used).toBe(6)
+    await Promise.all([build, typecheck])
+    releases.get("build")!()
+    await lint
+    expect(started).toEqual(["build", "typecheck", "lint"])
+    releases.get("typecheck")!()
+    releases.get("lint")!()
+    expect(budget.used).toBe(0)
+  })
+
+  it("stops steps still waiting for CPU when --fail-fast stops the run", async () => {
+    const settle = () => new Promise((done) => setTimeout(done, 0))
+    const budget = new CpuBudget(4)
+    const run = { failFast: true, stop: false }
+    // The build holds the whole budget; e2e waits for it.
+    const releaseBuild = await acquireUnlessStopped(run, () =>
+      budget.acquire(4, 0)
+    )
+    expect(releaseBuild).toBeTypeOf("function")
+    const e2e = acquireUnlessStopped(run, () => budget.acquire(4, 1))
+    await settle()
+    expect(budget.used).toBe(4)
+    // The build fails: the run stops before its share can start e2e.
+    releaseAfter(run, { status: "failed" }, releaseBuild!)
+    expect(run.stop).toBe(true)
+    expect(await e2e).toBeNull()
+    expect(budget.used).toBe(0)
+    // A stopped run does not start a step that asks afterwards either.
+    expect(
+      await acquireUnlessStopped(run, () => budget.acquire(2, 5))
+    ).toBeNull()
+    expect(budget.used).toBe(0)
+
+    // Passing or skipped steps, or a failure without --fail-fast, hand the
+    // share on to the waiting step.
+    for (const [failFast, status] of [
+      [true, "passed"],
+      [true, "skipped"],
+      [false, "failed"],
+      [false, "not-run"],
+    ] as const) {
+      const go = { failFast, stop: false }
+      const releaseFirst = await acquireUnlessStopped(go, () =>
+        budget.acquire(4, 0)
+      )
+      const second = acquireUnlessStopped(go, () => budget.acquire(4, 1))
+      releaseAfter(go, { status }, releaseFirst!)
+      expect(go.stop, `${failFast} ${status}`).toBe(false)
+      const releaseSecond = await second
+      expect(releaseSecond, `${failFast} ${status}`).toBeTypeOf("function")
+      expect(budget.used).toBe(4)
+      releaseSecond!()
+      expect(budget.used).toBe(0)
+    }
+    // The flag is already set when the share is freed, whatever frees it
+    // next; a step that did not run stops the run too.
+    for (const status of ["failed", "not-run"]) {
+      const stopping = { failFast: true, stop: false }
+      const stopWhenReleased: boolean[] = []
+      releaseAfter(stopping, { status }, () =>
+        stopWhenReleased.push(stopping.stop)
+      )
+      expect(stopWhenReleased, status).toEqual([true])
+    }
+
+    // runStep goes through both, and nothing else sets the stop flag.
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toContain("await acquireUnlessStopped(run, () =>")
+    expect(source).toContain("releaseAfter(run, result, release)")
+    expect(source.match(/\.stop = true/g)).toHaveLength(1)
   })
 
   it("parses the CPU budget", () => {
