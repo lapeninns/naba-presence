@@ -209,68 +209,68 @@ test.describe(`Approval notifications journey at ${JOURNEY_WIDTH}px`, () => {
       info,
       JOURNEY_WIDTH
     )
-      expect(
-        (await page.context().cookies()).find(
-          (cookie) => cookie.name === "np_client"
-        )?.value
-      ).toBe(f.clientB.id)
-      for (const destination of [
-        {
-          label: "Approval requested",
-          review: f.approval,
-          queue: "approval",
-          filter: "unread",
-        },
-        {
-          label: "Reply sent back",
-          review: f.sentBack,
-          queue: "needs_reply",
-          filter: "open",
-        },
-      ]) {
-        if (destination.filter === "open") {
-          await page.getByRole("tab", { name: "Open", exact: true }).click()
-          await expect(page).toHaveURL(
-            `${backend.server.baseUrl}/notifications?filter=open`
-          )
-          await assertUnreadRows()
-        }
-        const href =
-          destination.queue === "approval"
-            ? `/inbox?queue=approval&selected=${destination.review.reviewId}`
-            : `/inbox?selected=${destination.review.reviewId}`
-        await list
-          .getByRole("link", {
-            name: `Open review for ${destination.label}`,
-            exact: true,
-          })
-          .click()
-        await expect(page).toHaveURL(`${backend.server.baseUrl}${href}`)
-        const detail = page.getByRole("region", {
-          name: "Selected review",
-          exact: true,
-        })
-        await expect(detail).toBeVisible()
-        await expect(
-          detail.getByText(destination.review.text, { exact: true })
-        ).toBeVisible()
-        // selected= must keep the notification's review accessible instead
-        // of injecting the shell's remembered, different client as a filter.
-        expect(new URL(page.url()).searchParams.has("clientId")).toBe(false)
-        await expect(
-          page.locator(
-            `[data-slot="queue-tab"][data-queue="${destination.queue}"]`
-          )
-        ).toHaveAttribute("aria-current", "true")
-        await page.goBack()
+    expect(
+      (await page.context().cookies()).find(
+        (cookie) => cookie.name === "np_client"
+      )?.value
+    ).toBe(f.clientB.id)
+    for (const destination of [
+      {
+        label: "Approval requested",
+        review: f.approval,
+        queue: "approval",
+        filter: "unread",
+      },
+      {
+        label: "Reply sent back",
+        review: f.sentBack,
+        queue: "needs_reply",
+        filter: "open",
+      },
+    ]) {
+      if (destination.filter === "open") {
+        await page.getByRole("tab", { name: "Open", exact: true }).click()
         await expect(page).toHaveURL(
-          `${backend.server.baseUrl}/notifications?filter=${destination.filter}`
+          `${backend.server.baseUrl}/notifications?filter=open`
         )
         await assertUnreadRows()
-        expect(await f.notificationState()).toEqual(before)
       }
-    })
+      const href =
+        destination.queue === "approval"
+          ? `/inbox?queue=approval&selected=${destination.review.reviewId}`
+          : `/inbox?selected=${destination.review.reviewId}`
+      await list
+        .getByRole("link", {
+          name: `Open review for ${destination.label}`,
+          exact: true,
+        })
+        .click()
+      await expect(page).toHaveURL(`${backend.server.baseUrl}${href}`)
+      const detail = page.getByRole("region", {
+        name: "Selected review",
+        exact: true,
+      })
+      await expect(detail).toBeVisible()
+      await expect(
+        detail.getByText(destination.review.text, { exact: true })
+      ).toBeVisible()
+      // selected= must keep the notification's review accessible instead
+      // of injecting the shell's remembered, different client as a filter.
+      expect(new URL(page.url()).searchParams.has("clientId")).toBe(false)
+      await expect(
+        page.locator(
+          `[data-slot="queue-tab"][data-queue="${destination.queue}"]`
+        )
+      ).toHaveAttribute("aria-current", "true")
+      await page.goBack()
+      await expect(page).toHaveURL(
+        `${backend.server.baseUrl}/notifications?filter=${destination.filter}`
+      )
+      await assertUnreadRows()
+      expect(await f.notificationState()).toEqual(before)
+    }
   })
+})
 
 // What width changes here is the list itself: its rows, buttons and the
 // screenshot, checked above for overflow and axe. Opening the reviews is

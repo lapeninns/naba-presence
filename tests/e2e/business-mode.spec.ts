@@ -113,7 +113,9 @@ for (const step of [
   })
 }
 
-test("the client pages redirect a business to Listings and Settings", async ({ page }) => {
+test("the client pages redirect a business to Listings and Settings", async ({
+  page,
+}) => {
   expect(await isBusinessTenant(page)).toBe(true)
   for (const [from, to] of [
     ["/clients", "/listings"],
@@ -128,7 +130,9 @@ test("the client pages redirect a business to Listings and Settings", async ({ p
   }
 })
 
-test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async ({ page }) => {
+test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async ({
+  page,
+}) => {
   expect(await isBusinessTenant(page)).toBe(true)
   // The desk sidebar (from 1180px): its More disclosure is open on /team.
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -146,7 +150,9 @@ test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async
   await expect(page.getByRole("button", { name: /^Client:/ })).toHaveCount(0)
 })
 
-test("a phone's tabs have no Clients, and More holds Team and Settings", async ({ page }) => {
+test("a phone's tabs have no Clients, and More holds Team and Settings", async ({
+  page,
+}) => {
   expect(await isBusinessTenant(page)).toBe(true)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/reports")

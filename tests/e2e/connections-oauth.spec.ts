@@ -4,21 +4,33 @@ import { expect, type Page, test } from "@playwright/test"
 import { transitionsSettled } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
-async function applyCookie(page: Page, baseURL: string | undefined, cookie: string) {
+async function applyCookie(
+  page: Page,
+  baseURL: string | undefined,
+  cookie: string
+) {
   const [name, value] = cookie.split("=", 2)
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
 test.describe("connections OAuth return", () => {
-  test("a successful return toasts and clears the query", async ({ baseURL, page }) => {
+  test("a successful return toasts and clears the query", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/settings/connections?google=connected")
-    await expect(page.getByText("Google Business Profile connected")).toBeVisible()
+    await expect(
+      page.getByText("Google Business Profile connected")
+    ).toBeVisible()
     await expect(page).toHaveURL(/\/settings\/connections$/)
   })
 
-  test("a failed return shows a mapped error and a Try again action without leaking the code", async ({ baseURL, page }) => {
+  test("a failed return shows a mapped error and a Try again action without leaking the code", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/settings/connections?google=error&status=502")
@@ -34,14 +46,20 @@ test.describe("connections OAuth return", () => {
   //
   // The account picker moved to the setup flow, where choosing accounts
   // happens against a named client, so this asserts there.
-  test("the primary org's accounts list resolves its own account name", async ({ baseURL, page }) => {
+  test("the primary org's accounts list resolves its own account name", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto(`/setup?client=${state.clientId}&step=account`)
     await expect(page.getByText("Sprint 5 Stub account")).toBeVisible()
   })
 
-  test("axe passes with the disconnect confirmation dialog open", async ({ baseURL, page }) => {
+  test("axe passes with the disconnect confirmation dialog open", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/settings/connections")
@@ -64,12 +82,17 @@ test.describe("connections OAuth return", () => {
     expect(wcag.violations).toEqual([])
   })
 
-  test("on a phone the app bar takes over Connect another account once the header button has scrolled away", async ({ baseURL, page }) => {
+  test("on a phone the app bar takes over Connect another account once the header button has scrolled away", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await page.setViewportSize({ width: 390, height: 844 })
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/settings/connections")
-    const header = page.getByRole("main").getByRole("button", { name: "Connect another account" })
+    const header = page
+      .getByRole("main")
+      .getByRole("button", { name: "Connect another account" })
     const barAction = page
       .locator('header[data-slot="app-bar"]')
       .getByRole("button", { name: "Connect another account" })
@@ -79,7 +102,9 @@ test.describe("connections OAuth return", () => {
 
     // Scroll until the header button is under the app bar.
     await header.evaluate((element) => {
-      const top = document.querySelector('[data-slot="app-bar"]')?.getBoundingClientRect().height ?? 0
+      const top =
+        document.querySelector('[data-slot="app-bar"]')?.getBoundingClientRect()
+          .height ?? 0
       window.scrollBy(0, element.getBoundingClientRect().bottom - top + 8)
     })
     await expect(barAction).toBeVisible()

@@ -7,7 +7,10 @@ import {
   seedGoogleConnection,
   seedLinkedReview,
 } from "../integration/helpers/tenant"
-import { GOOGLE_READS_TIMEOUT, profileLoadedFromGoogle } from "./helpers/settled"
+import {
+  GOOGLE_READS_TIMEOUT,
+  profileLoadedFromGoogle,
+} from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // The critical journeys on a phone held in the hand: the `touch-390` project
@@ -443,7 +446,8 @@ async function drag(page: Page, from: Locator, dx: number, dy: number) {
     // One frame between moves, as a finger's samples arrive: wait for the
     // page's next frame rather than a fixed 16 ms.
     await page.evaluate(
-      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     )
   }
   await cdp.send("Input.dispatchTouchEvent", {

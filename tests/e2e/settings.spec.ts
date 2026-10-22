@@ -7,7 +7,12 @@ import { seedTeamTenant } from "./helpers/team-tenant"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
-const STRUCTURE_RULES = ["landmark-no-duplicate-main", "landmark-main-is-top-level", "heading-order", "page-has-heading-one"]
+const STRUCTURE_RULES = [
+  "landmark-no-duplicate-main",
+  "landmark-main-is-top-level",
+  "heading-order",
+  "page-has-heading-one",
+]
 // Team left Settings for its own destination, and Listing is gone: it
 // administered a location from a page nowhere near it, and that now lives in
 // the location's own Access section. Compliance and Operations are gone too —
@@ -18,24 +23,40 @@ const AREAS = [
   { path: "/settings/connections", heading: "Google connections" },
 ] as const
 
-async function applyCookie(page: Page, baseURL: string | undefined, cookie: string) {
+async function applyCookie(
+  page: Page,
+  baseURL: string | undefined,
+  cookie: string
+) {
   const [name, value] = cookie.split("=", 2)
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
 test.describe("settings", () => {
-  test("each area is a sibling route with its own level-1 heading and a shared sub-nav", async ({ baseURL, page }) => {
+  test("each area is a sibling route with its own level-1 heading and a shared sub-nav", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     for (const area of AREAS) {
       await page.goto(area.path)
-      await expect(page).toHaveURL(new RegExp(`${area.path.replace("/", "\\/")}$`))
-      await expect(page.getByRole("heading", { name: area.heading, level: 1 })).toBeVisible()
-      await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible()
+      await expect(page).toHaveURL(
+        new RegExp(`${area.path.replace("/", "\\/")}$`)
+      )
+      await expect(
+        page.getByRole("heading", { name: area.heading, level: 1 })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("navigation", { name: "Settings sections" })
+      ).toBeVisible()
     }
   })
 
-  test("/connections redirects under settings and forwards the query string", async ({ baseURL, page }) => {
+  test("/connections redirects under settings and forwards the query string", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/connections?google=connected")
@@ -44,7 +65,10 @@ test.describe("settings", () => {
 
   for (const theme of ["light", "dark"] as const) {
     for (const area of AREAS) {
-      test(`${area.heading} loads clean (${theme})`, async ({ baseURL, page }) => {
+      test(`${area.heading} loads clean (${theme})`, async ({
+        baseURL,
+        page,
+      }) => {
         const consoleErrors: string[] = []
         const pageErrors: string[] = []
         page.on("console", (message) => {
@@ -56,20 +80,32 @@ test.describe("settings", () => {
         const state = await readJourneyState()
         await applyCookie(page, baseURL, state.cookie)
         await page.goto(area.path)
-        await expect(page.getByRole("heading", { name: area.heading, level: 1 })).toBeVisible()
+        await expect(
+          page.getByRole("heading", { name: area.heading, level: 1 })
+        ).toBeVisible()
         await pageSettled(page)
         await requests.idle()
         expect(consoleErrors, `${theme} ${area.heading} console`).toEqual([])
         expect(pageErrors, `${theme} ${area.heading} pageerror`).toEqual([])
-        const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+        const wcag = await new AxeBuilder({ page })
+          .withTags(WCAG_TAGS)
+          .analyze()
         expect(wcag.violations, `${theme} ${area.heading} wcag`).toEqual([])
-        const best = await new AxeBuilder({ page }).withTags(["best-practice"]).analyze()
-        expect(best.violations.filter((v) => STRUCTURE_RULES.includes(v.id)), `${theme} ${area.heading} structure`).toEqual([])
+        const best = await new AxeBuilder({ page })
+          .withTags(["best-practice"])
+          .analyze()
+        expect(
+          best.violations.filter((v) => STRUCTURE_RULES.includes(v.id)),
+          `${theme} ${area.heading} structure`
+        ).toEqual([])
       })
     }
   }
 
-  test("permission walk: a member sees only Policy, and is TOLD when a route is closed", async ({ baseURL, browser }) => {
+  test("permission walk: a member sees only Policy, and is TOLD when a route is closed", async ({
+    baseURL,
+    browser,
+  }) => {
     const state = await readJourneyState()
     for (const cookie of [state.memberUnassignedCookie, state.viewerCookie]) {
       const context = await browser.newContext()
@@ -78,11 +114,19 @@ test.describe("settings", () => {
       await page.goto("/settings")
       const nav = page.getByRole("navigation", { name: "Settings sections" })
       await expect(nav.getByRole("link", { name: "Policy" })).toBeVisible()
-      for (const gone of ["Team", "Compliance", "Google connections", "Listing", "Operations"]) {
+      for (const gone of [
+        "Team",
+        "Compliance",
+        "Google connections",
+        "Listing",
+        "Operations",
+      ]) {
         await expect(nav.getByRole("link", { name: gone })).toHaveCount(0)
       }
       // The read-only Policy form shows the gate reason, not an editable control.
-      await expect(page.getByText("Only owners and admins can change these settings.")).toBeVisible()
+      await expect(
+        page.getByText("Only owners and admins can change these settings.")
+      ).toBeVisible()
 
       // Following a colleague's link to a privileged route explains the
       // refusal instead of silently landing somewhere else, which is
@@ -91,28 +135,40 @@ test.describe("settings", () => {
         await page.goto(privileged)
         expect(new URL(page.url()).pathname).toBe(privileged)
         await expect(
-          page.getByRole("heading", { name: /You don.t have access to this page/, level: 1 })
+          page.getByRole("heading", {
+            name: /You don.t have access to this page/,
+            level: 1,
+          })
         ).toBeVisible()
         // "Ask for access" leads; the way back is the shell's own back target
         // (here Settings, as the app bar says), scoped to the page body because
         // the phone app bar draws a link of the same name.
         const body = page.getByRole("main")
-        await expect(body.getByRole("button", { name: "Ask for access" })).toBeVisible()
-        await expect(body.getByRole("link", { name: "Back to Settings" })).toBeVisible()
+        await expect(
+          body.getByRole("button", { name: "Ask for access" })
+        ).toBeVisible()
+        await expect(
+          body.getByRole("link", { name: "Back to Settings" })
+        ).toBeVisible()
         await expect(body.getByText("403")).toHaveCount(0)
       }
       await context.close()
     }
   })
 
-  test("an admin keeps Policy and Connections, and Team as a primary destination", async ({ baseURL, page }) => {
+  test("an admin keeps Policy and Connections, and Team as a primary destination", async ({
+    baseURL,
+    page,
+  }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.adminCookie)
     // From 1180px the sidebar's More group, open on a Settings page.
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto("/settings")
     const nav = page.getByRole("navigation", { name: "Settings sections" })
-    await expect(nav.getByRole("link", { name: "Google connections" })).toBeVisible()
+    await expect(
+      nav.getByRole("link", { name: "Google connections" })
+    ).toBeVisible()
     // Team is a primary destination now, not a settings tab.
     await expect(
       page
@@ -132,9 +188,15 @@ test.describe("settings", () => {
       .getByRole("navigation", { name: "Primary" })
       .getByRole("button", { name: "More", exact: true })
       .click()
-    const more = page.getByRole("dialog", { name: "More" }).getByRole("navigation", { name: "More" })
-    await expect(more.getByRole("link", { name: "Team", exact: true })).toBeVisible()
-    await expect(more.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page")
+    const more = page
+      .getByRole("dialog", { name: "More" })
+      .getByRole("navigation", { name: "More" })
+    await expect(
+      more.getByRole("link", { name: "Team", exact: true })
+    ).toBeVisible()
+    await expect(
+      more.getByRole("link", { name: "Settings", exact: true })
+    ).toHaveAttribute("aria-current", "page")
   })
 })
 
@@ -198,9 +260,9 @@ test.describe("team roles", () => {
       dialog.getByRole("radio", { name: ROLE_NAMES }).first()
     ).toBeChecked()
     // The visible pill, once (the screen-reader hint says it in a sentence).
-    await expect(
-      dialog.getByText("Usual choice", { exact: true })
-    ).toHaveCount(1)
+    await expect(dialog.getByText("Usual choice", { exact: true })).toHaveCount(
+      1
+    )
     // The pill is a hint, not part of the radio's name.
     await expect(
       dialog.getByRole("radio", { name: "Member", exact: true })
@@ -455,11 +517,13 @@ test.describe("team roles", () => {
       "Member"
     )
     await sheet.getByRole("switch", { name: /Can publish/ }).click()
-    await expect.poll(() => patched).toEqual({
-      userId: BEN,
-      role: "member",
-      canPublish: true,
-    })
+    await expect
+      .poll(() => patched)
+      .toEqual({
+        userId: BEN,
+        role: "member",
+        canPublish: true,
+      })
     await expect(sheet.getByText("Saved: publishing on")).toBeVisible()
     await expect(
       sheet.getByRole("button", { name: /Remove from team/ })
@@ -499,10 +563,16 @@ test.describe("reply policy after Back", () => {
     await applyCookie(page, baseURL, tenant.cookie)
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto("/settings")
-    await expect(page.getByRole("heading", { name: "Reply policy", level: 1 })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Reply policy", level: 1 })
+    ).toBeVisible()
 
-    const approval = page.getByRole("switch", { name: "Require approval before replies publish" })
-    const secondPerson = page.getByRole("switch", { name: /Require a second person/ })
+    const approval = page.getByRole("switch", {
+      name: "Require approval before replies publish",
+    })
+    const secondPerson = page.getByRole("switch", {
+      name: /Require a second person/,
+    })
     await expect(approval).not.toBeChecked()
     await approval.click()
     await expect(secondPerson).not.toBeChecked()
@@ -528,17 +598,25 @@ test.describe("reply policy after Back", () => {
       .getByRole("link", { name: /^Inbox/ })
       .click()
     await expect(page).toHaveURL(/\/inbox/)
-    await expect(page.getByRole("heading", { name: "Inbox", level: 1 })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Inbox", level: 1 })
+    ).toBeVisible()
     expect(
-      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+      await page.evaluate(
+        () => (window as unknown as { __p20Soft?: boolean }).__p20Soft
+      )
     ).toBe(true)
     // The leave guard pushed a same-address entry while the form was dirty,
     // so one Back lands on /settings.
     await page.goBack()
     await expect(page).toHaveURL(/\/settings$/)
-    await expect(page.getByRole("heading", { name: "Reply policy", level: 1 })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Reply policy", level: 1 })
+    ).toBeVisible()
     expect(
-      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+      await page.evaluate(
+        () => (window as unknown as { __p20Soft?: boolean }).__p20Soft
+      )
     ).toBe(true)
 
     await expect(approval).toBeChecked()
@@ -595,7 +673,9 @@ test.describe("team after a downgrade and Back", () => {
     // instead of waiting out the age.
     await page.clock.install()
     await page.goto("/team")
-    await expect(page.getByRole("heading", { name: "Team", level: 1 })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Team", level: 1 })
+    ).toBeVisible()
     await expect(copyLink).toBeVisible()
 
     // The owner makes them a viewer.
@@ -605,7 +685,8 @@ test.describe("team after a downgrade and Back", () => {
     })
     // Everything the browser is sent from here on: the token is the
     // secret an invite link carries, and must reach no response.
-    const bodies: Promise<{ url: string; status: number; leaks: boolean }>[] = []
+    const bodies: Promise<{ url: string; status: number; leaks: boolean }>[] =
+      []
     page.on("response", (response) => {
       const path = new URL(response.url()).pathname
       if (!["/team", "/api/members", "/api/invitations"].includes(path)) return
@@ -613,7 +694,11 @@ test.describe("team after a downgrade and Back", () => {
         response
           .text()
           .catch(() => "")
-          .then((body) => ({ url: path, status: response.status(), leaks: body.includes(inviteToken) }))
+          .then((body) => ({
+            url: path,
+            status: response.status(),
+            leaks: body.includes(inviteToken),
+          }))
       )
     })
     const learnt = page.waitForResponse(
@@ -640,7 +725,9 @@ test.describe("team after a downgrade and Back", () => {
       learntAtOnce = true
     })
     await page.clock.fastForward(30_000)
-    await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("visibilitychange"))
+    )
     await learnt
     test.info().annotations.push({
       type: "learnt",
@@ -666,7 +753,9 @@ test.describe("team after a downgrade and Back", () => {
     await expect(page).toHaveURL(/\/team$/)
     // Back was the router's own navigation, not a page load.
     expect(
-      await page.evaluate(() => (window as unknown as { __p20Soft?: boolean }).__p20Soft)
+      await page.evaluate(
+        () => (window as unknown as { __p20Soft?: boolean }).__p20Soft
+      )
     ).toBe(true)
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
     await expect(copyLink).toHaveCount(0)
@@ -677,16 +766,23 @@ test.describe("team after a downgrade and Back", () => {
     expect(shown).not.toContain(true)
     // The server ran the page again for the viewer and refused it.
     await expect(
-      page.getByRole("heading", { name: "You don’t have access to this page", level: 1 })
+      page.getByRole("heading", {
+        name: "You don’t have access to this page",
+        level: 1,
+      })
     ).toBeVisible()
 
     const answers = await Promise.all(bodies)
     // Back asked the server for /team (the RSC request) ...
-    expect(answers.some((answer) => answer.url === "/team" && answer.status === 200)).toBe(true)
+    expect(
+      answers.some((answer) => answer.url === "/team" && answer.status === 200)
+    ).toBe(true)
     // ... and nothing sent after the downgrade carries the link.
     expect(answers.filter((answer) => answer.leaks)).toEqual([])
     // Any members or invitations read is answered for the viewer.
-    for (const answer of answers.filter((answer) => answer.url.startsWith("/api/")))
+    for (const answer of answers.filter((answer) =>
+      answer.url.startsWith("/api/")
+    ))
       expect(answer.status).toBe(403)
   })
 })

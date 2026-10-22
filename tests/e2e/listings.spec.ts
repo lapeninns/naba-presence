@@ -235,7 +235,9 @@ test.describe("listings", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.goto(`/listings/${state.primaryLocationId}/photos`)
     await page.getByRole("button", { name: "Add photos" }).click()
-    await expect(page.getByRole("heading", { name: "Add photos" })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Add photos" })
+    ).toBeVisible()
     await expect(
       page.getByRole("button", { name: "Choose from library" })
     ).toBeVisible()
@@ -336,9 +338,9 @@ test.describe("listings", () => {
       // gated, never the whole area.
       const requests = trackRequests(page)
       await page.goto(`/listings/${state.primaryLocationId}/profile`)
-      await expect(
-        page.getByRole("heading", { name: "Identity" })
-      ).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
+      await expect(page.getByRole("heading", { name: "Identity" })).toBeVisible(
+        { timeout: GOOGLE_READS_TIMEOUT }
+      )
       // Every read the profile makes is answered before the negative
       // assertion below, which is about a request that must never fire.
       await pageSettled(page)
@@ -461,7 +463,6 @@ test.describe("listings", () => {
       await saveHere.click()
     }
     expect((await saved).status()).toBe(200)
-
 
     // Review & publish sends the profile step as a POST operation (the save
     // above was the PUT), so fail that one.
@@ -910,7 +911,9 @@ test.describe("profile section nav focus at 390", () => {
     await page.keyboard.press("Enter")
     await expect(heading).toBeFocused()
     await expect
-      .poll(async () => (await box()).width, { message: "focused heading width" })
+      .poll(async () => (await box()).width, {
+        message: "focused heading width",
+      })
       .toBeGreaterThan(30)
     expect(await box()).toMatchObject({ clipped: false, ring: true })
     expect((await box()).height).toBeGreaterThan(10)
@@ -945,7 +948,9 @@ for (const viewport of [
     await applyCookie(page, baseURL, state.cookie)
     await page.setViewportSize(viewport)
     await page.goto(`/listings/${state.primaryLocationId}/hours`)
-    await expect(page.getByRole("heading", { name: "Opening hours", level: 1 })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Opening hours", level: 1 })
+    ).toBeVisible()
     const toggle = page.getByRole("switch", { name: "Monday open" })
     const day = toggle.locator("xpath=ancestor::li[1]")
     await expect(day).toBeVisible()
@@ -959,11 +964,29 @@ for (const viewport of [
     expect(toggleBox.width).toBeLessThan(80)
     expect(toggleBox.x).toBeGreaterThanOrEqual(rowBox.x + rowBox.width - 1)
     // One line each, level with the other: neither wrapped under the other.
-    expect(Math.abs(rowBox.y + rowBox.height / 2 - (toggleBox.y + toggleBox.height / 2))).toBeLessThan(rowBox.height / 2)
+    expect(
+      Math.abs(
+        rowBox.y + rowBox.height / 2 - (toggleBox.y + toggleBox.height / 2)
+      )
+    ).toBeLessThan(rowBox.height / 2)
     // Every weekday keeps its name, none collapsed to a bare switch.
-    for (const name of ["Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
-      await expect(page.getByRole("button", { name: new RegExp(`^${name}`) }).first()).toBeVisible()
-      expect((await page.getByRole("button", { name: new RegExp(`^${name}`) }).first().boundingBox())!.width).toBeGreaterThan(viewport.width / 3)
+    for (const name of [
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ]) {
+      await expect(
+        page.getByRole("button", { name: new RegExp(`^${name}`) }).first()
+      ).toBeVisible()
+      expect(
+        (await page
+          .getByRole("button", { name: new RegExp(`^${name}`) })
+          .first()
+          .boundingBox())!.width
+      ).toBeGreaterThan(viewport.width / 3)
     }
   })
 }
@@ -987,7 +1010,9 @@ for (const skew of [60_000, 360_000]) {
       // and instanceof behave as ever.
       globalThis.Date = new Proxy(RealDate, {
         construct: (target, args) =>
-          args.length === 0 ? new target(target.now() + skew) : new target(...(args as [string])),
+          args.length === 0
+            ? new target(target.now() + skew)
+            : new target(...(args as [string])),
         apply: () => new RealDate(RealDate.now() + skew).toString(),
         get: (target, key) =>
           key === "now" ? () => target.now() + skew : Reflect.get(target, key),
@@ -998,7 +1023,10 @@ for (const skew of [60_000, 360_000]) {
     }, skew)
     const hoursReads: string[] = []
     page.on("request", (request) => {
-      if (new URL(request.url()).pathname === `/api/locations/${state.primaryLocationId}/hours`)
+      if (
+        new URL(request.url()).pathname ===
+        `/api/locations/${state.primaryLocationId}/hours`
+      )
         hoursReads.push(request.method())
     })
     const problems: string[] = []
@@ -1014,9 +1042,13 @@ for (const skew of [60_000, 360_000]) {
     const ahead = (await page.evaluate(() => Date.now())) - Date.now()
     expect(ahead).toBeGreaterThan(skew - 5_000)
     expect(ahead).toBeLessThan(skew + 5_000)
-    await expect(page.getByRole("heading", { name: "Opening hours", level: 1 })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Opening hours", level: 1 })
+    ).toBeVisible()
     // The editor itself, from the streamed read: not the tab's pending line.
-    await expect(page.getByRole("switch", { name: "Monday open" })).toBeVisible()
+    await expect(
+      page.getByRole("switch", { name: "Monday open" })
+    ).toBeVisible()
     // Every request answered: only then is "no hours read" a finding.
     await requests.idle()
     expect(hoursReads).toEqual([])

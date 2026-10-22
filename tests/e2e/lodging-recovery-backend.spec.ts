@@ -1,77 +1,179 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import { startLodgingBackend } from "./helpers/lodging-backend"
-import { captureLodgingDialog, lodgingEditor, lodgingSheet } from "./helpers/lodging-capture"
+import {
+  captureLodgingDialog,
+  lodgingEditor,
+  lodgingSheet,
+} from "./helpers/lodging-capture"
 import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startLodgingBackend>>
-test.beforeAll(async () => { backend = await startLodgingBackend() })
-test.afterAll(async () => { await backend.stop() })
-test.beforeEach(async ({ context }) => { await context.route("**/*", (route) => new URL(route.request().url()).origin === backend.server.baseUrl ? route.continue() : route.abort("blockedbyclient")) })
+test.beforeAll(async () => {
+  backend = await startLodgingBackend()
+})
+test.afterAll(async () => {
+  await backend.stop()
+})
+test.beforeEach(async ({ context }) => {
+  await context.route("**/*", (route) =>
+    new URL(route.request().url()).origin === backend.server.baseUrl
+      ? route.continue()
+      : route.abort("blockedbyclient")
+  )
+})
 async function approved(page: Page) {
-  const fixture = await backend.lodgingFixture(page); await fixture.open()
-  await lodgingEditor(page).getByRole("searchbox", { name: "Find a lodging detail" }).fill("Pets allowed")
-  await lodgingEditor(page).getByRole("radiogroup", { name: "Pets allowed", exact: true }).getByRole("radio", { name: "Yes", exact: true }).click()
-  await page.getByRole("button", { name: "Review lodging changes", exact: true }).click()
+  const fixture = await backend.lodgingFixture(page)
+  await fixture.open()
+  await lodgingEditor(page)
+    .getByRole("searchbox", { name: "Find a lodging detail" })
+    .fill("Pets allowed")
+  await lodgingEditor(page)
+    .getByRole("radiogroup", { name: "Pets allowed", exact: true })
+    .getByRole("radio", { name: "Yes", exact: true })
+    .click()
+  await page
+    .getByRole("button", { name: "Review lodging changes", exact: true })
+    .click()
   const dialog = page.getByRole("dialog", { name: lodgingSheet })
-  await dialog.getByRole("button", { name: "Approve lodging changes", exact: true }).click()
-  await dialog.getByRole("checkbox", { name: "Send these exact approved lodging changes to Google." }).check()
+  await dialog
+    .getByRole("button", { name: "Approve lodging changes", exact: true })
+    .click()
+  await dialog
+    .getByRole("checkbox", {
+      name: "Send these exact approved lodging changes to Google.",
+    })
+    .check()
   return { fixture, dialog }
 }
 /** The stale review: its diff stacks under 560px, so this is the surface whose layout width really changes. */
 async function baselineDrift(page: Page, info: TestInfo) {
   const { fixture, dialog } = await approved(page)
   fixture.state.lodging.property = { roomsCount: 999, floorsCount: 0 }
-  await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
+  await dialog
+    .getByRole("button", { name: "Send approved lodging changes", exact: true })
+    .click()
   await expect(dialog.getByRole("alert")).toBeVisible()
-  await expect(dialog.getByText("This review needs a fresh preview before sending.", { exact: true })).toBeVisible()
-  await expect(dialog.getByRole("button", { name: "Send approved lodging changes", exact: true })).toBeDisabled()
+  await expect(
+    dialog.getByText("This review needs a fresh preview before sending.", {
+      exact: true,
+    })
+  ).toBeVisible()
+  await expect(
+    dialog.getByRole("button", {
+      name: "Send approved lodging changes",
+      exact: true,
+    })
+  ).toBeDisabled()
   // Under 560px the diff stacks and drops its header row, so check the
   // label each value carries at every width.
-  await expect(dialog.locator('td[data-label="Before (reviewed)"]').first()).toBeVisible()
+  await expect(
+    dialog.locator('td[data-label="Before (reviewed)"]').first()
+  ).toBeVisible()
   await expect(dialog.locator('td[data-label="On Google now"]')).toHaveCount(0)
   await captureLodgingDialog(page, info, "baseline-drift")
   expect(fixture.writes()).toHaveLength(0)
 }
 test.describe(`Lodging recovery journeys at ${JOURNEY_WIDTH}px`, () => {
   test.use({ viewport: viewportAt(JOURNEY_WIDTH) })
-  test("rejects baseline drift before a Google write", async ({ page }, info) => { await baselineDrift(page, info) })
-  test("reads a lost browser acknowledgement without replaying the accepted provider request", async ({ page }, info) => {
+  test("rejects baseline drift before a Google write", async ({
+    page,
+  }, info) => {
+    await baselineDrift(page, info)
+  })
+  test("reads a lost browser acknowledgement without replaying the accepted provider request", async ({
+    page,
+  }, info) => {
     const { fixture, dialog } = await approved(page)
     let intercepted = false
-    await page.route(`**/api/locations/${fixture.linked.locationId}/industry`, async (route) => {
-      if (route.request().method() !== "PATCH") return route.continue()
-      await route.fetch(); intercepted = true; await route.abort("failed")
-    })
-    await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
+    await page.route(
+      `**/api/locations/${fixture.linked.locationId}/industry`,
+      async (route) => {
+        if (route.request().method() !== "PATCH") return route.continue()
+        await route.fetch()
+        intercepted = true
+        await route.abort("failed")
+      }
+    )
+    await dialog
+      .getByRole("button", {
+        name: "Send approved lodging changes",
+        exact: true,
+      })
+      .click()
     await expect.poll(() => intercepted).toBe(true)
-    await expect(dialog.getByText("The send response is unavailable. Read the saved outcome before another write.", { exact: true })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Read saved lodging outcome", exact: true })).toBeEnabled()
-    await expect(dialog.getByRole("button", { name: "Keep editing", exact: true })).toBeEnabled()
+    await expect(
+      dialog.getByText(
+        "The send response is unavailable. Read the saved outcome before another write.",
+        { exact: true }
+      )
+    ).toBeVisible()
+    await expect(
+      dialog.getByRole("button", {
+        name: "Read saved lodging outcome",
+        exact: true,
+      })
+    ).toBeEnabled()
+    await expect(
+      dialog.getByRole("button", { name: "Keep editing", exact: true })
+    ).toBeEnabled()
     await captureLodgingDialog(page, info, "lost-response")
-    await dialog.getByRole("button", { name: "Read saved lodging outcome", exact: true }).click()
-    await expect(dialog.getByText("Accepted by Google", { exact: true })).toBeVisible()
-    await expect(dialog.getByText("Independently confirmed", { exact: true })).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Send approved lodging changes", exact: true })).toHaveCount(0)
+    await dialog
+      .getByRole("button", { name: "Read saved lodging outcome", exact: true })
+      .click()
+    await expect(
+      dialog.getByText("Accepted by Google", { exact: true })
+    ).toBeVisible()
+    await expect(
+      dialog.getByText("Independently confirmed", { exact: true })
+    ).toBeVisible()
+    await expect(
+      dialog.getByRole("button", {
+        name: "Send approved lodging changes",
+        exact: true,
+      })
+    ).toHaveCount(0)
     await captureLodgingDialog(page, info, "saved-confirmation")
     expect(fixture.writes()).toHaveLength(1)
   })
-  test("keeps an accepted but unconfirmed request unresolved until a separate observation", async ({ page }, info) => {
+  test("keeps an accepted but unconfirmed request unresolved until a separate observation", async ({
+    page,
+  }, info) => {
     const { fixture, dialog } = await approved(page)
     fixture.state.apply = false
-    await dialog.getByRole("button", { name: "Send approved lodging changes", exact: true }).click()
-    await expect(dialog.getByText("Accepted by Google", { exact: true })).toBeVisible()
-    await expect(dialog.getByText("Independent confirmation unresolved", { exact: true })).toBeVisible()
-    const inactiveToast = page.locator('[data-base-ui-inert] [data-slot="toast"]').filter({ hasText: "Google confirmation is unresolved." })
+    await dialog
+      .getByRole("button", {
+        name: "Send approved lodging changes",
+        exact: true,
+      })
+      .click()
+    await expect(
+      dialog.getByText("Accepted by Google", { exact: true })
+    ).toBeVisible()
+    await expect(
+      dialog.getByText("Independent confirmation unresolved", { exact: true })
+    ).toBeVisible()
+    const inactiveToast = page
+      .locator('[data-base-ui-inert] [data-slot="toast"]')
+      .filter({ hasText: "Google confirmation is unresolved." })
     await expect(inactiveToast).toHaveCSS("pointer-events", "none")
     await captureLodgingDialog(page, info, "accepted-unresolved")
     fixture.applyLastWrite()
-    await dialog.getByRole("button", { name: "Refresh lodging observation", exact: true }).click()
-    await expect(dialog.getByText("Independently confirmed", { exact: true })).toBeVisible()
+    await dialog
+      .getByRole("button", { name: "Refresh lodging observation", exact: true })
+      .click()
+    await expect(
+      dialog.getByText("Independently confirmed", { exact: true })
+    ).toBeVisible()
     await captureLodgingDialog(page, info, "separate-observation")
     expect(fixture.writes()).toHaveLength(1)
   })
 })
-for (const width of LAYOUT_WIDTHS) test.describe(`Lodging recovery layout at ${width}px`, () => {
-  test.use({ viewport: viewportAt(width) })
-  test("stacks the stale review's diff with each value labelled", async ({ page }, info) => { await baselineDrift(page, info) })
-})
+for (const width of LAYOUT_WIDTHS)
+  test.describe(`Lodging recovery layout at ${width}px`, () => {
+    test.use({ viewport: viewportAt(width) })
+    test("stacks the stale review's diff with each value labelled", async ({
+      page,
+    }, info) => {
+      await baselineDrift(page, info)
+    })
+  })
