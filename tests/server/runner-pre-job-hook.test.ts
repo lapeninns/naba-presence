@@ -9,7 +9,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -50,8 +49,13 @@ function resolveOnPath(command: string, path = process.env.PATH ?? "") {
 }
 
 beforeAll(() => {
-  // realpath: macOS reports /private/var/... as a process's cwd.
-  root = realpathSync(mkdtempSync(join(tmpdir(), "naba-runner-hook-")))
+  // Under /tmp, not os.tmpdir(): the CI gate points TMPDIR at the runner's
+  // RUNNER_TEMP (.../_work/_temp), and a fixture inside some _work folder
+  // looks like a runner workspace to post-job. realpath: macOS reports
+  // /private/tmp/... as a process's cwd.
+  root = realpathSync(
+    mkdtempSync(join(realpathSync("/tmp"), "naba-runner-hook-"))
+  )
   stubBin = join(root, "stub-bin")
   mkdirSync(stubBin)
   pkillLog = join(root, "pkill.log")
@@ -406,6 +410,10 @@ describe("self-hosted job hooks: cleanup is scoped to the job", () => {
 
   it("post-job never deletes a workspace outside a runner _work folder", () => {
     const outside = join(root, "not-a-runner", "checkout")
+    expect(
+      outside,
+      "the fixture root sits inside a _work folder"
+    ).not.toContain("/_work/")
     mkdirSync(outside, { recursive: true })
     writeFileSync(join(outside, "keep.txt"), "x")
 
@@ -436,5 +444,193 @@ describe("self-hosted job hooks: cleanup is scoped to the job", () => {
     )
     expect(run.status).toBe(0)
     for (const child of Object.values(p)) expect(alive(child)).toBe(true)
+  })
+})
+
+describe("self-hosted post-job hook: workspace guard", () => {
+  afterEach(() => {
+    expectNoPkill()
+  })
+
+  type Runner = { name: string; work: string; temp: string; workspace: string }
+
+  let runners = 0
+  /** A fresh runner folder per case, so no case disturbs another. */
+  function runner(): Runner {
+    runners += 1
+    const name = `guard-${runners}`
+    const { temp, workspace } = instance(name)
+    return { name, work: dirname(temp), temp, workspace }
+  }
+
+  /** Puts keep.txt in `dir` and returns its path. */
+  function keepIn(dir: string) {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, "keep.txt")
+    writeFileSync(file, "x")
+    return file
+  }
+
+  type Refusal = {
+    /** RUNNER_TEMP; undefined leaves it unset. */
+    temp: string | undefined
+    workspace: string
+    /** Why the hook leaves the workspace alone, as it reports on stderr. */
+    reason: string
+    /** A file the hook must not delete, when the case has one. */
+    keep?: string
+  }
+
+  const OWN_FOLDER = "is in the runner's own _temp, _actions or _tool folder"
+  const NOT_PLAIN = "has a ., .. or empty path component"
+
+  // Paths with . and .. are built as strings: path.join would resolve them.
+  const refusals: Array<[string, (job: Runner) => Refusal]> = [
+    [
+      "a RUNNER_TEMP that does not end in /_temp",
+      (job) => {
+        const temp = join(job.work, "tmp")
+        mkdirSync(temp)
+        return {
+          temp,
+          workspace: job.workspace,
+          reason: `cannot be checked: RUNNER_TEMP ${temp} does not end in /_temp`,
+          keep: keepIn(job.workspace),
+        }
+      },
+    ],
+    [
+      "an unset RUNNER_TEMP",
+      (job) => ({
+        temp: undefined,
+        workspace: job.workspace,
+        reason: "cannot be checked: RUNNER_TEMP unset does not end in /_temp",
+        keep: keepIn(job.workspace),
+      }),
+    ],
+    [
+      "the other instance's workspace",
+      (job) => {
+        const neighbour = runner()
+        return {
+          temp: job.temp,
+          workspace: neighbour.workspace,
+          reason: `is not inside ${job.work}`,
+          keep: keepIn(neighbour.workspace),
+        }
+      },
+    ],
+    [
+      "RUNNER_TEMP itself",
+      (job) => ({ temp: job.temp, workspace: job.temp, reason: OWN_FOLDER }),
+    ],
+    [
+      "a folder inside RUNNER_TEMP",
+      (job) => {
+        const workspace = join(job.temp, "checkout")
+        mkdirSync(workspace)
+        return { temp: job.temp, workspace, reason: OWN_FOLDER }
+      },
+    ],
+    [
+      "a folder in the runner's _actions cache",
+      (job) => {
+        const workspace = join(job.work, "_actions", "actions", "checkout")
+        return {
+          temp: job.temp,
+          workspace,
+          reason: OWN_FOLDER,
+          keep: keepIn(join(workspace, "v4")),
+        }
+      },
+    ],
+    [
+      "the runner's _tool cache",
+      (job) => ({
+        temp: job.temp,
+        workspace: join(job.work, "_tool"),
+        reason: OWN_FOLDER,
+        keep: keepIn(join(job.work, "_tool", "node")),
+      }),
+    ],
+    [
+      "a path that climbs with .. into the other instance's workspace",
+      (job) => {
+        const neighbour = runner()
+        return {
+          temp: job.temp,
+          workspace: `${job.work}/../../${neighbour.name}/_work/naba-presence/naba-presence`,
+          reason: NOT_PLAIN,
+          keep: keepIn(neighbour.workspace),
+        }
+      },
+    ],
+    [
+      "a path that ends in /..",
+      (job) => ({
+        temp: job.temp,
+        workspace: `${job.workspace}/..`,
+        reason: NOT_PLAIN,
+        keep: keepIn(job.workspace),
+      }),
+    ],
+    [
+      "a path that reaches the _tool cache through /./",
+      (job) => ({
+        temp: job.temp,
+        workspace: `${job.work}/./_tool`,
+        reason: NOT_PLAIN,
+        keep: keepIn(join(job.work, "_tool", "node")),
+      }),
+    ],
+    [
+      "a path that reaches the _actions cache through //",
+      (job) => ({
+        temp: job.temp,
+        workspace: `${job.work}//_actions`,
+        reason: NOT_PLAIN,
+        keep: keepIn(join(job.work, "_actions", "actions")),
+      }),
+    ],
+  ]
+
+  it.each(refusals)("leaves alone %s", (_name, build) => {
+    const refusal = build(runner())
+    const run = runHook(
+      POST_JOB,
+      {
+        ...onMain("push"),
+        RUNNER_TEMP: refusal.temp,
+        GITHUB_WORKSPACE: refusal.workspace,
+      },
+      root
+    )
+    expect(run.status).toBe(0)
+    expect(run.stdout).not.toContain("deleted workspace")
+    expect(run.stderr).toContain(
+      `post-job: workspace ${refusal.workspace} ${refusal.reason}; left alone`
+    )
+    if (refusal.keep) expect(existsSync(refusal.keep)).toBe(true)
+  })
+
+  it("still deletes a workspace given with a trailing slash", () => {
+    const job = runner()
+    const kept = keepIn(job.workspace)
+    const run = runHook(
+      POST_JOB,
+      {
+        ...onMain("push"),
+        RUNNER_TEMP: job.temp,
+        GITHUB_WORKSPACE: `${job.workspace}/`,
+      },
+      root
+    )
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe("")
+    expect(run.stdout).toContain(
+      `post-job: deleted workspace ${job.workspace}/`
+    )
+    expect(existsSync(kept)).toBe(false)
+    expect(existsSync(job.workspace)).toBe(true)
   })
 })
