@@ -10,16 +10,31 @@ below repeats the old gate on a quiet machine.
 
 ## Gate runs
 
-| Run                                                     | Commit         | Gate                          | Load (1-min median / max) | Wall                   | Result                                                                          |
-| ------------------------------------------------------- | -------------- | ----------------------------- | ------------------------- | ---------------------- | ------------------------------------------------------------------------------- |
-| Baseline                                                | `50df9739`     | old, serial                   | 44 / 116                  | **105.6 min**          | failed: integration 3, e2e 1 (timing under load)                                |
-| Historical receipts (5 promotions, 2026-10-10 to 10-19) | various        | old, serial                   | not recorded              | 54, 56, 74, 71, 71 min | as recorded                                                                     |
-| Branch run 1                                            | `e8c936d3`     | concurrent, no CPU budget yet | 39 / 69                   | 37.2 min               | failed: 4 component tests timed out (fixed: CPU budget, 15 s component timeout) |
-| Branch run 2                                            | `2274c414`     | concurrent                    | 9 / 31                    | 14.6 min               | failed: 1 e2e test (fixed: wait for every paced read)                           |
-| **Final**                                               | **`0372232f`** | **concurrent**                | **18 / 75**               | **17.6 min**           | **passed, every step**                                                          |
-| A/B: old gate, quiet machine                            | `50df9739`     | old, serial                   | see below                 | see below              | see below                                                                       |
+| Run                                                     | Commit         | Gate                          | Load (1-min median / max) | Wall                   | Result                                                                                                                                               |
+| ------------------------------------------------------- | -------------- | ----------------------------- | ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline                                                | `50df9739`     | old, serial                   | 44 / 116                  | **105.6 min**          | failed: integration 3, e2e 1 (timing under load)                                                                                                     |
+| Historical receipts (5 promotions, 2026-10-10 to 10-19) | various        | old, serial                   | not recorded              | 54, 56, 74, 71, 71 min | as recorded                                                                                                                                          |
+| Branch run 1                                            | `e8c936d3`     | concurrent, no CPU budget yet | 39 / 69                   | 37.2 min               | failed: 4 component tests timed out (fixed: CPU budget, 15 s component timeout)                                                                      |
+| Branch run 2                                            | `2274c414`     | concurrent                    | 9 / 31                    | 14.6 min               | failed: 1 e2e test (fixed: wait for every paced read)                                                                                                |
+| **Final**                                               | **`0372232f`** | **concurrent**                | **18 / 75**               | **17.6 min**           | **passed, every step**                                                                                                                               |
+| A/B before: old gate, quiet machine                     | `50df9739`     | old, serial                   | 3.2 / 11                  | **67.9 min**           | passed                                                                                                                                               |
+| Quiet run of the new gate                               | `4aa8ee73`     | concurrent                    | 5.1 / 8                   | 10.6 min               | failed: macOS dirhelper (daily 03:35) deleted node_modules files from the run's temp worktree mid-run; pre-existing gate hazard, fixed in `a0e91025` |
+| **A/B after: new gate, quiet machine**                  | **`a0e91025`** | **concurrent**                | **4.3 / 8**               | **14.7 min**           | **passed, every step**                                                                                                                               |
 
-Per step (seconds):
+**Controlled comparison (both on the quiet machine, 02:18-03:56): 67.9 min
+→ 14.7 min, 4.6 times faster, with more checks and more real-boundary
+tests.**
+
+| Step (quiet machine) | Before `50df9739`      | After `a0e91025`                     |
+| -------------------- | ---------------------- | ------------------------------------ |
+| unit (+ components)  | 211.6 s, 8,121 tests   | 164.7 s, 8,428 tests                 |
+| build                | 54.3 s                 | 62.3 s (shares the CPU budget)       |
+| integration          | 2,196.6 s, 1,412 tests | 704.5 s, 1,568 tests                 |
+| e2e                  | 1,492.8 s, 752 tests   | 645.5 s, 593 tests (same journeys)   |
+| audit                | 71.9 s                 | 71.8 s (registry latency, both runs) |
+| wall                 | 67.9 min               | 14.7 min                             |
+
+Per step under load (seconds):
 
 | Step                                            | Baseline `50df9739`                                            | Final `0372232f`                                               | Change                                                                      |
 | ----------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
