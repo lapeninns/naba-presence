@@ -409,9 +409,16 @@ test.describe("listings", () => {
   }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
+    const requests = trackRequests(page)
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
     const name = page.getByRole("textbox", { name: "Business name" })
     await expect(name).toBeVisible()
+    // Google's half of the profile arrives after the NabaPresence copy, and
+    // the publish below carries the hash of everything Google answered: an
+    // edit made before those reads finish is followed away by the editor
+    // when they land, so "Review changes" never appears. Edit once they have.
+    await profileLoadedFromGoogle(page)
+    await requests.idle()
     await name.fill("Riverside Rooms & Spa")
 
     // Nothing reaches Google until the diff has been seen: the review sheet
