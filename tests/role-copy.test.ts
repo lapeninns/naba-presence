@@ -1,7 +1,3 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
-import { fileURLToPath } from "node:url"
-
 import { describe, expect, it } from "vitest"
 
 import { editDisabledReason } from "@/lib/locations/gating"
@@ -26,6 +22,8 @@ import {
   roleSummaries,
 } from "@/lib/settings/roles"
 
+import { routeConfigStrings, scanRouteFile } from "./helpers/route-scanner"
+
 // The role copy ("Drafts replies and posts…", "Can’t edit a listing’s
 // profile…") is presentation. What each role can do is decided by the
 // server's own rules, so this file computes the facts from those rules and
@@ -43,19 +41,15 @@ const LISTING_SAVE_ROUTES = [
   "app/api/locations/[id]/food-menus/route.ts",
 ] as const
 
-const repoRoot = fileURLToPath(new URL("../", import.meta.url))
-
 /** The `roles` array of a route file's `export const PUT = route({...})`. */
 function putRoles(file: string): string[] {
-  const source = readFileSync(join(repoRoot, file), "utf8")
-  const start = source.indexOf("export const PUT = route({")
-  if (start === -1) throw new Error(`${file} has no PUT route`)
-  const rest = source.slice(start + 1)
-  const next = rest.indexOf("\nexport const ")
-  const block = next === -1 ? rest : rest.slice(0, next)
-  const roles = block.match(/roles:\s*\[([^\]]*)\]/)
+  const put = scanRouteFile(file).handlers.find(
+    (handler) => handler.method === "PUT"
+  )
+  if (!put) throw new Error(`${file} has no PUT route`)
+  const roles = routeConfigStrings(put.config, "roles")
   if (!roles) throw new Error(`${file}: PUT has no roles`)
-  return [...roles[1]!.matchAll(/"(\w+)"/g)].map((m) => m[1]!)
+  return roles
 }
 
 /** Whether every listing-save route admits this role: the route config, read as written. */

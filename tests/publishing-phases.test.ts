@@ -5,37 +5,16 @@ import { ApiError } from "@/lib/server/http"
 import {
   classifyProviderFailure,
   decideRecovery,
-  executePublish,
-  executeReplyDelete,
   googleReplyFromReview,
   googleReplyMatches,
   parseGoogleReply,
   parseGoogleReview,
-  recoverAttempt,
-  retryPublishAttempt,
-  writePublishAttemptEvent,
 } from "@/lib/server/publishing"
 
 // The reply pipeline's pure phases (docs/architecture.md, "Three-phase reply
 // mutation and recovery"): provider-failure classification, the recovery
 // decision, and the Google reply readers. The database-backed phases are
 // covered by tests/integration/routes/publish-lifecycle.test.ts.
-
-describe("publishing barrel", () => {
-  it("keeps the public pipeline entry points", () => {
-    for (const fn of [
-      executePublish,
-      executeReplyDelete,
-      retryPublishAttempt,
-      recoverAttempt,
-      writePublishAttemptEvent,
-      googleReplyFromReview,
-      googleReplyMatches,
-    ]) {
-      expect(typeof fn).toBe("function")
-    }
-  })
-})
 
 describe("classifyProviderFailure", () => {
   it("keeps an ambiguous provider write distinct from rejection", () => {
@@ -75,21 +54,27 @@ describe("classifyProviderFailure", () => {
     [401, "google_reconnect_required"],
     [503, "google_token_unavailable"],
     [404, "connection_not_found"],
-  ])("parks a connection-blocked %i %s instead of failing it", (status, code) => {
-    const before = Date.now()
-    const failure = classifyProviderFailure(new ApiError(status, code, "no"), 3)
-    const after = Date.now()
-    expect(failure.status).toBe("retryable")
-    expect(failure.retryable).toBe(true)
-    expect(failure.terminal).toBe(false)
-    expect(failure.ambiguous).toBe(false)
-    expect(failure.errorCode).toBe(code)
-    const wait = (failure.nextAttemptAt as Date).getTime() - before
-    // Roughly 15 minutes, and unambiguously outside the provider back-off band.
-    expect(wait).toBeGreaterThan(14 * 60_000)
-    // The clock may tick between `before` and the call, so allow that slack.
-    expect(wait).toBeLessThanOrEqual(15 * 60_000 + (after - before))
-  })
+  ])(
+    "parks a connection-blocked %i %s instead of failing it",
+    (status, code) => {
+      const before = Date.now()
+      const failure = classifyProviderFailure(
+        new ApiError(status, code, "no"),
+        3
+      )
+      const after = Date.now()
+      expect(failure.status).toBe("retryable")
+      expect(failure.retryable).toBe(true)
+      expect(failure.terminal).toBe(false)
+      expect(failure.ambiguous).toBe(false)
+      expect(failure.errorCode).toBe(code)
+      const wait = (failure.nextAttemptAt as Date).getTime() - before
+      // Roughly 15 minutes, and unambiguously outside the provider back-off band.
+      expect(wait).toBeGreaterThan(14 * 60_000)
+      // The clock may tick between `before` and the call, so allow that slack.
+      expect(wait).toBeLessThanOrEqual(15 * 60_000 + (after - before))
+    }
+  )
 
   it("treats any other provider rejection as terminal", () => {
     const failure = classifyProviderFailure(

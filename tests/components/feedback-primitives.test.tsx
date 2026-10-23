@@ -7,14 +7,15 @@ import { Button, DisabledReason, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { Kbd } from "@/components/ui/kbd"
 import { LoadMore } from "@/components/ui/load-more"
-import {
-  OutcomeSummary,
-  outcomeCounts,
-  overallOutcome,
-} from "@/components/ui/outcome-summary"
 import { OperationOutcomeNotice } from "@/components/ui/operation-outcome"
 import { QueryStates } from "@/components/ui/query-states"
-import { TabNav, Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
+import {
+  TabNav,
+  Tabs,
+  TabsList,
+  TabsPanel,
+  TabsTab,
+} from "@/components/ui/tabs"
 import {
   ERROR_TOAST_TIMEOUT,
   ACTION_TOAST_TIMEOUT,
@@ -613,65 +614,12 @@ describe("Kbd", () => {
 })
 
 describe("outcome glyphs", () => {
-  // prim-20: the notice and the steps used to disagree (clock vs hourglass).
-  it("draws the same glyph in the notice and the summary", () => {
+  // prim-20: awaiting confirmation used to be drawn with a clock, not the hourglass.
+  it("draws awaiting confirmation with the hourglass in the notice", () => {
     const { container } = render(
-      <>
-        <OperationOutcomeNotice outcome="awaiting_confirmation" />
-        <OutcomeSummary outcome="awaiting_confirmation" />
-      </>
+      <OperationOutcomeNotice outcome="awaiting_confirmation" />
     )
-    expect(container.querySelectorAll(".lucide-hourglass")).toHaveLength(2)
+    expect(container.querySelectorAll(".lucide-hourglass")).toHaveLength(1)
     expect(container.querySelector(".lucide-clock")).toBeNull()
-  })
-})
-
-describe("OutcomeSummary", () => {
-  it("derives the headline from the worst step and counts the rest", () => {
-    const states = [
-      "confirmed_applied",
-      "failed",
-      "confirmed_applied",
-      "skipped",
-    ] as const
-    expect(overallOutcome(states)).toBe("failed")
-    expect(overallOutcome(["pending", "skipped"])).toBeNull()
-    expect(overallOutcome(["confirmed_applied"])).toBe("confirmed_applied")
-    expect(outcomeCounts(states).map((c) => `${c.count} ${c.word}`)).toEqual([
-      "1 Failed",
-      "2 Live on Google",
-      "1 Skipped",
-    ])
-  })
-
-  it("announces the headline and lists the steps and next actions", () => {
-    render(
-      <OutcomeSummary
-        steps={[
-          { id: "a", label: "Sunday hours", state: "confirmed_applied" },
-          { id: "b", label: "Holiday hours", state: "failed", errorCode: "E1" },
-        ]}
-        actions={<Button>Retry failed</Button>}
-      />
-    )
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "The change didn’t go through"
-    )
-    expect(
-      screen.getByRole("region", { name: "The change didn’t go through" })
-    ).toHaveAttribute("data-outcome", "failed")
-    expect(screen.getByRole("list", { name: "Results" })).toBeInTheDocument()
-    expect(screen.getByText("Holiday hours")).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Retry failed" })
-    ).toBeInTheDocument()
-  })
-
-  it("never says Live on Google without a confirmed outcome", () => {
-    render(<OutcomeSummary outcome="sent" />)
-    expect(screen.queryByText(/Live on Google/)).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("heading", { name: "Sent to Google" })
-    ).toBeInTheDocument()
   })
 })

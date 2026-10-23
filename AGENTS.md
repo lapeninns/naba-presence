@@ -14,7 +14,7 @@ Next.js version.
 archived milestone plans under `docs/archive/2026-07-frontend-rebuild/` repeat
 a rule to never change the `--webpack` flags. That rule was written against an
 older Next.js, where Turbopack spawned runaway PostCSS workers in this project;
-it no longer holds for dev since 16.2.6 (now 16.3.8) and the dev script has
+it no longer holds for dev since 16.2.6 (now 16.4.1) and the dev script has
 moved. Leave `build` on webpack: it is the path CI validates through
 `scripts/prepare-standalone.mjs`.
 

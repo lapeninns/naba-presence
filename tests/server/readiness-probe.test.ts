@@ -202,6 +202,60 @@ describe("promotedSha", () => {
     }
   })
 
+  it("expects a confirmed rollback's target, not the release rolled away from", () => {
+    const dir = mkdtempSync(join(tmpdir(), "readiness-probe-"))
+    const rollback = (served: string) =>
+      JSON.stringify({
+        kind: "naba-rollback",
+        sha: OTHER,
+        to: { receipt: "20261001T000000Z-89abcdef0123.json", sha: OTHER },
+        productionProbe: { ok: served === OTHER, servedSha: served },
+      })
+    try {
+      writeFileSync(
+        join(dir, "20261001T000000Z-89abcdef0123.json"),
+        JSON.stringify({ sha: OTHER })
+      )
+      writeFileSync(
+        join(dir, "20261009T000000Z-0123456789ab.json"),
+        JSON.stringify({ sha: SHA })
+      )
+      // A rollback whose probe still saw SHA changes nothing.
+      writeFileSync(
+        join(dir, "20261010T000000Z-89abcdef0123.rollback.json"),
+        rollback(SHA)
+      )
+      expect(promotedSha(dir)).toBe(SHA)
+      // A confirmed one: production serves OTHER again, and so does the
+      // probe expect.
+      writeFileSync(
+        join(dir, "20261010T010000Z-89abcdef0123.rollback.json"),
+        rollback(OTHER)
+      )
+      expect(promotedSha(dir)).toBe(OTHER)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("is a usage error when a receipt cannot be read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "readiness-probe-"))
+    try {
+      writeFileSync(
+        join(dir, "20261009T000000Z-0123456789ab.json"),
+        JSON.stringify({ sha: SHA })
+      )
+      writeFileSync(
+        join(dir, "20261010T000000Z-89abcdef0123.rollback.json"),
+        "{"
+      )
+      expect(() => promotedSha(dir)).toThrow(UsageError)
+      expect(() => promotedSha(dir)).toThrow(/names no earlier promotion/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("is a usage error when nothing has been promoted", () => {
     const dir = mkdtempSync(join(tmpdir(), "readiness-probe-"))
     try {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { Session } from "@/lib/server/session"
 
@@ -73,9 +73,8 @@ vi.mock("@/lib/server/attribute-metadata", () => ({
   loadGoogleAttributeMetadata: google.metadata,
 }))
 
-const { loadBusinessInformation, previewBusinessInformation } = await import(
-  "@/lib/server/business-information"
-)
+const { loadBusinessInformation, previewBusinessInformation } =
+  await import("@/lib/server/business-information")
 
 const session: Session = {
   sessionId: "s1",
@@ -103,13 +102,22 @@ beforeEach(() => {
   state.writes = 0
   state.observation = null
   google.location.mockImplementation(async () => structuredClone(location))
-  google.attributes.mockResolvedValue({ name: "locations/l1/attributes", attributes: [] })
+  google.attributes.mockResolvedValue({
+    name: "locations/l1/attributes",
+    attributes: [],
+  })
   google.metadata.mockResolvedValue([])
   observations.record.mockImplementation(
     async (_sql: unknown, input: { googlePayload?: unknown }) => {
-      state.observation = { payload: input.googlePayload ?? null, failed: false }
+      state.observation = {
+        payload: input.googlePayload ?? null,
+        failed: false,
+      }
     }
   )
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 function resetCounters() {
@@ -154,7 +162,9 @@ describe("business information freshness", () => {
     await loadBusinessInformation(session, "l1")
     const payload = state.observation!.payload as Record<string, unknown>
     resetCounters()
-    expect((await loadBusinessInformation(session, "l1", { refresh: true })).source).toBe("live")
+    expect(
+      (await loadBusinessInformation(session, "l1", { refresh: true })).source
+    ).toBe("live")
     expect(google.location).toHaveBeenCalledOnce()
 
     const cases: Array<() => void> = [
@@ -182,7 +192,10 @@ describe("business information freshness", () => {
 
   it("a review that finds Google moved drops the stored read, so the refresh reads Google", async () => {
     const shown = await loadBusinessInformation(session, "l1")
-    google.location.mockResolvedValue({ ...location, title: "Changed at Google" })
+    google.location.mockResolvedValue({
+      ...location,
+      title: "Changed at Google",
+    })
     resetCounters()
     await expect(
       previewBusinessInformation({

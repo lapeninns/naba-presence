@@ -1,6 +1,7 @@
 import postgres from "postgres"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { inOneAbuseWindow } from "../helpers/abuse-window"
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
@@ -15,14 +16,6 @@ const describeDatabase = run ? describe : describe.skip
 // ABUSE_POLICIES.google_discovery.user (lib/server/abuse-limits.ts).
 const USER_LIMIT = 60
 const WINDOW_SECONDS = 15 * 60
-
-/** Windows are aligned to their length: start well inside one. */
-async function awayFromWindowEdge(marginSeconds = 60) {
-  const left = WINDOW_SECONDS - ((Date.now() / 1000) % WINDOW_SECONDS)
-  if (left < marginSeconds) {
-    await new Promise((resolve) => setTimeout(resolve, (left + 1) * 1000))
-  }
-}
 
 /**
  * W3-01: Google account and location discovery page all of Google and
@@ -138,29 +131,32 @@ describeDatabase("Google discovery", () => {
   })
 
   it("refuses discovery past the person's limit, before calling Google", async () => {
-    await awayFromWindowEdge()
-    const owner = await seedOwner()
-    for (let attempt = 0; attempt < USER_LIMIT; attempt += 1) {
-      const response = await discoverAccounts(owner.cookie)
-      expect(response.status).toBe(200)
-    }
-    const googleCalls = stub.calls.length
+    await inOneAbuseWindow(admin, WINDOW_SECONDS, async () => {
+      const owner = await seedOwner()
+      for (let attempt = 0; attempt < USER_LIMIT; attempt += 1) {
+        const response = await discoverAccounts(owner.cookie)
+        expect(response.status).toBe(200)
+      }
+      const googleCalls = stub.calls.length
 
-    const refused = await fetch(
-      `${server.baseUrl}/api/google/locations?account_name=${encodeURIComponent(
-        owner.googleAccountName
-      )}`,
-      { headers: { cookie: owner.cookie } }
-    )
-    expect(refused.status).toBe(429)
-    expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0)
-    expect(await refused.json()).toMatchObject({
-      error: "discovery_rate_limited",
+      const refused = await fetch(
+        `${server.baseUrl}/api/google/locations?account_name=${encodeURIComponent(
+          owner.googleAccountName
+        )}`,
+        { headers: { cookie: owner.cookie } }
+      )
+      expect(refused.status).toBe(429)
+      expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0)
+      expect(await refused.json()).toMatchObject({
+        error: "discovery_rate_limited",
+      })
+      expect(stub.calls.length).toBe(googleCalls)
+
+      // Another person is not held up by it.
+      const other = await seedOwner()
+      expect((await discoverAccounts(other.cookie)).status).toBe(200)
     })
-    expect(stub.calls.length).toBe(googleCalls)
-
-    // Another person is not held up by it.
-    const other = await seedOwner()
-    expect((await discoverAccounts(other.cookie)).status).toBe(200)
+    // One pass takes about 30 s under load (61 discovery requests); the
+    // window check may run it twice.
   }, 120_000)
 })

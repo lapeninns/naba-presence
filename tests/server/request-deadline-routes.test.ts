@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("server-only", () => ({}))
 
@@ -79,6 +79,9 @@ const NOW = 1_000_000
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"], now: NOW })
   vi.clearAllMocks()
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe("manual backfill deadline", () => {

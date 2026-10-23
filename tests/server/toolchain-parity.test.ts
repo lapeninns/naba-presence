@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { listRepoFiles, readRepoText } from "../helpers/repo-text"
 
-// Local (.nvmrc / nvm), CI and nightly (setup-node reads .nvmrc), installs
+// Local (.nvmrc / nvm), CI (setup-node reads .nvmrc), installs
 // (`engines` + engineStrict) and Vercel (which reads `engines.node`) must all
 // run the same Node major. A drift in any one of them fails here.
 const packageJson = JSON.parse(readRepoText("package.json")) as {
@@ -60,7 +60,7 @@ describe("toolchain parity", () => {
     )
     const paths = blocks.map(({ path }) => path)
     expect(paths).toContain(".github/actions/setup/action.yml")
-    expect(paths).toContain(".github/workflows/nightly.yml")
+    expect(paths).toContain(".github/workflows/ci.yml")
     for (const { path, block } of blocks) {
       expect(block, path).toMatch(/node-version-file:\s*\.nvmrc\s*$/m)
       expect(block, path).not.toMatch(/^\s*node-version:/m)

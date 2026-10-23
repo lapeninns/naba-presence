@@ -16,8 +16,10 @@ describe("Google transport", () => {
   let respond: ((response: ServerResponse) => void) | null
   let server: Server
   let stubBaseUrl: string
+  let savedEnv: NodeJS.ProcessEnv
 
   beforeEach(async () => {
+    savedEnv = { ...process.env }
     vi.resetModules()
     calls = 0
     mode = StubMode.retryOnce
@@ -67,8 +69,11 @@ describe("Google transport", () => {
   })
 
   afterEach(async () => {
-    delete process.env.GOOGLE_API_PROXY_BASE
-    delete process.env.GOOGLE_RATE_BUDGET_ENABLED
+    // Every variable this file set, including the server URL, goes back.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) delete process.env[key]
+    }
+    Object.assign(process.env, savedEnv)
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) reject(error)
@@ -81,29 +86,31 @@ describe("Google transport", () => {
   it.each([
     "https://mybusiness.googleapis.com/v4/example",
     "https://businessprofileperformance.googleapis.com/v1/locations/1:fetchMultiDailyMetricsTimeSeries",
-  ])("retries a supported safe request %s when Google is temporarily unavailable", async (url) => {
-    // Given: a provider that succeeds after one retryable response.
-    const { googleRequest } = await import("@/lib/server/google")
+  ])(
+    "retries a supported safe request %s when Google is temporarily unavailable",
+    async (url) => {
+      // Given: a provider that succeeds after one retryable response.
+      const { googleRequest } = await import("@/lib/server/google")
 
-    // When: a safe request crosses the real HTTP transport.
-    const result = await googleRequest<{ readonly ok: boolean }>(
-      url,
-      "access-token",
-      {},
-      { maxAttempts: 2, timeoutMs: 1000 }
-    )
+      // When: a safe request crosses the real HTTP transport.
+      const result = await googleRequest<{ readonly ok: boolean }>(
+        url,
+        "access-token",
+        {},
+        { maxAttempts: 2, timeoutMs: 1000 }
+      )
 
-    // Then: the successful response is returned after exactly one retry.
-    expect(result).toEqual({ ok: true })
-    expect(calls).toBe(2)
-  })
+      // Then: the successful response is returned after exactly one retry.
+      expect(result).toEqual({ ok: true })
+      expect(calls).toBe(2)
+    }
+  )
 
   it("does not replay an ambiguous mutation", async () => {
     // Given: a provider that returns an ambiguous server failure.
     mode = StubMode.unavailable
-    const { GoogleMutationAmbiguousError, googleRequest } = await import(
-      "@/lib/server/google"
-    )
+    const { GoogleMutationAmbiguousError, googleRequest } =
+      await import("@/lib/server/google")
 
     // When: a mutation crosses the real HTTP transport.
     const request = googleRequest(
@@ -119,41 +126,88 @@ describe("Google transport", () => {
   })
 
   it.each([
-    ["https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings", "GET"],
-    ["https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings?updateMask=callsState", "PATCH"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/healthProviderAttributes?languageCode=en", "GET"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/insuranceNetworks?pageSize=10000", "GET"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions", "GET"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions/3/answers:upsert", "POST"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2:associate", "POST"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2:clearLocationAssociation", "POST"],
-    ["https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallsinsights", "GET"],
+    [
+      "https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings",
+      "GET",
+    ],
+    [
+      "https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallssettings?updateMask=callsState",
+      "PATCH",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/healthProviderAttributes?languageCode=en",
+      "GET",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/insuranceNetworks?pageSize=10000",
+      "GET",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions",
+      "GET",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions/3/answers:upsert",
+      "POST",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2:associate",
+      "POST",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2:clearLocationAssociation",
+      "POST",
+    ],
+    [
+      "https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallsinsights",
+      "GET",
+    ],
     ["https://mybusinessqanda.googleapis.com/v1/locations/1/questions", "GET"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations:reportInsights", "POST"],
-    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts:reportInsights", "POST"],
-    ["https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:associate", "POST"],
-    ["https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:clearLocationAssociation", "POST"],
-  ])("refuses the retired endpoint %s before any network call", async (url, method) => {
-    // Given: a provider that would answer anything.
-    mode = StubMode.retryOnce
-    const { googleRequest } = await import("@/lib/server/google")
-    const { ApiError } = await import("@/lib/server/http")
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations:reportInsights",
+      "POST",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts:reportInsights",
+      "POST",
+    ],
+    [
+      "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:associate",
+      "POST",
+    ],
+    [
+      "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:clearLocationAssociation",
+      "POST",
+    ],
+  ])(
+    "refuses the retired endpoint %s before any network call",
+    async (url, method) => {
+      // Given: a provider that would answer anything.
+      mode = StubMode.retryOnce
+      const { googleRequest } = await import("@/lib/server/google")
+      const { ApiError } = await import("@/lib/server/http")
 
-    // When: a request for a switched-off Google API reaches the transport.
-    const request = googleRequest(url, "access-token", { method }, {
-      mode: method === "GET" ? "safe" : "mutation",
-      timeoutMs: 1000,
-    })
+      // When: a request for a switched-off Google API reaches the transport.
+      const request = googleRequest(
+        url,
+        "access-token",
+        { method },
+        {
+          mode: method === "GET" ? "safe" : "mutation",
+          timeoutMs: 1000,
+        }
+      )
 
-    // Then: it fails with the stable retired error and nothing was sent.
-    await expect(request).rejects.toBeInstanceOf(ApiError)
-    await expect(request).rejects.toMatchObject({
-      status: 410,
-      code: "google_api_retired",
-      retryable: false,
-    })
-    expect(calls).toBe(0)
-  })
+      // Then: it fails with the stable retired error and nothing was sent.
+      await expect(request).rejects.toBeInstanceOf(ApiError)
+      await expect(request).rejects.toMatchObject({
+        status: 410,
+        code: "google_api_retired",
+        retryable: false,
+      })
+      expect(calls).toBe(0)
+    }
+  )
 
   it("still sends supported endpoints that sit beside retired ones", async () => {
     // Given: a provider that succeeds after one retryable response.
@@ -204,9 +258,8 @@ describe("Google transport", () => {
     async (name) => {
       // Given: a provider that accepts the write but answers badly.
       respond = undecodableSuccess[name as keyof typeof undecodableSuccess]
-      const { GoogleMutationAmbiguousError, googleRequest } = await import(
-        "@/lib/server/google"
-      )
+      const { GoogleMutationAmbiguousError, googleRequest } =
+        await import("@/lib/server/google")
 
       // When: a mutation crosses the real HTTP transport.
       const request = googleRequest(
@@ -226,9 +279,8 @@ describe("Google transport", () => {
   )
 
   it("keeps safe-mode decoding unchanged", async () => {
-    const { GoogleMutationAmbiguousError, googleRequest } = await import(
-      "@/lib/server/google"
-    )
+    const { GoogleMutationAmbiguousError, googleRequest } =
+      await import("@/lib/server/google")
     const read = () =>
       googleRequest<unknown>(
         "https://mybusiness.googleapis.com/v4/example",
@@ -297,9 +349,8 @@ describe("Google transport", () => {
         response.writeHead(400, { "content-type": contentType })
         response.end(body)
       }
-      const { GoogleMutationAmbiguousError, googleRequest } = await import(
-        "@/lib/server/google"
-      )
+      const { GoogleMutationAmbiguousError, googleRequest } =
+        await import("@/lib/server/google")
 
       // When: a mutation crosses the real HTTP transport.
       const request = googleRequest(
@@ -354,10 +405,9 @@ describe("Google transport", () => {
       // call's own timeout.
       respond = () => undefined
       const { googleRequest } = await import("@/lib/server/google")
-      const { withGoogleWriteDeadline } = await import(
-        "@/lib/server/google/transport"
-      )
-      const startedAt = performance.now()
+      const { withGoogleWriteDeadline } =
+        await import("@/lib/server/google/transport")
+      const abortAfter = vi.spyOn(AbortSignal, "timeout")
 
       // When: a safe read runs in the session.
       const request = withGoogleWriteDeadline(Date.now() + 200, () =>
@@ -369,9 +419,16 @@ describe("Google transport", () => {
         )
       )
 
-      // Then: it times out at the session deadline.
+      // Then: it times out, and the request was only ever given until the
+      // session deadline (200 ms), never its own 1000 ms timeout. Read from
+      // the abort the transport armed, not the wall clock, so a loaded
+      // machine cannot fail it.
       await expect(request).rejects.toMatchObject({ code: "google_timeout" })
-      expect(performance.now() - startedAt).toBeLessThan(800)
+      expect(abortAfter).toHaveBeenCalled()
+      for (const [ms] of abortAfter.mock.calls) {
+        expect(ms).toBeGreaterThan(0)
+        expect(ms).toBeLessThanOrEqual(200)
+      }
     })
   })
 
@@ -385,7 +442,7 @@ describe("Google transport", () => {
       response.end(JSON.stringify({ error: { status: "UNAVAILABLE" } }))
     }
     const { googleRequest } = await import("@/lib/server/google")
-    const startedAt = performance.now()
+    const timers = vi.spyOn(globalThis, "setTimeout")
 
     // When: a safe read is retried.
     const request = googleRequest(
@@ -402,6 +459,11 @@ describe("Google transport", () => {
       code: "UNAVAILABLE",
     })
     expect(calls).toBe(1)
-    expect(performance.now() - startedAt).toBeLessThan(500)
+    // No sleep was armed: not Retry-After's 5 s, nor the call's remaining
+    // second. (fetch's own bookkeeping tick, 499 ms, is the only timer.)
+    const sleeps = timers.mock.calls
+      .map(([, ms]) => Number(ms ?? 0))
+      .filter((ms) => ms >= 500)
+    expect(sleeps).toEqual([])
   })
 })

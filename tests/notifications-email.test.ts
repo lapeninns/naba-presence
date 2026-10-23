@@ -4,8 +4,13 @@ import type { AddressInfo } from "node:net"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+// No provider until a test starts one: `.invalid` never resolves (RFC 2606),
+// so a send a test forgot to point at its own server cannot reach anything
+// that happens to listen on the machine.
+const NO_PROVIDER = "http://email-provider.invalid"
+
 const settings = vi.hoisted(() => ({
-  baseUrl: "http://127.0.0.1:9",
+  baseUrl: "http://email-provider.invalid",
   paused: false,
 }))
 vi.mock("@/lib/server/env", () => ({
@@ -52,6 +57,7 @@ describe("sendEmail failure classification", () => {
 
   afterEach(async () => {
     vi.unstubAllGlobals()
+    settings.baseUrl = NO_PROVIDER
     if (server) {
       server.closeAllConnections()
       server.close()
@@ -379,12 +385,10 @@ describe("runDeliveries", () => {
       mayHaveSent: true,
     }
     const unsent: Row = { ...stale, id: "never-tried", mayHaveSent: false }
-    const send = vi.fn(
-      async (): Promise<SendResult> => ({
-        status: "sent",
-        providerMessageId: "m",
-      })
-    )
+    const send = vi.fn(async (): Promise<SendResult> => ({
+      status: "sent",
+      providerMessageId: "m",
+    }))
     const settled: Record<string, Settlement> = {}
     const outcome = await runDeliveries<Row>({
       name: "test",

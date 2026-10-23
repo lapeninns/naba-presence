@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expectTypeOf, it } from "vitest"
 
 import type {
   GooglePerformancePoint,
@@ -6,44 +6,22 @@ import type {
   GoogleSearchKeywordPoint,
 } from "@/lib/server/google"
 
+/** `T` with every `readonly` modifier removed. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] }
+
+// Checked by `pnpm typecheck` (tests are in tsconfig): legacy consumers
+// update fields on these response values, so none of them may become
+// readonly in the public compatibility facade.
 describe("Google provider public types", () => {
   it("keeps legacy response fields mutable", () => {
-    // Given: values typed through the public compatibility facade.
-    const performancePoint: GooglePerformancePoint = {
-      metric: "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
-      date: "2026-08-08",
-      value: 1,
-    }
-    const keywordPoint: GoogleSearchKeywordPoint = {
-      keyword: "hotel",
-      impressions: 1,
-      threshold: null,
-    }
-    const placeActionLink: GooglePlaceActionLink = {
-      name: "locations/1/placeActionLinks/1",
-      providerType: "MERCHANT",
-      isEditable: true,
-      uri: "https://example.test/book",
-      placeActionType: "APPOINTMENT",
-      isPreferred: false,
-      createTime: null,
-      updateTime: null,
-    }
-
-    // When: a legacy consumer updates fields on those response values.
-    performancePoint.value = 2
-    keywordPoint.impressions = 2
-    placeActionLink.isPreferred = true
-
-    // Then: the mutations remain valid and observable.
-    expect({
-      performanceValue: performancePoint.value,
-      keywordImpressions: keywordPoint.impressions,
-      placeActionPreferred: placeActionLink.isPreferred,
-    }).toEqual({
-      performanceValue: 2,
-      keywordImpressions: 2,
-      placeActionPreferred: true,
-    })
+    expectTypeOf<GooglePerformancePoint>().toEqualTypeOf<
+      Mutable<GooglePerformancePoint>
+    >()
+    expectTypeOf<GoogleSearchKeywordPoint>().toEqualTypeOf<
+      Mutable<GoogleSearchKeywordPoint>
+    >()
+    expectTypeOf<GooglePlaceActionLink>().toEqualTypeOf<
+      Mutable<GooglePlaceActionLink>
+    >()
   })
 })

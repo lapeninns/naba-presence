@@ -3,46 +3,15 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-describe("Local Posts migration", () => {
-  const migration = readFileSync(
-    join(process.cwd(), "supabase/migrations/0015_local_posts.sql"),
-    "utf8"
-  )
-  const lifecycle = readFileSync(
-    join(process.cwd(), "supabase/migrations/0037_local_post_lifecycle.sql"),
-    "utf8"
-  )
-
-  it("stores tenant-scoped posts and pre-provider mutation intent", () => {
-    expect(migration).toContain("create table gbp_local_post")
-    expect(migration).toContain("create table gbp_local_post_attempt")
-    expect(migration).toContain("intended_payload jsonb not null")
-    expect(migration).toContain("gbp_local_post_isolation")
-    expect(migration).toContain("gbp_local_post_attempt_isolation")
-    expect(migration.match(/force row level security/g)).toHaveLength(2)
-  })
-
-  it("supports drafts, approval, provider failure, ambiguity, and deletion", () => {
-    for (const status of [
-      "draft",
-      "awaiting_approval",
-      "publishing",
-      "published",
-      "failed",
-      "ambiguous",
-      "deleted",
-    ]) {
-      expect(migration).toContain(`'${status}'`)
-    }
-    expect(migration).toContain("google_search_url")
-  })
-
+// The schema half of this file (tables, intent payload, status vocabulary,
+// publish lease index, deprecated schedule columns) is read from the
+// migrated catalogue in tests/integration/schema-contract.test.ts.
+describe("Local Posts scheduling contract", () => {
   // The column is still in the schema, but the request/response contract no
   // longer carries it: nothing ever published a post when its time arrived,
   // so echoing a scheduled time back promised a behaviour the system does not
   // have. Asserting the column existed read as coverage for that behaviour.
   it("leaves scheduling to a due-posts claim that does not exist yet", () => {
-    expect(migration).toContain("scheduled_publish_time")
     const contract = readFileSync(
       join(process.cwd(), "lib/contracts/location-posts.ts"),
       "utf8"
@@ -53,38 +22,5 @@ describe("Local Posts migration", () => {
       "utf8"
     )
     expect(server).not.toContain("scheduled_publish_time")
-  })
-
-  // Publication schedules (0079) replaced the per-post columns; 0116 marks
-  // them deprecated and copies unpublished values out for an owner's review
-  // instead of turning them into jobs.
-  it("0116 deprecates the legacy per-post schedule columns", () => {
-    const quarantine = readFileSync(
-      join(
-        process.cwd(),
-        "supabase/migrations/0116_post_schedule_quarantine.sql"
-      ),
-      "utf8"
-    )
-    for (const column of ["scheduled_publish_time", "recurrence"])
-      expect(quarantine).toMatch(
-        new RegExp(
-          `comment on column gbp_local_post\\.${column} is\\s+'Deprecated`
-        )
-      )
-    expect(quarantine).toContain("insert into gbp_local_post_legacy_schedule")
-  })
-
-  it("0037 bounds the publish claim with a lease the reaper can expire", () => {
-    expect(lifecycle).toContain(
-      "add column publish_lease_expires_at timestamptz"
-    )
-    // Partial on the only status the reaper looks at, so it stays small
-    // against a table that is almost entirely 'published'.
-    expect(lifecycle).toContain("gbp_local_post_publish_lease_idx")
-    expect(lifecycle).toMatch(
-      /create index gbp_local_post_publish_lease_idx[\s\S]+where status = 'publishing'/
-    )
-    expect(lifecycle).toContain("'0037_local_post_lifecycle'")
   })
 })

@@ -1,7 +1,7 @@
 import postgres from "postgres"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
-import { startAppServer } from "../helpers/app-server"
+import { UNCACHED_PAUSES, startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
   createTestTenant,
@@ -15,11 +15,9 @@ import {
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
-// The app caches the pause table for PAUSE_CACHE_TTL_MS (5s,
-// lib/server/pause-controls.ts); wait past it after each change.
-const PAUSE_PROPAGATION_MS = 5_300
-const settle = () =>
-  new Promise((resolve) => setTimeout(resolve, PAUSE_PROPAGATION_MS))
+// The server reads the pause table on every check (UNCACHED_PAUSES), so a
+// change applies to the next request; production's 5 s cache is
+// tests/harness/pause-cache-ttl.test.ts's.
 
 const CRON = { authorization: "Bearer route-harness-cron-secret" }
 
@@ -43,6 +41,7 @@ describeDatabase("operator pause controls (0090)", () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
     google = await startGoogleStub()
     server = await startAppServer({
+      ...UNCACHED_PAUSES,
       GOOGLE_API_PROXY_BASE: google.baseUrl,
       GBP_MEDIA_ENABLED: "true",
       GBP_POSTS_ENABLED: "true",
@@ -55,8 +54,7 @@ describeDatabase("operator pause controls (0090)", () => {
     // suite sharing the database.
     for (const scope of touched) await setPause(scope, false)
     touched.clear()
-    await settle()
-  }, 20_000)
+  })
 
   afterAll(async () => {
     await server.stop()
@@ -97,7 +95,6 @@ describeDatabase("operator pause controls (0090)", () => {
       })
 
     await setPause("publish", true)
-    await settle()
 
     const response = await create("paused-create")
     expect(response.status, await response.clone().text()).toBe(503)
@@ -120,7 +117,6 @@ describeDatabase("operator pause controls (0090)", () => {
 
     // Lifting the pause lets the same request through without a redeploy.
     await setPause("publish", false)
-    await settle()
     const item = {
       name: `${linked.googleLocationName}/media/paused`,
       mediaFormat: "PHOTO",
@@ -141,7 +137,7 @@ describeDatabase("operator pause controls (0090)", () => {
     }))
     const resumed = await create("resumed-create")
     expect(resumed.status, await resumed.clone().text()).toBe(201)
-  }, 60_000)
+  }, 30_000)
 
   async function linkedOwner() {
     const owner = await createTestTenant(admin)
@@ -161,7 +157,6 @@ describeDatabase("operator pause controls (0090)", () => {
     const { owner } = await linkedOwner()
     google.reset()
     await setPause("sync", true)
-    await settle()
 
     const response = await fetch(`${server.baseUrl}/api/sync/backfill`, {
       method: "POST",
@@ -180,13 +175,12 @@ describeDatabase("operator pause controls (0090)", () => {
         and action = 'sync.backfill.started'
     `
     expect(audits).toHaveLength(0)
-  }, 60_000)
+  }, 30_000)
 
   it("refuses a reply publish and approval while publish is paused, recording nothing", async () => {
     const { owner, linked } = await linkedOwner()
     google.reset()
     await setPause("publish", true)
-    await settle()
 
     const publish = await fetch(
       `${server.baseUrl}/api/reviews/${linked.reviewId}/publish`,
@@ -228,7 +222,7 @@ describeDatabase("operator pause controls (0090)", () => {
           where organisation_id = ${owner.organisationId}) as attempts
     `
     expect(written[0]).toEqual({ decisions: 0, attempts: 0 })
-  }, 60_000)
+  }, 30_000)
 
   it("refuses a post approval while posts is paused, leaving no decision behind", async () => {
     const { owner, linked } = await linkedOwner()
@@ -244,7 +238,6 @@ describeDatabase("operator pause controls (0090)", () => {
     })
     google.reset()
     await setPause("posts", true)
-    await settle()
 
     const response = await fetch(
       `${server.baseUrl}/api/locations/${linked.locationId}/posts/${post.id}/approval`,
@@ -276,11 +269,10 @@ describeDatabase("operator pause controls (0090)", () => {
       decisions: 0,
       audits: 0,
     })
-  }, 60_000)
+  }, 30_000)
 
   it("pauses retention and reports the tick as paused, not dead", async () => {
     await setPause("retention", true)
-    await settle()
 
     const response = await fetch(`${server.baseUrl}/api/cron/retention`, {
       method: "POST",
@@ -309,11 +301,10 @@ describeDatabase("operator pause controls (0090)", () => {
     expect(ticks.find((tick) => tick.name === "jobs")).toMatchObject({
       paused: false,
     })
-  }, 60_000)
+  }, 30_000)
 
   it("pauses the health tick through the notifications scope", async () => {
     await setPause("notifications", true)
-    await settle()
     const response = await fetch(`${server.baseUrl}/api/cron/health`, {
       method: "POST",
       headers: CRON,
@@ -322,7 +313,7 @@ describeDatabase("operator pause controls (0090)", () => {
     expect(await response.json()).toMatchObject({
       error: "notifications_paused",
     })
-  }, 60_000)
+  }, 30_000)
 
   it("keeps the runtime role from lifting a pause", async () => {
     const runtimeUrl = process.env.DATABASE_URL!

@@ -1,12 +1,17 @@
 import { readFileSync } from "node:fs"
 
-import { describe, expect, it } from "vitest"
+import type { TransactionSql } from "postgres"
+import { describe, expect, it, vi } from "vitest"
 
+import { purgeExpiredStagingAssets } from "@/lib/server/assets"
+import { settleInterruptedListingChanges } from "@/lib/server/listing-changes"
+import { settleOperationsForAttempts } from "@/lib/server/mutation-operations"
 import { renderPlatformEmail } from "@/lib/server/notifications/messages"
 import {
   TICK_CYCLE_STALE_AFTER_SECONDS,
   TICK_STALE_AFTER_SECONDS,
 } from "@/lib/server/ops-liveness"
+import { reapStrandedLocalPosts } from "@/lib/server/posts"
 import {
   RETENTION_CYCLE_START_HOUR_UTC,
   RETENTION_ORG_MAX_ATTEMPTS,
@@ -14,9 +19,47 @@ import {
   retentionCycleDate,
 } from "@/lib/server/retention/cycle"
 import {
+  purgeOrganisation,
   RETENTION_BATCH_ROWS_DEFAULT,
   retentionBatchRows,
+  retentionPurgeCatalog,
 } from "@/lib/server/retention/purge"
+
+import { pgliteSql } from "./helpers/pglite-tx"
+
+// The tenant transaction the purge runs in, set by the batch-bound test below.
+const tenant = vi.hoisted(() => ({ sql: null as TransactionSql | null }))
+
+vi.mock("@/lib/server/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/server/db")>()),
+  withTenant: async (
+    _organisationId: string,
+    callback: (sql: TransactionSql) => Promise<unknown>
+  ) => {
+    if (!tenant.sql) throw new Error("no tenant transaction stubbed")
+    return callback(tenant.sql)
+  },
+}))
+// What the purge calls outside its own statements: the once-per-run reapers,
+// the receipts settled for reaped attempts, and staged-photo storage.
+vi.mock("@/lib/server/posts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/server/posts")>()),
+  reapStrandedLocalPosts: vi.fn(async () => ({ count: 0 })),
+}))
+vi.mock("@/lib/server/listing-changes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/server/listing-changes")>()),
+  settleInterruptedListingChanges: vi.fn(async () => 0),
+}))
+vi.mock("@/lib/server/mutation-operations", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/server/mutation-operations")
+  >()),
+  settleOperationsForAttempts: vi.fn(async () => undefined),
+}))
+vi.mock("@/lib/server/assets", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/server/assets")>()),
+  purgeExpiredStagingAssets: vi.fn(async () => 0),
+}))
 
 describe("retentionCycleDate", () => {
   it("opens no cycle before 03:00 UTC", () => {
@@ -87,18 +130,11 @@ describe("0097_retention_cycle migration", () => {
   })
 })
 
-describe("retention route", () => {
-  const route = readFileSync(
-    new URL("../app/api/cron/retention/route.ts", import.meta.url),
-    "utf8"
-  )
-
-  it("dispatches the cycle unless a page cursor is given", () => {
-    expect(route).toContain('searchParams.has("cursor")')
-    expect(route).toContain("runRetentionCycle(")
-    expect(route).toMatch(/retainPage\([\s\S]*trigger: "manual"/)
-  })
-})
+// The route's cycle-versus-page dispatch is behavioural in
+// tests/integration/routes/leases.test.ts ("keeps a hand-run retention page off
+// the cron heartbeat and the cycle", and the cycle fires before it) and
+// tests/integration/routes/retention-purge.test.ts ("through a dispatcher
+// cycle, not only a hand page").
 
 describe("tick_cycle_failures alert", () => {
   it("names the cycle, the failed organisations and their codes, and repeats", () => {
@@ -181,73 +217,99 @@ describe("retention batches", () => {
     expect(migration).toMatch(
       /add column resumes integer not null default 0 check \(resumes >= 0\)/
     )
-    expect(migration).toMatch(/on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null/)
+    expect(migration).toMatch(
+      /on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null/
+    )
     expect(migration).toContain("on review_media_item (review_id)")
-    expect(migration).toContain("on hours_sync_attempt (organisation_id, expires_at)")
+    expect(migration).toContain(
+      "on hours_sync_attempt (organisation_id, expires_at)"
+    )
     expect(migration).not.toMatch(/create index concurrently/i)
     expect(migration).toContain("'0099_retention_batches'")
   })
 })
 
+// The purge statements are behavioural in
+// tests/integration/routes/retention-purge.test.ts: batch bounds ("changes at
+// most the batch per statement and resumes across runs", "bounds destructive
+// deletes and the stranded reapers"), reviewer photo redaction under legal
+// holds ("drops an expired review's photo link, keeps live and held ones") and
+// the ai_usage deletion guard ("deletes settled AI usage past 13 months but
+// never a reserved row, an open month or allowance period, or with deletions
+// off"). Those seed rows for the steps they exercise; the guard below runs
+// every step without a database and holds each one to the bounded path.
+
 describe("retention purge statements", () => {
-  const purge = readFileSync(
-    new URL("../lib/server/retention/purge.ts", import.meta.url),
-    "utf8"
-  )
+  // boundedRows' shape: pick at most `limit` ids of the step's own table, then
+  // change only those (and only while they still match).
+  const BOUNDED =
+    /^with doomed as \( select id from "(\w+)" where .+ limit \$(\d+) \) (?:update "\1" set .+ |delete from "\1" )where id in \(select id from doomed\) and .+ returning id::text as id$/
+  const MUTATING = /\bdelete\s+from\b|\bupdate\s+\S+\s+set\b/i
+  const BATCH_ROWS = 37
 
-  it("bounds every dataset statement by the batch", () => {
-    // Every delete and update the purge issues goes through boundedRows,
-    // apart from the two in-flight reapers it calls once per run.
-    expect(purge.match(/delete from /g)).toHaveLength(1)
-    expect(purge.match(/\bupdate \$\{target\}/g)).toHaveLength(1)
-    expect(purge).toMatch(/select id from \$\{target\} where \$\{where\(\)\} limit \$\{limit\}/)
-  })
-  it("redacts the reviewer's photo link with the rest of an expired review", () => {
-    const step = purge.slice(
-      purge.indexOf('rowsStep("reviews"'),
-      purge.indexOf('rowsStep("accounts"')
-    )
-    expect(step).toContain("or reviewer_profile_photo_url is not null")
-    expect(step).toContain("reviewer_profile_photo_url = null")
-    // Legal holds still win over the expiry.
-    expect(step).toMatch(/not exists \(\s*select 1 from legal_hold h/)
-  })
+  it("changes at most the batch in every delete and update a round issues", async () => {
+    const statements: { text: string; params: unknown[] }[] = []
+    tenant.sql = pgliteSql({
+      query: async (text, params = []) => {
+        statements.push({ text, params })
+        return { rows: [] }
+      },
+    })
+    const saved = process.env.RETENTION_BATCH_ROWS
+    process.env.RETENTION_BATCH_ROWS = String(BATCH_ROWS)
+    try {
+      const result = await purgeOrganisation({
+        organisationId: "00000000-0000-0000-0000-0000000000a1",
+        requestId: "retention-bounds",
+        clientRequestId: null,
+        // Deletions on, so the destructive steps run too.
+        deletesEnabled: true,
+        deadline: Date.now() + 60_000,
+      })
+      // Nothing matched, so one round ran every step once.
+      expect(result).toMatchObject({ complete: true, rounds: 1 })
+    } finally {
+      tenant.sql = null
+      if (saved === undefined) delete process.env.RETENTION_BATCH_ROWS
+      else process.env.RETENTION_BATCH_ROWS = saved
+    }
 
-  it("deletes ai_usage only behind the deletion switch and the closed-period guard", () => {
-    const step = purge.slice(
-      purge.indexOf('rowsStep("aiUsage"'),
-      purge.indexOf('rowsStep("placeActionMutations"')
+    const mutating = statements.filter(({ text }) => MUTATING.test(text))
+    const unbounded = mutating
+      .filter(({ text, params }) => {
+        const match = BOUNDED.exec(text)
+        return !match || params[Number(match[2]) - 1] !== BATCH_ROWS
+      })
+      .map(({ text }) => text)
+    expect(unbounded).toEqual([])
+    // One bounded statement per step, on that step's table, and no other
+    // change: the once-per-run reapers live outside this module.
+    const catalog = retentionPurgeCatalog()
+    expect(mutating.map(({ text }) => BOUNDED.exec(text)?.[1])).toEqual(
+      catalog.filter((step) => !step.once).map((step) => step.table)
     )
-    expect(step).toContain("destructive: true")
-    expect(step).toContain('table: "ai_usage"')
-    expect(step).toContain(
-      "created_at < now() - make_interval(months => ${AI_USAGE_RETENTION_MONTHS})"
+    expect(catalog.filter((step) => step.once).map((step) => step.key)).toEqual(
+      ["strandedPosts", "interruptedApprovals"]
     )
-    expect(step).toContain("${aiUsageInClosedPeriod(sql)}")
-    // ai_usage is deleted nowhere else in the purge.
-    expect(purge.match(/table: "ai_usage"/g)).toHaveLength(1)
-    const guard = purge.slice(
-      purge.indexOf("export function aiUsageInClosedPeriod"),
-      purge.indexOf("/**\n * Every dataset the purge retains")
+    expect(reapStrandedLocalPosts).toHaveBeenCalledTimes(1)
+    expect(settleInterruptedListingChanges).toHaveBeenCalledTimes(1)
+    // Each batched reaper settles the receipts of the attempts it aged.
+    expect(settleOperationsForAttempts).toHaveBeenCalledTimes(
+      catalog.filter((step) => step.kind === "reap" && !step.once).length
     )
-    expect(guard).toContain("ai_usage.status in ('settled', 'released')")
-    expect(guard).toContain(
-      "< (date_trunc('month', now() at time zone 'utc'))::date"
+    expect(purgeExpiredStagingAssets).toHaveBeenCalledWith(
+      "00000000-0000-0000-0000-0000000000a1",
+      expect.objectContaining({ limit: BATCH_ROWS })
     )
-    // An allowance period (P07) that has not ended keeps its rows, and so
-    // does an open adjustment applying to it.
-    expect(guard).toMatch(
-      /and not exists \(\s*select 1 from ai_credit_period p\s+where p\.organisation_id = ai_usage\.organisation_id/
-    )
-    expect(guard).toContain("p.id = ai_usage.credit_period_id")
-    expect(guard).toContain("or p.applies_to_period_id = ai_usage.credit_period_id")
-    expect(guard).toContain("and p.ends_at > now()")
   })
 })
 
 describe("0100 AI usage retention migration", () => {
   const migration = readFileSync(
-    new URL("../supabase/migrations/0100_ai_usage_retention.sql", import.meta.url),
+    new URL(
+      "../supabase/migrations/0100_ai_usage_retention.sql",
+      import.meta.url
+    ),
     "utf8"
   )
 
@@ -264,14 +326,17 @@ describe("0100 AI usage retention migration", () => {
     const create = migration.search(
       /create index if not exists review_unredacted_expiry_v2_idx\s+on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null\s+or reviewer_display_name is not null\s+or reviewer_profile_photo_url is not null\s+or raw_payload is not null;/
     )
-    const drop = migration.indexOf("drop index if exists review_unredacted_expiry_idx;")
+    const drop = migration.indexOf(
+      "drop index if exists review_unredacted_expiry_idx;"
+    )
     const version = migration.indexOf("insert into schema_migration")
     expect(create).toBeGreaterThan(-1)
     // DROP INDEX holds ACCESS EXCLUSIVE (blocking reads) until commit, so it
     // must come after the build and be the last statement before the version row.
     expect(drop).toBeGreaterThan(create)
     expect(version).toBeGreaterThan(drop)
-    expect(migration.slice(drop, version)).not.toMatch(/^\s*(create|alter|update|insert|delete|grant)\b/im)
+    expect(migration.slice(drop, version)).not.toMatch(
+      /^\s*(create|alter|update|insert|delete|grant)\b/im
+    )
   })
 })
-

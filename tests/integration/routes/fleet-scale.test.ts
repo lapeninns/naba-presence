@@ -63,14 +63,14 @@ describeDatabase("fleet coverage at 150 organisations", () => {
       })
       locations.push(linked.externalLocationId)
     }
-  }, 600_000)
+  }, 60_000)
 
   afterAll(async () => {
     await server?.stop()
     await stub?.stop()
     await destroyTenants(admin, organisations)
     await admin.end()
-  }, 600_000)
+  }, 60_000)
 
   function cronGet(path: string) {
     return fetch(`${server.baseUrl}${path}`, {
@@ -123,12 +123,16 @@ describeDatabase("fleet coverage at 150 organisations", () => {
       const count = await covered(syncType, since)
       progress.push(count)
       if (count === FLEET) {
-        console.info(`[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`)
+        console.info(
+          `[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`
+        )
         return tick
       }
       await advanceOneMinute()
     }
-    console.info(`[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`)
+    console.info(
+      `[fleet-scale] ${syncType} coverage by tick: ${progress.join(", ")}`
+    )
     return null
   }
 
@@ -144,7 +148,7 @@ describeDatabase("fleet coverage at 150 organisations", () => {
     )
     expect(ticks).not.toBeNull()
     expect(ticks!).toBeLessThanOrEqual(20)
-  }, 1_800_000)
+  }, 120_000)
 
   it("sweeps every organisation from one daily enqueue", async () => {
     const started = new Date()
@@ -164,5 +168,5 @@ describeDatabase("fleet coverage at 150 organisations", () => {
       `[fleet-scale] sweep covered ${FLEET} organisations in ${ticks} tick(s)`
     )
     expect(ticks).not.toBeNull()
-  }, 1_800_000)
+  }, 120_000)
 })

@@ -162,7 +162,7 @@ describeDatabase("cron coverage of every organisation", () => {
     expect(
       stub.calls.some((call) => call.path.includes(first.googleLocationName))
     ).toBe(true)
-  }, 120_000)
+  }, 30_000)
 
   /** Last successful reconcile per location, as the freshness model reads it. */
   async function reconciledSince(externalLocationIds: string[], since: Date) {
@@ -216,7 +216,7 @@ describeDatabase("cron coverage of every organisation", () => {
     `
     expect(next.minutes).toBeGreaterThan(0)
     expect(next.minutes).toBeLessThanOrEqual(15)
-  }, 180_000)
+  }, 30_000)
 
   async function reconcileCheckpoint(externalLocationId: string) {
     const [row] = await admin<
@@ -300,7 +300,7 @@ describeDatabase("cron coverage of every organisation", () => {
       where id = ${tenant.externalLocationId}
     `
     expect(location.verified).toBe(true)
-  }, 180_000)
+  }, 30_000)
 
   it("re-checks a listing Google answered 404 for instead of retiring it", async () => {
     const tenant = await linkedTenant()
@@ -320,7 +320,7 @@ describeDatabase("cron coverage of every organisation", () => {
     const state = await reconcileCheckpoint(tenant.externalLocationId)
     expect(state.status).toBe("failed")
     expect(state.hoursUntilNext).toBeGreaterThan(5.9)
-  }, 180_000)
+  }, 30_000)
 
   it("does not claim a location whose login is waiting on a reconnect", async () => {
     const tenant = await linkedTenant()
@@ -344,5 +344,5 @@ describeDatabase("cron coverage of every organisation", () => {
     expect(
       stub.calls.some((call) => call.path.includes(tenant.googleLocationName))
     ).toBe(false)
-  }, 120_000)
+  }, 30_000)
 })

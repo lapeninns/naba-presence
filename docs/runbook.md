@@ -9,7 +9,8 @@ production audit and, when installed, gitleaks, on a fresh worktree and a
 throwaway PostgreSQL 17 through the runtime test role, and writes the receipt
 promotion requires (`docs/ci.md` §5). The GitHub workflows (`CI result`) run
 the same graph but are not a gate and are not needed for a release; nothing
-here waits on them. `pnpm verify:full` is the quicker check minus e2e.
+here waits on them. `pnpm verify` (typecheck, lint, unit and component tests,
+design ratchet; no database) is the quick check before a push.
 
 Production migrations are **manual**: Vercel's build runs only
 `next build --webpack`, and Production has no `DIRECT_DATABASE_URL`. The
@@ -40,8 +41,9 @@ Production is promoted only through `pnpm release:promote`
 does not deploy. In order:
 
 1. Run `pnpm verify:release` on the `origin/main` commit and keep the receipt
-   path it prints. Its base is the commit the newest committed promotion
-   receipt shipped; before the first promotion, pass
+   path it prints. Its base is the release production serves according to
+   the committed receipts (the newest promotion, or a later confirmed
+   rollback's target); before the first promotion, pass
    `--base-ref <the SHA production runs>` (`release.sha` from the platform
    health check). Do not touch the production database until it has passed:
    it is what proves the migrations apply from scratch and from production's
@@ -51,7 +53,7 @@ does not deploy. In order:
 3. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
    `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`.
 4. From a fresh worktree of `origin/main`:
-   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --dry-run`,
+   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --production-url https://<production origin> --dry-run`,
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
    with `--skip`, from a base other than the last promoted commit, or with
@@ -62,9 +64,12 @@ does not deploy. In order:
    `--skip-domain`, runs the readiness probe against the new deployment's
    URL, and only when that passes runs `vercel promote`. A failed probe
    exits 1 with production still on the previous deployment: nothing to roll
-   back. After promoting it writes a receipt under `docs/release/receipts/`,
-   with the local receipt's bytes copied beside it as `<receipt>.local.json`.
-5. Smoke: `pnpm ops:readiness --url <production> --expect-promoted`, and
+   back. After promoting it probes the production origin until it serves the
+   SHA (up to 5 attempts) and writes a receipt under `docs/release/receipts/`
+   recording that probe, with the local receipt's bytes copied beside it as
+   `<receipt>.local.json`. Exit 3 means production does not serve the SHA:
+   commit the receipt and roll back with `pnpm release:rollback` (below).
+5. Smoke: the receipt's `productionProbe.ok` is `true`, and
    `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
@@ -93,8 +98,13 @@ a restorable database snapshot and note the currently deployed Vercel
 deployment. If the migration or post-migration verification fails, restore the
 snapshot and promote that exact previous deployment as one rollback unit; do
 not run ad-hoc down migrations. The previous deployment is the `deploymentId`
-(and `sha`) of the newest committed receipt before this release's in
-`docs/release/receipts/`. After a rollback, read the deployed cron list back
+(and `sha`) of the release production served before this one (the
+dry run of `pnpm release:rollback` prints it). `pnpm release:rollback --production-url
+https://<production origin>` prints that plan without acting; `--yes`
+promotes the previous deployment, probes production for its SHA and writes a
+rollback receipt. It refuses while the database still has this release's
+migrations: restore the snapshot first, then pass `--database-restored`
+(`docs/ci.md` §7). After a rollback, read the deployed cron list back
 against that commit's `vercel.json`: Instant Rollback is not known to restore
 cron configuration (ledger OPS-09).
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
@@ -1007,28 +1017,15 @@ The incident resolves on the first health tick after the condition clears.
 The health tick cannot alert on its own absence; the readiness probe is that
 signal (below).
 
-### Hosted readiness probe
+### Scheduled readiness probe
 
-`.github/workflows/readiness-probe.yml` probes production every 5 minutes
-(docs/observability.md, "The hosted probe"). Operator setup, once:
-
-1. Create the secret, entering production's `CRON_SECRET` at the prompt (never
-   on the command line):
-   `gh secret set NABA_READINESS_TOKEN -R lapeninns/naba-presence`.
-2. Point it at production:
-   `gh variable set NABA_READINESS_URL --body https://<production origin> -R lapeninns/naba-presence`.
-3. Optionally, `gh variable set NABA_READINESS_EXPECT_PROMOTED --body true`
-   to fail when production does not serve the newest promotion receipt's
-   commit. This fails between a promotion and the merge of its receipt.
-4. Run it once by hand: `gh workflow run readiness-probe.yml`, then
-   `gh run list --workflow readiness-probe.yml`.
-5. Check that the GitHub account that last edited the workflow's cron gets
-   Actions failure emails (Settings → Notifications → Actions).
-
-The job needs hosted Actions minutes, about 8,600 a month at one billed
-minute per run. While the Actions budget blocks hosted jobs (docs/ci.md), it
-does not run. When the secret is rotated with `CRON_SECRET`, update
-`NABA_READINESS_TOKEN` too, or every run fails `unauthorised`.
+No hosted schedule exists (the GitHub workflow was removed on 2026-10-21; see
+docs/observability.md, "Scheduling the probe"). To watch production between
+releases, run `pnpm ops:readiness` every five minutes from a launchd agent on
+an operator's Mac or from an uptime service that sends the bearer header,
+with production's `CRON_SECRET` in `READINESS_PROBE_TOKEN` in that job's own
+environment (never in a file in the repository). When `CRON_SECRET` is
+rotated, update the scheduled job too, or every run fails `unauthorised`.
 
 ### Readiness probe failure
 

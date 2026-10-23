@@ -1,8 +1,13 @@
-import { readdirSync, readFileSync } from "node:fs"
-import { join, relative } from "node:path"
-import { fileURLToPath } from "node:url"
-
 import { describe, expect, it } from "vitest"
+
+import {
+  calls,
+  functionBody,
+  routeConfigString,
+  routeFiles,
+  scanRouteFile,
+  scanRouteSource,
+} from "./helpers/route-scanner"
 
 /**
  * Which handlers demand a recent two-step verification (P02-S9).
@@ -11,7 +16,8 @@ import { describe, expect, it } from "vitest"
  * publishing/approval and settings actions; reading, enrollment, exports and
  * invoice viewing stay allowed at aal1. This static scan pins the list: each
  * handler below declares `mfa: "step_up"` in its own route() config, or
- * calls `requireRecentMfa` itself where only part of it is sensitive
+ * calls `requireRecentMfa` in its own handler code (or in the one named lib
+ * function its handler calls) where only part of it is sensitive
  * (IN_HANDLER). A new sensitive handler belongs here; a stale entry fails.
  * Behaviour is covered by tests/server/mfa-step-up.test.ts and
  * tests/integration/routes/mfa-step-up.test.ts.
@@ -19,8 +25,6 @@ import { describe, expect, it } from "vitest"
  * The owner-only billing mutations (P07-S5) step up too; reading the
  * billing state (GET /api/billing) stays at aal1.
  */
-
-const repoRoot = fileURLToPath(new URL("../", import.meta.url))
 
 const STEP_UP: readonly string[] = [
   "POST app/api/members/route.ts",
@@ -93,20 +97,24 @@ const STEP_UP: readonly string[] = [
   "POST app/api/billing/cancel/route.ts",
 ]
 
-/** Handlers that call requireRecentMfa for their sensitive branch only. */
+/**
+ * Handlers that call requireRecentMfa for their sensitive branch only:
+ * "handler" when the call is in the handler's own route() code, or
+ * "module#function" for the lib function the handler calls that makes it.
+ */
 const IN_HANDLER: Record<string, string> = {
   // Approving and template replies (a batch its starter decides) publish;
   // triage and assignment do not.
-  "POST app/api/reviews/bulk/route.ts": "app/api/reviews/bulk/route.ts",
+  "POST app/api/reviews/bulk/route.ts": "handler",
   // Editing a published post republishes it; editing a draft does not.
-  "PATCH app/api/locations/[id]/posts/[postId]/route.ts": "lib/server/posts.ts",
+  "PATCH app/api/locations/[id]/posts/[postId]/route.ts":
+    "lib/server/posts.ts#updateLocalPostDraft",
   // Resuming a schedule re-arms its approved publication; pausing and
   // cancelling stop work and stay at aal1.
   "PATCH app/api/locations/[id]/post-schedules/[scheduleId]/route.ts":
-    "app/api/locations/[id]/post-schedules/[scheduleId]/route.ts",
+    "handler",
   // Detaching every location; renaming or recolouring a client does not.
-  "PATCH app/api/clients/[clientId]/route.ts":
-    "app/api/clients/[clientId]/route.ts",
+  "PATCH app/api/clients/[clientId]/route.ts": "handler",
 }
 
 /** Routes that must stay reachable at aal1. */
@@ -120,54 +128,58 @@ const NEVER: readonly string[] = [
   "app/api/billing/route.ts",
 ]
 
-function routeFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) return routeFiles(path)
-    return entry.name === "route.ts" ? [relative(repoRoot, path)] : []
-  })
-}
-
-/** Each exported handler's source, from its export to the next one. */
+/** Each exported handler's own route() code, by method. */
 function handlers(file: string): Map<string, string> {
-  const source = readFileSync(join(repoRoot, file), "utf8")
-  const pattern = /export const (GET|POST|PUT|PATCH|DELETE) = /g
-  const found = [...source.matchAll(pattern)]
   return new Map(
-    found.map((match, index) => [
-      match[1],
-      source.slice(match.index, found[index + 1]?.index ?? source.length),
+    scanRouteFile(file).handlers.map((handler) => [
+      handler.method,
+      handler.config,
     ])
   )
 }
 
-const DECLARES = /\bmfa: "step_up"/
+/** `mfa: "step_up"` at the top level of the handler's route() config. */
+const declaresStepUp = (config: string) =>
+  routeConfigString(config, "mfa") === "step_up"
+
+/** Why `config` does not reach requireRecentMfa through `where`, or null. */
+function stepUpGap(config: string, where: string): string | null {
+  if (where === "handler") {
+    return calls(config, "requireRecentMfa")
+      ? null
+      : "the handler does not call requireRecentMfa"
+  }
+  const [module, name] = where.split("#")
+  if (!calls(config, name!)) return `the handler does not call ${name}`
+  return calls(functionBody(module!, name!), "requireRecentMfa")
+    ? null
+    : `${where} does not call requireRecentMfa`
+}
 
 describe("MFA step-up declarations", () => {
-  const files = routeFiles(join(repoRoot, "app/api"))
+  const files = routeFiles()
 
   it.each(STEP_UP.map((key) => [key]))("%s declares step_up", (key) => {
     const [method, file] = key.split(" ")
     const handler = handlers(file).get(method)
     expect(handler, `${key} does not exist`).toBeDefined()
-    expect(handler).toMatch(DECLARES)
+    expect(declaresStepUp(handler!), key).toBe(true)
   })
 
   it.each(Object.entries(IN_HANDLER))(
     "%s calls requireRecentMfa",
-    (key, module) => {
+    (key, where) => {
       const [method, file] = key.split(" ")
-      expect(handlers(file).get(method)).toBeDefined()
-      expect(readFileSync(join(repoRoot, module), "utf8")).toMatch(
-        /requireRecentMfa\(/
-      )
+      const handler = handlers(file!).get(method!)
+      expect(handler, `${key} does not exist`).toBeDefined()
+      expect(stepUpGap(handler!, where), key).toBeNull()
     }
   )
 
   it("declares it nowhere else", () => {
     const declared = files.flatMap((file) =>
       [...handlers(file)]
-        .filter(([, source]) => DECLARES.test(source))
+        .filter(([, config]) => declaresStepUp(config))
         .map(([method]) => `${method} ${file}`)
     )
     expect(declared.sort()).toEqual([...STEP_UP].sort())
@@ -176,12 +188,79 @@ describe("MFA step-up declarations", () => {
   it("never on a read, enrollment, export or workspace switch", () => {
     for (const file of files) {
       const get = handlers(file).get("GET")
-      if (get) expect(get, file).not.toMatch(DECLARES)
+      if (get) expect(declaresStepUp(get), file).toBe(false)
     }
     for (const file of NEVER) {
-      expect(readFileSync(join(repoRoot, file), "utf8"), file).not.toMatch(
-        /mfa: "step_up"|requireRecentMfa\(/
+      const route = scanRouteFile(file)
+      for (const handler of route.handlers) {
+        expect(declaresStepUp(handler.config), handler.key).toBe(false)
+      }
+      expect(calls(route.code, "requireRecentMfa"), file).toBe(false)
+    }
+  })
+
+  // The checker itself: each regression must be caught, so a loosened
+  // matcher cannot pass silently.
+  it("does not take a step-up call in another handler, a helper, a comment or a string", () => {
+    const patch = (source: string) =>
+      scanRouteSource("fixture/route.ts", source).handlers.find(
+        (handler) => handler.method === "PATCH"
+      )!.config
+    expect(
+      stepUpGap(
+        patch(
+          "export const PATCH = route({\n  handler: async ({ session }) => {\n    requireRecentMfa(session)\n  },\n})\n"
+        ),
+        "handler"
+      )
+    ).toBeNull()
+    for (const source of [
+      // Commented out.
+      "export const PATCH = route({\n  handler: async ({ session }) => {\n    // requireRecentMfa(session)\n  },\n})\n",
+      "export const PATCH = route({\n  handler: async () => {\n    /* requireRecentMfa(session) */\n  },\n})\n",
+      // Only text.
+      'export const PATCH = route({\n  handler: async () => log("requireRecentMfa(session)"),\n})\n',
+      // In another handler of the module.
+      "export const POST = route({\n  handler: async ({ session }) => requireRecentMfa(session),\n})\nexport const PATCH = route({\n  handler: async () => ok(),\n})\n",
+      // In a module helper the handler never calls.
+      "export const PATCH = route({\n  handler: async () => ok(),\n})\nfunction unused(session) {\n  requireRecentMfa(session)\n}\n",
+    ]) {
+      expect(stepUpGap(patch(source), "handler"), source).toBe(
+        "the handler does not call requireRecentMfa"
       )
     }
+    expect(
+      stepUpGap(
+        "route({ handler: async () => ok() })",
+        "lib/server/posts.ts#updateLocalPostDraft"
+      )
+    ).toBe("the handler does not call updateLocalPostDraft")
+  })
+
+  it("reads mfa only from the handler's own config", () => {
+    const configs = scanRouteSource(
+      "fixture/route.ts",
+      [
+        "export const POST = route({",
+        '  // mfa: "step_up",',
+        "  handler: async () => ok(),",
+        "})",
+        "export const PATCH = route({",
+        '  handler: async () => send({ mfa: "step_up" }),',
+        "})",
+        "export const PUT: Handler = route({",
+        '  mfa: "step_up",',
+        "  handler: async () => ok(),",
+        "})",
+      ].join("\n")
+    ).handlers.map((handler) => [
+      handler.method,
+      declaresStepUp(handler.config),
+    ])
+    expect(configs).toEqual([
+      ["POST", false],
+      ["PATCH", false],
+      ["PUT", true],
+    ])
   })
 })

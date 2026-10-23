@@ -333,7 +333,7 @@ describeDatabase("audit_log subject and review cascade indexes", () => {
       limit 1
     `
     reviewId = review.id
-  }, 300_000)
+  }, 120_000)
 
   afterAll(async () => {
     if (admin) {

@@ -12,15 +12,18 @@ const alias = {
 
 export default defineConfig({
   test: {
+    // Unit and component files run in parallel. The Mac is shared with
+    // other repositories' runs, so cap the pool; VITEST_MAX_WORKERS
+    // overrides it (a number, or a percentage of the cores).
+    maxWorkers: process.env.VITEST_MAX_WORKERS ?? "50%",
     projects: [
       {
         resolve: { alias },
         test: {
           name: "unit",
           environment: "node",
-          fileParallelism: false,
           include: ["tests/**/*.test.ts"],
-          exclude: ["tests/components/**"],
+          exclude: ["tests/components/**", "tests/integration/**"],
         },
       },
       {
@@ -29,8 +32,38 @@ export default defineConfig({
         test: {
           name: "components",
           environment: "jsdom",
-          include: ["tests/components/**/*.test.tsx", "tests/components/**/*.test.ts"],
+          include: [
+            "tests/components/**/*.test.tsx",
+            "tests/components/**/*.test.ts",
+          ],
           setupFiles: ["tests/components/setup.ts"],
+          // Whole views rendered in jsdom (a 101-item bulk change, a profile
+          // editor) take a few seconds alone and passed vitest's 5 s default
+          // only on a quiet machine; under load they timed out (2026-10-22).
+          testTimeout: 15_000,
+        },
+      },
+      {
+        // Real PostgreSQL and real app servers, run through
+        // `pnpm test:integration` (scripts/run-test-command.mjs). Files share
+        // one database and the global fleet leases, so they run one at a time.
+        resolve: { alias },
+        test: {
+          name: "integration",
+          environment: "node",
+          fileParallelism: false,
+          include: ["tests/integration/**/*.test.ts"],
+          // Real HTTP against a real server and database: vitest's 5 s
+          // default sat close to how long a multi-page sync test takes on a
+          // quiet machine, so load alone failed them (deep-reconcile timed
+          // out at 5,009 ms in the 2026-10-21 baseline). A hang still fails
+          // within half a minute; tests that need longer say so.
+          testTimeout: 30_000,
+          hookTimeout: 60_000,
+          // Lifts pauses, ends naba:% leases and drops unused test plans
+          // before the first file and after the last; a no-op unless the
+          // database is a throwaway cluster (RUN_DB_TESTS and the stamp).
+          globalSetup: ["tests/integration/helpers/global-setup.ts"],
         },
       },
     ],

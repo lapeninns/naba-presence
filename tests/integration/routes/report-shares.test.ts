@@ -226,4 +226,67 @@ describeDatabase("report shares", () => {
       expect(response.status).toBe(404)
     }
   })
+  // NP1-G06: proven with mocks only until now (report-shares-routes.test.ts).
+  it("lets no other organisation revoke a share, through its client or one of its own", async () => {
+    const owner = await fixture()
+    const a = await clientWithVenue(
+      owner.cookie,
+      owner.organisationId,
+      "Kept Arms"
+    )
+    const { url, share: kept } = await share(owner.cookie, a.clientId)
+    const stranger = await fixture()
+    const own = await clientWithVenue(
+      stranger.cookie,
+      stranger.organisationId,
+      "Stranger Inn"
+    )
+    const member = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+    })
+
+    for (const [who, cookie, clientId, status, error] of [
+      [
+        "stranger, owner's client",
+        stranger.cookie,
+        a.clientId,
+        404,
+        "client_not_found",
+      ],
+      [
+        "stranger, own client",
+        stranger.cookie,
+        own.clientId,
+        404,
+        "report_share_not_found",
+      ],
+      ["member", member.cookie, a.clientId, 403, undefined],
+    ] as const) {
+      const response = await request(
+        `/api/clients/${clientId}/report-shares/${kept.id}`,
+        cookie,
+        { method: "DELETE" }
+      )
+      expect(response.status, who).toBe(status)
+      if (error) expect(await response.json(), who).toMatchObject({ error })
+    }
+
+    const [row] = await admin<
+      { revokedAt: Date | null; revokedBy: string | null }[]
+    >`
+      select revoked_at as "revokedAt", revoked_by::text as "revokedBy"
+      from report_share
+      where id = ${kept.id}
+    `
+    expect(row).toEqual({ revokedAt: null, revokedBy: null })
+    const audits = await admin`
+      select 1 from audit_log
+      where action = 'report_share.revoked' and subject_id = ${kept.id}
+    `
+    expect(audits).toEqual([])
+    const page = await fetch(`${server.baseUrl}${publicPath(url)}`, {
+      redirect: "manual",
+    })
+    expect(page.status).toBe(200)
+  })
 })

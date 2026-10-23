@@ -3,24 +3,20 @@ import { act, cleanup, render, screen } from "@testing-library/react"
 import * as React from "react"
 import { afterEach, vi } from "vitest"
 
-import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
-import {
-  SelectionProvider,
-  useSelection,
-} from "@/components/inbox/selection-context"
-import { Toaster } from "@/components/ui/toast"
 import { gate } from "./bulk-template-gate"
 import type { ReviewRow } from "@/lib/contracts/reviews"
-import * as bulkHook from "@/lib/queries/use-bulk-review-action"
-import * as membersHook from "@/lib/queries/use-members"
-import * as sessionHook from "@/lib/queries/use-session"
 
 /**
  * Support for the tests of the template batch while its code is on the way.
- * Each test file mocks `@/components/inbox/template-reply-dialog` as a held
- * module (see bulk-template-gate.ts) and holds one scenario: the bar keeps what
- * it has loaded at module level, as the app does, so a scenario that releases
- * the code would leave the next in the same file with it already here.
+ * The test file mocks `@/components/inbox/template-dialog-loader` with the
+ * held import (see bulk-template-gate.ts). The bar keeps what it has loaded at
+ * module level, as the app does, so a scenario that releases the code would
+ * leave the next with it already here. `renderBar` therefore starts every
+ * scenario from a clean slate: a new unreleased gate, and the bar's modules
+ * imported afresh (vi.resetModules), together with the selection, toast and
+ * query-hook modules they share, so that the spies and the contexts are the
+ * very instances the bar uses. Packages in node_modules (React, TanStack)
+ * stay the one copy.
  */
 
 function review(id: string, clientId: string): ReviewRow {
@@ -57,55 +53,81 @@ function review(id: string, clientId: string): ReviewRow {
   } as unknown as ReviewRow
 }
 
-function Harness() {
-  const selection = useSelection()
-  const [rows, setRows] = React.useState([review("a", "crown")])
-  const [scopeKey, setScopeKey] = React.useState("crown")
-  const applied = React.useRef(false)
-  React.useEffect(() => {
-    if (applied.current) return
-    applied.current = true
-    selection.replace(["a"])
-  }, [selection])
-  return (
-    <>
-      {/* What the list header keeps while nothing is selected. */}
-      <div data-slot="inbox-list-header">
-        <button type="button">Select</button>
-      </div>
-      <button type="button" onClick={() => selection.clear()}>
-        clear the selection
-      </button>
-      {/* The client changes while the list still holds the previous rows (it
-          keeps them until the new ones arrive). */}
-      <button type="button" onClick={() => setScopeKey("old-school")}>
-        change the client, keep the rows
-      </button>
-      {/* The new client's rows arrive at last. */}
-      <button
-        type="button"
-        onClick={() => setRows([review("z", "old-school")])}
-      >
-        new rows arrive
-      </button>
-      {/* A refetch: the same reviews, a new array. */}
-      <button type="button" onClick={() => setRows((now) => [...now])}>
-        refetch
-      </button>
-      {/* Another client's reviews arrive while the old ids stay selected (a
-          scope change does not clear the selection). */}
-      <button
-        type="button"
-        onClick={() => setRows([review("z", "old-school")])}
-      >
-        switch client
-      </button>
-      <BulkActionBar rows={rows} scopeKey={scopeKey} />
-    </>
-  )
+type Modules = Awaited<ReturnType<typeof freshModules>>
+
+async function freshModules() {
+  vi.resetModules()
+  gate.reset()
+  const [bar, selectionContext, toast, bulkHook, membersHook, sessionHook] =
+    await Promise.all([
+      import("@/components/inbox/bulk-action-bar"),
+      import("@/components/inbox/selection-context"),
+      import("@/components/ui/toast"),
+      import("@/lib/queries/use-bulk-review-action"),
+      import("@/lib/queries/use-members"),
+      import("@/lib/queries/use-session"),
+    ])
+  return { bar, selectionContext, toast, bulkHook, membersHook, sessionHook }
 }
 
-function renderBar() {
+function makeHarness({ bar, selectionContext }: Modules) {
+  const { BulkActionBar } = bar
+  const { useSelection } = selectionContext
+  return function Harness() {
+    const selection = useSelection()
+    const [rows, setRows] = React.useState([review("a", "crown")])
+    const [scopeKey, setScopeKey] = React.useState("crown")
+    const applied = React.useRef(false)
+    React.useEffect(() => {
+      if (applied.current) return
+      applied.current = true
+      selection.replace(["a"])
+    }, [selection])
+    return (
+      <>
+        {/* What the list header keeps while nothing is selected. */}
+        <div data-slot="inbox-list-header">
+          <button type="button">Select</button>
+        </div>
+        <button type="button" onClick={() => selection.clear()}>
+          clear the selection
+        </button>
+        {/* The client changes while the list still holds the previous rows (it
+          keeps them until the new ones arrive). */}
+        <button type="button" onClick={() => setScopeKey("old-school")}>
+          change the client, keep the rows
+        </button>
+        {/* The new client's rows arrive at last. */}
+        <button
+          type="button"
+          onClick={() => setRows([review("z", "old-school")])}
+        >
+          new rows arrive
+        </button>
+        {/* A refetch: the same reviews, a new array. */}
+        <button type="button" onClick={() => setRows((now) => [...now])}>
+          refetch
+        </button>
+        {/* Another client's reviews arrive while the old ids stay selected (a
+          scope change does not clear the selection). */}
+        <button
+          type="button"
+          onClick={() => setRows([review("z", "old-school")])}
+        >
+          switch client
+        </button>
+        <BulkActionBar rows={rows} scopeKey={scopeKey} />
+      </>
+    )
+  }
+}
+
+async function renderBar() {
+  const modules = await freshModules()
+  const { bulkHook, membersHook, sessionHook } = modules
+  const { SelectionProvider } = modules.selectionContext
+  const { Toaster } = modules.toast
+  const Harness = makeHarness(modules)
   vi.spyOn(bulkHook, "useBulkReviewAction").mockReturnValue({
     mutateAsync: vi.fn(),
     isPending: false,
@@ -136,6 +158,8 @@ const batch = () => screen.queryByRole("dialog", { name: TITLE })
 async function release() {
   await act(async () => {
     gate.release()
+    // The real dialog's module graph loads afresh in every case: wait for it.
+    await Promise.allSettled(gate.imports)
     await new Promise((resolve) => setTimeout(resolve, 50))
   })
 }

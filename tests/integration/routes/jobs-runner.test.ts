@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-import { startAppServer } from "../helpers/app-server"
+import { UNCACHED_PAUSES, startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
   createTestTenant,
@@ -37,6 +37,8 @@ describeDatabase("durable background jobs", () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
     stub = await startGoogleStub()
     server = await startAppServer({
+      // The operator-pause tests below flip the table and tick at once.
+      ...UNCACHED_PAUSES,
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
       GOOGLE_TIMEOUT_MS: "2500",
       GOOGLE_MUTATION_TIMEOUT_MS: "2500",
@@ -858,13 +860,10 @@ describeDatabase("durable background jobs", () => {
           'publish', ${paused}, 'Runner pause test', 'jobs-runner.test'
         )
       `
-    // Past the app's pause cache (PAUSE_CACHE_TTL_MS, 5s).
-    const propagate = () => new Promise((resolve) => setTimeout(resolve, 5_300))
 
     afterAll(async () => {
       await pause(false)
-      await propagate()
-    }, 20_000)
+    })
 
     it("claims no retry, keeps its back-off, and still drains sync work", async () => {
       const subject = await fixture()
@@ -881,7 +880,6 @@ describeDatabase("durable background jobs", () => {
       const eventId = await seedWebhook(subject, 0)
       const before = await attemptState(attemptId)
       await pause(true)
-      await propagate()
 
       // No redeploy and no env change: the same server stops claiming.
       await runTick()
@@ -895,10 +893,9 @@ describeDatabase("durable background jobs", () => {
 
       // Resumed, the held retry drains by itself.
       await pause(false)
-      await propagate()
       await runTick()
       expect((await attemptState(attemptId)).status).toBe("succeeded")
-    }, 60_000)
+    }, 30_000)
   })
 
   // Central billing enforcement (plan P07-S3): a read-only organisation's
@@ -942,7 +939,10 @@ describeDatabase("durable background jobs", () => {
         status: 200,
         json: {
           reviewId: "stub",
-          reviewReply: { comment: body, updateTime: "2026-08-20T10:00:00.000Z" },
+          reviewReply: {
+            comment: body,
+            updateTime: "2026-08-20T10:00:00.000Z",
+          },
         },
       }))
       const retryId = await seedPublishAttempt(

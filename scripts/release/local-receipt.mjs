@@ -7,7 +7,9 @@
 import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
 export const LOCAL_RECEIPT_KIND = "naba-local-release-gate"
-export const LOCAL_RECEIPT_VERSION = 2
+// 3: steps run concurrently by their `needs`; adds the format, design,
+// bundle-budget and workflow-lint steps.
+export const LOCAL_RECEIPT_VERSION = 3
 
 /**
  * Gitignored: running the gate must not dirty the checkout that promotion
@@ -34,58 +36,118 @@ export const GATE_SOURCE_PATHS = [
 ]
 
 /**
- * Every step of the CI-equivalent run, in the order it runs. `required:
- * false` steps may be skipped only because their tool is not installed (the
- * receipt says so); a failure in any step still fails the gate.
+ * Every step of the CI-equivalent run, in receipt order. `needs` lists the
+ * steps that must pass first: verify-local.mjs starts each step as soon as
+ * its needs have passed, so independent steps run at the same time, and
+ * `--serial` runs them one by one in this order (every need comes earlier).
+ * `required: false` steps may be skipped only because their tool is not
+ * installed (the receipt says so); a failure in any step still fails the
+ * gate.
  */
 export const GATE_STEPS = [
   {
     id: "frozen-install",
     title: "Frozen install (pnpm install --frozen-lockfile)",
     required: true,
+    needs: [],
   },
-  { id: "typecheck", title: "Typecheck (pnpm typecheck)", required: true },
-  { id: "lint", title: "Lint, zero warnings (pnpm lint)", required: true },
-  { id: "unit", title: "Unit tests (pnpm test)", required: true },
+  {
+    id: "typecheck",
+    title: "Typecheck (pnpm typecheck)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "lint",
+    title: "Lint, zero warnings (pnpm lint)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "unit",
+    title: "Unit and component tests (pnpm test)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    // The files this change touches must be Prettier-formatted (a ratchet:
+    // about 775 older files are not). Compared with origin/main, the scope
+    // of a pull request; on main itself there is nothing new to check.
+    id: "format",
+    title: "Formatting of changed files (scripts/format-changed.mjs)",
+    required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "design",
+    title:
+      "Design ratchet and contrast (check:design --ratchet, check:contrast)",
+    required: true,
+    needs: ["frozen-install"],
+  },
   {
     id: "build",
     title: "Standalone build (pnpm build, webpack)",
     required: true,
+    needs: ["frozen-install"],
+  },
+  {
+    id: "bundle-budget",
+    title: "First-load JS ceilings (tests/perf/route-js.mjs)",
+    required: true,
+    needs: ["build"],
   },
   {
     id: "migration-policy",
     title: "Migration policy against the base (append-only history)",
     required: true,
+    needs: [],
   },
   {
     id: "migrate-fresh",
     title: "Migrate from scratch, no-op re-run, runtime role, db:status",
     required: true,
+    needs: ["frozen-install"],
   },
   {
     id: "migrate-upgrade",
     title: "Upgrade from the merge base matches from scratch",
     required: true,
+    needs: ["migrate-fresh"],
   },
   {
     id: "migrate-concurrent",
     title: "Concurrent migrate runs serialise on the lock",
     required: true,
+    needs: ["frozen-install"],
   },
   {
     id: "integration",
-    title: "Integration tests (pnpm test:integration)",
+    title: "Integration tests (pnpm test:integration), sharded",
     required: true,
+    needs: ["frozen-install", "build"],
   },
   {
     id: "e2e",
     title: "Browser journeys (pnpm test:e2e --forbid-only)",
     required: true,
+    needs: ["frozen-install", "build"],
   },
   {
     id: "audit",
     title: "Production dependency audit (pnpm audit --prod --audit-level high)",
     required: true,
+    needs: [],
+  },
+  {
+    // Workflow injection, permissions and pinning, while CodeQL's `actions`
+    // analysis cannot run (code scanning is unavailable on this private
+    // repository). Optional: skipped, with a note, where the tools are not
+    // installed (brew install actionlint zizmor); a finding still fails.
+    id: "workflow-lint",
+    title: "Workflow lint (actionlint, zizmor --offline)",
+    required: false,
+    needs: [],
   },
   {
     // Required since the SEC-13 follow-up: a receipt with no secret scan
@@ -93,8 +155,19 @@ export const GATE_STEPS = [
     id: "secret-scan",
     title: "Secret scan (gitleaks, full history)",
     required: true,
+    needs: [],
   },
 ]
+
+/** route-js.mjs ceilings in gzip KB (tests/perf/budgets-baseline.json). */
+export const BUNDLE_BUDGET_ARGS = Object.freeze([
+  "--max-chunk",
+  "70",
+  "--max-shared",
+  "400",
+  "--max-route",
+  "560",
+])
 
 /**
  * Test-running steps and what their receipt summary (verify-local.mjs
@@ -104,7 +177,9 @@ export const GATE_STEPS = [
  */
 export const TEST_COUNT_STEPS = {
   integration: { pattern: /^Tests (\d+) passed\b/, noSkips: true },
-  e2e: { pattern: /^(\d+) passed\b/, noSkips: false },
+  // No skips: the business-mode journeys fail instead of skipping since
+  // C4, so a skipped browser test now means something did not run.
+  e2e: { pattern: /^(\d+) passed\b/, noSkips: true },
 }
 
 /**
@@ -125,45 +200,98 @@ export function testCountProblem(id, summary) {
     .find((match) => match !== null)
   if (!counted) return `step "${id}" passed but reported no test count`
   if (Number(counted[1]) === 0) return `step "${id}" passed with 0 tests run`
-  if (rule.noSkips && /\bskipped\b/.test(counted.input)) {
-    return `step "${id}" skipped tests (${counted.input})`
-  }
+  // Vitest puts skips on its `Tests` line, Playwright on a line of its own.
+  const skipped = rule.noSkips
+    ? lines.find((line) => /\b[1-9]\d* skipped\b/.test(line))
+    : undefined
+  if (skipped) return `step "${id}" skipped tests (${skipped})`
   return null
 }
 
 export const STEP_STATUSES = ["passed", "failed", "skipped", "not-run"]
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/
+const ROLLBACK_RECEIPT_NAME = /^\d{8}T\d{6}Z-[0-9a-f]{12}\.rollback\.json$/
 
 /**
- * The release production last received: the `sha` of the newest committed
- * promotion receipt (by file name, which sorts by time). Both the gate (its
- * default upgrade base) and promotion (the base it requires) read it, so a
- * receipt's migration policy and upgrade steps start from what production
- * runs. `null` before the first promotion. Throws on an unreadable newest
- * receipt rather than silently fall back to an older one.
+ * The release production serves according to the receipts: the one rule the
+ * gate (its default upgrade base), promotion (the base it requires), the
+ * readiness probe's `--expect-promoted` and rollback (scripts/release/
+ * rollback.mjs `planRollback`) share. Replays the promotion receipts
+ * (`<UTC time>-<sha12>.json`) and rollback receipts (`….rollback.json`) in
+ * file-name order, which is time order:
+ *   - a promotion serves its release once written. `vercel promote` has
+ *     succeeded by then, and its migrations were applied before it, so this
+ *     holds whatever its `productionProbe` says (`pending` after an
+ *     interrupted promotion, or `ok: false`).
+ *   - a rollback serves its target only when its production probe confirmed
+ *     the target's SHA (`productionProbe.ok` and `servedSha`). A rollback
+ *     whose probe failed stays on record but changes nothing: production may
+ *     still serve the release it tried to leave, and the next rollback retries.
+ * Returns the promotion receipt of the serving release (`file`) and its
+ * `sha`; `null` before the first promotion. Pure. Throws, rather than fall
+ * back to an older release, on any receipt it cannot read and on a rollback
+ * that names no earlier promotion receipt.
+ *
+ * @param {{ name: string, content: string }[]} files
+ * @returns {{ file: string, sha: string } | null}
+ */
+export function servingRelease(files) {
+  const receipts = files
+    .map((file) => ({ ...file, name: file.name.split("/").pop() ?? "" }))
+    .filter(
+      (file) =>
+        PROMOTION_RECEIPT_NAME.test(file.name) ||
+        ROLLBACK_RECEIPT_NAME.test(file.name)
+    )
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  /** @type {Map<string, string>} promotion receipt file -> sha */
+  const promoted = new Map()
+  /** @type {{ file: string, sha: string } | null} */
+  let serving = null
+  for (const receipt of receipts) {
+    let parsed
+    try {
+      parsed = JSON.parse(receipt.content)
+    } catch {
+      parsed = undefined
+    }
+    if (PROMOTION_RECEIPT_NAME.test(receipt.name)) {
+      const sha = parsed?.sha
+      if (typeof sha !== "string" || !SHA_PATTERN.test(sha)) {
+        throw new Error(
+          `promotion receipt ${receipt.name} has no readable commit SHA`
+        )
+      }
+      promoted.set(receipt.name, sha)
+      serving = { file: receipt.name, sha }
+      continue
+    }
+    const target = parsed?.to?.receipt
+    const sha = typeof target === "string" ? promoted.get(target) : undefined
+    if (parsed?.kind !== "naba-rollback" || sha === undefined) {
+      throw new Error(
+        `rollback receipt ${receipt.name} names no earlier promotion receipt`
+      )
+    }
+    const probe = parsed.productionProbe
+    if (probe?.ok === true && probe.servedSha === sha) {
+      serving = { file: /** @type {string} */ (target), sha }
+    }
+  }
+  return serving
+}
+
+/**
+ * The release production last received, for the gate's default base and
+ * promotion's required base: `servingRelease`, under the name the gate
+ * (verify-local.mjs) imports.
  *
  * @param {{ name: string, content: string }[]} files
  * @returns {{ file: string, sha: string } | null}
  */
 export function latestPromotedRelease(files) {
-  const newest = files
-    .map((file) => ({ ...file, name: file.name.split("/").pop() ?? "" }))
-    .filter((file) => PROMOTION_RECEIPT_NAME.test(file.name))
-    .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0))[0]
-  if (!newest) return null
-  let sha
-  try {
-    sha = JSON.parse(newest.content)?.sha
-  } catch {
-    sha = undefined
-  }
-  if (typeof sha !== "string" || !SHA_PATTERN.test(sha)) {
-    throw new Error(
-      `promotion receipt ${newest.name} has no readable commit SHA`
-    )
-  }
-  return { file: newest.name, sha }
+  return servingRelease(files)
 }
 
 /**
@@ -308,8 +436,8 @@ export function localReceiptFileName(receipt) {
 /**
  * Why a local receipt cannot stand as promotion evidence for `sha`; empty
  * when it can. The receipt is re-judged from its steps, so a hand-edited
- * `ok: true` over a failed step does not pass. `previousSha` is the commit
- * the newest committed promotion receipt shipped (latestPromotedRelease), or
+ * `ok: true` over a failed step does not pass. `previousSha` is the release
+ * production serves according to the receipts (servingRelease), or
  * null before the first promotion; the receipt's base must be it, and in any
  * case must not be the commit itself, or the migration policy and upgrade
  * steps compared HEAD with itself.
@@ -357,7 +485,7 @@ export function localReceiptProblems(
     }
     if (previousSha && base.sha !== previousSha) {
       problems.push(
-        `the local gate's base is ${base.sha.slice(0, 12)}, not ${previousSha.slice(0, 12)}, the commit the newest promotion receipt shipped`
+        `the local gate's base is ${base.sha.slice(0, 12)}, not ${previousSha.slice(0, 12)}, the release production serves according to the receipts`
       )
     }
   }

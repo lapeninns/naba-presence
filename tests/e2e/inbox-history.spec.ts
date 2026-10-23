@@ -7,6 +7,7 @@ import {
   seedGoogleConnection,
   seedLinkedReview,
 } from "../integration/helpers/tenant"
+import { pageSettled, trackRequests } from "./helpers/settled"
 
 // WP-08 / W2-02 (docs/audits/2026-10-14-full-stack-audit): the reply
 // composer filled its box from an effect, so opening a review that already
@@ -56,13 +57,15 @@ historyTest.describe("inbox history", () => {
       const [name, value] = cookie.split("=", 2)
       await page.context().addCookies([{ name, value, url: baseURL! }])
       await page.setViewportSize({ width: 1440, height: 900 })
+      const requests = trackRequests(page)
       await page.goto("/inbox?queue=all")
       const rows = page.locator('[data-slot="review-row"]')
       await expect(rows).toHaveCount(3)
       await expect(page).toHaveURL(/selected=/)
       const box = page.getByRole("textbox", { name: "Your reply" })
       await expect(box).toHaveValue("Existing provider reply")
-      await page.waitForLoadState("networkidle")
+      await pageSettled(page)
+      await requests.idle()
 
       const before = await page.evaluate(() => window.history.length)
       for (const index of [2, 1, 0, 2, 1]) {
@@ -84,6 +87,7 @@ historyTest.describe("inbox history", () => {
       const [name, value] = cookie.split("=", 2)
       await page.context().addCookies([{ name, value, url: baseURL! }])
       await page.setViewportSize({ width: 390, height: 844 })
+      const requests = trackRequests(page)
       await page.goto("/inbox?queue=all")
       const rows = page.locator('[data-slot="review-row"]')
       await expect(rows).toHaveCount(3)
@@ -91,7 +95,8 @@ historyTest.describe("inbox history", () => {
       await expect(page).toHaveURL(/selected=/)
       const position = page.locator('[data-slot="review-position"]')
       await expect(position).toContainText("1 of 3")
-      await page.waitForLoadState("networkidle")
+      await pageSettled(page)
+      await requests.idle()
 
       const before = await page.evaluate(() => window.history.length)
       const next = page.getByRole("button", { name: "Next review" })

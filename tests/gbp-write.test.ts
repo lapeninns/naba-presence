@@ -860,7 +860,7 @@ describe("gbp-write", () => {
           throw new ApiError(400, "google_invalid_argument", "bad")
         },
       })
-    ).rejects.toBeTruthy()
+    ).rejects.toMatchObject({ code: "google_invalid_argument" })
     const [failed] = await rows("write_attempt")
     const result = await run({ requestId: "req-2" })
     expect(result.attemptId).toBe(failed.id)
@@ -882,7 +882,7 @@ describe("gbp-write", () => {
           throw new ApiError(400, "google_invalid_argument", "bad")
         },
       })
-    ).rejects.toBeTruthy()
+    ).rejects.toMatchObject({ code: "google_invalid_argument" })
     await run({ store: insertStyle, requestId: "req-2" })
     const all = await rows("write_attempt")
     expect(all.map((row) => row.status)).toEqual(["failed", "succeeded"])
@@ -907,7 +907,7 @@ describe("gbp-write", () => {
           throw new ApiError(400, "google_invalid_argument", "bad")
         },
       })
-    ).rejects.toBeTruthy()
+    ).rejects.toMatchObject({ code: "google_invalid_argument" })
     const [failed] = await rows("replay_attempt")
     expect(failed.status).toBe("failed")
     expect(failed.last_error_code).toBe("google_invalid_argument")

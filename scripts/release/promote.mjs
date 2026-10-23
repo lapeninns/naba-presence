@@ -14,8 +14,9 @@
 //   - HEAD is exactly origin/main after a fetch,
 //   - the local receipt is for that SHA, ran in a fresh worktree on the
 //     .nvmrc Node major with no requested skips and no uncommitted edits to
-//     the gate's own code, its base is the commit the newest committed
-//     promotion receipt shipped (and not HEAD itself), and every required
+//     the gate's own code, its base is the commit production serves according
+//     to the committed receipts (servingRelease: the newest promotion, or a
+//     later confirmed rollback's target; not HEAD itself), and every required
 //     step passed (re-judged from its steps, scripts/release/local-receipt.mjs),
 //   - `pnpm db:status --expect-current` against the operator's admin URL
 //     reports no pending migration.
@@ -26,22 +27,32 @@
 // must pass against the new deployment's own URL and report that SHA; only
 // then does `vercel promote` move the domains. A failed probe leaves the old
 // deployment serving and exits non-zero, with nothing to roll back. After the
-// promotion it writes a receipt to docs/release/receipts/: the build (SHA,
+// promotion the same probe runs against the production origin
+// (`--production-url`, or READINESS_URL) with bounded retries, because only
+// that proves the domains moved to the promoted SHA. The receipt is written to
+// docs/release/receipts/ as soon as `vercel promote` succeeds, with
+// `productionProbe: { status: "pending" }`, and rewritten in place with the
+// probe's result, so an interrupted probe still leaves production's change on
+// record (a receipt still `pending` is one whose probe never finished; see
+// `isProbePending`). It records the build (SHA,
 // deployment ID and URL, the local gate's receipt file, sha256, base and step
 // results), the migrations the commit ships (version and sha256), and the
 // production configuration NAMES. Never values. The local receipt's exact
 // bytes are copied beside it as `<receipt>.local.json`, to commit with it, so
-// the pinned sha256 stays checkable.
+// the pinned sha256 stays checkable. If production does not report the
+// promoted SHA the receipt is still written (production has changed, and
+// `pnpm release:rollback` reads it) and the script exits 3 with the next step.
 //
 // The probe authenticates with READINESS_PROBE_TOKEN (production's
 // CRON_SECRET, or CRON_SECRET) and, when the project uses Deployment
 // Protection, VERCEL_AUTOMATION_BYPASS_SECRET; the script refuses before
-// deploying without a token.
+// deploying without a token or a production URL.
 //
 // The decision is the pure `checkCandidate`, in the style of
 // scripts/vercel-ignore-build.mjs `decide()`; the three phases are
-// `stagedPromotion`, with the Vercel CLI and the probe injected (unit-tested
-// with both mocked). Everything else that talks to git, Vercel or the
+// `stagedPromotion` and the production check `verifyProduction`, with the
+// Vercel CLI and the probe injected (unit-tested with both mocked); rollback.mjs
+// reuses the production check. Everything else that talks to git, Vercel or the
 // database lives in `main()`.
 
 import { execFileSync, spawnSync } from "node:child_process"
@@ -53,8 +64,8 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { listMigrationVersions } from "../migration-rules.mjs"
 import {
   PROMOTION_RECEIPTS_DIR,
-  latestPromotedRelease,
   localReceiptProblems,
+  servingRelease,
 } from "./local-receipt.mjs"
 import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
@@ -191,6 +202,7 @@ export function migrationReceipt(files) {
  *   configNames: string[],
  *   operator: string,
  *   timestamp: string,
+ *   productionProbe?: ProductionVerification | PendingProductionProbe | null,
  * }} input
  */
 export function buildReceipt({
@@ -201,6 +213,7 @@ export function buildReceipt({
   configNames,
   operator,
   timestamp,
+  productionProbe = null,
 }) {
   const invalidNames = configNames.filter(
     (name) => !CONFIG_NAME_PATTERN.test(name)
@@ -223,6 +236,8 @@ export function buildReceipt({
     configNames: [...new Set(configNames)].sort(),
     operator,
     timestamp,
+    // Whether the production origin served `sha` after `vercel promote`.
+    ...(productionProbe ? { productionProbe } : {}),
   }
   const leaks = secretLikePaths(receipt)
   if (leaks.length > 0) {
@@ -368,6 +383,239 @@ export const PROBE_ATTEMPTS = 3
 export const PROBE_RETRY_MS = 10_000
 
 /**
+ * Production probe attempts after `vercel promote`, and the wait between
+ * them: the domains can take a moment to reach the new deployment. Bounded,
+ * with each attempt's process killed after PROBE_PROCESS_TIMEOUT_MS, so the
+ * check ends within about four minutes.
+ */
+export const PRODUCTION_PROBE_ATTEMPTS = 5
+export const PRODUCTION_PROBE_RETRY_MS = 15_000
+export const PROBE_PROCESS_TIMEOUT_MS = 30_000
+/** The exit code recorded for a probe process killed at the timeout. */
+export const PROBE_TIMEOUT_EXIT = 124
+/** The exit code when production does not serve the SHA after a promotion. */
+export const PRODUCTION_MISMATCH_EXIT = 3
+
+/**
+ * @typedef {{ exitCode: number, status: string, servedSha: string | null }} ProbeResult
+ * @typedef {{ url: string, expectSha: string, ok: boolean, status: string,
+ *   servedSha: string | null, exitCode: number,
+ *   attempts: { attempt: number, exitCode: number, status: string,
+ *     servedSha: string | null }[],
+ *   checkedAt: string }} ProductionVerification
+ * @typedef {{ url: string, expectSha: string, ok: false, status: "pending",
+ *   startedAt: string }} PendingProductionProbe
+ */
+
+/** `productionProbe.status` in a receipt written before the probe finished. */
+export const PROBE_PENDING_STATUS = "pending"
+
+/**
+ * The `productionProbe` a receipt records between `vercel promote` and the
+ * end of the production probe. `ok: false`, so nothing reading `ok` takes it
+ * for a pass.
+ * @param {string} url
+ * @param {string} sha
+ * @param {string} startedAt
+ * @returns {PendingProductionProbe}
+ */
+export function pendingProductionProbe(url, sha, startedAt) {
+  return {
+    url,
+    expectSha: sha,
+    ok: false,
+    status: PROBE_PENDING_STATUS,
+    startedAt,
+  }
+}
+
+/**
+ * Whether a receipt's production probe never finished: production was
+ * changed, then the script stopped (interrupted, killed, crashed) before
+ * recording the probe's result. Check production by hand
+ * (`pnpm ops:readiness --url <production origin> --expect-sha <sha>`).
+ * @param {unknown} receipt
+ */
+export function isProbePending(receipt) {
+  const probe =
+    receipt && typeof receipt === "object"
+      ? /** @type {{ productionProbe?: { status?: unknown } }} */ (receipt)
+          .productionProbe
+      : undefined
+  return probe?.status === PROBE_PENDING_STATUS
+}
+
+/**
+ * readiness-probe.mjs arguments for the production origin: as for the staged
+ * deployment, plus `--json`, so the verdict and the SHA production serves can
+ * be recorded.
+ * @param {string} url
+ * @param {string} sha
+ */
+export function productionProbeArgs(url, sha) {
+  return [...probeArgs(url, sha), "--json"]
+}
+
+/**
+ * The production origin to probe after a promotion: `--production-url`, or
+ * else READINESS_URL. https only, since the probe sends the cron bearer, and
+ * an origin rather than a path.
+ * @param {string | null | undefined} flag
+ * @param {Record<string, string | undefined>} env
+ * @returns {{ url: string, problem: null } | { url: null, problem: string }}
+ */
+export function resolveProductionUrl(flag, env) {
+  const raw = flag || env.READINESS_URL
+  if (!raw) {
+    return {
+      url: null,
+      problem:
+        "pass --production-url https://<production origin> (or set READINESS_URL), so production can be probed after the promotion",
+    }
+  }
+  let url
+  try {
+    url = new URL(raw)
+  } catch {
+    return { url: null, problem: "--production-url is not a valid URL" }
+  }
+  if (url.protocol !== "https:") {
+    return { url: null, problem: "--production-url must be https" }
+  }
+  return { url: url.origin, problem: null }
+}
+
+/**
+ * One probe run, from `spawnSync` of readiness-probe.mjs with `--json`: the
+ * exit code, the verdict and the SHA the deployment reported. A process
+ * killed at the timeout is `timeout`; output that is not the probe's JSON is
+ * `unreadable` and never passes.
+ * @param {{ status: number | null, signal?: string | null,
+ *   error?: { code?: string } | null, stdout?: string | null }} result
+ * @returns {ProbeResult}
+ */
+export function probeResultFromSpawn(result) {
+  if (
+    result.error?.code === "ETIMEDOUT" ||
+    (result.status === null && result.signal)
+  ) {
+    return { exitCode: PROBE_TIMEOUT_EXIT, status: "timeout", servedSha: null }
+  }
+  const exitCode = result.status ?? 2
+  const line = String(result.stdout ?? "")
+    .trim()
+    .split("\n")
+    .pop()
+  let parsed = null
+  try {
+    parsed = line ? JSON.parse(line) : null
+  } catch {
+    parsed = null
+  }
+  if (!parsed || typeof parsed.status !== "string") {
+    return {
+      exitCode: exitCode === 0 ? 2 : exitCode,
+      status: "unreadable",
+      servedSha: null,
+    }
+  }
+  const served = parsed.body?.release?.sha
+  return {
+    exitCode,
+    status: parsed.status,
+    servedSha:
+      typeof served === "string" && SHA_PATTERN.test(served) ? served : null,
+  }
+}
+
+/**
+ * Probe the production origin until it reports `sha`, up to `attempts`
+ * times. Passes only on exit 0 with the expected SHA served; a usage error
+ * (64) stops at once, since retrying cannot fix it. Never throws for a
+ * failed probe: the caller records the result.
+ *
+ * @param {{
+ *   url: string,
+ *   sha: string,
+ *   probe: (url: string, sha: string) => Promise<ProbeResult> | ProbeResult,
+ *   onAttempt?: (attempt: number, result: ProbeResult) => void,
+ *   sleep?: (ms: number) => Promise<void>,
+ *   attempts?: number,
+ *   retryMs?: number,
+ *   now?: () => Date,
+ * }} input
+ * @returns {Promise<ProductionVerification>}
+ */
+export async function verifyProduction({
+  url,
+  sha,
+  probe,
+  onAttempt = () => {},
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  attempts = PRODUCTION_PROBE_ATTEMPTS,
+  retryMs = PRODUCTION_PROBE_RETRY_MS,
+  now = () => new Date(),
+}) {
+  /** @type {ProductionVerification["attempts"]} */
+  const results = []
+  let last = { exitCode: 2, status: "not-run", servedSha: null }
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt > 1) await sleep(retryMs)
+    last = await probe(url, sha)
+    results.push({ attempt, ...last })
+    onAttempt(attempt, last)
+    if (last.exitCode === 0 && last.servedSha === sha) break
+    if (last.exitCode === 64) break
+  }
+  return {
+    url,
+    expectSha: sha,
+    ok: last.exitCode === 0 && last.servedSha === sha,
+    status: last.status,
+    servedSha: last.servedSha,
+    exitCode: last.exitCode,
+    attempts: results,
+    checkedAt: now().toISOString(),
+  }
+}
+
+/**
+ * What to tell the operator once production was probed, and the exit code.
+ * A failure is loud: it names what production serves instead and the next
+ * steps (`nextSteps`, which differ between promotion and rollback).
+ * @param {ProductionVerification} verification
+ * @param {{ nextSteps: string[] }} options
+ * @returns {{ exitCode: number, lines: string[] }}
+ */
+export function productionProbeReport(verification, { nextSteps }) {
+  const { url, expectSha, attempts } = verification
+  if (verification.ok) {
+    return {
+      exitCode: 0,
+      lines: [
+        `production: ${url} serves ${expectSha} (${verification.status}, attempt ${attempts.length})`,
+      ],
+    }
+  }
+  const served = verification.servedSha
+    ? `, it serves ${verification.servedSha}`
+    : ""
+  const reason =
+    verification.status === "timeout"
+      ? "the probe timed out"
+      : verification.status === "release_mismatch"
+        ? "it reports another release"
+        : `the probe said ${verification.status}`
+  return {
+    exitCode: PRODUCTION_MISMATCH_EXIT,
+    lines: [
+      `FAILED: production ${url} does not serve ${expectSha} after ${attempts.length} probe attempt(s): ${reason} (exit ${verification.exitCode})${served}.`,
+      ...nextSteps.map((step) => `Next: ${step}`),
+    ],
+  }
+}
+
+/**
  * Deploy without the domains, probe the new deployment, and promote it only
  * when the probe passed. Returns `promoted: false` (the old deployment still
  * serves production) when every probe attempt failed. A deploy or promote
@@ -412,6 +660,57 @@ export async function stagedPromotion({
   return { promoted: true, deployment, probeExitCode }
 }
 
+/**
+ * Once `vercel promote` has succeeded: write the receipt with the production
+ * probe pending, probe production, then rewrite the same receipt (same
+ * timestamp, so the same file) with the result. Production has already
+ * changed and the probe can take minutes, so the receipt must exist before
+ * it starts: an interrupted probe leaves a `pending` receipt, never none.
+ * Returns the final receipt. `buildReceipt` refusals propagate.
+ *
+ * @param {{
+ *   receiptInput: { sha: string, evidence: { localGate: LocalGateEvidence },
+ *     migrations: { version: string, sha256: string }[],
+ *     configNames: string[], operator: string },
+ *   deployment: { id: string, url: string },
+ *   productionUrl: string,
+ *   verify: () => Promise<ProductionVerification>,
+ *   write: (receipt: ReturnType<typeof buildReceipt>) => void,
+ *   now?: () => Date,
+ * }} input
+ */
+export async function recordPromotion({
+  receiptInput,
+  deployment,
+  productionUrl,
+  verify,
+  write,
+  now = () => new Date(),
+}) {
+  const timestamp = now().toISOString()
+  write(
+    buildReceipt({
+      ...receiptInput,
+      deployment,
+      timestamp,
+      productionProbe: pendingProductionProbe(
+        productionUrl,
+        receiptInput.sha,
+        timestamp
+      ),
+    })
+  )
+  const productionProbe = await verify()
+  const receipt = buildReceipt({
+    ...receiptInput,
+    deployment,
+    timestamp,
+    productionProbe,
+  })
+  write(receipt)
+  return receipt
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -424,13 +723,51 @@ function run(command, args, options = {}) {
   }).trim()
 }
 
+/**
+ * A `verifyProduction` probe that runs readiness-probe.mjs with `--json`,
+ * killed after PROBE_PROCESS_TIMEOUT_MS. The probe reads its token from the
+ * environment; stderr is inherited, stdout (the JSON) is parsed, not shown.
+ * @param {string} root
+ * @returns {(url: string, sha: string) => ProbeResult}
+ */
+export function spawnReadinessProbe(root) {
+  return (url, sha) =>
+    probeResultFromSpawn(
+      spawnSync(
+        process.execPath,
+        [
+          join(root, "scripts/ops/readiness-probe.mjs"),
+          ...productionProbeArgs(url, sha),
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "inherit"],
+          env: process.env,
+          timeout: PROBE_PROCESS_TIMEOUT_MS,
+        }
+      )
+    )
+}
+
+/** @param {number} attempt @param {ProbeResult} result */
+export function describeProbeAttempt(attempt, result) {
+  return `production probe ${attempt}/${PRODUCTION_PROBE_ATTEMPTS}: ${result.status} (exit ${result.exitCode})${result.servedSha ? `, serving ${result.servedSha}` : ""}`
+}
+
 function parseArgs(argv) {
-  const options = { dryRun: false, localReceipt: null, receiptsDir: null }
+  const options = {
+    dryRun: false,
+    localReceipt: null,
+    receiptsDir: null,
+    productionUrl: null,
+  }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--dry-run") options.dryRun = true
     else if (arg === "--local-receipt") options.localReceipt = argv[++index]
     else if (arg === "--receipts-dir") options.receiptsDir = argv[++index]
+    else if (arg === "--production-url") options.productionUrl = argv[++index]
     else throw new Error(`Unknown argument: ${arg}`)
   }
   return options
@@ -500,10 +837,11 @@ async function main() {
   // The committed history in this clean worktree of origin/main; the gate
   // read the same files at the same commit for its default base.
   let previousSha = null
+  let previousDeploymentId = null
   let previousUnreadable = false
   try {
     const dir = join(root, PROMOTION_RECEIPTS_DIR)
-    const previous = latestPromotedRelease(
+    const previous = servingRelease(
       readdirSync(dir).map((name) => ({
         name,
         content: name.endsWith(".json")
@@ -512,8 +850,19 @@ async function main() {
       }))
     )
     previousSha = previous?.sha ?? null
+    if (previous) {
+      try {
+        previousDeploymentId =
+          JSON.parse(readFileSync(join(dir, previous.file), "utf8"))
+            .deploymentId ?? null
+      } catch {
+        previousDeploymentId = null
+      }
+    }
     if (previous)
-      console.log(`last promoted: ${previous.sha} (${previous.file})`)
+      console.log(
+        `production serves (per the receipts): ${previous.sha} (${previous.file})`
+      )
   } catch (error) {
     previousUnreadable = true
     console.error(`refused: ${error.message}`)
@@ -526,6 +875,9 @@ async function main() {
       "refused: set READINESS_PROBE_TOKEN to production's CRON_SECRET, so the readiness probe can check the new deployment before it is promoted"
     )
   }
+  // So is the production origin, probed after `vercel promote`.
+  const production = resolveProductionUrl(options.productionUrl, process.env)
+  if (production.problem) console.error(`refused: ${production.problem}`)
   const schemaStatus = readSchemaStatus(root)
   const evaluation = checkCandidate({
     sha,
@@ -539,6 +891,7 @@ async function main() {
   if (
     previousUnreadable ||
     probeTokenMissing ||
+    !production.url ||
     !evaluation.ok ||
     !evaluation.evidence
   ) {
@@ -569,8 +922,10 @@ async function main() {
   const operator = run("git", ["config", "user.name"], { cwd: root })
 
   // Validate the receipt before deploying, with placeholder deployment
-  // fields, so a configuration name or operator that would make buildReceipt
-  // throw refuses here rather than after production has changed.
+  // fields and the pending production probe it is first written with, so a
+  // configuration name or operator that would make buildReceipt throw
+  // refuses here rather than after production has changed.
+  const productionUrl = /** @type {string} */ (production.url)
   const receiptInput = {
     sha,
     evidence: evaluation.evidence,
@@ -578,10 +933,16 @@ async function main() {
     configNames,
     operator,
   }
+  const provisionalTimestamp = new Date().toISOString()
   buildReceipt({
     ...receiptInput,
     deployment: { id: "dpl_pending", url: "https://pending.invalid" },
-    timestamp: new Date().toISOString(),
+    timestamp: provisionalTimestamp,
+    productionProbe: pendingProductionProbe(
+      productionUrl,
+      sha,
+      provisionalTimestamp
+    ),
   })
 
   const vercelDeploy = deployArgs(sha)
@@ -592,6 +953,9 @@ async function main() {
     )
     console.log(
       `Dry run: then, only if the probe passed, vercel ${promoteArgs("<deployment id>").join(" ")}`
+    )
+    console.log(
+      `Dry run: then node scripts/ops/readiness-probe.mjs ${productionProbeArgs(production.url, sha).join(" ")}, up to ${PRODUCTION_PROBE_ATTEMPTS} attempts, recorded in the receipt (written with the probe pending right after vercel promote, then rewritten with the result); exit ${PRODUCTION_MISMATCH_EXIT} if production does not serve ${sha}`
     )
     console.log(
       `Dry run: ${migrations.length} migration(s), ${configNames.length} configuration name(s), operator ${operator}`
@@ -642,26 +1006,57 @@ async function main() {
   // Production has changed: print what the operator needs to roll back or
   // write the receipt by hand before anything else can fail.
   console.log(`Promoted ${deployment.url} (${deployment.id}) at ${sha}`)
-  const receipt = buildReceipt({
-    ...receiptInput,
-    deployment,
-    timestamp: new Date().toISOString(),
-  })
   const receiptsDir = resolve(
     root,
     options.receiptsDir ?? "docs/release/receipts"
   )
-  mkdirSync(receiptsDir, { recursive: true })
-  // The copy first, so a written receipt never names a missing copy.
-  const copyPath = join(receiptsDir, receipt.localGate.copy)
-  writeFileSync(copyPath, /** @type {Buffer} */ (localReceiptBytes))
-  const receiptPath = join(receiptsDir, receiptFileName(receipt))
-  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
+  let receiptPath = ""
+  let copyPath = ""
+  const { productionProbe } = await recordPromotion({
+    receiptInput,
+    deployment,
+    productionUrl,
+    verify: () =>
+      verifyProduction({
+        url: productionUrl,
+        sha,
+        probe: spawnReadinessProbe(root),
+        onAttempt: (attempt, result) => {
+          const write = result.exitCode === 0 ? console.log : console.error
+          write(describeProbeAttempt(attempt, result))
+        },
+      }),
+    write: (receipt) => {
+      mkdirSync(receiptsDir, { recursive: true })
+      // The copy first, so a written receipt never names a missing copy.
+      copyPath = join(receiptsDir, receipt.localGate.copy)
+      writeFileSync(copyPath, /** @type {Buffer} */ (localReceiptBytes))
+      receiptPath = join(receiptsDir, receiptFileName(receipt))
+      writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
+      if (isProbePending(receipt)) {
+        console.log(
+          `Receipt (production probe pending until it is rewritten below): ${relative(root, receiptPath)}`
+        )
+      }
+    },
+  })
   console.log(`Receipt: ${relative(root, receiptPath)}`)
   console.log(`Local gate receipt copy: ${relative(root, copyPath)}`)
-  console.log(
-    "Next: pnpm ops:readiness --url <production> --expect-promoted, then commit both files."
+  const productionCheck = /** @type {ProductionVerification} */ (
+    productionProbe
   )
+  const report = productionProbeReport(productionCheck, {
+    nextSteps: [
+      "the promotion happened and the receipt records the failed probe; commit both files whatever you decide next.",
+      `check vercel promote status, the production domains and ${deployment.url}'s logs.`,
+      `to return production to the previous deployment${previousDeploymentId ? ` (${previousDeploymentId}, ${previousSha})` : ""}: pnpm release:rollback --production-url ${productionUrl} (a dry run), then again with --yes.`,
+    ],
+  })
+  for (const line of report.lines) {
+    ;(report.exitCode === 0 ? console.log : console.error)(line)
+  }
+  if (report.exitCode !== 0) process.exit(report.exitCode)
+  console.log("Next: commit both files.")
 }
 
 if (

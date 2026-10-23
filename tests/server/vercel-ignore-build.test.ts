@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest"
 import {
   BUILD,
   SKIP,
+  TEST_INPUT_DOCS,
   decide,
   isDocsOnlyFile,
 } from "../../scripts/vercel-ignore-build.mjs"
+import { readRepoText } from "../helpers/repo-text"
 
 const preview = {
   VERCEL_ENV: "preview",
@@ -65,24 +67,57 @@ describe("vercel-ignore-build", () => {
   })
 
   it("skips docs-only previews and builds anything else", () => {
-    expect(decide(preview, diff(["docs/ci.md", "README.md"])).exitCode).toBe(
-      SKIP
-    )
-    expect(decide(preview, diff(["docs/ci.md", "lib/x.ts"])).exitCode).toBe(
-      BUILD
-    )
+    expect(
+      decide(preview, diff(["docs/specs/plan.md", "lib/NOTES.md"])).exitCode
+    ).toBe(SKIP)
+    expect(
+      decide(preview, diff(["docs/specs/plan.md", "lib/x.ts"])).exitCode
+    ).toBe(BUILD)
     expect(decide(preview, diff(["AGENTS.md"])).exitCode).toBe(BUILD)
   })
 
   it("classifies files like ci.yml's plan job", () => {
-    expect(isDocsOnlyFile("docs/runbook.md")).toBe(true)
+    expect(isDocsOnlyFile("docs/specs/plan.md")).toBe(true)
     expect(isDocsOnlyFile("docs/evidence/shot.png")).toBe(true)
-    expect(isDocsOnlyFile("README.md")).toBe(true)
+    expect(isDocsOnlyFile("components/README.md")).toBe(true)
     expect(isDocsOnlyFile("AGENTS.md")).toBe(false)
     expect(isDocsOnlyFile("lib/AGENTS.md")).toBe(false)
     expect(isDocsOnlyFile(".github/workflows/README.md")).toBe(false)
     expect(isDocsOnlyFile("scripts/ci/README.md")).toBe(false)
     expect(isDocsOnlyFile("supabase/README.md")).toBe(false)
     expect(isDocsOnlyFile("vercel.json")).toBe(false)
+    // Docs that tests read are code: a change to one can fail `pnpm test`.
+    expect(isDocsOnlyFile("docs/runbook.md")).toBe(false)
+    expect(
+      isDocsOnlyFile("docs/release/receipts/20261018T205153Z-45ae103a70a6.json")
+    ).toBe(false)
+    expect(isDocsOnlyFile("docs/release/decision-log.md")).toBe(false)
+    expect(isDocsOnlyFile("docs/specs/plan.md")).toBe(true)
+  })
+
+  it("is the same rule as ci.yml's plan job and the pre-push hook", () => {
+    const ci = readRepoText(".github/workflows/ci.yml")
+    const hook = readRepoText(".githooks/pre-push")
+    for (const entry of TEST_INPUT_DOCS) {
+      const pattern = entry.endsWith("/") ? `${entry}*` : entry
+      expect(ci, `ci.yml: ${pattern}`).toContain(pattern)
+      expect(hook, `pre-push: ${pattern}`).toContain(pattern)
+    }
+    // Every doc the docs-path check reads is one of them.
+    for (const doc of [
+      "README.md",
+      "docs/runbook.md",
+      "docs/ci.md",
+      "docs/architecture.md",
+      "docs/frontend-backend-feature-map.md",
+    ]) {
+      expect(isDocsOnlyFile(doc), doc).toBe(false)
+    }
+    // Both names of a renamed file count.
+    expect(ci).toContain(".previous_filename // empty")
+    expect(hook).toContain("--no-renames")
+    expect(readRepoText("scripts/vercel-ignore-build.mjs")).toContain(
+      '"--no-renames"'
+    )
   })
 })

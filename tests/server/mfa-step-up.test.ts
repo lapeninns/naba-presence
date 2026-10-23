@@ -260,6 +260,12 @@ describe('route({ mfa: "step_up" })', () => {
 })
 
 describe("with MFA_ENABLED off", () => {
+  // Back to the file's setting, so no later test inherits the switch.
+  afterEach(() => {
+    vi.stubEnv("MFA_ENABLED", "true")
+    vi.resetModules()
+  })
+
   it("never refuses", async () => {
     vi.resetModules()
     vi.stubEnv("MFA_ENABLED", "false")

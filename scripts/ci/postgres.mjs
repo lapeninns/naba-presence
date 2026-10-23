@@ -2,7 +2,10 @@
 // Throwaway PostgreSQL 17 for CI jobs and local reproduction. No dependencies.
 //
 //   node scripts/ci/postgres.mjs start   start a fresh cluster on a free port
-//   node scripts/ci/postgres.mjs stop    stop it and delete its data (idempotent)
+//   node scripts/ci/postgres.mjs stop    stop it and delete its data (idempotent;
+//                                        a removal or shutdown it cannot confirm
+//                                        keeps the state and exits 1, so stop
+//                                        can be retried)
 //   node scripts/ci/postgres.mjs ports   pick a free PLAYWRIGHT_PORT
 //
 // Modes (NABA_PG_MODE): `docker` (default on Linux) runs postgres:17-alpine;
@@ -12,8 +15,14 @@
 //
 // Variables are appended to $GITHUB_ENV when it is set; otherwise they are
 // printed as `export` lines, e.g. `eval "$(node scripts/ci/postgres.mjs start)"`.
+// Besides the URLs, NABA_PG_DISPOSABLE=<host:port> marks them as this
+// throwaway cluster, and the cluster itself carries the setting
+// naba.disposable_cluster = on: scripts/run-test-command.mjs checks both
+// before it lets the suites wipe it (scripts/test-database.mjs).
 // State lives in NABA_PG_DIR (default: $RUNNER_TEMP or the OS temp dir, plus
-// a per-job name), which is where pg.log is written on the native path.
+// a per-job name), which is where pg.log is written on the native path. Start
+// one cluster per NABA_PG_DIR at a time. On the docker path the Docker CLI
+// writes the container ID file there, so it must be able to reach that path.
 
 import { execFileSync, spawnSync } from "node:child_process"
 import {
@@ -21,6 +30,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -33,6 +43,11 @@ const SUPERUSER = "postgres"
 const PASSWORD = "postgres"
 const RUNTIME_ROLE = "naba_test_runtime"
 const IMAGE = "postgres:17-alpine"
+// Kept in step with DISPOSABLE_SETTING in scripts/test-database.mjs.
+const DISPOSABLE_SETTING = "naba.disposable_cluster"
+// `supabase start` listens on 54321-54329 (54322 is the dev database);
+// never hand one of those out, even when it happens to be free.
+const SUPABASE_PORTS = { first: 54320, last: 54329 }
 
 const instance = [
   "naba-pg",
@@ -46,6 +61,7 @@ const instance = [
 const stateDir =
   process.env.NABA_PG_DIR ?? join(process.env.RUNNER_TEMP ?? tmpdir(), instance)
 const stateFile = join(stateDir, "state.json")
+const containerIdFile = join(stateDir, "container.id")
 const logFile = join(stateDir, "pg.log")
 const dataDir = join(stateDir, "data")
 
@@ -72,7 +88,7 @@ async function start() {
   const mode =
     process.env.NABA_PG_MODE ??
     (process.platform === "darwin" ? "native" : "docker")
-  const port = await freePort()
+  const port = await freeClusterPort()
   rmSync(stateDir, { recursive: true, force: true })
   mkdirSync(stateDir, { recursive: true })
 
@@ -83,7 +99,12 @@ async function start() {
     else throw new Error(`unknown NABA_PG_MODE ${mode}`)
   } catch (error) {
     printLog(state)
-    stop(state)
+    try {
+      stop(state)
+    } catch (cleanupError) {
+      // Report it, but keep the start failure as the error: it is the cause.
+      console.error(`postgres.mjs start: ${cleanupError.message}`)
+    }
     throw error
   }
 
@@ -94,6 +115,7 @@ async function start() {
     DATABASE_URL: runtime,
     TEST_RUNTIME_DATABASE_URL: runtime,
     NABA_PG_PORT: String(port),
+    NABA_PG_DISPOSABLE: `127.0.0.1:${port}`,
   })
   console.error(
     `PostgreSQL (${mode}) ready on 127.0.0.1:${port}, database ${DATABASE}`
@@ -101,14 +123,26 @@ async function start() {
 }
 
 function startDocker(state) {
-  state.container = instance.toLowerCase()
+  // Persist the mode before creation, but never acquire cleanup authority by
+  // name. The Docker CLI creates the cidfile empty before it creates the
+  // container and writes the full ID once the container exists. It keeps the
+  // ID when starting the container then fails, and deletes the file only
+  // when creation fails; only a CLI killed between the two leaves it empty.
+  // stop recovers the ID from it even if this process is interrupted.
   writeState(state)
+  // No --rm: a container that exits during startup keeps its logs for
+  // printLog, and stop removes it by ID. Nothing else does: a run killed
+  // before stop (kill -9, a reboot) leaves the container and its data volume,
+  // which the label lets docs/ci.md list for manual removal.
   run("docker", [
     "run",
     "-d",
-    "--rm",
+    "--cidfile",
+    containerIdFile,
+    "--label",
+    "naba.throwaway-pg=1",
     "--name",
-    state.container,
+    instance.toLowerCase(),
     "-p",
     `127.0.0.1:${state.port}:5432`,
     "-e",
@@ -122,7 +156,12 @@ function startDocker(state) {
     "synchronous_commit=off",
     "-c",
     "full_page_writes=off",
+    "-c",
+    `${DISPOSABLE_SETTING}=on`,
   ])
+  state.container = dockerContainerId(state)
+  if (!state.container) throw new Error("docker run created no container ID")
+  writeState(state)
   // The image's entrypoint runs a socket-only temporary server during init,
   // so only a TCP check proves the final server is up.
   const deadline = Date.now() + 60_000
@@ -179,6 +218,7 @@ function startNative(state) {
       "fsync = off",
       "synchronous_commit = off",
       "full_page_writes = off",
+      `${DISPOSABLE_SETTING} = on`,
       "",
     ].join("\n")
   )
@@ -217,25 +257,79 @@ function nativeBin() {
   )
 }
 
+// A Docker name can be reused after a container disappears. Only the full ID
+// captured from this invocation's cidfile is safe to use for logs or removal.
+function dockerContainerId(state) {
+  const id =
+    state.container ??
+    (existsSync(containerIdFile)
+      ? readFileSync(containerIdFile, "utf8").trim()
+      : null)
+  if (id === "") {
+    throw new Error(
+      `docker run recorded no container ID in ${containerIdFile} (still ` +
+        `running, or killed first); check docker ps -a --filter ` +
+        `label=naba.throwaway-pg=1 --filter name=${instance.toLowerCase()} ` +
+        `and leave ${stateDir} until resolved`
+    )
+  }
+  if (id !== null && !/^[a-f0-9]{64}$/.test(id)) {
+    throw new Error(
+      "refusing Docker cleanup with a legacy name or invalid container ID; " +
+        `leaving state in ${stateDir} for manual identification`
+    )
+  }
+  return id
+}
+
 function stop(known) {
   const state = known ?? readState()
-  if (state?.mode === "docker" && state.container) {
-    spawnSync("docker", ["rm", "-f", "-v", state.container], {
-      stdio: "ignore",
-    })
+  if (state?.mode === "docker") {
+    const container = dockerContainerId(state)
+    if (container) {
+      const removal = spawnSync("docker", ["rm", "-f", "-v", container], {
+        stdio: "ignore",
+      })
+      // `docker rm -f` exits 0 when the container is already gone (Docker
+      // CLI 20.10 and later), so a nonzero exit means the removal itself is
+      // uncertain (daemon unreachable, removal in progress): keep the ID for
+      // a retry rather than guess from stderr.
+      if (removal.error || removal.status !== 0) {
+        const detail = removal.error?.message ?? `exit ${removal.status}`
+        throw new Error(
+          `Docker cleanup failed (${detail}); preserving state in ${stateDir}`
+        )
+      }
+    }
   }
   if (
     state?.mode === "native" &&
     state.bin &&
     existsSync(join(state.dataDir, "postmaster.pid"))
   ) {
-    spawnSync(
-      join(state.bin, "pg_ctl"),
+    const pgCtl = join(state.bin, "pg_ctl")
+    const stopped = spawnSync(
+      pgCtl,
       ["-D", state.dataDir, "-m", "immediate", "-w", "stop"],
       {
         stdio: "ignore",
       }
     )
+    // The state is the only record of this cluster, so it goes only once
+    // pg_ctl itself says no server runs on the data directory (status exits
+    // 3; a postmaster.pid left by a postmaster that already died counts).
+    // A failed stop, or one that cannot be confirmed, keeps it for a retry.
+    const status = spawnSync(pgCtl, ["-D", state.dataDir, "status"], {
+      stdio: "ignore",
+    })
+    if (status.error || status.status !== 3) {
+      const detail =
+        `pg_ctl stop ${stopped.error?.message ?? `exit ${stopped.status}`}, ` +
+        `status ${status.error?.message ?? `exit ${status.status}`}`
+      throw new Error(
+        `PostgreSQL cleanup failed (${detail}); preserving state in ${stateDir}`
+      )
+    }
   }
   if (known) {
     // Failed start: keep pg.log for debugging, drop everything else.
@@ -259,6 +353,14 @@ async function ports() {
     }
   }
   throw new Error("could not find two adjacent free ports")
+}
+
+async function freeClusterPort() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const port = await freePort()
+    if (port < SUPABASE_PORTS.first || port > SUPABASE_PORTS.last) return port
+  }
+  throw new Error("could not find a free port outside the Supabase range")
 }
 
 function freePort() {
@@ -301,10 +403,19 @@ function printLog(state) {
   if (state.mode === "native" && existsSync(logFile)) {
     console.error(`--- ${logFile} ---\n${readFileSync(logFile, "utf8")}`)
   }
-  if (state.mode === "docker" && state.container) {
-    spawnSync("docker", ["logs", state.container], {
-      stdio: ["ignore", "inherit", "inherit"],
-    })
+  if (state.mode === "docker") {
+    let container
+    try {
+      container = dockerContainerId(state)
+    } catch (error) {
+      console.error(error.message)
+      return
+    }
+    if (container) {
+      // Both streams to stderr: stdout carries only the export lines that
+      // `eval "$(node scripts/ci/postgres.mjs start)"` runs.
+      spawnSync("docker", ["logs", container], { stdio: ["ignore", 2, 2] })
+    }
   }
 }
 
@@ -317,7 +428,10 @@ function readState() {
 }
 
 function writeState(state) {
-  writeFileSync(stateFile, JSON.stringify(state))
+  // Atomic, so a rewrite cut short never loses the state written before it.
+  const temporary = `${stateFile}.tmp`
+  writeFileSync(temporary, JSON.stringify(state))
+  renameSync(temporary, stateFile)
 }
 
 function run(file, args, options = {}) {

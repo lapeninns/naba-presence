@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
-
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { apiFetch, ApiClientError, isAwaitingApproval } from "@/lib/api/client"
@@ -25,6 +22,29 @@ import {
   LISTING_CHANGE_FEATURE,
 } from "@/lib/server/listing-changes"
 import { RECOVERY_ADAPTERS } from "@/lib/server/mutation-recovery-registry"
+
+import {
+  routeConfigStrings,
+  scanRouteFile,
+  type RouteHandler,
+} from "./helpers/route-scanner"
+
+/** One handler of a location route, read through the shared scanner. */
+function locationHandler(method: string, file: string): RouteHandler {
+  const path = `app/api/locations/[id]/${file}`
+  const handler = scanRouteFile(path).handlers.find(
+    (candidate) => candidate.method === method
+  )
+  if (!handler) throw new Error(`${method} ${path} does not exist`)
+  return handler
+}
+
+/** The kinds a handler submits: `submitListingChange("kind"` in its own code. */
+function submittedKinds(handler: RouteHandler): string[] {
+  return [...handler.config.matchAll(/\bsubmitListingChange\(\s*"(\w+)"/g)].map(
+    (match) => match[1]!
+  )
+}
 
 /**
  * Two-person approval for direct listing writes (plan P02-S2b). The parking,
@@ -63,20 +83,24 @@ describe("listing change registry", () => {
   })
 
   it("routes every listing write through submitListingChange", () => {
-    const routes: Record<string, string[]> = {
-      "hours/route.ts": ['"hours_publish"'],
-      "profile/route.ts": ['"profile_publish"'],
-      "food-menus/route.ts": ['"food_menus_publish"'],
-      "media/route.ts": ['"media_create"', "refuseUploadWhenApprovalRequired("],
-      "media/[mediaId]/route.ts": ['"media_update"', '"media_delete"'],
+    // Only the code of the handler that publishes counts: the kind in a
+    // comment, in another handler or in a string elsewhere does not park it.
+    // The parking itself runs in
+    // tests/integration/routes/listing-change-approval.test.ts.
+    const handlers: [string, string, string[]][] = [
+      ["POST", "hours/route.ts", ["hours_publish"]],
+      ["POST", "profile/route.ts", ["profile_publish"]],
+      ["POST", "food-menus/route.ts", ["food_menus_publish"]],
+      ["POST", "media/route.ts", ["media_create"]],
+      ["PATCH", "media/[mediaId]/route.ts", ["media_update"]],
+      ["DELETE", "media/[mediaId]/route.ts", ["media_delete"]],
+    ]
+    for (const [method, file, kinds] of handlers) {
+      expect(submittedKinds(locationHandler(method, file)), file).toEqual(kinds)
     }
-    for (const [file, needles] of Object.entries(routes)) {
-      const source = readFileSync(
-        join(process.cwd(), "app/api/locations/[id]", file),
-        "utf8"
-      )
-      for (const needle of needles) expect(source, file).toContain(needle)
-    }
+    expect(locationHandler("POST", "media/route.ts").config).toMatch(
+      /\brefuseUploadWhenApprovalRequired\(/
+    )
   })
 
   it("leaves the reviewed change-set writes to their own approval", () => {
@@ -89,12 +113,9 @@ describe("listing change registry", () => {
       "place-actions/[linkId]/route.ts": "place_action_review_required",
     }
     for (const [file, needle] of Object.entries(routes)) {
-      const source = readFileSync(
-        join(process.cwd(), "app/api/locations/[id]", file),
-        "utf8"
-      )
-      expect(source, file).toContain(needle)
-      expect(source, file).not.toContain("submitListingChange(")
+      const route = scanRouteFile(`app/api/locations/[id]/${file}`)
+      expect(route.code, file).toContain(needle)
+      expect(route.code, file).not.toMatch(/\bsubmitListingChange\(/)
     }
   })
 })
@@ -102,33 +123,18 @@ describe("listing change registry", () => {
 describe("deciding a listing change", () => {
   /** The `roles` of the route() block that submits `kind`, if any. */
   function routeRoles(kind: string): string[] | null {
-    const files = [
-      "hours/route.ts",
-      "profile/route.ts",
-      "food-menus/route.ts",
-      "media/route.ts",
-      "media/[mediaId]/route.ts",
+    const handlers: [string, string][] = [
+      ["POST", "hours/route.ts"],
+      ["POST", "profile/route.ts"],
+      ["POST", "food-menus/route.ts"],
+      ["POST", "media/route.ts"],
+      ["PATCH", "media/[mediaId]/route.ts"],
+      ["DELETE", "media/[mediaId]/route.ts"],
     ]
-    for (const file of files) {
-      const source = readFileSync(
-        join(process.cwd(), "app/api/locations/[id]", file),
-        "utf8"
-      )
-      for (const block of source.split(/\nexport const /)) {
-        if (
-          !block.includes("submitListingChange(") ||
-          !block.includes(`"${kind}"`)
-        ) {
-          continue
-        }
-        const roles = /\broles: \[([^\]]*)\]/.exec(block)
-        return roles
-          ? roles[1]!
-              .split(",")
-              .map((role) => role.trim().replace(/"/g, ""))
-              .filter(Boolean)
-          : null
-      }
+    for (const [method, file] of handlers) {
+      const handler = locationHandler(method, file)
+      if (!submittedKinds(handler).includes(kind)) continue
+      return routeConfigStrings(handler.config, "roles") ?? null
     }
     throw new Error(`no route submits ${kind}`)
   }
@@ -158,7 +164,10 @@ describe("deciding a listing change", () => {
     expect(details).toEqual([
       { label: "Media format", value: "PHOTO" },
       { label: "Category", value: "INTERIOR" },
-      { label: "Source web address", value: "https://phish.example.com/bar.jpg" },
+      {
+        label: "Source web address",
+        value: "https://phish.example.com/bar.jpg",
+      },
       { label: "Description", value: "The snug" },
     ])
 

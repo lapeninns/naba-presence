@@ -5,6 +5,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -12,6 +13,11 @@ import {
 
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
+import {
+  isDisposableCluster,
+  resetFleetState,
+  resetPlatformState,
+} from "../helpers/platform-state"
 import {
   createTestTenant,
   destroyTenants,
@@ -35,6 +41,13 @@ describeDatabase("scheduler fleet leases", () => {
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
       GOOGLE_TIMEOUT_MS: "3000",
     })
+  })
+
+  // Every assertion here is about which tick holds a database-global lease,
+  // so start each test with none held and nothing paused: a lease another
+  // file's server left behind would otherwise turn a tick into a skip.
+  beforeEach(async () => {
+    await resetFleetState(admin)
   })
 
   afterEach(async () => {
@@ -109,10 +122,10 @@ describeDatabase("scheduler fleet leases", () => {
   it("skips jobs while another session holds the jobs lease", async () => {
     const { owner, linked } = await linkedFixture()
     stub.reset()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      () => ({ status: 200, json: { reviews: [] } })
-    )
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 200,
+      json: { reviews: [] },
+    }))
     await admin`
       insert into processed_webhook_event (
         organisation_id,
@@ -338,7 +351,9 @@ describeDatabase("scheduler fleet leases", () => {
 
   it("keeps a hand-run retention page off the cron heartbeat and the cycle", async () => {
     const before = await ledger("retention")
-    const response = await cronPost("/api/cron/retention?batch_size=100&cursor=")
+    const response = await cronPost(
+      "/api/cron/retention?batch_size=100&cursor="
+    )
     expect(response.status, await response.clone().text()).toBe(200)
     const after = await ledger("retention")
     expect(after.lastManualCompletedAt).not.toBeNull()
@@ -371,31 +386,35 @@ describeDatabase("scheduler fleet leases", () => {
   it("allows only one concurrent fleet reconciliation", async () => {
     const { linked } = await linkedFixture()
     stub.reset()
-    stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      () => ({
-        status: 200,
-        json: { reviews: [] },
-        delayMs: 300,
-      })
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 200,
+      json: { reviews: [] },
+    }))
+    // The first walk is held inside its Google call for the fixture, with the
+    // fleet lease taken, until the second request has answered: the two
+    // overlap by construction, not by a delay that may or may not cover it.
+    const hold = stub.hold(
+      { method: "GET", pathIncludes: `${linked.googleLocationName}/reviews` },
+      { status: 200, json: { reviews: [] } }
     )
 
-    const responses = await Promise.all([
-      cronPost("/api/sync/reconcile"),
-      cronPost("/api/sync/reconcile"),
-    ])
+    const first = cronPost("/api/sync/reconcile")
+    await hold.entered()
+    const second = cronPost("/api/sync/reconcile")
+    // A second walk that also took the lease would reach the same call;
+    // stop waiting then, and let the assertions below report it.
+    await Promise.race([second, hold.entered(2)])
+    hold.release()
+
+    const responses = await Promise.all([first, second])
     expect(responses.every((response) => response.status === 200)).toBe(true)
     const bodies = await Promise.all(
       responses.map(
         (response) =>
-          response.json() as Promise<
-            { skipped: true } | { processed: number }
-          >
+          response.json() as Promise<{ skipped: true } | { processed: number }>
       )
     )
-    expect(
-      bodies.filter((body) => "skipped" in body).length
-    ).toBe(1)
+    expect(bodies.filter((body) => "skipped" in body).length).toBe(1)
     // The skip envelope now carries `processed: 0` so a lock miss cannot read
     // as a finished walk, so `"processed" in body` no longer discriminates.
     const completed = bodies.filter(
@@ -406,8 +425,7 @@ describeDatabase("scheduler fleet leases", () => {
     expect(
       stub.calls.filter(
         (call) =>
-          call.method === "GET" &&
-          call.path.includes(linked.googleLocationName)
+          call.method === "GET" && call.path.includes(linked.googleLocationName)
       )
     ).toHaveLength(1)
   })
@@ -531,5 +549,42 @@ describeDatabase("scheduler fleet leases", () => {
 
     expect(await reconciled(first.owner.organisationId)).toBe(true)
     expect(await reconciled(second.owner.organisationId)).toBe(true)
+  })
+
+  it("resets pauses, live fleet leases and unused test plans on a throwaway cluster only", async () => {
+    expect(await isDisposableCluster(admin)).toBe(true)
+    const code = `reset_${randomUUID().replaceAll("-", "").slice(0, 16)}`
+    await admin`
+      insert into billing_plan (
+        code, version, workspace_mode, environment, name, stripe_price_id,
+        location_limit, ai_draft_credits_per_period, is_test_offer
+      )
+      values (
+        ${code}, 1, 'agency', 'test', 'Reset test',
+        ${`price_${code.replaceAll("_", "")}`}, 1, 10, true
+      )
+    `
+    await holdLease("naba:sweep", 60)
+    await admin`
+      select set_ops_pause('jobs', true, 'Integration test pause', 'leases.test')
+    `
+
+    expect(await resetPlatformState(admin)).toBe(true)
+
+    const [state] = await admin<
+      { liveLeases: number; paused: number; plans: number }[]
+    >`
+      select
+        (select count(*)::int from fleet_lease
+          where name like 'naba:%' and expires_at > now()) as "liveLeases",
+        (select count(*)::int from ops_pause_control where paused) as paused,
+        (select count(*)::int from billing_plan where code = ${code}) as plans
+    `
+    expect(state).toEqual({ liveLeases: 0, paused: 0, plans: 0 })
+    // The tick runs again at once rather than waiting out the old lease.
+    const sweep = await cronPost("/api/sync/sweep")
+    expect(sweep.status, await sweep.clone().text()).toBe(200)
+    const body = (await sweep.json()) as { skipped?: boolean }
+    expect(body.skipped ?? false).toBe(false)
   })
 })

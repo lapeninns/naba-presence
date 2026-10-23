@@ -7,7 +7,12 @@ import { breadcrumbTrail, foldTrail } from "@/lib/ui/breadcrumb-trail"
 
 const clients = [{ id: "c1", name: "Old Crown Group" }]
 const locations = [
-  { id: "l1", name: "Old Crown Girton", clientId: "c1", clientName: "Old Crown Group" },
+  {
+    id: "l1",
+    name: "Old Crown Girton",
+    clientId: "c1",
+    clientName: "Old Crown Group",
+  },
   { id: "l2", name: "Riverside Cafe", clientId: null, clientName: null },
 ]
 
@@ -74,6 +79,13 @@ describe("breadcrumbTrail", () => {
     expect(trail("/setup")).toEqual(["Clients", "Setup"])
   })
 
+  it("knows Calendar, Notifications and bulk changes", () => {
+    // The back control names these pages from the same trail.
+    expect(trail("/calendar")).toEqual(["Calendar"])
+    expect(trail("/notifications")).toEqual(["Notifications"])
+    expect(trail("/listings/bulk")).toEqual(["Listings", "Bulk change"])
+  })
+
   it("names every real /settings/<section> route the way its tab does", () => {
     // Every page directory under app/(dashboard)/settings, with the label
     // its settings tab (lib/settings/areas.ts) gives it.
@@ -134,10 +146,16 @@ describe("breadcrumbTrail", () => {
 
 describe("breadcrumbTrail in business mode", () => {
   const business = (pathname: string) =>
-    breadcrumbTrail({ pathname, clients, locations, mode: "business" }).map((crumb) => crumb.label)
+    breadcrumbTrail({ pathname, clients, locations, mode: "business" }).map(
+      (crumb) => crumb.label
+    )
 
   it("has no client crumb on a listing", () => {
-    expect(business("/listings/l1/photos")).toEqual(["Listings", "Old Crown Girton", "Photos"])
+    expect(business("/listings/l1/photos")).toEqual([
+      "Listings",
+      "Old Crown Girton",
+      "Photos",
+    ])
     expect(business("/listings/l2")).toEqual(["Listings", "Riverside Cafe"])
   })
 
@@ -152,11 +170,16 @@ describe("breadcrumbTrail in business mode", () => {
 })
 
 describe("foldTrail (DSK-05)", () => {
-  const trail = (pathname: string) => breadcrumbTrail({ pathname, clients, locations })
+  const trail = (pathname: string) =>
+    breadcrumbTrail({ pathname, clients, locations })
 
   it("folds a listing area's middle into one entry, keeping the first and the page", () => {
     const folded = foldTrail(trail("/listings/l1/photos"))
-    expect(folded.map((crumb) => crumb.label)).toEqual(["Listings", "…", "Photos"])
+    expect(folded.map((crumb) => crumb.label)).toEqual([
+      "Listings",
+      "…",
+      "Photos",
+    ])
     expect(folded[1].folded).toEqual([
       { label: "Old Crown Group", href: "/clients/c1" },
       { label: "Old Crown Girton", href: "/listings/l1" },

@@ -4,7 +4,6 @@ import { csvCell, csvFilename, toCsv } from "@/lib/reporting/csv"
 import {
   formatPeriod,
   KEYWORD_RANGES,
-  parseRange,
   PRESENCE_RANGES,
   REPLY_RANGES,
   resolvedPeriod,
@@ -21,11 +20,11 @@ describe("report periods", () => {
   })
 
   it("keeps a shared period across tabs and defaults the rest", () => {
-    expect(parseRange("keywords", "12m")).toBe("12m")
-    expect(parseRange("reply", "12m")).toBe("12m")
-    expect(parseRange("keywords", "28d")).toBe("6m")
-    expect(parseRange("google", "6m")).toBe("28d")
-    expect(parseRange("reply", null)).toBe("28d")
+    expect(resolveTabRange("keywords", { range: "12m" }).id).toBe("12m")
+    expect(resolveTabRange("reply", { range: "12m" }).id).toBe("12m")
+    expect(resolveTabRange("google", { range: "unknown" }).id).toBe("28d")
+    expect(resolveTabRange("keywords", { range: "unknown" }).id).toBe("6m")
+    expect(resolveTabRange("reply", { range: null }).id).toBe("28d")
   })
 
   it("resolves each period to the dates its endpoint uses", () => {

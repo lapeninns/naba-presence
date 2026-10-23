@@ -24,8 +24,9 @@
 #   2. hidden, non-admin user gh-runner; your home folder closed to other users
 #   3. actions/runner (pinned version, SHA256-checked) in two instances,
 #      mac-1 and mac-2, label naba-trusted, registered at repo level
-#   4. pre/post job hooks from scripts/ci/runner-hooks/ installed root-owned
-#      in /usr/local/libexec/naba-runner and wired through each runner's .env
+#   4. pre/post job hooks (and job-processes.sh, which both source) from
+#      scripts/ci/runner-hooks/ installed root-owned in
+#      /usr/local/libexec/naba-runner and wired through each runner's .env
 #   5. one LaunchDaemon per instance, running as gh-runner
 #   6. pmset: no sleep on AC power, restart after a power failure
 #   7. verify
@@ -52,6 +53,7 @@ RUNNER_HOME="/Users/$RUNNER_USER"
 RUNNER_BASE="$RUNNER_HOME/actions-runner"
 RUNNER_LABEL=naba-trusted
 INSTANCES=(mac-1 mac-2)
+HOOK_FILES=(pre-job.sh post-job.sh job-processes.sh)
 HOOK_DIR=/usr/local/libexec/naba-runner
 DAEMON_PREFIX=com.lapeninns.naba-runner
 BREW_PREFIX=/opt/homebrew
@@ -96,7 +98,7 @@ preflight() {
   dseditgroup -o checkmember -m "$OWNER" admin >/dev/null 2>&1 || die "$OWNER is not an admin user"
   [ -x "$BREW_PREFIX/bin/brew" ] || die "Homebrew not found at $BREW_PREFIX"
   xcode-select -p >/dev/null 2>&1 || die "Command Line Tools missing (git): xcode-select --install"
-  for f in pre-job.sh post-job.sh; do
+  for f in "${HOOK_FILES[@]}"; do
     [ -f "$HOOK_SRC/$f" ] || die "missing $HOOK_SRC/$f; run from a checkout of $REPO"
   done
   sudo -v
@@ -209,7 +211,7 @@ install_hooks() {
   step "Job hooks -> $HOOK_DIR"
   sudo install -d -o root -g wheel -m 755 "$HOOK_DIR"
   local f
-  for f in pre-job.sh post-job.sh; do
+  for f in "${HOOK_FILES[@]}"; do
     if install_if_changed "$HOOK_DIR/$f" "$HOOK_SRC/$f" root:wheel 755; then
       info "$f installed"
     else
@@ -348,7 +350,8 @@ verify() {
     ev="$(mktemp)"
     printf '%s' '{"pull_request":{"head":{"repo":{"full_name":"someone/naba-presence"}},"base":{"repo":{"full_name":"lapeninns/naba-presence"}},"user":{"login":"someone"}}}' >"$ev"
     chmod 644 "$ev"
-    # Deny paths exit before the hook's pkill, so this cannot kill a live job.
+    # Deny paths exit before the hook's cleanup, which is scoped to the job's
+    # own RUNNER_TEMP and workspace anyway (unset here).
     local rc=0
     as_runner env PATH="$RUNNER_PATH" GITHUB_EVENT_PATH="$ev" GITHUB_REPOSITORY="$REPO" \
       GITHUB_EVENT_NAME=pull_request GITHUB_REF=refs/pull/1/merge GITHUB_ACTOR=someone \
@@ -376,7 +379,7 @@ verify() {
   check "$RUNNER_USER cannot read $OWNER_HOME" not as_runner test -r "$OWNER_HOME/."
   check "$RUNNER_USER can run jq" as_runner env PATH="$RUNNER_PATH" jq --version
   check "$RUNNER_USER can run PostgreSQL 17 initdb" as_runner "$BREW_PREFIX/opt/postgresql@17/bin/initdb" --version
-  for f in pre-job.sh post-job.sh; do
+  for f in "${HOOK_FILES[@]}"; do
     check "$f is root-owned, mode 755" test "$(stat -f '%Su %Lp' "$HOOK_DIR/$f" 2>/dev/null)" = "root 755"
     check "$f matches the repo copy" cmp -s "$HOOK_SRC/$f" "$HOOK_DIR/$f"
     check "$RUNNER_USER cannot write $f" not as_runner test -w "$HOOK_DIR/$f"

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 
 import { PGlite } from "@electric-sql/pglite"
-import { describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const initialMigration = readFileSync(
   new URL("../supabase/migrations/0001_initial.sql", import.meta.url),
@@ -119,79 +119,86 @@ async function seedLocation(
 }
 
 describe("local demo cleanup migration", () => {
+  // Booting PGlite and applying 0001 is setup, as in the other PGlite files;
+  // the case is the seeding and the cleanup migration.
+  let database: PGlite
+
+  beforeAll(async () => {
+    database = new PGlite()
+    await database.exec(initialMigration)
+  })
+
+  afterAll(async () => {
+    await database.close()
+  })
+
   it("removes the explicit local fixture graph and preserves Google data", async () => {
-    const database = new PGlite()
-    try {
-      await database.exec(initialMigration)
-      await database.query(
-        "insert into organisation (id, slug, name) values ($1, 'test', 'Test')",
-        [organisationId]
-      )
-      await database.query(
-        "select set_config('app.organisation_id', $1, false)",
-        [organisationId]
-      )
+    await database.query(
+      "insert into organisation (id, slug, name) values ($1, 'test', 'Test')",
+      [organisationId]
+    )
+    await database.query(
+      "select set_config('app.organisation_id', $1, false)",
+      [organisationId]
+    )
 
-      await seedLocation(database, {
-        connectionId: "00000000-0000-4000-8000-000000000010",
-        subject: "local-fixture",
-        locationId: "00000000-0000-4000-8000-000000000011",
-        externalLocationId: "00000000-0000-4000-8000-000000000012",
-        googleLocationName: "locations/local",
-        locationName: "Lapen Inns · Local Demo",
-        reviewId: "00000000-0000-4000-8000-000000000014",
-        googleReviewHash: "local-fixture-001",
-      })
-      await seedLocation(database, {
-        connectionId: "10000000-0000-4000-8000-000000000010",
-        subject: "real-google-subject",
-        locationId: "10000000-0000-4000-8000-000000000011",
-        externalLocationId: "10000000-0000-4000-8000-000000000012",
-        googleLocationName: "locations/123456789",
-        locationName: "Real Google location",
-        reviewId: "10000000-0000-4000-8000-000000000014",
-        googleReviewHash: "real-google-review-hash",
-      })
+    await seedLocation(database, {
+      connectionId: "00000000-0000-4000-8000-000000000010",
+      subject: "local-fixture",
+      locationId: "00000000-0000-4000-8000-000000000011",
+      externalLocationId: "00000000-0000-4000-8000-000000000012",
+      googleLocationName: "locations/local",
+      locationName: "Lapen Inns · Local Demo",
+      reviewId: "00000000-0000-4000-8000-000000000014",
+      googleReviewHash: "local-fixture-001",
+    })
+    await seedLocation(database, {
+      connectionId: "10000000-0000-4000-8000-000000000010",
+      subject: "real-google-subject",
+      locationId: "10000000-0000-4000-8000-000000000011",
+      externalLocationId: "10000000-0000-4000-8000-000000000012",
+      googleLocationName: "locations/123456789",
+      locationName: "Real Google location",
+      reviewId: "10000000-0000-4000-8000-000000000014",
+      googleReviewHash: "real-google-review-hash",
+    })
 
-      await database.exec(cleanupMigration)
+    await database.exec(cleanupMigration)
 
-      const counts = await database.query<{
-        demo_connections: number
-        demo_locations: number
-        demo_reviews: number
-        real_connections: number
-        real_reviews: number
-      }>(`
-        select
-          (select count(*)::integer from google_connection
-            where google_subject = 'local-fixture') as demo_connections,
-          (select count(*)::integer from location
-            where name = 'Lapen Inns · Local Demo') as demo_locations,
-          (select count(*)::integer from review
-            where id = '00000000-0000-4000-8000-000000000014') as demo_reviews,
-          (select count(*)::integer from google_connection
-            where google_subject = 'real-google-subject') as real_connections,
-          (select count(*)::integer from review
-            where id = '10000000-0000-4000-8000-000000000014') as real_reviews
-      `)
-      expect(counts.rows).toEqual([
-        {
-          demo_connections: 0,
-          demo_locations: 0,
-          demo_reviews: 0,
-          real_connections: 1,
-          real_reviews: 1,
-        },
-      ])
+    const counts = await database.query<{
+      demo_connections: number
+      demo_locations: number
+      demo_reviews: number
+      real_connections: number
+      real_reviews: number
+    }>(`
+      select
+        (select count(*)::integer from google_connection
+          where google_subject = 'local-fixture') as demo_connections,
+        (select count(*)::integer from location
+          where name = 'Lapen Inns · Local Demo') as demo_locations,
+        (select count(*)::integer from review
+          where id = '00000000-0000-4000-8000-000000000014') as demo_reviews,
+        (select count(*)::integer from google_connection
+          where google_subject = 'real-google-subject') as real_connections,
+        (select count(*)::integer from review
+          where id = '10000000-0000-4000-8000-000000000014') as real_reviews
+    `)
+    expect(counts.rows).toEqual([
+      {
+        demo_connections: 0,
+        demo_locations: 0,
+        demo_reviews: 0,
+        real_connections: 1,
+        real_reviews: 1,
+      },
+    ])
 
-      const versions = await database.query<{ version: string }>(
-        "select version from schema_migration where version = '20260729000400_remove_local_demo_data'"
-      )
-      expect(versions.rows).toEqual([
-        { version: "20260729000400_remove_local_demo_data" },
-      ])
-    } finally {
-      await database.close()
-    }
+    const versions = await database.query<{ version: string }>(
+      "select version from schema_migration where version = '20260729000400_remove_local_demo_data'"
+    )
+    expect(versions.rows).toEqual([
+      { version: "20260729000400_remove_local_demo_data" },
+    ])
   })
 })

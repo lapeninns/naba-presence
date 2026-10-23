@@ -2,12 +2,36 @@ import postgres from "postgres"
 import { expect, type Page } from "@playwright/test"
 import { startAppServer } from "../../integration/helpers/app-server"
 import { startGoogleStub } from "../../integration/helpers/google-stub"
-import { createTestTenant, destroyTenants, seedGoogleConnection, seedLinkedReview } from "../../integration/helpers/tenant"
+import {
+  createTestTenant,
+  destroyTenants,
+  seedGoogleConnection,
+  seedLinkedReview,
+} from "../../integration/helpers/tenant"
 
 export type StartMethod = "EMAIL" | "PHONE_CALL" | "SMS" | "ADDRESS" | "AUTO"
 
+/**
+ * `startAppServer` picks a free port by probing and closing it, so the port can
+ * be taken again before the server binds it. A second Playwright invocation
+ * running beside this one (the isolated specs run concurrently with the shared
+ * journeys) makes that window real: the server then exits at once, and a fresh
+ * port is a complete fix. Anything else is a real failure and is rethrown.
+ */
+async function startIsolatedAppServer(env: Record<string, string>) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await startAppServer(env)
+    } catch (error) {
+      if (attempt >= 3 || !/Server exited|EADDRINUSE/.test(String(error)))
+        throw error
+    }
+  }
+}
+
 export async function startVerificationBackend() {
-  if (!process.env.DIRECT_DATABASE_URL) throw new Error("Isolated PostgreSQL required")
+  if (!process.env.DIRECT_DATABASE_URL)
+    throw new Error("Isolated PostgreSQL required")
   const admin = postgres(process.env.DIRECT_DATABASE_URL, { max: 1 })
   // A private stub on a free port, beside the global journey stub.
   const google = await startGoogleStub({ port: 0 })
@@ -17,50 +41,198 @@ export async function startVerificationBackend() {
   // verification send makes a dozen exact reads around one write, which at
   // that pace outlasts the assertions; the integration suites raise it the
   // same way.
-  const server = await startAppServer({ GOOGLE_API_PROXY_BASE: google.baseUrl, GOOGLE_REQUESTS_PER_SECOND: "100", GBP_PROFILE_WRITES_ENABLED: "true", PUBLISH_ENABLED: "true", RESEND_API_KEY: "" })
+  const server = await startIsolatedAppServer({
+    GOOGLE_API_PROXY_BASE: google.baseUrl,
+    GOOGLE_REQUESTS_PER_SECOND: "100",
+    GBP_PROFILE_WRITES_ENABLED: "true",
+    PUBLISH_ENABLED: "true",
+    RESEND_API_KEY: "",
+  })
   return {
-    admin, google, server,
-    async stop() { await server.stop(); await google.stop(); await destroyTenants(admin, organisations); await admin.end() },
-    async fixture(page: Page, method: StartMethod | "VETTED_PARTNER" | "FUTURE_METHOD" = "EMAIL", pending = false) {
-      const owner = await createTestTenant(admin); organisations.push(owner.organisationId)
-      const connection = await seedGoogleConnection(admin, { organisationId: owner.organisationId })
-      const linked = await seedLinkedReview(admin, { organisationId: owner.organisationId, connectionId: connection.connectionId, googleAccountName: connection.googleAccountName })
+    admin,
+    google,
+    server,
+    async stop() {
+      await server.stop()
+      await google.stop()
+      await destroyTenants(admin, organisations)
+      await admin.end()
+    },
+    async fixture(
+      page: Page,
+      method: StartMethod | "VETTED_PARTNER" | "FUTURE_METHOD" = "EMAIL",
+      pending = false
+    ) {
+      const owner = await createTestTenant(admin)
+      organisations.push(owner.organisationId)
+      const connection = await seedGoogleConnection(admin, {
+        organisationId: owner.organisationId,
+      })
+      const linked = await seedLinkedReview(admin, {
+        organisationId: owner.organisationId,
+        connectionId: connection.connectionId,
+        googleAccountName: connection.googleAccountName,
+      })
       const name = `${linked.googleLocationName}/verifications/browser-request`
-      const address = { regionCode: "GB", addressLines: ["10 Fixture Service Road"], locality: "London", postalCode: "SW1A 1AA" }
+      const address = {
+        regionCode: "GB",
+        addressLines: ["10 Fixture Service Road"],
+        locality: "London",
+        postalCode: "SW1A 1AA",
+      }
       let applied = pending
-      let phase: "PENDING" | "COMPLETED" | "FAILED" = method === "AUTO" ? "COMPLETED" : "PENDING"
-      const verification = () => ({ name, method, state: phase, createTime: "2026-09-30T01:00:00Z" })
+      let phase: "PENDING" | "COMPLETED" | "FAILED" =
+        method === "AUTO" ? "COMPLETED" : "PENDING"
+      const verification = () => ({
+        name,
+        method,
+        state: phase,
+        createTime: "2026-09-30T01:00:00Z",
+      })
       google.reset()
-      google.respond({ method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` }, () => ({ status: 200, json: { name: linked.googleLocationName, title: "Fixture Service Business", serviceArea: { businessType: method === "ADDRESS" ? "CUSTOMER_LOCATION_ONLY" : "CUSTOMER_AND_BUSINESS_LOCATION" } } }))
-      const option = method === "EMAIL" ? { verificationMethod: method, emailData: { user: "owner", domain: "example.test", isUserNameEditable: true } }
-        : method === "ADDRESS" ? { verificationMethod: method, addressData: { business: "Fixture Service Business", address, expectedDeliveryDaysRegion: 7 } }
-        : method === "PHONE_CALL" || method === "SMS" ? { verificationMethod: method, phoneNumber: "+44 20 0000 0001" } : { verificationMethod: method }
-      google.respond({ method: "POST", pathEndsWith: `${linked.googleLocationName}:fetchVerificationOptions` }, () => ({ status: 200, json: { options: [option] } }))
-      google.respond({ method: "GET", pathIncludes: `${linked.googleLocationName}/verifications` }, () => ({ status: 200, json: { verifications: applied ? [verification()] : [] } }))
-      google.respond({ method: "GET", pathEndsWith: `${linked.googleLocationName}/VoiceOfMerchantState` }, () => ({ status: 200, json: { hasVoiceOfMerchant: false, hasBusinessAuthority: true, verify: { hasPendingVerification: applied && phase === "PENDING" } } }))
-      google.respond({ method: "POST", pathEndsWith: `${linked.googleLocationName}:verify` }, () => { applied = true; return { status: 200, json: { verification: { name, method, state: method === "AUTO" ? "COMPLETED" : "PENDING" } } } })
-      google.respond({ method: "POST", pathEndsWith: `${name}:complete` }, () => { phase = "COMPLETED"; return { status: 200, json: { verification: verification() } } })
-      await page.context().addCookies([{ name: "naba_session", value: owner.cookie.slice("naba_session=".length), url: server.baseUrl, httpOnly: true, sameSite: "Lax" }])
+      google.respond(
+        { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+        () => ({
+          status: 200,
+          json: {
+            name: linked.googleLocationName,
+            title: "Fixture Service Business",
+            serviceArea: {
+              businessType:
+                method === "ADDRESS"
+                  ? "CUSTOMER_LOCATION_ONLY"
+                  : "CUSTOMER_AND_BUSINESS_LOCATION",
+            },
+          },
+        })
+      )
+      const option =
+        method === "EMAIL"
+          ? {
+              verificationMethod: method,
+              emailData: {
+                user: "owner",
+                domain: "example.test",
+                isUserNameEditable: true,
+              },
+            }
+          : method === "ADDRESS"
+            ? {
+                verificationMethod: method,
+                addressData: {
+                  business: "Fixture Service Business",
+                  address,
+                  expectedDeliveryDaysRegion: 7,
+                },
+              }
+            : method === "PHONE_CALL" || method === "SMS"
+              ? { verificationMethod: method, phoneNumber: "+44 20 0000 0001" }
+              : { verificationMethod: method }
+      google.respond(
+        {
+          method: "POST",
+          pathEndsWith: `${linked.googleLocationName}:fetchVerificationOptions`,
+        },
+        () => ({ status: 200, json: { options: [option] } })
+      )
+      google.respond(
+        {
+          method: "GET",
+          pathIncludes: `${linked.googleLocationName}/verifications`,
+        },
+        () => ({
+          status: 200,
+          json: { verifications: applied ? [verification()] : [] },
+        })
+      )
+      google.respond(
+        {
+          method: "GET",
+          pathEndsWith: `${linked.googleLocationName}/VoiceOfMerchantState`,
+        },
+        () => ({
+          status: 200,
+          json: {
+            hasVoiceOfMerchant: false,
+            hasBusinessAuthority: true,
+            verify: { hasPendingVerification: applied && phase === "PENDING" },
+          },
+        })
+      )
+      google.respond(
+        { method: "POST", pathEndsWith: `${linked.googleLocationName}:verify` },
+        () => {
+          applied = true
+          return {
+            status: 200,
+            json: {
+              verification: {
+                name,
+                method,
+                state: method === "AUTO" ? "COMPLETED" : "PENDING",
+              },
+            },
+          }
+        }
+      )
+      google.respond(
+        { method: "POST", pathEndsWith: `${name}:complete` },
+        () => {
+          phase = "COMPLETED"
+          return { status: 200, json: { verification: verification() } }
+        }
+      )
+      await page.context().addCookies([
+        {
+          name: "naba_session",
+          value: owner.cookie.slice("naba_session=".length),
+          url: server.baseUrl,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ])
       return {
-        owner, linked, connection, name, address,
+        owner,
+        linked,
+        connection,
+        name,
+        address,
         open: async () => {
           // `goto` resolves at the load event, while React is still hydrating. A PIN typed into the
           // server-rendered field before then is reset when the form is hydrated, which leaves its
           // review action disabled. The panel reads its completion workflows from an effect, which
           // only runs once it has hydrated and committed: wait for that real read first.
-          const hydrated = page.waitForResponse((response) => response.request().method() === "GET" && new URL(response.url()).pathname === `/api/locations/${linked.locationId}/verification-workflows` && new URL(response.url()).searchParams.get("operation") === "complete")
-          await page.goto(`${server.baseUrl}/listings/${linked.locationId}/verification`)
+          const hydrated = page.waitForResponse(
+            (response) =>
+              response.request().method() === "GET" &&
+              new URL(response.url()).pathname ===
+                `/api/locations/${linked.locationId}/verification-workflows` &&
+              new URL(response.url()).searchParams.get("operation") ===
+                "complete"
+          )
+          await page.goto(
+            `${server.baseUrl}/listings/${linked.locationId}/verification`
+          )
           await hydrated
         },
-        writes: () => google.calls.filter((call) => call.path.endsWith(":verify")),
-        completionWrites: () => google.calls.filter((call) => call.path.endsWith(":complete")),
+        writes: () =>
+          google.calls.filter((call) => call.path.endsWith(":verify")),
+        completionWrites: () =>
+          google.calls.filter((call) => call.path.endsWith(":complete")),
         verification,
-        setPhase(value: typeof phase) { applied = true; phase = value },
-        async reviewId(resource = "verification_start") {
-          const [row] = await admin`select id from gbp_change_set where organisation_id = ${owner.organisationId} and resource_type = ${resource} order by created_at desc limit 1`
-          expect(row).toBeDefined(); return String(row.id)
+        setPhase(value: typeof phase) {
+          applied = true
+          phase = value
         },
-        async disconnect() { await admin`update google_connection set status = 'disconnected' where id = ${connection.connectionId}` },
+        async reviewId(resource = "verification_start") {
+          const [row] =
+            await admin`select id from gbp_change_set where organisation_id = ${owner.organisationId} and resource_type = ${resource} order by created_at desc limit 1`
+          expect(row).toBeDefined()
+          return String(row.id)
+        },
+        async disconnect() {
+          await admin`update google_connection set status = 'disconnected' where id = ${connection.connectionId}`
+        },
       }
     },
   }

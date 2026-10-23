@@ -108,26 +108,3 @@ describe("backTarget", () => {
     })
   })
 })
-
-describe("breadcrumbTrail sections the back control names", () => {
-  const labels = (pathname: string) =>
-    breadcrumbTrail({ pathname, clients, locations }).map((c) => c.label)
-
-  it("names every Settings section the way its tab does", () => {
-    expect(labels("/settings/billing")).toEqual(["Settings", "Billing"])
-    expect(labels("/settings/security")).toEqual([
-      "Settings",
-      "Sign-in security",
-    ])
-    expect(labels("/settings/privacy")).toEqual([
-      "Settings",
-      "Data and privacy",
-    ])
-  })
-
-  it("knows Calendar, Notifications and bulk changes", () => {
-    expect(labels("/calendar")).toEqual(["Calendar"])
-    expect(labels("/notifications")).toEqual(["Notifications"])
-    expect(labels("/listings/bulk")).toEqual(["Listings", "Bulk change"])
-  })
-})

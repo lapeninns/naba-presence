@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { serverEnvSchema, type ServerEnv } from "@/lib/server/env"
 
@@ -159,8 +159,19 @@ const { runDueJobs } = await import("@/lib/server/jobs")
 const firstAt = (what: string) =>
   state.events.findIndex((event) => event.what === what)
 
+/**
+ * Runs one tick on the fake clock: every provider call is a timer, so time
+ * moves only as far as the work does, whatever the machine's load.
+ */
+async function tick(options: Parameters<typeof runDueJobs>[0]) {
+  const run = runDueJobs(options)
+  await vi.runAllTimersAsync()
+  return run
+}
+
 describe("runDueJobs tick plan", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ now: new Date("2026-10-21T12:00:00Z") })
     state.events = []
     state.claimed = 0
     state.syncMs = 10
@@ -170,10 +181,14 @@ describe("runDueJobs tick plan", () => {
     state.released = []
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("runs scheduled posts before the queue, and bulk on its reserve, while the sync queue never empties", async () => {
     const budgetMs = 1_000
     const start = Date.now()
-    await runDueJobs({ budgetMs, requestId: "tick-1" })
+    await tick({ budgetMs, requestId: "tick-1" })
 
     expect(firstAt("schedules")).toBe(0)
     expect(firstAt("claim")).toBeGreaterThan(firstAt("schedules"))
@@ -187,7 +202,7 @@ describe("runDueJobs tick plan", () => {
   })
 
   it("lends the bulk reserve back to the queue", async () => {
-    await runDueJobs({ budgetMs: 1_000, requestId: "tick-2" })
+    await tick({ budgetMs: 1_000, requestId: "tick-2" })
     const bulkIndex = firstAt("bulk")
     expect(
       state.events.slice(bulkIndex).some((event) => event.what === "claim")
@@ -198,7 +213,7 @@ describe("runDueJobs tick plan", () => {
     // Each sync outlasts the margin, so the tail of a batch cannot start.
     state.syncMs = 150
     const start = Date.now()
-    await runDueJobs({ budgetMs: 400, requestId: "tick-3" })
+    await tick({ budgetMs: 400, requestId: "tick-3" })
     const elapsed = Date.now() - start
 
     expect(state.released.length).toBeGreaterThan(0)
@@ -209,15 +224,16 @@ describe("runDueJobs tick plan", () => {
     // Every claimed job either ran or was released.
     expect(state.started.size + state.released.length).toBe(state.claimed)
     // No item started past budget minus one call, so the last one ends
-    // within one call's worth of the budget.
-    expect(elapsed).toBeLessThan(400 + state.syncMs + 100)
+    // within one call's worth of the budget (exact: the clock is fake).
+    expect(elapsed).toBeGreaterThan(0)
+    expect(elapsed).toBeLessThanOrEqual(400 + state.syncMs)
   })
 
   it("keeps running privacy and invitations when the bulk runner throws", async () => {
     state.bulkThrows = true
     state.claimsBeforeEmpty = 0
     await expect(
-      runDueJobs({ budgetMs: 500, requestId: "tick-4" })
+      tick({ budgetMs: 500, requestId: "tick-4" })
     ).resolves.toMatchObject({ bulk: undefined })
     expect(firstAt("privacy")).toBeGreaterThan(firstAt("bulk"))
     expect(firstAt("invitations")).toBeGreaterThan(firstAt("bulk"))

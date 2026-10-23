@@ -7,6 +7,10 @@ import {
   seedGoogleConnection,
   seedLinkedReview,
 } from "../integration/helpers/tenant"
+import {
+  GOOGLE_READS_TIMEOUT,
+  profileLoadedFromGoogle,
+} from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // The critical journeys on a phone held in the hand: the `touch-390` project
@@ -439,7 +443,12 @@ async function drag(page: Page, from: Locator, dx: number, dy: number) {
         { x: x + (dx * step) / 10, y: y + (dy * step) / 10, id: 1 },
       ],
     })
-    await page.waitForTimeout(16)
+    // One frame between moves, as a finger's samples arrive: wait for the
+    // page's next frame rather than a fixed 16 ms.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    )
   }
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchEnd",
@@ -1151,7 +1160,7 @@ test.describe("touch: critical journeys at 390x844", () => {
       new RegExp(`/listings/${state.primaryLocationId}/profile$`)
     )
     // Google's half of the listing arrives after the NabaPresence copy.
-    await page.waitForLoadState("networkidle")
+    await profileLoadedFromGoogle(page)
 
     const name = page.getByRole("textbox", { name: "Business name" })
     const editorBar = page.getByRole("region", { name: "Editor actions" })
@@ -1216,9 +1225,9 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(
       page.getByRole("heading", { name: "Opening hours", level: 1 })
     ).toBeVisible()
-    await page.waitForLoadState("networkidle")
-
+    // The editor itself, from the streamed read: not the tab's pending line.
     const monday = page.getByRole("switch", { name: "Monday open" })
+    await expect(monday).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
     const tuesday = page.getByRole("switch", { name: "Tuesday open" })
     await expect(monday).not.toBeChecked()
     await expect(tuesday).not.toBeChecked()

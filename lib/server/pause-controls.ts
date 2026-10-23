@@ -183,6 +183,24 @@ export function pausedScopes(
  */
 export const PAUSE_CACHE_TTL_MS = 5_000
 
+/**
+ * The TTL this process's cache uses: PAUSE_CACHE_TTL_MS, unless the
+ * test-only PAUSE_CACHE_TTL_MS variable shortens it. The integration harness
+ * boots the standalone build (NODE_ENV=production) with it, so a suite that
+ * flips a pause need not sleep out the cache. It can only shorten the TTL
+ * (whole milliseconds, 0 to 5000) and is ignored on any Vercel deployment,
+ * so production always caches for 5 s.
+ */
+export function pauseCacheTtlMs(
+  env: Record<string, string | undefined> = process.env
+): number {
+  const value = env.PAUSE_CACHE_TTL_MS
+  if (env.VERCEL || !value || !/^\d{1,4}$/.test(value)) {
+    return PAUSE_CACHE_TTL_MS
+  }
+  return Math.min(Number(value), PAUSE_CACHE_TTL_MS)
+}
+
 const isPauseScope = (value: string): value is PauseScope =>
   (PAUSE_SCOPES as readonly string[]).includes(value)
 
@@ -240,6 +258,7 @@ export function createPauseReader(options: {
 }
 
 const defaultReader = createPauseReader({
+  ttlMs: pauseCacheTtlMs(),
   load: async () => {
     // Platform-level read: ops_pause_control holds no tenant data.
     const rows = await getDatabase()<{ scope: string }[]>`
@@ -249,7 +268,7 @@ const defaultReader = createPauseReader({
   },
 })
 
-/** The current pause snapshot, at most PAUSE_CACHE_TTL_MS old. */
+/** The current pause snapshot, at most pauseCacheTtlMs() old. */
 export function loadPauseSnapshot(): Promise<PauseSnapshot> {
   return defaultReader.read()
 }

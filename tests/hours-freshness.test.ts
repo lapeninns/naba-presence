@@ -4,6 +4,7 @@ import {
   normalizeGoogleHours,
   type GoogleLocationHours,
 } from "@/lib/domain/hours"
+import { SERVICE_OPTIONS_WARNING } from "@/lib/editors/hours-notes"
 import type { HoursObservation } from "@/lib/server/hours-observations"
 import type { Session } from "@/lib/server/session"
 import { mixedHoursFixture } from "./fixtures/hours-preservation"
@@ -331,4 +332,29 @@ describe("hours editor freshness", () => {
     expect((await getHoursState(session, "l1")).source).toBe("live")
     expect(google.location).toHaveBeenCalledOnce()
   })
+})
+
+// From the former hours-metadata-recovery.test.ts.
+describe("optional hours metadata transport failures", () => {
+  it.each([
+    new TypeError("fetch failed"),
+    new DOMException("request aborted", "AbortError"),
+    new DOMException("request timed out", "TimeoutError"),
+  ])(
+    "preserves hours and records the successful read after %s",
+    async (error) => {
+      google.categories.mockRejectedValue(error)
+      const state = await getHoursState(session, "l1")
+      expect(state.google.moreHours).toEqual(
+        normalizeGoogleHours(googleLocation).moreHours
+      )
+      expect(state.google.moreHours.length).toBeGreaterThan(0)
+      expect(state.supportedHoursTypes).toEqual([])
+      expect(state.warnings).toContainEqual(SERVICE_OPTIONS_WARNING)
+      expect(record).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ outcome: "observed" })
+      )
+    }
+  )
 })

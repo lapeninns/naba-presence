@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 
+import { pageSettled, trackRequests } from "./helpers/settled"
+
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = [
   "landmark-no-duplicate-main",
@@ -170,7 +172,7 @@ test.describe("auth surfaces", () => {
       await page.emulateMedia({ colorScheme: theme })
       for (const target of AUTH_PAGES.map((p) => p.path)) {
         await page.goto(target)
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
         const wcag = await new AxeBuilder({ page })
           .withTags(WCAG_TAGS)
           .analyze()
@@ -197,6 +199,7 @@ test.describe("auth surfaces raise no console or page errors", () => {
   ]
   for (const theme of ["light", "dark"] as const) {
     test(`clean console across auth pages (${theme})`, async ({ page }) => {
+      const requests = trackRequests(page)
       await page.emulateMedia({ colorScheme: theme })
       // /invite lookups hit the API on mount; give it a ready invitation so the
       // page renders the create-account form instead of erroring on the fetch.
@@ -222,7 +225,8 @@ test.describe("auth surfaces raise no console or page errors", () => {
         page.on("console", onConsole)
         page.on("pageerror", onPageError)
         await page.goto(target)
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
+        await requests.idle()
         page.off("console", onConsole)
         page.off("pageerror", onPageError)
         expect(consoleErrors, `${target} ${theme} console errors`).toEqual([])

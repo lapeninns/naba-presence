@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
 
+import { emptyListingSummary } from "@/lib/contracts/location-summary"
+import {
+  COMPARISON_FRESHNESS_MS,
+  listingHealth,
+  listingHealthLabel,
+} from "@/lib/listings/health"
+
 import {
   clientFreshness,
   CLIENT_HEALTH,
@@ -8,7 +15,6 @@ import {
   connectionNeedsReconnect,
   diagnoseClient,
   HEALTH_FILTERS,
-  healthFilterMatches,
   FRESHNESS_WINDOW_MS,
   attentionDescription,
   freshnessSentence,
@@ -301,7 +307,7 @@ describe("health filters", () => {
     const buckets = HEALTH_FILTERS.filter((filter) => filter.value !== "all")
     for (const state of all) {
       expect(
-        buckets.filter((filter) => healthFilterMatches(filter.value, state))
+        buckets.filter((filter) => filter.value === healthBucket(state))
       ).toHaveLength(1)
     }
   })
@@ -420,16 +426,26 @@ describe("diagnoseClient", () => {
 })
 
 describe("healthBucket", () => {
-  it("puts every health state in the one filter bucket that matches it", () => {
-    const buckets = HEALTH_FILTERS.filter((filter) => filter.value !== "all")
-    for (const state of CLIENT_HEALTH) {
-      const matching = buckets.filter((filter) =>
-        healthFilterMatches(filter.value, state)
+  it("maps every health state to a chip the filter strip draws", () => {
+    // The clients index filters with healthBucket(client.health) === chip,
+    // so a state without its own chip would be unreachable from any filter.
+    expect(
+      Object.fromEntries(
+        CLIENT_HEALTH.map((state) => [state, healthBucket(state)])
       )
-      expect(matching.map((filter) => filter.value)).toEqual([
-        healthBucket(state),
-      ])
-    }
+    ).toEqual({
+      not_connected: "not_connected",
+      disconnected: "disconnected",
+      attention: "attention",
+      syncing: "healthy",
+      healthy: "healthy",
+      unchecked: "unchecked",
+      partially_checked: "partially_checked",
+      unpublished: "unpublished",
+    })
+    const chips = new Set<string>(HEALTH_FILTERS.map((filter) => filter.value))
+    for (const state of CLIENT_HEALTH)
+      expect(chips.has(healthBucket(state))).toBe(true)
   })
 
   it("counts an importing client as In sync", () => {
@@ -513,5 +529,61 @@ describe("attentionDescription", () => {
         lastSuccessfulCheckAt: null,
       })
     ).toMatch(/lost manager access/)
+  })
+})
+
+// From the former listing-comparison-health.test.ts: the cases
+// tests/components/listing-health.test.ts does not already pin.
+describe("listing comparisons feeding client health", () => {
+  const observedAt = new Date(NOW.getTime() - 60_000).toISOString()
+  function checked() {
+    const summary = emptyListingSummary({
+      locationId: "l1",
+      linked: true,
+      verified: true,
+    })
+    summary.connection = {
+      status: "active",
+      reconnectRequired: false,
+      googleEmail: null,
+    }
+    summary.profile = { status: "in_sync", dirtyCount: 0, observedAt }
+    summary.hours = { ...summary.profile }
+    summary.menu = { ...summary.profile, eligible: false }
+    return summary
+  }
+
+  it("words a partly compared listing the way the clients list does", () => {
+    expect(listingHealthLabel("partially_checked")).toBe(
+      "Some areas not checked yet"
+    )
+  })
+
+  it("does not confirm an area whose comparison is overdue", () => {
+    const summary = checked()
+    const now = NOW.getTime()
+    expect(listingHealth({ linked: true, summary, now })).toBe("healthy")
+    summary.hours.observedAt = new Date(
+      now - COMPARISON_FRESHNESS_MS - 1
+    ).toISOString()
+    expect(listingHealth({ linked: true, summary, now })).toBe(
+      "partially_checked"
+    )
+  })
+
+  it("does not call review-only client freshness fully checked", () => {
+    expect(
+      clientHealth({
+        connections: [connection()],
+        linkedLocationCount: 1,
+        backfill: { running: 0, failed: 0 },
+        now: NOW,
+        checks: {
+          stalestCheckAt: NOW.toISOString(),
+          lastSuccessfulCheckAt: NOW.toISOString(),
+          accessLost: 0,
+        },
+      })
+    ).toBe("unchecked")
   })
 })

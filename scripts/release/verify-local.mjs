@@ -3,32 +3,52 @@
 //
 //   pnpm verify:release [--skip <id,...>] [--fail-fast] [--base-ref <ref>]
 //                       [--receipts-dir <dir>] [--keep-worktree] [--list]
+//                       [--serial] [--integration-shards <n>] [--cpus <n>]
 //
 // Hosted CI is not a release gate (docs/ci.md §5); this run is the evidence.
-// It checks HEAD out into a fresh detached git worktree under the OS temp
-// directory, so no .env file, untracked file or local build output takes
-// part, then runs every step of .github/workflows/ci.yml plus the nightly
-// production audit, in order, against a throwaway PostgreSQL 17 cluster
-// (scripts/ci/postgres.mjs) that it stops afterwards:
+// It checks HEAD out into a fresh detached git worktree (under
+// ~/Library/Caches/naba-verify on macOS, see gateRunRoot; NABA_GATE_DIR
+// overrides), so no .env file, untracked file or local build output takes
+// part, then runs every step of local-receipt.mjs GATE_STEPS:
 //
-//   frozen install, typecheck, lint, unit, build, migration policy against
-//   the base, migrate from scratch + no-op + runtime role + db:status,
-//   upgrade from the merge base (schema diff), concurrent migrate, integration,
-//   e2e (port 3100 when free), pnpm audit --prod --audit-level high, and
+//   frozen install, typecheck, lint, unit and component tests, formatting
+//   of the files the change touches, the design ratchet, build, first-load JS ceilings, migration policy against the
+//   base, migrate from scratch + no-op + runtime role + db:status, upgrade
+//   from the merge base (schema diff), concurrent migrate, integration, e2e
+//   (port 3100 when free), actionlint and zizmor over .github/ (optional:
+//   skipped with a note where they are not installed), pnpm audit --prod
+//   --audit-level high, and
 //   gitleaks over HEAD's full history (required: without gitleaks installed
 //   the step is skipped with a note and the gate fails). The integration and
 //   e2e steps pass only when their output shows tests ran
 //   (local-receipt.mjs `testCountProblem`).
 //
+// Each step starts as soon as the steps it `needs` have passed, so the
+// static checks run side by side and, once the build is done, the
+// integration shards and e2e run at the same time. Every step that needs a
+// database gets its own throwaway PostgreSQL 17 cluster
+// (scripts/ci/postgres.mjs). The migrations, concurrent-migration and
+// integration clusters stop once their last step is done and no session is
+// left (releaseGateCluster); e2e's, and any that cannot be released, stop
+// at the end of the run. Integration is split into
+// --integration-shards (default 4, or NABA_GATE_INTEGRATION_SHARDS) vitest
+// shards, each on its own cluster; their counts are added up for the
+// receipt. The CPU-heavy steps (build, e2e, integration, unit, typecheck,
+// lint) share a budget of three quarters of the cores (--cpus or
+// NABA_GATE_CPUS), served in that order, so the machine is not
+// oversubscribed. --serial runs one step at a time, in receipt order, for a
+// busy or small machine.
+//
 // It writes a receipt (scripts/release/local-receipt.mjs) to
 // docs/release/receipts/local/ in the invoking checkout (gitignored), with
-// the SHA, base, Node/pnpm/PostgreSQL versions and each step's result, and
-// exits 0 only when the gate passed. `pnpm release:promote --local-receipt
-// <file>` accepts only a passing receipt for the commit it deploys. The full
-// output goes to verify.log in the run directory, whose path is printed.
+// the SHA, base, toolchain versions and each step's result, and exits 0
+// only when the gate passed. `pnpm release:promote --local-receipt <file>`
+// accepts only a passing receipt for the commit it deploys. Each step's full
+// output goes to logs/<step>.log in the run directory, and all of it to
+// verify.log there, whose path is printed; a failed step's tail is printed.
 //
-// The base is what production runs: the SHA in the newest committed
-// promotion receipt (docs/release/receipts/), or --base-ref <production SHA>
+// The base is the release the committed receipts say production serves
+// (docs/release/receipts/, local-receipt.mjs servingRelease), or --base-ref <production SHA>
 // before the first promotion. Promotion refuses a receipt whose base is not
 // the last promoted commit, or whose merge base is HEAD itself (the policy
 // and upgrade steps would compare HEAD with itself). Without either, the
@@ -49,13 +69,18 @@ import {
   readdirSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from "node:fs"
 import { createServer } from "node:net"
-import { tmpdir } from "node:os"
-import { dirname, join, relative, resolve } from "node:path"
+import { availableParallelism, homedir, tmpdir } from "node:os"
+import { basename, dirname, join, relative, resolve } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { stopFailureReport } from "../ci/pg-stop-report.mjs"
+
 import {
+  BUNDLE_BUDGET_ARGS,
   GATE_STEPS,
   LOCAL_RECEIPTS_DIR,
   PROMOTION_RECEIPTS_DIR,
@@ -123,6 +148,305 @@ export const INHERITED_ENV_PREFIXES = [
 export const E2E_PORT = 3100
 
 /**
+ * Where each run's directory (worktree, clusters, logs) goes. Not the macOS
+ * per-user temp folder: launchd's dirhelper empties /var/folders/<..>/T every
+ * day at 03:35 of files that look three days untouched, and pnpm's cloned
+ * package files keep the store's old timestamps, so a run crossing 03:35 lost
+ * node_modules files mid-suite (2026-10-22). NABA_GATE_DIR overrides; CI
+ * points TMPDIR at its own runner folder, which is used as is.
+ * @param {Record<string, string | undefined>} env
+ * @param {{ tmp: string, home: string }} dirs
+ */
+export function gateRunRoot(env, { tmp, home }) {
+  // Absolute, so the cluster directories and printed retry lines are too.
+  if (env.NABA_GATE_DIR) return resolve(env.NABA_GATE_DIR)
+  if (/^\/(private\/)?var\/folders\//.test(tmp)) {
+    return join(home, "Library", "Caches", "naba-verify")
+  }
+  return tmp
+}
+
+/**
+ * A fresh, empty directory for one gate run under `runRoot`. It never
+ * touches siblings: one may be another run still in progress, a worktree
+ * kept for diagnosis or a failed run's evidence, and its age does not prove
+ * it is safe to remove. Its own run cleans up its worktree and clusters.
+ * @param {string} runRoot
+ * @param {string} sha
+ */
+export function createRunDir(runRoot, sha) {
+  mkdirSync(runRoot, { recursive: true })
+  return mkdtempSync(join(runRoot, `naba-verify-${sha.slice(0, 12)}-`))
+}
+
+/**
+ * One gate cluster's postgres.mjs environment: its own directory in the run,
+ * and a SHARD (which names the Docker container) carrying the run
+ * directory's random mkdtemp suffix, so two gates running at once do not
+ * share a container name (Docker lowercases it, so the suffix only makes a
+ * clash vanishingly unlikely; if one happens, start fails on the name and
+ * removes nothing).
+ * @param {string} runDir
+ * @param {string} name the step or shard
+ */
+export function gateClusterEnv(runDir, name) {
+  return {
+    NABA_PG_DIR: join(runDir, `pg-${name}`),
+    SHARD: `${basename(runDir)}-${name}`,
+  }
+}
+
+/**
+ * @typedef {{
+ *   status: number | null,
+ *   signal?: string | null,
+ *   stderr?: string | null,
+ *   error?: Error,
+ * }} StopResult
+ */
+
+/**
+ * Stops one of a gate run's clusters once its last consumer is done, instead
+ * of keeping it until final cleanup. It fails closed: it acts only on the one
+ * tracked cluster whose NABA_PG_DIR and SHARD match `target`, stops it only
+ * after `isIdle` shows no other session is connected, and untracks it only
+ * after the stop succeeded. Every other outcome leaves the cluster tracked, so
+ * final cleanup still stops it; nothing here affects the verdict.
+ * @param {ReturnType<typeof gateClusterEnv>[]} clusters the run's tracked clusters
+ * @param {{ NABA_PG_DIR?: string, SHARD?: string }} target
+ * @param {{
+ *   isIdle: () => Promise<boolean>,
+ *   stop: (cluster: ReturnType<typeof gateClusterEnv>) => Promise<StopResult>,
+ *   script: string,
+ *   env?: Record<string, string | undefined>,
+ * }} effects `script` and `env` name the retry in a failure report
+ * @returns {Promise<{ released: boolean, reason: string }>}
+ */
+export async function releaseGateCluster(
+  clusters,
+  target,
+  { isIdle, stop, script, env = {} }
+) {
+  const name = target.SHARD ?? "an unnamed cluster"
+  const matches = clusters.filter(
+    (cluster) =>
+      cluster.NABA_PG_DIR === target.NABA_PG_DIR &&
+      cluster.SHARD === target.SHARD
+  )
+  if (matches.length !== 1) {
+    return {
+      released: false,
+      reason: `${name} is not one tracked cluster of this run; left to final cleanup`,
+    }
+  }
+  const [cluster] = matches
+  try {
+    if (!(await isIdle())) {
+      return {
+        released: false,
+        reason: `${name} still has other sessions; left to final cleanup`,
+      }
+    }
+  } catch (error) {
+    return {
+      released: false,
+      reason: `${name} could not be checked for other sessions (${error.message}); left to final cleanup`,
+    }
+  }
+  /** @type {StopResult} */
+  let stopped
+  try {
+    stopped = await stop(cluster)
+  } catch (error) {
+    stopped = { status: null, error }
+  }
+  const report = stopFailureReport(stopped, {
+    pgDir: cluster.NABA_PG_DIR,
+    shard: cluster.SHARD,
+    script,
+    env,
+  })
+  if (report) {
+    return {
+      released: false,
+      reason: `${report.trimEnd()}\n  left to final cleanup`,
+    }
+  }
+  // Final cleanup may have taken it meanwhile (an interrupt).
+  const index = clusters.indexOf(cluster)
+  if (index !== -1) clusters.splice(index, 1)
+  return { released: true, reason: `${name} stopped after its last use` }
+}
+
+/** The signals that stop a gate run after cleaning up, and its exit codes. */
+export const GATE_SIGNAL_EXIT_CODES = Object.freeze({
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+})
+
+/** Integration shards when neither the flag nor the variable sets them. */
+export const DEFAULT_INTEGRATION_SHARDS = 4
+
+/**
+ * The CPU-heavy steps, in the order they get CPU when several are ready:
+ * the build first (everything after it waits for it), then e2e (the longest
+ * step, one Playwright worker), integration, unit, typecheck and lint. The
+ * other steps are light and start whenever their needs have passed.
+ */
+export const HEAVY_STEP_PRIORITY = [
+  "build",
+  "e2e",
+  "integration",
+  "unit",
+  "typecheck",
+  "lint",
+]
+
+/**
+ * How many cores' worth of heavy steps run at once: three quarters of the
+ * machine, so a Mac shared with other work is not oversubscribed (running
+ * unit, build, typecheck and lint all at once tripled each one's time and
+ * timed out component tests in the 2026-10-22 trial run).
+ * @param {number} cores
+ */
+export function defaultCpuBudget(cores) {
+  return Math.max(4, Math.floor(cores * 0.75))
+}
+
+/**
+ * Each heavy step's share of the CPU budget. The unit step also gets its
+ * share as VITEST_MAX_WORKERS, so vitest does not start more workers than
+ * the budget allows it.
+ * @param {number} budget
+ * @param {number} integrationShards
+ * @returns {Record<string, number>}
+ */
+export function heavyStepWeights(budget, integrationShards) {
+  return {
+    build: 4,
+    e2e: 4,
+    integration: integrationShards + 2,
+    unit: Math.min(8, Math.max(2, Math.floor(budget / 2))),
+    typecheck: 2,
+    lint: 2,
+  }
+}
+
+/**
+ * A budget of CPU shares that steps acquire before they start. Waiters are
+ * served strictly in priority order: when the first does not fit, later ones
+ * wait too, so a stream of small steps cannot hold back the build. A step
+ * bigger than the whole budget runs alone.
+ *
+ * Shares are handed out in one microtask after the acquires and releases of
+ * the current turn, not inside each call: the steps that become ready
+ * together when the install passes (or the build, for integration and e2e)
+ * are then all waiting before any is served, so the build goes first even
+ * when the budget was idle.
+ */
+export class CpuBudget {
+  /** @param {number} capacity */
+  constructor(capacity) {
+    this.capacity = capacity
+    this.used = 0
+    this.order = 0
+    this.scheduled = false
+    /** @type {{ weight: number, priority: number, order: number, grant: () => void }[]} */
+    this.waiting = []
+  }
+
+  /**
+   * Resolves to a release function once `weight` shares are free.
+   * @param {number} weight
+   * @param {number} priority lower runs first
+   * @returns {Promise<() => void>}
+   */
+  acquire(weight, priority) {
+    return new Promise((resolve) => {
+      this.waiting.push({
+        weight,
+        priority,
+        order: this.order++,
+        grant: () => {
+          this.used += weight
+          let released = false
+          resolve(() => {
+            if (released) return
+            released = true
+            this.used -= weight
+            this.schedulePump()
+          })
+        },
+      })
+      this.schedulePump()
+    })
+  }
+
+  /** Queues one pump for the end of this turn, however often it is asked. */
+  schedulePump() {
+    if (this.scheduled) return
+    this.scheduled = true
+    queueMicrotask(() => {
+      this.scheduled = false
+      this.pump()
+    })
+  }
+
+  pump() {
+    this.waiting.sort((a, b) => a.priority - b.priority || a.order - b.order)
+    while (this.waiting.length > 0) {
+      const next = this.waiting[0]
+      if (this.used > 0 && this.used + next.weight > this.capacity) return
+      this.waiting.shift()
+      next.grant()
+    }
+  }
+}
+
+/**
+ * The run's --fail-fast state, shared by every step.
+ * @typedef {{ failFast: boolean, stop: boolean }} FailFastRun
+ */
+
+/**
+ * Waits for a step's CPU share. A step can wait there long after it checked
+ * whether the run was stopped, so it checks again once served: when
+ * --fail-fast stopped the run meanwhile, it gives the share straight back and
+ * resolves to null, and the step does not start.
+ * @param {FailFastRun} run
+ * @param {() => Promise<() => void>} acquire
+ * @returns {Promise<(() => void) | null>}
+ */
+export async function acquireUnlessStopped(run, acquire) {
+  const release = await acquire()
+  if (run.stop) {
+    release()
+    return null
+  }
+  return release
+}
+
+/**
+ * Gives a finished step's CPU share back. Under --fail-fast a step that did
+ * not pass stops the run first, so the share it frees cannot start a step
+ * that was waiting for it.
+ * @param {FailFastRun} run
+ * @param {{ status: string }} result
+ * @param {() => void} release
+ */
+export function releaseAfter(run, result, release) {
+  if (
+    run.failFast &&
+    result.status !== "passed" &&
+    result.status !== "skipped"
+  ) {
+    run.stop = true
+  }
+  release()
+}
+
+/**
  * gitleaks arguments for the `secret-scan` step. The worktree shares the
  * checkout's refs, and gitleaks' default log is `--all`: other branches'
  * commits would decide this commit's receipt. `--log-opts=HEAD` scans the
@@ -165,8 +489,9 @@ export function childEnv(base) {
 
 /**
  * @param {string[]} argv
+ * @param {Record<string, string | undefined>} [env]
  */
-export function parseArgs(argv) {
+export function parseArgs(argv, env = {}) {
   const options = {
     skip: /** @type {string[]} */ ([]),
     failFast: false,
@@ -174,7 +499,13 @@ export function parseArgs(argv) {
     receiptsDir: /** @type {string | null} */ (null),
     keepWorktree: false,
     list: false,
+    serial: false,
+    integrationShards: /** @type {number | string} */ (
+      env.NABA_GATE_INTEGRATION_SHARDS ?? DEFAULT_INTEGRATION_SHARDS
+    ),
+    cpus: /** @type {number | string | null} */ (env.NABA_GATE_CPUS ?? null),
   }
+  let shardsGiven = env.NABA_GATE_INTEGRATION_SHARDS !== undefined
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--skip") {
@@ -189,6 +520,11 @@ export function parseArgs(argv) {
     else if (arg === "--receipts-dir") options.receiptsDir = argv[++index] ?? ""
     else if (arg === "--keep-worktree") options.keepWorktree = true
     else if (arg === "--list") options.list = true
+    else if (arg === "--serial") options.serial = true
+    else if (arg === "--integration-shards") {
+      options.integrationShards = argv[++index] ?? ""
+      shardsGiven = true
+    } else if (arg === "--cpus") options.cpus = argv[++index] ?? ""
     else throw new Error(`Unknown argument: ${arg}`)
   }
   const unknown = options.skip.filter(
@@ -199,6 +535,19 @@ export function parseArgs(argv) {
   }
   if (options.baseRef === "") throw new Error("--base-ref needs a ref")
   if (options.receiptsDir === "") throw new Error("--receipts-dir needs a path")
+  const shards = Number(options.integrationShards)
+  if (!Number.isInteger(shards) || shards < 1 || shards > 16) {
+    throw new Error("--integration-shards needs a whole number from 1 to 16")
+  }
+  if (options.cpus !== null) {
+    const cpus = Number(options.cpus)
+    if (!Number.isInteger(cpus) || cpus < 1 || cpus > 256) {
+      throw new Error("--cpus needs a whole number from 1 to 256")
+    }
+    options.cpus = cpus
+  }
+  // --serial is for a busy machine: one integration shard unless asked.
+  options.integrationShards = options.serial && !shardsGiven ? 1 : shards
   options.skip = [...new Set(options.skip)]
   return options
 }
@@ -259,12 +608,103 @@ export function summarizeOutput(output) {
   return [...found.values()]
 }
 
+const VITEST_COUNT_KINDS = ["failed", "passed", "skipped", "todo"]
+const PLAYWRIGHT_COUNT_KINDS = [
+  "passed",
+  "failed",
+  "flaky",
+  "skipped",
+  "did not run",
+]
+
+/**
+ * One Playwright summary from the summaries of several runs (the gate runs
+ * the shared and the isolated suites side by side): each `N <kind>` line
+ * added up across runs, so testCountProblem judges the whole suite.
+ * @param {string[][]} summaries
+ * @returns {string[]}
+ */
+export function mergePlaywrightSummaries(summaries) {
+  const merged = []
+  for (const kind of PLAYWRIGHT_COUNT_KINDS) {
+    let total = 0
+    let seen = false
+    for (const summary of summaries) {
+      for (const line of summary) {
+        const match = new RegExp(`^(\\d+) ${kind}\\b`).exec(line)
+        if (match) {
+          total += Number(match[1])
+          seen = true
+        }
+      }
+    }
+    if (seen) merged.push(`${total} ${kind}`)
+  }
+  return merged
+}
+
+/**
+ * One vitest summary from the summaries of several shards: `Test Files` and
+ * `Tests` lines with each count added up, in vitest's own wording, so
+ * testCountProblem judges the whole suite. A shard that reported no line
+ * makes the merged line missing too.
+ * @param {string[][]} summaries
+ * @returns {string[]}
+ */
+export function mergeVitestSummaries(summaries) {
+  const merged = []
+  for (const label of ["Test Files", "Tests"]) {
+    const totals = { failed: 0, passed: 0, skipped: 0, todo: 0, all: 0 }
+    let complete = summaries.length > 0
+    for (const summary of summaries) {
+      const line = summary.find((entry) => entry.startsWith(`${label} `))
+      if (!line) {
+        complete = false
+        break
+      }
+      for (const kind of VITEST_COUNT_KINDS) {
+        const match = new RegExp(`(\\d+) ${kind}\\b`).exec(line)
+        if (match) totals[kind] += Number(match[1])
+      }
+      const all = /\((\d+)\)\s*$/.exec(line)
+      if (all) totals.all += Number(all[1])
+    }
+    if (!complete) continue
+    const parts = VITEST_COUNT_KINDS.filter((kind) => totals[kind] > 0).map(
+      (kind) => `${totals[kind]} ${kind}`
+    )
+    merged.push(`${label} ${parts.join(" | ") || "0 passed"} (${totals.all})`)
+  }
+  return merged
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
 const DATABASE = "nabareview_test"
 const TAIL_LIMIT = 256 * 1024
+
+/**
+ * A child process's collected output: the last `limit` characters (enough
+ * for test counts and a failure's context), or everything when `limit` is
+ * null. Schema dumps need everything: the migrated schema's dump is about
+ * 500 KB, so a tail compared only its last half (fixed 2026-10-22).
+ * @param {number | null} limit
+ */
+export function outputCollector(limit) {
+  let text = ""
+  return {
+    /** @param {string} chunk */
+    add(chunk) {
+      text = limit === null ? text + chunk : (text + chunk).slice(-limit)
+    },
+    get value() {
+      return text
+    },
+  }
+}
+const FAILED_TAIL_LINES = 80
 
 /** Raised by a step that cannot run because something it needs failed. */
 class NotRun extends Error {}
@@ -288,8 +728,8 @@ function promotionReceiptsAt(root, sha) {
     }))
 }
 
-function toolVersion(command, args, env) {
-  const result = spawnSync(command, args, { encoding: "utf8", env })
+function toolVersion(command, args, env, cwd) {
+  const result = spawnSync(command, args, { encoding: "utf8", env, cwd })
   if (result.error || result.status !== 0) return null
   return result.stdout.trim().split("\n")[0] || null
 }
@@ -305,11 +745,14 @@ function isFree(port) {
 
 async function main() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
-  const options = parseArgs(process.argv.slice(2))
+  const options = parseArgs(process.argv.slice(2), process.env)
   if (options.list) {
     for (const step of GATE_STEPS) {
+      const needs = step.needs.length
+        ? `  (after ${step.needs.join(", ")})`
+        : ""
       console.log(
-        `${step.id.padEnd(20)} ${step.title}${step.required ? "" : " (optional)"}`
+        `${step.id.padEnd(20)} ${step.title}${step.required ? "" : " (optional)"}${needs}`
       )
     }
     return 0
@@ -376,55 +819,98 @@ async function main() {
     )
   }
 
-  const runDir = mkdtempSync(join(tmpdir(), `naba-verify-${sha.slice(0, 12)}-`))
+  const runDir = createRunDir(
+    gateRunRoot(process.env, { tmp: tmpdir(), home: homedir() }),
+    sha
+  )
   const worktree = join(runDir, "src")
-  const pgDir = join(runDir, "pg")
+  const logDir = join(runDir, "logs")
   const logPath = join(runDir, "verify.log")
+  mkdirSync(logDir, { recursive: true })
   const log = createWriteStream(logPath)
   const env = childEnv(process.env)
-  /** @type {Record<string, string>} */
-  let dbEnv = {}
-  let pgState = /** @type {"down" | "up" | "broken"} */ ("down")
+  const cpuBudget = options.cpus ?? defaultCpuBudget(availableParallelism())
+  const weights = heavyStepWeights(cpuBudget, options.integrationShards)
   let worktreeAdded = false
 
-  const write = (text) => {
+  let interrupted = false
+  /** Progress lines: the terminal and verify.log. */
+  const say = (text) => {
     process.stdout.write(text)
-    log.write(text)
+    // After a signal the process exits before a queued write would land.
+    if (interrupted && typeof log.fd === "number") {
+      try {
+        writeSync(log.fd, text)
+      } catch {
+        // Already on stdout; a failed copy must not stop the cleanup.
+      }
+    } else log.write(text)
   }
 
   /**
-   * Runs a command in the worktree, streaming its output, and resolves to
-   * its exit code and output tail. Never rejects on a non-zero exit.
+   * A step's output sink: its own log file, and verify.log with every line
+   * prefixed by the step id, so concurrent steps stay readable.
+   * @param {string} id
    */
-  function exec(command, args, { extraEnv = {}, input, quiet = false } = {}) {
+  function stepLog(id) {
+    const file = createWriteStream(join(logDir, `${id}.log`))
+    let partial = ""
+    return {
+      path: join(logDir, `${id}.log`),
+      write(text) {
+        file.write(text)
+        const lines = (partial + text).split("\n")
+        partial = lines.pop() ?? ""
+        for (const line of lines) log.write(`[${id}] ${line}\n`)
+      },
+      close() {
+        if (partial) log.write(`[${id}] ${partial}\n`)
+        partial = ""
+        return new Promise((done) => file.end(done))
+      },
+    }
+  }
+
+  /**
+   * Runs a command in the worktree, writing its output to `sink`, and
+   * resolves to its exit code and output tail. Never rejects on a non-zero
+   * exit.
+   */
+  function exec(
+    sink,
+    command,
+    args,
+    { extraEnv = {}, dbEnv = {}, input, stdoutOnly = false } = {}
+  ) {
     return new Promise((done) => {
       const child = spawn(command, args, {
         cwd: worktreeAdded ? worktree : root,
         env: { ...env, ...dbEnv, ...extraEnv },
         stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       })
-      let tail = ""
-      const collect = (chunk) => {
+      // stdoutOnly: the whole of stdout, nothing from stderr (a schema dump
+      // must be complete and must not have warnings mixed into it).
+      const output = outputCollector(stdoutOnly ? null : TAIL_LIMIT)
+      const collect = (chunk, keep = true) => {
         const text = chunk.toString()
-        tail = (tail + text).slice(-TAIL_LIMIT)
-        if (quiet) log.write(text)
-        else write(text)
+        if (keep) output.add(text)
+        sink.write(text)
       }
-      child.stdout.on("data", collect)
-      child.stderr.on("data", collect)
+      child.stdout.on("data", (chunk) => collect(chunk))
+      child.stderr.on("data", (chunk) => collect(chunk, !stdoutOnly))
       if (input !== undefined) child.stdin.end(input)
       child.on("error", (error) => {
         collect(`${command}: ${error.message}\n`)
-        done({ code: 127, output: tail })
+        done({ code: 127, output: output.value })
       })
       child.on("close", (code, signal) =>
-        done({ code: code ?? (signal ? 128 : 1), output: tail })
+        done({ code: code ?? (signal ? 128 : 1), output: output.value })
       )
     })
   }
 
-  async function must(command, args, opts) {
-    const result = await exec(command, args, opts)
+  async function must(sink, command, args, opts) {
+    const result = await exec(sink, command, args, opts)
     if (result.code !== 0) {
       const error = new Error(
         `${command} ${args.join(" ")} exited ${result.code}`
@@ -436,42 +922,139 @@ async function main() {
     return result
   }
 
-  async function ensurePostgres() {
-    if (pgState === "up") return
-    if (pgState === "broken") throw new NotRun("PostgreSQL did not start")
-    const result = await exec("node", ["scripts/ci/postgres.mjs", "start"], {
-      extraEnv: { NABA_PG_DIR: pgDir },
-      quiet: true,
-    })
-    if (result.code !== 0) {
-      pgState = "broken"
-      write(result.output)
-      throw new Error(
-        "PostgreSQL did not start (scripts/ci/postgres.mjs start)"
+  // One throwaway cluster per database step (or integration shard), each in
+  // its own directory. They start one at a time: postgres.mjs picks a free
+  // port before the server binds it, so two concurrent starts could pick
+  // the same one.
+  /** @type {ReturnType<typeof gateClusterEnv>[]} */
+  const clusters = []
+  let clusterQueue = Promise.resolve()
+
+  /**
+   * @param {ReturnType<typeof stepLog>} sink
+   * @param {string} name
+   * @returns {Promise<Record<string, string>>}
+   */
+  function startCluster(sink, name) {
+    const started = clusterQueue.then(async () => {
+      const extraEnv = gateClusterEnv(runDir, name)
+      // Tracked before it starts, so an interrupt mid-start still stops it
+      // (postgres.mjs stop is idempotent).
+      clusters.push(extraEnv)
+      const result = await exec(
+        sink,
+        "node",
+        ["scripts/ci/postgres.mjs", "start"],
+        { extraEnv }
       )
-    }
-    dbEnv = parseExports(result.output)
-    if (!dbEnv.DIRECT_DATABASE_URL) {
-      pgState = "broken"
-      throw new Error("postgres.mjs start exported no DIRECT_DATABASE_URL")
-    }
-    pgState = "up"
-    write(`PostgreSQL ready on 127.0.0.1:${dbEnv.NABA_PG_PORT}\n`)
+      if (result.code !== 0) {
+        throw new Error(
+          `PostgreSQL did not start for ${name} (scripts/ci/postgres.mjs start)`
+        )
+      }
+      const dbEnv = parseExports(result.output)
+      if (!dbEnv.DIRECT_DATABASE_URL) {
+        throw new Error("postgres.mjs start exported no DIRECT_DATABASE_URL")
+      }
+      sink.write(`PostgreSQL for ${name} on 127.0.0.1:${dbEnv.NABA_PG_PORT}\n`)
+      return { ...dbEnv, ...extraEnv }
+    })
+    clusterQueue = started.then(
+      () => undefined,
+      () => undefined
+    )
+    return started
   }
 
-  async function psql(...args) {
-    return must("scripts/ci/pg-client.sh", [
-      "psql",
-      "-v",
-      "ON_ERROR_STOP=1",
-      ...args,
-    ])
+  function stopClusters() {
+    for (const clusterEnv of clusters.splice(0)) {
+      const stopped = spawnSync("node", ["scripts/ci/postgres.mjs", "stop"], {
+        cwd: worktreeAdded ? worktree : root,
+        env: { ...env, ...clusterEnv },
+        stdio: ["ignore", "ignore", "pipe"],
+        encoding: "utf8",
+      })
+      // The verdict stands; the report only says what is left to remove.
+      const report = stopFailureReport(stopped, {
+        pgDir: clusterEnv.NABA_PG_DIR,
+        shard: clusterEnv.SHARD,
+        script: join(root, "scripts/ci/postgres.mjs"),
+        env,
+      })
+      if (report) say(report)
+    }
   }
 
-  async function recreateDatabase() {
-    await ensurePostgres()
+  /**
+   * True when no session but this check is connected: the step's commands
+   * have exited, and with them any app server or pool they started.
+   * @param {Record<string, string>} dbEnv
+   */
+  async function noOtherSessions(dbEnv) {
+    const result = await must(
+      { write() {} },
+      "scripts/ci/pg-client.sh",
+      [
+        "psql",
+        "-At",
+        "-v",
+        "ON_ERROR_STOP=1",
+        dbEnv.DIRECT_DATABASE_URL,
+        "-c",
+        "select count(*) from pg_stat_activity where backend_type = 'client backend' and pid <> pg_backend_pid()",
+      ],
+      { dbEnv, stdoutOnly: true }
+    )
+    return result.output.trim() === "0"
+  }
+
+  /**
+   * Stops a finished cluster at the end of its last step rather than at
+   * final cleanup, so it holds no memory through the later steps. When
+   * releaseGateCluster declines, the cluster stays for final cleanup.
+   * @param {{ write(text: string): void }} sink
+   * @param {Record<string, string>} dbEnv
+   */
+  async function releaseCluster(sink, dbEnv) {
+    const { reason } = await releaseGateCluster(clusters, dbEnv, {
+      isIdle: async () => {
+        // A backend can outlive its client's exit by a moment: look again
+        // for up to two seconds before leaving the cluster to final cleanup.
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          if (await noOtherSessions(dbEnv)) return true
+          await delay(250)
+        }
+        return false
+      },
+      stop: async (cluster) => {
+        const result = await exec(
+          sink,
+          "node",
+          ["scripts/ci/postgres.mjs", "stop"],
+          { extraEnv: cluster }
+        )
+        return { status: result.code, stderr: result.output }
+      },
+      script: join(root, "scripts/ci/postgres.mjs"),
+      env,
+    })
+    sink.write(`PostgreSQL: ${reason}\n`)
+  }
+
+  async function psql(sink, dbEnv, ...args) {
+    return must(
+      sink,
+      "scripts/ci/pg-client.sh",
+      ["psql", "-v", "ON_ERROR_STOP=1", ...args],
+      { dbEnv }
+    )
+  }
+
+  async function recreateDatabase(sink, dbEnv) {
     const admin = dbEnv.DIRECT_DATABASE_URL.replace(/\/[^/]*$/, "/postgres")
     await psql(
+      sink,
+      dbEnv,
       admin,
       "-c",
       `drop database ${DATABASE} with (force)`,
@@ -480,161 +1063,298 @@ async function main() {
     )
   }
 
-  async function freshMigratedDatabase() {
-    await recreateDatabase()
-    await must("pnpm", ["db:migrate"])
-    await must("pnpm", ["db:runtime-role"])
+  /** A new cluster with the schema migrated and the runtime role created. */
+  async function migratedCluster(sink, name) {
+    const dbEnv = await startCluster(sink, name)
+    await must(sink, "pnpm", ["db:migrate"], { dbEnv })
+    await must(sink, "pnpm", ["db:runtime-role"], { dbEnv })
+    return dbEnv
   }
 
-  async function schemaDump() {
+  async function schemaDump(dbEnv) {
     const result = await must(
+      { write() {} },
       "scripts/ci/pg-client.sh",
       ["pg_dump", "--schema-only", "--no-owner", dbEnv.DIRECT_DATABASE_URL],
-      { quiet: true }
+      { dbEnv, stdoutOnly: true }
     )
     return result.output
   }
 
   let scratchSchema = /** @type {string[] | null} */ (null)
-  const passed = new Set()
-  const requires = (...ids) => {
-    const missing = ids.filter((id) => !passed.has(id))
-    if (missing.length > 0) {
-      throw new NotRun(`needs ${missing.join(", ")}, which did not pass`)
-    }
-  }
+  /** @type {Record<string, string> | null} */
+  let migrationsCluster = null
 
-  /** @type {Record<string, () => Promise<{ output?: string, note?: string } | void>>} */
+  /**
+   * @type {Record<string, (sink: ReturnType<typeof stepLog>) =>
+   *   Promise<{ output?: string, summary?: string[], note?: string,
+   *   skipped?: boolean } | void>>}
+   */
   const steps = {
-    "frozen-install": () =>
-      must("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]),
-    typecheck: async () => {
-      requires("frozen-install")
-      return must("pnpm", ["typecheck"])
+    "frozen-install": (sink) =>
+      must(sink, "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]),
+    typecheck: (sink) => must(sink, "pnpm", ["typecheck"]),
+    lint: (sink) => must(sink, "pnpm", ["lint"]),
+    unit: (sink) =>
+      must(sink, "pnpm", ["test"], {
+        extraEnv: { VITEST_MAX_WORKERS: String(weights.unit) },
+      }),
+    format: (sink) =>
+      must(sink, "node", [
+        "scripts/format-changed.mjs",
+        "--check",
+        "--base",
+        "origin/main",
+      ]),
+    design: async (sink) => {
+      await must(sink, "pnpm", ["check:design", "--ratchet"])
+      await must(sink, "pnpm", ["check:contrast"])
     },
-    lint: async () => {
-      requires("frozen-install")
-      return must("pnpm", ["lint"])
-    },
-    unit: async () => {
-      requires("frozen-install")
-      return must("pnpm", ["test"])
-    },
-    build: async () => {
-      requires("frozen-install")
-      return must("pnpm", ["build"])
-    },
-    "migration-policy": () =>
-      must("node", ["scripts/ci/migration-policy.mjs", baseSha]),
-    "migrate-fresh": async () => {
-      requires("frozen-install")
-      await ensurePostgres()
-      await must("pnpm", ["db:migrate"])
-      await must("pnpm", ["db:migrate"], {
+    build: (sink) => must(sink, "pnpm", ["build"]),
+    "bundle-budget": (sink) =>
+      must(sink, "node", ["tests/perf/route-js.mjs", ...BUNDLE_BUDGET_ARGS]),
+    "migration-policy": (sink) =>
+      must(sink, "node", ["scripts/ci/migration-policy.mjs", baseSha]),
+    "migrate-fresh": async (sink) => {
+      const dbEnv = await startCluster(sink, "migrations")
+      migrationsCluster = dbEnv
+      await must(sink, "pnpm", ["db:migrate"], { dbEnv })
+      await must(sink, "pnpm", ["db:migrate"], {
+        dbEnv,
         extraEnv: { DB_MIGRATE_EXPECT_NOOP: "1" },
       })
-      await must("pnpm", ["db:runtime-role"])
-      await must("pnpm", ["db:runtime-role"])
-      await must("pnpm", ["db:status", "--expect-current"])
-      scratchSchema = normalizeSchemaDump(await schemaDump())
+      await must(sink, "pnpm", ["db:runtime-role"], { dbEnv })
+      await must(sink, "pnpm", ["db:runtime-role"], { dbEnv })
+      await must(sink, "pnpm", ["db:status", "--expect-current"], { dbEnv })
+      scratchSchema = normalizeSchemaDump(await schemaDump(dbEnv))
     },
-    "migrate-upgrade": async () => {
-      requires("migrate-fresh")
-      await recreateDatabase()
-      const baseDir = join(runDir, "base")
-      rmSync(baseDir, { recursive: true, force: true })
-      mkdirSync(baseDir, { recursive: true })
-      const archive = execFileSync(
-        "git",
-        ["archive", "--format=tar", mergeBase, "supabase/migrations"],
-        { cwd: worktree, maxBuffer: 256 * 1024 * 1024 }
-      )
-      execFileSync("tar", ["-x", "-C", baseDir], { input: archive })
-      write(`Migrate to the merge base ${mergeBase.slice(0, 12)}\n`)
-      await must("pnpm", ["db:migrate"], {
-        extraEnv: { MIGRATIONS_DIR: join(baseDir, "supabase/migrations") },
-      })
-      await must("pnpm", ["db:migrate"])
-      await must("pnpm", ["db:runtime-role"])
-      const forward = normalizeSchemaDump(await schemaDump())
-      const scratch = scratchSchema ?? []
-      if (forward.join("\n") !== scratch.join("\n")) {
-        const onlyScratch = scratch.filter((line) => !forward.includes(line))
-        const onlyForward = forward.filter((line) => !scratch.includes(line))
-        write(
+    "migrate-upgrade": async (sink) => {
+      const dbEnv = /** @type {Record<string, string>} */ (migrationsCluster)
+      // The last user of the migrations cluster (migrate-fresh started it).
+      try {
+        await recreateDatabase(sink, dbEnv)
+        const baseDir = join(runDir, "base")
+        rmSync(baseDir, { recursive: true, force: true })
+        mkdirSync(baseDir, { recursive: true })
+        const archive = execFileSync(
+          "git",
+          ["archive", "--format=tar", mergeBase, "supabase/migrations"],
+          { cwd: worktree, maxBuffer: 256 * 1024 * 1024 }
+        )
+        execFileSync("tar", ["-x", "-C", baseDir], { input: archive })
+        sink.write(`Migrate to the merge base ${mergeBase.slice(0, 12)}\n`)
+        await must(sink, "pnpm", ["db:migrate"], {
+          dbEnv,
+          extraEnv: { MIGRATIONS_DIR: join(baseDir, "supabase/migrations") },
+        })
+        await must(sink, "pnpm", ["db:migrate"], { dbEnv })
+        await must(sink, "pnpm", ["db:runtime-role"], { dbEnv })
+        const forward = normalizeSchemaDump(await schemaDump(dbEnv))
+        const scratch = scratchSchema ?? []
+        if (forward.join("\n") !== scratch.join("\n")) {
+          const onlyScratch = scratch.filter((line) => !forward.includes(line))
+          const onlyForward = forward.filter((line) => !scratch.includes(line))
+          sink.write(
+            [
+              "--- from scratch only",
+              ...onlyScratch.map((line) => `- ${line}`),
+              "+++ upgrade only",
+              ...onlyForward.map((line) => `+ ${line}`),
+              "",
+            ].join("\n")
+          )
+          throw new Error(
+            "Schema after upgrading from the merge base differs from a from-scratch migrate"
+          )
+        }
+        return { note: `upgraded from ${mergeBase.slice(0, 12)}` }
+      } finally {
+        await releaseCluster(sink, dbEnv)
+      }
+    },
+    "migrate-concurrent": async (sink) => {
+      const dbEnv = await startCluster(sink, "concurrent")
+      try {
+        const [a, b] = await Promise.all([
+          exec(sink, "pnpm", ["db:migrate"], { dbEnv }),
+          exec(sink, "pnpm", ["db:migrate"], { dbEnv }),
+        ])
+        if (a.code !== 0 || b.code !== 0) {
+          throw new Error("A concurrent db:migrate failed")
+        }
+        const expected = readdirSync(
+          join(worktree, "supabase/migrations")
+        ).filter((name) => name.endsWith(".sql")).length
+        const counts = await must(
+          { write() {} },
+          "scripts/ci/pg-client.sh",
           [
-            "--- from scratch only",
-            ...onlyScratch.map((line) => `- ${line}`),
-            "+++ upgrade only",
-            ...onlyForward.map((line) => `+ ${line}`),
-            "",
-          ].join("\n")
+            "psql",
+            "-At",
+            "-F",
+            " ",
+            dbEnv.DIRECT_DATABASE_URL,
+            "-c",
+            "select count(*), count(distinct version) from schema_migration",
+          ],
+          { dbEnv }
         )
-        throw new Error(
-          "Schema after upgrading from the merge base differs from a from-scratch migrate"
-        )
+        const [total, distinct] = counts.output.trim().split(/\s+/).map(Number)
+        const note = `files=${expected} rows=${total} distinct=${distinct}`
+        sink.write(`${note}\n`)
+        if (total !== expected || distinct !== expected) {
+          throw new Error(`Expected each of ${expected} versions exactly once`)
+        }
+        return { note }
+      } finally {
+        await releaseCluster(sink, dbEnv)
       }
-      return { note: `upgraded from ${mergeBase.slice(0, 12)}` }
     },
-    "migrate-concurrent": async () => {
-      requires("frozen-install")
-      await recreateDatabase()
-      const [a, b] = await Promise.all([
-        exec("pnpm", ["db:migrate"]),
-        exec("pnpm", ["db:migrate"]),
-      ])
-      if (a.code !== 0 || b.code !== 0) {
-        throw new Error("A concurrent db:migrate failed")
-      }
-      const expected = readdirSync(
-        join(worktree, "supabase/migrations")
-      ).filter((name) => name.endsWith(".sql")).length
-      const counts = await must(
-        "scripts/ci/pg-client.sh",
-        [
-          "psql",
-          "-At",
-          "-F",
-          " ",
-          dbEnv.DIRECT_DATABASE_URL,
-          "-c",
-          "select count(*), count(distinct version) from schema_migration",
-        ],
-        { quiet: true }
-      )
-      const [total, distinct] = counts.output.trim().split(/\s+/).map(Number)
-      const note = `files=${expected} rows=${total} distinct=${distinct}`
-      write(`${note}\n`)
-      if (total !== expected || distinct !== expected) {
-        throw new Error(`Expected each of ${expected} versions exactly once`)
-      }
-      return { note }
-    },
-    integration: async () => {
+    integration: async (sink) => {
       // The suite starts the standalone build (.next/standalone/server.js).
-      requires("frozen-install", "build")
-      await freshMigratedDatabase()
-      return must("pnpm", ["test:integration"])
+      // Each shard gets its own cluster: the files of one shard share a
+      // database and the global fleet leases, so they stay serial inside it.
+      const count = options.integrationShards
+      const shards = await Promise.all(
+        Array.from({ length: count }, async (_, index) => {
+          const shard = `${index + 1}/${count}`
+          const shardSink = {
+            write: (text) =>
+              sink.write(
+                count === 1
+                  ? text
+                  : text.replace(/^(?=.)/gm, `[shard ${shard}] `)
+              ),
+          }
+          /** @type {Record<string, string> | undefined} */
+          let dbEnv
+          try {
+            dbEnv = await migratedCluster(shardSink, `integration-${index + 1}`)
+            const args =
+              count === 1
+                ? ["test:integration"]
+                : ["test:integration", `--shard=${shard}`]
+            const result = await exec(shardSink, "pnpm", args, { dbEnv })
+            return { shard, code: result.code, output: result.output }
+          } catch (error) {
+            return {
+              shard,
+              code: error.exitCode ?? 1,
+              output: String(error.output ?? error.message),
+            }
+          } finally {
+            // Only after the suite has exited; a cluster whose start or
+            // migration failed, or that still has sessions, stays for final
+            // cleanup.
+            if (dbEnv) await releaseCluster(shardSink, dbEnv)
+          }
+        })
+      )
+      const summary = mergeVitestSummaries(
+        shards.map((result) => summarizeOutput(result.output))
+      )
+      const failed = shards.filter((result) => result.code !== 0)
+      const note = count === 1 ? undefined : `${count} shards, one cluster each`
+      if (failed.length > 0) {
+        const error = new Error(
+          `integration shard(s) ${failed.map((result) => result.shard).join(", ")} failed`
+        )
+        error.exitCode = failed[0].code
+        error.summary = summary
+        throw error
+      }
+      return { summary, note }
     },
-    e2e: async () => {
-      requires("build")
-      await freshMigratedDatabase()
+    e2e: async (sink) => {
+      // The pinned browser for this Playwright version; a no-op when present.
+      await must(sink, "pnpm", ["exec", "playwright", "install", "chromium"])
+      const dbEnv = await migratedCluster(sink, "e2e")
       let port = E2E_PORT
       if (!((await isFree(port)) && (await isFree(port + 1)))) {
-        const ports = await must("node", ["scripts/ci/postgres.mjs", "ports"], {
-          quiet: true,
-        })
+        const ports = await must(sink, "node", [
+          "scripts/ci/postgres.mjs",
+          "ports",
+        ])
         port = Number(parseExports(ports.output).PLAYWRIGHT_PORT)
         if (!port) throw new Error("could not choose an e2e port")
-        write(`Port ${E2E_PORT} is busy; e2e uses ${port}\n`)
+        sink.write(`Port ${E2E_PORT} is busy; e2e uses ${port}\n`)
       }
-      const result = await must("pnpm", ["test:e2e", "--forbid-only"], {
-        extraEnv: { PLAYWRIGHT_PORT: String(port) },
-      })
-      return { output: result.output, note: `port ${port}` }
+      // Two Playwright runs on the same database, side by side (one after
+      // the other with --serial): the shared suite against the :3100 server
+      // and its journey tenants, and the isolated backend specs, which start
+      // their own servers, stubs and tenants (playwright.config.ts
+      // PLAYWRIGHT_SUITE).
+      const suites = [
+        {
+          name: "shared",
+          env: {
+            PLAYWRIGHT_SUITE: "shared",
+            PLAYWRIGHT_PORT: String(port),
+            PLAYWRIGHT_OUTPUT_DIR: "test-results-shared",
+            E2E_JOURNEY_STATE_PATH:
+              "test-results-shared/e2e-journey-state.json",
+          },
+        },
+        {
+          name: "isolated",
+          env: {
+            PLAYWRIGHT_SUITE: "isolated",
+            PLAYWRIGHT_PORT: String(port + 10),
+            PLAYWRIGHT_OUTPUT_DIR: "test-results-isolated",
+          },
+        },
+      ]
+      const runSuite = async ({ name, env: suiteEnv }) => {
+        const suiteSink = {
+          write: (text) => sink.write(text.replace(/^(?=.)/gm, `[${name}] `)),
+        }
+        const result = await exec(
+          suiteSink,
+          "pnpm",
+          ["test:e2e", "--forbid-only"],
+          {
+            dbEnv,
+            extraEnv: suiteEnv,
+          }
+        )
+        return {
+          name,
+          code: result.code,
+          summary: summarizeOutput(result.output),
+        }
+      }
+      const runs = options.serial
+        ? [await runSuite(suites[0]), await runSuite(suites[1])]
+        : await Promise.all(suites.map(runSuite))
+      const summary = mergePlaywrightSummaries(runs.map((run) => run.summary))
+      const note = `shared and isolated suites, port ${port}`
+      const failed = runs.filter((run) => run.code !== 0)
+      if (failed.length > 0) {
+        const error = new Error(
+          `e2e suite(s) ${failed.map((run) => run.name).join(", ")} failed`
+        )
+        error.exitCode = failed[0].code
+        error.summary = summary
+        throw error
+      }
+      return { summary, note }
     },
-    audit: () => must("pnpm", ["audit", "--prod", "--audit-level", "high"]),
-    "secret-scan": async () => {
+    "workflow-lint": async (sink) => {
+      const missing = ["actionlint", "zizmor"].filter(
+        (tool) => !toolVersion(tool, ["--version"], env)
+      )
+      if (missing.length > 0) {
+        return {
+          skipped: true,
+          note: `${missing.join(" and ")} not installed (brew install actionlint zizmor); workflows not linted`,
+        }
+      }
+      await must(sink, "actionlint", [])
+      await must(sink, "zizmor", ["--offline", ".github/"])
+    },
+    audit: (sink) =>
+      must(sink, "pnpm", ["audit", "--prod", "--audit-level", "high"]),
+    "secret-scan": async (sink) => {
       if (!toolVersion("gitleaks", ["version"], env)) {
         return {
           skipped: true,
@@ -642,19 +1362,12 @@ async function main() {
         }
       }
       // .gitleaksignore at the repository root lists historical findings.
-      return must("gitleaks", [...SECRET_SCAN_ARGS])
+      return must(sink, "gitleaks", [...SECRET_SCAN_ARGS])
     },
   }
 
   const cleanup = () => {
-    if (pgState !== "down") {
-      spawnSync("node", ["scripts/ci/postgres.mjs", "stop"], {
-        cwd: worktreeAdded ? worktree : root,
-        env: { ...env, NABA_PG_DIR: pgDir },
-        stdio: "ignore",
-      })
-      pgState = "down"
-    }
+    stopClusters()
     if (worktreeAdded && !options.keepWorktree) {
       spawnSync("git", ["worktree", "remove", "--force", worktree], {
         cwd: root,
@@ -666,81 +1379,135 @@ async function main() {
       worktreeAdded = false
     }
   }
-  for (const signal of ["SIGINT", "SIGTERM"]) {
+  // As the harness does: a closed terminal or SSH session sends SIGHUP, and
+  // the exit code is 128 plus the signal's number.
+  for (const [signal, code] of Object.entries(GATE_SIGNAL_EXIT_CODES)) {
     process.once(signal, () => {
+      interrupted = true
       cleanup()
       console.error(`verify:release interrupted (${signal}); log: ${logPath}`)
-      process.exit(130)
+      process.exit(code)
     })
   }
 
   const startedAt = new Date().toISOString()
-  /** @type {import("./local-receipt.mjs").StepResult[]} */
-  const results = []
+  const budget = new CpuBudget(cpuBudget)
+  /** @type {Map<string, import("./local-receipt.mjs").StepResult>} */
+  const results = new Map()
+  /** @type {Map<string, Promise<import("./local-receipt.mjs").StepResult>>} */
+  const running = new Map()
+  /** @type {FailFastRun} */
+  const run = { failFast: options.failFast, stop: false }
+
+  /**
+   * @param {string} id
+   * @returns {import("./local-receipt.mjs").StepResult}
+   */
+  const stoppedByFailFast = (id) => ({
+    id,
+    status: "not-run",
+    durationMs: 0,
+    note: "stopped by --fail-fast",
+  })
+
+  /** @param {typeof GATE_STEPS[number]} step */
+  async function runStep(step) {
+    for (const need of step.needs) await running.get(need)
+    if (options.skip.includes(step.id)) {
+      return {
+        id: step.id,
+        status: "skipped",
+        durationMs: 0,
+        note: "skipped by --skip",
+      }
+    }
+    if (run.stop) return stoppedByFailFast(step.id)
+    const missing = step.needs.filter(
+      (need) => results.get(need)?.status !== "passed"
+    )
+    if (missing.length > 0) {
+      return {
+        id: step.id,
+        status: "not-run",
+        durationMs: 0,
+        note: `needs ${missing.join(", ")}, which did not pass`,
+      }
+    }
+    const priority = HEAVY_STEP_PRIORITY.indexOf(step.id)
+    const release =
+      options.serial || priority === -1
+        ? () => {}
+        : await acquireUnlessStopped(run, () =>
+            budget.acquire(weights[step.id], priority)
+          )
+    if (!release) return stoppedByFailFast(step.id)
+    if (run.stop) {
+      release()
+      return stoppedByFailFast(step.id)
+    }
+    say(`=== ${step.id}: started (${step.title})\n`)
+    const sink = stepLog(step.id)
+    const started = performance.now()
+    /** @type {import("./local-receipt.mjs").StepResult} */
+    let result
+    try {
+      const outcome = (await steps[step.id](sink)) ?? {}
+      result = {
+        id: step.id,
+        status: outcome.skipped ? "skipped" : "passed",
+        durationMs: performance.now() - started,
+        summary: outcome.summary ?? summarizeOutput(outcome.output ?? ""),
+        note: outcome.note,
+      }
+    } catch (error) {
+      const notRun = error instanceof NotRun
+      result = {
+        id: step.id,
+        status: notRun ? "not-run" : "failed",
+        durationMs: performance.now() - started,
+        exitCode: error.exitCode ?? null,
+        summary: error.summary ?? summarizeOutput(error.output ?? ""),
+        note: String(error.message).slice(0, 300),
+      }
+    }
+    releaseAfter(run, result, release)
+    await sink.close()
+    say(
+      `=== ${step.id}: ${result.status} in ${(result.durationMs / 1000).toFixed(1)}s${result.note ? ` (${result.note})` : ""}\n`
+    )
+    for (const line of result.summary ?? []) say(`    ${line}\n`)
+    if (result.status === "failed") {
+      const lines = readFileSync(sink.path, "utf8").trimEnd().split("\n")
+      say(
+        `--- last ${Math.min(lines.length, FAILED_TAIL_LINES)} lines of ${sink.path}\n${lines.slice(-FAILED_TAIL_LINES).join("\n")}\n---\n`
+      )
+    }
+    return result
+  }
+
   try {
     git(root, "worktree", "add", "--detach", worktree, sha)
     worktreeAdded = true
-    write(
-      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\n`
+    say(
+      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\nlogs: ${logDir}\n${options.serial ? "serial" : `concurrent, CPU budget ${cpuBudget} (${availableParallelism()} cores), integration in ${options.integrationShards} shard(s)`}\n\n`
     )
-
-    let stop = false
-    for (const step of GATE_STEPS) {
-      if (options.skip.includes(step.id)) {
-        results.push({
-          id: step.id,
-          status: "skipped",
-          durationMs: 0,
-          note: "skipped by --skip",
-        })
-        continue
+    if (options.serial) {
+      for (const step of GATE_STEPS) {
+        const promise = runStep(step)
+        running.set(step.id, promise)
+        results.set(step.id, await promise)
       }
-      if (stop) {
-        results.push({
-          id: step.id,
-          status: "not-run",
-          durationMs: 0,
-          note: "stopped by --fail-fast",
-        })
-        continue
+    } else {
+      for (const step of GATE_STEPS) {
+        running.set(
+          step.id,
+          runStep(step).then((result) => {
+            results.set(step.id, result)
+            return result
+          })
+        )
       }
-      write(`\n=== ${step.id}: ${step.title}\n`)
-      const started = performance.now()
-      /** @type {import("./local-receipt.mjs").StepResult} */
-      let result
-      try {
-        const outcome = (await steps[step.id]()) ?? {}
-        result = {
-          id: step.id,
-          status: outcome.skipped ? "skipped" : "passed",
-          durationMs: performance.now() - started,
-          summary: summarizeOutput(outcome.output ?? ""),
-          note: outcome.note,
-        }
-      } catch (error) {
-        const notRun = error instanceof NotRun
-        result = {
-          id: step.id,
-          status: notRun ? "not-run" : "failed",
-          durationMs: performance.now() - started,
-          exitCode: error.exitCode ?? null,
-          summary: summarizeOutput(error.output ?? ""),
-          note: String(error.message).slice(0, 300),
-        }
-      }
-      if (result.status === "passed") passed.add(step.id)
-      write(
-        `=== ${step.id}: ${result.status} in ${(result.durationMs / 1000).toFixed(1)}s${result.note ? ` (${result.note})` : ""}\n`
-      )
-      for (const line of result.summary ?? []) write(`    ${line}\n`)
-      results.push(result)
-      if (
-        options.failFast &&
-        result.status !== "passed" &&
-        result.status !== "skipped"
-      ) {
-        stop = true
-      }
+      await Promise.all(running.values())
     }
   } finally {
     cleanup()
@@ -755,6 +1522,14 @@ async function main() {
       env
     ),
     gitleaks: toolVersion("gitleaks", ["version"], env),
+    actionlint: toolVersion("actionlint", ["--version"], env),
+    zizmor: toolVersion("zizmor", ["--version"], env),
+    playwright: toolVersion(
+      join(root, "node_modules/.bin/playwright"),
+      ["--version"],
+      env,
+      root
+    ),
     platform: `${process.platform}-${process.arch}`,
   }
   const receipt = buildLocalReceipt({
@@ -762,8 +1537,14 @@ async function main() {
     base: { ref: baseRef, sha: baseSha, mergeBase, source: baseSource },
     gateSource: { clean: gateChanges.length === 0, changed: gateChanges },
     toolchain,
-    steps: results,
-    options: { skip: options.skip, failFast: options.failFast },
+    steps: [...results.values()],
+    options: {
+      skip: options.skip,
+      failFast: options.failFast,
+      serial: options.serial,
+      integrationShards: options.integrationShards,
+      cpuBudget: options.serial ? null : cpuBudget,
+    },
     startedAt,
     finishedAt: new Date().toISOString(),
   })
@@ -773,10 +1554,11 @@ async function main() {
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
   await new Promise((done) => log.end(done))
 
-  console.log("\nLocal release gate")
+  const wallMs = Date.parse(receipt.finishedAt) - Date.parse(startedAt)
+  console.log(`\nLocal release gate (${(wallMs / 60000).toFixed(1)} min)`)
   for (const step of receipt.steps) {
     console.log(
-      `  ${step.status.padEnd(8)} ${step.id}${step.summary ? `  ${step.summary.join("; ")}` : ""}${step.note ? `  (${step.note})` : ""}`
+      `  ${step.status.padEnd(8)} ${step.id.padEnd(20)} ${(step.durationMs / 1000).toFixed(1).padStart(7)}s${step.summary ? `  ${step.summary.join("; ")}` : ""}${step.note ? `  (${step.note})` : ""}`
     )
   }
   const problems = gateProblems(receipt.steps)

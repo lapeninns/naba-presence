@@ -260,17 +260,17 @@ have been told.
 instance has its own, and a fresh instance reads `configured` until its first
 export interval has passed.
 
-### The hosted probe
+### Scheduling the probe
 
-`.github/workflows/readiness-probe.yml` runs the same script every 5 minutes
-on a GitHub-hosted runner against `vars.NABA_READINESS_URL`, with the token
-from the `NABA_READINESS_TOKEN` secret (production's `CRON_SECRET`). A failed
-run is the alert: GitHub emails the failure of a scheduled run. It is inert
-until the variable is set; setup is in `docs/runbook.md`, "Hosted readiness
-probe". `NABA_READINESS_EXPECT_PROMOTED=true` adds `--expect-promoted`. GitHub
-starts scheduled runs on a best-effort basis, sometimes minutes late, and
-pauses them after 60 days without repository activity; a dedicated uptime
-service with bearer-header support is the stronger option if that matters.
+There is no hosted schedule. The `readiness-probe.yml` GitHub workflow ran this
+script every 5 minutes on GitHub-hosted runners, but it was removed on
+2026-10-21: every run had been skipped (it was never configured), GitHub's
+schedule is best effort, and on this private repository each run would have
+billed at least a minute (about 8,600 minutes a month). Schedule the probe
+where it does not depend on Actions minutes: a launchd agent on an operator's
+Mac (below), or a dedicated uptime service that can send the bearer header
+(owner decision; nothing is configured yet). `pnpm release:promote` already
+probes the deployment it promotes.
 
 ### The local probe
 
@@ -287,8 +287,10 @@ READINESS_PROBE_TOKEN=... pnpm ops:readiness --url https://<production> \
 http off localhost. It exits 0 for ready (and degraded, unless
 `--fail-on-degraded`), 1 for degraded with `--fail-on-degraded`, 2 for not
 ready, unreachable, 401, an unreadable answer or a SHA mismatch, and 64 for a
-usage error. `--expect-sha <sha>` or `--expect-promoted` (the newest receipt in
-`docs/release/receipts/`) fails a deployment serving another commit; `--json`
+usage error. `--expect-sha <sha>` or `--expect-promoted` (the release production serves according to
+`docs/release/receipts/`: the newest promotion or a later confirmed
+rollback's target; an unreadable receipt is a usage error, 64) fails a
+deployment serving another commit; `--json`
 prints one machine-readable line; `--notify` raises a macOS notification on
 any non-zero exit. Run it every five minutes; a non-zero exit is the page.
 

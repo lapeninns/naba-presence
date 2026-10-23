@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test"
 
 import { LISTING_HEALTH, listingHealthLabel } from "@/lib/listings/health"
 
+import { pageSettled, transitionsSettled } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 import { seedTeamTenant } from "./helpers/team-tenant"
 
@@ -474,7 +475,7 @@ for (const theme of themes) {
         }
         if (viewport.name === "mobile") {
           // The sheet's rise settles before axe samples its colours.
-          await page.waitForTimeout(350)
+          await transitionsSettled(page)
         }
         // The review list carries `opacity-80` behind a `transition-opacity`
         // for as long as it is refreshing (components/inbox/review-list.tsx).
@@ -510,7 +511,7 @@ for (const theme of themes) {
           page.getByRole("listitem", { name: /Between 15 and 128 characters/ })
         ).toBeVisible()
         await expect(page.getByLabel("Confirm password")).toHaveCount(0)
-        await page.waitForTimeout(250)
+        await transitionsSettled(page)
         await expectAccessible(page, `${viewport.name} ${theme} registration`)
       })
 
@@ -575,7 +576,7 @@ for (const theme of themes) {
         await expect(
           page.getByRole("navigation", { name: "Review queues" })
         ).toBeVisible()
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
         await expectAccessible(page, `${viewport.name} ${theme} inbox landing`)
       })
 
@@ -656,7 +657,7 @@ for (const theme of themes) {
         await expect(
           page.getByRole("link", { name: state.directReview.locationName })
         ).toBeVisible()
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
         await expectAccessible(page, `${viewport.name} ${theme} listings board`)
       })
 
@@ -701,7 +702,7 @@ for (const theme of themes) {
             .getByRole("region", { name: "Areas" })
             .getByRole("heading", { name: "Business profile", level: 3 })
         ).toBeVisible()
-        await page.waitForLoadState("networkidle")
+        await pageSettled(page)
         await expectAccessible(
           page,
           `${viewport.name} ${theme} listing overview`
@@ -1195,7 +1196,7 @@ for (const theme of themes) {
         await expect(
           selectedReview.getByRole("heading", { name: /^Activity/ })
         ).toHaveCount(0)
-        await page.waitForTimeout(500)
+        await transitionsSettled(page)
         await expectAccessible(
           page,
           `${viewport.name} ${theme} review detail and editor`

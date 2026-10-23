@@ -14,11 +14,27 @@ export type GoogleStubResponse = {
   delayMs?: number
 }
 
-type Handler = (call: GoogleStubCall) => GoogleStubResponse | Promise<GoogleStubResponse>
+type Handler = (
+  call: GoogleStubCall
+) => GoogleStubResponse | Promise<GoogleStubResponse>
 type Matcher =
   | { method: string; pathIncludes: string; pathEndsWith?: undefined }
   | { method: string; pathIncludes?: undefined; pathEndsWith: string }
 type Rule = Matcher & { handler: Handler }
+
+/**
+ * Matching requests wait inside the stub until release(), so a test can
+ * hold one request mid-call while it drives another: an overlap that is
+ * guaranteed rather than timed.
+ */
+export type GoogleStubHold = {
+  /** Resolves once `count` matching requests (default 1) have arrived. */
+  entered(count?: number): Promise<void>
+  /** Matching requests so far, held or released. */
+  readonly calls: number
+  /** Answers every held request, and any later one, with the response. */
+  release(): void
+}
 
 export type GoogleStub = {
   baseUrl: string
@@ -33,6 +49,9 @@ export type GoogleStub = {
     matcher: Matcher,
     handler: Handler
   ): void
+  /** A rule like respond()'s whose requests wait for release(). */
+  hold(matcher: Matcher, response: GoogleStubResponse): GoogleStubHold
+  /** Forgets calls and rules, and releases every hold. */
   reset(): void
   stop(): Promise<void>
 }
@@ -47,6 +66,7 @@ export async function startGoogleStub(
 ): Promise<GoogleStub> {
   const calls: GoogleStubCall[] = []
   const rules: Rule[] = []
+  const holds: GoogleStubHold[] = []
   const server: Server = createServer(async (request, response) => {
     let raw = ""
     for await (const chunk of request) raw += chunk
@@ -86,8 +106,7 @@ export async function startGoogleStub(
   })
   const configuredPort = process.env.GOOGLE_STUB_PORT
   const port =
-    options.port ??
-    (configuredPort ? Number.parseInt(configuredPort, 10) : 0)
+    options.port ?? (configuredPort ? Number.parseInt(configuredPort, 10) : 0)
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new Error("GOOGLE_STUB_PORT must be a valid TCP port.")
   }
@@ -100,11 +119,46 @@ export async function startGoogleStub(
     respond(matcher: Matcher, handler: Handler) {
       rules.unshift({ ...matcher, handler })
     },
+    hold(matcher: Matcher, response: GoogleStubResponse) {
+      let release!: () => void
+      const released = new Promise<void>((resolve) => (release = resolve))
+      let count = 0
+      const waiters: { count: number; resolve: () => void }[] = []
+      const hold: GoogleStubHold = {
+        entered(target = 1) {
+          if (count >= target) return Promise.resolve()
+          return new Promise((resolve) =>
+            waiters.push({ count: target, resolve })
+          )
+        },
+        get calls() {
+          return count
+        },
+        release,
+      }
+      holds.push(hold)
+      rules.unshift({
+        ...matcher,
+        handler: async () => {
+          count += 1
+          for (const waiter of waiters) {
+            if (count >= waiter.count) waiter.resolve()
+          }
+          await released
+          return response
+        },
+      })
+      return hold
+    },
     reset() {
+      for (const hold of holds.splice(0)) hold.release()
       calls.length = 0
       rules.length = 0
     },
-    stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    stop: () => {
+      for (const hold of holds.splice(0)) hold.release()
+      return new Promise<void>((resolve) => server.close(() => resolve()))
+    },
   }
 }
 

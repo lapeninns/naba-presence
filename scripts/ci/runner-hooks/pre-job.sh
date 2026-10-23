@@ -42,7 +42,11 @@ case "${GITHUB_EVENT_NAME:-}" in
     ;;
 esac
 
-# Backstop for a previous job whose post-job hook did not run.
-pkill -u "$(id -un)" -f 'standalone/server.js|postgres -D|playwright' 2>/dev/null || true
+# Backstop for a previous job on THIS instance whose post-job hook did not
+# run: its leftovers live under the same _work folder. The other instance's
+# live job is never touched (see job-processes.sh).
+# shellcheck source=scripts/ci/runner-hooks/job-processes.sh
+. "$(dirname "${BASH_SOURCE[0]}")/job-processes.sh" || deny "job-processes.sh is missing"
+stop_job_processes "${RUNNER_TEMP:-}" "${GITHUB_WORKSPACE:-}"
 
 echo "naba runner pre-job hook: allowed $GITHUB_EVENT_NAME on $GITHUB_REF"

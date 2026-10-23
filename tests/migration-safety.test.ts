@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import {
   CONTRACT_MARKER,
@@ -227,26 +227,42 @@ describe("expand/contract rule (contractOperations)", () => {
 
 describe("migration-policy.mjs applies the rule to new migrations", () => {
   let repo: string | null = null
-  afterEach(() => {
-    if (repo) rmSync(repo, { recursive: true, force: true })
-    repo = null
-  })
 
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: repo!, stdio: "pipe", encoding: "utf8" })
 
-  function setup(existing: Record<string, string>) {
+  const base = {
+    // Historical files are not re-judged, even when they break the rule.
+    "0001_init.sql":
+      "create table review (id int, legacy text);\nalter table review rename to review2;\n",
+  }
+
+  // One repository with the historical migrations on main, built once: each
+  // case then starts a fresh branch from main, so cases stay independent
+  // without paying for a new repository (nine processes) each time.
+  beforeAll(() => {
     repo = mkdtempSync(join(tmpdir(), "naba-migration-policy-"))
     mkdirSync(join(repo, "supabase/migrations"), { recursive: true })
     git("init", "--quiet", "--initial-branch=main")
     git("config", "user.email", "test@example.invalid")
     git("config", "user.name", "test")
-    for (const [name, text] of Object.entries(existing)) {
+    for (const [name, text] of Object.entries(base)) {
       writeFileSync(join(repo, "supabase/migrations", name), text)
     }
     git("add", ".")
     git("commit", "--quiet", "-m", "base")
-    git("switch", "--quiet", "-c", "change")
+  })
+
+  afterAll(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true })
+    repo = null
+  })
+
+  /** A new change branch from main, with nothing left from another case. */
+  function setup(existing: typeof base) {
+    expect(existing).toBe(base)
+    git("switch", "--quiet", "--force", "-C", "change", "main")
+    git("clean", "--quiet", "-fdx")
   }
 
   function add(name: string, text: string) {
@@ -261,12 +277,6 @@ describe("migration-policy.mjs applies the rule to new migrations", () => {
       encoding: "utf8",
     })
     return { code: result.status, output: result.stdout + result.stderr }
-  }
-
-  const base = {
-    // Historical files are not re-judged, even when they break the rule.
-    "0001_init.sql":
-      "create table review (id int, legacy text);\nalter table review rename to review2;\n",
   }
 
   it("passes an expand-only migration", () => {

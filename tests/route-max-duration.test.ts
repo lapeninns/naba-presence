@@ -1,8 +1,15 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
+
+import {
+  repoRoot,
+  routeConfigValue,
+  routeFiles,
+  scanRouteFile,
+  stripComments,
+} from "./helpers/route-scanner"
 
 /**
  * Every route that can reach Google or OpenAI declares its time budget
@@ -18,21 +25,11 @@ import { describe, expect, it } from "vitest"
  * guess.
  */
 
-const repoRoot = fileURLToPath(new URL("../", import.meta.url))
-
 const PROVIDER_MODULES = new Set(
   ["lib/server/google/transport.ts", "lib/server/ai.ts"].map((path) =>
     join(repoRoot, path)
   )
 )
-
-function routeFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) return routeFiles(path)
-    return entry.name === "route.ts" ? [path] : []
-  })
-}
 
 function resolveImport(specifier: string, from: string): string | null {
   const base = specifier.startsWith("@/")
@@ -58,7 +55,8 @@ const importsCache = new Map<string, string[]>()
 function runtimeImports(file: string): string[] {
   const cached = importsCache.get(file)
   if (cached) return cached
-  const source = readFileSync(file, "utf8")
+  // Code only: a commented-out import reaches nothing.
+  const source = stripComments(readFileSync(file, "utf8"))
   const found: string[] = []
   for (const match of source.matchAll(
     /^\s*(?:import|export)\s+(type\s+)?[^;]*?from\s+"([^"]+)"/gm
@@ -92,15 +90,11 @@ function reachesProvider(file: string, seen = new Set<string>()): boolean {
 
 const MAX_DURATION_EXPORT = /^export const maxDuration = \d+$/m
 
-/** Each `route({...})` call's opening, up to its first property. */
-function routeOpenings(source: string): string[] {
-  return [...source.matchAll(/\broute(?:<[^>]*>)?\(\{\s*([^,\n]*)/g)].map(
-    (match) => match[1].trim()
-  )
-}
+/** A route module's code, comments blanked, from its absolute path. */
+const routeCode = (file: string) => scanRouteFile(relative(repoRoot, file)).code
 
 describe("route time budgets", () => {
-  const files = routeFiles(join(repoRoot, "app/api"))
+  const files = routeFiles().map((file) => join(repoRoot, file))
   const providerRoutes = files.filter((file) => reachesProvider(file))
 
   it("finds the provider-reaching routes", () => {
@@ -113,19 +107,42 @@ describe("route time budgets", () => {
 
   it("every provider-reaching route exports a literal maxDuration", () => {
     const missing = providerRoutes
-      .filter((file) => !MAX_DURATION_EXPORT.test(readFileSync(file, "utf8")))
+      .filter((file) => !MAX_DURATION_EXPORT.test(routeCode(file)))
       .map((file) => relative(repoRoot, file))
     expect(missing).toEqual([])
   })
 
   it("every route() in a file with maxDuration is handed it", () => {
     const unpassed = files.flatMap((file) => {
-      const source = readFileSync(file, "utf8")
-      if (!MAX_DURATION_EXPORT.test(source)) return []
-      return routeOpenings(source)
-        .filter((first) => first !== "maxDuration")
-        .map(() => relative(repoRoot, file))
+      if (!MAX_DURATION_EXPORT.test(routeCode(file))) return []
+      return scanRouteFile(relative(repoRoot, file))
+        .handlers.filter(
+          (handler) =>
+            routeConfigValue(handler.config, "maxDuration") !== "maxDuration"
+        )
+        .map((handler) => handler.key)
     })
     expect(unpassed).toEqual([])
+  })
+
+  // The checker itself: a commented-out export or a nested key is not a budget.
+  it("reads the export and the route() key from code only", () => {
+    expect(
+      MAX_DURATION_EXPORT.test(
+        stripComments("/*\nexport const maxDuration = 60\n*/\n")
+      )
+    ).toBe(false)
+    expect(MAX_DURATION_EXPORT.test("export const maxDuration = 60\n")).toBe(
+      true
+    )
+    expect(
+      routeConfigValue("route({ maxDuration, handler })", "maxDuration")
+    ).toBe("maxDuration")
+    expect(
+      routeConfigValue(
+        "route({ handler: () => run({ maxDuration }) })",
+        "maxDuration"
+      )
+    ).toBeUndefined()
   })
 })

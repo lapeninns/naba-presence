@@ -424,6 +424,9 @@ test.describe("dirty draft: one question per way out", () => {
       page,
     }) => {
       await page.setViewportSize({ width: 390, height: 844 })
+      // The negative wait below runs on the page's clock, so a question that
+      // a timer would reopen is asked within the test, not 1.5 s of real time.
+      await page.clock.install()
       const state = await readJourneyState()
       await useCookie(page, baseURL, state.cookie)
       if (variant === "pushed from the list") {
@@ -454,8 +457,9 @@ test.describe("dirty draft: one question per way out", () => {
         "list"
       )
       await expect(prompt).toHaveCount(0)
-      // Long enough for a second question to have opened.
-      await page.waitForTimeout(1500)
+      // Long enough for a second question to have opened: 1.5 s of the page's
+      // clock, run at once.
+      await page.clock.runFor(1500)
       await expect(prompt).toHaveCount(0)
       expect(await opens()).toBe(1)
     })
@@ -500,6 +504,9 @@ test.describe("dirty draft: one question per way out", () => {
       page,
     }) => {
       await page.setViewportSize({ width: 1280, height: 860 })
+      // The negative wait below runs on the page's clock, so a question that
+      // a timer would reopen is asked within the test, not 1.5 s of real time.
+      await page.clock.install()
       const state = await readJourneyState()
       await useCookie(page, baseURL, state.cookie)
       if (variant === "pushed from the list") {
@@ -529,7 +536,9 @@ test.describe("dirty draft: one question per way out", () => {
       await settled(page)
       await prompt.getByRole("button", { name: "Discard", exact: true }).click()
       await expect(page).toHaveURL(/\/listings/)
-      await page.waitForTimeout(1500)
+      // Long enough for a second question to have opened: 1.5 s of the page's
+      // clock, run at once.
+      await page.clock.runFor(1500)
       expect(await opens()).toBe(1)
     })
   }

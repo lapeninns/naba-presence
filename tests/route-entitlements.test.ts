@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs"
-import { join, relative } from "node:path"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -25,6 +25,15 @@ import { route, type RouteHandler } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 import { cookies } from "next/headers"
 
+import {
+  MUTATING_METHODS,
+  routeConfigString,
+  routeConfigStrings,
+  routeHandlers,
+  scanRouteFile,
+  withoutLiterals,
+} from "./helpers/route-scanner"
+
 vi.mock("next/headers", () => ({ cookies: vi.fn() }))
 vi.mock("@/lib/server/db", () => ({
   getDatabase: vi.fn(),
@@ -44,9 +53,6 @@ vi.mock("@/lib/server/db", () => ({
  */
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url))
-const apiRoot = join(repoRoot, "app/api")
-
-const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"])
 
 /** AI work: refused on Access.canUseAi. */
 const AI_ROUTES = ["POST reviews/[id]/drafts", "POST drafts/[id]/verify"]
@@ -57,41 +63,26 @@ type Handler = {
   auth: string
   entitlement: string | null
   mfa: string | null
-}
-
-function routeFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = join(dir, entry.name)
-    if (entry.isDirectory()) return routeFiles(full)
-    return entry.name === "route.ts" ? [full] : []
-  })
+  /** The handler's own route() code. */
+  config: string
 }
 
 function handlers(): Handler[] {
-  return routeFiles(apiRoot).flatMap((file) => {
-    const source = readFileSync(file, "utf8")
-    const path = relative(apiRoot, file).replace(/\/?route\.ts$/, "")
-    const exports = [
-      ...source.matchAll(/export const (GET|HEAD|POST|PUT|PATCH|DELETE)\s*=/g),
-    ]
-    return exports.flatMap((match, index) => {
-      const method = match[1]
-      if (!MUTATING.has(method)) return []
-      const block = source.slice(
-        match.index,
-        exports[index + 1]?.index ?? source.length
-      )
-      return [
-        {
-          key: `${method} ${path}`,
-          path,
-          auth: block.match(/auth:\s*"(\w+)"/)?.[1] ?? "session",
-          entitlement: block.match(/entitlement:\s*"(\w+)"/)?.[1] ?? null,
-          mfa: block.match(/\bmfa:\s*"(\w+)"/)?.[1] ?? null,
-        },
-      ]
+  return routeHandlers()
+    .filter((handler) => MUTATING_METHODS.has(handler.method))
+    .map((handler) => {
+      const path = handler.file
+        .replace(/^app\/api\//, "")
+        .replace(/\/?route\.ts$/, "")
+      return {
+        key: `${handler.method} ${path}`,
+        path,
+        auth: routeConfigString(handler.config, "auth") ?? "session",
+        entitlement: routeConfigString(handler.config, "entitlement") ?? null,
+        mfa: routeConfigString(handler.config, "mfa") ?? null,
+        config: handler.config,
+      }
     })
-  })
 }
 
 const exempt = new Set<string>(ENTITLEMENT_EXEMPT_ROUTES)
@@ -149,15 +140,19 @@ describe("route entitlements: static scan of app/api", () => {
       const handler = session.find((entry) => entry.key === key)
       expect(handler, key).toBeDefined()
       expect(handler?.entitlement, key).toBe("exempt")
-      const source = readFileSync(
-        join(apiRoot, handler!.path, "route.ts"),
-        "utf8"
-      )
-      expect(source, key).toMatch(/roles:\s*\["owner"\]/)
+      expect(routeConfigStrings(handler!.config, "roles"), key).toEqual([
+        "owner",
+      ])
       // Stream A's step-up (P02-S9) guards every billing mutation.
-      expect(source, key).toMatch(/\bmfa: "step_up"/)
-      expect(source, key).not.toContain("INTEGRATION")
-      expect(source, key).toContain("refuseSupportSession(session)")
+      expect(handler?.mfa, key).toBe("step_up")
+      // No test-only switch anywhere in the module.
+      expect(
+        scanRouteFile(`app/api/${handler!.path}/route.ts`).code,
+        key
+      ).not.toContain("INTEGRATION")
+      expect(withoutLiterals(handler!.config), key).toMatch(
+        /\brefuseSupportSession\(\s*session\s*\)/
+      )
     }
   })
 

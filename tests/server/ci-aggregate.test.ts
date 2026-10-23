@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest"
 import {
   ALL_JOBS,
   CODE_JOBS,
-  PR_ONLY,
   REQUIRED_ALWAYS,
   evaluate,
 } from "../../scripts/ci/aggregate-results.mjs"
@@ -45,24 +44,16 @@ describe("CI result aggregation", () => {
     expect(result).toEqual({ ok: true, problems: [] })
   })
 
-  it("fails a code pull request when integration was skipped", () => {
-    const result = evaluate({
-      needs: needsWith({ integration: "skipped" }),
-      code: "true",
-      event: "pull_request",
-    })
-    expect(result.ok).toBe(false)
-    expect(result.problems).toEqual(["integration: skipped (code changed)"])
-  })
-
-  it("fails when build succeeded but e2e was skipped", () => {
-    const result = evaluate({
-      needs: needsWith({ build: "success", e2e: "skipped" }),
-      code: "true",
-      event: "push",
-    })
-    expect(result.ok).toBe(false)
-    expect(result.problems).toEqual(["e2e: skipped (code changed)"])
+  it("fails a code pull request or push when the gate was skipped", () => {
+    for (const event of ["pull_request", "push"]) {
+      const result = evaluate({
+        needs: needsWith({ gate: "skipped" }),
+        code: "true",
+        event,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual(["gate: skipped (code changed)"])
+    }
   })
 
   it("fails when plan failed, even if everything else was skipped", () => {
@@ -93,32 +84,12 @@ describe("CI result aggregation", () => {
 
   it("fails code=false outside a pull request (plan never skips there)", () => {
     const result = evaluate({
-      needs: needsWith({ ...skippedCode, "dependency-review": "skipped" }),
+      needs: needsWith(skippedCode),
       code: "false",
       event: "push",
     })
     expect(result.ok).toBe(false)
     expect(result.problems).toContain('plan output code: "false" on push')
-  })
-
-  it("allows dependency-review to skip on push but not on a pull request", () => {
-    expect(
-      evaluate({
-        needs: needsWith({ "dependency-review": "skipped" }),
-        code: "true",
-        event: "push",
-      }).ok
-    ).toBe(true)
-    expect(
-      evaluate({
-        needs: needsWith({ "dependency-review": "skipped" }),
-        code: "true",
-        event: "pull_request",
-      })
-    ).toEqual({
-      ok: false,
-      problems: ["dependency-review: skipped (pull request)"],
-    })
   })
 
   it("fails cancelled and failed jobs, including on a docs-only PR", () => {
@@ -131,11 +102,11 @@ describe("CI result aggregation", () => {
     ).toEqual(["gate: cancelled (code changed)"])
     expect(
       evaluate({
-        needs: needsWith({ ...skippedCode, migrations: "failure" }),
+        needs: needsWith({ gate: "failure" }),
         code: "false",
         event: "pull_request",
       }).problems
-    ).toEqual(["migrations: failure (docs-only pull request)"])
+    ).toEqual(["gate: failure (docs-only pull request)"])
     expect(
       evaluate({
         needs: needsWith({ "secret-scan": "cancelled" }),
@@ -214,7 +185,7 @@ describe("ci.yml wiring", () => {
     const listed = needs![1].split(",").map((job) => job.trim())
     expect([...listed].sort()).toEqual([...ALL_JOBS].sort())
     expect(new Set(ALL_JOBS).size).toBe(
-      REQUIRED_ALWAYS.length + CODE_JOBS.length + PR_ONLY.length
+      REQUIRED_ALWAYS.length + CODE_JOBS.length
     )
   })
 
@@ -238,7 +209,7 @@ describe("ci.yml wiring", () => {
 
   it("runs every job on plan's lane, so the Mac lane needs no hosted minutes", () => {
     const lane = "runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}"
-    for (const job of [...CODE_JOBS, "secret-scan", "dependency-review"]) {
+    for (const job of [...CODE_JOBS, "secret-scan"]) {
       expect(jobBlock(job), job).toContain(lane)
       expect(jobBlock(job), job).toMatch(/\n {4}needs: (plan|\[plan\b)/)
     }
@@ -258,6 +229,9 @@ describe("ci.yml wiring", () => {
       "vars.SELF_HOSTED_ENABLED == 'true'",
       "github.repository == 'lapeninns/naba-presence'",
       "github.ref == 'refs/heads/main'",
+      // An explicit event list, not "anything but a pull request", so a
+      // future caller (workflow_call, issue_comment) cannot reach the Mac.
+      `contains(fromJSON('["push","workflow_dispatch"]'), github.event_name)`,
       "github.event.pull_request.head.repo.full_name == github.repository",
       "github.event.pull_request.user.login != 'dependabot[bot]'",
       "github.actor != 'dependabot[bot]'",
@@ -273,8 +247,22 @@ describe("ci.yml wiring", () => {
         "if: needs.plan.outputs.code == 'true'"
       )
     }
-    expect(jobBlock("dependency-review")).toContain(
-      "if: github.event_name == 'pull_request'"
+  })
+
+  it("runs the local release gate itself, so CI and verify:release cannot drift", () => {
+    const gate = jobBlock("gate")
+    expect(gate).toContain("node scripts/release/verify-local.mjs")
+    // History for the migration policy, upgrade test and full secret scan.
+    expect(gate).toContain("fetch-depth: 0")
+    expect(gate).toContain("persist-credentials: false")
+    // Pull requests compare migrations with their base branch.
+    expect(gate).toContain(
+      "BASE_SHA: ${{ github.event.pull_request.base.sha }}"
     )
+    expect(gate).toContain('--base-ref "$BASE_SHA"')
+    // The steps run nowhere else in the workflow.
+    for (const command of ["pnpm test", "pnpm build", "pnpm db:migrate"]) {
+      expect(ci, command).not.toContain(`run: ${command}`)
+    }
   })
 })

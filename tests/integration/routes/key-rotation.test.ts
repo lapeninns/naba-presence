@@ -168,5 +168,5 @@ describeDatabase("token encryption key rotation", () => {
       from google_connection where id = ${connectionId}
     `
     expect(state).toEqual({ status: "active", tasks: 0 })
-  }, 180_000)
+  }, 30_000)
 })

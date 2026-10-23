@@ -5,6 +5,23 @@ import { createServer } from "node:net"
 
 const SERVER_ENTRY = ".next/standalone/server.js"
 
+/**
+ * How long stop() lets the server drain. On SIGTERM Next stops accepting
+ * connections and finishes the requests in flight, so a tick still running
+ * ends its fleet lease (lib/server/leases.ts) instead of leaving the row to
+ * block that key for FLEET_LEASE_SECONDS. Under Vitest's default 10 s hook
+ * timeout, so a stuck server fails over to SIGKILL rather than the hook.
+ */
+const STOP_GRACE_MS = 8_000
+
+/**
+ * Boot overrides for suites that flip operator pauses: the app reads the
+ * pause table on every check instead of caching it for 5 s
+ * (lib/server/pause-controls.ts pauseCacheTtlMs), so a pause or an unpause
+ * applies to the next request and nothing sleeps out the cache.
+ */
+export const UNCACHED_PAUSES = { PAUSE_CACHE_TTL_MS: "0" } as const
+
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer()
@@ -16,7 +33,8 @@ async function freePort(): Promise<number> {
   })
 }
 
-function serverEnv(
+/** Exported for tests/server/run-test-command-guard.test.ts. */
+export function serverEnv(
   port: number,
   overrides: Record<string, string>
 ): NodeJS.ProcessEnv {
@@ -26,6 +44,13 @@ function serverEnv(
     HOSTNAME: "127.0.0.1",
     PORT: String(port),
     DATABASE_URL: process.env.TEST_RUNTIME_DATABASE_URL!,
+    // Set here so the server never takes it from a .env file copied into
+    // .next/standalone, which Next loads for any variable left unset: the
+    // lease and session-pool connections (lib/server/db.ts) would reach
+    // whatever database that file names.
+    DATABASE_SESSION_URL:
+      process.env.DATABASE_SESSION_URL ??
+      process.env.TEST_RUNTIME_DATABASE_URL!,
     NEXTAUTH_URL: `http://127.0.0.1:${port}`,
     NEXTAUTH_SECRET: "route-harness-secret-value-32-characters!",
     TOKEN_ENCRYPTION_KEY:
@@ -108,13 +133,25 @@ export async function startAppServer(overrides: Record<string, string> = {}) {
       return stderr
     },
     stop: async () => {
+      if (child.exitCode !== null || child.signalCode !== null) return
       stopping = true
+      const exited = once(child, "exit")
       child.kill("SIGTERM")
-      await Promise.race([
-        once(child, "exit"),
-        new Promise((resolve) => setTimeout(resolve, 5_000)),
+      let timer: NodeJS.Timeout | undefined
+      const drained = await Promise.race([
+        exited.then(() => true),
+        new Promise<false>((resolve) => {
+          timer = setTimeout(() => resolve(false), STOP_GRACE_MS)
+        }),
       ])
-      if (child.exitCode === null) child.kill("SIGKILL")
+      clearTimeout(timer)
+      if (!drained) {
+        console.error(
+          `[app-server] ${baseUrl} did not drain within ${STOP_GRACE_MS} ms; killing it (a tick it was running keeps its lease until it expires)`
+        )
+        child.kill("SIGKILL")
+        await exited
+      }
     },
   }
 }

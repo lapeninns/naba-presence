@@ -11,7 +11,7 @@ import {
   it,
 } from "vitest"
 
-import { startAppServer } from "../helpers/app-server"
+import { UNCACHED_PAUSES, startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
   createTestTenant,
@@ -23,8 +23,8 @@ const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
 const CRON = { authorization: "Bearer route-harness-cron-secret" }
-// The app caches the pause table for 5s (lib/server/pause-controls.ts).
-const PAUSE_PROPAGATION_MS = 5_300
+// The server reads the pause table on every check (UNCACHED_PAUSES), so a
+// pause or an unpause applies to the next request.
 
 type SentEmail = { to: string[]; subject: string; text: string }
 type Delivery = {
@@ -56,6 +56,7 @@ describeDatabase("invitation email delivery", () => {
     runtime = postgres(process.env.TEST_RUNTIME_DATABASE_URL!, { max: 1 })
     email = await startGoogleStub()
     server = await startAppServer({
+      ...UNCACHED_PAUSES,
       EMAIL_PROVIDER: "resend",
       EMAIL_API_KEY: "test-email-key",
       EMAIL_FROM: "invites@nabapresence.test",
@@ -84,8 +85,7 @@ describeDatabase("invitation email delivery", () => {
   afterEach(async () => {
     if (!paused) return
     await setPause(false)
-    await new Promise((resolve) => setTimeout(resolve, PAUSE_PROPAGATION_MS))
-  }, 20_000)
+  })
 
   function respondWith(status: number) {
     email.respond({ method: "POST", pathEndsWith: "/emails" }, () =>
@@ -415,7 +415,6 @@ describeDatabase("invitation email delivery", () => {
   it("holds invitation email while the invitation_email scope is paused", async () => {
     const owner = await tenant()
     await setPause(true)
-    await new Promise((resolve) => setTimeout(resolve, PAUSE_PROPAGATION_MS))
     const created = await invite(owner)
     expect(created.invitation.delivery).toMatchObject({
       status: "pending",
@@ -430,7 +429,6 @@ describeDatabase("invitation email delivery", () => {
     expect(sentTo(created.address)).toEqual([])
 
     await setPause(false)
-    await new Promise((resolve) => setTimeout(resolve, PAUSE_PROPAGATION_MS))
     await jobsTick()
     const [row] = await deliveries(created.invitation.id)
     expect(row.status).toBe("sent")

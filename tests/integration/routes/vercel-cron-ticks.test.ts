@@ -1,8 +1,9 @@
 import postgres from "postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
+import { resetFleetState } from "../helpers/platform-state"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -41,6 +42,13 @@ describeDatabase("vercel cron tick shims", () => {
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
       GOOGLE_TIMEOUT_MS: "3000",
     })
+  })
+
+  // The ticks below assert `skipped: false`, and each takes a
+  // database-global fleet lease: start every test with none held and nothing
+  // paused, whatever an earlier file's server left behind.
+  beforeEach(async () => {
+    await resetFleetState(admin)
   })
 
   afterAll(async () => {
@@ -92,7 +100,11 @@ describeDatabase("vercel cron tick shims", () => {
     const response = await authed("/api/sync/reconcile?maxOrganisations=100")
     expect(response.status).toBe(200)
     const body = (await response.json()) as Record<string, unknown>
-    expect(body).toMatchObject({ skipped: false, nextCursor: null, failures: [] })
+    expect(body).toMatchObject({
+      skipped: false,
+      nextCursor: null,
+      failures: [],
+    })
     expect(typeof body.processed).toBe("number")
     expect(typeof body.queued).toBe("number")
     // The cron branch never carries the session-only locations payload.
@@ -124,22 +136,16 @@ describeDatabase("vercel cron tick shims", () => {
     })
   })
 
-  it(
-    "walks the fleet through GET /api/sync/sweep",
-    async () => {
-      const response = await authed(
-        "/api/sync/sweep"
-      )
-      expect(response.status).toBe(200)
-      const body = (await response.json()) as Record<string, unknown>
-      expect(typeof body.processed).toBe("number")
-      expect(typeof body.queued).toBe("number")
-      expect(body.nextCursor).toBeNull()
-      expect(Array.isArray(body.failures)).toBe(true)
-      expect("locations" in body).toBe(false)
-    },
-    120_000
-  )
+  it("walks the fleet through GET /api/sync/sweep", async () => {
+    const response = await authed("/api/sync/sweep")
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as Record<string, unknown>
+    expect(typeof body.processed).toBe("number")
+    expect(typeof body.queued).toBe("number")
+    expect(body.nextCursor).toBeNull()
+    expect(Array.isArray(body.failures)).toBe(true)
+    expect("locations" in body).toBe(false)
+  }, 30_000)
 
   it("enqueues the fleet through GET /api/sync/keywords", async () => {
     const response = await authed(

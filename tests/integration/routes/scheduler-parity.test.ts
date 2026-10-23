@@ -16,8 +16,9 @@ const describeDatabase = run ? describe : describe.skip
  * behind a cursor kept in the scheduler's memory. It now fires the
  * vercel.json GET, which only queues reconcile checkpoints for the job
  * runner. The real `scripts/scheduler.mjs` is spawned against the app and
- * stopped after its first reconcile tick (5 s in; the jobs tick, which
- * would drain the queue, first fires at 10 s).
+ * stopped after its first reconcile tick, which it fires at once instead of
+ * 5 s in (SCHEDULER_INITIAL_DELAY_MS_RECONCILIATION); the jobs tick, which
+ * would drain the queue, keeps its 10 s first delay.
  */
 describeDatabase("self-hosted scheduler parity", () => {
   let admin: ReturnType<typeof postgres>
@@ -48,6 +49,7 @@ describeDatabase("self-hosted scheduler parity", () => {
         ...process.env,
         CRON_SECRET: "route-harness-cron-secret",
         SCHEDULER_BASE_URL: server.baseUrl,
+        SCHEDULER_INITIAL_DELAY_MS_RECONCILIATION: "0",
       },
       stdio: ["ignore", "pipe", "pipe"],
     })

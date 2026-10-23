@@ -3,9 +3,8 @@
 // scripts/ci and runs this with the runner's preinstalled Node.
 //
 // Every job that applies to the change must be `success`. A job may be
-// `skipped` only when the plan says it does not apply:
-//   - CODE_JOBS when Plan reported `code=false` (a docs-only pull request),
-//   - PR_ONLY jobs on any event other than pull_request.
+// `skipped` only when the plan says it does not apply: CODE_JOBS when Plan
+// reported `code=false` (a docs-only pull request).
 // Anything uncertain fails: a Plan that did not succeed, a missing or
 // unexpected `code` output, a job absent from `needs`, or a job in `needs`
 // this script does not classify.
@@ -13,9 +12,9 @@
 import { pathToFileURL } from "node:url"
 
 export const REQUIRED_ALWAYS = ["plan", "secret-scan"]
-export const CODE_JOBS = ["gate", "build", "migrations", "integration", "e2e"]
-export const PR_ONLY = ["dependency-review"]
-export const ALL_JOBS = [...REQUIRED_ALWAYS, ...CODE_JOBS, ...PR_ONLY]
+// The gate job runs every step of scripts/release/verify-local.mjs.
+export const CODE_JOBS = ["gate"]
+export const ALL_JOBS = [...REQUIRED_ALWAYS, ...CODE_JOBS]
 
 /**
  * @param {{
@@ -62,11 +61,6 @@ export function evaluate({ needs, code, event }) {
       `plan output code: ${code === undefined || code === "" ? "missing" : JSON.stringify(code)} on ${event || "unknown event"}`
     )
     for (const job of CODE_JOBS) requireSuccess(job, "plan output unusable")
-  }
-
-  for (const job of PR_ONLY) {
-    if (event === "pull_request") requireSuccess(job, "pull request")
-    else allowSkip(job, `not a pull request (${event || "unknown event"})`)
   }
 
   return { ok: problems.length === 0, problems }

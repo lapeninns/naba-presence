@@ -393,28 +393,6 @@ export function isHealthFilter(
   return HEALTH_FILTERS.some((filter) => filter.value === value)
 }
 
-export function healthFilterMatches(
-  filter: HealthFilter,
-  health: ClientHealth
-): boolean {
-  switch (filter) {
-    case "all":
-      return true
-    case "healthy":
-      return health === "healthy" || health === "syncing"
-    case "attention":
-      return health === "attention"
-    case "disconnected":
-      return health === "disconnected"
-    case "unchecked":
-    case "partially_checked":
-    case "unpublished":
-      return health === filter
-    case "not_connected":
-      return health === "not_connected"
-  }
-}
-
 /**
  * What is wrong with a client that needs a person, and so which action fixes
  * it. The hub shows exactly one alert from this, with that action inside it.

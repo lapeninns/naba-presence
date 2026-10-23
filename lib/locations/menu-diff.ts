@@ -462,10 +462,3 @@ export function compareMenuReplacement(input: {
   const unresolvedCount = rows.filter((row) => row.blocking).length
   return { rows, publishable: unresolvedCount === 0, unresolvedCount }
 }
-
-export function menuChangeRows(input: {
-  readonly draft: MenuNode[]
-  readonly google: MenuNode[]
-}): MenuChangeRow[] {
-  return compareMenuReplacement(input).rows
-}

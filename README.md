@@ -162,14 +162,13 @@ deployment gate, the kill switches and the rollback unit.
 The gate every change must pass locally:
 
 ```bash
-pnpm verify        # typecheck + lint + unit tests, no database: before every push
-pnpm verify:full   # verify + build + integration (needs the local Supabase stack)
+pnpm verify        # typecheck + lint + unit and component tests + design ratchet, no database: before every push
 pnpm verify:release # release gate: the whole CI graph on a fresh worktree and throwaway Postgres
 ```
 
-`pnpm test:a11y` and `pnpm test:e2e` run the browser suites separately. Run
-`verify:full` and the browser suites when a change touches server code, the
-database or UI flows. `pnpm hooks:install` opts in to a pre-push hook that
+`pnpm test:integration`, `pnpm test:e2e` and `pnpm test:a11y` run the database
+and browser suites separately; run them, or `verify:release`, when a change
+touches server code, the database or UI flows. `pnpm hooks:install` opts in to a pre-push hook that
 runs `pnpm verify`.
 
 `pnpm test` runs the unit and contract suites; its embedded PGlite migration
@@ -185,7 +184,7 @@ rules and how to debug a red run.
 Development runs on Turbopack, the default bundler in Next.js 16. This note
 previously pinned both dev and build to the webpack path because Turbopack
 was spawning runaway PostCSS workers here. That stopped reproducing on
-16.2.6 (the pin is now 16.3.8): a cold Turbopack server compiled every dashboard route in
+16.2.6 (the pin is now 16.4.1): a cold Turbopack server compiled every dashboard route in
 0.17–0.52s against webpack’s 1–3.6s, holding one PostCSS worker throughout.
 
 Production builds stay on webpack (`next build --webpack`). That is the path

@@ -13,4 +13,10 @@ case "$DATABASE_URL$DIRECT_DATABASE_URL" in
   *naba_visual*naba_visual*) ;;
   *) echo "with-visual-db: could not derive naba_visual URLs" >&2; exit 1 ;;
 esac
+# naba_visual lives on the local Supabase cluster (port 54322), which the
+# harness guard refuses by default (scripts/test-database.mjs). This is the
+# deliberate exception: a separate database, checked just above. Pin the
+# session URL to it too, so nothing falls back to the dev database's.
+export DATABASE_SESSION_URL="$DATABASE_URL"
+export NABA_ALLOW_DEV_DB=1
 exec "$@"
