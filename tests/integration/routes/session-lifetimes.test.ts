@@ -170,7 +170,9 @@ describeDatabase("platform session lifetimes", () => {
     const owner = await tenant()
     const session = await addSession(owner.userId, owner.organisationId, {
       expires: "1 hour",
-      absolute: "2 days",
+      // 24-hour days, as the app counts them: '2 days' is 49 hours across
+      // the October clock change, which the 2.01 bound below would reject.
+      absolute: "48 hours",
     })
     expect((await authed(session.cookie)).status).toBe(200)
     const [row] = await sessionRow(session.token)
@@ -316,7 +318,11 @@ describeDatabase("platform session lifetimes", () => {
     )
 
     const audits = await admin<
-      { organisationId: string; actorUserId: string | null; metadata: Record<string, unknown> }[]
+      {
+        organisationId: string
+        actorUserId: string | null
+        metadata: Record<string, unknown>
+      }[]
     >`
       select organisation_id::text as "organisationId",
         actor_user_id::text as "actorUserId", metadata

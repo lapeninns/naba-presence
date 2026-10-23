@@ -417,8 +417,10 @@ describe("ListingsBoard", () => {
     const byClient = screen.getByRole("menuitemradio", { name: "By client" })
     expect(trigger).toHaveAttribute("aria-expanded", "true")
     // Moving through the options never rewrites the address.
-    // The menu opens on the current order.
-    expect(worst).toHaveFocus()
+    // The menu opens on the current order. Base UI moves that first focus
+    // on the next animation frame (arrow keys move it at once), so wait for
+    // it as for the focus returning to the trigger below.
+    await waitFor(() => expect(worst).toHaveFocus())
     await user.keyboard("{ArrowDown}")
     expect(byClient).toHaveFocus()
     await user.keyboard("{ArrowUp}")
