@@ -27,7 +27,10 @@
 // static checks run side by side and, once the build is done, the
 // integration shards and e2e run at the same time. Every step that needs a
 // database gets its own throwaway PostgreSQL 17 cluster
-// (scripts/ci/postgres.mjs), stopped afterwards. Integration is split into
+// (scripts/ci/postgres.mjs). The migrations, concurrent-migration and
+// integration clusters stop once their last step is done and no session is
+// left (releaseGateCluster); e2e's, and any that cannot be released, stop
+// at the end of the run. Integration is split into
 // --integration-shards (default 4, or NABA_GATE_INTEGRATION_SHARDS) vitest
 // shards, each on its own cluster; their counts are added up for the
 // receipt. The CPU-heavy steps (build, e2e, integration, unit, typecheck,
@@ -71,6 +74,7 @@ import {
 import { createServer } from "node:net"
 import { availableParallelism, homedir, tmpdir } from "node:os"
 import { basename, dirname, join, relative, resolve } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { stopFailureReport } from "../ci/pg-stop-report.mjs"
@@ -190,6 +194,88 @@ export function gateClusterEnv(runDir, name) {
     NABA_PG_DIR: join(runDir, `pg-${name}`),
     SHARD: `${basename(runDir)}-${name}`,
   }
+}
+
+/**
+ * @typedef {{
+ *   status: number | null,
+ *   signal?: string | null,
+ *   stderr?: string | null,
+ *   error?: Error,
+ * }} StopResult
+ */
+
+/**
+ * Stops one of a gate run's clusters once its last consumer is done, instead
+ * of keeping it until final cleanup. It fails closed: it acts only on the one
+ * tracked cluster whose NABA_PG_DIR and SHARD match `target`, stops it only
+ * after `isIdle` shows no other session is connected, and untracks it only
+ * after the stop succeeded. Every other outcome leaves the cluster tracked, so
+ * final cleanup still stops it; nothing here affects the verdict.
+ * @param {ReturnType<typeof gateClusterEnv>[]} clusters the run's tracked clusters
+ * @param {{ NABA_PG_DIR?: string, SHARD?: string }} target
+ * @param {{
+ *   isIdle: () => Promise<boolean>,
+ *   stop: (cluster: ReturnType<typeof gateClusterEnv>) => Promise<StopResult>,
+ *   script: string,
+ *   env?: Record<string, string | undefined>,
+ * }} effects `script` and `env` name the retry in a failure report
+ * @returns {Promise<{ released: boolean, reason: string }>}
+ */
+export async function releaseGateCluster(
+  clusters,
+  target,
+  { isIdle, stop, script, env = {} }
+) {
+  const name = target.SHARD ?? "an unnamed cluster"
+  const matches = clusters.filter(
+    (cluster) =>
+      cluster.NABA_PG_DIR === target.NABA_PG_DIR &&
+      cluster.SHARD === target.SHARD
+  )
+  if (matches.length !== 1) {
+    return {
+      released: false,
+      reason: `${name} is not one tracked cluster of this run; left to final cleanup`,
+    }
+  }
+  const [cluster] = matches
+  try {
+    if (!(await isIdle())) {
+      return {
+        released: false,
+        reason: `${name} still has other sessions; left to final cleanup`,
+      }
+    }
+  } catch (error) {
+    return {
+      released: false,
+      reason: `${name} could not be checked for other sessions (${error.message}); left to final cleanup`,
+    }
+  }
+  /** @type {StopResult} */
+  let stopped
+  try {
+    stopped = await stop(cluster)
+  } catch (error) {
+    stopped = { status: null, error }
+  }
+  const report = stopFailureReport(stopped, {
+    pgDir: cluster.NABA_PG_DIR,
+    shard: cluster.SHARD,
+    script,
+    env,
+  })
+  if (report) {
+    return {
+      released: false,
+      reason: `${report.trimEnd()}\n  left to final cleanup`,
+    }
+  }
+  // Final cleanup may have taken it meanwhile (an interrupt).
+  const index = clusters.indexOf(cluster)
+  if (index !== -1) clusters.splice(index, 1)
+  return { released: true, reason: `${name} stopped after its last use` }
 }
 
 /** The signals that stop a gate run after cleaning up, and its exit codes. */
@@ -899,6 +985,62 @@ async function main() {
     }
   }
 
+  /**
+   * True when no session but this check is connected: the step's commands
+   * have exited, and with them any app server or pool they started.
+   * @param {Record<string, string>} dbEnv
+   */
+  async function noOtherSessions(dbEnv) {
+    const result = await must(
+      { write() {} },
+      "scripts/ci/pg-client.sh",
+      [
+        "psql",
+        "-At",
+        "-v",
+        "ON_ERROR_STOP=1",
+        dbEnv.DIRECT_DATABASE_URL,
+        "-c",
+        "select count(*) from pg_stat_activity where backend_type = 'client backend' and pid <> pg_backend_pid()",
+      ],
+      { dbEnv, stdoutOnly: true }
+    )
+    return result.output.trim() === "0"
+  }
+
+  /**
+   * Stops a finished cluster at the end of its last step rather than at
+   * final cleanup, so it holds no memory through the later steps. When
+   * releaseGateCluster declines, the cluster stays for final cleanup.
+   * @param {{ write(text: string): void }} sink
+   * @param {Record<string, string>} dbEnv
+   */
+  async function releaseCluster(sink, dbEnv) {
+    const { reason } = await releaseGateCluster(clusters, dbEnv, {
+      isIdle: async () => {
+        // A backend can outlive its client's exit by a moment: look again
+        // for up to two seconds before leaving the cluster to final cleanup.
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          if (await noOtherSessions(dbEnv)) return true
+          await delay(250)
+        }
+        return false
+      },
+      stop: async (cluster) => {
+        const result = await exec(
+          sink,
+          "node",
+          ["scripts/ci/postgres.mjs", "stop"],
+          { extraEnv: cluster }
+        )
+        return { status: result.code, stderr: result.output }
+      },
+      script: join(root, "scripts/ci/postgres.mjs"),
+      env,
+    })
+    sink.write(`PostgreSQL: ${reason}\n`)
+  }
+
   async function psql(sink, dbEnv, ...args) {
     return must(
       sink,
@@ -988,76 +1130,85 @@ async function main() {
     },
     "migrate-upgrade": async (sink) => {
       const dbEnv = /** @type {Record<string, string>} */ (migrationsCluster)
-      await recreateDatabase(sink, dbEnv)
-      const baseDir = join(runDir, "base")
-      rmSync(baseDir, { recursive: true, force: true })
-      mkdirSync(baseDir, { recursive: true })
-      const archive = execFileSync(
-        "git",
-        ["archive", "--format=tar", mergeBase, "supabase/migrations"],
-        { cwd: worktree, maxBuffer: 256 * 1024 * 1024 }
-      )
-      execFileSync("tar", ["-x", "-C", baseDir], { input: archive })
-      sink.write(`Migrate to the merge base ${mergeBase.slice(0, 12)}\n`)
-      await must(sink, "pnpm", ["db:migrate"], {
-        dbEnv,
-        extraEnv: { MIGRATIONS_DIR: join(baseDir, "supabase/migrations") },
-      })
-      await must(sink, "pnpm", ["db:migrate"], { dbEnv })
-      await must(sink, "pnpm", ["db:runtime-role"], { dbEnv })
-      const forward = normalizeSchemaDump(await schemaDump(dbEnv))
-      const scratch = scratchSchema ?? []
-      if (forward.join("\n") !== scratch.join("\n")) {
-        const onlyScratch = scratch.filter((line) => !forward.includes(line))
-        const onlyForward = forward.filter((line) => !scratch.includes(line))
-        sink.write(
-          [
-            "--- from scratch only",
-            ...onlyScratch.map((line) => `- ${line}`),
-            "+++ upgrade only",
-            ...onlyForward.map((line) => `+ ${line}`),
-            "",
-          ].join("\n")
+      // The last user of the migrations cluster (migrate-fresh started it).
+      try {
+        await recreateDatabase(sink, dbEnv)
+        const baseDir = join(runDir, "base")
+        rmSync(baseDir, { recursive: true, force: true })
+        mkdirSync(baseDir, { recursive: true })
+        const archive = execFileSync(
+          "git",
+          ["archive", "--format=tar", mergeBase, "supabase/migrations"],
+          { cwd: worktree, maxBuffer: 256 * 1024 * 1024 }
         )
-        throw new Error(
-          "Schema after upgrading from the merge base differs from a from-scratch migrate"
-        )
+        execFileSync("tar", ["-x", "-C", baseDir], { input: archive })
+        sink.write(`Migrate to the merge base ${mergeBase.slice(0, 12)}\n`)
+        await must(sink, "pnpm", ["db:migrate"], {
+          dbEnv,
+          extraEnv: { MIGRATIONS_DIR: join(baseDir, "supabase/migrations") },
+        })
+        await must(sink, "pnpm", ["db:migrate"], { dbEnv })
+        await must(sink, "pnpm", ["db:runtime-role"], { dbEnv })
+        const forward = normalizeSchemaDump(await schemaDump(dbEnv))
+        const scratch = scratchSchema ?? []
+        if (forward.join("\n") !== scratch.join("\n")) {
+          const onlyScratch = scratch.filter((line) => !forward.includes(line))
+          const onlyForward = forward.filter((line) => !scratch.includes(line))
+          sink.write(
+            [
+              "--- from scratch only",
+              ...onlyScratch.map((line) => `- ${line}`),
+              "+++ upgrade only",
+              ...onlyForward.map((line) => `+ ${line}`),
+              "",
+            ].join("\n")
+          )
+          throw new Error(
+            "Schema after upgrading from the merge base differs from a from-scratch migrate"
+          )
+        }
+        return { note: `upgraded from ${mergeBase.slice(0, 12)}` }
+      } finally {
+        await releaseCluster(sink, dbEnv)
       }
-      return { note: `upgraded from ${mergeBase.slice(0, 12)}` }
     },
     "migrate-concurrent": async (sink) => {
       const dbEnv = await startCluster(sink, "concurrent")
-      const [a, b] = await Promise.all([
-        exec(sink, "pnpm", ["db:migrate"], { dbEnv }),
-        exec(sink, "pnpm", ["db:migrate"], { dbEnv }),
-      ])
-      if (a.code !== 0 || b.code !== 0) {
-        throw new Error("A concurrent db:migrate failed")
+      try {
+        const [a, b] = await Promise.all([
+          exec(sink, "pnpm", ["db:migrate"], { dbEnv }),
+          exec(sink, "pnpm", ["db:migrate"], { dbEnv }),
+        ])
+        if (a.code !== 0 || b.code !== 0) {
+          throw new Error("A concurrent db:migrate failed")
+        }
+        const expected = readdirSync(
+          join(worktree, "supabase/migrations")
+        ).filter((name) => name.endsWith(".sql")).length
+        const counts = await must(
+          { write() {} },
+          "scripts/ci/pg-client.sh",
+          [
+            "psql",
+            "-At",
+            "-F",
+            " ",
+            dbEnv.DIRECT_DATABASE_URL,
+            "-c",
+            "select count(*), count(distinct version) from schema_migration",
+          ],
+          { dbEnv }
+        )
+        const [total, distinct] = counts.output.trim().split(/\s+/).map(Number)
+        const note = `files=${expected} rows=${total} distinct=${distinct}`
+        sink.write(`${note}\n`)
+        if (total !== expected || distinct !== expected) {
+          throw new Error(`Expected each of ${expected} versions exactly once`)
+        }
+        return { note }
+      } finally {
+        await releaseCluster(sink, dbEnv)
       }
-      const expected = readdirSync(
-        join(worktree, "supabase/migrations")
-      ).filter((name) => name.endsWith(".sql")).length
-      const counts = await must(
-        { write() {} },
-        "scripts/ci/pg-client.sh",
-        [
-          "psql",
-          "-At",
-          "-F",
-          " ",
-          dbEnv.DIRECT_DATABASE_URL,
-          "-c",
-          "select count(*), count(distinct version) from schema_migration",
-        ],
-        { dbEnv }
-      )
-      const [total, distinct] = counts.output.trim().split(/\s+/).map(Number)
-      const note = `files=${expected} rows=${total} distinct=${distinct}`
-      sink.write(`${note}\n`)
-      if (total !== expected || distinct !== expected) {
-        throw new Error(`Expected each of ${expected} versions exactly once`)
-      }
-      return { note }
     },
     integration: async (sink) => {
       // The suite starts the standalone build (.next/standalone/server.js).
@@ -1075,11 +1226,10 @@ async function main() {
                   : text.replace(/^(?=.)/gm, `[shard ${shard}] `)
               ),
           }
+          /** @type {Record<string, string> | undefined} */
+          let dbEnv
           try {
-            const dbEnv = await migratedCluster(
-              shardSink,
-              `integration-${index + 1}`
-            )
+            dbEnv = await migratedCluster(shardSink, `integration-${index + 1}`)
             const args =
               count === 1
                 ? ["test:integration"]
@@ -1092,6 +1242,11 @@ async function main() {
               code: error.exitCode ?? 1,
               output: String(error.output ?? error.message),
             }
+          } finally {
+            // Only after the suite has exited; a cluster whose start or
+            // migration failed, or that still has sessions, stays for final
+            // cleanup.
+            if (dbEnv) await releaseCluster(shardSink, dbEnv)
           }
         })
       )

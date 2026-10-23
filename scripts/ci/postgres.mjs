@@ -3,8 +3,9 @@
 //
 //   node scripts/ci/postgres.mjs start   start a fresh cluster on a free port
 //   node scripts/ci/postgres.mjs stop    stop it and delete its data (idempotent;
-//                                        a failed Docker removal keeps the state
-//                                        and exits 1, so stop can be retried)
+//                                        a removal or shutdown it cannot confirm
+//                                        keeps the state and exits 1, so stop
+//                                        can be retried)
 //   node scripts/ci/postgres.mjs ports   pick a free PLAYWRIGHT_PORT
 //
 // Modes (NABA_PG_MODE): `docker` (default on Linux) runs postgres:17-alpine;
@@ -306,13 +307,29 @@ function stop(known) {
     state.bin &&
     existsSync(join(state.dataDir, "postmaster.pid"))
   ) {
-    spawnSync(
-      join(state.bin, "pg_ctl"),
+    const pgCtl = join(state.bin, "pg_ctl")
+    const stopped = spawnSync(
+      pgCtl,
       ["-D", state.dataDir, "-m", "immediate", "-w", "stop"],
       {
         stdio: "ignore",
       }
     )
+    // The state is the only record of this cluster, so it goes only once
+    // pg_ctl itself says no server runs on the data directory (status exits
+    // 3; a postmaster.pid left by a postmaster that already died counts).
+    // A failed stop, or one that cannot be confirmed, keeps it for a retry.
+    const status = spawnSync(pgCtl, ["-D", state.dataDir, "status"], {
+      stdio: "ignore",
+    })
+    if (status.error || status.status !== 3) {
+      const detail =
+        `pg_ctl stop ${stopped.error?.message ?? `exit ${stopped.status}`}, ` +
+        `status ${status.error?.message ?? `exit ${status.status}`}`
+      throw new Error(
+        `PostgreSQL cleanup failed (${detail}); preserving state in ${stateDir}`
+      )
+    }
   }
   if (known) {
     // Failed start: keep pg.log for debugging, drop everything else.
