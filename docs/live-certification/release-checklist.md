@@ -6,53 +6,38 @@
 > updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
 > separate scheduler process).
 
-## Latest production promotion — 18 October 2026
+## Latest production promotion — 23 October 2026
 
 - Production: [nabapresence.com](https://nabapresence.com).
-- Deployed commit: `45ae103a70a6dcf484f5bfc490ca29a705b6a68a` (PR #245, AMA-145).
-- Vercel deployment: `dpl_6Yh4dfuXAnJ7Vv1w73ZF9Z25rDwp`.
-- Promoted at `2026-10-18T20:51:53.252Z` (21:51 Europe/London).
-- [Production receipt](../release/receipts/20261018T205153Z-45ae103a70a6.json)
-  and its byte-pinned [local gate receipt](../release/receipts/20261018T205153Z-45ae103a70a6.local.json).
-- All 13 required local release gates passed with no requested skips: 8,081
-  unit/component tests, 1,412 integration tests with no skips, and 751 browser
-  cases with no failures, retries or skips. The default unit lane separately
-  skipped 1,412 database cases (executed by integration) and one opt-in live AI
-  case. The production dependency audit and full-history secret scan passed.
-- Production schema readback confirmed all 149 migrations applied, with no
-  pending or unknown versions. No migration was applied for this promotion;
-  the upgrade base was `38df396f3c826a05b18bd7eec871d25646391933`.
-- Independent platform health reported this exact SHA from `naba_release_sha`,
-  compatible schema, `requiredCount: 149` and `missing: []`. Independent Vercel
-  API reads confirmed the receipt deployment is the current production target,
-  its canonical `nabapresence.com` alias matches, it is `READY`, and its
-  `meta.releaseSha` equals the deployed commit.
-- Explicit-SHA and latest-promoted-receipt production readiness passed at
-  20:52 and 20:54 UTC respectively, with the existing `telemetry_disabled`
-  degradation (`no_endpoint`). The database was reachable, the scheduler
-  heartbeat was current and every tick was okay.
-- Authenticated read-only smoke passed at 20:52–20:53 UTC: sign-in entry using
-  the existing session, home/Dashboard landing (currently redirects to Inbox),
-  Inbox with 50 loaded reviews, Listings with one loaded listing and an in-sync
-  health board, and return to Inbox. No browser warnings or errors were
-  captured during that window. Fresh password/MFA authentication was not
-  exercised.
-- The anonymous public sign-in e2e supplement passed one selected case with
-  one actual model call and 41 GET/HEAD requests; no unsafe method was attempted.
-  The initial attempt stopped before model execution under the runner's secure
-  field policy. A bounded corrected run removed password attribute/value reads
-  and retained visible-control assertions and the read-only model judgment.
+- Deployed commit: `7f46cc382c51fd4a96d7f74877eb1831aa262350` (PR #251 on
+  PR #249: the testing and CI/CD modernisation, with the Next.js 16.4.1 and
+  Vite 8.1.6 security fixes). It also ships main's unreleased PRs #247 and
+  #248 (AMA-146).
+- Vercel deployment: `dpl_8MYQaZ1JUboLWM7QVK3xRjo23o51`.
+- Promoted at `2026-10-23T16:44:51Z` (17:44 Europe/London).
+- [Production receipt](../release/receipts/20261023T164451Z-7f46cc382c51.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261023T164451Z-7f46cc382c51.local.json).
+- All 17 local release gate steps passed with no requested skips (a serial
+  run, 57.4 minutes): 8,459 unit/component tests (one opt-in live AI case
+  skipped), 1,568 integration tests with no skips, and 593 browser cases with
+  no failures, retries or skips. Formatting, the design ratchet, first-load JS
+  ceilings, workflow lint, the production dependency audit and the
+  full-history secret scan passed.
+- Production schema readback (`db:status --expect-current`) confirmed all 149
+  migrations applied, with no pending or unknown versions. No migration was
+  applied for this promotion; the upgrade base was
+  `45ae103a70a6dcf484f5bfc490ca29a705b6a68a`.
+- The deployment was staged with `--skip-domain` and its own readiness probe
+  reported this exact SHA before `vercel promote`. The production probe then
+  saw `nabapresence.com` serve it on the first attempt, with the existing
+  `telemetry_disabled` degradation (`no_endpoint`).
+- Public check: `/` and `/login` redirect to `/sign-in`, which answers HTTP
+  200. Authenticated smoke, the public e2e supplement and independent Vercel
+  API reads were not run for this promotion.
 - No business publishing, password reset, email, edit or provider-sync action
-  was triggered by the production smoke checks. PR #245 used the owner-approved
-  one-time admin merge exception for its exact head and the budget-blocked
-  hosted check; this record does not describe hosted Actions as green.
-
-The [previous production receipt](../release/receipts/20261018T173347Z-38df396f3c82.json)
-records the prior code promotion. The [earlier migration receipt](../release/receipts/20261018T083932Z-5fd05fce8442.json)
-records the owner-approved private backup and migration 0132–0149 application.
-
-This records the operational promotion. The certification checklist below
-continues to describe its historical PR #66 candidate and sign-off scope.
+  was triggered. PRs #249 and #251 were merged with the owner-approved admin
+  merge for the budget-blocked hosted check; this record does not describe
+  hosted Actions as green.
 
 ## Historical PR #66 certification record
 
