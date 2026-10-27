@@ -350,7 +350,7 @@ function ShellFrame({
     <div className="flex min-h-svh bg-canvas text-ink md:h-svh md:min-h-0 print:block print:h-auto print:bg-white">
       <a
         href="#main"
-        className="fixed top-[-60px] left-3 z-skip-link rounded-full bg-primary px-4 py-2 text-ui font-semibold text-primary-foreground no-underline focus:top-[calc(var(--np-safe-top)+--spacing(3))] focus:shadow-np-pop focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+        className="fixed top-[calc(var(--np-safe-top)+--spacing(3))] left-3 z-skip-link -translate-y-[calc(100%+var(--np-safe-top)+--spacing(4))] rounded-full bg-primary px-4 py-2 text-ui font-semibold text-primary-foreground no-underline focus:translate-y-0 focus:shadow-np-pop focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none motion-safe:transition-transform"
       >
         Skip to content
       </a>

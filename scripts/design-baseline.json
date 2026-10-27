@@ -3,7 +3,7 @@
   "totals": {
     "R1": 12,
     "R2": 9,
-    "R3": 54,
+    "R3": 53,
     "R4": 12,
     "R5": 1,
     "R6": 2,
@@ -84,10 +84,9 @@
         }
       },
       "R3": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "scroll-pt-[calc(var(--np-toolbar-h)+8px)]": 1,
-          "top-[-60px]": 1
+          "scroll-pt-[calc(var(--np-toolbar-h)+8px)]": 1
         }
       },
       "R7": {
