@@ -42,6 +42,9 @@ const GENERIC: AuthMessage = {
 // The connection dropped or the request got no answer: a write comes back
 // as `network_error` (lib/api/client.ts), a read as fetch's own TypeError.
 // Nothing was refused, so say what to check rather than "something".
+// fetch()'s own rejection in Chromium, WebKit and Firefox; any other
+// TypeError is a bug, not the connection.
+const FETCH_FAILED = /failed to fetch|load failed|networkerror/i
 const NETWORK: AuthMessage = {
   title: "We couldn’t reach NabaPresence.",
   description: "Check your connection and try again.",
@@ -228,21 +231,22 @@ export function authErrorMessage(
       }
     return GENERIC
   }
-  if (error instanceof TypeError) return NETWORK
+  if (error instanceof TypeError && FETCH_FAILED.test(error.message))
+    return NETWORK
   return GENERIC
 }
 
 /**
  * Statuses `/auth/confirm` hands back (it alone adds `email=error`): the
- * person was opening a link from an email, almost always the confirmation
- * link, so the way on is a new confirmation link or simply signing in, not
- * a password reset.
+ * person was opening a link from an email. A failed POST is always the
+ * confirmation link; a malformed GET may also be a reset link, so the
+ * words name both ways on, with the confirmation one as the action.
  */
 const FROM_EMAIL_LINK: Record<string, AuthMessage> = {
   invalid_email_link: {
     title: "That email link has expired or was already used.",
     description:
-      "Already confirmed your address? Sign in below. Need a new confirmation link? Enter your email and send one. Invited to a team? Open the invitation email again.",
+      "Already confirmed your address? Sign in below. For a new confirmation link, enter your email and send one; for a new password reset link, choose Forgot password. Invited to a team? Open the invitation email again.",
     action: "resend-confirmation",
   },
   auth_rate_limited: {

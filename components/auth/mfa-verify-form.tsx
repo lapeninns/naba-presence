@@ -178,7 +178,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
         ) {
           setMessage({
             title: "Too many attempts.",
-            description: `For your security, codes are paused. Wait ${retryAfterWords(error) ?? "a few minutes"}, then sign in again.`,
+            description: `For your security, codes are paused. Wait ${retryAfterWords(error) ?? "a few minutes"}, then choose Use a different account to sign in again.`,
           })
           return
         }

@@ -28,9 +28,12 @@ export default async function ConfirmEmailPage({
         description="Part of the link is missing, so it can’t confirm your email."
         footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
       >
+        {/* An invitee's new link has to come from the invitation, which
+            carries the token; the sign-in resend has none to send. */}
         <p className="text-body text-pretty text-ink-muted">
-          Open the link from your email again. If that doesn’t work, go to sign
-          in and choose “Didn’t receive a confirmation email?” to get a new one.
+          {invited
+            ? "Open the link from your email again. If that doesn’t work, open the invitation email and follow its link."
+            : "Open the link from your email again. If that doesn’t work, go to sign in and choose “Didn’t receive a confirmation email?” to get a new one."}
         </p>
       </AuthCard>
     )

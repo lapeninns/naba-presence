@@ -34,9 +34,12 @@ export default function ShareReportError({
         <button
           type="button"
           className={boundaryButtonClass("primary", "lg", "w-full")}
-          disabled={pending}
+          // aria-disabled, not disabled: a disabled button drops the focus
+          // it holds, and the retry is the one thing on the page.
+          aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           onClick={() =>
+            !pending &&
             startTransition(() => {
               ;(retry ?? unstable_retry ?? reset)()
             })

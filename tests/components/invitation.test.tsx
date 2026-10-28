@@ -394,6 +394,10 @@ describe("InvitationView", () => {
     ).not.toBeInTheDocument()
     expect(screen.queryByText("Role")).not.toBeInTheDocument()
     expect(screen.getByText("That invitation has expired.")).toBeInTheDocument()
+    // The focused Accept button is gone, so the new title takes focus.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 })).toHaveFocus()
+    )
     expect(assign).not.toHaveBeenCalled()
   })
 

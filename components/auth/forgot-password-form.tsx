@@ -37,7 +37,9 @@ function focusField(name: string) {
 
 // The outcome of "Send another link". A failure is an error and says what
 // to do next; a success stays polite.
-type ResendNote = { tone: "sent" | "failed"; text: string }
+// `to` is the address the note is about: a resend still in flight when the
+// person goes back to change the address must not speak for the new one.
+type ResendNote = { to: string; tone: "sent" | "failed"; text: string }
 
 // zod is ~20 KB gz the page would otherwise download before it can render
 // (same as sign-in-form.tsx). It loads on the first focus inside the form
@@ -155,6 +157,7 @@ function ForgotPasswordForm() {
         // Neutral on purpose: never confirms whether the address has an
         // account.
         setResendNote({
+          to: address,
           tone: "sent",
           text: `Another link is on its way to ${address} if it has an account.`,
         })
@@ -164,12 +167,15 @@ function ForgotPasswordForm() {
           "forgot-password"
         )
         setResendNote({
+          to: address,
           tone: "failed",
           text: description ? `${title} ${description}` : title,
         })
       }
     })
   }
+
+  const note = resendNote?.to === sentTo ? resendNote : null
 
   if (sentTo) {
     return (
@@ -218,11 +224,11 @@ function ForgotPasswordForm() {
               Send another link
             </Button>
             <span aria-live="polite" className="text-caption text-ink-muted">
-              {resendNote?.tone === "sent" ? resendNote.text : null}
+              {note?.tone === "sent" ? note.text : null}
             </span>
-            {resendNote?.tone === "failed" ? (
+            {note?.tone === "failed" ? (
               <span role="alert" className="text-caption text-danger-ink">
-                {resendNote.text}
+                {note.text}
               </span>
             ) : null}
           </div>

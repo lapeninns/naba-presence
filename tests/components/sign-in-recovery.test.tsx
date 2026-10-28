@@ -120,4 +120,13 @@ describe("resend confirmation", () => {
       "Accepting invitations is temporarily unavailable. This is a problem on our side. Try again shortly."
     )
   })
+
+  it("asks for a whole address when what is typed is not one", async () => {
+    const user = userEvent.setup()
+    render(<ResendConfirmationButton email="sam@" />)
+    await user.click(screen.getByRole("button"))
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter an email address like name@example.co.uk."
+    )
+  })
 })

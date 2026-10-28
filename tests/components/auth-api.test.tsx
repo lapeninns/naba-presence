@@ -176,12 +176,22 @@ describe("authErrorMessage", () => {
     for (const error of [
       new ApiClientError(0, "network_error", "client copy"),
       new TypeError("Failed to fetch"),
+      new TypeError("Load failed"),
     ]) {
       expect(authErrorMessage(error, "sign-in")).toEqual({
         title: "We couldn’t reach NabaPresence.",
         description: "Check your connection and try again.",
       })
     }
+  })
+
+  it("does not blame the connection for a TypeError that is a bug", () => {
+    expect(
+      authErrorMessage(
+        new TypeError("Cannot read properties of undefined"),
+        "sign-in"
+      ).title
+    ).toBe("Something went wrong.")
   })
 
   it("says how long to wait when the 429 states it", () => {

@@ -240,7 +240,7 @@ describe("MfaVerifyForm", () => {
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("Too many attempts.")
     expect(alert).toHaveTextContent(
-      "For your security, codes are paused. Wait about 10 minutes, then sign in again."
+      "For your security, codes are paused. Wait about 10 minutes, then choose Use a different account to sign in again."
     )
     await waitFor(() => expect(alert.parentElement).toHaveFocus())
   })
@@ -259,7 +259,7 @@ describe("MfaVerifyForm", () => {
     )
     await user.click(screen.getByRole("button", { name: "Verify and sign in" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "For your security, codes are paused. Wait a few minutes, then sign in again."
+      "For your security, codes are paused. Wait a few minutes, then choose Use a different account to sign in again."
     )
   })
 

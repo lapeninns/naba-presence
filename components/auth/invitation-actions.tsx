@@ -29,10 +29,16 @@ function InvitationActions({
   viewer,
   invitedEmail,
   token,
+  onFinished,
 }: {
   viewer: { displayName: string; email: string }
   invitedEmail: string
   token: string
+  /**
+   * Accepting found the invitation finished: the lookup is re-run and its
+   * dead end replaces this button, so the view moves focus to its title.
+   */
+  onFinished?: () => void
 }) {
   const queryClient = useQueryClient()
   const [pending, startTransition] = useTransition()
@@ -60,6 +66,7 @@ function InvitationActions({
           caught instanceof ApiClientError &&
           TERMINAL_ACCEPT_ERRORS.has(caught.code)
         ) {
+          onFinished?.()
           void queryClient.invalidateQueries({
             queryKey: queryKeys.invitation(token),
           })

@@ -54,9 +54,12 @@ export default function AuthError({
       <button
         type="button"
         className={boundaryButtonClass("primary", "lg", "w-full")}
-        disabled={pending}
+        // aria-disabled, not disabled: a disabled button drops the focus
+        // it holds, and the retry is the one thing on the page.
+        aria-disabled={pending || undefined}
         aria-busy={pending || undefined}
         onClick={() =>
+          !pending &&
           startTransition(() => {
             // `reset` alone only re-renders the payload that failed, so
             // the error would come straight back.

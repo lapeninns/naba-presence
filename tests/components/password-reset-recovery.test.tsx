@@ -56,6 +56,42 @@ describe("ForgotPasswordForm recovery", () => {
     expect(window.sessionStorage.getItem("naba:reset-email")).toBeNull()
   })
 
+  it("keeps a late resend's note off the stage for a corrected address", async () => {
+    const user = userEvent.setup()
+    let finishResend: () => void = () => {}
+    vi.spyOn(authApi, "requestPasswordReset")
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishResend = resolve
+          })
+      )
+      .mockResolvedValue(undefined)
+    render(<ForgotPasswordForm />)
+    await user.type(screen.getByLabelText("Email address"), "old@example.test")
+    await user.click(screen.getByRole("button", { name: "Send reset link" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Send another link" })
+    )
+    // Back to the form while that resend is still out, then it answers.
+    await user.click(
+      screen.getByRole("button", { name: "Use a different email" })
+    )
+    finishResend()
+    const field = screen.getByLabelText("Email address")
+    await user.clear(field)
+    await user.type(field, "new@example.test")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Send reset link" })
+      ).not.toHaveAttribute("aria-busy")
+    )
+    await user.click(screen.getByRole("button", { name: "Send reset link" }))
+    await screen.findByRole("heading", { name: "Check your email" })
+    expect(screen.queryByText(/old@example\.test/)).not.toBeInTheDocument()
+  })
+
   it("says what failed, and what to do, when a resend is refused", async () => {
     const user = userEvent.setup()
     vi.spyOn(authApi, "requestPasswordReset")

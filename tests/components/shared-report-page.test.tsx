@@ -425,7 +425,7 @@ describe("SharedClientReportView", () => {
       .getByRole("heading", { level: 2, name: "Google Business Profile" })
       .closest("section") as HTMLElement
     expect(
-      within(section).getByText("No Google profile figures for this period.")
+      within(section).getByText("No Google Business Profile figures to show.")
     ).toBeInTheDocument()
     expect(within(section).queryByRole("button")).not.toBeInTheDocument()
     expect(within(section).queryByText("Search views")).not.toBeInTheDocument()

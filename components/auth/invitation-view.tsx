@@ -297,6 +297,9 @@ function InvitationView({
         viewer={viewer}
         invitedEmail={data.email}
         token={token}
+        onFinished={() => {
+          retried.current = true
+        }}
       />
     </AuthCard>
   )

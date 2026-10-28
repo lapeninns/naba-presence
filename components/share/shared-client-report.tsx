@@ -110,7 +110,7 @@ export function SharedClientReportView({
       ]
         .filter(Boolean)
         .join(" · ")
-    : "No Google profile figures for this period."
+    : "No Google Business Profile figures to show."
 
   return (
     <div

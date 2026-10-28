@@ -68,7 +68,12 @@ function ResendConfirmationButton({
     setFailure(null)
     if (!LOOKS_LIKE_EMAIL.test(address)) {
       if (onInvalidEmail) onInvalidEmail(address === "")
-      else setFailure("Enter your email address above first.")
+      else
+        setFailure(
+          address === ""
+            ? "Enter your email address above first."
+            : "Enter an email address like name@example.co.uk."
+        )
       return
     }
     busy.current = true
