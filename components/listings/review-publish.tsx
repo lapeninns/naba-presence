@@ -100,6 +100,7 @@ function AreaSection({
   error,
   onRetry,
   include,
+  canEdit,
 }: {
   locationId: string
   area: AreaKey
@@ -109,13 +110,16 @@ function AreaSection({
   onRetry: () => void
   /**
    * Whether this area goes out with the others. Omitted when there is only
-   * one area to publish (nothing to choose between).
+   * one area to publish (nothing to choose between), and for a role that
+   * can't publish (there is no publish to leave it out of).
    */
   include?: {
     checked: boolean
     onChange: (checked: boolean) => void
     disabled: boolean
   }
+  /** False for a role whose editor opens read-only: the link says "View". */
+  canEdit: boolean
 }) {
   const label = AREA_LABEL[area]
   const Icon = AREA_ICON[area]
@@ -129,8 +133,8 @@ function AreaSection({
       className={cardClassName({ className: "flex flex-col overflow-hidden" })}
     >
       {/* The row: a neutral area mark, the area and its state in words,
-          how many fields change, and the way to edit it. It carries its
-          own control (Edit), so the row itself is not one target. */}
+          how many fields change, and the way to edit (or view) it. It
+          carries its own control, so the row itself is not one target. */}
       <ListRow
         interactive={false}
         emphasis="neutral"
@@ -157,10 +161,10 @@ function AreaSection({
           <Link
             href={listingHref(locationId, area)}
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-            aria-label={`Edit ${label.toLowerCase()}`}
+            aria-label={`${canEdit ? "Edit" : "View"} ${label.toLowerCase()}`}
           >
-            <PencilIcon aria-hidden />
-            Edit
+            {canEdit ? <PencilIcon aria-hidden /> : <EyeIcon aria-hidden />}
+            {canEdit ? "Edit" : "View"}
           </Link>
         }
         subtitle={
@@ -188,11 +192,14 @@ function AreaSection({
           ) : undefined
         }
       />
-      {include && review && review.rows.length > 0 ? (
+      {/* An area Google failed to read can be left out too, so one failed
+          read doesn't hold back the rest; left out, it is simply not
+          queued. */}
+      {include && (review ? review.rows.length > 0 : Boolean(error)) ? (
         <div className="border-b border-line bg-surface-alt px-4 py-2.5">
           <Checkbox
-            checked={include.checked && !review.blockedReason}
-            disabled={include.disabled || Boolean(review.blockedReason)}
+            checked={include.checked && !review?.blockedReason}
+            disabled={include.disabled || Boolean(review?.blockedReason)}
             onCheckedChange={(checked) => include.onChange(Boolean(checked))}
             label={`Include ${label.toLowerCase()} in this publish`}
             description={
@@ -208,6 +215,16 @@ function AreaSection({
           <Alert variant="warning">
             <AlertTitle>Hours need review before publishing</AlertTitle>
             <AlertDescription>{review.blockedReason}</AlertDescription>
+            <AlertActions>
+              <Link
+                href={listingHref(locationId, "hours")}
+                className={cn(
+                  buttonVariants({ variant: "secondary", size: "sm" })
+                )}
+              >
+                Open hours editor
+              </Link>
+            </AlertActions>
           </Alert>
         ) : null}
         {error ? (
@@ -410,8 +427,10 @@ function ReviewPublishBody({
     (areas.includes("hours") && hours.query.isPending) ||
     (areas.includes("menu") && menu.query.isPending)
   // An area that couldn't be read has no diff and no step, so publishing now
-  // would quietly leave it out while the button still counted it.
+  // would quietly leave it out while the button still counted it. Once the
+  // operator leaves it out themselves, it no longer holds back the rest.
   const unreadable = areas.filter((area) => {
+    if (excluded.includes(area)) return false
     const query =
       area === "profile"
         ? profile.query
@@ -452,6 +471,10 @@ function ReviewPublishBody({
   // A role that can't edit has nothing to edit and come back with, so the
   // empty state doesn't send it off to edit.
   const cannotEdit = caps.data ? !caps.data.canEditCanonical : false
+  // A role that can't publish gets the page to read, with no controls that
+  // would do nothing: no include or overwrite checkboxes and no publish bar.
+  // The server refuses its publish either way.
+  const readOnly = cannotPublish
 
   const disabledReason = paused
     ? canManage
@@ -478,9 +501,47 @@ function ReviewPublishBody({
                   ? "Confirm the Google change first."
                   : undefined
 
+  // Why Publish is off, in the bar itself (a tooltip can't be read on a
+  // phone). Left out when an alert above already says it.
+  const statusReason =
+    disabledReason && !paused && !readOnly ? disabledReason : undefined
+
   const publish = () => void flow.publish()
   const retry = flow.error && !flow.isPublishing ? publish : null
   const nothingSent = done && flow.results.every((step) => step.noop === true)
+  // The done state says only what the server answered: "accepted" and "read
+  // back" belong to confirmed_applied alone. A parked or unconfirmed write
+  // says what it is, and a mix of outcomes points at the steps.
+  const outcome = publishOutcome(flow.results)
+  const presentation = describeOutcome(outcome)
+  const sentOutcomes = new Set(
+    flow.results
+      .filter((step) => step.kind !== "local")
+      .map(stepOutcome)
+      .filter((value) => value !== null)
+  )
+  const doneDescription =
+    outcome === "confirmed_applied"
+      ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
+      : sentOutcomes.size > 1
+        ? "Not every change is live on Google yet. Each step above says where it stands."
+        : presentation.description
+  const doneSettled = nothingSent || presentation.live
+  const doneTone =
+    doneSettled || presentation.tone === "healthy"
+      ? "ok"
+      : presentation.tone === "at-risk"
+        ? "bad"
+        : presentation.tone === "attention"
+          ? "warn"
+          : "neutral"
+
+  // Success moves focus to the result, as a failure does to its banner: the
+  // bar and its button have gone, so focus would otherwise fall to the page.
+  const doneRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (done) doneRef.current?.focus()
+  }, [done])
 
   // A failure moves focus to its banner, so a keyboard or screen-reader user
   // lands on what stopped and what to do next rather than on a now-idle
@@ -519,7 +580,11 @@ function ReviewPublishBody({
       ) : summary.isPending ? (
         <ReviewSkeleton />
       ) : areas.length === 0 || done ? (
-        <div className="flex flex-col gap-4">
+        <div
+          ref={doneRef}
+          tabIndex={done ? -1 : undefined}
+          className="flex flex-col gap-4 rounded-(--np-radius-card) focus-halo"
+        >
           {done ? (
             <PublishSteps
               aria-label="Publish results"
@@ -529,23 +594,21 @@ function ReviewPublishBody({
           <Empty
             variant="empty"
             framed
-            tone="ok"
-            icon={<CheckIcon />}
+            tone={done ? doneTone : "ok"}
+            icon={!done || doneSettled ? <CheckIcon /> : <ClockIcon />}
             titleAs="h2"
             title={
               nothingSent
                 ? "Nothing needed sending"
                 : done
-                  ? describeOutcome(publishOutcome(flow.results)).title
+                  ? presentation.title
                   : "Nothing to publish"
             }
             description={
               nothingSent
                 ? "Every area already matched Google when it was checked, so nothing was sent."
                 : done
-                  ? publishOutcome(flow.results) === "confirmed_applied"
-                    ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
-                    : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
+                  ? doneDescription
                   : cannotEdit
                     ? `Nothing is waiting to go to Google for ${entry.name}.`
                     : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
@@ -599,6 +662,12 @@ function ReviewPublishBody({
               <AlertDescription>
                 Publishing to Google is limited to owners, admins and members
                 with publish access to this listing.
+                {canManage
+                  ? null
+                  : " Ask an owner or admin to publish these changes."}
+                {caps.data?.canRequestApproval
+                  ? " Requests for approval aren’t available for listings yet."
+                  : null}
               </AlertDescription>
             </Alert>
           ) : null}
@@ -633,8 +702,9 @@ function ReviewPublishBody({
                       pending={source.query.isPending}
                       error={source.query.error}
                       onRetry={() => void source.query.refetch()}
+                      canEdit={!cannotEdit}
                       include={
-                        areas.length > 1
+                        areas.length > 1 && !readOnly
                           ? {
                               checked: !excluded.includes(area),
                               disabled: flow.isPublishing,
@@ -670,20 +740,22 @@ function ReviewPublishBody({
                 Google holds a different version of {listFields(ackFields)}
               </AlertTitle>
               <AlertDescription>
-                Publishing replaces Google’s{" "}
-                {ackFields.length === 1 ? "value" : "values"} with yours.
-                Compare them above first.
+                {readOnly ? "Publishing would replace" : "Publishing replaces"}{" "}
+                Google’s {ackFields.length === 1 ? "value" : "values"} with
+                yours.{readOnly ? null : " Compare them above first."}
               </AlertDescription>
-              <AlertActions>
-                <Checkbox
-                  checked={acknowledged}
-                  disabled={flow.isPublishing}
-                  onCheckedChange={(checked) =>
-                    setAcknowledged(Boolean(checked))
-                  }
-                  label="I’ve read what Google has now and want to replace it."
-                />
-              </AlertActions>
+              {readOnly ? null : (
+                <AlertActions>
+                  <Checkbox
+                    checked={acknowledged}
+                    disabled={flow.isPublishing}
+                    onCheckedChange={(checked) =>
+                      setAcknowledged(Boolean(checked))
+                    }
+                    label="I’ve read what Google has now and want to replace it."
+                  />
+                </AlertActions>
+              )}
             </Alert>
           ) : null}
 
@@ -735,51 +807,61 @@ function ReviewPublishBody({
                   beside it. On a desk it sticks above the bottom edge only
                   where the window is tall enough to leave the content room
                   (the `controls` variant), and is inline on short screens. */}
-          <ActionBar
-            dock
-            statusRow
-            sticky={false}
-            safeArea={false}
-            className="controls:sticky controls:bottom-3"
-            label="Publish to Google"
-            status={
-              <>
-                {flow.isPublishing ? (
-                  <Spinner decorative />
-                ) : (
-                  <UploadIcon aria-hidden />
-                )}
-                <span className="min-w-0">
+          {readOnly ? null : (
+            <ActionBar
+              dock
+              statusRow
+              sticky={false}
+              safeArea={false}
+              className="controls:sticky controls:bottom-3"
+              label="Publish to Google"
+              status={
+                <>
                   {flow.isPublishing ? (
-                    "Publishing — keep this page open"
-                  ) : loading ? (
-                    "Reading each area from Google…"
+                    <Spinner decorative />
                   ) : (
-                    <>
-                      <span className="tabular-nums">{formatNumber(rows)}</span>{" "}
-                      {rows === 1 ? "field" : "fields"} will change on Google
-                      {disabledReason && steps.length > 0 ? (
-                        <ActionBarMuted> · {disabledReason}</ActionBarMuted>
-                      ) : null}
-                    </>
+                    <UploadIcon aria-hidden />
                   )}
-                </span>
-              </>
-            }
-            primary={
-              <Button
-                onClick={publish}
-                pending={flow.isPublishing}
-                pendingLabel="Publishing…"
-                disabledReason={flow.isPublishing ? undefined : disabledReason}
-              >
-                <UploadIcon aria-hidden data-icon="inline-start" />
-                {retry
-                  ? "Retry publishing"
-                  : `Publish ${includedAreas.length === 1 ? "1 area" : `${includedAreas.length} areas`} to Google`}
-              </Button>
-            }
-          />
+                  <span className="min-w-0">
+                    {flow.isPublishing ? (
+                      "Publishing — keep this page open"
+                    ) : loading ? (
+                      "Reading each area from Google…"
+                    ) : statusReason && steps.length === 0 ? (
+                      // Nothing would go out, so "0 fields will change" says
+                      // nothing; the reason is the status.
+                      statusReason
+                    ) : (
+                      <>
+                        <span className="tabular-nums">
+                          {formatNumber(rows)}
+                        </span>{" "}
+                        {rows === 1 ? "field" : "fields"} will change on Google
+                        {statusReason ? (
+                          <ActionBarMuted> · {statusReason}</ActionBarMuted>
+                        ) : null}
+                      </>
+                    )}
+                  </span>
+                </>
+              }
+              primary={
+                <Button
+                  onClick={publish}
+                  pending={flow.isPublishing}
+                  pendingLabel="Publishing…"
+                  disabledReason={
+                    flow.isPublishing ? undefined : disabledReason
+                  }
+                >
+                  <UploadIcon aria-hidden data-icon="inline-start" />
+                  {retry
+                    ? "Retry publishing"
+                    : `Publish ${includedAreas.length === 1 ? "1 area" : `${includedAreas.length} areas`} to Google`}
+                </Button>
+              }
+            />
+          )}
         </div>
       )}
     </>

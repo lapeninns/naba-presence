@@ -1,0 +1,16 @@
+{
+  "state": "f08-suggestions-viewer",
+  "variant": "1280-light",
+  "url": "/listings/c9c8f560-dd92-4e07-af3b-f32eb938d7fd/suggestions",
+  "h1": "Suggested updates",
+  "activeElement": "body \"((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"ligh\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Only owners and admins can accept or ignore suggestionsYou can see what Google changed. Ask an owner or admin to decide."
+  ],
+  "disabledButtons": [
+    "Check Google nowOnly owners and admins can check Google for "
+  ],
+  "violations": []
+}

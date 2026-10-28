@@ -493,7 +493,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         ).toBeVisible()
         // The post says it is scheduled and is no longer offered Schedule.
         await expect(
-          page.getByText(/Scheduled publication awaiting approval:/)
+          page.getByText(/Scheduled for .+ · Awaiting approval/)
         ).toBeVisible()
         await harvestMenu.click()
         await expect(page.getByRole("menu")).toBeVisible()
@@ -502,6 +502,11 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await capture(page, info, "schedule-once-awaiting")
 
         await schedules
+          .getByRole("button", { name: "Cancel schedule", exact: true })
+          .click()
+        // Cancelling can't be undone, so it asks first.
+        await page
+          .getByRole("alertdialog", { name: "Cancel this schedule?" })
           .getByRole("button", { name: "Cancel schedule", exact: true })
           .click()
         await expect(

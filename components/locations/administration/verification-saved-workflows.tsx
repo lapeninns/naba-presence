@@ -30,10 +30,13 @@ function usePassedDeadlines(deadlines: readonly string[]): ReadonlySet<string> {
         const now = Date.now(),
           next = Math.min(...times.filter((time) => time > now))
         if (!Number.isFinite(next)) return
-        timer = setTimeout(() => {
-          notify()
-          arm()
-        }, Math.min(2_147_483_647, next - now))
+        timer = setTimeout(
+          () => {
+            notify()
+            arm()
+          },
+          Math.min(2_147_483_647, next - now)
+        )
       }
       arm()
       return () => clearTimeout(timer)
@@ -176,5 +179,8 @@ export function savedWorkflowStage(
       ? "Approval no longer valid"
       : "Review no longer valid"
   if (item.reviewReason) return pausedStages[item.reviewReason]
+  // A two-person review this viewer cannot approve: say who acts next.
+  if (!item.approvedBy && item.requiresSecondApprover && !item.canApprove)
+    return "Waiting for another manager"
   return item.approvedBy ? "Approved review" : "Awaiting approval"
 }

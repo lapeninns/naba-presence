@@ -1,0 +1,15 @@
+{
+  "state": "f02-add-photos-open",
+  "variant": "1280-light",
+  "url": "/listings/13f5a46b-7928-4686-ac45-78fa390ef948/photos",
+  "h1": "Photos",
+  "activeElement": "button[Close]",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [],
+  "disabledButtons": [
+    "Add from URL",
+    "Upload photos"
+  ],
+  "violations": []
+}

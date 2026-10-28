@@ -25,8 +25,22 @@ import { verificationCompletionInputSchema } from "@/lib/contracts/google-verifi
  * send step (`reentry`) the same PIN is typed again inside the consent, so
  * nothing is restored from the preview.
  */
+/** Where Google delivered the code, so the hint says where to look. */
+const pinSource: Readonly<Record<string, string>> = {
+  EMAIL: "Enter the code from Google’s email.",
+  SMS: "Enter the code from Google’s text message.",
+  PHONE_CALL: "Enter the code from Google’s phone call.",
+  ADDRESS: "Enter the code from Google’s postcard.",
+}
+
+/** The preview hint: where the code is, then how it is kept. */
+export function verificationPinHint(method: string | null | undefined): string {
+  return `${(method && pinSource[method]) || "Enter the code Google sent you."} Leading zeros count. The PIN isn’t saved, so you’ll type it again to send.`
+}
+
 export function VerificationPinField({
   name,
+  method,
   blocked,
   busy,
   reentry = false,
@@ -34,6 +48,8 @@ export function VerificationPinField({
   onSubmit,
 }: {
   readonly name: string
+  /** Google's delivery method for this request; picks the hint. */
+  readonly method?: string | null
   readonly blocked: boolean
   readonly busy: boolean
   readonly reentry?: boolean
@@ -75,8 +91,8 @@ export function VerificationPinField({
       />
       <FieldDescription>
         {reentry
-          ? "Enter the same PIN used for this exact review. A different PIN requires a fresh review and approval."
-          : "Type Google's code exactly. Leading zeros are kept. The PIN is cleared after preview and cannot be restored from saved work."}
+          ? "Type the same PIN again. A different PIN needs a new review and approval."
+          : verificationPinHint(method)}
       </FieldDescription>
     </Field>
   )

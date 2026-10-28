@@ -39,7 +39,7 @@ const titles: Partial<Record<OperationOutcome, string>> = {
 }
 const effects: Partial<Record<OperationOutcome, string>> = {
   confirmed_applied:
-    "An independent read of Google matches this exact request. Its phase and your merchant standing are below.",
+    "An independent read of Google matches this request. Its phase and whether Google confirms you manage the listing are below.",
   awaiting_confirmation:
     "Google took the request. Refresh this saved outcome to check it independently.",
   uncertain:
@@ -79,11 +79,11 @@ export function VerificationAttemptStatus({
           </span>
         </>
       ) : (
-        "Unknown; no exact request was independently observed"
+        "Unknown. Google did not show this request when it was checked."
       ),
     },
     {
-      label: "Merchant standing",
+      label: "Google confirms you manage it",
       value:
         merchantStandingLabel(merchant?.hasVoiceOfMerchant ?? null) ??
         "Unknown",
@@ -95,8 +95,8 @@ export function VerificationAttemptStatus({
   const effect = attempt.error ? errors[attempt.error] : undefined
   const note = (
     <p className="text-caption text-ink-muted">
-      Request phase and merchant standing are separate. Neither establishes what
-      customers currently see on Search or Maps.
+      The request’s phase and whether Google confirms you manage the listing are
+      separate. Neither shows what customers see on Search or Maps.
     </p>
   )
   const actions = (

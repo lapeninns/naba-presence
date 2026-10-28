@@ -1,0 +1,14 @@
+{
+  "state": "f07-schedule-custom",
+  "variant": "1280-light",
+  "url": "/listings/bbfe2b7d-8af7-494a-884d-cb47f683d57b/posts",
+  "h1": "Posts",
+  "activeElement": "h2 \"Pick a date and time\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Showing all 1 post"
+  ],
+  "disabledButtons": [],
+  "violations": []
+}

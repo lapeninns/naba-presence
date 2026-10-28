@@ -3,8 +3,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { scheduleWhen } from "@/components/locations/posts/schedule-dates"
+import {
+  formatWallDateTime,
+  scheduleWhen,
+  zoneName,
+} from "@/components/locations/posts/schedule-dates"
 import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,6 +30,7 @@ import {
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { StatusPill } from "@/components/ui/status-pill"
+import { showToast } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import {
   actOnPostSchedule,
@@ -36,9 +49,41 @@ import {
   scheduleBadge,
   scheduleReasonText,
 } from "@/lib/locations/schedule-display"
+import { POST_TOPIC_LABEL } from "@/lib/locations/post-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useSessionRole } from "@/lib/queries/use-session"
+
+type ScheduleAction = "pause" | "resume" | "cancel"
+
+/** A row's occurrence counts in words: "1 planned · 2 published". */
+const OCCURRENCE_LABEL: Record<string, string> = {
+  scheduled: "planned",
+  publishing: "publishing",
+  published: "published",
+  rejected: "not accepted",
+  ambiguous: "being checked",
+  missed: "missed",
+  cancelled: "cancelled",
+}
+
+/** A schedule's name when its post has no text: "Event", not "EVENT". */
+function topicName(topicType: string) {
+  return (POST_TOPIC_LABEL as Record<string, string>)[topicType] ?? topicType
+}
+
+/** What the server says it did, once it has done it. */
+function actedToast(action: ScheduleAction, result: PublicationSchedule) {
+  if (action === "pause") return { title: "Schedule paused" }
+  if (action === "cancel") return { title: "Schedule cancelled" }
+  // A schedule whose text changed while it was paused resumes into review.
+  return result.status === "awaiting_approval"
+    ? {
+        title: "Schedule resumed",
+        description: "It needs approval again before it publishes.",
+      }
+    : { title: "Schedule resumed" }
+}
 
 /**
  * A location's publication schedules and the actions each allows. With the
@@ -46,7 +91,8 @@ import { useSessionRole } from "@/lib/queries/use-session"
  * stay visible and can be paused or cancelled, but nothing can be approved,
  * changed or resumed, and an empty list shows nothing at all. A missed
  * slot is never resumed or retried; its only ways out are a new time or a
- * cancel (P08-R5).
+ * cancel (P08-R5). Cancelling is final, so it is confirmed first; pausing
+ * can be undone by resuming, so it is one tap.
  */
 export function PostSchedules({
   locationId,
@@ -63,6 +109,8 @@ export function PostSchedules({
   const manager = role === "owner" || role === "admin"
   const client = useQueryClient()
   const [review, setReview] = useState<PublicationSchedule | null>(null)
+  const [confirmCancel, setConfirmCancel] =
+    useState<PublicationSchedule | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const query = useQuery({
     queryKey: queryKeys.postSchedules(locationId),
@@ -85,13 +133,18 @@ export function PostSchedules({
         : "That change could not be saved."
     )
   const act = useMutation({
-    mutationFn: (input: {
-      id: string
-      action: "pause" | "resume" | "cancel"
-    }) => actOnPostSchedule(locationId, input.id, input.action),
-    onSuccess: refresh,
+    mutationFn: (input: { id: string; action: ScheduleAction }) =>
+      actOnPostSchedule(locationId, input.id, input.action),
+    onSuccess: (result, input) => {
+      if (input.action === "cancel") setConfirmCancel(null)
+      refresh()
+      showToast(actedToast(input.action, result))
+    },
     onError: failed,
   })
+  /** This row's action is the one waiting on the server. */
+  const acting = (id: string, action: ScheduleAction) =>
+    act.isPending && act.variables?.id === id && act.variables.action === action
   const approve = useMutation({
     mutationFn: (schedule: PublicationSchedule) =>
       approvePostSchedule(
@@ -103,6 +156,7 @@ export function PostSchedules({
     onSuccess: () => {
       setReview(null)
       refresh()
+      showToast({ title: "Schedule approved" })
     },
     onError: failed,
   })
@@ -116,11 +170,12 @@ export function PostSchedules({
           Publication schedules
         </h3>
         <p className="text-ui text-ink-muted">
-          Approved schedules publish without anyone having the page open. Any
-          change needs a fresh approval.
+          {enabled
+            ? "Approved schedules publish without anyone having the page open. Any change needs a fresh approval."
+            : "Scheduled publishing is switched off for this workspace, so nothing here publishes. You can still pause or cancel these schedules."}
         </p>
       </div>
-      {failure && !review ? (
+      {failure && !review && !confirmCancel ? (
         <p role="alert" className="text-ui text-danger-ink">
           {failure}
         </p>
@@ -132,7 +187,8 @@ export function PostSchedules({
         onRetry={() => void query.refetch()}
         empty={
           <p className="text-ui text-ink-muted">
-            No schedules yet. Use Schedule on a post to plan its publication.
+            No schedules yet. Choose Schedule publication from a post’s More
+            actions menu.
           </p>
         }
       >
@@ -156,7 +212,7 @@ export function PostSchedules({
                 emphasis="neutral"
                 title={
                   schedule.template.summary.slice(0, 80) ||
-                  schedule.template.topicType
+                  topicName(schedule.template.topicType)
                 }
                 subtitle={
                   <span className="tabular-nums">
@@ -176,12 +232,15 @@ export function PostSchedules({
                     <p className="text-caption text-ink-muted tabular-nums">
                       {describeScheduleRule(
                         schedule.rule,
-                        schedule.timezone,
+                        zoneName(schedule.timezone),
                         schedule.offsetMinutes
                       )}
                       {" · "}
                       {Object.entries(schedule.counts)
-                        .map(([key, value]) => `${value} ${key}`)
+                        .map(
+                          ([key, value]) =>
+                            `${value} ${OCCURRENCE_LABEL[key] ?? key}`
+                        )
                         .join(" · ") || `${schedule.preview.total} planned`}
                       {schedule.requiresSecondApprover
                         ? " · needs a second approver"
@@ -210,6 +269,8 @@ export function PostSchedules({
                           size="sm"
                           variant="ghost"
                           disabled={act.isPending}
+                          pending={acting(schedule.id, "pause")}
+                          pendingLabel="Pausing…"
                           onClick={() =>
                             act.mutate({ id: schedule.id, action: "pause" })
                           }
@@ -222,6 +283,8 @@ export function PostSchedules({
                           size="sm"
                           variant="ghost"
                           disabled={act.isPending}
+                          pending={acting(schedule.id, "resume")}
+                          pendingLabel="Resuming…"
                           onClick={() =>
                             act.mutate({ id: schedule.id, action: "resume" })
                           }
@@ -261,9 +324,12 @@ export function PostSchedules({
                           size="sm"
                           variant="ghost"
                           disabled={act.isPending}
-                          onClick={() =>
-                            act.mutate({ id: schedule.id, action: "cancel" })
-                          }
+                          pending={acting(schedule.id, "cancel")}
+                          pendingLabel="Cancelling…"
+                          onClick={() => {
+                            setFailure(null)
+                            setConfirmCancel(schedule)
+                          }}
                         >
                           Cancel schedule
                         </Button>
@@ -297,7 +363,7 @@ export function PostSchedules({
               <p className="text-ui text-ink-secondary">
                 {describeScheduleRule(
                   review.rule,
-                  review.timezone,
+                  zoneName(review.timezone),
                   review.offsetMinutes
                 )}
               </p>
@@ -327,8 +393,11 @@ export function PostSchedules({
               <ol className="flex flex-col gap-0.5 text-caption text-ink-secondary tabular-nums">
                 {review.preview.first.map((occurrence) => (
                   <li key={occurrence.intendedAt}>
-                    {occurrence.localDate} {occurrence.localTime} (
-                    {review.timezone})
+                    {formatWallDateTime(
+                      occurrence.localDate,
+                      occurrence.localTime
+                    )}{" "}
+                    {zoneName(review.timezone)}
                     {clockChangeNote(occurrence.adjustment) ? (
                       <span className="text-warning-ink">
                         {" "}
@@ -361,6 +430,47 @@ export function PostSchedules({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        open={confirmCancel !== null}
+        onOpenChange={(value) => {
+          if (value || act.isPending) return
+          setConfirmCancel(null)
+          setFailure(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Cancel this schedule?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Nothing more publishes from it. A cancelled schedule can’t be
+            restarted; schedule the post again to publish it later.
+          </AlertDialogDescription>
+          {failure ? (
+            <p role="alert" className="text-ui text-danger-ink">
+              {failure}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogClose
+              disabled={act.isPending}
+              render={<Button variant="ghost">Keep schedule</Button>}
+            />
+            <Button
+              variant="danger"
+              pending={
+                confirmCancel !== null && acting(confirmCancel.id, "cancel")
+              }
+              pendingLabel="Cancelling…"
+              onClick={() => {
+                if (!confirmCancel) return
+                setFailure(null)
+                act.mutate({ id: confirmCancel.id, action: "cancel" })
+              }}
+            >
+              Cancel schedule
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }

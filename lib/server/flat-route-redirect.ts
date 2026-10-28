@@ -1,6 +1,10 @@
 import "server-only"
 
+import { headers } from "next/headers"
+
+import { REQUEST_PATH_HEADER, signInPathFor } from "@/lib/api/next-path"
 import { resolvePrimaryLocation } from "@/lib/server/primary-location"
+import { getSession, isLocalBootstrapEnabled } from "@/lib/server/session"
 
 /** What a retired flat route's page received in its query string. */
 export type FlatRouteSearchParams = Record<
@@ -21,6 +25,11 @@ export type FlatRouteSearchParams = Record<
  * there. With several — or none — send the user to Clients, where they can say
  * which business they meant.
  *
+ * Signed out, the answer can't be known yet, so ask for sign-in first and
+ * come back to the old link itself (the same `?next=` the dashboard layout
+ * builds). Deciding before sign-in sent everyone to Clients, even someone
+ * whose one listing the link plainly meant.
+ *
  * The old link's query string comes along (a filter or a tab in a bookmark is
  * still meaningful), and a landing on Clients carries `?moved=<section>` so
  * the page can say in one line why the bookmark ended up there.
@@ -29,6 +38,11 @@ export async function flatRouteTarget(
   segment: string,
   options: { searchParams?: FlatRouteSearchParams; moved?: string } = {}
 ): Promise<string> {
+  const anonymousAllowed =
+    process.env.NODE_ENV !== "production" || isLocalBootstrapEnabled()
+  if (!anonymousAllowed && !(await getSession())) {
+    return signInPathFor((await headers()).get(REQUEST_PATH_HEADER))
+  }
   const primary = await resolvePrimaryLocation()
   if (primary.locationCount === 1 && primary.locationId) {
     const path = segment

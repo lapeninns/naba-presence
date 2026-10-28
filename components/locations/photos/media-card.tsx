@@ -1,6 +1,13 @@
 "use client"
 
-import { CheckIcon, ImagesIcon, StarIcon, Trash2Icon } from "lucide-react"
+import {
+  CheckIcon,
+  ImageOffIcon,
+  ImagesIcon,
+  StarIcon,
+  Trash2Icon,
+} from "lucide-react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,7 +23,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { MediaCategory, MediaItem } from "@/lib/api/location-media"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import {
+  formatMediaDate,
   humaniseCategory,
   isPatchableMediaCategory,
 } from "@/lib/locations/media-labels"
@@ -54,6 +63,10 @@ export function MediaLabel({
  * hover-only on a touch screen; customer photos say whose they are instead,
  * because Google never lets a business move or delete them.
  *
+ * Every control names its photo in full ("Interior photo from a customer,
+ * added 1 Jul 2026"), so twelve tiles of one category are not twelve
+ * identical buttons, and whose photo it is is heard before it is opened.
+ *
  * `selected` is presentational: an accent ring plus a check badge for a
  * grid that offers multi-select. The grid does not select today; the prop
  * is here so the look is decided once.
@@ -83,10 +96,27 @@ export function MediaCard({
   const categoryLabel = humaniseCategory(item.category)
   const mediaKind = item.mediaFormat.toLowerCase()
   const isLogo = item.category === "LOGO"
+  // The date reads in the browser's zone, so it joins the names only after
+  // hydration; the server's render can't know that zone.
+  const hydrated = useHydrated()
+  const created = hydrated ? formatMediaDate(item.createTime) : null
+  const name = `${categoryLabel} ${mediaKind}${customer ? " from a customer" : ""}${created ? `, added ${created}` : ""}`
+  // Google's thumbnail links expire. The URL that failed is kept, not a
+  // flag, so a refresh that brings a new link tries it again.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  const unavailable =
+    Boolean(item.thumbnailUrl) && failedUrl === item.thumbnailUrl
+  const markFailed = () => {
+    if (item.thumbnailUrl && failedUrl !== item.thumbnailUrl)
+      setFailedUrl(item.thumbnailUrl)
+  }
 
   return (
     <li
       data-slot="media-card"
+      // The grid finds the tile next to a deleted one by this, to put focus
+      // back on the gallery rather than the top of the page.
+      data-media-id={item.id}
       data-selected={selected || undefined}
       className="@container/card flex min-w-0 flex-col gap-2"
     >
@@ -96,7 +126,7 @@ export function MediaCard({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`Preview ${categoryLabel} ${mediaKind}`}
+        aria-label={`Preview ${name}${unavailable ? " (photo unavailable)" : ""}`}
         className={cn(
           "group/tile relative block aspect-4/3 w-full cursor-zoom-in overflow-hidden rounded-(--np-radius-card) bg-fill text-left focus-halo outline-none",
           // On ::after, not the button's own box-shadow: focus-halo is a
@@ -105,7 +135,7 @@ export function MediaCard({
             "after:pointer-events-none after:absolute after:inset-0 after:rounded-(--np-radius-card) after:ring-2 after:ring-primary after:ring-inset"
         )}
       >
-        {item.thumbnailUrl ? (
+        {item.thumbnailUrl && !unavailable ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={item.thumbnailUrl}
@@ -113,8 +143,32 @@ export function MediaCard({
             referrerPolicy="no-referrer"
             loading="lazy"
             decoding="async"
+            // A server-rendered page can fail the request before React
+            // attaches `onError` (and React does not replay it), so a
+            // finished load with no pixels is read as failed too. A lazy
+            // image not asked for yet has no `currentSrc` and is left alone.
+            ref={(image) => {
+              if (
+                image?.complete &&
+                image.naturalWidth === 0 &&
+                image.currentSrc
+              )
+                markFailed()
+            }}
+            onError={markFailed}
             className="size-full object-cover transition-transform duration-(--np-duration-standard) ease-spring group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
+        ) : unavailable ? (
+          // The broken-image glyph said nothing; this says what happened.
+          // The words are in the button's name too, so they stay visual.
+          <span
+            data-slot="media-unavailable"
+            className="flex size-full flex-col items-center justify-center gap-1 text-caption text-ink-muted"
+            aria-hidden
+          >
+            <ImageOffIcon className="size-6" strokeWidth={1.5} />
+            Photo unavailable
+          </span>
         ) : (
           <span
             className="flex size-full items-center justify-center text-ink-muted"
@@ -161,7 +215,7 @@ export function MediaCard({
               >
                 <SelectTrigger
                   className="w-full min-w-0"
-                  aria-label={`Change category for ${categoryLabel} ${mediaKind}`}
+                  aria-label={`Change category for ${name}`}
                 >
                   <SelectValue placeholder="Move to category…">
                     {(value: string | null) =>
@@ -191,7 +245,8 @@ export function MediaCard({
                         // Moving a photo to LOGO through the category list
                         // works, but nobody looking for "make this our logo"
                         // thinks to open a list called "Move to category".
-                        aria-label={`Use this ${mediaKind} as the logo`}
+                        // The tooltip's words first, then which photo.
+                        aria-label={`Use as logo: ${name}`}
                       />
                     }
                   >
@@ -209,7 +264,7 @@ export function MediaCard({
                       className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
                       onClick={onDelete}
                       disabled={disabled || updating}
-                      aria-label={`Delete ${categoryLabel} ${mediaKind}`}
+                      aria-label={`Delete ${name}`}
                     />
                   }
                 >
