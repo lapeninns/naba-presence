@@ -88,13 +88,18 @@ function renderCard(
     mutateAsync: vi.fn(async () => ({ link: {} })),
     isPending: false,
   },
-  clientId?: string
+  clientId?: string,
+  options: {
+    accountsQuery?: Record<string, unknown>
+    discovery?: Record<string, unknown>
+    onChooseAccounts?: () => void
+  } = {}
 ) {
   workspaceMock.mockReturnValue({
     query: { data: { connections: [{ id: "c1", status: "active" }] } },
   })
   accountsMock.mockReturnValue({
-    query: {
+    query: options.accountsQuery ?? {
       data: {
         accounts: [
           { id: "a1", googleAccountName: "accounts/1", isActive: true },
@@ -102,12 +107,14 @@ function renderCard(
       },
     },
   })
-  locationsMock.mockReturnValue({
-    data: { locations },
-    isPending: false,
-    isError: false,
-    refetch: vi.fn(),
-  })
+  locationsMock.mockReturnValue(
+    options.discovery ?? {
+      data: { locations },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    }
+  )
   importMock.mockReturnValue({
     link,
     unlink: { mutate: vi.fn(), isPending: false },
@@ -118,7 +125,10 @@ function renderCard(
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
-        <ImportCard clientId={clientId} />
+        <ImportCard
+          clientId={clientId}
+          onChooseAccounts={options.onChooseAccounts}
+        />
       </Toaster>
     </QueryClientProvider>
   )
@@ -204,6 +214,94 @@ describe("ImportCard", () => {
   it("shows an empty state when discovery returns nothing", () => {
     renderCard([])
     expect(screen.getByText("No listings to link")).toBeInTheDocument()
+  })
+
+  it("names the accounts load while it runs, not an account to choose", () => {
+    renderCard([], undefined, undefined, {
+      accountsQuery: { isPending: true, isError: false },
+    })
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Loading Google accounts…"
+    )
+    expect(
+      screen.queryByText("Choose a Google account")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Listings on Google", level: 3 })
+    ).toBeInTheDocument()
+  })
+
+  it("announces a failed accounts load once, and Try again refetches it", () => {
+    const refetch = vi.fn()
+    renderCard([], undefined, undefined, {
+      accountsQuery: {
+        isPending: false,
+        isError: true,
+        error: new Error("boom"),
+        refetch,
+      },
+    })
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "We couldn’t load your Google accounts"
+    )
+    expect(
+      screen.queryByText("Choose a Google account")
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("asks for an account only once accounts load with none on, with a way to choose", () => {
+    const onChooseAccounts = vi.fn()
+    renderCard([], undefined, undefined, {
+      accountsQuery: {
+        isPending: false,
+        isError: false,
+        data: {
+          accounts: [
+            { id: "a1", googleAccountName: "accounts/1", isActive: false },
+          ],
+        },
+      },
+      onChooseAccounts,
+    })
+    expect(screen.getByText("Choose a Google account")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Choose accounts" }))
+    expect(onChooseAccounts).toHaveBeenCalledTimes(1)
+  })
+
+  it("names the listings load while Google is searched", () => {
+    renderCard([], undefined, undefined, {
+      discovery: { isPending: true, isError: false, refetch: vi.fn() },
+    })
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Finding listings on Google…"
+    )
+    expect(
+      screen.getByRole("heading", { name: "Listings on Google" })
+    ).toBeInTheDocument()
+  })
+
+  it("announces a failed listings load as an error, with Try again", () => {
+    const refetch = vi.fn()
+    renderCard([], undefined, undefined, {
+      discovery: {
+        isPending: false,
+        isError: true,
+        error: new Error("boom"),
+        refetch,
+      },
+    })
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "We couldn’t find this account’s listings"
+    )
+    expect(
+      screen.getByRole("heading", { name: "Listings on Google" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("No listings to link")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 
   it("files an imported listing that is not under this client", async () => {

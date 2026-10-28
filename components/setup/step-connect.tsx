@@ -18,6 +18,7 @@ import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
 import { CONNECT_FIRST_LOGIN_ID } from "@/lib/setup/steps"
+import { cn } from "@/lib/utils"
 
 /**
  * Choose the Google login that manages this client's Business Profile.
@@ -35,11 +36,18 @@ function StepConnect({
   clientId,
   clientName,
   business,
+  attachedConnectionId = null,
   onConnected,
 }: {
   clientId: string
   clientName: string
   business: boolean
+  /**
+   * The login this client already uses, if any: listed first as "Keep using
+   * this account", so a revisit shows the current state. Choosing it is the
+   * same attach as any other row.
+   */
+  attachedConnectionId?: string | null
   /** Called once an existing login is filed under the client. */
   onConnected: () => void
 }) {
@@ -57,10 +65,17 @@ function StepConnect({
   const returnedReason = params.get("reason")
 
   const connections = workspace.query.data?.connections ?? []
-  const usable = connections.filter(
-    (connection) =>
-      connection.status === "active" && !connection.reconnectRequired
-  )
+  const usable = connections
+    .filter(
+      (connection) =>
+        connection.status === "active" && !connection.reconnectRequired
+    )
+    // The client's own login leads; the rest keep their order.
+    .sort(
+      (a, b) =>
+        Number(b.id === attachedConnectionId) -
+        Number(a.id === attachedConnectionId)
+    )
   const broken = connections.filter(
     (connection) => !usable.includes(connection)
   )
@@ -116,11 +131,6 @@ function StepConnect({
           <AlertDescription>{attachError}</AlertDescription>
         </Alert>
       ) : null}
-      {connections.length === 0 ? (
-        <p className="text-ui text-ink-muted">
-          You haven’t connected a Google account yet.
-        </p>
-      ) : null}
       {usable.length > 0 ? (
         // The quick path leads: one tap to reuse a working login. The rows
         // only act on a tap, Enter or Space, so the arrow keys just move.
@@ -134,15 +144,25 @@ function StepConnect({
             const using =
               attachConnection.isPending &&
               attachConnection.variables?.connectionId === connection.id
+            const attached = connection.id === attachedConnectionId
             return (
               <OptionRow
                 key={connection.id}
                 id={position === 0 ? CONNECT_FIRST_LOGIN_ID : undefined}
                 indicator="chevron"
-                label={using ? "Using this account…" : "Use this account"}
+                label={
+                  using
+                    ? "Using this account…"
+                    : attached
+                      ? "Keep using this account"
+                      : "Use this account"
+                }
                 aria-labelledby={`setup-login-${connection.id}`}
                 description={
                   <>
+                    {attached
+                      ? `Connected to ${business ? "your business" : clientName} · `
+                      : null}
                     <span
                       id={`setup-login-${connection.id}`}
                       className="wrap-anywhere"
@@ -292,66 +312,90 @@ function StepConnect({
               `lib/server/google/oauth.ts` requests (openid, email, profile,
               business.manage) and nothing more. */}
           {usable.length > 0 ? existingLogins : null}
-          <div className="flex max-w-lg flex-col items-start gap-4">
-            <span
-              aria-hidden
-              className="grid size-11 shrink-0 place-items-center rounded-lg bg-fill text-ink [&_svg]:size-5"
-            >
-              <Link2Icon strokeWidth={1.75} />
-            </span>
-            <div className="flex min-w-0 flex-col gap-1">
-              <h3 className="text-title font-semibold text-ink">
-                {usable.length > 0
-                  ? "Or sign in with another Google account"
-                  : "Connect a Google account"}
-              </h3>
-              <p className="text-body text-pretty text-ink-muted">
-                Sign in to the Google account that manages{" "}
-                {business ? "your" : `${clientName}’s`} Business Profile. You’ll
-                sign in on Google’s own page and come straight back to the next
-                step.
+          {/* With logins on file the sign-in is the other option, at the
+              same level as the list above it and set apart by a rule; with
+              none it is the step's one ask, under its tile. */}
+          <div
+            className={cn(
+              usable.length > 0 && "border-t border-line-subtle pt-4"
+            )}
+          >
+            <div className="flex max-w-lg flex-col items-start gap-4">
+              {usable.length > 0 ? null : (
+                <span
+                  aria-hidden
+                  className="grid size-11 shrink-0 place-items-center rounded-lg bg-fill text-ink [&_svg]:size-5"
+                >
+                  <Link2Icon strokeWidth={1.75} />
+                </span>
+              )}
+              <div className="flex min-w-0 flex-col gap-1">
+                {usable.length > 0 ? (
+                  <h3 className="text-ui font-medium text-ink-muted">
+                    Or sign in with another Google account
+                  </h3>
+                ) : (
+                  <h3 className="text-title font-semibold text-ink">
+                    Connect a Google account
+                  </h3>
+                )}
+                <p className="text-body text-pretty text-ink-muted">
+                  {usable.length > 0 ? null : (
+                    <>
+                      Sign in to the Google account that manages{" "}
+                      {business ? "your" : `${clientName}’s`} Business
+                      Profile.{" "}
+                    </>
+                  )}
+                  You’ll sign in on Google’s own page and come straight back to
+                  the next step.
+                </p>
+              </div>
+              <Button
+                id="setup-connect-google"
+                size="lg"
+                block
+                variant={usable.length === 0 ? "default" : "secondary"}
+                onClick={() => void connect()}
+                pending={starting && startingFor === null}
+                pendingLabel="Opening Google…"
+                disabled={starting}
+              >
+                Sign in with Google
+              </Button>
+              <div className="grid w-full gap-4 @min-[520px]/wiz:grid-cols-2">
+                <ScopeList
+                  id="setup-connect-allows"
+                  label="What Google asks you to allow"
+                  icon={<CheckIcon />}
+                  items={[
+                    "See your name and email address, so you know which login is connected",
+                    "Manage your Business Profiles: reviews and replies, profile details, posts, photos and the listings themselves",
+                  ]}
+                />
+                <ScopeList
+                  id="setup-connect-never"
+                  label="What NabaPresence never does"
+                  icon={<XIcon />}
+                  items={[
+                    "Send anything to Google unless someone on your team publishes, approves or schedules it",
+                    "See or store your Google password",
+                    "Read your Gmail",
+                  ]}
+                />
+              </div>
+              <p className="text-caption text-ink-muted">
+                You can disconnect the account at any time from Settings, under
+                Google connections.
               </p>
             </div>
-            <Button
-              id="setup-connect-google"
-              size="lg"
-              block
-              variant={usable.length === 0 ? "default" : "secondary"}
-              onClick={() => void connect()}
-              pending={starting && startingFor === null}
-              pendingLabel="Opening Google…"
-              disabled={starting}
-            >
-              Sign in with Google
-            </Button>
-            <div className="grid w-full gap-4 @min-[520px]/wiz:grid-cols-2">
-              <ScopeList
-                id="setup-connect-allows"
-                label="What Google asks you to allow"
-                icon={<CheckIcon />}
-                items={[
-                  "See your name and email address, so you know which login is connected",
-                  "Manage your Business Profiles: reviews and replies, profile details, posts, photos and the listings themselves",
-                ]}
-              />
-              <ScopeList
-                id="setup-connect-never"
-                label="What NabaPresence never does"
-                icon={<XIcon />}
-                items={[
-                  "Send anything to Google unless someone on your team publishes, approves or schedules it",
-                  "See or store your Google password",
-                  "Read your Gmail",
-                ]}
-              />
-            </div>
-            <p className="text-caption text-ink-muted">
-              You can disconnect the account at any time from Settings, under
-              Google connections.
-            </p>
           </div>
 
-          {usable.length > 0 ? null : existingLogins}
+          {/* With no login at all there is nothing to reuse, so no section
+              offers one; logins that need reconnecting still list here. */}
+          {usable.length > 0 || connections.length === 0
+            ? null
+            : existingLogins}
         </div>
       )}
     </QueryStates>

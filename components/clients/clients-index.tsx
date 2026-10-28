@@ -82,6 +82,8 @@ const MOVED_SECTIONS: Record<string, string> = {
   reviews: "Reviews",
   locations: "Locations",
   listings: "Listings",
+  // `/settings/listing` with 0 or 2+ listings.
+  listing: "Listing settings",
   performance: "Performance",
 }
 
@@ -350,7 +352,13 @@ function ClientsIndex({ role }: { role: string | null }) {
           <Card flush>
             <Empty
               titleAs="h3"
-              tone={needle || health === "all" ? "neutral" : "ok"}
+              // An empty urgent bucket is good news; an empty In sync bucket
+              // is not, so it is not drawn as an all-clear.
+              tone={
+                needle || health === "all" || health === "healthy"
+                  ? "neutral"
+                  : "ok"
+              }
               icon={<FilterIcon />}
               title={
                 needle

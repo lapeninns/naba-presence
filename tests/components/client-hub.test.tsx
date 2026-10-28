@@ -456,4 +456,155 @@ describe("ClientHub", () => {
     expect(screen.queryByText(/Needs reconnecting/)).toBeNull()
     expect(screen.queryByText("Google login needs reconnecting")).toBeNull()
   })
+
+  it("names the login the alert is about when the first one works", async () => {
+    stub({
+      client: {
+        ...client,
+        health: "disconnected",
+        connections: [
+          {
+            id: "gc1",
+            googleEmail: "ok@lapeninns.co.uk",
+            status: "active",
+            reconnectRequired: false,
+            lastRefreshAt: "2026-09-03T10:00:00.000Z",
+          },
+          {
+            id: "gc2",
+            googleEmail: "ops@lapeninns.co.uk",
+            status: "active",
+            reconnectRequired: true,
+            lastRefreshAt: null,
+          },
+        ],
+      },
+    })
+    renderHub()
+    expect(
+      await screen.findByText(/Google stopped accepting ops@lapeninns\.co\.uk/)
+    ).toBeInTheDocument()
+    const line = screen
+      .getByText(/^Google login:/)
+      .closest("span") as HTMLElement
+    expect(line).toHaveTextContent(
+      "Google login: ops@lapeninns.co.uk and 1 more"
+    )
+    expect(screen.getByText(/Needs reconnecting/)).toBeInTheDocument()
+    expect(screen.queryByText("Connected")).toBeNull()
+    expect(screen.queryByText("ok@lapeninns.co.uk")).toBeNull()
+  })
+
+  it("says a working login in plain text, not a green pill", async () => {
+    stub({
+      client: {
+        ...client,
+        connections: [
+          {
+            id: "gc1",
+            googleEmail: "ops@lapeninns.co.uk",
+            status: "active",
+            reconnectRequired: false,
+            lastRefreshAt: "2026-09-03T10:00:00.000Z",
+          },
+        ],
+      },
+    })
+    renderHub()
+    const connected = await screen.findByText("Connected")
+    expect(connected.closest('[data-slot="status-pill"]')).toBeNull()
+    expect(connected.parentElement).toHaveTextContent(/refreshed /)
+  })
+
+  it("links the health word to the listing that caused it, for every role", async () => {
+    for (const canManage of [true, false]) {
+      stub({
+        client: { ...client, health: "attention" },
+        locations: [
+          { ...location, health: "attention", waiting: 0 },
+          {
+            ...location,
+            locationId: "l2",
+            name: "Old Crown Histon",
+            health: "healthy",
+            waiting: 0,
+          },
+        ],
+      })
+      const { unmount } = renderHub(canManage)
+      expect(
+        await screen.findByRole("link", { name: "Open Old Crown Girton" })
+      ).toHaveAttribute("href", "/listings/l1")
+      unmount()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("links several causes to the Listings board filtered to them", async () => {
+    stub({
+      client: { ...client, health: "unpublished" },
+      locations: [
+        { ...location, health: "unpublished", waiting: 2 },
+        {
+          ...location,
+          locationId: "l2",
+          name: "Old Crown Histon",
+          health: "unpublished",
+          waiting: 1,
+        },
+      ],
+    })
+    renderHub()
+    expect(
+      await screen.findByRole("link", {
+        name: "Show the 2 listings with changes to publish",
+      })
+    ).toHaveAttribute("href", "/listings?clientId=c1&health=unpublished")
+  })
+
+  it("links no cause when no listing explains the word", async () => {
+    stub({
+      client: { ...client, health: "attention" },
+      locations: [{ ...location, health: "healthy", waiting: 0 }],
+    })
+    renderHub()
+    await screen.findByText("Needs attention")
+    expect(
+      screen.queryByRole("link", { name: /^(Open Old Crown|Show the )/ })
+    ).toBeNull()
+  })
+
+  it("keeps Waiting and Verified off a phone card, saying only what needs a look", async () => {
+    stub({
+      locations: [
+        { ...location, health: "healthy", waiting: 0 },
+        {
+          ...location,
+          locationId: "l2",
+          name: "Old Crown Histon",
+          linkId: "ll2",
+          verified: false,
+          health: "unpublished",
+          waiting: 3,
+        },
+      ],
+    })
+    renderHub()
+    const rowOf = async (name: string) =>
+      (await screen.findByRole("link", { name })).closest("tr")!
+    const calm = await rowOf("Old Crown Girton")
+    // No meta cells left to leave a lone "·" line on the card.
+    expect(calm.querySelector('td[data-priority="meta"]')).toBeNull()
+    expect(calm.querySelectorAll('td[data-priority="desk-only"]')).toHaveLength(
+      2
+    )
+    expect(within(calm).queryByText(/· \d+ waiting/)).toBeNull()
+    expect(within(calm).queryByText("Not verified on Google")).toBeNull()
+    const busy = within(await rowOf("Old Crown Histon"))
+    expect(busy.getByText("· 3 waiting")).toBeTruthy()
+    expect(busy.getByText("Not verified on Google")).toBeTruthy()
+    // The desk cells keep their own words.
+    expect(busy.getByText("3 waiting")).toBeTruthy()
+    expect(busy.getByText("Not verified")).toBeTruthy()
+  })
 })

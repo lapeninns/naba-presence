@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  ArchiveIcon,
   CircleAlertIcon,
   Link2Icon,
   MapPinIcon,
@@ -52,7 +53,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { SettingsDestructiveAction } from "@/components/ui/settings-row"
 import { Textarea } from "@/components/ui/textarea"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast, type LocalToastOptions } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import {
   assignLocationsToClient,
@@ -128,6 +129,40 @@ function ClientSettings({ clientId }: { clientId: string }) {
     )
   }
   if (query.isError) {
+    // The client endpoint answers not-found for an archived client (and for
+    // one this session can no longer see): no retry will bring it back, so
+    // point at where an archived client is restored instead.
+    if (isClientNotFound(query.error)) {
+      return (
+        <>
+          <SettingsHeader clientId={clientId} name={null} />
+          <Card flush>
+            <Empty
+              titleAs="h2"
+              icon={<ArchiveIcon />}
+              title="This client isn’t available"
+              description="It may have been archived. Archived clients can be restored from Clients › Archived."
+              action={
+                <>
+                  <Link
+                    href="/clients?view=archived"
+                    className={cn(buttonVariants({ variant: "secondary" }))}
+                  >
+                    Archived clients
+                  </Link>
+                  <Link
+                    href="/clients"
+                    className={cn(buttonVariants({ variant: "ghost" }))}
+                  >
+                    All clients
+                  </Link>
+                </>
+              }
+            />
+          </Card>
+        </>
+      )
+    }
     return (
       <>
         <SettingsHeader clientId={clientId} name={null} />
@@ -198,13 +233,18 @@ function SettingsBody({
   const directory = useLocationDirectory(role)
   const clients = useClients()
   const { update, assignLocations, unassignLocations } = useClientMutations()
-  const toast = useToastManager()
+  const toast = useOutcomeToast()
   const router = useRouter()
   const queryClient = useQueryClient()
 
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [busy, setBusy] = React.useState<string | null>(null)
-  const [listingsError, setListingsError] = React.useState<string | null>(null)
+  // Names the listing and the action, so an error far above a phone's row
+  // still says which one failed.
+  const [listingsError, setListingsError] = React.useState<{
+    title: string
+    description: string
+  } | null>(null)
   const [unfiledQuery, setUnfiledQuery] = React.useState("")
   const [confirmBulk, setConfirmBulk] = React.useState(false)
 
@@ -234,23 +274,23 @@ function SettingsBody({
     })
   }
 
-  /** Put listings back under a client, for an Undo. Grants were never removed. */
-  const refile = async (
-    targetClientId: string,
-    locationIds: string[],
-    done: string
-  ) => {
+  /**
+   * Put a listing back under this client, for an Undo. Grants were never
+   * removed. The same toast shows it running, then what the server said.
+   */
+  const refile = async (location: DirectoryEntry) => {
+    const progress = toast.progress(
+      `Putting ${location.name} back under ${client.name}…`
+    )
     try {
-      await assignLocationsToClient(targetClientId, {
-        locationIds,
+      await assignLocationsToClient(clientId, {
+        locationIds: [location.id],
         grantToClientMembers: false,
       })
       invalidate()
-      toast.add({ type: "success", title: done })
+      progress.success(`${location.name} is back under ${client.name}`)
     } catch (error) {
-      toast.add({
-        type: "error",
-        title: "That couldn’t be undone",
+      progress.error(`${location.name} wasn’t put back under ${client.name}`, {
         description: describeActionError(error),
       })
     }
@@ -264,22 +304,18 @@ function SettingsBody({
         clientId,
         locationIds: [location.id],
       })
-      toast.add({
-        type: "success",
+      // Undo runs once and closes this toast.
+      toast.show({
+        kind: "local",
         title: `${location.name} is now unfiled`,
         description: "Its reviews and Google link are unchanged.",
-        actionProps: {
-          children: "Undo",
-          onClick: () =>
-            void refile(
-              clientId,
-              [location.id],
-              `${location.name} is back under ${client.name}`
-            ),
-        },
+        undo: { onUndo: () => void refile(location) },
       })
     } catch (error) {
-      setListingsError(describeActionError(error))
+      setListingsError({
+        title: `${location.name} wasn’t unfiled`,
+        description: describeActionError(error),
+      })
     } finally {
       setBusy(null)
     }
@@ -295,21 +331,16 @@ function SettingsBody({
         clientId: target.id,
         locationIds: [location.id],
       })
-      toast.add({
-        type: "success",
+      toast.show({
+        kind: "local",
         title: `${location.name} moved to ${target.name}`,
-        actionProps: {
-          children: "Undo",
-          onClick: () =>
-            void refile(
-              clientId,
-              [location.id],
-              `${location.name} is back under ${client.name}`
-            ),
-        },
+        undo: { onUndo: () => void refile(location) },
       })
     } catch (error) {
-      setListingsError(describeActionError(error))
+      setListingsError({
+        title: `${location.name} wasn’t moved to ${target.name}`,
+        description: describeActionError(error),
+      })
     } finally {
       setBusy(null)
     }
@@ -321,8 +352,7 @@ function SettingsBody({
     const ids = [...selected]
     try {
       await assignLocations.mutateAsync({ clientId, locationIds: ids })
-      toast.add({
-        type: "success",
+      toast.show({
         title:
           ids.length === 1
             ? `1 listing filed under ${client.name}`
@@ -330,7 +360,13 @@ function SettingsBody({
       })
       setSelected(new Set())
     } catch (error) {
-      setListingsError(describeActionError(error))
+      setListingsError({
+        title:
+          ids.length === 1
+            ? "That listing wasn’t filed"
+            : "Those listings weren’t filed",
+        description: describeActionError(error),
+      })
     }
   }
 
@@ -359,8 +395,18 @@ function SettingsBody({
           <ClientDetailsForm
             client={client}
             onSave={async (input) => {
-              await update.mutateAsync({ clientId, ...input })
-              toast.add({ type: "success", title: "Client updated" })
+              const { client: saved } = await update.mutateAsync({
+                clientId,
+                ...input,
+              })
+              // The confirmed reply settles the form now: waiting for the
+              // background refetch left the bar reading "Unsaved changes"
+              // (and the leave guard armed) after the save had landed.
+              queryClient.setQueryData<ClientResponse>(
+                queryKeys.client(clientId),
+                (old) => (old ? { ...old, client: saved } : old)
+              )
+              toast.show({ title: "Client updated" })
             }}
           />
 
@@ -379,9 +425,15 @@ function SettingsBody({
                 </h2>
                 <p className="text-ui text-ink-muted">
                   {mine.length === 0
-                    ? "No listings are filed under this client yet."
+                    ? "Listings filed here appear in this client’s filters and reports."
                     : `${formatNumber(mine.length)} ${mine.length === 1 ? "listing belongs" : "listings belong"} to this client.`}
                 </p>
+                {mine.length > 0 ? (
+                  <p className="text-caption text-ink-muted">
+                    Unfiling or moving a listing keeps its Google link and
+                    reviews.
+                  </p>
+                ) : null}
               </div>
               <Link
                 href={`/setup?client=${clientId}&step=locations`}
@@ -396,8 +448,8 @@ function SettingsBody({
 
             {listingsError ? (
               <Alert variant="destructive">
-                <AlertTitle>That didn’t save</AlertTitle>
-                <AlertDescription>{listingsError}</AlertDescription>
+                <AlertTitle>{listingsError.title}</AlertTitle>
+                <AlertDescription>{listingsError.description}</AlertDescription>
               </Alert>
             ) : null}
 
@@ -485,13 +537,13 @@ function SettingsBody({
                         <Button
                           variant="secondary"
                           size="sm"
-                          aria-label={`Remove ${l.name} from this client`}
+                          aria-label={`Unfile ${l.name}`}
                           pending={busy === l.id}
-                          pendingLabel="Working…"
+                          pendingLabel="Unfiling…"
                           disabled={busy !== null && busy !== l.id}
                           onClick={() => void remove(l)}
                         >
-                          Remove
+                          Unfile
                         </Button>
                       </span>
                     ),
@@ -504,7 +556,11 @@ function SettingsBody({
                   titleAs="h3"
                   icon={<MapPinIcon />}
                   title="No listings filed here"
-                  description="Add one from the unfiled list below, or bring new ones in from Google."
+                  description={
+                    unassigned.length > 0
+                      ? "Pick one from Unfiled listings below, or bring new ones in from Google."
+                      : "Every imported listing is already filed under a client. Bring new ones in from Google."
+                  }
                 />
               </Card>
             )}
@@ -659,7 +715,8 @@ function SettingsBody({
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
-            ) : directory.isSuccess ? (
+            ) : directory.isSuccess && mine.length > 0 ? (
+              // With nothing filed here either, the empty state above says it.
               <p className="text-caption text-ink-muted">
                 Every imported listing is filed under a client.
               </p>
@@ -669,7 +726,8 @@ function SettingsBody({
           <ArchiveSection
             client={client}
             attached={directory.isSuccess ? mine : null}
-            pending={update.isPending}
+            listingsFailed={directory.isError}
+            busy={update.isPending}
             onArchive={async (detach) => {
               try {
                 await update.mutateAsync({
@@ -689,20 +747,21 @@ function SettingsBody({
                   queryKey: queryKeys.clients,
                 })
               }
-              toast.add({
-                type: "success",
+              // Undo runs once and closes this toast; the restore's own toast
+              // then says how it went.
+              toast.show({
+                kind: "local",
                 title: `${client.name} archived`,
                 description:
                   detach.length > 0
-                    ? `Its ${detach.length === 1 ? "listing is" : `${formatNumber(detach.length)} listings are`} now unfiled. Restore it from Clients › Archived.`
+                    ? `Its ${detach.length === 1 ? "listing is" : `${formatNumber(detach.length)} listings are`} now unfiled. Undo re-files ${detach.length === 1 ? "it" : "them"}; restoring later from Clients › Archived won’t.`
                     : "It’s hidden from lists and filters. Restore it from Clients › Archived.",
-                actionProps: {
-                  children: "Undo",
-                  onClick: () =>
+                undo: {
+                  onUndo: () =>
                     void undoArchive(clientId, detach, client.name).then(
                       (message) => {
                         invalidate()
-                        toast.add(message)
+                        toast.show(message)
                       }
                     ),
                 },
@@ -724,7 +783,7 @@ async function undoArchive(
   clientId: string,
   detached: string[],
   name: string
-): Promise<{ type: string; title: string; description?: string }> {
+): Promise<LocalToastOptions> {
   try {
     await updateClient(clientId, { archived: false })
     if (detached.length > 0) {
@@ -753,12 +812,17 @@ async function archiveConfirmed(clientId: string): Promise<boolean> {
     await fetchClient(clientId)
     return false
   } catch (error) {
-    return (
-      error instanceof ApiClientError &&
-      error.status === 404 &&
-      error.code === "client_not_found"
-    )
+    return isClientNotFound(error)
   }
+}
+
+/** The client endpoint's answer for an archived, missing or hidden client. */
+function isClientNotFound(error: unknown): boolean {
+  return (
+    error instanceof ApiClientError &&
+    error.status === 404 &&
+    error.code === "client_not_found"
+  )
 }
 
 /** "Move to…" another client, from a filed listing's row. */
@@ -802,24 +866,34 @@ function MoveToClient({
 function ArchiveSection({
   client,
   attached,
-  pending,
+  listingsFailed,
+  busy,
   onArchive,
 }: {
   client: ClientResponse["client"]
-  /** Listings still filed here; null while the directory loads. */
+  /** Listings still filed here; null until the directory has loaded. */
   attached: DirectoryEntry[] | null
-  pending: boolean
+  /** The directory didn't load, so what archiving would unfile is unknown. */
+  listingsFailed: boolean
+  /** Another write to this client (a details save) is on its way. */
+  busy: boolean
   /** Archives, unfiling these listings first when there are any. */
   onArchive: (detach: string[]) => Promise<void>
 }) {
   const [error, setError] = React.useState<string | null>(null)
+  // Its own, not the shared update mutation's: a details save must not
+  // relabel this button "Archiving…".
+  const [archiving, setArchiving] = React.useState(false)
 
   const archive = async () => {
     setError(null)
+    setArchiving(true)
     try {
       await onArchive((attached ?? []).map((entry) => entry.id))
     } catch (cause) {
       setError(describeActionError(cause))
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -836,11 +910,15 @@ function ArchiveSection({
           </CardTitle>
           <CardDescription>
             Archiving hides the client from lists and filters. Its listings’
-            review history is kept, and you can restore it from Clients ›
-            Archived, or tap Undo straight after.
+            review history is kept. Undo, straight after, restores the client
+            and re-files its listings; restoring it later from Clients ›
+            Archived brings back the client only.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+        {/* The shared action closes a page, so it opens with a gap and
+            centres itself; inside this card it sits flush under the
+            description, on the card's left edge. */}
+        <CardContent className="flex flex-col gap-3 [&>[data-slot=settings-destructive]]:mt-0 [&>[data-slot=settings-destructive]]:items-start [&>[data-slot=settings-destructive]]:justify-start [&>[data-slot=settings-destructive]]:text-start">
           {error ? (
             <Alert variant="destructive">
               <AlertTitle>{client.name} wasn’t archived</AlertTitle>
@@ -850,13 +928,18 @@ function ArchiveSection({
           {/* One step: archiving is reversible, so it acts at once and the
               toast carries the Undo. */}
           <SettingsDestructiveAction
-            // A long client name wraps instead of pushing the card wider.
-            className="h-auto py-2 text-center [overflow-wrap:anywhere]"
-            disabled={attached === null || pending}
+            // A long client name wraps instead of pushing the card wider;
+            // the negative start margin lines its label up with the text.
+            className="-ms-4 h-auto justify-start py-2 text-start [overflow-wrap:anywhere]"
+            disabled={attached === null || busy || archiving}
             onClick={() => void archive()}
             footnote={
               attached === null ? (
-                "Checking attached listings…"
+                listingsFailed ? (
+                  "We couldn’t check its listings, so it can’t be archived yet. Try again under Listings above."
+                ) : (
+                  "Checking attached listings…"
+                )
               ) : attached.length > 0 ? (
                 <>
                   {client.name} still has{" "}
@@ -872,7 +955,7 @@ function ArchiveSection({
               )
             }
           >
-            {pending ? "Archiving…" : `Archive ${client.name}`}
+            {archiving ? "Archiving…" : `Archive ${client.name}`}
           </SettingsDestructiveAction>
         </CardContent>
       </Card>
@@ -912,16 +995,27 @@ function ClientDetailsForm({
   const [saveError, setSaveError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
   const nameRef = React.useRef<HTMLInputElement>(null)
+  const titleRef = React.useRef<HTMLHeadingElement>(null)
   const dirty =
     name.trim() !== client.name ||
     notes.trim() !== (client.notes ?? "") ||
     (colour ?? null) !== (client.colour ?? null)
+  // The bar, and the Save or Discard button that had focus, goes with the
+  // last unsaved change. Focus that fell to the page body comes back to the
+  // Details heading: not the name field, which would raise a phone keyboard.
+  const keepFocus = () =>
+    requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (active && active !== document.body) return
+      titleRef.current?.focus({ preventScroll: true })
+    })
   const discard = () => {
     setName(client.name)
     setNotes(client.notes ?? "")
     setColour(client.colour)
     setNameError(null)
     setSaveError(null)
+    keepFocus()
   }
 
   // Warns on a tab close or reload while edits are unsaved, and keeps them
@@ -963,6 +1057,7 @@ function ClientDetailsForm({
             notes: notes.trim() || null,
             colour,
           })
+          keepFocus()
         } catch (error) {
           setSaveError(describeActionError(error))
         } finally {
@@ -972,7 +1067,14 @@ function ClientDetailsForm({
     >
       <Card flush>
         <CardHeader divided>
-          <CardTitle as="h2" id="client-details-title">
+          <CardTitle
+            as="h2"
+            id="client-details-title"
+            ref={titleRef}
+            // A focus target once the save bar goes, never a Tab stop.
+            tabIndex={-1}
+            className="focus-visible:outline-none"
+          >
             Details
           </CardTitle>
           <CardDescription>

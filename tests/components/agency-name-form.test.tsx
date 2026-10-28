@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const refresh = vi.fn()
@@ -12,7 +18,10 @@ import { Toaster } from "@/components/ui/toast"
 import * as sessionApi from "@/lib/api/session"
 import { queryKeys } from "@/lib/queries/keys"
 
-function renderForm(role: "owner" | "admin") {
+function renderForm(
+  role: "owner" | "admin",
+  onDirtyChange?: (dirty: boolean) => void
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
@@ -31,7 +40,7 @@ function renderForm(role: "owner" | "admin") {
   render(
     <QueryClientProvider client={client}>
       <Toaster>
-        <AgencyNameForm />
+        <AgencyNameForm onDirtyChange={onDirtyChange} />
       </Toaster>
     </QueryClientProvider>
   )
@@ -109,5 +118,32 @@ describe("AgencyNameForm", () => {
     await waitFor(() => expect(reloadWarns()).toBe(false))
     // Not restorable: nothing is left in the tab.
     expect(Object.keys(sessionStorage)).toEqual([])
+  })
+
+  it("tells an opted-in caller while an owner's name is unsaved", async () => {
+    vi.spyOn(sessionApi, "renameOrganisation").mockResolvedValue({
+      organisationId: "o1",
+      name: "Lapen Inns",
+    })
+    const onDirtyChange = vi.fn()
+    renderForm("owner", onDirtyChange)
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+    fireEvent.change(screen.getByRole("textbox", { name: "Agency name" }), {
+      target: { value: "Lapen Inns" },
+    })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }))
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false))
+  })
+
+  it("clears the caller's flag when it unmounts with an unsaved name", () => {
+    const onDirtyChange = vi.fn()
+    renderForm("owner", onDirtyChange)
+    fireEvent.change(screen.getByRole("textbox", { name: "Agency name" }), {
+      target: { value: "Lapen Inns" },
+    })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    cleanup()
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
   })
 })

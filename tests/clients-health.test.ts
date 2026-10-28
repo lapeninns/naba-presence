@@ -18,7 +18,9 @@ import {
   FRESHNESS_WINDOW_MS,
   attentionDescription,
   freshnessSentence,
+  clientHealthNote,
   healthBucket,
+  healthCause,
   healthDescription,
   healthLabel,
   healthSeverity,
@@ -330,6 +332,17 @@ describe("health filters", () => {
     expect(severities).toEqual([...severities].sort((a, b) => a - b))
   })
 
+  // Follow-up 27 asked for count order; severity order is kept on purpose
+  // (the reasons are on HEALTH_FILTERS), so the first chip after All is the
+  // bucket at the top of the "needing work first" list.
+  it("orders the chips by severity, not count, by decision (follow-up 27)", () => {
+    const buckets = HEALTH_FILTERS.filter((filter) => filter.value !== "all")
+    const severities = buckets.map((filter) =>
+      healthSeverity(filter.value as ClientHealth)
+    )
+    expect(severities).toEqual([...severities].sort((a, b) => a - b))
+  })
+
   it("labels each bucket with the same word as the pill", () => {
     for (const filter of HEALTH_FILTERS) {
       if (filter.value === "all") continue
@@ -529,6 +542,102 @@ describe("attentionDescription", () => {
         lastSuccessfulCheckAt: null,
       })
     ).toMatch(/lost manager access/)
+  })
+})
+
+describe("clientHealthNote", () => {
+  const note = (state: ClientHealth) =>
+    clientHealthNote({
+      health: state,
+      connections: [],
+      backfill: { running: 0, failed: 0 },
+    })
+
+  it("says what was not checked, and against what, in the listing pages' words", () => {
+    expect(note("unchecked")).toBe("Not compared with Google yet")
+    expect(note("partially_checked")).toBe(
+      "Some areas not compared with Google yet"
+    )
+  })
+
+  it("does not echo the pill's label", () => {
+    for (const state of ["unchecked", "partially_checked"] as const)
+      expect(note(state)).not.toBe(healthLabel(state))
+  })
+})
+
+describe("healthCause", () => {
+  const row = (locationId: string, health?: string) => ({
+    locationId,
+    name: `Listing ${locationId}`,
+    health,
+  })
+
+  it("opens the one listing that caused attention", () => {
+    expect(
+      healthCause("c1", "attention", [
+        row("l1", "healthy"),
+        row("l2", "attention"),
+      ])
+    ).toEqual({ href: "/listings/l2", label: "Open Listing l2" })
+  })
+
+  it("counts a listing that lost its login or manager access towards attention", () => {
+    expect(healthCause("c1", "attention", [row("l1", "access_lost")])).toEqual({
+      href: "/listings/l1",
+      label: "Open Listing l1",
+    })
+  })
+
+  it("sends several to the Listings board filtered to this client and state", () => {
+    expect(
+      healthCause("c1", "attention", [
+        row("l1", "attention"),
+        row("l2", "disconnected"),
+      ])
+    ).toEqual({
+      href: "/listings?clientId=c1&health=attention",
+      label: "Show the 2 listings that need attention",
+    })
+    expect(
+      healthCause("c1", "unpublished", [
+        row("l1", "unpublished"),
+        row("l2", "unpublished"),
+      ])
+    ).toEqual({
+      href: "/listings?clientId=c1&health=unpublished",
+      label: "Show the 2 listings with changes to publish",
+    })
+  })
+
+  it("points several unchecked listings at the hub's own table (the board has no such filter)", () => {
+    expect(
+      healthCause("c1", "unchecked", [
+        row("l1", "unchecked"),
+        row("l2", "partially_checked"),
+      ])
+    ).toEqual({ href: "#client-listings", label: "See which listings below" })
+    expect(
+      healthCause("c1", "partially_checked", [
+        row("l1", "healthy"),
+        row("l2", "partially_checked"),
+      ])
+    ).toEqual({ href: "/listings/l2", label: "Open Listing l2" })
+  })
+
+  it("links nothing when no listing explains the word", () => {
+    // Attention from a failed import or late checks: every listing is fine.
+    expect(healthCause("c1", "attention", [row("l1", "healthy")])).toBeNull()
+    // An older response without listing health.
+    expect(healthCause("c1", "attention", [row("l1")])).toBeNull()
+    // States whose fix is elsewhere (the alert, setup) or that need none.
+    for (const state of [
+      "healthy",
+      "syncing",
+      "disconnected",
+      "not_connected",
+    ] as const)
+      expect(healthCause("c1", state, [row("l1", "attention")])).toBeNull()
   })
 })
 

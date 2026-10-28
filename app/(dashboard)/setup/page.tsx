@@ -1,4 +1,9 @@
-import { ChevronRightIcon, CircleCheckIcon, PlusIcon } from "lucide-react"
+import {
+  ChevronRightIcon,
+  CircleCheckIcon,
+  PlusIcon,
+  RotateCwIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import type * as React from "react"
@@ -81,9 +86,26 @@ export default async function SetupPage({
     if (!client) {
       return (
         <PageFrame>
-          <PageHeader
-            title="Setup"
-            description="Your business isn’t ready for setup yet. Try again in a moment."
+          <PageHeader title="Setup" />
+          {/* Not an error the person caused, and not a dead end: the home
+              client is usually seconds away, so the way on is to look again.
+              The link re-runs this page, the same lookup, nothing else. */}
+          <Empty
+            framed
+            size="sm"
+            titleAs="h2"
+            title="Setup isn’t ready yet"
+            description="We’re still preparing your business. This usually takes a few seconds."
+            action={
+              <Link
+                href="/setup"
+                prefetch={false}
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                <RotateCwIcon aria-hidden />
+                Try again
+              </Link>
+            }
           />
         </PageFrame>
       )
@@ -154,11 +176,108 @@ export default async function SetupPage({
       )
     : []
   // "Unfinished" means no linked location: whatever else has been filled in,
-  // a client with none is not yet doing anything.
-  const unfinished = clients.filter((entry) => entry.linked === 0).slice(0, 5)
+  // a client with none is not yet doing anything. Every one is listed (the
+  // query is already bounded): this page is the way to reach them, and a
+  // client cut from this list is not in the other one either.
+  const unfinished = clients.filter((entry) => entry.linked === 0)
   const established = clients
     .filter((entry) => entry.linked > 0)
     .sort((a, b) => a.name.localeCompare(b.name))
+
+  // With nothing waiting, the all-clear is one line under the card's heading
+  // rather than a full empty state: the status still comes first, and the
+  // lists and "New client" below it stay within a phone's first screen.
+  const waiting = (
+    <section
+      aria-labelledby="setup-waiting"
+      className={cardClassName({ className: "overflow-hidden" })}
+    >
+      <div
+        className={cn(
+          "flex flex-col gap-0.5 px-(--np-card-pad) py-4",
+          unfinished.length > 0 && "border-b border-line-subtle"
+        )}
+      >
+        <h2 id="setup-waiting" className="text-title font-semibold text-ink">
+          Waiting to be set up
+        </h2>
+        {unfinished.length === 0 ? (
+          <p className="flex items-start gap-1.5 text-ui text-ink-muted">
+            <CircleCheckIcon
+              aria-hidden
+              className="mt-0.5 size-4 shrink-0 text-success-ink"
+            />
+            <span>
+              {clients.length === 0
+                ? "Nothing waiting. Start a new client below."
+                : "Nothing waiting. Every client you look after has at least one listing linked to Google."}
+            </span>
+          </p>
+        ) : (
+          <p className="text-ui text-ink-muted">
+            Clients with no listing linked to Google yet, newest first.
+          </p>
+        )}
+      </div>
+      {unfinished.length > 0 ? (
+        <ListRows className="divide-y divide-line-subtle">
+          {unfinished.map((entry) => (
+            <ListRow
+              key={entry.id}
+              href={`/setup?client=${entry.id}`}
+              aria-label={`Resume setup for ${entry.name}`}
+              emphasis="neutral"
+              className={ROW_CLASS}
+              wrapperClassName={ROW_WRAPPER_CLASS}
+              leading={<ClientAvatar name={entry.name} colour={entry.colour} />}
+              title={<span className={NAME_CLASS}>{entry.name}</span>}
+              meta={<RowAction>Resume setup</RowAction>}
+              subtitle="No listings linked yet"
+            />
+          ))}
+        </ListRows>
+      ) : null}
+    </section>
+  )
+  const addListings =
+    established.length > 0 ? (
+      <section
+        aria-labelledby="setup-add-listings"
+        className={cardClassName({ className: "overflow-hidden" })}
+      >
+        <div className="flex flex-col gap-0.5 border-b border-line-subtle px-(--np-card-pad) py-4">
+          <h2
+            id="setup-add-listings"
+            className="text-title font-semibold text-ink"
+          >
+            Add listings to a client
+          </h2>
+          <p className="text-ui text-ink-muted">
+            Link more of a client’s Google Business Profile locations.
+          </p>
+        </div>
+        <ListRows className="divide-y divide-line-subtle">
+          {established.map((entry) => (
+            <ListRow
+              key={entry.id}
+              href={`/setup?client=${entry.id}&step=locations`}
+              aria-label={`Add listings to ${entry.name}`}
+              emphasis="neutral"
+              className={ROW_CLASS}
+              wrapperClassName={ROW_WRAPPER_CLASS}
+              leading={<ClientAvatar name={entry.name} colour={entry.colour} />}
+              title={<span className={NAME_CLASS}>{entry.name}</span>}
+              meta={<RowAction>Add listings</RowAction>}
+              subtitle={
+                entry.linked === 1
+                  ? "1 listing linked"
+                  : `${entry.linked} listings linked`
+              }
+            />
+          ))}
+        </ListRows>
+      </section>
+    ) : null
 
   return (
     <PageFrame>
@@ -167,87 +286,10 @@ export default async function SetupPage({
         eyebrow="Clients"
         description="Setup runs for one client at a time. Pick the one you’re working on, or add more listings to a client you already look after."
       />
-      <section
-        aria-labelledby="setup-waiting"
-        className={cardClassName({ className: "overflow-hidden" })}
-      >
-        <div className="flex flex-col gap-0.5 border-b border-line-subtle px-(--np-card-pad) py-4">
-          <h2 id="setup-waiting" className="text-title font-semibold text-ink">
-            Waiting to be set up
-          </h2>
-          <p className="text-ui text-ink-muted">
-            Clients with no listing linked to Google yet, newest first.
-          </p>
-        </div>
-        {unfinished.length === 0 ? (
-          <Empty
-            tone="ok"
-            titleAs="h3"
-            icon={<CircleCheckIcon />}
-            title="Nothing waiting to be set up"
-            description="Every client you look after has at least one listing linked to Google."
-          />
-        ) : (
-          <ListRows className="divide-y divide-line-subtle">
-            {unfinished.map((entry) => (
-              <ListRow
-                key={entry.id}
-                href={`/setup?client=${entry.id}`}
-                aria-label={`Resume setup for ${entry.name}`}
-                emphasis="neutral"
-                className={ROW_CLASS}
-                wrapperClassName={ROW_WRAPPER_CLASS}
-                leading={
-                  <ClientAvatar name={entry.name} colour={entry.colour} />
-                }
-                title={<span className={NAME_CLASS}>{entry.name}</span>}
-                meta={<RowAction>Resume setup</RowAction>}
-                subtitle="No listings linked yet"
-              />
-            ))}
-          </ListRows>
-        )}
-      </section>
-      {established.length > 0 ? (
-        <section
-          aria-labelledby="setup-add-listings"
-          className={cardClassName({ className: "overflow-hidden" })}
-        >
-          <div className="flex flex-col gap-0.5 border-b border-line-subtle px-(--np-card-pad) py-4">
-            <h2
-              id="setup-add-listings"
-              className="text-title font-semibold text-ink"
-            >
-              Add listings to a client
-            </h2>
-            <p className="text-ui text-ink-muted">
-              Link more of a client’s Google Business Profile locations.
-            </p>
-          </div>
-          <ListRows className="divide-y divide-line-subtle">
-            {established.map((entry) => (
-              <ListRow
-                key={entry.id}
-                href={`/setup?client=${entry.id}&step=locations`}
-                aria-label={`Add listings to ${entry.name}`}
-                emphasis="neutral"
-                className={ROW_CLASS}
-                wrapperClassName={ROW_WRAPPER_CLASS}
-                leading={
-                  <ClientAvatar name={entry.name} colour={entry.colour} />
-                }
-                title={<span className={NAME_CLASS}>{entry.name}</span>}
-                meta={<RowAction>Add listings</RowAction>}
-                subtitle={
-                  entry.linked === 1
-                    ? "1 listing linked"
-                    : `${entry.linked} listings linked`
-                }
-              />
-            ))}
-          </ListRows>
-        </section>
-      ) : null}
+      {/* Waiting first even when nothing is: the status is stated before
+          the lists, and the all-clear is one line, so it costs no room. */}
+      {waiting}
+      {addListings}
       <section
         aria-labelledby="setup-start-new"
         className={cardClassName({

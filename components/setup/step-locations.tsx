@@ -16,6 +16,7 @@ function StepLocations({
   business,
   connectionId,
   onDirtyChange,
+  onChooseAccounts,
 }: {
   clientId: string
   clientName: string
@@ -23,6 +24,8 @@ function StepLocations({
   /** The login this client's setup attached. */
   connectionId: string | null
   onDirtyChange: (dirty: boolean) => void
+  /** Goes to the Account step, from a listings card with no account on. */
+  onChooseAccounts?: () => void
 }) {
   return (
     <>
@@ -31,7 +34,11 @@ function StepLocations({
           ? "Link the listings that belong to your business. A listing that was linked before keeps its review history."
           : `Listings you link here belong to ${clientName}. A listing already linked to another client keeps its review history when you move it.`}
       </p>
-      <ImportCard clientId={clientId} connectionId={connectionId} />
+      <ImportCard
+        clientId={clientId}
+        connectionId={connectionId}
+        onChooseAccounts={onChooseAccounts}
+      />
       <OnboardingDrafts
         clientId={clientId}
         connectionId={connectionId}

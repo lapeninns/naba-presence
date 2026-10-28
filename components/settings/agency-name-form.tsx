@@ -61,9 +61,14 @@ export function organisationNameProblem(
  * In the wizard the name is its own record, so it saves with its own button:
  * the button at the trailing edge, "Unsaved change" or the error just before
  * it, and a leave guard so an unsaved name is never dropped by following a
- * link.
+ * link. `onDirtyChange` (optional) tells the wizard an owner's new name is
+ * not saved yet, so Continue can say so rather than drop it.
  */
-export function AgencyNameForm() {
+export function AgencyNameForm({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void
+} = {}) {
   const session = useSession()
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -80,10 +85,13 @@ export function AgencyNameForm() {
   // A reload or closed tab warns and an in-app link or the back button asks
   // first. Nothing offers a name back later, so it is not stashed.
   const draftKey = useDraftKey({ resource: "agency-name", schemaVersion: 1 })
-  const unsaved = useUnsavedChanges({
-    scope: draftKey,
-    isDirty: isOwner && dirty,
-  })
+  const unsavedName = isOwner && dirty
+  const unsaved = useUnsavedChanges({ scope: draftKey, isDirty: unsavedName })
+  React.useEffect(() => {
+    onDirtyChange?.(unsavedName)
+  }, [unsavedName, onDirtyChange])
+  // Unmounting clears the caller's flag with it.
+  React.useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const rename = useMutation({
     mutationFn: (name: string) => renameOrganisation(name),

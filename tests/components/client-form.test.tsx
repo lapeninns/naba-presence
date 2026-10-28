@@ -38,6 +38,43 @@ const renderForm = () =>
     </QueryProvider>
   )
 
+const CLIENT = {
+  id: "c9",
+  name: "Old Crown Group",
+  slug: "old-crown-group",
+  colour: null,
+  logoUrl: null,
+  notes: null,
+  archivedAt: null,
+  createdAt: "2026-01-01",
+  locationCount: 0,
+  linkedCount: 0,
+  verifiedCount: 0,
+  health: "healthy",
+  connections: [],
+  openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
+  backfill: { running: 0, failed: 0, succeeded: 0, notStarted: 0 },
+  lastSyncAt: null,
+}
+
+/**
+ * Answers the create POST with `answer` (which may throw, as fetch does when
+ * the connection drops); any other request gets an empty 200. Returns a spy
+ * that counts the create POSTs alone.
+ */
+function stubCreate(answer: () => Response) {
+  const post = vi.fn(answer)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (input, init) =>
+      String(input).includes("/api/clients") && init?.method === "POST"
+        ? post()
+        : new Response("{}", { status: 200 })
+    )
+  )
+  return post
+}
+
 describe("NewClientForm", () => {
   it("gives the name field touch-friendly keyboard hints", () => {
     renderForm()
@@ -175,6 +212,108 @@ describe("NewClientForm", () => {
     expect(screen.getByRole("textbox", { name: /Notes/ })).toHaveValue(
       "Prefers email"
     )
+  })
+
+  it("says in the docked bar that nothing is sent to Google", () => {
+    renderForm()
+    const bar = screen.getByRole("region", { name: "Create client" })
+    expect(within(bar).getByText("Nothing is sent to Google.")).toBeVisible()
+  })
+
+  it("puts a taken name on the name field, focuses it, and clears it on edit", async () => {
+    stubCreate(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: "client_name_taken",
+            message: "A client with that name already exists.",
+            fieldErrors: { name: "A client with that name already exists." },
+          }),
+          { status: 409 }
+        )
+    )
+    renderForm()
+    const name = screen.getByRole("textbox", { name: /Client name/ })
+    fireEvent.change(name, { target: { value: "  Old Crown Group " } })
+    fireEvent.click(screen.getByRole("button", { name: "Create client" }))
+    await waitFor(() => expect(name).toHaveAttribute("aria-invalid", "true"))
+    expect(name).toHaveFocus()
+    expect(name).toHaveAccessibleDescription(
+      /There’s already a client called “Old Crown Group”\. Archived clients count too/
+    )
+    // On the field, not as the page alert (the field error is its own alert).
+    expect(screen.queryByText(/wasn’t created/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Refresh/)).not.toBeInTheDocument()
+    fireEvent.change(name, { target: { value: "Old Crown Group 2" } })
+    await waitFor(() =>
+      expect(name).not.toHaveAttribute("aria-invalid", "true")
+    )
+    expect(
+      screen.queryByText(/already a client called/)
+    ).not.toBeInTheDocument()
+  })
+
+  it("does not say nothing was added when the connection dropped", async () => {
+    stubCreate(() => {
+      throw new TypeError("Failed to fetch")
+    })
+    renderForm()
+    fireEvent.change(screen.getByRole("textbox", { name: /Client name/ }), {
+      target: { value: "Old Crown Group" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create client" }))
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent(
+      "We couldn’t confirm the client was created"
+    )
+    expect(alert).toHaveTextContent(/Check Clients before trying again/)
+    expect(alert).not.toHaveTextContent(/Nothing was added/)
+    expect(screen.getByRole("textbox", { name: /Client name/ })).toHaveValue(
+      "Old Crown Group"
+    )
+  })
+
+  it("does not blame Google when the server refuses with a typed 5xx", async () => {
+    stubCreate(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: "service_unavailable",
+            message: "Down for a moment.",
+          }),
+          { status: 503 }
+        )
+    )
+    renderForm()
+    fireEvent.change(screen.getByRole("textbox", { name: /Client name/ }), {
+      target: { value: "Old Crown Group" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Create client" }))
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent("The client wasn’t created")
+    expect(alert).toHaveTextContent(/Nothing was added/)
+    expect(alert).not.toHaveTextContent(/Google/)
+  })
+
+  it("stays pending after the client is created, so a second tap posts nothing", async () => {
+    const post = stubCreate(
+      () => new Response(JSON.stringify({ client: CLIENT }), { status: 200 })
+    )
+    renderForm()
+    fireEvent.change(screen.getByRole("textbox", { name: /Client name/ }), {
+      target: { value: "Old Crown Group" },
+    })
+    const form = screen.getByRole("form", { name: "New client" })
+    fireEvent.submit(form)
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1))
+    // The route has not changed yet (push is a mock): the button still
+    // reads as working, and submitting again does nothing.
+    const bar = screen.getByRole("region", { name: "Create client" })
+    expect(within(bar).getByRole("button")).toHaveAttribute("aria-busy", "true")
+    fireEvent.submit(form)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledTimes(1)
   })
 
   it("explains the next steps as an ordered list", () => {

@@ -175,12 +175,27 @@ describe("ClientSettings", () => {
       return json({ items: [client], unassignedLocationCount: 0 })
     })
     renderSettings()
+    // "Unfile", not "Remove": it doesn't unlink Google or delete anything,
+    // and the page says so before the tap.
+    expect(
+      await screen.findByText(
+        "Unfiling or moving a listing keeps its Google link and reviews."
+      )
+    ).toBeInTheDocument()
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Remove Old Crown Girton from this client",
-      })
+      await screen.findByRole("button", { name: "Unfile Old Crown Girton" })
     )
-    fireEvent.click(await screen.findByRole("button", { name: "Undo" }))
+    expect(
+      await screen.findByText("Old Crown Girton is now unfiled")
+    ).toBeInTheDocument()
+    const undo = await screen.findByRole("button", { name: "Undo" })
+    // Undo runs once and closes the toast; its progress, then its result,
+    // show in a toast of their own.
+    fireEvent.click(undo)
+    fireEvent.click(undo)
+    expect(
+      await screen.findByText("Old Crown Girton is back under Old Crown Group")
+    ).toBeInTheDocument()
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
@@ -199,6 +214,54 @@ describe("ClientSettings", () => {
       locationIds: ["l1"],
       grantToClientMembers: false,
     })
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).includes("/api/clients/c1/locations") &&
+          init?.method === "POST"
+      )
+    ).toHaveLength(1)
+  })
+
+  it("names the listing when unfiling it fails", async () => {
+    const fetchMock = stub({ attached: true })
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).includes("/api/clients/c1/locations") &&
+      init?.method === "DELETE"
+        ? json({ error: "server_error", message: "Boom" }, 500)
+        : fallback(input, init)
+    )
+    renderSettings()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Unfile Old Crown Girton" })
+    )
+    expect(
+      await screen.findByText("Old Crown Girton wasn’t unfiled")
+    ).toBeInTheDocument()
+  })
+
+  it("doesn't point at an unfiled list that isn't there", async () => {
+    // Nothing filed here and nothing unfiled anywhere.
+    stub({ attached: true })
+    const fetchMock = vi.mocked(fetch)
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).includes("/api/location-links")
+        ? json({ locations: [listing("c2")] })
+        : fallback(input, init)
+    )
+    renderSettings()
+    expect(
+      await screen.findByText(
+        "Every imported listing is already filed under a client. Bring new ones in from Google."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/unfiled list below/i)).not.toBeInTheDocument()
+    // Said once, not again in a caption under the empty state.
+    expect(
+      screen.queryByText("Every imported listing is filed under a client.")
+    ).not.toBeInTheDocument()
   })
 
   it("gives each filed listing's name link a full touch height on a phone", async () => {
@@ -383,6 +446,180 @@ describe("ClientSettings", () => {
       .map(([, init]) => JSON.parse(String(init?.body)))
     expect(patches[0]).toMatchObject({ archived: true, detachLocations: true })
     expect(patches[1]).toMatchObject({ archived: false })
+  })
+
+  it("runs the archive's Undo once, however often it is tapped", async () => {
+    const fetchMock = stub({ attached: true })
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).includes("/api/clients/c1/locations") &&
+      init?.method === "POST"
+        ? json({ assigned: ["l1"] })
+        : fallback(input, init)
+    )
+    renderSettings()
+    await screen.findByText(/still has its listing/)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive Old Crown Group" })
+    )
+    expect(
+      await screen.findByText(
+        "Its listing is now unfiled. Undo re-files it; restoring later from Clients › Archived won’t."
+      )
+    ).toBeInTheDocument()
+    const undo = await screen.findByRole("button", { name: "Undo" })
+    fireEvent.click(undo)
+    fireEvent.click(undo)
+    expect(
+      await screen.findByText("Old Crown Group restored")
+    ).toBeInTheDocument()
+    const calls = fetchMock.mock.calls.map(([input, init]) => ({
+      url: String(input),
+      method: init?.method,
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+    }))
+    expect(
+      calls.filter((call) => call.method === "PATCH" && !call.body.archived)
+    ).toHaveLength(1)
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === "POST" &&
+          call.url.includes("/api/clients/c1/locations")
+      )
+    ).toHaveLength(1)
+  })
+
+  it("doesn't label the archive button Archiving… while the details save", async () => {
+    let answer: (response: Response) => void = () => {}
+    stub({
+      attached: true,
+      patch: () => {
+        throw new Error("unused")
+      },
+    })
+    const fetchMock = vi.mocked(fetch)
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation((input, init) =>
+      init?.method === "PATCH"
+        ? new Promise<Response>((resolve) => {
+            answer = resolve
+          })
+        : fallback(input, init)
+    )
+    renderSettings()
+    await screen.findByText(/still has its listing/)
+    fireEvent.change(screen.getByLabelText("Client name"), {
+      target: { value: "Old Crown Pubs" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")
+      ).toBe(true)
+    )
+    expect(screen.queryByText("Archiving…")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Archive Old Crown Group" })
+    ).toBeDisabled()
+    answer(json({ client: { ...client, name: "Old Crown Pubs" } }))
+    expect(await screen.findByText("Client updated")).toBeInTheDocument()
+  })
+
+  it("says the listings couldn't be checked instead of checking forever", async () => {
+    stub({ attached: true })
+    const fetchMock = vi.mocked(fetch)
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).includes("/api/location-links")
+        ? json({ error: "bad_request", message: "Nope" }, 400)
+        : fallback(input, init)
+    )
+    renderSettings()
+    expect(
+      await screen.findByText(/We couldn’t check its listings/)
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Checking attached listings…")).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Archive Old Crown Group" })
+    ).toBeDisabled()
+  })
+
+  it("points an archived or missing client at Clients › Archived", async () => {
+    stub({ attached: true })
+    const fetchMock = vi.mocked(fetch)
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).includes("/api/clients/c1")
+        ? json({ error: "client_not_found", message: "Not found" }, 404)
+        : fallback(input, init)
+    )
+    renderSettings()
+    expect(
+      await screen.findByText("This client isn’t available")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Archived clients" })
+    ).toHaveAttribute("href", "/clients?view=archived")
+    expect(
+      screen.queryByRole("button", { name: "Try again" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("settles a saved edit from the server's reply, and keeps focus in the form", async () => {
+    // The refetch after the save never answers: the form must not wait on it.
+    let saved = false
+    stub({
+      attached: true,
+      patch: () => {
+        saved = true
+        return json({ client: { ...client, notes: "Ask for Sam." } })
+      },
+    })
+    const fetchMock = vi.mocked(fetch)
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation((input, init) =>
+      saved &&
+      String(input).includes("/api/clients/c1") &&
+      init?.method !== "PATCH"
+        ? new Promise<Response>(() => {})
+        : fallback(input, init)
+    )
+    renderSettings()
+    fireEvent.change(await screen.findByLabelText(/^Notes/), {
+      target: { value: "Ask for Sam." },
+    })
+    const save = screen.getByRole("button", { name: "Save changes" })
+    save.focus()
+    fireEvent.click(save)
+    expect(await screen.findByText("Client updated")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Save client details" })
+      ).not.toBeInTheDocument()
+    )
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { name: "Details" })
+      )
+    )
+  })
+
+  it("keeps focus in the form after Discard", async () => {
+    stub({ attached: true })
+    renderSettings()
+    fireEvent.change(await screen.findByLabelText("Client name"), {
+      target: { value: "Old Crown Pubs" },
+    })
+    const discard = screen.getByRole("button", { name: "Discard" })
+    discard.focus()
+    fireEvent.click(discard)
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { name: "Details" })
+      )
+    )
   })
 
   it("shows the save bar only once the details change, docked on a phone", async () => {

@@ -72,11 +72,13 @@ function ClientColourField({
                 className="size-8 rounded-(--np-radius-control) border border-line bg-(--swatch) transition-transform duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96] pointer-coarse:size-11 data-checked:border data-checked:border-line data-checked:outline-2 data-checked:outline-offset-2 data-checked:outline-ink"
               />
               {/* The tick is a second cue beside the ring, so the choice
-                  never rests on colour alone. */}
+                  never rests on colour alone. Every swatch is a deep colour
+                  in both themes, so the tick is the light ink that reads on
+                  one, not the theme's primary-foreground (dark in dark). */}
               <CheckIcon
                 aria-hidden
                 strokeWidth={2.5}
-                className="pointer-events-none absolute inset-0 m-auto size-4 text-primary-foreground opacity-0 group-has-data-checked/swatch:opacity-100"
+                className="pointer-events-none absolute inset-0 m-auto size-4 text-ink-on-charcoal opacity-0 group-has-data-checked/swatch:opacity-100"
               />
             </span>
           ))}

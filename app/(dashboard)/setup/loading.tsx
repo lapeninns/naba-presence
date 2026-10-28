@@ -15,7 +15,7 @@ export default function Loading() {
       role="status"
       aria-busy="true"
     >
-      <span className="sr-only">Loading client setup</span>
+      <span className="sr-only">Loading setup</span>
       <div className="flex flex-col gap-2">
         <Skeleton className="h-3 w-40" />
         <Skeleton className="h-8 w-56 max-w-full" />

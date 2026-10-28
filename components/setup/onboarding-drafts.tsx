@@ -68,7 +68,10 @@ import { OnboardingMatchLinkStatus } from "./onboarding-match-link-status"
 import { CodeCombobox } from "./code-combobox"
 import { ShareSetupLink } from "./share-setup-link"
 import { fetchOnboardingMatchLink } from "@/lib/api/google-onboarding-match-link"
-import { buildServiceItems, serviceDraftRows } from "@/lib/locations/forms/services"
+import {
+  buildServiceItems,
+  serviceDraftRows,
+} from "@/lib/locations/forms/services"
 import {
   openingDraftFromPayload,
   openingPayloadFromDraft,
@@ -137,12 +140,11 @@ export function OnboardingDrafts({
           Connect this client to Google before searching.
         </p>
       ) : accounts.query.isError ? (
-        <QueryError
-          title="Google accounts didn’t load"
-          description={describeActionError(accounts.query.error)}
-          onRetry={() => void accounts.query.refetch()}
-          retryLabel="Retry accounts"
-        />
+        // The listings card above reads the same accounts query and owns the
+        // one announced error and its retry; a second alert here repeated it.
+        <p className="text-body text-ink-muted">
+          Searching needs your Google accounts. Use Try again above.
+        </p>
       ) : accounts.query.isPending ? (
         <QueryPending label="Loading accounts…" />
       ) : (
@@ -255,8 +257,14 @@ function DraftWorkspace({
   })
   const matchLink = useQuery({
     queryKey: [...draftKey, "match-link"],
-    queryFn: ({ signal }) => fetchOnboardingMatchLink({ accountId, draftId: draftId ?? "" }, { signal }),
-    enabled: Boolean(draftId), retry: false, refetchOnWindowFocus: false,
+    queryFn: ({ signal }) =>
+      fetchOnboardingMatchLink(
+        { accountId, draftId: draftId ?? "" },
+        { signal }
+      ),
+    enabled: Boolean(draftId),
+    retry: false,
+    refetchOnWindowFocus: false,
   })
   const restoreLinkReview = (id: string) => {
     const next = new URLSearchParams(params.toString())
@@ -267,7 +275,9 @@ function DraftWorkspace({
   const refreshMatchLink = () => {
     void matchLink.refetch().then((result) => {
       if (result.data?.state === "linked") {
-        void client.invalidateQueries({ queryKey: queryKeys.clientSetup(clientId) })
+        void client.invalidateQueries({
+          queryKey: queryKeys.clientSetup(clientId),
+        })
         void client.invalidateQueries({ queryKey: queryKeys.locations })
       }
     })
@@ -309,7 +319,9 @@ function DraftWorkspace({
           </FormError>
         )}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <h4 className="text-ui font-medium text-ink-muted">Saved business drafts</h4>
+          <h4 className="text-ui font-medium text-ink-muted">
+            Saved business drafts
+          </h4>
           <Button
             variant="ghost"
             size="sm"
@@ -422,33 +434,47 @@ function DraftWorkspace({
           retryLabel="Retry link status"
         />
       ) : matchLink.data && matchLink.data.state !== "failed" ? (
-        <OnboardingMatchLinkStatus value={matchLink.data} refreshing={matchLink.isFetching} onRefresh={refreshMatchLink} onReview={restoreLinkReview} />
+        <OnboardingMatchLinkStatus
+          value={matchLink.data}
+          refreshing={matchLink.isFetching}
+          onRefresh={refreshMatchLink}
+          onReview={restoreLinkReview}
+        />
       ) : (
         <>
-        {matchLink.data && <OnboardingMatchLinkStatus value={matchLink.data} refreshing={matchLink.isFetching} onRefresh={refreshMatchLink} onReview={restoreLinkReview} />}
-        <DraftDetails
-          key={`${draft.data.id}:${draft.data.revision}:${reloadVersion}`}
-          draft={draft.data}
-          onDirtyChange={onDirtyChange}
-          onMatchFinished={refreshMatchLink}
-          matchStatusBusy={matchLink.isFetching}
-          onReload={() =>
-            void draft.refetch().then((result) => {
-              if (result.isSuccess) setReloadVersion((value) => value + 1)
-            })
-          }
-          onSaved={(saved) => client.setQueryData(draftKey, saved)}
-          onCreated={() =>
-            void creation.refetch().then((result) => {
-              if (result.data?.linkState === "linked") {
-                void client.invalidateQueries({
-                  queryKey: queryKeys.clientSetup(clientId),
-                })
-                void client.invalidateQueries({ queryKey: queryKeys.locations })
-              }
-            })
-          }
-        />
+          {matchLink.data && (
+            <OnboardingMatchLinkStatus
+              value={matchLink.data}
+              refreshing={matchLink.isFetching}
+              onRefresh={refreshMatchLink}
+              onReview={restoreLinkReview}
+            />
+          )}
+          <DraftDetails
+            key={`${draft.data.id}:${draft.data.revision}:${reloadVersion}`}
+            draft={draft.data}
+            onDirtyChange={onDirtyChange}
+            onMatchFinished={refreshMatchLink}
+            matchStatusBusy={matchLink.isFetching}
+            onReload={() =>
+              void draft.refetch().then((result) => {
+                if (result.isSuccess) setReloadVersion((value) => value + 1)
+              })
+            }
+            onSaved={(saved) => client.setQueryData(draftKey, saved)}
+            onCreated={() =>
+              void creation.refetch().then((result) => {
+                if (result.data?.linkState === "linked") {
+                  void client.invalidateQueries({
+                    queryKey: queryKeys.clientSetup(clientId),
+                  })
+                  void client.invalidateQueries({
+                    queryKey: queryKeys.locations,
+                  })
+                }
+              })
+            }
+          />
         </>
       )}
     </div>
@@ -479,14 +505,18 @@ function DraftDetails({
   const [matchDirty, setMatchDirty] = useState(false)
   const [title, setTitle] = useState(draft.payload.title ?? "")
   const [categories, setCategories] = useState(draft.payload.categories)
-  const [relationships, setRelationships] = useState(draft.payload.relationshipData)
+  const [relationships, setRelationships] = useState(
+    draft.payload.relationshipData
+  )
   const [relationshipEntryDirty, setRelationshipEntryDirty] = useState(false)
   const [regularHours, setRegularHours] = useState(draft.payload.regularHours)
   const [specialHours, setSpecialHours] = useState(draft.payload.specialHours)
   const [hoursEntryDirty, setHoursEntryDirty] = useState(false)
   const [moreHours, setMoreHours] = useState(draft.payload.moreHours)
   const [moreHoursEntryDirty, setMoreHoursEntryDirty] = useState(false)
-  const [serviceRows, setServiceRows] = useState(() => serviceDraftRows(draft.payload.serviceItems ?? []))
+  const [serviceRows, setServiceRows] = useState(() =>
+    serviceDraftRows(draft.payload.serviceItems ?? [])
+  )
   const builtServices = buildServiceItems(serviceRows)
   const [opening, setOpening] = useState(() =>
     openingDraftFromPayload(draft.payload.openInfo)
@@ -568,7 +598,11 @@ function DraftDetails({
     regularHours,
     specialHours,
     moreHours,
-    serviceItems: builtServices.success ? builtServices.items.length || draft.payload.serviceItems !== undefined ? builtServices.items : undefined : draft.payload.serviceItems,
+    serviceItems: builtServices.success
+      ? builtServices.items.length || draft.payload.serviceItems !== undefined
+        ? builtServices.items
+        : undefined
+      : draft.payload.serviceItems,
     serviceArea,
     openInfo: openingPayloadFromDraft(opening, draft.payload.openInfo),
     ...(description !== (draft.payload.profile?.description ?? "")
@@ -676,7 +710,14 @@ function DraftDetails({
     !builtServices.success ||
     !parsedPayload.success ||
     JSON.stringify(parsedPayload.data) !== JSON.stringify(draft.payload)
-  const unsaved = dirty || reviewDirty || matchDirty || areaEntryDirty || relationshipEntryDirty || hoursEntryDirty || moreHoursEntryDirty
+  const unsaved =
+    dirty ||
+    reviewDirty ||
+    matchDirty ||
+    areaEntryDirty ||
+    relationshipEntryDirty ||
+    hoursEntryDirty ||
+    moreHoursEntryDirty
   // A reload warns while edits are unsaved (not after a forced sign-out);
   // an in-app link or the back button asks first, also while a match or
   // review is on its way. The draft is saved on the server, so the edits
@@ -713,7 +754,12 @@ function DraftDetails({
     onSuccess: onSaved,
     onError: () => onSaved({ ...draft, matchResult: null }),
   })
-  const pending = save.isPending || search.isPending || reviewBusy || matchBusy || matchStatusBusy
+  const pending =
+    save.isPending ||
+    search.isPending ||
+    reviewBusy ||
+    matchBusy ||
+    matchStatusBusy
   useEffect(() => {
     onDirtyChange(unsaved || pending)
     return () => onDirtyChange(false)
@@ -749,7 +795,12 @@ function DraftDetails({
           flight; the sections inside it give a phone a heading every screen
           or so instead of one 25-field scroll. */}
       <Fieldset
-        disabled={pending || reviewDirty || matchDirty || Boolean(params.get("onboardingMatchLinkReview"))}
+        disabled={
+          pending ||
+          reviewDirty ||
+          matchDirty ||
+          Boolean(params.get("onboardingMatchLinkReview"))
+        }
         className="gap-6"
       >
         <FieldsetLegend srOnly>Business draft</FieldsetLegend>
@@ -800,8 +851,8 @@ function DraftDetails({
               <FieldDescription>
                 Describe this business in your own words, up to 750 characters.
                 Google requires a description for most categories; lodging
-                categories are an exception. Provider validation checks the proposed
-                listing before approval.
+                categories are an exception. Provider validation checks the
+                proposed listing before approval.
               </FieldDescription>
               <FieldError />
             </Field>
@@ -826,9 +877,10 @@ function DraftDetails({
                 onChange={(event) => setLabels(event.target.value)}
               />
               <FieldDescription>
-                Up to ten labels, one per line and up to 255 characters each. Labels
-                organise your listings and are not shown to customers. Clear these
-                optional fields to omit them from the creation proposal.
+                Up to ten labels, one per line and up to 255 characters each.
+                Labels organise your listings and are not shown to customers.
+                Clear these optional fields to omit them from the creation
+                proposal.
               </FieldDescription>
               <FieldError />
             </Field>
@@ -846,8 +898,8 @@ function DraftDetails({
                 onChange={(event) => setWebsite(event.target.value)}
               />
               <FieldDescription>
-                Include the full address, such as https://example.com. Clear it to
-                omit the website from this creation draft.
+                Include the full address, such as https://example.com. Clear it
+                to omit the website from this creation draft.
               </FieldDescription>
               <FieldError />
             </Field>
@@ -871,8 +923,9 @@ function DraftDetails({
                 onChange={(event) => setAdditionalPhones(event.target.value)}
               />
               <FieldDescription>
-                Up to two numbers, one per line. Editing the primary phone preserves
-                these numbers. Google validates contact details before approval.
+                Up to two numbers, one per line. Editing the primary phone
+                preserves these numbers. Google validates contact details before
+                approval.
               </FieldDescription>
               <FieldError />
             </Field>
@@ -886,14 +939,16 @@ function DraftDetails({
                 onChange={(event) => setAdPhone(event.target.value)}
               />
               <FieldDescription>
-                The phone used in Google Ads location extensions. This is separate
-                from the business contact numbers.
+                The phone used in Google Ads location extensions. This is
+                separate from the business contact numbers.
               </FieldDescription>
             </Field>
           </div>
         </Fieldset>
         <Fieldset className={SECTION_CLASS}>
-          <FieldsetLegend variant="section">Opening, hours and services</FieldsetLegend>
+          <FieldsetLegend variant="section">
+            Opening, hours and services
+          </FieldsetLegend>
           <OnboardingOpening
             value={opening}
             onChange={setOpening}
@@ -904,19 +959,52 @@ function DraftDetails({
             rows={serviceRows}
             setRows={setServiceRows}
             contextSaved={contextSaved}
-            error={builtServices.success ? undefined : serviceRows.some((row) => "freeFormServiceItem" in row.item && !row.item.freeFormServiceItem.label.displayName.trim()) ? "Enter a custom service name or remove the incomplete service." : builtServices.message}
+            error={
+              builtServices.success
+                ? undefined
+                : serviceRows.some(
+                      (row) =>
+                        "freeFormServiceItem" in row.item &&
+                        !row.item.freeFormServiceItem.label.displayName.trim()
+                    )
+                  ? "Enter a custom service name or remove the incomplete service."
+                  : builtServices.message
+            }
           />
-          <OnboardingHours regular={regularHours} special={specialHours} onRegularChange={setRegularHours} onSpecialChange={setSpecialHours} onEntryChange={setHoursEntryDirty} />
-          <OnboardingMoreHours draft={draft} value={moreHours} onChange={setMoreHours} onEntryChange={setMoreHoursEntryDirty}
-            contextSaved={contextSaved} />
+          <OnboardingHours
+            regular={regularHours}
+            special={specialHours}
+            onRegularChange={setRegularHours}
+            onSpecialChange={setSpecialHours}
+            onEntryChange={setHoursEntryDirty}
+          />
+          <OnboardingMoreHours
+            draft={draft}
+            value={moreHours}
+            onChange={setMoreHours}
+            onEntryChange={setMoreHoursEntryDirty}
+            contextSaved={contextSaved}
+          />
         </Fieldset>
         <Fieldset className={SECTION_CLASS}>
-          <FieldsetLegend variant="section">Chain and related businesses</FieldsetLegend>
-          <OnboardingChain draft={draft} value={relationships} onChange={setRelationships} />
-          <OnboardingRelationships value={relationships} onChange={setRelationships} onEntryChange={setRelationshipEntryDirty} />
+          <FieldsetLegend variant="section">
+            Chain and related businesses
+          </FieldsetLegend>
+          <OnboardingChain
+            draft={draft}
+            value={relationships}
+            onChange={setRelationships}
+          />
+          <OnboardingRelationships
+            value={relationships}
+            onChange={setRelationships}
+            onEntryChange={setRelationshipEntryDirty}
+          />
         </Fieldset>
         <Fieldset className={SECTION_CLASS}>
-          <FieldsetLegend variant="section">Location and service area</FieldsetLegend>
+          <FieldsetLegend variant="section">
+            Location and service area
+          </FieldsetLegend>
           <OnboardingServiceArea
             value={serviceArea}
             onChange={setServiceArea}
@@ -1025,7 +1113,8 @@ function DraftDetails({
                 autoComplete="off"
               />
               <FieldDescription>
-                Use the two-letter code, such as GB, or pick the country by name.
+                Use the two-letter code, such as GB, or pick the country by
+                name.
               </FieldDescription>
             </Field>
           </div>
@@ -1037,7 +1126,14 @@ function DraftDetails({
           pending={save.isPending}
           pendingLabel="Saving…"
           disabled={
-            pending || !dirty || areaEntryDirty || relationshipEntryDirty || hoursEntryDirty || moreHoursEntryDirty || !parsedPayload.success || !builtServices.success
+            pending ||
+            !dirty ||
+            areaEntryDirty ||
+            relationshipEntryDirty ||
+            hoursEntryDirty ||
+            moreHoursEntryDirty ||
+            !parsedPayload.success ||
+            !builtServices.success
           }
           onClick={() => save.mutate()}
         >
@@ -1049,7 +1145,9 @@ function DraftDetails({
           disabled={
             pending ||
             dirty ||
-            reviewDirty || matchDirty || Boolean(params.get("onboardingMatchLinkReview")) ||
+            reviewDirty ||
+            matchDirty ||
+            Boolean(params.get("onboardingMatchLinkReview")) ||
             areaEntryDirty ||
             relationshipEntryDirty ||
             hoursEntryDirty ||
@@ -1083,67 +1181,83 @@ function DraftDetails({
         </Button>
       )}
       <FormError>{serviceContextError}</FormError>
-      {!dirty && !areaEntryDirty && !relationshipEntryDirty && !hoursEntryDirty && !moreHoursEntryDirty && draft.matchResult && (
-        <div className="flex flex-col gap-3">
-          <div className="space-y-1">
-            <h4 className="text-ui font-medium text-ink-muted">Potential matches</h4>
-            <p className="text-caption text-ink-muted tabular-nums">
-              Checked{" "}
-              {new Date(draft.matchResult.checkedAt).toLocaleString("en-GB")}.
-              Results do not prove ownership or access.
-            </p>
-          </div>
-          {draft.matchResult.matches.length === 0 ? (
-            <p role="status" className="text-body text-ink-muted">
-              Google returned no potential matches. This search has not created
-              a listing.
-            </p>
-          ) : (
-            <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
-              {draft.matchResult.matches.map((match) => (
-                <li key={match.name} className="flex min-w-0 flex-col items-start gap-2 py-3">
-                  <p className="text-body font-medium break-words text-ink">
-                    {match.location.title || "Unnamed business"}
-                  </p>
-                  <p className="text-caption text-ink-muted">
-                    {[
-                      ...(match.location.storefrontAddress?.addressLines ?? []),
-                      match.location.storefrontAddress?.locality,
-                      match.location.storefrontAddress?.postalCode,
-                    ]
-                      .filter(Boolean)
-                      .join(", ")}
-                  </p>
-                  <SupportDetails items={[match.name]} />
-                  {match.requestAdminRightsUri ? (
-                    <a
-                      href={match.requestAdminRightsUri}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={buttonVariants({ variant: "secondary" })}
-                    >
-                      Review ownership options in Google
-                    </a>
-                  ) : (
-                    <p className="text-caption text-ink-muted">
-                      Check the accessible listings above before deciding
-                      whether this is your business.
+      {!dirty &&
+        !areaEntryDirty &&
+        !relationshipEntryDirty &&
+        !hoursEntryDirty &&
+        !moreHoursEntryDirty &&
+        draft.matchResult && (
+          <div className="flex flex-col gap-3">
+            <div className="space-y-1">
+              <h4 className="text-ui font-medium text-ink-muted">
+                Potential matches
+              </h4>
+              <p className="text-caption text-ink-muted tabular-nums">
+                Checked{" "}
+                {new Date(draft.matchResult.checkedAt).toLocaleString("en-GB")}.
+                Results do not prove ownership or access.
+              </p>
+            </div>
+            {draft.matchResult.matches.length === 0 ? (
+              <p role="status" className="text-body text-ink-muted">
+                Google returned no potential matches. This search has not
+                created a listing.
+              </p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
+                {draft.matchResult.matches.map((match) => (
+                  <li
+                    key={match.name}
+                    className="flex min-w-0 flex-col items-start gap-2 py-3"
+                  >
+                    <p className="text-body font-medium break-words text-ink">
+                      {match.location.title || "Unnamed business"}
                     </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          <Button
-            variant="secondary"
-            className="self-start whitespace-normal"
-            disabled={pending || reviewDirty || matchDirty || Boolean(params.get("onboardingMatchLinkReview"))}
-            onClick={() => search.mutate()}
-          >
-            Refresh matches after changes in Google
-          </Button>
-        </div>
-      )}
+                    <p className="text-caption text-ink-muted">
+                      {[
+                        ...(match.location.storefrontAddress?.addressLines ??
+                          []),
+                        match.location.storefrontAddress?.locality,
+                        match.location.storefrontAddress?.postalCode,
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}
+                    </p>
+                    <SupportDetails items={[match.name]} />
+                    {match.requestAdminRightsUri ? (
+                      <a
+                        href={match.requestAdminRightsUri}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={buttonVariants({ variant: "secondary" })}
+                      >
+                        Review ownership options in Google
+                      </a>
+                    ) : (
+                      <p className="text-caption text-ink-muted">
+                        Check the accessible listings above before deciding
+                        whether this is your business.
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Button
+              variant="secondary"
+              className="self-start whitespace-normal"
+              disabled={
+                pending ||
+                reviewDirty ||
+                matchDirty ||
+                Boolean(params.get("onboardingMatchLinkReview"))
+              }
+              onClick={() => search.mutate()}
+            >
+              Refresh matches after changes in Google
+            </Button>
+          </div>
+        )}
       {!dirty &&
         !areaEntryDirty &&
         !relationshipEntryDirty &&
@@ -1153,14 +1267,26 @@ function DraftDetails({
           <OnboardingMatchLink
             key={`match-link:${draft.revision}:${draft.matchResult?.checkedAt ?? "missing-search"}`}
             draft={draft}
-            disabled={reviewDirty || reviewBusy || matchStatusBusy || Boolean(params.get("onboardingReview"))}
+            disabled={
+              reviewDirty ||
+              reviewBusy ||
+              matchStatusBusy ||
+              Boolean(params.get("onboardingReview"))
+            }
             onBusyChange={setMatchBusy}
             onDirtyChange={setMatchDirty}
             onFinished={onMatchFinished}
           />
         )}
-      {!dirty && !matchDirty && !matchBusy && !params.get("onboardingMatchLinkReview") &&
-        !areaEntryDirty && !relationshipEntryDirty && !hoursEntryDirty && !moreHoursEntryDirty && !serviceContextError &&
+      {!dirty &&
+        !matchDirty &&
+        !matchBusy &&
+        !params.get("onboardingMatchLinkReview") &&
+        !areaEntryDirty &&
+        !relationshipEntryDirty &&
+        !hoursEntryDirty &&
+        !moreHoursEntryDirty &&
+        !serviceContextError &&
         draft.matchResult && (
           <OnboardingReview
             key={`${draft.revision}:${draft.matchResult.checkedAt}`}

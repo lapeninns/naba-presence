@@ -14,6 +14,23 @@ import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { describeActionError } from "@/lib/errors/action-errors"
 
+// Google's account roles in people's words. An unknown role is sentence-cased
+// rather than shown as an enum; a missing one shows nothing.
+const ROLE_LABEL: Record<string, string> = {
+  PRIMARY_OWNER: "Primary owner",
+  OWNER: "Owner",
+  MANAGER: "Manager",
+  SITE_MANAGER: "Site manager",
+}
+
+function roleLabel(role: string | null | undefined): string | undefined {
+  if (!role) return undefined
+  const known = ROLE_LABEL[role]
+  if (known) return known
+  const words = role.toLowerCase().replaceAll("_", " ")
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 /**
  * Which Business Profile accounts the working Google login should manage.
  *
@@ -25,6 +42,7 @@ export function AccountPickerCard({
   clientId,
   connectionId,
   saveBeforeContinueRef,
+  onChooseAnotherLogin,
 }: {
   /** Setup: save only among this client's logins. */
   clientId?: string
@@ -36,6 +54,11 @@ export function AccountPickerCard({
    * shows inline), so Continue never needs a separate Save click.
    */
   saveBeforeContinueRef?: React.RefObject<(() => Promise<boolean>) | null>
+  /**
+   * Setup: the way out when this login has no accounts (back to Connect to
+   * pick another). Without it the empty state offers no button.
+   */
+  onChooseAnotherLogin?: () => void
 } = {}) {
   const workspace = useConnectionWorkspace()
   const connections = workspace.query.data?.connections ?? []
@@ -78,11 +101,21 @@ export function AccountPickerCard({
   }
   if (accounts.query.isError) {
     return (
+      // A failed load reads as a failure (never plain `empty`) and is
+      // announced once; Try again sits outside the alert. Each retry is one
+      // rate-limited discovery, so it shows it is running.
       <Empty
+        variant="error"
+        role="alert"
         title="We couldn’t load your Google accounts"
-        description={describeActionError(accounts.query.error)}
-        action={
-          <Button variant="outline" onClick={() => accounts.query.refetch()}>
+        description={`${describeActionError(accounts.query.error)} Nothing was changed.`}
+        actions={
+          <Button
+            variant="secondary"
+            pending={accounts.query.isFetching}
+            pendingLabel="Trying again…"
+            onClick={() => void accounts.query.refetch()}
+          >
             Try again
           </Button>
         }
@@ -105,8 +138,15 @@ export function AccountPickerCard({
           Google accounts
         </h2>
         <Empty
-          title="No Google accounts found"
-          description="This connection has no Business Profile accounts to manage."
+          title="This Google login has no Business Profile accounts"
+          description="Google didn’t list any accounts for it. Go back and connect the Google account that manages this profile."
+          action={
+            onChooseAnotherLogin ? (
+              <Button variant="secondary" onClick={onChooseAnotherLogin}>
+                Use another Google login
+              </Button>
+            ) : undefined
+          }
         />
       </section>
     )
@@ -188,13 +228,14 @@ function AccountPickerTable({
         {rows.map((account) => (
           // The whole row is the checkbox's label (the primitive's own
           // 44px selection row), so tapping the account name ticks it, not
-          // only the 18px box. The role is the description.
+          // only the 18px box. The role, when Google gives one, is the
+          // description.
           <li key={account.id} className="px-(--np-card-pad)">
             <Checkbox
               checked={checked.has(account.id)}
               onCheckedChange={() => toggle(account.id)}
               label={account.accountName}
-              description={account.role ?? "—"}
+              description={roleLabel(account.role)}
               labelClassName="w-full break-words py-3 desk:py-2"
             />
           </li>

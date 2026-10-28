@@ -48,6 +48,7 @@ import {
   connectionNeedsReconnect,
   diagnoseClient,
   attentionDescription,
+  healthCause,
   healthDescription,
   healthLabel,
   healthTone,
@@ -84,6 +85,10 @@ const ASIDE_CARD_ON_PHONE =
   "@max-md:border-transparent @max-md:bg-fill-secondary"
 const ASIDE_LABEL_ON_PHONE =
   "@max-md:text-ui @max-md:font-medium @max-md:text-ink-muted"
+
+/** A plain text link (not a button): the touch height on a coarse pointer. */
+const TEXT_LINK =
+  "rounded-(--np-radius-tag) text-ui font-medium text-accent-ink underline underline-offset-3 focus-halo pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
 
 /**
  * One client's home: how it is doing, what needs doing, and its listings.
@@ -154,6 +159,9 @@ function ClientHub({
   // The fix for a broken login lives in the alert below, beside its reason;
   // the header's primary stays the everyday one.
   const finishSetup = canManage && notSetUp && !diagnosis
+  // Where the health word came from (CLR-13): read-only navigation, so every
+  // role gets it.
+  const cause = healthCause(client.id, client.health, locations)
 
   return (
     <>
@@ -192,6 +200,11 @@ function ClientHub({
                   </>
                 ) : null}
               </span>
+              {cause ? (
+                <Link href={cause.href} className={cn("self-start", TEXT_LINK)}>
+                  {cause.label}
+                </Link>
+              ) : null}
               <LoginLine client={client} diagnosis={diagnosis} />
             </span>
           }
@@ -302,7 +315,7 @@ function ClientHub({
                 {canManage ? (
                   <Link
                     href={`/clients/${client.id}/settings#details`}
-                    className="self-start rounded-(--np-radius-tag) text-ui font-medium text-accent-ink underline underline-offset-3 focus-halo pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
+                    className={cn("self-start", TEXT_LINK)}
                   >
                     Edit notes
                   </Link>
@@ -410,6 +423,12 @@ function HubActions({
  * can be connected and still have lost manager access to one of the
  * client's listings, and "Connected · refreshed a minute ago" beside an
  * "Can’t reach Google" alert read as a contradiction.
+ *
+ * With several logins it names the one the alert below is about, so a
+ * working first login is never drawn as "Connected" over an alert that names
+ * another. A working login is plain text: a pill is kept for a state that
+ * needs a look, as in the listings table (CLR-15), so the calm login does not
+ * outshout the client's own health.
  */
 function LoginLine({
   client,
@@ -418,8 +437,12 @@ function LoginLine({
   client: Client
   diagnosis: Diagnosis | null
 }) {
-  const [first, ...rest] = client.connections
-  if (!first) {
+  const connections = client.connections
+  const shown =
+    (diagnosis?.kind === "reconnect" || diagnosis?.kind === "permission_missing"
+      ? diagnosis.connection
+      : null) ?? connections[0]
+  if (!shown) {
     return (
       <span className="flex items-center gap-2 text-caption text-ink-muted">
         <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
@@ -427,7 +450,8 @@ function LoginLine({
       </span>
     )
   }
-  const firstBroken = connectionNeedsReconnect(first)
+  const others = connections.length - 1
+  const shownBroken = connectionNeedsReconnect(shown)
   const accessLost = diagnosis?.kind === "access_lost"
   const lost = accessLost ? diagnosis.accessLost : 0
   return (
@@ -436,17 +460,29 @@ function LoginLine({
       <span className="min-w-0 [overflow-wrap:anywhere]">
         Google login:{" "}
         <strong className="font-semibold text-ink">
-          {first.googleEmail ?? "Google account"}
+          {shown.googleEmail ?? "Google account"}
         </strong>
-        {rest.length > 0 ? ` and ${formatNumber(rest.length)} more` : ""}
+        {others > 0 ? ` and ${formatNumber(others)} more` : ""}
+        {!shownBroken && !accessLost ? (
+          <>
+            {" · "}
+            <span>Connected</span>
+            {shown.lastRefreshAt ? (
+              <>
+                {", "}
+                <RelativeTime iso={shown.lastRefreshAt} prefix="refreshed " />
+              </>
+            ) : null}
+          </>
+        ) : null}
       </span>
-      {firstBroken ? (
+      {shownBroken ? (
         <StatusPill tone="at-risk">
           Needs reconnecting
-          {first.lastRefreshAt ? (
+          {shown.lastRefreshAt ? (
             <>
               {" · "}
-              <RelativeTime iso={first.lastRefreshAt} prefix="last refresh " />
+              <RelativeTime iso={shown.lastRefreshAt} prefix="last refresh " />
             </>
           ) : null}
         </StatusPill>
@@ -456,17 +492,7 @@ function LoginLine({
             ? `Connected · ${formatNumber(lost)} listings unreachable`
             : "Connected · a listing is unreachable"}
         </StatusPill>
-      ) : (
-        <StatusPill tone="healthy">
-          Connected
-          {first.lastRefreshAt ? (
-            <>
-              {" · "}
-              <RelativeTime iso={first.lastRefreshAt} prefix="refreshed " />
-            </>
-          ) : null}
-        </StatusPill>
-      )}
+      ) : null}
     </span>
   )
 }
@@ -602,6 +628,7 @@ function ListingsSection({
               cell: (listing) => (
                 <span className="text-caption break-words text-ink-muted">
                   {formatAddressLine(listing.address) ?? "No address"}
+                  <PhoneListingFacts listing={listing} />
                 </span>
               ),
             },
@@ -664,10 +691,13 @@ function ListingsSection({
               },
             },
             {
+              // Waiting and Verified are desk columns: on a card their calm
+              // values are hidden, and the meta line they shared was left
+              // with nothing but its "·". The card says only the states that
+              // need a look, after the address (PhoneListingFacts).
               id: "waiting",
               header: "Waiting",
-              priority: "meta",
-              label: "",
+              priority: "desk-only",
               cell: (listing) =>
                 listing.waiting ? (
                   <span className="text-ui text-ink-secondary">
@@ -682,8 +712,7 @@ function ListingsSection({
             {
               id: "verified",
               header: "Verified",
-              priority: "meta",
-              label: "",
+              priority: "desk-only",
               cell: (listing) =>
                 !listing.linkId ? (
                   <span className="text-ui text-ink-muted @max-3xl/table:hidden">
@@ -759,6 +788,35 @@ function ListingsSection({
         />
       )}
     </section>
+  )
+}
+
+/**
+ * A listing card's Waiting and Verified facts on a phone, after its address,
+ * only when they need a look: "· 3 waiting" and a "Not verified on Google"
+ * pill. A calm listing adds nothing. Hidden from the table width up, where
+ * the desk columns say the same; the words differ from those cells ("Not
+ * verified on Google", and the separator in the same text) so the two copies
+ * are never the same text.
+ */
+function PhoneListingFacts({ listing }: { listing: Listing }) {
+  const waiting = listing.waiting ?? 0
+  const unverified = Boolean(listing.linkId) && !listing.verified
+  if (waiting === 0 && !unverified) return null
+  return (
+    <span className="@3xl/table:hidden">
+      {waiting > 0 ? (
+        <span className="text-ink-secondary">{` · ${formatNumber(waiting)} waiting`}</span>
+      ) : null}
+      {unverified ? (
+        <>
+          {" "}
+          <StatusPill tone="attention" className="align-middle">
+            Not verified on Google
+          </StatusPill>
+        </>
+      ) : null}
+    </span>
   )
 }
 
