@@ -114,6 +114,10 @@ export function PlaceActionApprovalSheet({
     outcome !== null &&
     outcome.executionState !== "rejected" &&
     outcome.confirmationState !== "confirmed"
+  // Only an outcome the server has settled (rejected, or independently
+  // confirmed) is finished; anything else is closed for now and stays in
+  // the saved work.
+  const settled = outcome !== null && !workflow.uncertain && !canRefresh
 
   return (
     <ReviewedWriteSheet
@@ -140,7 +144,7 @@ export function PlaceActionApprovalSheet({
             disabled={workflow.busy}
             onClick={() => workflow.setOpen(false)}
           >
-            Keep editing
+            {settled ? "Done" : "Close for now"}
           </Button>
           {recorded ? (
             <>
@@ -158,10 +162,10 @@ export function PlaceActionApprovalSheet({
                   variant="secondary"
                   disabled={workflow.busy}
                   pending={workflow.busy && action === "refresh"}
-                  pendingLabel="Refreshing observation…"
+                  pendingLabel="Checking Google…"
                   onClick={act("refresh", () => workflow.check(true))}
                 >
-                  Refresh booking link observation
+                  Check this change on Google
                 </Button>
               ) : null}
             </>
@@ -202,6 +206,13 @@ export function PlaceActionApprovalSheet({
               : null,
           ]}
         />
+        {settled || sending ? null : (
+          <p className="text-ui text-ink-muted">
+            {recorded
+              ? "Closing keeps this outcome in Saved booking link work."
+              : "Closing keeps this review in Saved booking link work."}
+          </p>
+        )}
         {recorded || sending ? null : (
           <div className="flex min-w-0 flex-col gap-2">
             {expired || expiresSoon ? (
