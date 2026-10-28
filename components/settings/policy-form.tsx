@@ -27,6 +27,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert, Eye, PenLine } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useRef, useState } from "react"
+import { z } from "zod"
 
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -130,15 +131,40 @@ function parsePolicyDraft(
   return changed ? { form: restored, name } : null
 }
 
-/** The words the save bar uses to list what changed. */
+/**
+ * The words the save bar uses to list what changed: the page's own words
+ * (the section "Review text", the switch about a second approver), so the
+ * bar never names something the page doesn't show. The name field is
+ * listed by its label, `terms.orgName`.
+ */
 const CHANGE_LABELS: Record<keyof FormState, string> = {
   approvalRequired: "Approval",
   directPublishConsent: "Approval",
-  requireTwoPersonApproval: "Two-person rule",
-  rawContentRetentionDays: "Retention",
+  requireTwoPersonApproval: "Second approver",
+  rawContentRetentionDays: "Review text",
   defaultLanguageCode: "Language",
   defaultTimezone: "Timezone",
 }
+
+/**
+ * The form schema for a policy whose timezone wasn't touched. This
+ * browser's zone list (`Intl.supportedValuesOf`) differs by engine, so a
+ * zone saved from another browser ("UTC", "Asia/Kolkata", "Europe/Kyiv")
+ * can be missing from it; that must not hold up a save of another field.
+ * A changed zone is still checked against the list (the picker offers only
+ * those), and the server checks every zone again either way.
+ */
+const storedTimezoneSchema = settingsPolicyFormSchema.extend({
+  defaultTimezone: z.string().trim().min(1).max(80),
+})
+
+/**
+ * The reason a manager sees while billing holds the workspace read-only,
+ * in the words of lib/locations/gating.ts `billing_read_only`. The role
+ * reason ("Only owners and admins…") would be wrong for them.
+ */
+const BILLING_READ_ONLY_REASON =
+  "This workspace’s subscription is read-only, so these settings can’t be changed right now."
 
 const RETENTION_MESSAGE = "Choose how long to keep review text."
 
@@ -177,6 +203,13 @@ function localErrors(
   if (!language.success) {
     errors.defaultLanguageCode =
       language.error.issues[0]?.message ?? "Use a language code such as en-GB."
+  }
+  const timezone = settingsPolicyFormSchema.shape.defaultTimezone.safeParse(
+    state.defaultTimezone
+  )
+  if (!timezone.success) {
+    errors.defaultTimezone =
+      timezone.error.issues[0]?.message ?? "Choose a valid timezone."
   }
   return errors
 }
@@ -237,10 +270,17 @@ export function PolicyForm({ role }: { role: string | null }) {
   const isOwner = role === "owner"
   const canEdit = caps.data?.canEditSettings ?? false
   const readOnly = caps.data !== undefined && !canEdit
+  // An owner or admin can't edit only because billing holds the workspace
+  // read-only (canWrite false); the server refuses those writes with a 402.
+  const billingLocked =
+    readOnly &&
+    (role === "owner" || role === "admin") &&
+    caps.data?.canWrite === false
 
   // The account's name, saved by the same bar as the policy (finding m1):
   // only an owner can rename (PATCH /api/organisations checks again), so for
-  // anyone else it is read-only and never makes the page dirty.
+  // anyone else, and for an owner while the page is read-only, it is
+  // read-only and never makes the page dirty.
   const sessionUser = session.data?.session
   const terms = workspaceTerms(sessionUser?.workspaceMode ?? "agency")
   const savedName = sessionUser?.organisationName ?? ""
@@ -248,7 +288,7 @@ export function PolicyForm({ role }: { role: string | null }) {
   const [nameError, setNameError] = useState<string | null>(null)
   const nameValue = nameDraft ?? savedName
   const nameDirty =
-    isOwner && nameDraft !== null && nameDraft.trim() !== savedName
+    isOwner && !readOnly && nameDraft !== null && nameDraft.trim() !== savedName
   const nameProblem = nameDirty
     ? organisationNameProblem(nameValue, terms)
     : null
@@ -269,7 +309,7 @@ export function PolicyForm({ role }: { role: string | null }) {
     return [...new Set(keys.map((key) => CHANGE_LABELS[key]))]
   }, [current, initial])
   const policyDirty = policyChanged.length > 0
-  const changed = nameDirty ? ["Name", ...policyChanged] : policyChanged
+  const changed = nameDirty ? [terms.orgName, ...policyChanged] : policyChanged
   const isDirty = changed.length > 0
 
   // Arms beforeunload while dirty (spec §6) and keeps the edits through a
@@ -371,8 +411,14 @@ export function PolicyForm({ role }: { role: string | null }) {
   )
   const consentBlocked =
     turningApprovalOff && (!isOwner || !current.directPublishConsent)
-  const editReason = editSettingsDisabledReason(caps.data)
-  const parsed = settingsPolicyFormSchema.safeParse({
+  const editReason = billingLocked
+    ? BILLING_READ_ONLY_REASON
+    : editSettingsDisabledReason(caps.data)
+  // The zone is checked against this browser's list only once it is changed.
+  const timezoneChanged = current.defaultTimezone !== initial?.defaultTimezone
+  const parsed = (
+    timezoneChanged ? settingsPolicyFormSchema : storedTimezoneSchema
+  ).safeParse({
     approvalRequired: current.approvalRequired,
     requireTwoPersonApproval: current.requireTwoPersonApproval,
     rawContentRetentionDays: Number(current.rawContentRetentionDays),
@@ -524,8 +570,10 @@ export function PolicyForm({ role }: { role: string | null }) {
         <Alert variant="info" icon={<Eye strokeWidth={1.75} aria-hidden />}>
           <AlertTitle>You can look, but not change this</AlertTitle>
           <AlertDescription>
-            <span>{editReason}</span> Ask one of them if something here needs to
-            change.
+            <span>{editReason}</span>
+            {billingLocked
+              ? null
+              : " Ask one of them if something here needs to change."}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -540,7 +588,7 @@ export function PolicyForm({ role }: { role: string | null }) {
           <FieldLabel>{terms.orgName}</FieldLabel>
           <Input
             value={nameValue}
-            readOnly={!isOwner}
+            readOnly={!isOwner || readOnly}
             maxLength={ORGANISATION_NAME_MAX}
             autoComplete="organization"
             onChange={(event) => {
@@ -549,9 +597,11 @@ export function PolicyForm({ role }: { role: string | null }) {
             }}
           />
           <FieldDescription>
-            {isOwner
-              ? "What your team sees at the top of the app and what invitations say they are joining."
-              : `Only an owner can rename the ${terms.orgLower}.`}
+            {!isOwner
+              ? `Only an owner can rename the ${terms.orgLower}.`
+              : billingLocked
+                ? "The name can’t be changed while the subscription is read-only."
+                : "What your team sees at the top of the app and what invitations say they are joining."}
           </FieldDescription>
           <FieldError>{nameError ?? nameProblem}</FieldError>
         </Field>
@@ -741,6 +791,14 @@ export function PolicyForm({ role }: { role: string | null }) {
         // riding above the on-screen keyboard; stuck to the foot of the
         // form on a desk.
         dock
+        // A local save that never reaches Google: the light bar, as Client
+        // details and the setup wizard have it.
+        tone="surface"
+        // The status (what changed, a reason Save is disabled, or why a
+        // save was refused) gets its own row on a phone rather than being
+        // clamped beside the buttons, where "1 unsaved change · Agency
+        // name" was cut to its first words at 390.
+        statusRow
         visible={showBar}
         offset="md:bottom-3"
         status={
@@ -780,7 +838,7 @@ export function PolicyForm({ role }: { role: string | null }) {
           <>
             <Button
               type="button"
-              variant="ghost-dark"
+              variant="ghost"
               disabled={!isDirty || saving}
               onClick={discard}
             >

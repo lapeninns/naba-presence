@@ -45,12 +45,16 @@ export function UsageCard() {
     <SettingsSection
       id="settings-usage-credits"
       data-slot="usage-card"
-      title="Usage"
+      title="AI reply credits"
       description="AI-written replies in the current period. Writing a reply yourself is free."
       variant="group"
     >
       {credits.isPending ? (
-        <Skeleton className="h-10 w-full" />
+        // The Skeleton is hidden from assistive tech; this says it instead.
+        <div role="status" aria-busy="true">
+          <span className="sr-only">Loading AI reply credits</span>
+          <Skeleton className="h-10 w-full" />
+        </div>
       ) : data && data.allowance !== null && data.canUseAi ? (
         <>
           <p className="m-0 text-body text-ink">
@@ -58,6 +62,10 @@ export function UsageCard() {
               {data.used} of {data.allowance}
             </strong>{" "}
             credits used {noun}
+            {/* The same "left" figure the reply composer shows. */}
+            {!exhausted && data.remaining !== null
+              ? `, ${data.remaining} left`
+              : null}
           </p>
           <Progress
             label={`AI credits used ${noun}`}
@@ -85,7 +93,7 @@ export function UsageCard() {
       ) : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <p role="alert" className="m-0 text-ui text-danger-ink">
-            Usage could not be loaded.
+            AI reply credits could not be loaded.
           </p>
           <Button
             variant="secondary"

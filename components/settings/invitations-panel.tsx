@@ -51,6 +51,7 @@ import {
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input, inputHints } from "@/components/ui/input"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { OptionRow } from "@/components/ui/option-row"
 import {
   QueryStates,
@@ -83,6 +84,7 @@ import {
 } from "@/lib/api/invitations"
 import { ApiClientError } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import {
   invitationFormSchema,
   roleLabel,
@@ -107,6 +109,23 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 function isExpired(invitation: Invitation, now: number): boolean {
   return (
     !invitation.acceptedAt && new Date(invitation.expiresAt).getTime() <= now
+  )
+}
+
+/**
+ * An email address that may wrap only before its "@": "catherine.smith" /
+ * "@oldcrowngroup.co.uk", never mid-word. `<wbr>` adds no text, so the
+ * accessible name and text content are the address as it is.
+ */
+function EmailText({ email }: { email: string }) {
+  const at = email.lastIndexOf("@")
+  if (at <= 0) return <>{email}</>
+  return (
+    <>
+      {email.slice(0, at)}
+      <wbr />
+      {email.slice(at)}
+    </>
   )
 }
 
@@ -188,11 +207,19 @@ async function shareInviteLink(url: string, toast: Toasts) {
 /** Server refusals that belong to the email field rather than the form. */
 const EMAIL_ERROR_CODES = new Set(["already_a_member", "invitation_pending"])
 
+/**
+ * The server keeps one open invitation per address, and an expired one
+ * still counts until it is revoked; said when it refuses for that reason.
+ */
+const EXPIRED_DUPLICATE_MESSAGE =
+  "An expired invitation for this address is still in the list. Revoke it from its ⋯ menu, then invite them again."
+
 function publishHint(role: MemberRole): string {
   if (role === "viewer") return "Viewers can’t publish."
   if (role === "owner" || role === "admin")
     return "Owners and admins can always publish."
-  return "Without this, their replies wait for someone who can publish."
+  // The member sheet's words for the same switch.
+  return "Off: drafts only, for someone else to publish."
 }
 
 /**
@@ -455,6 +482,8 @@ function InviteForm({
   const client = useQueryClient()
   const business = useWorkspaceMode() === "business"
   const emailDelivery = useEmailDelivery()
+  const invitations = useInvitations()
+  const now = useNow()
   const ids = useId()
   const emailRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState("")
@@ -532,13 +561,22 @@ function InviteForm({
       })
       await client.invalidateQueries({ queryKey: queryKeys.invitations })
     },
-    onError: (error) => {
+    onError: (error, input) => {
       const message = describeActionError(error)
       if (
         error instanceof ApiClientError &&
         EMAIL_ERROR_CODES.has(error.code)
       ) {
-        setEmailError(message)
+        // Only after the server refused: the list just says why.
+        const address = input.email.trim().toLowerCase()
+        const expiredDuplicate =
+          error.code === "invitation_pending" &&
+          (invitations.data?.items ?? []).some(
+            (item) =>
+              item.email.trim().toLowerCase() === address &&
+              isExpired(item, now)
+          )
+        setEmailError(expiredDuplicate ? EXPIRED_DUPLICATE_MESSAGE : message)
         emailRef.current?.focus()
       } else {
         setFormError(message)
@@ -578,6 +616,9 @@ function InviteForm({
     create.mutate(parsed.data)
   }
 
+  // Owners and admins always publish: the switch reads on and can't change.
+  // Only its display: the request still sends `canPublish` as before.
+  const publishAlways = role === "owner" || role === "admin"
   const roleLabelId = `${ids}-role`
   const publishLabelId = `${ids}-publish`
   const publishHintId = `${ids}-publish-hint`
@@ -665,8 +706,10 @@ function InviteForm({
           </span>
         </span>
         <Switch
-          checked={role === "viewer" ? false : canPublish}
-          disabled={role === "viewer" || create.isPending}
+          checked={
+            role === "viewer" ? false : publishAlways ? true : canPublish
+          }
+          disabled={role !== "member" || create.isPending}
           aria-labelledby={publishLabelId}
           aria-describedby={publishHintId}
           onCheckedChange={(value) => setCanPublish(value)}
@@ -821,30 +864,40 @@ function InvitationActions({
   invitation,
   expired,
   emailDelivery,
+  deliveryId,
   resending,
   revoking,
   onResend,
   onRevoke,
+  className,
 }: {
   invitation: Invitation
   expired: boolean
   emailDelivery: boolean
+  /** The id of this row's email state, which Resend points at. */
+  deliveryId: string
   resending: boolean
   revoking: boolean
   onResend: () => void
   onRevoke: () => void
+  className?: string
 }) {
   const toast = useToastManager()
   const url = invitation.inviteUrl
   const canShare = useCanShareLink(url ?? "")
   return (
-    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-3xl/table:flex @max-3xl/table:justify-start">
+    <span
+      className={cn(
+        "inline-flex flex-wrap items-center justify-end gap-1.5 @max-3xl/table:flex @max-3xl/table:justify-start",
+        className
+      )}
+    >
       {emailDelivery ? (
         <Button
           variant="secondary"
           size="sm"
           aria-label={`Resend invitation email to ${invitation.email}`}
-          aria-describedby={`invite-delivery-${invitation.id}`}
+          aria-describedby={deliveryId}
           pending={resending}
           pendingLabel="Sending…"
           disabledReason={
@@ -915,6 +968,34 @@ function InvitationActions({
   )
 }
 
+/** "All clients", or the invitation's chosen clients, for its row. */
+function invitationScope(invitation: Invitation, business: boolean): string {
+  if (invitation.role === "owner" || invitation.role === "admin")
+    return business ? "All locations" : "All clients"
+  return scopeSummary(
+    invitation.clients?.map((client) => client.name),
+    business
+  )
+}
+
+/** What the invitation lets them publish, as its row's pill. */
+function invitationPublishing(invitation: Invitation): {
+  label: string
+  tone: "neutral" | "ok"
+  dashed?: boolean
+  plain?: boolean
+} {
+  if (invitation.role === "viewer")
+    return { label: "View only", tone: "neutral", plain: true }
+  if (
+    invitation.canPublish ||
+    invitation.role === "owner" ||
+    invitation.role === "admin"
+  )
+    return { label: "Can publish", tone: "ok" }
+  return { label: "Drafts only", tone: "neutral", dashed: true }
+}
+
 /**
  * The invitations nobody has accepted yet (reference `invites-table`):
  * address and when it was created, role, publishing, whether the link still
@@ -922,9 +1003,16 @@ function InvitationActions({
  * invitations, each row also says where its email stands and offers Resend
  * (not while a send is queued, nor once the link has expired). Copy link
  * stays the fallback whatever the email did. Record cards below 48rem of the table's width.
+ *
+ * On a phone each invitation is one `ListRow`, like the members above it:
+ * the address, when it was created and its status, then the role chip with
+ * "All clients · Drafts only · Expires …", the email state and the same
+ * actions. From md the table stays.
  */
 export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   const query = useInvitations()
+  // Null in the server and hydration renders: both faces, switched in CSS.
+  const wide = useHydratedBreakpoint("md")
   const now = useNow()
   const formatListDay = useFormatDay()
   const business = useWorkspaceMode() === "business"
@@ -1006,121 +1094,199 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
     )
   }
 
-  return (
-    <>
-      <Table
-        surface
-        responsive
-        aria-label="Pending invitations"
-        className={TEAM_LIST_TABLE_CLASS}
-        containerClassName={TEAM_LIST_CONTAINER_CLASS}
-      >
-        <TableHeader>
-          <TableRow>
-            <TableHead>Invited</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Publishing</TableHead>
-            <TableHead>Status</TableHead>
-            {emailDelivery ? <TableHead>Email</TableHead> : null}
-            <TableHead>
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {query.data.items.map((invitation) => {
-            const expired = isExpired(invitation, now)
-            return (
-              <TableRow key={invitation.id}>
-                <TableCell label="Invited" priority="primary">
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <Avatar>
-                      <AvatarFallback>
-                        <Mail aria-hidden className="size-4" />
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="flex min-w-0 flex-col">
-                      <span className="text-body font-semibold [overflow-wrap:anywhere] text-ink desk:text-ui">
-                        {invitation.email}
-                      </span>
-                      <span className="text-caption text-ink-muted">
-                        Created {formatListDay(invitation.createdAt)}
-                      </span>
-                    </span>
-                  </span>
-                </TableCell>
-                <TableCell label="Role">
-                  <span className="flex flex-col items-start gap-1">
-                    <RoleChip role={invitation.role} />
-                    <span className="text-caption text-ink-muted">
-                      {invitation.role === "owner" ||
-                      invitation.role === "admin"
-                        ? business
-                          ? "All locations"
-                          : "All clients"
-                        : scopeSummary(
-                            invitation.clients?.map((client) => client.name),
-                            business
-                          )}
-                    </span>
-                  </span>
-                </TableCell>
-                <TableCell label="Publishing">
-                  {invitation.role === "viewer" ? (
-                    <StatusPill tone="neutral" plain>
-                      View only
-                    </StatusPill>
-                  ) : invitation.canPublish ||
-                    invitation.role === "owner" ||
-                    invitation.role === "admin" ? (
-                    <StatusPill tone="ok">Can publish</StatusPill>
-                  ) : (
-                    <StatusPill tone="neutral" dashed>
-                      Drafts only
-                    </StatusPill>
-                  )}
-                </TableCell>
-                <TableCell label="Status">
-                  <span className="flex flex-col gap-1">
-                    {expired ? (
-                      <StatusPill tone="warn">Expired</StatusPill>
-                    ) : (
-                      <StatusPill tone="neutral" dashed>
-                        Pending
-                      </StatusPill>
-                    )}
-                    <span className="text-caption text-ink-muted">
-                      {expired ? "Expired" : "Expires"}{" "}
-                      {formatListDay(invitation.expiresAt)}
-                    </span>
-                  </span>
-                </TableCell>
+  const expiryText = (invitation: Invitation, expired: boolean) =>
+    expired
+      ? `Since ${formatListDay(invitation.expiresAt)}`
+      : `Expires ${formatListDay(invitation.expiresAt)}`
+
+  const statusPill = (expired: boolean) =>
+    expired ? (
+      <StatusPill tone="warn">Expired</StatusPill>
+    ) : (
+      <StatusPill tone="neutral" dashed>
+        Pending
+      </StatusPill>
+    )
+
+  const list = (
+    <ListRows
+      aria-label="Pending invitations"
+      bleed
+      data-slot="invitation-list"
+      className={wide === null ? "md:hidden" : undefined}
+    >
+      {query.data.items.map((invitation) => {
+        const expired = isExpired(invitation, now)
+        const publishing = invitationPublishing(invitation)
+        const deliveryId = `invite-delivery-list-${invitation.id}`
+        return (
+          <ListRow
+            key={invitation.id}
+            interactive={false}
+            emphasis="neutral"
+            wrap
+            leading={
+              <Avatar>
+                <AvatarFallback>
+                  <Mail aria-hidden className="size-4" />
+                </AvatarFallback>
+              </Avatar>
+            }
+            title={<EmailText email={invitation.email} />}
+            subtitle={`Created ${formatListDay(invitation.createdAt)}`}
+            trailing={statusPill(expired)}
+            footer={
+              <>
+                <RoleChip role={invitation.role} />
+                <span
+                  data-slot="invitation-summary"
+                  className="text-caption text-ink-muted"
+                >
+                  {invitationScope(invitation, business)} · {publishing.label} ·{" "}
+                  {expiryText(invitation, expired)}
+                </span>
                 {emailDelivery ? (
-                  <TableCell label="Email">
+                  <span className="basis-full">
                     <DeliveryState
                       delivery={invitation.delivery}
-                      id={`invite-delivery-${invitation.id}`}
+                      id={deliveryId}
                     />
-                  </TableCell>
+                  </span>
                 ) : null}
-                <TableCell actions className="text-right">
-                  <InvitationActions
-                    invitation={invitation}
-                    expired={expired}
-                    emailDelivery={emailDelivery}
-                    resending={
-                      resend.isPending && resend.variables === invitation.id
-                    }
-                    revoking={revoke.isPending}
-                    onResend={() => resendInvitation(invitation)}
-                    onRevoke={() => setRevokeTarget(invitation)}
+                <InvitationActions
+                  invitation={invitation}
+                  expired={expired}
+                  emailDelivery={emailDelivery}
+                  deliveryId={deliveryId}
+                  resending={
+                    resend.isPending && resend.variables === invitation.id
+                  }
+                  revoking={revoke.isPending}
+                  onResend={() => resendInvitation(invitation)}
+                  onRevoke={() => setRevokeTarget(invitation)}
+                  className="basis-full justify-start"
+                />
+              </>
+            }
+          />
+        )
+      })}
+    </ListRows>
+  )
+
+  const table = (
+    <Table
+      surface
+      responsive
+      aria-label="Pending invitations"
+      className={TEAM_LIST_TABLE_CLASS}
+      containerClassName={cn(
+        TEAM_LIST_CONTAINER_CLASS,
+        wide === null && "max-md:hidden"
+      )}
+    >
+      <TableHeader>
+        <TableRow>
+          <TableHead>Invited</TableHead>
+          <TableHead>Role</TableHead>
+          <TableHead>Publishing</TableHead>
+          <TableHead>Status</TableHead>
+          {emailDelivery ? <TableHead>Email</TableHead> : null}
+          <TableHead>
+            <span className="sr-only">Actions</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {query.data.items.map((invitation) => {
+          const expired = isExpired(invitation, now)
+          const publishing = invitationPublishing(invitation)
+          return (
+            <TableRow key={invitation.id}>
+              <TableCell label="Invited" priority="primary">
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <Avatar>
+                    <AvatarFallback>
+                      <Mail aria-hidden className="size-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-body font-semibold [overflow-wrap:break-word] text-ink desk:text-ui">
+                      <EmailText email={invitation.email} />
+                    </span>
+                    <span className="text-caption text-ink-muted">
+                      Created {formatListDay(invitation.createdAt)}
+                    </span>
+                  </span>
+                </span>
+              </TableCell>
+              <TableCell label="Role">
+                <span className="flex flex-col items-start gap-1">
+                  <RoleChip role={invitation.role} />
+                  <span className="text-caption text-ink-muted">
+                    {invitationScope(invitation, business)}
+                  </span>
+                </span>
+              </TableCell>
+              <TableCell label="Publishing">
+                <StatusPill
+                  tone={publishing.tone}
+                  dashed={publishing.dashed}
+                  plain={publishing.plain}
+                >
+                  {publishing.label}
+                </StatusPill>
+              </TableCell>
+              <TableCell label="Status">
+                <span className="flex flex-col gap-1">
+                  {statusPill(expired)}
+                  {/* The pill says "Expired"; the date says since when. */}
+                  <span className="text-caption text-ink-muted">
+                    {expiryText(invitation, expired)}
+                  </span>
+                </span>
+              </TableCell>
+              {emailDelivery ? (
+                <TableCell label="Email">
+                  <DeliveryState
+                    delivery={invitation.delivery}
+                    id={`invite-delivery-${invitation.id}`}
                   />
                 </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+              ) : null}
+              <TableCell actions className="text-right">
+                <InvitationActions
+                  invitation={invitation}
+                  expired={expired}
+                  emailDelivery={emailDelivery}
+                  deliveryId={`invite-delivery-${invitation.id}`}
+                  resending={
+                    resend.isPending && resend.variables === invitation.id
+                  }
+                  revoking={revoke.isPending}
+                  onResend={() => resendInvitation(invitation)}
+                  onRevoke={() => setRevokeTarget(invitation)}
+                />
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+
+  return (
+    <>
+      {wide === null ? (
+        <>
+          {list}
+          {table}
+        </>
+      ) : wide ? (
+        table
+      ) : (
+        list
+      )}
       <AlertDialog
         open={revokeTarget !== null}
         onOpenChange={(open) => {
@@ -1128,8 +1294,9 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
         }}
       >
         <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
-          <AlertDialogTitle className="[overflow-wrap:anywhere]">
-            Revoke the invitation for {revokeTarget?.email}?
+          <AlertDialogTitle className="[overflow-wrap:break-word]">
+            Revoke the invitation for{" "}
+            {revokeTarget ? <EmailText email={revokeTarget.email} /> : null}?
           </AlertDialogTitle>
           <AlertDialogDescription>
             The link stops working straight away. To bring them in later, send a

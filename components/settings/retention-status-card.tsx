@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+
 import {
   SettingsFacts,
   SettingsSection,
@@ -18,8 +20,9 @@ function CycleStanding({ cycle }: { cycle: RetentionCycleSummary }) {
       <StatusPill tone={standing.tone}>{standing.label}</StatusPill>
       <span className="text-caption text-ink-muted">
         {cycle.completedAt
-          ? `Cycle of ${cycle.cycleDate}, finished ${formatDateTime(cycle.completedAt, "UTC")} UTC`
-          : `Cycle of ${cycle.cycleDate}, started ${formatDateTime(cycle.startedAt, "UTC")} UTC`}
+          ? `Finished ${formatDateTime(cycle.completedAt, "UTC")} UTC`
+          : `Started ${formatDateTime(cycle.startedAt, "UTC")} UTC`}
+        {standing.code ? ` · code ${standing.code}` : null}
       </span>
     </span>
   )
@@ -27,8 +30,9 @@ function CycleStanding({ cycle }: { cycle: RetentionCycleSummary }) {
 
 /**
  * Retention status (plan P04-7): how this organisation fared in the last
- * completed daily retention cycle and the one running now, how long raw
- * review content is kept, and what legal holds keep back. Read-only; owners
+ * completed daily retention cycle and the one running now, how long review
+ * text is kept (named as Reply policy names it, with a link there to change
+ * it), and what legal holds keep back. Read-only; owners
  * and admins both see it.
  */
 export function RetentionStatusCard() {
@@ -38,7 +42,7 @@ export function RetentionStatusCard() {
       variant="group"
       id="retention-status"
       title="Retention"
-      description="Google review content is redacted, and expired records deleted, by a daily run from 03:00 UTC."
+      description="Every day from 03:00 UTC, review text past its keep period is removed here and expired records are deleted. Reviews under a legal hold are skipped."
     >
       <QueryStates
         status={queryStatus(query)}
@@ -72,8 +76,26 @@ export function RetentionStatusCard() {
                     ]
                   : null,
                 [
-                  "Raw review content kept for",
-                  `${status.rawContentRetentionDays} ${status.rawContentRetentionDays === 1 ? "day" : "days"}`,
+                  "Review text kept for",
+                  <span
+                    key="kept"
+                    className="inline-flex flex-col items-start gap-1 sm:items-end"
+                  >
+                    <span>
+                      {status.rawContentRetentionDays}{" "}
+                      {status.rawContentRetentionDays === 1 ? "day" : "days"}
+                    </span>
+                    <span className="text-caption text-ink-muted">
+                      Then it’s removed here; it stays on Google. Change it in{" "}
+                      <Link
+                        href="/settings/policy#settings-retention"
+                        className="text-accent-ink underline underline-offset-2"
+                      >
+                        Reply policy
+                      </Link>
+                      .
+                    </span>
+                  </span>,
                 ],
                 [
                   "Deletion",

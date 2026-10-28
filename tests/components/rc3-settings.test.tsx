@@ -55,7 +55,7 @@ describe("UsageCard error state", () => {
     } as unknown as UseQueryResult<AiCreditsDaily>)
     render(<UsageCard />)
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Usage could not be loaded."
+      "AI reply credits could not be loaded."
     )
     expect(screen.queryByText(/No AI-written replies yet/)).toBeNull()
     expect(document.querySelector("[data-slot=usage-bars]")).toBeNull()

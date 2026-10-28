@@ -2,7 +2,9 @@
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { toast } from "@/components/ui/toast"
 import type { BillingOverview, Plan } from "@/lib/api/billing"
+import type { PlanChangeResult } from "@/lib/contracts/billing"
 import {
   canChangePlan,
   describeCheckoutUnavailable,
@@ -21,6 +23,35 @@ export function billingActionError(error: unknown): string {
     return error.message
   }
   return describeActionError(error)
+}
+
+/**
+ * What a plan change did, from the server's answer only: a change scheduled
+ * for its boundary, or a scheduled change dropped. "unchanged" says nothing.
+ */
+export function showPlanChangeToast(
+  result: PlanChangeResult,
+  overview: Pick<BillingOverview, "catalog" | "plan">
+) {
+  if (result.outcome === "scheduled") {
+    const name =
+      overview.catalog.find((plan) => plan.id === result.pendingPlanId)?.name ??
+      "The new plan"
+    toast.add({
+      type: "success",
+      title: result.pendingEffectiveAt
+        ? `${name} starts on ${formatBillingDate(result.pendingEffectiveAt)}`
+        : `${name} is scheduled`,
+      description: "Nothing is charged now.",
+    })
+  } else if (result.outcome === "cleared") {
+    toast.add({
+      type: "success",
+      title: overview.plan
+        ? `You’ll stay on ${overview.plan.name}`
+        : "The scheduled change was dropped",
+    })
+  }
 }
 
 function planFacts(plan: Plan): string {
@@ -72,8 +103,11 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
       ? null
       : overview.state === "trialing" || overview.state === "active"
         ? "Resume the subscription before changing plan."
-        : "Plans can be changed during a trial or while the subscription is active. Fix the payment first."
+        : "Plans can be changed during a trial or while the subscription is active. Update the payment method first."
     : null
+  // A reason that holds for every plan is said once, above the list; each
+  // button still carries it as its description.
+  const sharedBlock = manageBlocked ?? (subscribed ? null : checkoutBlocked)
 
   return (
     <div className="flex flex-col gap-3" data-slot="plan-picker">
@@ -92,6 +126,11 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
       ) : (
         <p className="m-0 text-ui text-ink-secondary">{subscribedBlock}</p>
       )}
+      {sharedBlock ? (
+        <p data-slot="plan-picker-blocked" className="m-0 text-ui text-ink">
+          {sharedBlock}
+        </p>
+      ) : null}
       {pending ? (
         <p
           data-slot="checkout-pending"
@@ -157,7 +196,8 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
                 <p className="m-0 text-caption text-ink-muted">
                   {planFacts(plan)}
                 </p>
-                {reason && !(current && !overview.pendingPlan) && !scheduled ? (
+                {/* Only the one per-plan reason; the rest are said once. */}
+                {reason && reason === tooSmall ? (
                   <p className="m-0 text-caption text-ink-muted">{reason}</p>
                 ) : null}
                 {limitWarning && !reason ? (
@@ -181,7 +221,12 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
                 }
                 disabled={busy}
                 onClick={() =>
-                  subscribed ? change.mutate(plan.id) : checkout.mutate(plan.id)
+                  subscribed
+                    ? change.mutate(plan.id, {
+                        onSuccess: (result) =>
+                          showPlanChangeToast(result, overview),
+                      })
+                    : checkout.mutate(plan.id)
                 }
               >
                 {label}

@@ -192,20 +192,26 @@ export function describeErasurePreview(preview: PrivacyErasurePreview): {
   }
 }
 
+/**
+ * How this organisation fared in a retention run, in plain words. A failure's
+ * code is for support: it goes in `code` (the caption), never in the label.
+ */
 export function retentionOrganisationLabel(
   organisation: RetentionCycleOrganisation | null
-): { label: string; tone: StatusTone } {
-  if (!organisation) return { label: "Not yet reached", tone: "neutral" }
+): { label: string; tone: StatusTone; code: string | null } {
+  if (!organisation)
+    return { label: "Not reached yet", tone: "neutral", code: null }
   switch (organisation.status) {
     case "succeeded":
-      return { label: "Retained", tone: "healthy" }
+      return { label: "Done", tone: "healthy", code: null }
     case "failed":
       return {
-        label: `Not retained${organisation.lastErrorCode ? ` (${organisation.lastErrorCode})` : ""}`,
+        label: "Failed",
         tone: "at-risk",
+        code: organisation.lastErrorCode ?? null,
       }
     default:
-      return { label: "Waiting", tone: "pending" }
+      return { label: "Waiting", tone: "pending", code: null }
   }
 }
 

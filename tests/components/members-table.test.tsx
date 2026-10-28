@@ -3,10 +3,13 @@ import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { describeMemberError } from "@/components/settings/member-dialogs"
 import { MembersTable } from "@/components/settings/members-table"
 import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import * as membersApi from "@/lib/api/members"
 import type { Member, MemberClientTotal } from "@/lib/api/members"
+import { queryKeys } from "@/lib/queries/keys"
 
 const useMembersMock = vi.fn()
 vi.mock("@/lib/queries/use-members", () => ({
@@ -37,7 +40,12 @@ function renderTable(
   actorRole: Member["role"],
   actorUserId: string,
   members: Member[],
-  clients?: MemberClientTotal[]
+  clients?: MemberClientTotal[],
+  options: {
+    onSelfRoleChanged?: () => void
+    withHeading?: boolean
+    mode?: "agency" | "business"
+  } = {}
 ) {
   useMembersMock.mockReturnValue({
     data: { members, clients },
@@ -48,10 +56,32 @@ function renderTable(
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  if (options.mode)
+    client.setQueryData(queryKeys.session, {
+      session: { workspaceMode: options.mode },
+    })
+  const heading = { current: null as HTMLElement | null }
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
-        <MembersTable actorRole={actorRole} actorUserId={actorUserId} />
+        {options.withHeading ? (
+          <h2>
+            <span
+              tabIndex={-1}
+              ref={(node) => {
+                heading.current = node
+              }}
+            >
+              Members
+            </span>
+          </h2>
+        ) : null}
+        <MembersTable
+          actorRole={actorRole}
+          actorUserId={actorUserId}
+          onSelfRoleChanged={options.onSelfRoleChanged}
+          removedFocus={options.withHeading ? heading : undefined}
+        />
       </Toaster>
     </QueryClientProvider>
   )
@@ -670,5 +700,440 @@ describe("MembersTable from md", () => {
     expect(
       await screen.findByRole("dialog", { name: "Change role" })
     ).toBeInTheDocument()
+  })
+})
+
+// p6-F13 A: the one access state an owner must act on stands out.
+describe("MembersTable: a member who can see nothing", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  const zeroAccess = () => [
+    ...team(),
+    member({
+      userId: "m-2",
+      displayName: "Cat Member",
+      email: "cat@test",
+      locationScope: "assigned",
+      locations: [],
+    }),
+  ]
+
+  it("says so on the phone row, and only on that row", () => {
+    stubWidth(false)
+    renderTable("owner", "owner-1", zeroAccess(), [])
+    const rows = within(
+      screen.getByRole("list", { name: "Members" })
+    ).getAllByRole("listitem")
+    const warning = within(rows[2]).getByText("Sees nothing until given access")
+    expect(warning).toHaveAttribute("data-slot", "member-warning")
+    expect(warning).toHaveClass("text-warning-ink")
+    expect(within(rows[2]).getByText("No clients · Drafts only")).toBeVisible()
+    expect(
+      within(rows[1]).queryByText("Sees nothing until given access")
+    ).not.toBeInTheDocument()
+  })
+
+  it("says so in the warning colour on desk", () => {
+    stubWidth(true)
+    renderTable("owner", "owner-1", zeroAccess(), [])
+    const warning = screen.getByText("Sees nothing until given access")
+    expect(warning).toHaveClass("text-warning-ink")
+    expect(warning).not.toHaveClass("text-ink-muted")
+    // Other access details keep the muted ink.
+    expect(screen.getByText("Including clients added later")).toHaveClass(
+      "text-ink-muted"
+    )
+  })
+
+  it("uses the location words in a business workspace", () => {
+    stubWidth(false)
+    renderTable("owner", "owner-1", zeroAccess(), undefined, {
+      mode: "business",
+    })
+    const warning = screen.getByText("Sees nothing until given access")
+    expect(warning).toHaveAttribute("data-slot", "member-warning")
+    expect(screen.getByText("No locations · Drafts only")).toBeInTheDocument()
+  })
+})
+
+const twoOwners = () => [
+  member({
+    userId: "owner-1",
+    displayName: "Ana Owner",
+    email: "ana@test",
+    role: "owner",
+    canPublish: true,
+  }),
+  member({
+    userId: "owner-2",
+    displayName: "Omar Owner",
+    email: "omar@test",
+    role: "owner",
+    canPublish: true,
+  }),
+  member({
+    userId: "admin-1",
+    displayName: "Al Admin",
+    email: "al@test",
+    role: "admin",
+    canPublish: true,
+  }),
+  member({
+    userId: "m-1",
+    displayName: "Ben Member",
+    email: "ben@test",
+    role: "member",
+    canPublish: true,
+  }),
+]
+
+// p6-F15 1: changing your own role warns first and re-renders the page.
+describe("MembersTable: your own role", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("warns an owner stepping down to admin, in the first person", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    renderTable("owner", "owner-1", twoOwners())
+    await user.click(
+      screen.getByRole("button", { name: "Owner: change Ana Owner’s role" })
+    )
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "Change role" })
+    )
+    expect(
+      dialog.getByText(/^You’re an owner\. Choose what you can do/)
+    ).toBeInTheDocument()
+    await user.click(dialog.getByRole("radio", { name: /^Admin/ }))
+    expect(dialog.getByText("You’ll no longer be an owner")).toBeInTheDocument()
+    expect(
+      dialog.getByText("Only another owner can make you an owner again.")
+    ).toBeInTheDocument()
+    expect(
+      dialog.getByRole("button", { name: "Make myself an admin" })
+    ).toBeEnabled()
+    expect(
+      dialog.queryByText("You’ll lose access to Team")
+    ).not.toBeInTheDocument()
+  })
+
+  it.each([["Member"], ["Viewer"]])(
+    "warns an owner stepping down to %s that they lose ownership and Team",
+    async (role) => {
+      const user = userEvent.setup()
+      stubWidth(true)
+      renderTable("owner", "owner-1", twoOwners())
+      await user.click(
+        screen.getByRole("button", { name: "Owner: change Ana Owner’s role" })
+      )
+      const dialog = within(
+        await screen.findByRole("dialog", { name: "Change role" })
+      )
+      await user.click(
+        dialog.getByRole("radio", { name: new RegExp(`^${role}`) })
+      )
+      expect(
+        dialog.getByText("You’ll no longer be an owner")
+      ).toBeInTheDocument()
+      expect(dialog.getByText("You’ll lose access to Team")).toBeInTheDocument()
+      // Admins can't grant Owner, so only another owner can undo it.
+      expect(
+        dialog.getByText(/Only another owner can change your role back\./)
+      ).toBeInTheDocument()
+      expect(dialog.queryByText(/owner or admin/)).not.toBeInTheDocument()
+    }
+  )
+
+  it("warns an admin making themselves a member, then refreshes the page once the server agrees", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    const update = vi.spyOn(membersApi, "updateMember").mockResolvedValue({
+      member: {
+        userId: "admin-1",
+        role: "member",
+        canPublish: true,
+        locationScope: "all",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    })
+    const onSelfRoleChanged = vi.fn()
+    renderTable("admin", "admin-1", twoOwners(), undefined, {
+      onSelfRoleChanged,
+    })
+    await user.click(
+      screen.getByRole("button", { name: "Admin: change Al Admin’s role" })
+    )
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "Change role" })
+    )
+    await user.click(dialog.getByRole("radio", { name: /^Member/ }))
+    expect(dialog.getByText("You’ll lose access to Team")).toBeInTheDocument()
+    expect(
+      dialog.getByText(/Only an owner or admin can change your role back\./)
+    ).toBeInTheDocument()
+    expect(
+      dialog.queryByText("You’ll no longer be an owner")
+    ).not.toBeInTheDocument()
+    await user.click(
+      dialog.getByRole("button", { name: "Make myself a member" })
+    )
+    // The request is the same as for anyone else's row.
+    expect(update).toHaveBeenCalledWith({
+      userId: "admin-1",
+      role: "member",
+      canPublish: true,
+    })
+    await waitFor(() => expect(onSelfRoleChanged).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText("You’re now a member")).toBeInTheDocument()
+  })
+
+  it("does not refresh the page for someone else's role, or before the server answers", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    vi.spyOn(membersApi, "updateMember").mockRejectedValue(
+      new ApiClientError(409, "last_owner", "Last owner")
+    )
+    const onSelfRoleChanged = vi.fn()
+    renderTable("admin", "admin-1", twoOwners(), undefined, {
+      onSelfRoleChanged,
+    })
+    await user.click(
+      screen.getByRole("button", { name: "Admin: change Al Admin’s role" })
+    )
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "Change role" })
+    )
+    await user.click(dialog.getByRole("radio", { name: /^Viewer/ }))
+    await user.click(
+      dialog.getByRole("button", { name: "Make myself a viewer" })
+    )
+    expect(
+      await dialog.findByText("The role wasn’t changed")
+    ).toBeInTheDocument()
+    expect(onSelfRoleChanged).not.toHaveBeenCalled()
+  })
+})
+
+// p6-F15 2-4: what the server confirmed, where focus goes, and refusals.
+describe("MembersTable: outcomes", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it.each([
+    [
+      "assigned clients",
+      [{ locationId: "l1", canPublish: false, clientId: "c1" }],
+      "They see only the clients assigned to them. Drafts only.",
+    ],
+    // Nothing assigned: the toast says what the row's warning says.
+    [
+      "nothing assigned",
+      [],
+      "They see nothing until given access. Drafts only.",
+    ],
+  ])(
+    "names the person and what the server set after a role change (%s)",
+    async (_case, locations, expected) => {
+      const user = userEvent.setup()
+      stubWidth(true)
+      vi.spyOn(membersApi, "updateMember").mockResolvedValue({
+        member: {
+          userId: "m-1",
+          role: "member",
+          canPublish: false,
+          locationScope: "assigned",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      })
+      const onSelfRoleChanged = vi.fn()
+      renderTable(
+        "owner",
+        "owner-1",
+        [
+          ...twoOwners().slice(0, 3),
+          member({
+            userId: "m-1",
+            displayName: "Ben Viewer",
+            email: "ben@test",
+            role: "viewer",
+            locations,
+          }),
+        ],
+        undefined,
+        { onSelfRoleChanged }
+      )
+      await user.click(
+        screen.getByRole("button", { name: "Viewer: change Ben Viewer’s role" })
+      )
+      const dialog = within(
+        await screen.findByRole("dialog", { name: "Change role" })
+      )
+      await user.click(dialog.getByRole("radio", { name: /^Member/ }))
+      await user.click(
+        dialog.getByRole("button", { name: "Make Ben a member" })
+      )
+      expect(
+        await screen.findByText("Ben Viewer is now a member")
+      ).toBeInTheDocument()
+      expect(screen.getByText(expected)).toBeInTheDocument()
+      expect(onSelfRoleChanged).not.toHaveBeenCalled()
+    }
+  )
+
+  it("names who was removed and moves focus to the Members heading", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    vi.spyOn(membersApi, "removeMember").mockResolvedValue({ removed: true })
+    renderTable("owner", "owner-1", twoOwners(), undefined, {
+      withHeading: true,
+    })
+    await user.click(
+      screen.getByRole("button", { name: "Actions for Ben Member" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Remove from team/ })
+    )
+    const confirm = within(
+      await screen.findByRole("alertdialog", {
+        name: "Remove Ben Member from the team?",
+      })
+    )
+    await user.click(confirm.getByRole("button", { name: "Remove Ben" }))
+    expect(
+      await screen.findByText("Ben Member was removed from the team")
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByText("Members", { selector: "span" })).toHaveFocus()
+    )
+  })
+
+  it("puts focus back on the opener when the removal is kept", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    const remove = vi.spyOn(membersApi, "removeMember")
+    renderTable("owner", "owner-1", twoOwners(), undefined, {
+      withHeading: true,
+    })
+    const opener = screen.getByRole("button", {
+      name: "Actions for Ben Member",
+    })
+    await user.click(opener)
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Remove from team/ })
+    )
+    const confirm = within(await screen.findByRole("alertdialog"))
+    await user.click(confirm.getByRole("button", { name: "Keep them" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(opener).toHaveFocus())
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it("returns a kept removal to the member's row after the sheet handed over", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team(), undefined, { withHeading: true })
+    const row = screen.getByRole("button", { name: "Ben Member, ben@test" })
+    await user.click(row)
+    const sheet = within(
+      await screen.findByRole("dialog", { name: "Ben Member" })
+    )
+    await user.click(sheet.getByRole("button", { name: /Remove from team/ }))
+    const confirm = within(await screen.findByRole("alertdialog"))
+    await user.click(confirm.getByRole("button", { name: "Keep them" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(row).toHaveFocus())
+  })
+
+  it("clears a role refusal once another role is picked", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    vi.spyOn(membersApi, "updateMember").mockRejectedValue(
+      new ApiClientError(409, "last_owner", "Last owner")
+    )
+    renderTable("owner", "owner-1", twoOwners())
+    await user.click(
+      screen.getByRole("button", { name: "Member: change Ben Member’s role" })
+    )
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "Change role" })
+    )
+    await user.click(dialog.getByRole("radio", { name: /^Viewer/ }))
+    await user.click(dialog.getByRole("button", { name: "Make Ben a viewer" }))
+    expect(
+      await dialog.findByText("The role wasn’t changed")
+    ).toBeInTheDocument()
+    await user.click(dialog.getByRole("radio", { name: /^Admin/ }))
+    expect(
+      dialog.queryByText("The role wasn’t changed")
+    ).not.toBeInTheDocument()
+  })
+
+  it("asks for the code instead of blaming permissions when a step-up is due", async () => {
+    const user = userEvent.setup()
+    stubWidth(true)
+    vi.spyOn(membersApi, "removeMember").mockRejectedValue(
+      new ApiClientError(403, "mfa_step_up_required", "Step up")
+    )
+    renderTable("owner", "owner-1", twoOwners())
+    await user.click(
+      screen.getByRole("button", { name: "Actions for Ben Member" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Remove from team/ })
+    )
+    const confirm = within(await screen.findByRole("alertdialog"))
+    await user.click(confirm.getByRole("button", { name: "Remove Ben" }))
+    expect(
+      await confirm.findByText(
+        "Confirm it’s you with your two-step code, then try again. Nothing was changed."
+      )
+    ).toBeInTheDocument()
+    expect(
+      confirm.queryByText(/You do not have permission/)
+    ).not.toBeInTheDocument()
+  })
+})
+
+// p6-F13 E: "Joined" is about the person, not their access.
+describe("MemberSheet groups", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("files Joined under Details, apart from Access", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderTable("owner", "owner-1", team())
+    await user.click(
+      screen.getByRole("button", { name: "Ben Member, ben@test" })
+    )
+    const sheet = within(
+      await screen.findByRole("dialog", { name: "Ben Member" })
+    )
+    const access = sheet.getByRole("region", { name: "Access" })
+    const details = sheet.getByRole("region", { name: "Details" })
+    expect(within(access).queryByText("Joined")).not.toBeInTheDocument()
+    expect(within(access).getByText("Can publish")).toBeInTheDocument()
+    expect(within(details).getByText("Joined")).toBeInTheDocument()
+  })
+})
+
+describe("describeMemberError", () => {
+  it("names the prompt that opened: a code, or setting up two-step first", () => {
+    expect(
+      describeMemberError(
+        new ApiClientError(403, "mfa_step_up_required", "Step up")
+      )
+    ).toBe(
+      "Confirm it’s you with your two-step code, then try again. Nothing was changed."
+    )
+    expect(
+      describeMemberError(
+        new ApiClientError(403, "mfa_enrollment_required", "Enrol")
+      )
+    ).toBe(
+      "Set up two-step verification first, then try again. Nothing was changed."
+    )
   })
 })

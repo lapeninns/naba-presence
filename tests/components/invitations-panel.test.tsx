@@ -847,3 +847,235 @@ describe("InvitationsPanel", () => {
     })
   })
 })
+
+// The viewport, as the shell's matchMedia answers it. Without a stub the
+// list draws its desk face (useMediaQuery's server default).
+function stubWidth(wide: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: wide,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })
+  )
+}
+
+const expiredInvite: Invitation = {
+  id: "i1",
+  email: "catherine.smith@oldcrowngroup.co.uk",
+  role: "member",
+  canPublish: false,
+  expiresAt: "2020-01-01T00:00:00.000Z",
+  acceptedAt: null,
+  createdAt: "2019-12-25T00:00:00.000Z",
+  inviteUrl: "https://app.test/invite/secret",
+}
+
+const pendingInvite: Invitation = {
+  id: "i2",
+  email: "chef@test",
+  role: "viewer",
+  canPublish: false,
+  expiresAt: "2099-01-01T00:00:00.000Z",
+  acceptedAt: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  inviteUrl: "https://app.test/invite/other",
+}
+
+// p6-F13 B, D: invitations read like the member rows on a phone.
+describe("InvitationsList on a phone", () => {
+  it("lists pending invitations as rows with the same actions", async () => {
+    const user = userEvent.setup()
+    stubWidth(false)
+    renderPanel([expiredInvite, pendingInvite])
+    expect(
+      screen.queryByRole("table", { name: "Pending invitations" })
+    ).not.toBeInTheDocument()
+    const list = screen.getByRole("list", { name: "Pending invitations" })
+    const rows = within(list).getAllByRole("listitem")
+    expect(rows).toHaveLength(2)
+    // Expired once: the pill, then since when.
+    expect(within(rows[0]).getAllByText(/Expired/)).toHaveLength(1)
+    expect(
+      within(rows[0]).getByText(/^All clients · Drafts only · Since /)
+    ).toBeInTheDocument()
+    expect(
+      within(rows[1]).getByText(/^All clients · View only · Expires /)
+    ).toBeInTheDocument()
+    expect(within(rows[1]).getByText("Pending")).toBeInTheDocument()
+    expect(
+      within(rows[0]).getByRole("button", {
+        name: "Copy invite link for catherine.smith@oldcrowngroup.co.uk",
+      })
+    ).toHaveAttribute("aria-disabled", "true")
+    await user.click(
+      within(rows[1]).getByRole("button", {
+        name: "More actions for chef@test",
+      })
+    )
+    expect(
+      await screen.findByRole("menuitem", {
+        name: "Revoke invitation for chef@test",
+      })
+    ).toBeInTheDocument()
+  })
+})
+
+describe("InvitationsList from md", () => {
+  it("keeps the table and says Expired once", () => {
+    stubWidth(true)
+    renderPanel([expiredInvite])
+    const table = screen.getByRole("table", { name: "Pending invitations" })
+    expect(
+      screen.queryByRole("list", { name: "Pending invitations" })
+    ).not.toBeInTheDocument()
+    expect(within(table).getAllByText(/Expired/)).toHaveLength(1)
+    expect(within(table).getByText(/^Since /)).toBeInTheDocument()
+  })
+})
+
+// p6-F14 2: an address wraps before its "@", never mid-word.
+describe("invitation email wrapping", () => {
+  it("offers a break before the @ in the row and the revoke title", async () => {
+    const user = userEvent.setup()
+    renderPanel([expiredInvite])
+    const email = screen.getByText("catherine.smith@oldcrowngroup.co.uk")
+    expect(email.querySelector("wbr")).not.toBeNull()
+    expect(email.className).toMatch(/overflow-wrap:break-word/)
+    expect(email.className).not.toMatch(/overflow-wrap:anywhere/)
+    await user.click(
+      screen.getByRole("button", {
+        name: "More actions for catherine.smith@oldcrowngroup.co.uk",
+      })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", {
+        name: "Revoke invitation for catherine.smith@oldcrowngroup.co.uk",
+      })
+    )
+    const title = await screen.findByRole("heading", {
+      name: "Revoke the invitation for catherine.smith@oldcrowngroup.co.uk?",
+    })
+    expect(title.querySelector("wbr")).not.toBeNull()
+  })
+})
+
+// p6-F14 1, 4: Can publish tells the truth for every role; the request
+// does not change.
+describe("the invite form's Can publish", () => {
+  it("reads on and locked for Owner and Admin, with the hint as its description", async () => {
+    const user = userEvent.setup()
+    renderPanel([])
+    const toggle = () => screen.getByRole("switch", { name: "Can publish" })
+    expect(toggle()).not.toBeChecked()
+    expect(toggle()).toHaveAccessibleDescription(
+      "Off: drafts only, for someone else to publish."
+    )
+    for (const role of [/^Admin/, /^Owner/]) {
+      await user.click(screen.getByRole("radio", { name: role }))
+      expect(toggle()).toBeChecked()
+      expect(toggle()).toHaveAttribute("aria-disabled", "true")
+      expect(toggle()).toHaveAccessibleDescription(
+        "Owners and admins can always publish."
+      )
+    }
+    await user.click(screen.getByRole("radio", { name: /^Member/ }))
+    expect(toggle()).not.toBeChecked()
+    expect(toggle()).not.toHaveAttribute("aria-disabled", "true")
+  })
+
+  // The old rule, verbatim: canPublish is the switch's own state except for
+  // a viewer. Every case must send exactly what it sent before.
+  it.each([
+    { label: "Member", toggle: false, role: "member", sent: false },
+    { label: "Member", toggle: true, role: "member", sent: true },
+    { label: "Viewer", toggle: true, role: "viewer", sent: false },
+    { label: "Admin", toggle: false, role: "admin", sent: false },
+    { label: "Admin", toggle: true, role: "admin", sent: true },
+    { label: "Owner", toggle: false, role: "owner", sent: false },
+    { label: "Owner", toggle: true, role: "owner", sent: true },
+  ] as const)(
+    "sends the same request as before for $label (switch turned on first: $toggle)",
+    async ({ label, toggle, role, sent }) => {
+      const user = userEvent.setup()
+      const create = vi
+        .spyOn(invitationsApi, "createInvitation")
+        .mockRejectedValue(new ApiClientError(500, "internal", "Nope"))
+      renderPanel([])
+      await user.type(
+        screen.getByRole("textbox", { name: "Email address" }),
+        "new@test.com"
+      )
+      if (toggle)
+        await user.click(screen.getByRole("switch", { name: "Can publish" }))
+      if (label !== "Member")
+        await user.click(
+          screen.getByRole("radio", { name: new RegExp(`^${label}`) })
+        )
+      await user.click(
+        screen.getByRole("button", { name: "Create invite link" })
+      )
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+      expect(create.mock.calls[0]?.[0]).toStrictEqual({
+        email: "new@test.com",
+        role,
+        canPublish: sent,
+      })
+    }
+  )
+})
+
+// p6-F14 3: the server refuses a second open invitation, and an expired
+// one still counts until it is revoked.
+describe("re-inviting an address", () => {
+  const refuse = () =>
+    vi
+      .spyOn(invitationsApi, "createInvitation")
+      .mockRejectedValue(
+        new ApiClientError(
+          409,
+          "invitation_pending",
+          "There’s already a pending invitation for that email address."
+        )
+      )
+
+  it("says to revoke the expired invitation first", async () => {
+    const user = userEvent.setup()
+    const create = refuse()
+    renderPanel([expiredInvite])
+    const email = screen.getByRole("textbox", { name: "Email address" })
+    await user.type(email, "Catherine.Smith@oldcrowngroup.co.uk")
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    expect(
+      await screen.findByText(
+        "An expired invitation for this address is still in the list. Revoke it from its ⋯ menu, then invite them again."
+      )
+    ).toBeInTheDocument()
+    expect(email).toHaveFocus()
+    // Same request as any other invitation (the form lowercases the
+    // address): no pre-check, no extra field.
+    expect(create.mock.calls[0]?.[0]).toStrictEqual({
+      email: "catherine.smith@oldcrowngroup.co.uk",
+      role: "member",
+      canPublish: false,
+    })
+  })
+
+  it("keeps the usual words when the open invitation is still live", async () => {
+    const user = userEvent.setup()
+    refuse()
+    renderPanel([pendingInvite])
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "chef@test.com"
+    )
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    expect(
+      await screen.findByText(/already a pending invitation/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/An expired invitation for this address/)
+    ).not.toBeInTheDocument()
+  })
+})

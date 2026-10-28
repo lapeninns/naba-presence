@@ -426,13 +426,12 @@ for (const theme of themes) {
             page.getByRole("heading", { name: section, level: 2 })
           ).toBeVisible()
         }
-        // /design-system has no ThemeToggle control (it isn't wrapped by
-        // AppShell — see app/design-system/page.tsx) — the "Light theme" /
-        // "Dark theme" evidence panels on the page are static side-by-side
-        // specimens with literal hardcoded colours, not a live toggle. Full
-        // dark-mode coverage of this surface (and every other) already comes
-        // from the outer `theme` loop's `addInitScript`, so there's nothing
-        // left to click here.
+        // /design-system isn't wrapped by AppShell, but its header has its
+        // own theme switch (`ThemeToggleDemo`, "Switch to dark theme"), and
+        // the "Both themes" specimen renders the live tokens beside a `.dark`
+        // island. This test doesn't click the switch: the outer `theme`
+        // loop's `addInitScript` already sets the theme before load, which
+        // covers dark mode for this surface (and every other).
         await expectAccessible(
           page,
           `${viewport.name} ${theme} design-system proof`

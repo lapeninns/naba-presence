@@ -1,6 +1,7 @@
 "use client"
 
 import { useMutation } from "@tanstack/react-query"
+import Link from "next/link"
 import * as React from "react"
 
 import {
@@ -11,13 +12,17 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
+import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { SettingsSection } from "@/components/settings/settings-section"
-import { ApiClientError } from "@/lib/api/client"
+import { ApiClientError, isMfaStepUpError } from "@/lib/api/client"
 import { changeWorkspaceMode } from "@/lib/api/session"
 import { hardNavigate } from "@/lib/client/hard-navigate"
-import type { WorkspaceMode } from "@/lib/contracts/session"
+import type {
+  OrganisationModeChangedResponse,
+  WorkspaceMode,
+} from "@/lib/contracts/session"
+import { MFA_ENROLLMENT_REQUIRED } from "@/lib/contracts/wire-codes"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useSession } from "@/lib/queries/use-session"
 
@@ -32,7 +37,7 @@ const COPY: Record<
 > = {
   business: {
     current:
-      "This is a business workspace: your locations sit together with no client layer.",
+      "This is a business workspace: all your locations sit together under your business.",
     action: "Switch to an agency workspace",
     confirmTitle: "Switch to an agency workspace?",
     confirmBody:
@@ -44,7 +49,7 @@ const COPY: Record<
     action: "Switch to a business workspace",
     confirmTitle: "Switch to a business workspace?",
     confirmBody:
-      "A business workspace has one client, which stops being shown as a client. Every other location is filed under it: those without a client and those still under an archived client. Report share links for that client then cover those locations too. This only works while one client or none is active.",
+      "This needs one active client or none. That client becomes your business and stops being shown as a client. Every other location moves under it: those with no client and those under an archived client. Report share links for that client then show those locations too.",
   },
 }
 
@@ -69,6 +74,94 @@ function reportShareExposure(
 const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`
 
+/** Where this card lives; the success reload lands on the section itself. */
+const SECTION_ID = "settings-workspace-type"
+const RETURN_PATH = "/settings/policy"
+
+/**
+ * The server's answer to a confirmed switch, kept across the reload that
+ * redraws the shell so the card can say what happened. Session-scoped,
+ * written only after a 200 and removed as soon as it is read.
+ */
+const RESULT_KEY = "naba:workspace-mode-result"
+
+type SwitchResult = Pick<
+  OrganisationModeChangedResponse,
+  "changed" | "refiledLocations"
+> & { workspaceMode: WorkspaceMode }
+
+function storeResult(result: OrganisationModeChangedResponse) {
+  const stored: SwitchResult = {
+    workspaceMode: result.organisation.workspaceMode,
+    changed: result.changed,
+    refiledLocations: result.refiledLocations,
+  }
+  try {
+    window.sessionStorage.setItem(RESULT_KEY, JSON.stringify(stored))
+  } catch {
+    // Storage unavailable (private mode, quota): the reload still shows
+    // the new mode, only without the note.
+  }
+}
+
+/** Reads and removes the stored result; null when absent or malformed. */
+function takeResult(): SwitchResult | null {
+  let raw: string | null = null
+  try {
+    raw = window.sessionStorage.getItem(RESULT_KEY)
+    window.sessionStorage.removeItem(RESULT_KEY)
+  } catch {
+    return null
+  }
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>
+    if (
+      (value.workspaceMode !== "business" &&
+        value.workspaceMode !== "agency") ||
+      typeof value.changed !== "boolean" ||
+      typeof value.refiledLocations !== "number"
+    ) {
+      return null
+    }
+    return {
+      workspaceMode: value.workspaceMode,
+      changed: value.changed,
+      refiledLocations: value.refiledLocations,
+    }
+  } catch {
+    return null
+  }
+}
+
+function resultMessage(result: SwitchResult): string {
+  if (!result.changed) {
+    return `This was already ${result.workspaceMode === "agency" ? "an agency" : "a business"} workspace. Nothing changed.`
+  }
+  if (result.workspaceMode === "agency") {
+    return "Switched. This is now an agency workspace. You can add clients from Clients."
+  }
+  return result.refiledLocations > 0
+    ? `Switched. This is now a business workspace. ${plural(result.refiledLocations, "location was", "locations were")} filed under your business.`
+    : "Switched. This is now a business workspace."
+}
+
+/**
+ * A full load of Reply policy at the section. `location.assign` to the
+ * same path with only a new #fragment scrolls without loading, so on that
+ * page the load is asked for explicitly: the shell's words must be drawn
+ * again for the new mode.
+ */
+function reloadAtSection() {
+  const samePage =
+    window.location.pathname === RETURN_PATH && window.location.search === ""
+  hardNavigate(`${RETURN_PATH}#${SECTION_ID}`)
+  if (samePage) window.location.reload()
+}
+
+const linkClass = (variant: "secondary" | "ghost") =>
+  buttonVariants({ variant, size: "sm" })
+
 /**
  * Lets an owner switch the organisation between business and agency mode.
  * Settings renders it only for owners of an organisation with the
@@ -80,27 +173,56 @@ const plural = (count: number, one: string, many: string) =>
  * When switching to business would file locations under a client with live
  * report share links, the route refuses with the counts; the dialog then
  * says so and a second confirmation sends `confirmReportShares`.
+ *
+ * `billingEnabled` (the server's BILLING_ENABLED) decides whether a billing
+ * refusal links to Billing: with billing off that page doesn't exist.
  */
-export function WorkspaceModeCard() {
+export function WorkspaceModeCard({
+  billingEnabled = false,
+}: {
+  billingEnabled?: boolean
+}) {
   const session = useSession().data?.session
   const [confirming, setConfirming] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<{
+    message: string
+    code: string | null
+  } | null>(null)
+  // Two-step verification was asked for: the route's 403 isn't a lack of
+  // permission, and the step-up prompt is already open.
+  // "enrol" when two-step verification is not set up yet: the prompt that
+  // opened asks for set-up, not a code.
+  const [stepUp, setStepUp] = React.useState<"code" | "enrol" | null>(null)
+  const [result, setResult] = React.useState<SwitchResult | null>(null)
   const [exposure, setExposure] =
     React.useState<ReturnType<typeof reportShareExposure>>(null)
   const target: WorkspaceMode =
     session?.workspaceMode === "business" ? "agency" : "business"
+
+  // After the reload a confirmed switch asked for, say once what the server
+  // did. Read after hydration, so the polite status is announced.
+  React.useEffect(() => {
+    const stored = takeResult()
+    // A one-time read of browser storage, which the server render can't
+    // see; reading it during render would also consume it twice in Strict
+    // Mode.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
+    if (stored) setResult(stored)
+  }, [])
 
   const change = useMutation({
     mutationFn: (confirmReportShares: boolean) =>
       confirmReportShares
         ? changeWorkspaceMode(target, { confirmReportShares })
         : changeWorkspaceMode(target),
-    onSuccess: () => {
+    onSuccess: (response) => {
       setConfirming(false)
       // Back to Reply policy, where this card lives, at every width: on a
       // phone /settings is the settings index, not this page. A full load,
-      // so the shell's nav and wording are drawn again for the new mode.
-      hardNavigate("/settings/policy")
+      // so the shell's nav and wording are drawn again for the new mode,
+      // landing on this section with the server's answer to show.
+      storeResult(response)
+      reloadAtSection()
     },
     onError: (caught) => {
       const shares = reportShareExposure(caught)
@@ -110,7 +232,15 @@ export function WorkspaceModeCard() {
         return
       }
       setConfirming(false)
-      setError(describeActionError(caught))
+      if (isMfaStepUpError(caught)) {
+        setError(null)
+        setStepUp(caught.code === MFA_ENROLLMENT_REQUIRED ? "enrol" : "code")
+        return
+      }
+      setError({
+        message: describeActionError(caught),
+        code: caught instanceof ApiClientError ? caught.code : null,
+      })
     },
   })
 
@@ -121,15 +251,42 @@ export function WorkspaceModeCard() {
 
   return (
     <SettingsSection
-      id="settings-workspace-type"
+      id={SECTION_ID}
       title="Workspace type"
       description={copy.current}
       variant="group"
       contentClassName="items-start"
     >
+      {result ? (
+        <Alert variant="success">
+          <AlertDescription>{resultMessage(result)}</AlertDescription>
+        </Alert>
+      ) : null}
+      {stepUp ? (
+        <Alert variant="info">
+          <AlertDescription>
+            {stepUp === "enrol"
+              ? "Set up two-step verification in the window that opened, then switch again. Nothing was changed."
+              : "Confirm it’s you in the window that opened, then switch again. Nothing was changed."}
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {error ? (
         <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{error.message}</AlertDescription>
+          {error.code === "workspace_mode_too_many_clients" ? (
+            <AlertActions>
+              <Link href="/clients" className={linkClass("secondary")}>
+                Open Clients
+              </Link>
+            </AlertActions>
+          ) : error.code === "billing_subscription_active" && billingEnabled ? (
+            <AlertActions>
+              <Link href="/settings/billing" className={linkClass("secondary")}>
+                Open Billing
+              </Link>
+            </AlertActions>
+          ) : null}
         </Alert>
       ) : null}
       <Button
@@ -137,6 +294,8 @@ export function WorkspaceModeCard() {
         variant="secondary"
         onClick={() => {
           setError(null)
+          setStepUp(null)
+          setResult(null)
           setExposure(null)
           setConfirming(true)
         }}
@@ -155,13 +314,22 @@ export function WorkspaceModeCard() {
           {exposure ? (
             <Alert variant="warning">
               <AlertDescription>
-                {`${plural(exposure.locationsToRefile, "location", "locations")} will be filed under a client with ${plural(exposure.activeReportShares, "live report share link", "live report share links")}. Anyone with those links will see ${exposure.locationsToRefile === 1 ? "it" : "them"} too. Revoke the links in Reports first if that is not what you want.`}
+                {`${plural(exposure.locationsToRefile, "location", "locations")} will be filed under a client with ${plural(exposure.activeReportShares, "live report share link", "live report share links")}. Anyone with those links will see ${exposure.locationsToRefile === 1 ? "it" : "them"} too. If that is not what you want, revoke the links from the client’s Share report first.`}
               </AlertDescription>
+              <AlertActions>
+                <Link href="/clients" className={linkClass("ghost")}>
+                  Open Clients
+                </Link>
+              </AlertActions>
             </Alert>
           ) : null}
           <AlertDialogFooter>
             <AlertDialogClose
-              render={<Button variant="ghost">Keep it as it is</Button>}
+              render={
+                <Button variant="ghost" disabled={change.isPending}>
+                  Keep it as it is
+                </Button>
+              }
             />
             <Button
               pending={change.isPending}

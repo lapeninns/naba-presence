@@ -2,9 +2,11 @@ import { redirect } from "next/navigation"
 
 import { AccessDenied } from "@/components/app-shell/access-denied"
 import { PageHeader } from "@/components/app-shell/page-frame"
-import { BillingCard } from "@/components/settings/billing-card"
+import {
+  BillingCard,
+  CheckoutCanceledNotice,
+} from "@/components/settings/billing-card"
 import { SettingsNav } from "@/components/settings/settings-nav"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { getSession } from "@/lib/server/session"
 
 import {
@@ -33,7 +35,13 @@ export default async function SettingsBillingPage({
   if (!billingRoutesEnabled()) return <BillingRouteDisabled />
   const session = await getSession()
   if (!session || session.role !== "owner") {
-    return <AccessDenied area="Billing" />
+    return (
+      <AccessDenied
+        area="Billing"
+        whoCanHelp="the owner"
+        whoCanGrant="Owners"
+      />
+    )
   }
   const { checkout } = await searchParams
   if (checkout === "returned") redirect("/settings/billing/confirming")
@@ -45,15 +53,7 @@ export default async function SettingsBillingPage({
         tabs={<SettingsNav role={session.role} />}
       />
       <div className="flex flex-col gap-(--np-gap-section)">
-        {checkout === "canceled" ? (
-          <Alert variant="info" data-slot="checkout-canceled">
-            <AlertTitle>Checkout was not completed</AlertTitle>
-            <AlertDescription>
-              Nothing was charged and nothing changed. You can subscribe again
-              below.
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        {checkout === "canceled" ? <CheckoutCanceledNotice /> : null}
         <BillingCard />
       </div>
     </>

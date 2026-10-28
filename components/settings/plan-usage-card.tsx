@@ -1,6 +1,9 @@
 "use client"
 
+import Link from "next/link"
+
 import { SettingsSection } from "@/components/settings/settings-section"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -17,7 +20,9 @@ import { useBilling } from "@/lib/queries/use-billing"
  * The shared Usage screen's plan card (plan P07-S6): the workspace's plan
  * state and its linked locations against the limit, for every member.
  * Disconnected locations still count; linked locations are never removed
- * automatically. Changing the plan is the owner's Billing screen.
+ * automatically. Changing the plan is the owner's Billing screen: the
+ * owner (the server's `canManage`) gets a link to it, everyone else is told
+ * who can change it.
  */
 export function PlanUsageCard() {
   const billing = useBilling()
@@ -30,6 +35,8 @@ export function PlanUsageCard() {
   const limit = data?.access.locationLimit ?? null
   const status = data ? billingStatus(data) : null
   const linkNote = data ? pendingLinkLimitNote(data) : null
+  const atLimit =
+    limit !== null && data !== undefined && data.billableLocations >= limit
 
   return (
     <SettingsSection
@@ -38,17 +45,30 @@ export function PlanUsageCard() {
       title="Plan"
       description="Linked Google locations count toward the plan, including disconnected ones."
       variant="group"
+      action={
+        data?.canManage ? (
+          <Link
+            href="/settings/billing"
+            prefetch={false}
+            className={buttonVariants({ variant: "link" })}
+          >
+            Change plan
+          </Link>
+        ) : undefined
+      }
     >
       {!hydrated || billing.isPending ? (
-        <Skeleton className="h-10 w-full" />
+        // The Skeleton is hidden from assistive tech; this says it instead.
+        <div role="status" aria-busy="true">
+          <span className="sr-only">Loading plan</span>
+          <Skeleton className="h-10 w-full" />
+        </div>
       ) : data && status ? (
         <>
           <p className="m-0 flex flex-wrap items-center gap-2 text-body text-ink">
             <StatusPill tone={status.tone}>{status.label}</StatusPill>
-            <span>
-              {data.plan?.name ??
-                (data.state === "pilot" ? "Pilot" : "No plan")}
-            </span>
+            {/* Without a plan the pill alone says it ("Pilot"). */}
+            {data.plan ? <span>{data.plan.name}</span> : null}
           </p>
           <p className="m-0 text-ui text-ink-secondary">
             {describeBilling(data)}
@@ -63,17 +83,44 @@ export function PlanUsageCard() {
               label="Locations linked"
               value={data.billableLocations}
               max={Math.max(1, limit)}
-              tone={data.billableLocations >= limit ? "bad" : "default"}
+              // Exactly full is normal use; red only once it is over.
+              tone={data.billableLocations > limit ? "bad" : "default"}
             />
+          ) : null}
+          {atLimit && data.access.canWrite ? (
+            <p
+              data-slot="plan-limit-reached"
+              className="m-0 text-caption text-ink-secondary"
+            >
+              The plan’s location limit is reached, so another location can’t be
+              linked. Unlink one or change plan to add more.
+            </p>
           ) : null}
           {linkNote ? (
             <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
           ) : null}
+          {data.canManage ? null : (
+            <p
+              data-slot="plan-owner-only"
+              className="m-0 text-caption text-ink-muted"
+            >
+              Only the workspace owner can change the plan.
+            </p>
+          )}
         </>
       ) : (
-        <p role="alert" className="m-0 text-caption text-danger-ink">
-          The plan could not be loaded.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p role="alert" className="m-0 text-ui text-danger-ink">
+            The plan could not be loaded.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void billing.refetch()}
+          >
+            Try again
+          </Button>
+        </div>
       )}
     </SettingsSection>
   )
