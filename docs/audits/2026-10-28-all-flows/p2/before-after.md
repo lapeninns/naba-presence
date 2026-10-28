@@ -266,7 +266,63 @@ answer.
 Same harness, fixture tenant and route for both. The fixture is re-seeded per
 run, so ids differ. See [`evidence/after/`](evidence/after/).
 
-AFTER_PAIRS_PLACEHOLDER
+Representative pairs at 390 light (before left, after right):
+
+| Flow                                                       | Before                                                 | After                                                 |
+| ---------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------- |
+| F01 chooser: New client in reach                           | ![](evidence/before/01-setup-chooser-390-light.webp)   | ![](evidence/after/01-setup-chooser-390-light.webp)   |
+| F04 connect: the client's own login first, no orphan glyph | ![](evidence/before/04-setup-connect-390-light.webp)   | ![](evidence/after/04-setup-connect-390-light.webp)   |
+| F07 import: primary Start, no "Attempts 0"                 | ![](evidence/before/07-setup-backfill-390-light.webp)  | ![](evidence/after/07-setup-backfill-390-light.webp)  |
+| F08 refused step: actionable note                          | ![](evidence/before/09-setup-team-390-light.webp)      | ![](evidence/after/09-setup-team-390-light.webp)      |
+| F10 hub: cause link, login as text                         | ![](evidence/before/13-client-hub-390-light.webp)      | ![](evidence/after/13-client-hub-390-light.webp)      |
+| F12/F13 settings: Unfile, no archive gap                   | ![](evidence/before/14-client-settings-390-light.webp) | ![](evidence/after/14-client-settings-390-light.webp) |
+
+All 45 pairs:
+
+| State                    | Flow     | 390 light                                                                                                                       | 390 dark                                                                                                                      | 1280 light                                                                                                                        |
+| ------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `01-setup-chooser`       | F01      | [before](evidence/before/01-setup-chooser-390-light.webp) · [after](evidence/after/01-setup-chooser-390-light.webp)             | [before](evidence/before/01-setup-chooser-390-dark.webp) · [after](evidence/after/01-setup-chooser-390-dark.webp)             | [before](evidence/before/01-setup-chooser-1280-light.webp) · [after](evidence/after/01-setup-chooser-1280-light.webp)             |
+| `02-new-client`          | F02      | [before](evidence/before/02-new-client-390-light.webp) · [after](evidence/after/02-new-client-390-light.webp)                   | [before](evidence/before/02-new-client-390-dark.webp) · [after](evidence/after/02-new-client-390-dark.webp)                   | [before](evidence/before/02-new-client-1280-light.webp) · [after](evidence/after/02-new-client-1280-light.webp)                   |
+| `03-setup-wizard-resume` | F03, F07 | [before](evidence/before/03-setup-wizard-resume-390-light.webp) · [after](evidence/after/03-setup-wizard-resume-390-light.webp) | [before](evidence/before/03-setup-wizard-resume-390-dark.webp) · [after](evidence/after/03-setup-wizard-resume-390-dark.webp) | [before](evidence/before/03-setup-wizard-resume-1280-light.webp) · [after](evidence/after/03-setup-wizard-resume-1280-light.webp) |
+| `04-setup-connect`       | F04      | [before](evidence/before/04-setup-connect-390-light.webp) · [after](evidence/after/04-setup-connect-390-light.webp)             | [before](evidence/before/04-setup-connect-390-dark.webp) · [after](evidence/after/04-setup-connect-390-dark.webp)             | [before](evidence/before/04-setup-connect-1280-light.webp) · [after](evidence/after/04-setup-connect-1280-light.webp)             |
+| `05-setup-account`       | F05      | [before](evidence/before/05-setup-account-390-light.webp) · [after](evidence/after/05-setup-account-390-light.webp)             | [before](evidence/before/05-setup-account-390-dark.webp) · [after](evidence/after/05-setup-account-390-dark.webp)             | [before](evidence/before/05-setup-account-1280-light.webp) · [after](evidence/after/05-setup-account-1280-light.webp)             |
+| `06-setup-listings`      | F06      | [before](evidence/before/06-setup-listings-390-light.webp) · [after](evidence/after/06-setup-listings-390-light.webp)           | [before](evidence/before/06-setup-listings-390-dark.webp) · [after](evidence/after/06-setup-listings-390-dark.webp)           | [before](evidence/before/06-setup-listings-1280-light.webp) · [after](evidence/after/06-setup-listings-1280-light.webp)           |
+| `07-setup-backfill`      | F07      | [before](evidence/before/07-setup-backfill-390-light.webp) · [after](evidence/after/07-setup-backfill-390-light.webp)           | [before](evidence/before/07-setup-backfill-390-dark.webp) · [after](evidence/after/07-setup-backfill-390-dark.webp)           | [before](evidence/before/07-setup-backfill-1280-light.webp) · [after](evidence/after/07-setup-backfill-1280-light.webp)           |
+| `08-setup-notifications` | F03, F08 | [before](evidence/before/08-setup-notifications-390-light.webp) · [after](evidence/after/08-setup-notifications-390-light.webp) | [before](evidence/before/08-setup-notifications-390-dark.webp) · [after](evidence/after/08-setup-notifications-390-dark.webp) | [before](evidence/before/08-setup-notifications-1280-light.webp) · [after](evidence/after/08-setup-notifications-1280-light.webp) |
+| `09-setup-team`          | F03, F08 | [before](evidence/before/09-setup-team-390-light.webp) · [after](evidence/after/09-setup-team-390-light.webp)                   | [before](evidence/before/09-setup-team-390-dark.webp) · [after](evidence/after/09-setup-team-390-dark.webp)                   | [before](evidence/before/09-setup-team-1280-light.webp) · [after](evidence/after/09-setup-team-1280-light.webp)                   |
+| `10-setup-done`          | F03, F08 | [before](evidence/before/10-setup-done-390-light.webp) · [after](evidence/after/10-setup-done-390-light.webp)                   | [before](evidence/before/10-setup-done-390-dark.webp) · [after](evidence/after/10-setup-done-390-dark.webp)                   | [before](evidence/before/10-setup-done-1280-light.webp) · [after](evidence/after/10-setup-done-1280-light.webp)                   |
+| `11-clients-index`       | F09      | [before](evidence/before/11-clients-index-390-light.webp) · [after](evidence/after/11-clients-index-390-light.webp)             | [before](evidence/before/11-clients-index-390-dark.webp) · [after](evidence/after/11-clients-index-390-dark.webp)             | [before](evidence/before/11-clients-index-1280-light.webp) · [after](evidence/after/11-clients-index-1280-light.webp)             |
+| `12-clients-archived`    | F13      | [before](evidence/before/12-clients-archived-390-light.webp) · [after](evidence/after/12-clients-archived-390-light.webp)       | [before](evidence/before/12-clients-archived-390-dark.webp) · [after](evidence/after/12-clients-archived-390-dark.webp)       | [before](evidence/before/12-clients-archived-1280-light.webp) · [after](evidence/after/12-clients-archived-1280-light.webp)       |
+| `13-client-hub`          | F10      | [before](evidence/before/13-client-hub-390-light.webp) · [after](evidence/after/13-client-hub-390-light.webp)                   | [before](evidence/before/13-client-hub-390-dark.webp) · [after](evidence/after/13-client-hub-390-dark.webp)                   | [before](evidence/before/13-client-hub-1280-light.webp) · [after](evidence/after/13-client-hub-1280-light.webp)                   |
+| `14-client-settings`     | F11–F13  | [before](evidence/before/14-client-settings-390-light.webp) · [after](evidence/after/14-client-settings-390-light.webp)         | [before](evidence/before/14-client-settings-390-dark.webp) · [after](evidence/after/14-client-settings-390-dark.webp)         | [before](evidence/before/14-client-settings-1280-light.webp) · [after](evidence/after/14-client-settings-1280-light.webp)         |
+| `15-setup-agency`        | F03      | [before](evidence/before/15-setup-agency-390-light.webp) · [after](evidence/after/15-setup-agency-390-light.webp)               | [before](evidence/before/15-setup-agency-390-dark.webp) · [after](evidence/after/15-setup-agency-390-dark.webp)               | [before](evidence/before/15-setup-agency-1280-light.webp) · [after](evidence/after/15-setup-agency-1280-light.webp)               |
+
+Capture notes:
+
+- Both runs used the same script (`/tmp/p2-visual/shoot-set.sh`, which calls
+  `tests/visual/shoot.mjs` per state with `--full --wait 2500`), the same
+  fixture tenant and the same dev server configuration. AFTER: 45 of 45
+  shots, no horizontal overflow, no console errors.
+- **Not like-for-like for 05 and 06:** in the BEFORE run the Google stub
+  answered the accounts request with an error, so 05 and 06 show the
+  (old) error states. In the AFTER run it listed two accounts, so 05 and 06
+  show the loaded states. The new error, empty and loading states for those
+  steps are covered by component tests (`account-picker-card.test.tsx`,
+  `import-card.test.tsx`, `onboarding-drafts-accounts.test.tsx`), not by
+  screenshots.
+- 08, 09 and 10 show the refused-step note, because the fixture's import is
+  not started. The Notifications, Team and Done screens themselves were not
+  captured.
+- Interactive states (duplicate name, unconfirmed create, unfile toast,
+  archive Undo) are covered by component and e2e tests, not screenshots.
+- The first AFTER attempt went into a `next dev` reload loop (thousands of
+  recompiles with no source change) because the worktree's `.next` held the
+  production build made for e2e. Moving `.next` aside fixed it, and the
+  captures above come from the clean run. Area p6 hit the same loop.
+- AFTER review caught one regression introduced by this work: at 390 the hub's
+  key icon wrapped onto its own line above "Google login: …". Fixed
+  (`client-hub.tsx`: the icon and text are one unbreakable group) and
+  reshot.
 
 ## Change log
 
@@ -329,18 +385,18 @@ AFTER_PAIRS_PLACEHOLDER
 
 ## Verification
 
-| Check                                                                                                                                        | What it is                                 | Result                                                               |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------- |
-| `pnpm verify` (typecheck, lint, format:check, unit + components, design ratchet)                                                             | Source + unit/component                    | **Passed**: 625 files, 8,528 tests passed, 1 skipped; ratchet passed |
-| `pnpm check:design --ratchet`                                                                                                                | Source                                     | **Passed**: no file/rule count rose                                  |
-| `pnpm check:contrast`                                                                                                                        | Source (token pairs)                       | **Passed**: all 212 pairs, both themes                               |
-| Area e2e: `setup`, `google-onboarding`, `onboarding-match-link`, `clients`, `client-hub`, `client-form-archive`, `routing`, `touch-critical` | Fixture browser, throwaway DB, Google stub | **Passed**: 122/122 on the final head (`aab3be1f`)                   |
-| `pnpm test:e2e:touch` (touch-390)                                                                                                            | Fixture browser                            | **Passed**: 23/23 on the final head                                  |
-| `pnpm test:a11y` (`accessibility.spec.ts`, axe)                                                                                              | Fixture browser                            | **Passed**: 64/64 on the final head                                  |
-| Screenshots 390 light, 390 dark, 1280 (`tests/visual/shoot.mjs`)                                                                             | Fixture browser                            | BEFORE **Passed**; AFTER see [Screenshot pairs](#screenshot-pairs)   |
-| Independent review (fresh-context subagent, diff + protected list)                                                                           | Review                                     | **Done**: 0 P0, 0 P1, 3 P2 (all fixed), P3s fixed or recorded below  |
-| Live Google OAuth, real Business Profile accounts, real import                                                                               | Provider-backed                            | **Not run** (out of scope; no provider calls from tests)             |
-| `audit:mobile` totals, tap counts                                                                                                            | Measurement                                | **Not run**: no measured-improvement claims are made                 |
+| Check                                                                                                                                        | What it is                                 | Result                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `pnpm verify` (typecheck, lint, format:check, unit + components, design ratchet)                                                             | Source + unit/component                    | **Passed**: 625 files, 8,528 tests passed, 1 skipped; ratchet passed                                            |
+| `pnpm check:design --ratchet`                                                                                                                | Source                                     | **Passed**: no file/rule count rose                                                                             |
+| `pnpm check:contrast`                                                                                                                        | Source (token pairs)                       | **Passed**: all 212 pairs, both themes                                                                          |
+| Area e2e: `setup`, `google-onboarding`, `onboarding-match-link`, `clients`, `client-hub`, `client-form-archive`, `routing`, `touch-critical` | Fixture browser, throwaway DB, Google stub | **Passed**: 122/122 on the final code head (`ac14987d`)                                                         |
+| `pnpm test:e2e:touch` (touch-390)                                                                                                            | Fixture browser                            | **Passed**: 23/23 on `ac14987d`                                                                                 |
+| `pnpm test:a11y` (`accessibility.spec.ts`, axe)                                                                                              | Fixture browser                            | **Passed**: 64/64 on `ac14987d`                                                                                 |
+| Screenshots 390 light, 390 dark, 1280 (`tests/visual/shoot.mjs`)                                                                             | Fixture browser                            | **Passed**: BEFORE 45/45, AFTER 45/45, no overflow or console errors; see [Screenshot pairs](#screenshot-pairs) |
+| Independent review (fresh-context subagent, diff + protected list)                                                                           | Review                                     | **Done**: 0 P0, 0 P1, 3 P2 (all fixed), P3s fixed or recorded below                                             |
+| Live Google OAuth, real Business Profile accounts, real import                                                                               | Provider-backed                            | **Not run** (out of scope; no provider calls from tests)                                                        |
+| `audit:mobile` totals, tap counts                                                                                                            | Measurement                                | **Not run**: no measured-improvement claims are made                                                            |
 
 The e2e changes: `client-form-archive.spec.ts` "refused create" now stubs a
 definite 503, and a new case checks the unconfirmed-500 copy. Both pass.
