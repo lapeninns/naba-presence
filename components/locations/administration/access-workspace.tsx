@@ -34,7 +34,14 @@ export function useAdministrationAccess() {
   if (!value) throw new Error("Administration access controls require their review workspace.")
   return value
 }
-export function AdministrationAccessWorkspace({ children }: { children: ReactNode }) {
+/**
+ * `children` are the access roster; `after` follows "Saved access work" (the
+ * explainers and the danger zone), so a second approver reaches a saved
+ * invitation without passing destructive controls. Both read the same
+ * composed gates, so `after` is blocked by in-progress access exactly as the
+ * roster is.
+ */
+export function AdministrationAccessWorkspace({ children, after }: { children: ReactNode; after?: ReactNode }) {
   const section = useAdministrationSection()
   const { locationId, writeBlocked } = section
   const action = useAdministrationAccessController(locationId)
@@ -110,6 +117,7 @@ export function AdministrationAccessWorkspace({ children }: { children: ReactNod
       loadingMore={saved.isFetchingNextPage}
       onLoadMore={() => { void saved.fetchNextPage() }}
     />
+    {after ? <AdministrationProvider locationId={locationId} locationName={section.locationName} disabled={section.disabled} publishReason={publishReason}>{after}</AdministrationProvider> : null}
   </div></Context.Provider>
 }
 

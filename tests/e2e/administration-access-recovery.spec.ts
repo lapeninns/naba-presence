@@ -69,7 +69,7 @@ async function unresolvedRecovery(page: Page, info: TestInfo) {
     page.getByRole("button", { name: "Transfer this location", exact: true })
   ).toBeDisabled()
   await expect(
-    page.getByRole("button", { name: "Delete this location", exact: true })
+    page.getByRole("button", { name: "Request deletion", exact: true })
   ).toBeDisabled()
   await capture(page, info, "unresolved")
   fixture.state.readStatus = 503

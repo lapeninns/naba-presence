@@ -59,11 +59,13 @@ export function LifecycleWorkspace({ locationId, locationName, children }: {
   const [opened, setOpened] = useState(0)
   const context = {
     ...workflow,
-    preview: async (request: Parameters<typeof workflow.preview>[0]) => { await workflow.preview(request); setOpened((value) => value + 1) },
+    preview: async (...args: Parameters<typeof workflow.preview>) => { await workflow.preview(...args); setOpened((value) => value + 1) },
     open: (item: Parameters<typeof workflow.open>[0]) => { setOpened((value) => value + 1); workflow.open(item) },
     setAccessBlocked,
     ended,
   }
+  // Why sending waits, named for its real cause rather than one generic line.
+  const sendPaused = accessBlocked ? "Sending is paused until the current access change is resolved." : !capabilities.data ? "Checking your permissions…" : !capabilities.data.canPublish ? "Your current permissions don’t allow sending changes to Google for this listing." : null
   const focusKey = workflow.attempt ? `attempt:${workflow.attempt.reviewId}:${opened}` : workflow.review ? `review:${workflow.review.changeSet.id}:${opened}` : null
   const savedItems: SavedWorkItem[] = items.map((item) => ({
     id: item.reviewId,
@@ -78,7 +80,7 @@ export function LifecycleWorkspace({ locationId, locationName, children }: {
     {visible && (workflow.review || workflow.attempt || workflow.error) ? <div className="flex min-w-0 flex-col gap-3">
       {workflow.error ? <p role="alert" className="text-ui text-danger-ink">{workflow.error}</p> : null}
       {accessBlocked ? <p role="status" className="text-ui text-ink-secondary">Resolve the current access action before approving or sending a lifecycle request.</p> : null}
-      {workflow.attempt ? <LifecycleOutcome workflow={workflow} focusKey={focusKey} /> : <LifecycleReview workflow={workflow} locationName={name} disabled={!capabilities.data?.canPublish || accessBlocked} focusKey={focusKey} />}
+      {workflow.attempt ? <LifecycleOutcome workflow={workflow} focusKey={focusKey} /> : <LifecycleReview workflow={workflow} locationName={name} disabled={sendPaused !== null} disabledReason={sendPaused} focusKey={focusKey} />}
     </div> : null}
     {children}
     {visible ? <SavedWorkList

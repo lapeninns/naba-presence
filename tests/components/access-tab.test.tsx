@@ -11,6 +11,7 @@ import {
   AccessTab,
   VerificationTab,
 } from "@/components/locations/administration"
+import { AdministrationDenied } from "@/components/locations/administration/administration-denied"
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -61,8 +62,16 @@ describe("AccessTab (read + non-destructive)", () => {
   it("gates a member without firing the 403 GET", async () => {
     const fetchMock = stub({ canEditCanonical: false, canPublish: false })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
-    expect(await screen.findByText(/available to owners and admins/i)).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Only owners and admins can see who has access" })).toBeInTheDocument()
+    // The title says who can open it once; the description leads with the way forward.
+    expect(screen.getByText("Whoever has access on Google can change or delete the listing. Ask an owner or admin if you need to see or change who that is.")).toBeInTheDocument()
+    expect(screen.queryByText(/available to owners and admins/i)).not.toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/administration"))).toBe(false)
+  })
+  it("keeps Verification's denied wording exactly as it was", () => {
+    renderWithProviders(<AdministrationDenied kind="verification" locationId="loc-1" locationName="Camden Hotel" />)
+    expect(screen.getByRole("heading", { name: "Only owners and admins can manage verification" })).toBeInTheDocument()
+    expect(screen.getByText("This section is available to owners and admins. Verification decides who Google trusts to speak for the business, so starting or completing it is limited to owners and admins.")).toBeInTheDocument()
   })
   it("humanises admin roles", async () => {
     stub({ canEditCanonical: true, canPublish: true })
@@ -135,8 +144,11 @@ describe("AccessTab (danger zone)", () => {
   it("delete-location requires an exact review, approval, typed name and separate send consent", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
-    await userEvent.click(await screen.findByRole("button", { name: /delete this location/i }))
-    expect(screen.getByText(/business and customer reviews may remain on Search or Maps/)).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("button", { name: "Request deletion" }))
+    // The dialog names the listing it acts on and says nothing is deleted yet.
+    const dialog = screen.getByRole("dialog", { name: "Request deletion of Camden Hotel" })
+    expect(dialog).toHaveTextContent("Nothing is deleted or sent to Google at this step.")
+    expect(screen.getByText(/the business and its customer reviews may stay on Search and Maps/)).toBeInTheDocument()
     expect(screen.queryByText(/Google deletes its reviews/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
     await userEvent.click(await screen.findByRole("button", { name: "Approve lifecycle request" }))
@@ -158,7 +170,7 @@ describe("AccessTab (danger zone)", () => {
   it("delete-location never wires to the app-side unlink route", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
-    await userEvent.click(await screen.findByRole("button", { name: /delete this location/i }))
+    await userEvent.click(await screen.findByRole("button", { name: "Request deletion" }))
     await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
     await waitFor(() => {
       const review = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/administration-lifecycle-reviews") && init?.method === "POST")
@@ -214,7 +226,7 @@ describe("AccessTab (danger zone)", () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 
-  it("puts the People roster and Invite someone before the explainers, and saved work after the danger zone", async () => {
+  it("puts the roster and Invite someone first, saved access work before the explainers, and saved lifecycle work after the danger zone", async () => {
     stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     const roster = await screen.findByRole("heading", { name: "People with access on Google" })
@@ -224,7 +236,7 @@ describe("AccessTab (danger zone)", () => {
     const savedAccess = await screen.findByRole("heading", { name: "Saved access work" })
     const savedLifecycle = await screen.findByRole("heading", { name: "Saved lifecycle work" })
     const before = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    before(roster, rules); before(add, rules); before(rules, danger); before(danger, savedAccess); before(danger, savedLifecycle)
+    before(roster, savedAccess); before(add, savedAccess); before(savedAccess, rules); before(rules, danger); before(danger, savedLifecycle)
     // No empty review placeholder pushes the roster down.
     expect(screen.queryByRole("region", { name: /review/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/Choose an access change below/)).not.toBeInTheDocument()
@@ -293,7 +305,7 @@ describe("VerificationTab", () => {
     // Who may edit the listing is a different question, asked on its own tab.
     expect(screen.queryByText("Primary owner")).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: /delete this location/i })
+      screen.queryByRole("button", { name: "Request deletion" })
     ).not.toBeInTheDocument()
   })
 })
@@ -331,6 +343,20 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.queryByText(/Read from Google/)).not.toBeInTheDocument()
   })
 
+  it("counts invitees who haven't accepted with the people, apart from invitations to answer", async () => {
+    stubRoster({ administration: () => jsonResponse({ administration: { ...ADMIN.administration, locationAdmins: available({ admins: [
+      { admin: "owner@camden.test", role: "PRIMARY_OWNER" },
+      { name: "locations/camden/admins/2", admin: "manager@camden.test", role: "MANAGER" },
+      { name: "locations/camden/admins/3", admin: "new@camden.test", role: "MANAGER", pendingInvitation: true },
+    ] }) } }) })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    expect(await screen.findByText(/^3 people, 1 not yet accepted · 0 invitations to answer · Read from Google at/)).toBeInTheDocument()
+    expect(screen.getByText("Invitation pending")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Invitations to answer" })).toBeInTheDocument()
+    expect(screen.getByText("0 waiting for the connected Google login")).toBeInTheDocument()
+    expect(screen.getByText("No invitations to answer.")).toBeInTheDocument()
+  })
+
   it("says which part failed when only the invitations read fails", async () => {
     stubRoster({ administration: () => jsonResponse({ administration: { ...ADMIN.administration, invitations: { data: null, error: "google_unavailable" } } }) })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
@@ -350,7 +376,14 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.getByRole("button", { name: /remove manager@camden\.test/i })).toBeDisabled()
     expect(screen.getByRole("combobox", { name: /role for manager@camden\.test/i })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Transfer this location" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Delete this location" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Request deletion" })).toBeDisabled()
+    // A way forward after the irreversible outcome, and the caveat the outcome states.
+    expect(screen.getByRole("link", { name: "Remove from NabaPresence" })).toHaveAttribute("href", "/settings/connections")
+    expect(screen.getByRole("link", { name: "See the saved outcome" })).toHaveAttribute("href", "#lifecycle-saved-work")
+    expect(screen.getByText(/It may still appear on Search or Maps\./)).toBeInTheDocument()
+    // The long reason is said once; each disabled danger row says why in short.
+    expect(screen.getAllByText(/independently confirmed that this location was deleted/)).toHaveLength(1)
+    expect(screen.getAllByText("Not available: this account no longer manages this location.")).toHaveLength(2)
   })
 
   it("explains a confirmed transfer that left this account", async () => {
@@ -394,7 +427,7 @@ describe("AccessTab (roster truthfulness)", () => {
       accessAttempt: confirmed,
     })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
-    expect(await screen.findByText(/2 people · 0 invitations · Read from Google at/)).toBeInTheDocument()
+    expect(await screen.findByText(/2 people · 0 invitations to answer · Read from Google at/)).toBeInTheDocument()
     await userEvent.click(await screen.findByRole("button", { name: "Open outcome" }))
     expect(await screen.findByText("Reviewed administrator no longer listed")).toBeInTheDocument()
     expect(await screen.findByText(/Updating from Google… Counts refresh/)).toBeInTheDocument()
@@ -411,7 +444,7 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.getByRole("button", { name: /invite someone/i })).toBeDisabled()
     expect(reads).toBe(2)
     release?.()
-    expect(await screen.findByText(/1 person · 0 invitations · Read from Google at/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 person · 0 invitations to answer · Read from Google at/)).toBeInTheDocument()
     expect(screen.queryByText(/Updating from Google/)).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /remove manager@camden\.test/i })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /invite someone/i })).toBeEnabled()
@@ -438,7 +471,7 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.queryByText("Has access")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /invite someone/i })).toBeDisabled()
     await userEvent.click(screen.getAllByRole("button", { name: "Read Google’s list again" })[0])
-    expect(await screen.findByText(/1 person · 0 invitations · Read from Google at/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 person · 0 invitations to answer · Read from Google at/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /invite someone/i })).toBeEnabled()
   })
 

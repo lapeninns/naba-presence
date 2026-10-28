@@ -23,6 +23,7 @@ function blockFor(code: string): LifecycleBlock {
   if (code === "google_baseline_stale" || code === "google_connection_changed" || code === "approval_actor_access_changed") return "access_changed"
   return "fresh_review_required"
 }
+export type PreviewOptions = { readonly scoped?: boolean }
 export function useLifecycle(locationId: string, accessBlocked = false) {
   const client = useQueryClient(), claim = useRef(false), unsafe = useRef(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
@@ -49,24 +50,31 @@ export function useLifecycle(locationId: string, accessBlocked = false) {
     setAttempt(value); setUncertain(false)
     if (value.confirmationState === "confirmed") invalidateListing()
   }
-  async function run<T>(work: () => Promise<T>) {
+  /**
+   * One lifecycle action at a time. A `scoped` action (a dialog preparing a
+   * new review) reports its own failure where it was asked, so it leaves the
+   * page error and the open review's block alone: a failed transfer preview
+   * says nothing about a deletion review that is already open.
+   */
+  async function run<T>(work: () => Promise<T>, { scoped = false }: PreviewOptions = {}) {
     if (claim.current) throw new ApiClientError(409, "administration_in_progress", "Wait for the current lifecycle action.")
-    claim.current = true; setBusy(true); setError(null)
+    claim.current = true; setBusy(true); if (!scoped) setError(null)
     try { return await work() }
     catch (error) {
       if (!(error instanceof Error)) throw error
+      if (scoped) throw error
       if (error instanceof ApiClientError && safePreflightCodes.has(error.code)) { setBlock(blockFor(error.code)); setBlockedAt(new Date().toISOString()) }
       setError(error instanceof ApiClientError ? error.message : "The response is unavailable. Read the saved lifecycle outcome before another write.")
       throw error
     } finally { claim.current = false; setBusy(false); invalidate() }
   }
   function handle(work: () => Promise<void>) { void run(work).catch((error: unknown) => { if (!(error instanceof Error)) throw error }) }
-  function preview(request: GoogleLifecycleRequest) {
+  function preview(request: GoogleLifecycleRequest, options?: PreviewOptions) {
     return run(async () => {
       if (accessBlocked) throw new ApiClientError(409, "administration_in_progress", "Resolve the current access action before reviewing another write.")
       if (unsafe.current) throw new ApiClientError(409, "google_confirmation_unresolved", "Resolve the current lifecycle outcome before reviewing another write.")
-      setReview(await lifecycle.previewLifecycle(locationId, request)); setAttempt(null); setUncertain(false); setBlock(null); setRevision((value) => value + 1)
-    })
+      setReview(await lifecycle.previewLifecycle(locationId, request)); setAttempt(null); setUncertain(false); setBlock(null); setError(null); setRevision((value) => value + 1)
+    }, options)
   }
   function open(item: LifecycleWorkflow) {
     handle(async () => {

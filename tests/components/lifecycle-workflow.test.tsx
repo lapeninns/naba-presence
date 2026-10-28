@@ -15,9 +15,11 @@ import { renderWithProviders } from "../helpers/render"
 vi.mock("@/lib/api/google-lifecycle", () => ({ previewLifecycle: vi.fn(), fetchLifecycleReview: vi.fn(), approveLifecycle: vi.fn(), executeLifecycle: vi.fn(), fetchLifecycleAttempt: vi.fn(), refreshLifecycleAttempt: vi.fn(), fetchLifecycleWorkflows: vi.fn() }))
 vi.mock("@/lib/queries/use-session", () => ({ useSessionRole: () => "owner" }))
 vi.mock("@/lib/queries/use-locations", () => ({ useLocationDirectory: () => ({ data: [{ id, name: "Camden Hotel" }] }) }))
-vi.mock("@/lib/queries/use-location-capabilities", () => ({ useLocationCapabilities: () => ({ data: { canEditCanonical: true, canPublish: true } }) }))
+const capabilities = vi.hoisted(() => ({ current: { canEditCanonical: true, canPublish: true } }))
+vi.mock("@/lib/queries/use-location-capabilities", () => ({ useLocationCapabilities: () => ({ data: capabilities.current }) }))
 beforeEach(() => {
   vi.resetAllMocks()
+  capabilities.current = { canEditCanonical: true, canPublish: true }
   const review = lifecycleReviewFixture()
   vi.mocked(lifecycle.previewLifecycle).mockResolvedValue(review)
   vi.mocked(lifecycle.approveLifecycle).mockResolvedValue({ ...review, changeSet: { ...review.changeSet, approvedBy: id } })
@@ -31,7 +33,7 @@ function AccessGuardControls() {
 }
 function render() { return renderWithProviders(<AdministrationProvider locationId={id} locationName="Camden Hotel" disabled={false} publishReason={null}><LifecycleWorkspace locationId={id} locationName="Camden Hotel"><DangerZone /><AccessGuardControls /></LifecycleWorkspace></AdministrationProvider>) }
 async function approve() {
-  await userEvent.click(screen.getByRole("button", { name: "Delete this location" }))
+  await userEvent.click(screen.getByRole("button", { name: "Request deletion" }))
   await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
   await userEvent.click(await screen.findByRole("button", { name: "Approve lifecycle request" }))
   return screen.findByRole("button", { name: "Send approved deletion" })
@@ -76,7 +78,7 @@ describe("typed reviewed lifecycle workflow", () => {
   })
   it("moves focus to the review once it is prepared, and to the outcome once it is recorded", async () => {
     render()
-    await userEvent.click(screen.getByRole("button", { name: "Delete this location" }))
+    await userEvent.click(screen.getByRole("button", { name: "Request deletion" }))
     await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
     const heading = await screen.findByRole("heading", { name: "Review managed-location deletion" })
     await waitFor(() => expect(heading).toHaveFocus())
@@ -166,7 +168,7 @@ describe("typed reviewed lifecycle workflow", () => {
     const expiredAt = "2026-01-01T12:00:00.000Z", review = lifecycleReviewFixture()
     vi.mocked(lifecycle.previewLifecycle).mockResolvedValue({ ...review, changeSet: { ...review.changeSet, expiresAt: expiredAt } })
     render()
-    await userEvent.click(screen.getByRole("button", { name: "Delete this location" }))
+    await userEvent.click(screen.getByRole("button", { name: "Request deletion" }))
     await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
     const panel = await screen.findByRole("region", { name: "Review managed-location deletion" })
     const expiry = within(panel).getByText(/^Review expired/)
@@ -180,6 +182,57 @@ describe("typed reviewed lifecycle workflow", () => {
     ["google_baseline_stale", /The destination or source account's access on Google changed since this review/],
   ])("explains %s on a transfer, marks the reviewed role as not current and offers a fresh review", async (code, message) => {
     await transferDrift(code, message)
+  })
+})
+describe("a refused review explains itself in its own dialog", () => {
+  it("explains a destination the connected login can’t manage against the field, and leaves an open deletion review sendable", async () => {
+    render(); const send = await approve()
+    vi.mocked(lifecycle.previewLifecycle).mockRejectedValueOnce(new ApiClientError(409, "destination_management_required", "Google has not confirmed the access, exact account membership or eligibility needed for this lifecycle request. Refresh before reviewing again."))
+    await userEvent.click(screen.getByRole("button", { name: "Transfer this location" }))
+    const dialog = screen.getByRole("dialog", { name: "Transfer Camden Hotel to another Google account" })
+    const destination = within(dialog).getByLabelText("Destination Google account")
+    await userEvent.type(destination, "987654321")
+    await userEvent.click(within(dialog).getByRole("button", { name: "Continue to transfer review" }))
+    expect(await within(dialog).findByText("The connected Google login needs owner or manager access to accounts/987654321 before the location can move there. No review was saved, and nothing was sent to Google.")).toBeInTheDocument()
+    expect(destination).toHaveAttribute("aria-invalid", "true")
+    expect(lifecycle.previewLifecycle).toHaveBeenLastCalledWith(id, { operation: "transfer_location", payload: { destinationAccount: "accounts/987654321" } })
+    // Changing the destination clears the refusal.
+    await userEvent.type(destination, "0")
+    expect(within(dialog).queryByText(/needs owner or manager access/)).not.toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }))
+    await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
+    // The deletion review that was already open is untouched: not stale, still sendable.
+    const panel = screen.getByRole("region", { name: "Review managed-location deletion" })
+    expect(within(panel).queryByText(/changed since this review/)).not.toBeInTheDocument()
+    expect(within(panel).queryByRole("button", { name: "Start a fresh review" })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Google has not confirmed the access/)).not.toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText("Type the listing name: Camden Hotel"), "Camden Hotel")
+    await userEvent.click(screen.getByRole("checkbox", { name: "Send this exact approved lifecycle request to Google." }))
+    expect(send).toBeEnabled()
+  })
+  it("says why Google refused a deletion inside the deletion dialog, not behind it", async () => {
+    vi.mocked(lifecycle.previewLifecycle).mockRejectedValueOnce(new ApiClientError(409, "deletion_eligibility_unproven", "Google has not confirmed the access, exact account membership or eligibility needed for this lifecycle request. Refresh before reviewing again."))
+    render()
+    await userEvent.click(screen.getByRole("button", { name: "Request deletion" }))
+    const dialog = screen.getByRole("dialog", { name: "Request deletion of Camden Hotel" })
+    await userEvent.click(within(dialog).getByRole("button", { name: "Prepare deletion review" }))
+    const alert = await within(dialog).findByRole("alert")
+    expect(alert).toHaveTextContent("Google doesn’t list this location as one the connected login can delete. No review was saved, and nothing was sent to Google.")
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    expect(screen.queryByRole("region", { name: "Review managed-location deletion" })).not.toBeInTheDocument()
+    // Reopening the dialog starts clean.
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }))
+    await userEvent.click(await screen.findByRole("button", { name: "Request deletion" }))
+    expect(within(screen.getByRole("dialog")).queryByRole("alert")).not.toBeInTheDocument()
+  })
+  it("names missing send permission as the reason sending waits", async () => {
+    capabilities.current = { canEditCanonical: true, canPublish: false }
+    vi.mocked(lifecycle.previewLifecycle).mockResolvedValue({ ...lifecycleReviewFixture(), changeSet: { ...lifecycleReviewFixture().changeSet, approvedBy: id } })
+    render()
+    await userEvent.click(screen.getByRole("button", { name: "Request deletion" }))
+    await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
+    expect(await screen.findByText("Your current permissions don’t allow sending changes to Google for this listing.")).toBeInTheDocument()
+    expect(screen.queryByText(/until the other Google change is resolved/)).not.toBeInTheDocument()
   })
 })
 describe("saved lifecycle work load failure copy", () => {

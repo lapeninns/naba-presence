@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 
 import { DiscardDialog } from "@/components/editors/discard-dialog"
 import {
@@ -12,7 +12,12 @@ import {
   useClaimFocus,
 } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input, inputHints } from "@/components/ui/input"
 import {
   Select,
@@ -41,6 +46,19 @@ import type { useAdministrationAccessController } from "./use-administration-acc
 const ADMIN_SCOPE_LABELS: Record<string, string> = {
   location: "This location",
   account: "The whole Google account",
+}
+
+// What each choice grants, said at the point of choice so an owner or an
+// account-wide invitation is never one unexplained tap away.
+const ROLE_HINTS: Record<string, string> = {
+  MANAGER:
+    "Edits the listing and replies to reviews. Can’t manage people or remove the listing.",
+  OWNER:
+    "Everything a manager can do, plus managing people and removing the listing.",
+}
+const SCOPE_HINTS: Record<string, string> = {
+  location: "Only this listing.",
+  account: "Every listing in this Google account.",
 }
 
 const FORM_ID = "invite-form"
@@ -84,6 +102,9 @@ export function InviteSheet({
 
   const [scope, setScope] = useState("location")
   const [email, setEmail] = useState("")
+  // The address is checked once the person leaves the field or tries to
+  // review it, not while it is still being typed.
+  const [emailTouched, setEmailTouched] = useState(false)
   const [role, setRole] = useState("MANAGER")
   const [discarding, setDiscarding] = useState(false)
   const [consent, setConsent] = useState(false)
@@ -114,7 +135,7 @@ export function InviteSheet({
 
   const parsed = createAdminSchema.safeParse({ scope, admin: email, role })
   const emailError =
-    email.trim().length > 0 && !parsed.success
+    emailTouched && email.trim().length > 0 && !parsed.success
       ? parsed.error.issues.find((issue) => issue.path[0] === "admin")?.message
       : undefined
 
@@ -131,7 +152,10 @@ export function InviteSheet({
     invalidate: [queryKeys.locationAdministration(section.locationId)],
     successToast: "Invitation ready to approve",
     // The review takes the form's place on this same sheet.
-    onSuccess: () => setEmail(""),
+    onSuccess: () => {
+      setEmail("")
+      setEmailTouched(false)
+    },
   })
 
   const cannotSubmit =
@@ -143,6 +167,7 @@ export function InviteSheet({
 
   const close = () => {
     setEmail("")
+    setEmailTouched(false)
     onOpenChange(false)
   }
   // Nothing in flight, so the sheet can close. A settled review or outcome is
@@ -216,9 +241,11 @@ export function InviteSheet({
               : undefined
         }
         secondApprover={reviewing?.changeSet.requiresSecondApprover}
+        // One keyed set of buttons per step: a step's buttons are replaced, not
+        // eased from one variant into another through low-contrast frames.
         footer={
           recorded ? (
-            <>
+            <Fragment key="outcome">
               <Button
                 variant="ghost"
                 className="sm:mr-auto"
@@ -241,9 +268,9 @@ export function InviteSheet({
               >
                 Refresh Google access state
               </Button>
-            </>
+            </Fragment>
           ) : reviewing ? (
-            <>
+            <Fragment key="review">
               <Button
                 variant="ghost"
                 className="sm:mr-auto"
@@ -278,9 +305,9 @@ export function InviteSheet({
                   Approve access request
                 </Button>
               )}
-            </>
+            </Fragment>
           ) : (
-            <>
+            <Fragment key="form">
               <Button
                 variant="ghost"
                 className="sm:mr-auto"
@@ -297,7 +324,7 @@ export function InviteSheet({
               >
                 Review invitation
               </Button>
-            </>
+            </Fragment>
           )
         }
       >
@@ -369,12 +396,17 @@ export function InviteSheet({
               ) : null}
             </>
           ) : (
-            // A real form: Enter in the email field reviews the invitation.
+            // A real form: Enter in the email field reviews the invitation,
+            // or shows this form's own email error (noValidate: never the
+            // browser's bubble).
             <form
               id={FORM_ID}
+              noValidate
               className="flex min-w-0 flex-col gap-4"
               onSubmit={(event) => {
                 event.preventDefault()
+                // Enter on an address that isn't valid yet says why.
+                setEmailTouched(true)
                 if (!cannotSubmit) create.mutate()
               }}
             >
@@ -389,6 +421,7 @@ export function InviteSheet({
                   autoComplete="off"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  onBlur={() => setEmailTouched(true)}
                 />
                 <FieldError />
               </Field>
@@ -415,6 +448,7 @@ export function InviteSheet({
                     ))}
                   </SelectContent>
                 </Select>
+                <FieldDescription>{ROLE_HINTS[role]}</FieldDescription>
               </Field>
               <Field>
                 <FieldLabel>Scope</FieldLabel>
@@ -440,6 +474,7 @@ export function InviteSheet({
                     </SelectItem>
                   </SelectContent>
                 </Select>
+                <FieldDescription>{SCOPE_HINTS[scope]}</FieldDescription>
               </Field>
             </form>
           )}

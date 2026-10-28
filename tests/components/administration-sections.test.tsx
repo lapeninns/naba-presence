@@ -242,7 +242,7 @@ describe("invitations", () => {
       />
     )
     expect(screen.getByText("Owner invitation")).toBeInTheDocument()
-    expect(screen.getByText("For the connected Google account · waiting for a reply on Google")).toBeInTheDocument()
+    expect(screen.getByText("For the connected Google account · waiting for your answer")).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Review decline" }))
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
     expect(patch.bodies[0]).toEqual({
@@ -265,15 +265,15 @@ describe("invitations", () => {
       />
     )
     expect(screen.getByText("Manager invitation")).toBeInTheDocument()
-    expect(screen.getByText("To manage Camden Hotel · waiting for a reply on Google")).toBeInTheDocument()
+    expect(screen.getByText("To manage Camden Hotel · waiting for your answer")).toBeInTheDocument()
     expect(screen.getByText("Owner invitation")).toBeInTheDocument()
-    expect(screen.getByText("To manage Camden Group · waiting for a reply on Google")).toBeInTheDocument()
+    expect(screen.getByText("To manage Camden Group · waiting for your answer")).toBeInTheDocument()
     expect(screen.queryByText("Invitation", { exact: true })).not.toBeInTheDocument()
   })
 
   it("lists nothing to do when there are no invitations", () => {
     renderSection(<InvitationsList data={{ invitations: [] }} />)
-    expect(screen.getByText("No pending invitations.")).toBeInTheDocument()
+    expect(screen.getByText("No invitations to answer.")).toBeInTheDocument()
   })
 
   it("validates the email before sending and resets the form on success", async () => {
@@ -286,9 +286,14 @@ describe("invitations", () => {
     expect(send).toBeDisabled()
     const email = screen.getByLabelText(/email/i)
     await userEvent.type(email, "not-an-email")
+    // Nothing interrupts the typing: the address is checked on leaving the field.
+    expect(screen.queryByText("Enter a valid email address.")).not.toBeInTheDocument()
+    expect(email).not.toHaveAttribute("aria-invalid")
+    await userEvent.tab()
     expect(
       await screen.findByText("Enter a valid email address.")
     ).toBeInTheDocument()
+    expect(email).toHaveAttribute("aria-invalid", "true")
     expect(send).toBeDisabled()
     await userEvent.clear(email)
     await userEvent.type(email, "new@camden.test")
@@ -312,6 +317,8 @@ describe("invitations", () => {
     expect(screen.getByRole("button", { name: "Review invitation" })).toHaveAttribute("type", "submit")
     const email = screen.getByLabelText("Email address")
     await userEvent.type(email, "not-an-email{Enter}")
+    // Enter on an address that isn't valid yet says why, and sends nothing.
+    expect(await screen.findByText("Enter a valid email address.")).toBeInTheDocument()
     expect(patch.bodies).toHaveLength(0)
     await userEvent.clear(email)
     await userEvent.type(email, "new@camden.test{Enter}")
@@ -337,6 +344,35 @@ describe("invitations", () => {
     expect(email).toHaveAttribute("autocapitalize", "none")
     expect(email).toHaveAttribute("autocorrect", "off")
     expect(email).toHaveAttribute("spellcheck", "false")
+  })
+
+  it("says what the chosen role and scope grant, tied to each picker", async () => {
+    stubPatch()
+    renderSection(<CreateAdminDialog />)
+    await userEvent.click(screen.getByRole("button", { name: "Invite someone" }))
+    const role = screen.getByRole("combobox", { name: "Role" })
+    expect(role).toHaveAccessibleDescription(/Can’t manage people or remove the listing/)
+    const scope = screen.getByRole("combobox", { name: "Scope" })
+    expect(scope).toHaveAccessibleDescription("Only this listing.")
+    await userEvent.click(role)
+    await userEvent.click(await screen.findByRole("option", { name: "Owner" }))
+    await waitFor(() => expect(role).toHaveAccessibleDescription(/plus managing people and removing the listing/))
+    await userEvent.click(scope)
+    await userEvent.click(await screen.findByRole("option", { name: "The whole Google account" }))
+    await waitFor(() => expect(scope).toHaveAccessibleDescription("Every listing in this Google account."))
+  })
+
+  it("replaces the footer buttons on each step instead of restyling the same ones", async () => {
+    stubPatch()
+    renderSection(<CreateAdminDialog />)
+    await userEvent.click(screen.getByRole("button", { name: "Invite someone" }))
+    const reviewButton = screen.getByRole("button", { name: "Review invitation" })
+    await userEvent.type(screen.getByLabelText("Email address"), "new@camden.test")
+    await userEvent.click(reviewButton)
+    // The review step's secondary button sits where the form's primary one
+    // was: a fresh node, never one eased from primary to secondary.
+    expect(await screen.findByRole("button", { name: "Check saved access outcome" })).toBeInTheDocument()
+    expect(reviewButton.isConnected).toBe(false)
   })
 
   it("asks before a stray Escape throws a typed invitee away, and clears it on discard", async () => {
@@ -386,7 +422,7 @@ describe("danger zone", () => {
       screen.getByRole("button", { name: "Transfer this location" })
     ).toBeDisabled()
     expect(
-      screen.getByRole("button", { name: "Delete this location" })
+      screen.getByRole("button", { name: "Request deletion" })
     ).toBeDisabled()
     expect(screen.getAllByRole("note")).toHaveLength(2)
   })
@@ -395,7 +431,7 @@ describe("danger zone", () => {
     const patch = stubPatch()
     renderSection(<DangerZone />)
     await userEvent.click(
-      screen.getByRole("button", { name: "Delete this location" })
+      screen.getByRole("button", { name: "Request deletion" })
     )
     await userEvent.click(screen.getByRole("button", { name: "Prepare deletion review" }))
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
@@ -450,8 +486,56 @@ describe("danger zone", () => {
     renderSection(<DangerZone />)
     await userEvent.click(screen.getByRole("button", { name: "Transfer this location" }))
     await userEvent.type(screen.getByLabelText(/destination google account/i), "accounts/9 9{Enter}")
-    expect(screen.getByText("Select an exact Google account resource, such as accounts/123.")).toBeInTheDocument()
+    expect(screen.getByText("Enter an account ID such as accounts/123456789 or 123456789.")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled()
     expect(patch.bodies).toHaveLength(0)
+  })
+
+  it("waits for the person to leave the destination field before saying its format is wrong", async () => {
+    stubPatch()
+    renderSection(<DangerZone />)
+    await userEvent.click(screen.getByRole("button", { name: "Transfer this location" }))
+    const destination = screen.getByLabelText(/destination google account/i)
+    expect(destination).toHaveAccessibleDescription("The account ID, for example accounts/123456789 or just 123456789.")
+    await userEvent.type(destination, "accounts/")
+    expect(screen.queryByText(/Enter an account ID/)).not.toBeInTheDocument()
+    await userEvent.tab()
+    expect(screen.getByText("Enter an account ID such as accounts/123456789 or 123456789.")).toBeInTheDocument()
+    expect(destination).toHaveAttribute("aria-invalid", "true")
+  })
+
+  it("accepts a bare account ID and previews exactly the account name the prefix would have sent", async () => {
+    const patch = stubPatch()
+    renderSection(<DangerZone />)
+    await userEvent.click(screen.getByRole("button", { name: "Transfer this location" }))
+    await userEvent.type(screen.getByLabelText(/destination google account/i), "123456789")
+    const next = screen.getByRole("button", { name: "Continue to transfer review" })
+    expect(next).toBeEnabled()
+    await userEvent.click(next)
+    await waitFor(() => expect(patch.bodies).toHaveLength(1))
+    expect(patch.bodies[0]).toEqual({ operation: "transfer_location", payload: { destinationAccount: "accounts/123456789" } })
+  })
+
+  it("names the listing in each dialog and keeps the review step's wording honest", async () => {
+    stubPatch()
+    renderSection(<DangerZone />)
+    expect(screen.getByRole("button", { name: "Request deletion" })).toBeEnabled()
+    await userEvent.click(screen.getByRole("button", { name: "Request deletion" }))
+    const deletion = screen.getByRole("dialog", { name: "Request deletion of Camden Hotel" })
+    expect(deletion).toHaveTextContent("Nothing is deleted or sent to Google at this step.")
+    await userEvent.click(within(deletion).getByRole("button", { name: "Close" }))
+    await userEvent.click(await screen.findByRole("button", { name: "Transfer this location" }))
+    expect(screen.getByRole("dialog", { name: "Transfer Camden Hotel to another Google account" })).toBeInTheDocument()
+  })
+
+  it("says why both entry points wait while the listing name loads", () => {
+    stubPatch()
+    renderSection(<DangerZone />, { locationName: "" })
+    expect(screen.getByRole("button", { name: "Transfer this location" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Request deletion" })).toBeDisabled()
+    expect(screen.getAllByRole("note").map((note) => note.textContent)).toEqual([
+      "Not available until the listing name loads. Reload the page if this stays.",
+      "Not available until the listing name loads. Reload the page if this stays.",
+    ])
   })
 })
