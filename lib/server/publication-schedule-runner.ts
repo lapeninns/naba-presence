@@ -947,13 +947,17 @@ export async function runDueSchedules(options: {
     readOnly: 0,
   }
   const env = getServerEnv()
-  const deadline = Date.now() + options.budgetMs
+  let checkedAt = Date.now()
+  const deadline = checkedAt + options.budgetMs
   // A schedule handled once this tick and due again was deferred with its
   // occurrence still scheduled (no link yet, or its draft being published
   // by hand): the next tick looks again. Re-running it now would only spin
   // until the budget ran out.
   const seen = new Set<string>()
-  while (Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline) {
+  // Judge the first claim against the same instant that starts its budget.
+  // The default slice equals GOOGLE_TIMEOUT_MS: a second clock read here
+  // could otherwise starve scheduled work whenever it crosses a millisecond.
+  while (checkedAt + env.GOOGLE_TIMEOUT_MS <= deadline) {
     const claimed = await getDatabase()<
       { organisationId: string; scheduleId: string }[]
     >`
@@ -992,6 +996,7 @@ export async function runDueSchedules(options: {
         await finish(row.organisationId, row.scheduleId).catch(() => undefined)
       }
     }
+    checkedAt = Date.now()
   }
   // One line per tick that did anything, for dashboards (P08-R6).
   if (summary.schedules > 0)
