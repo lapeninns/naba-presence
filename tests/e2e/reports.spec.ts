@@ -435,14 +435,17 @@ test.describe("sharing a client report", () => {
       await expect(footer.getByText("Generated")).toBeVisible()
       await expect(footer.getByText(/Listings?/).first()).toBeVisible()
 
-      // Switching period lands on the figures (#main), not the top.
+      // Switching period lands on the period line (#period), with the
+      // period links and the figures under it, not the top.
       const ninety = header.getByRole("link", { name: "Last 90 days" })
-      await expect(ninety).toHaveAttribute("href", "?period=90d#main")
+      await expect(ninety).toHaveAttribute("href", "?period=90d#period")
       await ninety.click()
-      await expect(shared).toHaveURL(/\?period=90d#main$/)
+      await expect(shared).toHaveURL(/\?period=90d#period$/)
       await expect(
         shared.getByRole("link", { name: "Last 90 days" })
       ).toHaveAttribute("aria-current", "page")
+      await expect(shared.locator("#period")).toBeInViewport()
+      await expect(shared.locator("#period")).toHaveText(/^Last 90 days/)
       await expect(shared.getByRole("main")).toBeInViewport()
     } finally {
       await reader.close()

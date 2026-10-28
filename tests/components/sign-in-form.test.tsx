@@ -119,8 +119,12 @@ describe("sign-in mode", () => {
       within(alert).getByRole("button", { name: "Resend confirmation email" })
     )
     await waitFor(() => expect(resend).toHaveBeenCalledWith("a@example.test"))
+    // Neutral, like the rest of the flow: nothing goes to an address that
+    // is already confirmed or unknown, so it never claims a send.
     expect(
-      await within(alert).findByText("Confirmation email sent.")
+      await within(alert).findByText(
+        "A new confirmation link is on its way to a@example.test if it still needs confirming."
+      )
     ).toBeInTheDocument()
   })
 
@@ -166,7 +170,10 @@ describe("sign-in mode", () => {
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
     const submit = screen.getByRole("button", { name: "Sign in" })
     await user.click(submit)
-    expect(submit).toBeDisabled()
+    // Pending keeps the button focusable (spinner, aria-busy) and refuses
+    // a second press.
+    expect(submit).toHaveAttribute("aria-busy", "true")
+    expect(submit).toHaveAttribute("aria-disabled", "true")
     await user.click(submit)
     expect(authApi.signIn).toHaveBeenCalledTimes(1)
     release()
@@ -492,5 +499,102 @@ describe("mode toggle", () => {
     expect(details).not.toBeNull()
     expect(details).not.toHaveAttribute("open")
     expect(details).toHaveTextContent("Didn't receive a confirmation email?")
+  })
+
+  it("names a dropped connection instead of something going wrong", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "signIn").mockRejectedValue(
+      new ApiClientError(0, "network_error", "client copy")
+    )
+    render(<SignInForm />)
+    await user.type(screen.getByLabelText("Email address"), "a@example.test")
+    await user.type(screen.getByLabelText("Password"), "correct-horse-9")
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "We couldn’t reach NabaPresence.Check your connection and try again."
+    )
+  })
+
+  it("shows the resend's address error on the email field, without a request", async () => {
+    const user = userEvent.setup()
+    const resend = vi.spyOn(authApi, "resendConfirmation")
+    render(<SignInForm />)
+    await user.click(
+      screen.getByRole("button", { name: "Resend confirmation email" })
+    )
+    expect(await screen.findByText("Enter your email address.")).toBeVisible()
+    expect(screen.getByLabelText("Email address")).toHaveFocus()
+    await user.type(screen.getByLabelText("Email address"), "not-an-email")
+    await user.click(
+      screen.getByRole("button", { name: "Resend confirmation email" })
+    )
+    expect(
+      await screen.findByText("Enter an email address like name@example.co.uk.")
+    ).toBeVisible()
+    expect(resend).not.toHaveBeenCalled()
+  })
+
+  it("shows a refused resend's full message", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "resendConfirmation").mockRejectedValue(
+      new ApiClientError(429, "auth_rate_limited", "x", { retryAfter: 1800 })
+    )
+    render(<SignInForm />)
+    await user.type(screen.getByLabelText("Email address"), "a@example.test")
+    await user.click(
+      screen.getByRole("button", { name: "Resend confirmation email" })
+    )
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Too many attempts. Try again in about 30 minutes."
+    )
+  })
+
+  it("promises a return to `next` only when signing in", async () => {
+    const user = userEvent.setup()
+    render(<SignInForm nextPath="/settings" />)
+    expect(screen.getByText(/you’ll go back to/)).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Switch to create account" })
+    )
+    expect(screen.queryByText(/you’ll go back to/)).not.toBeInTheDocument()
+  })
+})
+
+describe("check your email", () => {
+  async function createAccount() {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "register").mockResolvedValue({
+      authenticated: false,
+    } as Awaited<ReturnType<typeof authApi.register>>)
+    render(<SignInForm initialMode="create-account" />)
+    await user.type(screen.getByLabelText("Your name"), "Sam Fixture")
+    await user.type(screen.getByLabelText("Email address"), "Sam@Example.test")
+    await user.type(
+      screen.getByLabelText("Password"),
+      "correct horse battery staple"
+    )
+    await user.click(screen.getByRole("button", { name: "Create account" }))
+    return user
+  }
+
+  it("moves focus to the new stage and names the address that was sent", async () => {
+    await createAccount()
+    const heading = await screen.findByRole("heading", {
+      name: "Check your email",
+    })
+    await waitFor(() => expect(heading).toHaveFocus())
+    expect(
+      screen.getByText(/Open it to confirm your address and sign in\./)
+    ).toBeInTheDocument()
+    expect(screen.getByText("sam@example.test")).toBeInTheDocument()
+  })
+
+  it("returns focus to the email after Back to sign in", async () => {
+    const user = await createAccount()
+    await screen.findByRole("heading", { name: "Check your email" })
+    await user.click(screen.getByRole("button", { name: "Back to sign in" }))
+    await waitFor(() =>
+      expect(screen.getByLabelText("Email address")).toHaveFocus()
+    )
   })
 })

@@ -16,6 +16,7 @@ export default async function SignInPage({
     next?: string
     invite?: string
     mode?: string
+    email?: string
   }>
 }) {
   const params = await searchParams
@@ -34,7 +35,16 @@ export default async function SignInPage({
       inviteToken={params.invite}
       nextPath={nextPath}
       statusMessage={
-        params.status ? confirmStatusMessage(params.status) : undefined
+        params.status
+          ? confirmStatusMessage(
+              params.status,
+              "sign-in",
+              // Only /auth/confirm adds `email=error`: the visitor was
+              // opening an email link, so the way on is a new
+              // confirmation link or signing in, not a password reset.
+              params.email === "error" ? "email-link" : undefined
+            )
+          : undefined
       }
     />
   )

@@ -72,8 +72,9 @@ function SignInPanel({
       }
     >
       {/* Signing in with an invitation token accepts it, so say so, but only
-          when no confirmation-link status is already explaining the page. */}
-      {inviteToken && !statusMessage ? (
+          when no confirmation-link status is already explaining the page,
+          and only in sign-in mode: creating an account has its own line. */}
+      {inviteToken && !statusMessage && mode === "sign-in" ? (
         <Alert variant="info">
           <AlertTitle>Sign in to accept your invitation</AlertTitle>
           <AlertDescription>

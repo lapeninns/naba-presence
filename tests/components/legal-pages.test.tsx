@@ -135,6 +135,93 @@ describe("legal pages on a phone", () => {
   })
 })
 
+describe("legal page contents", () => {
+  // The ids are public URLs: Google reviewers and support link them.
+  const PRIVACY_IDS = [
+    "google-access",
+    "collect",
+    "retention",
+    "disconnect",
+    "sharing",
+    "security",
+    "rights",
+    "children",
+    "changes",
+  ]
+  const TERMS_IDS = [
+    "accounts",
+    "google",
+    "content",
+    "acceptable-use",
+    "availability",
+    "liability",
+    "ending",
+    "changes",
+    "contact",
+  ]
+
+  it.each([
+    ["Privacy policy", PrivacyPage, PRIVACY_IDS],
+    ["Terms of service", TermsPage, TERMS_IDS],
+  ])(
+    "%s lists every section, in order, as a link to its heading",
+    (_title, Page, ids) => {
+      const { container } = render(<Page />)
+      const nav = screen.getByRole("navigation", { name: "On this page" })
+      expect(nav.closest("main")).not.toBeNull()
+      const links = Array.from(nav.querySelectorAll("a"))
+      const headings = Array.from(
+        container.querySelectorAll("article section > h2")
+      )
+      expect(headings.map((h) => h.id)).toEqual(ids)
+      expect(links.map((a) => a.getAttribute("href"))).toEqual(
+        headings.map((h) => `#${h.id}`)
+      )
+      expect(links.map((a) => a.textContent)).toEqual(
+        headings.map((h) => h.textContent)
+      )
+      for (const link of links) {
+        expect(link.className).toContain("pointer-coarse:min-h-(--np-touch)")
+      }
+      // The contents sit before the first section and stay off paper.
+      expect(
+        nav.compareDocumentPosition(headings[0]) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(nav.className).toMatch(/\bprint:hidden\b/)
+    }
+  )
+
+  it.each([
+    ["Privacy policy", PrivacyPage],
+    ["Terms of service", TermsPage],
+  ])("%s keeps the skip link first and one h1", (title, Page) => {
+    const { container } = render(<Page />)
+    expect(container.querySelector("a")).toBe(
+      screen.getByRole("link", { name: "Skip to content" })
+    )
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
+    expect(
+      screen.getByRole("heading", { level: 1, name: title })
+    ).toBeInTheDocument()
+  })
+
+  it.each([
+    ["Privacy policy", PrivacyPage],
+    ["Terms of service", TermsPage],
+  ])("%s links the privacy email with mailto", (_title, Page) => {
+    render(<Page />)
+    const email = screen.getByRole("link", {
+      name: LEGAL_OPERATOR.privacyEmail,
+    })
+    expect(email).toHaveAttribute(
+      "href",
+      `mailto:${LEGAL_OPERATOR.privacyEmail}`
+    )
+    expect(email.closest("section")).not.toBeNull()
+  })
+})
+
 function escape(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }

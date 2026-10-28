@@ -9,9 +9,12 @@ import type { AuthMessage } from "@/lib/api/auth-errors"
 function AuthErrorAlert({
   message,
   email,
+  inviteToken,
 }: {
   message: AuthMessage
   email?: string
+  /** Sent with a resend, so the new link still leads to the invitation. */
+  inviteToken?: string
 }) {
   return (
     <Alert variant="destructive">
@@ -20,7 +23,7 @@ function AuthErrorAlert({
         <AlertDescription className="flex flex-col items-start gap-2">
           {message.description ? <span>{message.description}</span> : null}
           {message.action === "resend-confirmation" && email ? (
-            <ResendConfirmationButton email={email} />
+            <ResendConfirmationButton email={email} inviteToken={inviteToken} />
           ) : null}
           {message.action === "request-reset-link" ? (
             // Inherits the alert's ink so the link reads as part of the

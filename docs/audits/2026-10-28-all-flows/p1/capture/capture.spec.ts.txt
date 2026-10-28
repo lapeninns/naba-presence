@@ -1,0 +1,678 @@
+// p1 before/after capture: sign-in, auth, invites, entry, legal, shared report.
+//
+// Context options are tests/visual/shoot.mjs's own (viewport height 860,
+// reducedMotion, hasTouch + isMobile below 768, Chromium, colorScheme for the
+// theme) at the repo convention: 390 light, 390 dark, 1280 light. File names
+// follow shoot.mjs too: <state>-chromium-<theme>-<width>.png.
+//
+// Every API the pages call is stubbed with page.route, so no form reaches a
+// real auth provider, invitation or mailer. The only real writes are the
+// owner's share link for F11, made through the share sheet exactly as
+// tests/e2e/reports.spec.ts does, on the throwaway database. Signed-in invite
+// states use the fixture owner's cookie; the session DELETE is stubbed so the
+// fixture session is never destroyed.
+//
+//   CAPTURE_OUT=before|after [CAPTURE_MFA=1] [CAPTURE_ONLY=f05] \
+//     node scripts/run-test-command.mjs e2e pnpm exec playwright test \
+//     --config .omo/p1-capture/capture.config.ts
+import { mkdirSync } from "node:fs"
+import { resolve } from "node:path"
+
+import {
+  expect,
+  test,
+  type Browser,
+  type BrowserContext,
+  type Page,
+  type Route,
+} from "@playwright/test"
+
+import { pageSettled } from "../../tests/e2e/helpers/settled"
+import { readJourneyState } from "../../tests/e2e/helpers/stub-bridge"
+
+const OUT = resolve(
+  "docs/audits/2026-10-28-all-flows/p1/evidence",
+  process.env.CAPTURE_OUT ?? "before",
+  "png"
+)
+mkdirSync(OUT, { recursive: true })
+const ONLY = process.env.CAPTURE_ONLY
+const MFA = process.env.CAPTURE_MFA === "1"
+
+const VARIANTS = [
+  { width: 390, theme: "light" },
+  { width: 390, theme: "dark" },
+  { width: 1280, theme: "light" },
+] as const
+
+type Setup = (page: Page, context: BrowserContext) => Promise<void>
+
+async function newContext(
+  browser: Browser,
+  baseURL: string,
+  variant: (typeof VARIANTS)[number],
+  cookie?: string
+) {
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: variant.width, height: 860 },
+    colorScheme: variant.theme,
+    reducedMotion: "reduce",
+    hasTouch: variant.width < 768,
+    isMobile: variant.width < 768,
+  })
+  if (cookie) {
+    const [name, value] = cookie.split("=", 2)
+    await context.addCookies([{ name, value, url: baseURL }])
+  }
+  return context
+}
+
+async function shoot(
+  browser: Browser,
+  baseURL: string,
+  name: string,
+  setup: Setup,
+  options: { cookie?: string; full?: boolean } = {}
+) {
+  for (const variant of VARIANTS) {
+    const context = await newContext(browser, baseURL, variant, options.cookie)
+    const page = await context.newPage()
+    try {
+      await setup(page, context)
+      await page.waitForTimeout(400)
+      await page.screenshot({
+        path: resolve(
+          OUT,
+          `${name}-chromium-${variant.theme}-${variant.width}.png`
+        ),
+        fullPage: options.full ?? true,
+      })
+    } finally {
+      await context.close()
+    }
+  }
+}
+
+const json =
+  (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  (route: Route) =>
+    route.fulfill({
+      status,
+      contentType: "application/json",
+      headers,
+      body: JSON.stringify(body),
+    })
+// Holds a request long enough to photograph the pending state, then lets it
+// fail, so closing the context never waits on a request left open.
+const holdRoute = async (route: Route) => {
+  await new Promise((resolve) => setTimeout(resolve, 3000))
+  await route.abort().catch(() => {})
+}
+const hold = () => holdRoute
+
+const RATE_LIMITED = {
+  error: "auth_rate_limited",
+  message: "Too many attempts. Try again later.",
+  retryable: true,
+  details: { retryAfter: 840 },
+}
+const LIVE_INVITE = {
+  organisationName: "Fixture Inns",
+  email: "invited@example.test",
+  role: "member",
+  expiresAt: "2099-10-22T14:05:00.000Z",
+}
+const PASSWORD = "correct horse battery staple"
+
+async function goto(page: Page, path: string) {
+  await page.goto(path)
+  await pageSettled(page)
+}
+
+async function fillSignIn(page: Page) {
+  await page.getByLabel("Email address").fill("sam@example.test")
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD)
+}
+
+const run = (id: string) => !ONLY || ONLY.split(",").includes(id)
+
+
+test("F01 sign in", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f01"))
+  const b = baseURL!
+  await shoot(browser, b, "f01-01-initial", (p) => goto(p, "/sign-in"))
+  await shoot(browser, b, "f01-02-next", (p) =>
+    goto(p, "/sign-in?next=%2Freports")
+  )
+  await shoot(browser, b, "f01-03-invalid-credentials", async (p) => {
+    await p.route(
+      "**/api/auth/password/login",
+      json(401, { error: "invalid_credentials", message: "x" })
+    )
+    await goto(p, "/sign-in")
+    await fillSignIn(p)
+    await p.getByRole("button", { name: "Sign in", exact: true }).click()
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+  })
+  await shoot(browser, b, "f01-04-retry-pending", async (p) => {
+    let calls = 0
+    await p.route("**/api/auth/password/login", (route) =>
+      calls++ === 0
+        ? json(401, { error: "invalid_credentials", message: "x" })(route)
+        : holdRoute(route)
+    )
+    await goto(p, "/sign-in")
+    await fillSignIn(p)
+    await p.getByRole("button", { name: "Sign in", exact: true }).click()
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+    await p.getByRole("button", { name: "Sign in", exact: true }).click()
+    await expect(p.getByRole("button", { name: /Signing in/ })).toBeVisible()
+  })
+  await shoot(browser, b, "f01-05-network", async (p) => {
+    await p.route("**/api/auth/password/login", (route) =>
+      route.abort("internetdisconnected")
+    )
+    await goto(p, "/sign-in")
+    await fillSignIn(p)
+    await p.getByRole("button", { name: "Sign in", exact: true }).click()
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+  })
+  await shoot(browser, b, "f01-06-rate-limited", async (p) => {
+    await p.route(
+      "**/api/auth/password/login",
+      json(429, RATE_LIMITED, { "retry-after": "840" })
+    )
+    await goto(p, "/sign-in")
+    await fillSignIn(p)
+    await p.getByRole("button", { name: "Sign in", exact: true }).click()
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+  })
+  await shoot(browser, b, "f01-07-email-link-failed", (p) =>
+    goto(p, "/sign-in?status=invalid_email_link&email=error")
+  )
+  await shoot(browser, b, "f01-08-invite-create-mode", (p) =>
+    goto(p, "/sign-in?invite=fixture-invite-token&mode=create-account")
+  )
+})
+
+test("F02 create account", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f02"))
+  const b = baseURL!
+  const open = (p: Page) => goto(p, "/sign-in?mode=create-account")
+  const fill = async (p: Page) => {
+    await p.getByLabel("Your name").fill("Sam Fixture")
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await p.getByLabel("Password", { exact: true }).fill(PASSWORD)
+  }
+  await shoot(browser, b, "f02-01-initial", open)
+  await shoot(browser, b, "f02-02-validation", async (p) => {
+    await open(p)
+    await p.getByRole("button", { name: "Create account", exact: true }).click()
+    await expect(
+      p.getByText("Enter your name, at least 2 characters.")
+    ).toBeVisible()
+  })
+  await shoot(browser, b, "f02-03-pending", async (p) => {
+    await p.route("**/api/auth/password/register", hold())
+    await open(p)
+    await fill(p)
+    await p.getByRole("button", { name: "Create account", exact: true }).click()
+    await expect(
+      p.getByRole("button", { name: /Creating account/ })
+    ).toBeVisible()
+  })
+  await shoot(browser, b, "f02-04-confirm-sent", async (p) => {
+    await p.route(
+      "**/api/auth/password/register",
+      json(202, { authenticated: false, confirmationRequired: true })
+    )
+    await open(p)
+    await fill(p)
+    await p.getByRole("button", { name: "Create account", exact: true }).click()
+    await expect(
+      p.getByRole("heading", { name: "Check your email" })
+    ).toBeVisible()
+  })
+  await shoot(browser, b, "f02-05-next-note", (p) =>
+    goto(p, "/sign-in?mode=create-account&next=%2Fsettings")
+  )
+})
+
+test("F03 resend confirmation", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f03"))
+  const b = baseURL!
+  const openDisclosure = async (p: Page) => {
+    await goto(p, "/sign-in")
+    await p.getByText("Didn't receive a confirmation email?").click()
+  }
+  const resend = (p: Page) =>
+    p.getByRole("button", { name: "Resend confirmation email" }).click()
+  await shoot(browser, b, "f03-01-empty-email", async (p) => {
+    await p.route(
+      "**/api/auth/password/resend",
+      json(400, {
+        error: "invalid_request",
+        message: "The request did not pass validation.",
+        fieldErrors: { email: "Invalid email address" },
+      })
+    )
+    await openDisclosure(p)
+    await resend(p)
+    await p.waitForTimeout(600)
+  })
+  await shoot(browser, b, "f03-02-sent", async (p) => {
+    await p.route("**/api/auth/password/resend", json(202, { accepted: true }))
+    await openDisclosure(p)
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await resend(p)
+    await p.waitForTimeout(600)
+  })
+  await shoot(browser, b, "f03-03-rate-limited", async (p) => {
+    await p.route(
+      "**/api/auth/password/resend",
+      json(429, RATE_LIMITED, { "retry-after": "840" })
+    )
+    await openDisclosure(p)
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await resend(p)
+    await p.waitForTimeout(600)
+  })
+})
+
+test("F04 confirm email", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f04"))
+  const b = baseURL!
+  const token = "fixture-token-hash-000000000000"
+  await shoot(browser, b, "f04-01-confirm", (p) =>
+    goto(p, `/confirm-email?token_hash=${token}`)
+  )
+  await shoot(browser, b, "f04-02-invited", (p) =>
+    goto(
+      p,
+      `/confirm-email?token_hash=${token}&inviteToken=fixture-invite-token`
+    )
+  )
+  await shoot(browser, b, "f04-03-incomplete", (p) => goto(p, "/confirm-email"))
+  await shoot(browser, b, "f04-04-submitting", async (p) => {
+    // Hold the native POST so the page shows what a slow confirmation looks like.
+    await p.route("**/auth/confirm", (route) =>
+      route.request().method() === "POST" ? holdRoute(route) : route.continue()
+    )
+    await goto(p, `/confirm-email?token_hash=${token}`)
+    // Chromium paints nothing while a held document POST is pending, so the
+    // capture stops the navigation after React's own submit handler has run
+    // (a window listener fires after the root's). Capture-only: the page
+    // itself still posts natively.
+    await p.evaluate(() =>
+      window.addEventListener("submit", (event) => event.preventDefault())
+    )
+    await p
+      .getByRole("button", { name: /^Confirm/ })
+      .click({ noWaitAfter: true })
+    await p.waitForTimeout(600)
+  })
+})
+
+test("F05 two-step verification", async ({ browser, baseURL }) => {
+  test.skip(!MFA || !run("f05"))
+  const b = baseURL!
+  const ONE = {
+    factors: [{ id: "factor-1", friendlyName: "Phone" }],
+    expiresAt: "2099-10-28T10:05:00.000Z",
+  }
+  const TWO = {
+    factors: [
+      { id: "factor-1", friendlyName: "Phone" },
+      { id: "factor-2", friendlyName: "Tablet" },
+    ],
+    expiresAt: "2099-10-28T10:05:00.000Z",
+  }
+  const EXPIRED = {
+    error: "mfa_ticket_invalid",
+    message: "Your sign-in has expired. Sign in again.",
+  }
+  const open = async (p: Page, factors: unknown = ONE) => {
+    await p.route("**/api/auth/mfa/factors", json(200, factors))
+    await goto(p, "/sign-in/verify?next=%2Freports")
+  }
+  const verify = (p: Page) =>
+    p.getByRole("button", { name: "Verify and sign in" }).click()
+  await shoot(browser, b, "f05-01-ready", (p) => open(p))
+  await shoot(browser, b, "f05-02-two-apps", (p) => open(p, TWO))
+  await shoot(browser, b, "f05-03-wrong-code", async (p) => {
+    await p.route(
+      "**/api/auth/mfa/verify",
+      json(400, {
+        error: "mfa_code_invalid",
+        message: "That code is not valid.",
+        fieldErrors: { code: "That code is not valid." },
+        details: { attemptsRemaining: 4 },
+      })
+    )
+    await open(p, TWO)
+    await p.keyboard.type("123456")
+    await verify(p)
+    await expect(p.getByText(/did not match/)).toBeVisible()
+  })
+  await shoot(browser, b, "f05-04-expired", async (p) => {
+    await p.route("**/api/auth/mfa/verify", json(401, EXPIRED))
+    await open(p)
+    await p.keyboard.type("123456")
+    await verify(p)
+    await expect(p.getByText(/expired/).first()).toBeVisible()
+  })
+  await shoot(browser, b, "f05-05-load-failed", async (p) => {
+    await p.route(
+      "**/api/auth/mfa/factors",
+      json(500, { error: "internal_error", message: "x" })
+    )
+    await goto(p, "/sign-in/verify")
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+  })
+  await shoot(browser, b, "f05-06-rate-limited", async (p) => {
+    await p.route(
+      "**/api/auth/mfa/verify",
+      json(
+        429,
+        { ...RATE_LIMITED, details: { retryAfter: 600 } },
+        {
+          "retry-after": "600",
+        }
+      )
+    )
+    await open(p)
+    await p.keyboard.type("123456")
+    await verify(p)
+    await expect(p.getByText(/Too many attempts/)).toBeVisible()
+  })
+  await shoot(browser, b, "f05-07-leaving", async (p) => {
+    await p.route("**/api/auth/mfa/verify", (route) =>
+      route.request().method() === "DELETE" ? holdRoute(route) : route.continue()
+    )
+    await open(p)
+    await p.getByRole("button", { name: "Use a different account" }).click()
+    await p.waitForTimeout(600)
+  })
+})
+
+test("F06 forgot password", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f06"))
+  const b = baseURL!
+  const SENT = json(202, {
+    accepted: true,
+    message: "If an account exists for that email, a reset link has been sent.",
+  })
+  const open = (p: Page) => goto(p, "/forgot-password")
+  const send = (p: Page) =>
+    p.getByRole("button", { name: "Send reset link" }).click()
+  await shoot(browser, b, "f06-01-initial", open)
+  await shoot(browser, b, "f06-02-pending", async (p) => {
+    await p.route("**/api/auth/password/reset/request", hold())
+    await open(p)
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await send(p)
+    await p.waitForTimeout(400)
+  })
+  await shoot(browser, b, "f06-03-sent", async (p) => {
+    await p.route("**/api/auth/password/reset/request", SENT)
+    await open(p)
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await send(p)
+    await expect(
+      p.getByRole("button", { name: /Send another link/ })
+    ).toBeVisible()
+  })
+  await shoot(browser, b, "f06-04-resend-limited", async (p) => {
+    let calls = 0
+    await p.route("**/api/auth/password/reset/request", (route) =>
+      calls++ === 0
+        ? SENT(route)
+        : json(429, RATE_LIMITED, { "retry-after": "840" })(route)
+    )
+    await open(p)
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await send(p)
+    await p.getByRole("button", { name: /Send another link/ }).click()
+    await p.waitForTimeout(600)
+  })
+  await shoot(browser, b, "f06-05-different-email", async (p) => {
+    await p.route("**/api/auth/password/reset/request", SENT)
+    // Typed on sign-in, then "Forgot password?": the address is carried.
+    await goto(p, "/sign-in")
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await p.getByRole("link", { name: "Forgot password?" }).click()
+    await pageSettled(p)
+    await send(p)
+    await p.getByRole("button", { name: "Use a different email" }).click()
+    await p.waitForTimeout(400)
+  })
+  await shoot(browser, b, "f06-06-network", async (p) => {
+    await p.route("**/api/auth/password/reset/request", (route) =>
+      route.abort("internetdisconnected")
+    )
+    await open(p)
+    await p.getByLabel("Email address").fill("sam@example.test")
+    await send(p)
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+  })
+})
+
+test("F07 reset password", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f07"))
+  const b = baseURL!
+  const open = (p: Page) =>
+    goto(p, "/reset-password?token_hash=recovery-token-hash-for-a11y")
+  const update = (p: Page) =>
+    p.getByRole("button", { name: "Update password" }).click()
+  const field = (p: Page) => p.getByLabel("New password", { exact: true })
+  await shoot(browser, b, "f07-01-no-token", (p) => goto(p, "/reset-password"))
+  await shoot(browser, b, "f07-02-form", open)
+  await shoot(browser, b, "f07-03-stale-error", async (p) => {
+    await open(p)
+    await field(p).fill("short")
+    await update(p)
+    await expect(
+      p.getByText("Use at least 15 characters.").first()
+    ).toBeVisible()
+    await field(p).fill(PASSWORD)
+  })
+  await shoot(browser, b, "f07-04-breached", async (p) => {
+    const message =
+      "This password has appeared in a known data breach, so it is easy to guess. Choose a different one."
+    await p.route(
+      "**/api/auth/password/reset/complete",
+      json(400, {
+        error: "invalid_request",
+        message: "The request did not pass validation.",
+        fieldErrors: { password: message },
+        details: [{ code: "password_breached", path: ["password"], message }],
+      })
+    )
+    await open(p)
+    await field(p).fill(PASSWORD)
+    await update(p)
+    await expect(p.getByText(/known data breach/).first()).toBeVisible()
+  })
+  await shoot(browser, b, "f07-05-expired-link", async (p) => {
+    await p.route(
+      "**/api/auth/password/reset/complete",
+      json(400, { error: "invalid_email_link", message: "x" })
+    )
+    await open(p)
+    await field(p).fill(PASSWORD)
+    await update(p)
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+  })
+  await shoot(browser, b, "f07-06-outcome-unknown", async (p) => {
+    await p.route(
+      "**/api/auth/password/reset/complete",
+      json(503, {
+        error: "password_reset_outcome_unknown",
+        message:
+          "We could not confirm whether your new password was saved. Try signing in with the new password before requesting another reset link.",
+      })
+    )
+    await open(p)
+    await field(p).fill(PASSWORD)
+    await update(p)
+    await expect(p.getByRole("main").getByRole("alert")).toBeVisible()
+  })
+})
+
+test("F08 accept invitation", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f08"))
+  const b = baseURL!
+  const state = await readJourneyState()
+  const ownerEmail = await (async () => {
+    const context = await newContext(browser, b, VARIANTS[0], state.cookie)
+    const response = await context.request.get("/api/session")
+    const email = (await response.json())?.session?.email as string
+    await context.close()
+    return email
+  })()
+  const INVITE = /\/api\/invitations\/[^/?]+(\?.*)?$/
+  const lookup = (
+    p: Page,
+    handler: (route: Route) => unknown,
+    post?: (route: Route) => unknown
+  ) =>
+    p.route(INVITE, (route) =>
+      route.request().method() === "GET"
+        ? handler(route)
+        : post
+          ? post(route)
+          : route.abort()
+    )
+  // Never let a capture end the fixture owner's session.
+  const guardSession = (p: Page) =>
+    p.route("**/api/session**", (route) =>
+      route.request().method() === "DELETE"
+        ? holdRoute(route)
+        : route.continue()
+    )
+  const path = "/invite/fixture-invite-token"
+  await shoot(browser, b, "f08-01-loading", async (p) => {
+    await lookup(p, hold())
+    await p.goto(path)
+    await p.waitForTimeout(800)
+  })
+  await shoot(browser, b, "f08-02-create", async (p) => {
+    await lookup(p, json(200, LIVE_INVITE))
+    await goto(p, path)
+  })
+  await shoot(browser, b, "f08-03-toggled-sign-in", async (p) => {
+    await lookup(p, json(200, LIVE_INVITE))
+    await goto(p, path)
+    await p.getByRole("button", { name: "Switch to sign in" }).click()
+  })
+  await shoot(browser, b, "f08-04-lookup-failed", async (p) => {
+    await lookup(p, json(500, { error: "internal_error", message: "x" }))
+    await goto(p, path)
+    await expect(p.getByRole("button", { name: "Try again" })).toBeVisible()
+  })
+  await shoot(browser, b, "f08-05-expired", async (p) => {
+    await lookup(p, json(410, { error: "invitation_expired", message: "x" }))
+    await goto(p, path)
+  })
+  await shoot(
+    browser,
+    b,
+    "f08-06-used-signed-in",
+    async (p) => {
+      await guardSession(p)
+      await lookup(
+        p,
+        json(409, { error: "invitation_already_used", message: "x" })
+      )
+      await goto(p, path)
+    },
+    { cookie: state.cookie }
+  )
+  await shoot(
+    browser,
+    b,
+    "f08-07-match",
+    async (p) => {
+      await guardSession(p)
+      await lookup(p, json(200, { ...LIVE_INVITE, email: ownerEmail }))
+      await goto(p, path)
+    },
+    { cookie: state.cookie }
+  )
+  await shoot(
+    browser,
+    b,
+    "f08-08-accepting",
+    async (p) => {
+      await guardSession(p)
+      await lookup(p, json(200, { ...LIVE_INVITE, email: ownerEmail }), hold())
+      await goto(p, path)
+      await p.getByRole("button", { name: "Accept invitation" }).click()
+      await p.waitForTimeout(400)
+    },
+    { cookie: state.cookie }
+  )
+  await shoot(
+    browser,
+    b,
+    "f08-09-mismatch",
+    async (p) => {
+      await guardSession(p)
+      await lookup(p, json(200, LIVE_INVITE))
+      await goto(p, path)
+    },
+    { cookie: state.cookie }
+  )
+})
+
+test("F09 entry, F10 legal", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f09"))
+  const b = baseURL!
+  for (const [name, path] of [
+    ["f10-01-privacy", "/privacy"],
+    ["f10-02-terms", "/terms"],
+    ["f10-03-privacy-retention", "/privacy#retention"],
+  ] as const) {
+    await shoot(browser, b, name, (p) => goto(p, path), { full: false })
+  }
+  await shoot(browser, b, "f10-04-privacy-full", (p) => goto(p, "/privacy"))
+})
+
+test("F11 shared report", async ({ browser, baseURL }) => {
+  test.skip(MFA || !run("f11"))
+  const b = baseURL!
+  const state = await readJourneyState()
+  // Make one live link through the owner's share sheet (reports.spec.ts).
+  const context = await newContext(browser, b, VARIANTS[2], state.cookie)
+  const page = await context.newPage()
+  await page.goto(`/clients/${state.clientId}`)
+  await page.getByRole("button", { name: "More actions", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Share report" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog
+    .locator('[data-slot="dialog-footer"]')
+    .getByRole("button", { name: "Create link" })
+    .click()
+  const url = await dialog
+    .getByRole("textbox", { name: "Report link" })
+    .inputValue()
+  const sharePath = new URL(url).pathname
+  await context.close()
+
+  await shoot(browser, b, "f11-01-report", (p) => goto(p, sharePath))
+  await shoot(
+    browser,
+    b,
+    "f11-02-after-period-switch",
+    async (p) => {
+      await goto(p, sharePath)
+      await p.getByRole("link", { name: "Last 90 days" }).click()
+      await pageSettled(p)
+    },
+    { full: false }
+  )
+  await shoot(browser, b, "f11-03-not-found", (p) =>
+    goto(p, "/share/report/not-a-live-link-0000000000000000")
+  )
+})

@@ -9,9 +9,10 @@ import {
 import { cn } from "@/lib/utils"
 
 /**
- * A standalone link out of a legal page: 44px tall on touch (WCAG 2.5.8; the
- * project floor), the focus halo, and the underline on hover. Links inside
- * running text stay inline and are exempt from the target size.
+ * A standalone link on a legal page (the contents, the footer): 44px tall on
+ * touch (WCAG 2.5.8; the project floor), the focus halo, and the underline on
+ * hover. Links inside running text stay inline and are exempt from the target
+ * size.
  */
 const LEGAL_NAV_LINK_CLASS =
   "inline-flex min-h-6 items-center rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none aria-[current=page]:font-semibold aria-[current=page]:text-ink pointer-coarse:min-h-(--np-touch)"
@@ -36,17 +37,26 @@ const LEGAL_LINKS = [
  * (`px-safe`, `pb-safe`), running text is `text-body` (16px on touch) held to
  * a readable measure, and anything unbreakable (a scope URL, an email
  * address) wraps instead of pushing the page sideways at 320px (WCAG 1.4.10).
+ *
+ * `contents` lists the page's sections, in order, for the "On this page"
+ * list: plain fragment links, so it needs no JavaScript, and each page builds
+ * it from the same object its `LegalSection`s read, so the two cannot drift.
+ * Printing keeps only the document itself: the brand link, the contents and
+ * the footer stay on screen.
  */
 function LegalDocument({
   title,
   summary,
   current,
+  contents = [],
   children,
 }: {
   title: string
   summary: React.ReactNode
   /** Which legal page this is, so the footer marks it as the current page. */
   current?: "privacy" | "terms"
+  /** The page's sections in order, for the "On this page" list. */
+  contents?: ReadonlyArray<{ id: string; title: string }>
   children: React.ReactNode
 }) {
   assertLegalDetailsForProduction()
@@ -58,10 +68,10 @@ function LegalDocument({
       >
         Skip to content
       </a>
-      <header className="mx-auto flex h-(--np-appbar-h) w-full max-w-3xl items-center px-2 sm:mt-6 sm:px-4">
+      <header className="mx-auto flex h-(--np-appbar-h) w-full max-w-3xl items-center px-2 sm:mt-6 sm:px-4 print:hidden">
         <Link
           href="/"
-          className="inline-flex min-h-(--np-touch) items-center gap-1 rounded-md px-2 text-ink-secondary focus-halo hover-fine:bg-fill focus-visible:outline-none"
+          className="inline-flex min-h-(--np-touch) items-center gap-1 rounded-md px-2 text-ink-secondary focus-halo focus-visible:outline-none hover-fine:bg-fill"
           aria-label="NabaPresence home"
         >
           <ChevronLeft aria-hidden className="size-5" strokeWidth={1.5} />
@@ -73,7 +83,7 @@ function LegalDocument({
         tabIndex={-1}
         className="mx-auto flex w-full max-w-3xl min-w-0 flex-col pt-2 pb-4 outline-none sm:px-6 sm:pt-4"
       >
-        <article className="flex min-w-0 flex-col gap-8 px-4 py-4 wrap-break-word sm:rounded-(--np-radius-panel) sm:bg-surface sm:p-10 [&_code]:font-mono [&_code]:wrap-anywhere">
+        <article className="flex min-w-0 flex-col gap-8 px-4 py-4 wrap-break-word sm:rounded-(--np-radius-panel) sm:bg-surface sm:p-10 print:bg-transparent print:p-0 [&_code]:font-mono [&_code]:wrap-anywhere">
           <header className="flex flex-col gap-2">
             <h1 className="text-page-title font-semibold text-balance text-ink">
               {title}
@@ -83,10 +93,32 @@ function LegalDocument({
             </p>
             <div className="max-w-prose text-body text-ink">{summary}</div>
           </header>
+          {contents.length > 0 ? (
+            <nav aria-labelledby="legal-contents" className="print:hidden">
+              <h2
+                id="legal-contents"
+                className="text-ui font-semibold text-ink-muted"
+              >
+                On this page
+              </h2>
+              <ol className="mt-2 grid gap-x-6 sm:grid-cols-2">
+                {contents.map((section) => (
+                  <li key={section.id} className="flex">
+                    <a
+                      href={`#${section.id}`}
+                      className={cn(LEGAL_NAV_LINK_CLASS, "text-ui text-ink")}
+                    >
+                      {section.title}
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          ) : null}
           {children}
         </article>
       </main>
-      <footer className="mx-auto w-full max-w-3xl px-4 pb-10 sm:px-6 sm:pb-16">
+      <footer className="mx-auto w-full max-w-3xl px-4 pb-10 sm:px-6 sm:pb-16 print:hidden">
         <nav
           aria-label="Legal"
           className="flex flex-wrap gap-x-5 gap-y-1 text-ui text-ink-muted"
@@ -109,6 +141,11 @@ function LegalDocument({
   )
 }
 
+/**
+ * One section, and the target of its contents link or a shared URL
+ * (`/privacy#retention`): the heading keeps a little air above it when jumped
+ * to, and is not printed alone at the foot of a page.
+ */
 function LegalSection({
   id,
   title,
@@ -120,7 +157,10 @@ function LegalSection({
 }) {
   return (
     <section aria-labelledby={id} className="flex min-w-0 flex-col gap-3">
-      <h2 id={id} className="text-title font-semibold text-ink">
+      <h2
+        id={id}
+        className="scroll-mt-4 text-section font-semibold text-ink print:break-after-avoid"
+      >
         {title}
       </h2>
       <div

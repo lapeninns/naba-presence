@@ -1,0 +1,35 @@
+// p1 UX capture harness (gitignored copy; reference text is kept in
+// docs/audits/2026-10-28-all-flows/p1/capture/). Reuses the e2e harness:
+// the stub bridge seeds the "Sprint 5 Journey" fixture tenant on the
+// throwaway PostgreSQL that scripts/run-test-command.mjs starts, and the
+// production build is served on PLAYWRIGHT_PORT. CAPTURE_MFA=1 turns on
+// MFA_ENABLED for the /sign-in/verify pass only.
+import { defineConfig } from "@playwright/test"
+
+import base from "../../playwright.config"
+
+const port = process.env.PLAYWRIGHT_PORT ?? "3510"
+const baseURL = `http://127.0.0.1:${port}`
+const webServer = Array.isArray(base.webServer)
+  ? base.webServer[0]
+  : base.webServer
+
+export default defineConfig({
+  ...base,
+  testDir: ".",
+  globalSetup: "../../tests/e2e/helpers/stub-bridge.ts",
+  testMatch: /capture\.spec\.ts$/,
+  outputDir: "../../test-results-p1capture",
+  retries: 0,
+  reporter: "list",
+  timeout: 240_000,
+  projects: [{ name: "capture", use: { baseURL } }],
+  webServer: {
+    ...webServer!,
+    env: {
+      ...webServer!.env,
+      ...(process.env.CAPTURE_MFA === "1" ? { MFA_ENABLED: "true" } : {}),
+    },
+    timeout: 60_000,
+  },
+})

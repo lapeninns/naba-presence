@@ -40,7 +40,7 @@ describe("ForgotPasswordForm", () => {
     await user.click(screen.getByRole("button", { name: "Send reset link" }))
     const status = await screen.findByRole("status")
     expect(status).toHaveTextContent(
-      "If an account exists for a@example.test, a reset link is on its way."
+      "If a@example.test has an account, a reset link is on its way. Open it to choose a new password."
     )
     expect(
       screen.queryByRole("button", { name: "Send reset link" })
@@ -69,7 +69,10 @@ describe("ForgotPasswordForm", () => {
     await user.type(screen.getByLabelText("Email address"), "a@example.test")
     await user.click(screen.getByRole("button", { name: "Send reset link" }))
     const busy = await screen.findByRole("button", { name: "Sending…" })
-    expect(busy).toBeDisabled()
+    // Pending keeps the button focusable rather than natively disabled.
+    expect(busy).toHaveAttribute("aria-busy", "true")
+    expect(busy).toHaveAttribute("aria-disabled", "true")
+    expect(busy).toHaveFocus()
     await user.click(busy)
     expect(request).toHaveBeenCalledTimes(1)
   })
@@ -102,7 +105,9 @@ describe("ResetPasswordForm", () => {
 
   it("updates the password and lands on /inbox", async () => {
     const user = userEvent.setup()
-    vi.spyOn(authApi, "completePasswordReset").mockResolvedValue({ mfaRequired: false })
+    vi.spyOn(authApi, "completePasswordReset").mockResolvedValue({
+      mfaRequired: false,
+    })
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Update password" }))
@@ -119,13 +124,16 @@ describe("ResetPasswordForm", () => {
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Update password" }))
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "That link is invalid or has expired."
-    )
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent("That link is invalid or has expired.")
+    await waitFor(() => expect(alert.parentElement).toHaveFocus())
     expect(screen.queryByLabelText("New password")).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("link", { name: "Request another link" })
-    ).toBeInTheDocument()
+    // One way on, the same block button as the missing-token state; the
+    // alert's own inline link is dropped so it isn't offered twice.
+    const links = screen.getAllByRole("link", { name: "Request another link" })
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAttribute("href", "/forgot-password")
+    expect(alert).not.toContainElement(links[0])
   })
 
   it("keeps the form for a non-terminal error", async () => {
@@ -177,7 +185,7 @@ describe("ResetPasswordForm", () => {
     ).toBeInTheDocument()
   })
 
-  it("submits a letters-only password of 12 or more characters", async () => {
+  it("submits a letters-only password of 15 or more characters", async () => {
     const user = userEvent.setup()
     const complete = vi
       .spyOn(authApi, "completePasswordReset")
@@ -213,7 +221,8 @@ describe("ResetPasswordForm", () => {
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Update password" }))
     const busy = await screen.findByRole("button", { name: "Updating…" })
-    expect(busy).toBeDisabled()
+    expect(busy).toHaveAttribute("aria-busy", "true")
+    expect(busy).toHaveAttribute("aria-disabled", "true")
     await user.click(busy)
     expect(complete).toHaveBeenCalledTimes(1)
     expect(complete).toHaveBeenCalledWith({

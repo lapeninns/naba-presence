@@ -17,11 +17,29 @@ export const metadata: Metadata = {
 // Public and static: no session, no database. See LegalDocument.
 export const dynamic = "force-static"
 
+/**
+ * The sections in reading order: their headings and the "On this page" list
+ * both come from here. The ids are public URLs (`/terms#contact`), so
+ * never rename one.
+ */
+const SECTIONS = {
+  accounts: { id: "accounts", title: "Your account" },
+  google: { id: "google", title: "Connecting Google" },
+  content: { id: "content", title: "Replies and profile changes" },
+  acceptableUse: { id: "acceptable-use", title: "Acceptable use" },
+  availability: { id: "availability", title: "Availability and changes" },
+  liability: { id: "liability", title: "Liability" },
+  ending: { id: "ending", title: "Ending use" },
+  changes: { id: "changes", title: "Changes to these terms" },
+  contact: { id: "contact", title: "Contact and governing law" },
+} as const
+
 export default function TermsPage() {
   const { legalName, registeredAddress, privacyEmail } = LEGAL_OPERATOR
   return (
     <LegalDocument
       current="terms"
+      contents={Object.values(SECTIONS)}
       title="Terms of service"
       summary={
         <p>
@@ -34,7 +52,7 @@ export default function TermsPage() {
         </p>
       }
     >
-      <LegalSection id="accounts" title="Your account">
+      <LegalSection {...SECTIONS.accounts}>
         <p>
           Access is by invitation to an organisation. Keep your sign-in details
           private and tell us promptly if you think someone else has used them.
@@ -43,7 +61,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="google" title="Connecting Google">
+      <LegalSection {...SECTIONS.google}>
         <p>
           To manage a Business Profile you connect a Google account that already
           has access to it. You confirm that you are allowed to manage the
@@ -62,7 +80,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="content" title="Replies and profile changes">
+      <LegalSection {...SECTIONS.content}>
         <p>
           NabaPresence may suggest replies and changes, including drafts written
           with the help of AI. Nothing is published to Google until a person
@@ -73,7 +91,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="acceptable-use" title="Acceptable use">
+      <LegalSection {...SECTIONS.acceptableUse}>
         <ul>
           <li>
             Do not post fake, misleading or incentivised reviews or replies.
@@ -94,7 +112,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="availability" title="Availability and changes">
+      <LegalSection {...SECTIONS.availability}>
         <p>
           We work to keep NabaPresence available and your data safe, but the
           service depends on Google’s APIs and other providers and is offered as
@@ -104,7 +122,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="liability" title="Liability">
+      <LegalSection {...SECTIONS.liability}>
         <p>
           Nothing in these terms limits liability that cannot be limited by law.
           Otherwise, we are not liable for indirect or consequential loss, or
@@ -113,7 +131,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="ending" title="Ending use">
+      <LegalSection {...SECTIONS.ending}>
         <p>
           You can stop using NabaPresence at any time by disconnecting your
           Google accounts and asking us to close your organisation. We may end
@@ -122,7 +140,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="changes" title="Changes to these terms">
+      <LegalSection {...SECTIONS.changes}>
         <p>
           We may update these terms. The effective date above shows the current
           version, and we will tell organisation owners about significant
@@ -130,10 +148,14 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="contact" title="Contact and governing law">
+      <LegalSection {...SECTIONS.contact}>
         <p>
-          Questions about these terms: {privacyEmail}. These terms are governed
-          by the laws of England and Wales, and its courts have jurisdiction.
+          Questions about these terms:{" "}
+          <a className={INLINE_LINK_CLASS} href={`mailto:${privacyEmail}`}>
+            {privacyEmail}
+          </a>
+          . These terms are governed by the laws of England and Wales, and its
+          courts have jurisdiction.
         </p>
       </LegalSection>
     </LegalDocument>
