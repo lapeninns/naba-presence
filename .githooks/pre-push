@@ -23,6 +23,13 @@ fi
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Normal discovery now identifies this worktree. Git's hook-local variables
+# would make checks that create scratch repositories operate on this repo's
+# Git directory instead; keep those child repositories isolated.
+for git_local_env_name in $(git rev-parse --local-env-vars); do
+  unset "$git_local_env_name"
+done
+
 # 0 when every path on stdin is documentation, 1 otherwise. An empty list
 # counts as documentation: nothing that needs checking changed.
 docs_only() {
