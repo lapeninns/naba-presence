@@ -60,7 +60,7 @@ function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
   if (state.search) {
     chips.push({
       key: "search",
-      label: `${FILTER_NAMES.search}: "${state.search}"`,
+      label: `${FILTER_NAMES.search}: “${state.search}”`,
       clear: { search: "" },
     })
   }

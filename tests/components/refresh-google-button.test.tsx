@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { refreshResultToast } from "@/components/performance/refresh-google-button"
 import { ReportActionsMenu } from "@/components/reporting/report-actions-menu"
 import { Toaster } from "@/components/ui/toast"
 
@@ -189,4 +190,35 @@ describe("Refresh from Google in the report's actions menu", () => {
       /already running/
     )
   })
+})
+
+describe("refreshResultToast at the per-request listing cap", () => {
+  const outcomes = (count: number) =>
+    Array.from({ length: count }, () => ({ status: "succeeded" as const }))
+
+  it.each([
+    ["performance", 25],
+    ["keywords", 10],
+  ] as const)(
+    "treats a %s walk that reached %i listings as only started",
+    (kind, cap) => {
+      // The server stops at its cap without setting `truncated`, so a full
+      // count does not prove nothing is left.
+      expect(
+        refreshResultToast(
+          { organisations: [{ outcomes: outcomes(cap) }], truncated: false },
+          { kind }
+        )
+      ).toBeNull()
+      expect(
+        refreshResultToast(
+          {
+            organisations: [{ outcomes: outcomes(cap - 1) }],
+            truncated: false,
+          },
+          { kind }
+        )
+      ).toMatchObject({ type: "success", title: "Refreshed from Google" })
+    }
+  )
 })

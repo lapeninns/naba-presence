@@ -59,7 +59,7 @@ describe("ActiveFilterChips", () => {
     expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
     // Rating is a pressed chip above the list, so it is not drawn twice.
     expect(screen.queryByText(/^Rating:/)).not.toBeInTheDocument()
-    expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
+    expect(screen.getByText("Search: “slow”")).toBeInTheDocument()
     await user.click(
       screen.getByRole("button", { name: "Remove filter: Venue: Riverside" })
     )

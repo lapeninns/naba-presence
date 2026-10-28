@@ -340,6 +340,55 @@ describe("BulkActionBar", () => {
     expect(screen.queryByText("Skipped")).not.toBeInTheDocument()
   })
 
+  it("keeps the rows Approve skipped ticked after a partial result", async () => {
+    mutateAsync.mockResolvedValueOnce({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "skipped", code: "approval_not_pending" },
+      ],
+    })
+    const user = userEvent.setup()
+    // "c" is not waiting for approval: Approve leaves it out before asking.
+    renderBar(
+      [row("a"), row("b"), row("c", { workflowStatus: "drafted" })],
+      ["a", "b", "c"]
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Approve 2 of 3" })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    expect(await screen.findByText("Skipped")).toBeInTheDocument()
+    expect(screen.getByTestId("ticked")).toHaveTextContent(/^b,c$/)
+  })
+
+  it("leaves a selection cancelled while the run was out cancelled", async () => {
+    let answer: (value: BulkReviewResult) => void = () => {}
+    mutateAsync.mockReturnValueOnce(
+      new Promise<BulkReviewResult>((resolve) => {
+        answer = resolve
+      })
+    )
+    const user = userEvent.setup()
+    renderBar([row("a"), row("b")], ["a", "b"])
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    await user.click(screen.getByRole("button", { name: "test: cancel" }))
+    answer({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "skipped", code: "approval_not_pending" },
+      ],
+    })
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(screen.getByTestId("ticked")).toBeEmptyDOMElement()
+    )
+  })
+
   it("leaves a receipt with the batch link when the engine queues everything", async () => {
     mutateAsync.mockResolvedValueOnce({
       operationId: "op-1",
