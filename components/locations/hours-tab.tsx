@@ -1,13 +1,6 @@
 "use client"
 
-import { Globe } from "lucide-react"
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react"
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
@@ -33,6 +26,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
+import { showToast } from "@/components/ui/toast"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import {
   fetchHours,
@@ -123,25 +117,25 @@ function isEmptySchedule(hours: HoursState["google"]) {
  * Every non-blocking note about the schedule in ONE notice (see
  * `hoursNotes`): a single note reads as before; several become one list
  * under a count, so a phone shows one panel, not a stack of near-identical
- * banners, before the first day row.
+ * banners, before the first day row. A note's action is drawn from
+ * `actions` by its kind; a kind with no control (editing is off) is left out.
  */
 function HoursNotice({
   notes,
-  reconcile,
+  actions,
 }: {
   notes: HoursNote[]
-  reconcile: ReactNode
+  actions: Partial<Record<NonNullable<HoursNote["action"]>, ReactNode>>
 }) {
   if (notes.length === 0) return null
   if (notes.length === 1) {
     const note = notes[0]!
+    const action = note.action ? actions[note.action] : null
     return (
       <Alert variant={note.tone}>
         <AlertTitle>{note.title ?? "Heads up"}</AlertTitle>
         <AlertDescription>{note.description}</AlertDescription>
-        {note.action && reconcile ? (
-          <AlertActions>{reconcile}</AlertActions>
-        ) : null}
+        {action ? <AlertActions>{action}</AlertActions> : null}
       </Alert>
     )
   }
@@ -154,17 +148,18 @@ function HoursNotice({
       <AlertTitle>{notes.length} things to know about these hours</AlertTitle>
       <AlertDescription>
         <ul className="mt-1 flex list-disc flex-col gap-2 pl-4">
-          {notes.map((note) => (
-            <li key={note.key}>
-              {note.title ? (
-                <strong className="font-semibold">{note.title}. </strong>
-              ) : null}
-              {note.description}
-              {note.action && reconcile ? (
-                <span className="mt-2 flex">{reconcile}</span>
-              ) : null}
-            </li>
-          ))}
+          {notes.map((note) => {
+            const action = note.action ? actions[note.action] : null
+            return (
+              <li key={note.key}>
+                {note.title ? (
+                  <strong className="font-semibold">{note.title}. </strong>
+                ) : null}
+                {note.description}
+                {action ? <span className="mt-2 flex">{action}</span> : null}
+              </li>
+            )
+          })}
         </ul>
       </AlertDescription>
     </Alert>
@@ -206,6 +201,7 @@ function HoursForm({
     () => new Set()
   )
   const [reconciling, setReconciling] = useState(false)
+  const [keepingGoogle, setKeepingGoogle] = useState(false)
   const refresh = useRefreshHours(locationId)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -215,7 +211,10 @@ function HoursForm({
   // A special day's fields sit in its sheet: a summary link opens it first.
   const editorRef = useRef<HoursEditorHandle>(null)
 
-  const issues = useMemo(() => validateHours(draft), [draft])
+  const issues = useMemo(
+    () => validateHours(draft, hours.supportedHoursTypes),
+    [draft, hours.supportedHoursTypes]
+  )
   const fieldErrors = useMemo(() => {
     if (attempts === 0) return {}
     const map: Record<string, string> = {}
@@ -420,13 +419,18 @@ function HoursForm({
   })
   const googleEmpty = isEmptySchedule(hours.google)
   // The zone is said only when it is not the viewer's own: "UK time" for a
-  // manager abroad, nothing for someone on the venue's clock.
+  // manager abroad, nothing for someone on the venue's clock. It is the
+  // Regular hours group's caption, on the times it qualifies.
   const viewerZone = useViewerTimeZone()
   const zoneLabel = formatTimeZoneLabel(
     hours.location.timezone,
     viewerZone ?? hours.location.timezone
   )
-  const notes = hoursNotes(hours, { gated: Boolean(gate), googleEmpty })
+  const notes = hoursNotes(hours, {
+    gated: Boolean(gate),
+    googleEmpty,
+    draftEmpty: isEmptySchedule(draft),
+  })
 
   async function reconcile() {
     setReconciling(true)
@@ -447,6 +451,37 @@ function HoursForm({
     }
   }
 
+  /**
+   * "Keep Google’s hours": Google's schedule as it is now becomes the draft.
+   * It is read fresh through "Check Google now" (not the possibly stale
+   * `hours.google`), so the change rows compare the draft with the same read
+   * and an exact copy reads "No changes to publish". Nothing is saved: the
+   * operator keeps it with Save here, the usual revision-checked save, or
+   * discards it.
+   */
+  async function keepGoogle() {
+    setKeepingGoogle(true)
+    try {
+      const fresh = await refresh.mutateAsync()
+      setDraft(structuredClone(fresh.google))
+      setFormError(null)
+      showToast({
+        kind: "local",
+        type: "info",
+        title: "Google’s hours are in your draft",
+        description:
+          "Nothing is saved yet. Save here to keep them in NabaPresence.",
+      })
+    } catch (error) {
+      if (!(error instanceof Error)) throw error
+      setFormError(
+        "Google’s current hours could not be loaded. Your draft is unchanged. Try again."
+      )
+    } finally {
+      setKeepingGoogle(false)
+    }
+  }
+
   return (
     <EditorFrame
       title="Opening hours"
@@ -455,9 +490,18 @@ function HoursForm({
       footer={
         <EditorFooter
           status={isDirty ? "edited" : STATUS[hours.status]}
-          isDirty={isDirty || rows.length > 0}
+          // Something to publish only when the draft differs from Google:
+          // edits that already match it leave "No changes to publish" and
+          // Save here, not a Review that would send nothing.
+          isDirty={rows.length > 0}
           canDiscard={isDirty}
-          changeCount={rows.length}
+          // A clean Google-side change is not "N changes not on Google":
+          // the bar says "Changed on Google", as the header pill does.
+          changeCount={
+            !isDirty && hours.status === "google_dirty"
+              ? undefined
+              : rows.length
+          }
           emptyOnGoogle={googleEmpty ? "No hours on Google" : undefined}
           onReview={review}
           onDiscard={() => setDiscardOpen(true)}
@@ -484,20 +528,41 @@ function HoursForm({
 
       <HoursNotice
         notes={notes}
-        reconcile={
-          disabled ? null : (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={reconciling}
-              onClick={reconcile}
-            >
-              {reconciling
-                ? "Checking Google…"
-                : "Match Google closing boundaries"}
-            </Button>
-          )
+        actions={
+          disabled
+            ? {}
+            : {
+                reconcile: (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={reconciling}
+                    onClick={reconcile}
+                  >
+                    {reconciling
+                      ? "Checking Google…"
+                      : "Match Google closing boundaries"}
+                  </Button>
+                ),
+                // It replaces the whole draft, so it never runs over
+                // unsaved edits: those are saved or discarded first.
+                "keep-google": isDirty ? (
+                  <span className="text-ui text-ink-secondary">
+                    Save or discard your edits first to use Google’s hours.
+                  </span>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={keepingGoogle}
+                    onClick={keepGoogle}
+                  >
+                    {keepingGoogle ? "Checking Google…" : "Keep Google’s hours"}
+                  </Button>
+                ),
+              }
         }
       />
 
@@ -527,20 +592,6 @@ function HoursForm({
         onNavigate={(fieldId) => editorRef.current?.reveal(fieldId)}
       />
 
-      {zoneLabel ? (
-        <p className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
-          <Globe
-            className="size-4 text-ink-muted"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          <span>
-            Times are in{" "}
-            <strong className="font-semibold text-ink">{zoneLabel}</strong>.
-          </span>
-        </p>
-      ) : null}
-
       <GoogleFreshness
         observedAt={hours.observedAt}
         refreshing={refresh.isPending}
@@ -557,6 +608,7 @@ function HoursForm({
         errors={fieldErrors}
         supportedHoursTypes={hours.supportedHoursTypes}
         timeZone={hours.location.timezone}
+        timeZoneLabel={zoneLabel}
         serviceNote={serviceNote(hours.warnings)}
       />
 

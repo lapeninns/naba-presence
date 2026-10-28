@@ -8,13 +8,32 @@ import { emptyHours } from "@/lib/locations/forms/hours"
 describe("hours editor boundary validation", () => {
   it("treats a closed special period as one day because Google ignores its end date", () => {
     const hours = emptyHours()
-    hours.special = [{ effectiveDate: "2026-12-24", endDate: "2026-12-26", isClosed: true, opensAt: null, closesAt: null }]
+    hours.special = [
+      {
+        effectiveDate: "2026-12-24",
+        endDate: "2026-12-26",
+        isClosed: true,
+        opensAt: null,
+        closesAt: null,
+      },
+    ]
     expect(validateHours(hours)).toEqual([])
-    hours.special.push({ effectiveDate: "2026-12-26", endDate: "2026-12-26", isClosed: false, opensAt: "12:00", closesAt: "15:00" })
+    hours.special.push({
+      effectiveDate: "2026-12-26",
+      endDate: "2026-12-26",
+      isClosed: false,
+      opensAt: "12:00",
+      closesAt: "15:00",
+    })
     expect(validateHours(hours)).toEqual([])
     hours.special[1].effectiveDate = "2026-12-24"
     hours.special[1].endDate = "2026-12-24"
-    expect(validateHours(hours)).toContainEqual(expect.objectContaining({ fieldId: "special-1-date", message: expect.stringContaining("overlaps") }))
+    expect(validateHours(hours)).toContainEqual(
+      expect.objectContaining({
+        fieldId: "special-1-date",
+        message: expect.stringContaining("overlaps"),
+      })
+    )
     hours.special[1].effectiveDate = "2026-12-27"
     hours.special[1].endDate = "2026-12-27"
     expect(validateHours(hours)).toEqual([])
@@ -119,5 +138,50 @@ describe("hours editor boundary validation", () => {
       { opensAt: "18:00", closesAt: "02:00", closeDayOfWeek: 1 },
     ]
     expect(withSplitPeriod(original, 0)).toEqual(original)
+  })
+
+  it("names a special day by its date, not its position in the list", () => {
+    const hours = emptyHours()
+    hours.special = [
+      {
+        effectiveDate: "2099-12-26",
+        isClosed: false,
+        opensAt: "10:00",
+        closesAt: "10:00",
+      },
+      { effectiveDate: "", isClosed: true, opensAt: null, closesAt: null },
+    ]
+    const labels = validateHours(hours).map((issue) => issue.label)
+    expect(labels).toContainEqual(
+      expect.stringMatching(/^Special hours, Sat,? 26 Dec 2099$/)
+    )
+    expect(labels).toContain("New special day")
+    expect(labels.some((label) => /Special date \d/.test(label))).toBe(false)
+  })
+
+  it("names a service by Google's display name in validation", () => {
+    const hours = emptyHours()
+    hours.moreHours = [
+      {
+        hoursTypeId: "KITCHEN",
+        periods: [
+          {
+            dayOfWeek: 1,
+            closeDayOfWeek: 1,
+            opensAt: "18:00",
+            closesAt: "02:00",
+          },
+        ],
+      },
+    ]
+    const [issue] = validateHours(hours, [
+      { hoursTypeId: "KITCHEN", displayName: "Kitchen" },
+    ])
+    expect(issue).toMatchObject({
+      fieldId: "service-KITCHEN-hours-1-0-end",
+      label: "Kitchen · Monday",
+    })
+    // Without a name from Google, the type id is all there is.
+    expect(validateHours(hours)[0]?.label).toBe("KITCHEN · Monday")
   })
 })
