@@ -254,6 +254,36 @@ describe("PrivacyRequestsPanel", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("says the fulfil note is kept in the audit log and what to write", async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      "GET /api/privacy/requests": () =>
+        json({
+          requests: [
+            request({
+              id: "r-access",
+              requestType: "access",
+              subjectReference: "Access Person",
+            }),
+          ],
+        }),
+    })
+    renderWithProviders(<PrivacyRequestsPanel gating={OWNER} />)
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Fulfil request for Access Person",
+      })
+    )
+    const dialog = await screen.findByRole("dialog")
+    await waitFor(() =>
+      expect(
+        within(dialog).getByLabelText("Resolution note")
+      ).toHaveAccessibleDescription(
+        "Kept in the audit log. Say what you did, for example when you sent their records."
+      )
+    )
+  })
+
   it("offers no Reject on an erasure whose replies are still being withdrawn", async () => {
     stubFetch({
       "GET /api/privacy/requests": () =>
@@ -787,6 +817,11 @@ describe("subject export", () => {
     expect(
       await screen.findByText("Export ready: 3 reviews")
     ).toBeInTheDocument()
+    // The next step, not how many pages it took.
+    expect(
+      screen.getByText("Download the file and send it to the person who asked.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Joined from/)).toBeNull()
     expect(bodies).toEqual([
       { subject: "Jane" },
       { subject: "Jane", cursor: "cursor-1" },
@@ -872,14 +907,66 @@ describe("PrivacySettings", () => {
     expect(
       screen.queryByRole("heading", { name: "Export a subject’s records" })
     ).not.toBeInTheDocument()
+    const note = screen.getByText(/Only an owner can fulfil requests/)
+    expect(note).toHaveTextContent(
+      "You can read everything here and log new requests."
+    )
+    // A quiet note above the request table: static, never announced.
+    const alert = note.closest('[data-slot="export-owner-only"]')!
+    expect(alert).not.toHaveAttribute("role")
     expect(
-      screen.getByText(/Only an owner can fulfil requests/)
-    ).toBeInTheDocument()
+      alert.compareDocumentPosition(
+        screen.getByRole("region", { name: "Privacy requests" })
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    // The run's standing in plain words; the code is for support, in the
+    // caption, and the cycle's ISO date is gone.
+    expect(await screen.findByText("Failed")).toBeInTheDocument()
     expect(
-      await screen.findByText("Not retained (internal_error)")
+      screen.getByText("Finished 1 Jan 2099, 03:10 UTC · code internal_error")
     ).toBeInTheDocument()
+    expect(screen.queryByText(/Cycle of/)).toBeNull()
+    expect(screen.queryByText(/Not retained/)).toBeNull()
     expect(screen.getByText("Paused")).toBeInTheDocument()
     expect(screen.getByText("30 days")).toBeInTheDocument()
+  })
+
+  it("names review text as Reply policy does and links there to change it", async () => {
+    stubFetch({
+      "GET /api/privacy/requests": () => json({ requests: [] }),
+      "GET /api/legal-holds": () => json({ holds: [] }),
+      "GET /api/privacy/retention-status": () =>
+        json({
+          lastCompletedCycle: {
+            cycleDate: "2099-01-01",
+            startedAt: "2099-01-01T03:00:00.000Z",
+            completedAt: "2099-01-01T03:10:00.000Z",
+            organisation: {
+              status: "succeeded",
+              attempts: 1,
+              lastErrorCode: null,
+              finishedAt: "2099-01-01T03:09:00.000Z",
+            },
+          },
+          currentCycle: null,
+          heldReviews: 0,
+          heldLocations: 0,
+          rawContentRetentionDays: 30,
+          deletesEnabled: true,
+        }),
+    })
+    renderWithProviders(<PrivacySettings access="manage" />)
+    expect(await screen.findByText("Done")).toBeInTheDocument()
+    expect(
+      screen.getByText("Finished 1 Jan 2099, 03:10 UTC")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Review text kept for").tagName).toBe("DT")
+    expect(screen.getByRole("link", { name: "Reply policy" })).toHaveAttribute(
+      "href",
+      "/settings/policy#settings-retention"
+    )
+    // An owner has the export form, so no owner-only note.
+    expect(document.querySelector('[data-slot="export-owner-only"]')).toBeNull()
   })
 })
 
@@ -1040,6 +1127,6 @@ describe("privacy overlays (mobile-first)", () => {
     }
     // Retention facts are a description list (label, then value).
     expect(await screen.findByText("1 day")).toBeInTheDocument()
-    expect(screen.getByText("Raw review content kept for").tagName).toBe("DT")
+    expect(screen.getByText("Review text kept for").tagName).toBe("DT")
   })
 })

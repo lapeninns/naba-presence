@@ -6,12 +6,14 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { Building2, Ellipsis, Shield, Trash2, Users } from "lucide-react"
+import type * as React from "react"
 import { useRef, useState } from "react"
 
 import { ClientAccessDialog } from "@/components/settings/client-access-dialog"
 import {
   ChangeRoleDialog,
   RemoveMemberDialog,
+  describeMemberError,
 } from "@/components/settings/member-dialogs"
 import {
   MemberSheet,
@@ -63,11 +65,18 @@ import {
   type MemberClientTotal,
   type MemberRole,
 } from "@/lib/api/members"
-import type { MembersResponse } from "@/lib/contracts/members"
+import type {
+  MembersResponse,
+  MemberUpdatedResponse,
+} from "@/lib/contracts/members"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { memberRowGate } from "@/lib/settings/gating"
-import { accessSummary, publishingState } from "@/lib/settings/roles"
+import {
+  accessSummary,
+  publishingState,
+  roleWithArticle,
+} from "@/lib/settings/roles"
 import { useFormatDay } from "@/lib/settings/use-format-day"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -114,6 +123,47 @@ function clientAccessReason(
   return null
 }
 
+/**
+ * What a confirmed role change did, from the membership row the server
+ * returned (not the request): the new role, and for a member or viewer
+ * which clients they now see and whether they publish.
+ */
+function roleChangedToast(
+  updated: MemberUpdatedResponse["member"],
+  name: string | null,
+  self: boolean,
+  terms: WorkspaceTerms,
+  // Assignments the row already held: a role change leaves them as they
+  // were, and the server's row does not carry them.
+  assignedCount: number
+): { title: string; description?: string } {
+  const role = roleWithArticle(updated.role)
+  const title = self
+    ? `You’re now ${role}`
+    : `${name ?? "They"} ${name ? "is" : "are"} now ${role}`
+  if (updated.role !== "member" && updated.role !== "viewer") return { title }
+  const who = self ? "You see" : "They see"
+  const parts: string[] = []
+  if (updated.locationScope === "all")
+    parts.push(`${who} every ${terms.scope}, including ones added later.`)
+  else if (updated.locationScope === "assigned")
+    parts.push(
+      assignedCount > 0
+        ? `${who} only the ${terms.scopePlural} assigned to ${self ? "you" : "them"}.`
+        : // The row's own warning: nothing is assigned yet.
+          `${who} nothing until given access.`
+    )
+  if (updated.role === "member")
+    parts.push(
+      updated.canPublish
+        ? self
+          ? "You can publish."
+          : "They can publish."
+        : "Drafts only."
+    )
+  return parts.length > 0 ? { title, description: parts.join(" ") } : { title }
+}
+
 const PUBLISH_KEY = ["members", "publish"] as const
 
 /** The last publishing save on a row, shown beside its switch. */
@@ -138,9 +188,18 @@ type PublishOutcome =
 export function MembersTable({
   actorRole,
   actorUserId,
+  onSelfRoleChanged,
+  removedFocus,
 }: {
   actorRole: MemberRole
   actorUserId: string
+  /**
+   * After the server confirmed a change to the actor's own role: the page
+   * re-renders under the new role (Team re-checks it on the server).
+   */
+  onSelfRoleChanged?: () => void
+  /** Where focus lands after a removal (the Members heading). */
+  removedFocus?: React.RefObject<HTMLElement | null>
 }) {
   const query = useMembers()
   return (
@@ -168,6 +227,8 @@ export function MembersTable({
         <MemberRows
           actorRole={actorRole}
           actorUserId={actorUserId}
+          onSelfRoleChanged={onSelfRoleChanged}
+          removedFocus={removedFocus}
           members={query.data!.members}
           clients={query.data!.clients}
         />
@@ -185,16 +246,22 @@ type MemberView = {
   publishing: ReturnType<typeof publishingState>
   publishReason: string | null
   accessReason: string | null
+  /** A member or viewer on assigned access with nothing assigned. */
+  seesNothing: boolean
 }
 
 function MemberRows({
   actorRole,
   actorUserId,
+  onSelfRoleChanged,
+  removedFocus,
   members,
   clients,
 }: {
   actorRole: MemberRole
   actorUserId: string
+  onSelfRoleChanged?: () => void
+  removedFocus?: React.RefObject<HTMLElement | null>
   members: Member[]
   clients: MemberClientTotal[] | undefined
 }) {
@@ -217,6 +284,9 @@ function MemberRows({
   // focus there, since the sheet's own row (its opener) is gone by then.
   const sheetOpener = useRef<HTMLElement | null>(null)
   const [handedOver, setHandedOver] = useState(false)
+  // Set once the server confirmed a removal, so the closing confirm sends
+  // focus to the Members heading: its opener went with the row.
+  const [removed, setRemoved] = useState(false)
   // The last publishing save per member, so overlapping saves each keep
   // their own outcome.
   const [publishOutcomes, setPublishOutcomes] = useState<
@@ -231,9 +301,24 @@ function MemberRows({
       role: MemberRole
       canPublish: boolean
     }) => updateMember(input),
-    onSuccess: async () => {
+    onSuccess: async (result, input) => {
+      const self = input.userId === actorUserId
+      const before = members.find((m) => m.userId === input.userId)
+      const name = before?.displayName ?? null
+      // Your own role changed: Team re-renders on the server under the new
+      // role (an owner or admin page, or Access denied for a member).
+      if (self) onSelfRoleChanged?.()
       await client.invalidateQueries({ queryKey: queryKeys.members })
-      toast.add({ title: "Team updated", type: "success" })
+      toast.add({
+        ...roleChangedToast(
+          result.member,
+          name,
+          self,
+          terms,
+          before?.locations.length ?? 0
+        ),
+        type: "success",
+      })
     },
   })
 
@@ -270,9 +355,16 @@ function MemberRows({
 
   const removal = useMutation({
     mutationFn: (userId: string) => removeMember(userId),
-    onSuccess: async () => {
+    onSuccess: async (_result, userId) => {
+      const name = members.find((m) => m.userId === userId)?.displayName
       await client.invalidateQueries({ queryKey: queryKeys.members })
-      toast.add({ title: "Member removed", type: "success" })
+      toast.add({
+        title: name
+          ? `${name} was removed from the team`
+          : "Removed from the team",
+        description: "Send a new invitation to bring them back.",
+        type: "success",
+      })
     },
   })
 
@@ -294,6 +386,10 @@ function MemberRows({
       publishing: publishingState(m),
       publishReason: publishReason(m, gate.roleReason, terms),
       accessReason: clientAccessReason(m, terms),
+      seesNothing:
+        (m.role === "member" || m.role === "viewer") &&
+        m.locationScope !== "all" &&
+        m.locations.length === 0,
     }
   })
 
@@ -309,6 +405,7 @@ function MemberRows({
     setAccessOpen(true)
   }
   const openRemove = (m: Member) => {
+    setRemoved(false)
     removal.reset()
     setRemoveTarget(m)
     setRemoveOpen(true)
@@ -321,6 +418,13 @@ function MemberRows({
     setHandedOver(true)
   }
   const returnFocus = handedOver ? sheetOpener : undefined
+  // Removed: to the Members heading. Kept: back to the opener (the sheet's
+  // row when the sheet handed over, else Base UI's default).
+  const removeFinalFocus = () => {
+    if (removed) return removedFocus?.current ?? true
+    const opener = returnFocus?.current
+    return opener?.isConnected ? opener : true
+  }
 
   // `where` keeps the status ids apart when a widened screen draws the
   // table while the sheet is still open.
@@ -349,7 +453,7 @@ function MemberRows({
               setPublishOutcome(m.userId, {
                 userId: m.userId,
                 status: "error",
-                message: describeActionError(error),
+                message: describeMemberError(error),
               })
           )
       },
@@ -457,6 +561,14 @@ function MemberRows({
                 >
                   {view.access.label} · {view.publishing.label}
                 </span>
+                {view.seesNothing && view.access.detail ? (
+                  <span
+                    data-slot="member-warning"
+                    className="basis-full text-caption text-warning-ink"
+                  >
+                    {view.access.detail}
+                  </span>
+                ) : null}
               </>
             }
             swipeActions={swipe}
@@ -539,7 +651,15 @@ function MemberRows({
                     {view.access.label}
                   </span>
                   {view.access.detail ? (
-                    <span className="text-caption text-ink-muted">
+                    <span
+                      data-slot={
+                        view.seesNothing ? "member-warning" : undefined
+                      }
+                      className={cn(
+                        "text-caption",
+                        view.seesNothing ? "text-warning-ink" : "text-ink-muted"
+                      )}
+                    >
                       {view.access.detail}
                     </span>
                   ) : null}
@@ -663,9 +783,14 @@ function MemberRows({
         open={roleOpen}
         member={roleTarget}
         actorRole={actorRole}
+        actorUserId={actorUserId}
         pending={mutation.isPending}
-        error={mutation.isError ? describeActionError(mutation.error) : null}
+        error={mutation.isError ? describeMemberError(mutation.error) : null}
         onOpenChange={setRoleOpen}
+        // A new pick clears the last refusal: it was about another role.
+        onPick={() => {
+          if (mutation.isError) mutation.reset()
+        }}
         finalFocus={returnFocus}
         onConfirm={(role) => {
           if (!roleTarget) return
@@ -689,12 +814,16 @@ function MemberRows({
         open={removeOpen}
         member={removeTarget}
         pending={removal.isPending}
-        error={removal.isError ? describeActionError(removal.error) : null}
+        error={removal.isError ? describeMemberError(removal.error) : null}
         onOpenChange={setRemoveOpen}
+        finalFocus={removeFinalFocus}
         onConfirm={() => {
           if (!removeTarget) return
           removal.mutate(removeTarget.userId, {
-            onSuccess: () => setRemoveOpen(false),
+            onSuccess: () => {
+              setRemoved(true)
+              setRemoveOpen(false)
+            },
           })
         }}
       />

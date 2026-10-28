@@ -2285,6 +2285,29 @@ describe("NotificationPreferences", () => {
     ).toHaveAttribute("href", "/settings/operations")
   })
 
+  it("tells an owner the administrator switches email on, not that Operations sets it up", async () => {
+    preferenceServer({ emailConfigured: false, preferences: publishing })
+    renderPreferences("owner")
+    await screen.findByRole("link", { name: "Operations" })
+    const group = document.getElementById("notification-email")!
+    expect(group).toHaveTextContent(
+      "Email is switched on for the whole install by your NabaPresence administrator. Once it’s on, you can check its delivery in Operations."
+    )
+    expect(group).not.toHaveTextContent(/Set up email/)
+    // No daily-summary explanation where email can't be chosen.
+    expect(group).not.toHaveTextContent(/daily summary is one email/i)
+  })
+
+  it("explains the daily summary beside the email rows once email is available", async () => {
+    preferenceServer({ emailConfigured: true, preferences: publishing })
+    renderPreferences("member")
+    await screen.findByRole("combobox", { name: "Email: Publishing failed" })
+    const group = document.getElementById("notification-email")!
+    expect(group).toHaveAccessibleDescription(
+      "Choose Immediately, Daily summary or Off for each update. The daily summary is one email a day with the updates you set to Daily summary."
+    )
+  })
+
   it("shows a switch change at once and disables only the row being saved", async () => {
     const { calls, release } = preferenceServer({
       emailConfigured: true,

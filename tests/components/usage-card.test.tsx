@@ -76,9 +76,60 @@ describe("UsageCard", () => {
     expect(screen.queryByText(/Credits reset on/)).not.toBeInTheDocument()
   })
 
+  it("names the card for what it counts, and says what is left", () => {
+    mount({})
+    expect(
+      screen.getByRole("region", { name: "AI reply credits" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/credits used this month, 88 left/)
+    ).toHaveTextContent("12 of 100 credits used this month, 88 left")
+  })
+
+  it("does not claim a month for a paid period", () => {
+    mount({ periodKind: "paid_period", periodEnd: "2026-11-14T08:00:00.000Z" })
+    expect(screen.getByText(/credits used this period, 88 left/)).toBeVisible()
+    expect(screen.queryByText(/this month/)).toBeNull()
+  })
+
+  it("leaves out the left count once the credits run out", () => {
+    mount({ used: 100, remaining: 0 })
+    expect(screen.queryByText(/left$/)).toBeNull()
+  })
+
+  it("says it is loading to assistive tech", () => {
+    vi.spyOn(creditsHook, "useAiCredits").mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as UseQueryResult<AiCredits>)
+    vi.spyOn(creditsHook, "useAiCreditsDaily").mockReturnValue({
+      data: undefined,
+    } as unknown as UseQueryResult<AiCreditsDaily>)
+    render(<UsageCard />)
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Loading AI reply credits"
+    )
+  })
+
   it("says AI drafting is off while billing is read-only, not a zero balance", () => {
     mount({ canUseAi: false, accessReason: "grace_expired", used: 3 })
     expect(screen.getByText(/subscription is read-only/)).toBeVisible()
     expect(screen.queryByText(/credits used/)).not.toBeInTheDocument()
+  })
+
+  it("names what failed to load: the AI reply credits", () => {
+    vi.spyOn(creditsHook, "useAiCredits").mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+    } as unknown as UseQueryResult<AiCredits>)
+    vi.spyOn(creditsHook, "useAiCreditsDaily").mockReturnValue({
+      data: undefined,
+    } as unknown as UseQueryResult<AiCreditsDaily>)
+    render(<UsageCard />)
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "AI reply credits could not be loaded."
+    )
+    expect(screen.queryByText(/Usage could not/)).toBeNull()
   })
 })

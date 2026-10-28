@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/app-shell/page-frame"
 import { SettingsNav } from "@/components/settings/settings-nav"
 import { TwoStepVerificationCard } from "@/components/settings/two-step-verification-card"
 import { isMfaEnabled } from "@/lib/server/mfa"
+import { isManagerialRole } from "@/lib/server/permissions"
 import { requireSession } from "@/lib/server/session"
 
 export const metadata = { title: "Sign-in security · NabaPresence" }
@@ -23,6 +24,9 @@ export default async function SettingsSecurityPage() {
         factorCount={session.mfaFactorCount ?? 0}
         verifiedThisSession={session.aal === "aal2"}
         email={session.email}
+        // The step-up rule's own test (lib/server/mfa.ts): owners and admins
+        // must have it for sensitive actions. Copy only.
+        requiredForYou={isManagerialRole(session.role)}
       />
     </>
   )

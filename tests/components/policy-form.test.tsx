@@ -18,6 +18,7 @@ vi.mock("@/lib/editors/use-keep-focus-clear", () => ({
 
 import { PolicyForm } from "@/components/settings/policy-form"
 import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import type { OrgSettings } from "@/lib/api/settings"
 
 const useSettingsMock = vi.fn()
@@ -129,6 +130,13 @@ describe("PolicyForm", () => {
     // ActionBar's `dock`, fixed on a phone with an in-flow spacer.
     expect(bar).toHaveAttribute("data-docked", "bottom")
     expect(bar.className).toMatch(/max-md:fixed/)
+    // A local save: the light bar, not the dark one kept for Google.
+    expect(bar).toHaveAttribute("data-bar-tone", "surface")
+    // The change list gets its own row on a phone, so "1 unsaved change ·
+    // Review text" isn't cut short beside the buttons.
+    expect(
+      bar.querySelector('[data-slot="action-bar-status"]')?.className
+    ).toMatch(/max-md:basis-full/)
     expect(
       bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
     ).not.toBeNull()
@@ -466,6 +474,195 @@ describe("PolicyForm", () => {
     ).toBeInTheDocument()
   })
 
+  it("names the page's words in the change list", async () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings(),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: {
+        canManageTeam: true,
+        canManageConnections: true,
+        canEditSettings: true,
+      },
+    })
+    renderForm("owner")
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "Require a second person to approve each reply",
+      })
+    )
+    await chooseRetention("7 days")
+    expect(
+      screen.getByRole("region", { name: "Save reply policy" })
+    ).toHaveTextContent("2 unsaved changes · Second approver, Review text")
+  })
+
+  describe("while billing holds the workspace read-only", () => {
+    function billingLocked() {
+      useSettingsMock.mockReturnValue({
+        data: makeSettings(),
+        isPending: false,
+        isError: false,
+        refetch: vi.fn(),
+      })
+      useCapsMock.mockReturnValue({
+        data: {
+          canManageTeam: true,
+          canManageConnections: true,
+          canEditSettings: false,
+          canWrite: false,
+        },
+      })
+    }
+
+    it("tells an owner the subscription is the reason, and locks the name too", () => {
+      billingLocked()
+      renderForm("owner")
+      expect(
+        screen.getByText(
+          "This workspace’s subscription is read-only, so these settings can’t be changed right now."
+        )
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/Ask one of them/)).not.toBeInTheDocument()
+      expect(
+        screen.queryByText("Only owners and admins can change these settings.")
+      ).not.toBeInTheDocument()
+      const name = screen.getByRole("textbox", { name: "Agency name" })
+      expect(name).toHaveAttribute("readonly")
+      expect(
+        screen.getByText(
+          "The name can’t be changed while the subscription is read-only."
+        )
+      ).toBeInTheDocument()
+      // No edit the page can't save, so nothing arms the leave guard.
+      fireEvent.change(name, { target: { value: "Other" } })
+      expect(
+        screen.queryByRole("region", { name: "Save reply policy" })
+      ).not.toBeInTheDocument()
+      const reload = new Event("beforeunload", { cancelable: true })
+      window.dispatchEvent(reload)
+      expect(reload.defaultPrevented).toBe(false)
+    })
+
+    it("tells an admin the same", () => {
+      billingLocked()
+      renderForm("admin")
+      expect(
+        screen.getByText(/subscription is read-only, so these settings/)
+      ).toBeInTheDocument()
+    })
+
+    it("keeps the role reason for a member", () => {
+      useSettingsMock.mockReturnValue({
+        data: makeSettings(),
+        isPending: false,
+        isError: false,
+        refetch: vi.fn(),
+      })
+      useCapsMock.mockReturnValue({
+        data: {
+          canManageTeam: false,
+          canManageConnections: false,
+          canEditSettings: false,
+          canWrite: false,
+        },
+      })
+      renderForm("member")
+      expect(
+        screen.getByText("Only owners and admins can change these settings.")
+      ).toBeInTheDocument()
+      expect(screen.getByText(/Ask one of them/)).toBeInTheDocument()
+    })
+  })
+
+  describe("a stored timezone missing from this browser's list", () => {
+    function editable(defaultTimezone: string) {
+      useSettingsMock.mockReturnValue({
+        data: makeSettings({ defaultTimezone }),
+        isPending: false,
+        isError: false,
+        refetch: vi.fn(),
+      })
+      useCapsMock.mockReturnValue({
+        data: {
+          canManageTeam: true,
+          canManageConnections: true,
+          canEditSettings: true,
+        },
+      })
+    }
+
+    it("doesn't hold up saving another field, and sends the zone unchanged", async () => {
+      // The server accepts it (Intl.DateTimeFormat); V8's list omits it.
+      const stored = "UTC"
+      expect(Intl.supportedValuesOf("timeZone")).not.toContain(stored)
+      editable(stored)
+      saveSettingsMock.mockResolvedValue(
+        makeSettings({ defaultTimezone: stored, rawContentRetentionDays: 7 })
+      )
+      renderForm("owner")
+      await chooseRetention("7 days")
+      const bar = screen.getByRole("region", { name: "Save reply policy" })
+      expect(bar).not.toHaveTextContent("Fix the marked fields to save.")
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+      await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledTimes(1))
+      expect(saveSettingsMock.mock.calls[0][0]).toMatchObject({
+        rawContentRetentionDays: 7,
+        defaultTimezone: stored,
+      })
+    })
+
+    it("puts the server's refusal of the stored zone on the timezone field", async () => {
+      // Sent unchanged (not checked against this browser's list); the
+      // server checks it again and its answer lands on the field.
+      editable("UTC")
+      saveSettingsMock.mockRejectedValue(
+        new ApiClientError(
+          400,
+          "invalid_request",
+          "The request did not pass validation.",
+          [{ path: ["defaultTimezone"], message: "Use a valid IANA timezone." }]
+        )
+      )
+      renderForm("owner")
+      await chooseRetention("7 days")
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+      expect(
+        await screen.findByText("Use a valid IANA timezone.")
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("combobox", { name: "Default timezone" })
+      ).toHaveAttribute("aria-invalid", "true")
+    })
+
+    it("marks the timezone field when a changed zone is the problem", async () => {
+      // An edit made while the policy was saved as the unlisted "UTC",
+      // kept through a reload...
+      editable("UTC")
+      const first = renderForm("owner")
+      await chooseRetention("7 days")
+      window.dispatchEvent(new Event("beforeunload", { cancelable: true }))
+      first.unmount()
+      // ...comes back after someone else saved another zone: restored, the
+      // draft's "UTC" is now a change, and this browser doesn't list it.
+      editable("Europe/Paris")
+      renderForm("owner")
+      fireEvent.click(
+        screen.getByRole("button", { name: "Restore unsaved edits" })
+      )
+      expect(
+        screen.getByRole("region", { name: "Save reply policy" })
+      ).toHaveTextContent("Fix the marked fields to save.")
+      expect(screen.getByText("Choose a valid timezone.")).toBeInTheDocument()
+      expect(
+        screen.getByRole("combobox", { name: "Default timezone" })
+      ).toHaveAttribute("aria-invalid", "true")
+    })
+  })
+
   it("blocks turning off approval unless an owner confirms consent", () => {
     useSettingsMock.mockReturnValue({
       data: makeSettings(),
@@ -565,7 +762,7 @@ describe("PolicyForm", () => {
       expect(nameField()).toHaveValue("Acme Reviews")
       fireEvent.change(nameField(), { target: { value: "  Acme Local " } })
       const bar = screen.getByRole("region", { name: "Save reply policy" })
-      expect(bar).toHaveTextContent("1 unsaved change · Name")
+      expect(bar).toHaveTextContent("1 unsaved change · Agency name")
       fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
       await waitFor(() => expect(renameMock).toHaveBeenCalledWith("Acme Local"))
       expect(saveSettingsMock).not.toHaveBeenCalled()
@@ -589,7 +786,7 @@ describe("PolicyForm", () => {
       await chooseRetention("7 days")
       expect(
         screen.getByRole("region", { name: "Save reply policy" })
-      ).toHaveTextContent("2 unsaved changes · Name, Retention")
+      ).toHaveTextContent("2 unsaved changes · Agency name, Review text")
       fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
       await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledTimes(1))
       expect(saveSettingsMock.mock.calls[0][0]).toEqual({
@@ -627,9 +824,12 @@ describe("PolicyForm", () => {
       expect(
         screen.getByRole("button", { name: "Save changes" })
       ).toBeDisabled()
+      const bar = screen.getByRole("region", { name: "Save reply policy" })
+      expect(bar).toHaveTextContent("Fix the marked fields to save.")
+      // The reason Save is disabled gets its own row on a phone, unclamped.
       expect(
-        screen.getByRole("region", { name: "Save reply policy" })
-      ).toHaveTextContent("Fix the marked fields to save.")
+        bar.querySelector('[data-slot="action-bar-status"]')?.className
+      ).toMatch(/max-md:basis-full/)
       expect(screen.getByText("Enter your agency’s name.")).toBeInTheDocument()
     })
 

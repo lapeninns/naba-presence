@@ -4,6 +4,7 @@ import { LegalHoldsPanel } from "@/components/settings/legal-holds-panel"
 import { PrivacyExportForm } from "@/components/settings/privacy-export-form"
 import { PrivacyRequestsPanel } from "@/components/settings/privacy-requests-panel"
 import { RetentionStatusCard } from "@/components/settings/retention-status-card"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { privacyGating, type PrivacyAccess } from "@/lib/settings/gating"
 
 /**
@@ -16,18 +17,19 @@ export function PrivacySettings({ access }: { access: PrivacyAccess }) {
   const gating = privacyGating(access)
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      <PrivacyRequestsPanel gating={gating} />
-      {gating.canManagePrivacy ? (
-        <PrivacyExportForm />
-      ) : (
-        <p
-          className="text-caption text-ink-muted"
-          data-slot="export-owner-only"
-        >
-          Only an owner can fulfil requests, apply legal holds or export a
-          subject’s records.
-        </p>
+      {gating.canManagePrivacy ? null : (
+        // Above the request table, before the missing Fulfil/Reject buttons
+        // are noticed. Static page content: no announcement on load.
+        <Alert variant="info" live={false} data-slot="export-owner-only">
+          <AlertDescription>
+            Only an owner can fulfil requests, apply legal holds or export a
+            subject’s records. You can read everything here and log new
+            requests.
+          </AlertDescription>
+        </Alert>
       )}
+      <PrivacyRequestsPanel gating={gating} />
+      {gating.canManagePrivacy ? <PrivacyExportForm /> : null}
       <LegalHoldsPanel gating={gating} />
       <RetentionStatusCard />
     </div>

@@ -46,8 +46,8 @@ export type MemberSheetDetail = {
 
 /**
  * One member, opened from their row on a phone (SET-02): role, client
- * access and publishing as settings rows, when they joined, and Remove
- * last. Role and access open the same dialogs as the desk table's menu,
+ * access and publishing as settings rows under Access, when they joined
+ * under Details, and Remove last. Role and access open the same dialogs as the desk table's menu,
  * after this sheet closes, so two sheets never stack. Every unavailable
  * control stays visible with its reason under it.
  */
@@ -157,6 +157,9 @@ function MemberSheetBody({
               footnote={detail.publishReason ?? undefined}
             />
           )}
+        </SettingsGroup>
+        {/* A fact about the person, not about their access. */}
+        <SettingsGroup label="Details">
           <SettingsRow
             icon={<CalendarDays />}
             label="Joined"

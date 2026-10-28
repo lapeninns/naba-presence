@@ -17,7 +17,7 @@ export default async function SettingsNotificationsPage() {
     <>
       <PageHeader
         title="Notifications"
-        description="Choose what you hear about in the app and by email. A daily summary collects the updates you choose for it into one email."
+        description="Choose what you hear about in the app and by email."
         tabs={<SettingsNav role={session?.role ?? null} />}
       />
       <HydrationBoundary state={state}>

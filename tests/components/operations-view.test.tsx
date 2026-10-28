@@ -1,4 +1,5 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -21,6 +22,8 @@ import {
   summariseScheduler,
 } from "@/lib/operations/job-labels"
 import { formatZonedTime, usableZone } from "@/lib/operations/zoned-time"
+import { queryKeys } from "@/lib/queries/keys"
+import { Toaster } from "@/components/ui/toast"
 
 const api = vi.hoisted(() => ({
   fetchOperationsHealth: vi.fn(),
@@ -484,6 +487,270 @@ describe("time zone", () => {
     expect(
       screen.getByText(
         "The update from Google could not be processed. Replaying it queues it for the next sync run."
+      )
+    ).toBeInTheDocument()
+  })
+})
+
+describe("OperationsView attention, figures and recovery", () => {
+  const failedEvent = (overrides: Record<string, unknown> = {}) => ({
+    id: "evt-1",
+    eventType: "NEW_REVIEW",
+    status: "failed",
+    retryCount: 1,
+    nextAttemptAt: null,
+    lastErrorCode: "sync_failed",
+    receivedAt: "2026-10-15T01:30:00Z",
+    ...overrides,
+  })
+  const withHealth = (overrides: Record<string, unknown>) =>
+    operationsHealthSchema.parse({ ...health([]), ...overrides })
+
+  it("lists what needs attention under the summary, only counts above 0", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(
+      withHealth({
+        sync: { failed: 2 },
+        notificationDeliveries: {
+          queued: 0,
+          oldestQueuedAt: null,
+          states7d: [],
+          retryable: 1,
+        },
+      })
+    )
+    api.fetchWebhookFailures.mockResolvedValue({ items: [failedEvent()] })
+    renderWithProviders(<OperationsView />)
+    const list = await screen.findByRole("list", { name: "Needs attention" })
+    await waitFor(() =>
+      expect(
+        within(list).getByRole("link", {
+          name: /Review events that failed to process/,
+        })
+      ).toHaveAttribute("href", "#ops-webhooks")
+    )
+    expect(
+      within(list).getByRole("link", { name: /Syncs that failed/ })
+    ).toHaveAttribute("href", "#ops-sync")
+    expect(
+      within(list).getByRole("link", { name: /Failed emails you can retry/ })
+    ).toHaveAttribute("href", "#ops-email")
+    expect(within(list).getAllByRole("link")).toHaveLength(3)
+    expect(within(list).queryByText(/Google sign-ins/)).toBeNull()
+  })
+
+  it("draws no attention list when nothing needs it", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(health([]))
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    renderWithProviders(<OperationsView />)
+    await screen.findByText("No failed events.")
+    expect(screen.queryByRole("list", { name: "Needs attention" })).toBeNull()
+    expect(
+      screen.queryByRole("heading", { name: "Needs attention" })
+    ).toBeNull()
+  })
+
+  it("names figures plainly and never shows 0 h", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(
+      withHealth({ reconcileStalenessSeconds: 900 })
+    )
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    renderWithProviders(<OperationsView />)
+    expect(await screen.findByText("Under 1 hour")).toBeInTheDocument()
+    expect(screen.getByText("Longest since a review check")).toBeInTheDocument()
+    expect(screen.getByText("Data refreshes waiting")).toBeInTheDocument()
+    expect(screen.queryByText(/0 h/)).toBeNull()
+    expect(screen.queryByText(/checkpoints/i)).toBeNull()
+  })
+
+  it("rounds a longer review-check gap to whole hours in words", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(
+      withHealth({ reconcileStalenessSeconds: 3 * 3600 + 600 })
+    )
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    renderWithProviders(<OperationsView />)
+    expect(await screen.findByText("3 hours")).toBeInTheDocument()
+  })
+
+  it("says why Retry is unavailable and orders email states good to bad", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(
+      withHealth({
+        notificationDeliveries: {
+          queued: 1,
+          oldestQueuedAt: null,
+          states7d: [
+            { state: "bounced", count: 1 },
+            { state: "accepted", count: 3 },
+            { state: "unknown", count: 1 },
+            { state: "delivered", count: 2 },
+          ],
+          retryable: 0,
+        },
+      })
+    )
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    renderWithProviders(<OperationsView />)
+    const button = await screen.findByRole("button", {
+      name: /Retry .*failed email/,
+    })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAccessibleDescription(
+      /^No failed emails to retry\. Unknown outcomes/
+    )
+    expect(screen.getByText("Waiting to send now")).toBeInTheDocument()
+    const labels = Array.from(
+      document.querySelectorAll("section[aria-labelledby=ops-email] dt")
+    ).map((node) => node.textContent)
+    expect(labels).toEqual([
+      "Waiting to send now",
+      "Oldest waiting",
+      "Accepted by provider (7 days)",
+      "Delivered to mail server (7 days)",
+      "Bounced (7 days)",
+      "Outcome unknown (7 days)",
+    ])
+  })
+
+  // What the replay leaves on the row (app/api/webhooks/google/pubsub/replay):
+  // retry count and error cleared, due now.
+  const afterReplay = () =>
+    failedEvent({
+      retryCount: 0,
+      lastErrorCode: null,
+      nextAttemptAt: new Date().toISOString(),
+    })
+
+  it("says a replayed event is queued and rests its button, only after the server accepts", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(health([]))
+    api.fetchWebhookFailures
+      .mockResolvedValueOnce({ items: [failedEvent()] })
+      .mockResolvedValue({ items: [afterReplay()] })
+    api.replayWebhookEvent.mockResolvedValue({ status: "scheduled" })
+    renderWithProviders(<OperationsView />)
+    const button = await screen.findByRole("button", { name: /^Replay New/ })
+    expect(screen.queryByText("Queued for the next sync run.")).toBeNull()
+    await userEvent.click(button)
+    expect(
+      await screen.findByText("Queued for the next sync run.")
+    ).toBeInTheDocument()
+    // The refetch still lists the row (it stays "failed" until a run takes
+    // it); the row keeps saying what happens next.
+    await waitFor(() =>
+      expect(api.fetchWebhookFailures).toHaveBeenCalledTimes(2)
+    )
+    const row = screen.getByRole("button", { name: /^Replay New/ })
+    expect(row).toBeDisabled()
+    expect(row).toHaveAccessibleDescription("Queued for the next sync run.")
+    expect(screen.queryByText(/New reviews · Failed/)).toBeNull()
+    // Said once, by the row's polite region: no toast repeating it.
+    const said = screen.getByText("Queued for the next sync run.")
+    expect(said).toHaveAttribute("aria-live", "polite")
+    expect(screen.queryByText("Event queued for the next sync run.")).toBeNull()
+    expect(screen.getAllByText(/queued for the next sync run/i)).toHaveLength(1)
+  })
+
+  it("offers Replay again when a later list shows the replayed event failed again", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(health([]))
+    api.fetchWebhookFailures
+      .mockResolvedValueOnce({ items: [failedEvent()] })
+      .mockResolvedValueOnce({ items: [afterReplay()] })
+      // The runner tried it and failed (lib/server/jobs.ts counts it).
+      .mockResolvedValue({
+        items: [failedEvent({ retryCount: 1, lastErrorCode: "job_failed" })],
+      })
+    api.replayWebhookEvent.mockResolvedValue({ status: "scheduled" })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <OperationsView />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Replay New/ })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Replay New/ })).toBeDisabled()
+    )
+    await waitFor(() =>
+      expect(api.fetchWebhookFailures).toHaveBeenCalledTimes(2)
+    )
+    expect(screen.getByRole("button", { name: /^Replay New/ })).toBeDisabled()
+    await act(() =>
+      client.invalidateQueries({ queryKey: queryKeys.webhookFailures })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Replay New/ })).toBeEnabled()
+    )
+    expect(screen.queryByText("Queued for the next sync run.")).toBeNull()
+    expect(screen.getByText(/New reviews · Failed/)).toBeInTheDocument()
+  })
+
+  it("counts a full list of failed events as 100+", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(health([]))
+    api.fetchWebhookFailures.mockResolvedValue({
+      items: Array.from({ length: 100 }, (_, index) =>
+        failedEvent({ id: `evt-${index}` })
+      ),
+    })
+    renderWithProviders(<OperationsView />)
+    const list = await screen.findByRole("list", { name: "Needs attention" })
+    await waitFor(() =>
+      expect(
+        within(list).getByRole("link", {
+          name: /Review events that failed to process/,
+        })
+      ).toHaveTextContent("100+")
+    )
+  })
+
+  it("points lost listing access at the listings and Google manager access, not reconnecting", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(
+      withHealth({ listingsAccessLost: 2 })
+    )
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    renderWithProviders(<OperationsView />)
+    const list = await screen.findByRole("list", { name: "Needs attention" })
+    const row = within(list).getByRole("link", {
+      name: /Listings Google no longer lets us reach/,
+    })
+    expect(row).toHaveAttribute("href", "/listings?health=attention")
+    expect(row).toHaveTextContent(/restore manager access on Google/)
+    expect(row).not.toHaveTextContent(/Reconnect/)
+  })
+
+  it("keeps the row as it was when the replay is refused", async () => {
+    const { ApiClientError } = await import("@/lib/api/client")
+    api.fetchOperationsHealth.mockResolvedValue(health([]))
+    api.fetchWebhookFailures.mockResolvedValue({ items: [failedEvent()] })
+    api.replayWebhookEvent.mockRejectedValue(
+      new ApiClientError(503, "sync_paused", "Review sync is paused.")
+    )
+    renderWithProviders(<OperationsView />)
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Replay New/ })
+    )
+    expect(
+      await screen.findByText("Review sync is paused.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Queued for the next sync run.")).toBeNull()
+    expect(screen.getByRole("button", { name: /^Replay New/ })).toBeEnabled()
+  })
+
+  it("says a failed event with a next try is retrying by itself", async () => {
+    const next = new Date(Date.now() + 10 * 60_000).toISOString()
+    api.fetchOperationsHealth.mockResolvedValue(health([]))
+    api.fetchWebhookFailures.mockResolvedValue({
+      items: [failedEvent({ nextAttemptAt: next })],
+    })
+    renderWithProviders(<OperationsView />)
+    expect(
+      await screen.findByText(
+        new RegExp(
+          `New reviews · Failed · retrying automatically, next try ${formatZonedTime(next, "Pacific/Auckland").replace(/[()]/g, "\\$&")}`
+        )
       )
     ).toBeInTheDocument()
   })

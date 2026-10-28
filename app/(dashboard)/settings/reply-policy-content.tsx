@@ -30,6 +30,7 @@ export async function ReplyPolicyContent({
 }) {
   const role = session?.role ?? null
   const terms = workspaceTerms(session?.workspaceMode ?? "agency")
+  const billingEnabled = getServerEnv().BILLING_ENABLED
   // Owner-only and dark until the organisation's workspace_mode_change
   // feature is on; PATCH /api/organisations checks both again.
   const [modeChangeAvailable, state] = await Promise.all([
@@ -55,9 +56,11 @@ export async function ReplyPolicyContent({
         <HydrationBoundary state={state}>
           <PolicyForm role={role} />
         </HydrationBoundary>
-        {modeChangeAvailable ? <WorkspaceModeCard /> : null}
+        {modeChangeAvailable ? (
+          <WorkspaceModeCard billingEnabled={billingEnabled} />
+        ) : null}
         {/* With billing on, credits live on the shared Usage screen. */}
-        {getServerEnv().BILLING_ENABLED ? null : <UsageCard />}
+        {billingEnabled ? null : <UsageCard />}
       </div>
     </>
   )

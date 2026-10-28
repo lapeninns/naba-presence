@@ -41,10 +41,17 @@ import { roleExplanation, ROLE_LABEL } from "./account-menu"
 function AccessDenied({
   area,
   whoCanHelp = "an owner or admin",
+  whoCanGrant = "Owners and admins",
 }: {
   /** What they tried to reach, in the product's own words. */
   area: string
   whoCanHelp?: string
+  /**
+   * Who can change your role so you can open it (opt-in; the default suits
+   * any page an admin can open). Billing passes "Owners": only an owner can
+   * make someone an owner.
+   */
+  whoCanGrant?: string
 }) {
   const { orgLower } = useWorkspaceTerms()
   return (
@@ -60,7 +67,11 @@ function AccessDenied({
         description={`${area} is limited to ${whoCanHelp}. Ask ${whoCanHelp} in your ${orgLower} if you need it.`}
         action={<AccessActions area={area} whoCanHelp={whoCanHelp} />}
       />
-      <SignedInAccess area={area} whoCanHelp={whoCanHelp} />
+      <SignedInAccess
+        area={area}
+        whoCanHelp={whoCanHelp}
+        whoCanGrant={whoCanGrant}
+      />
       <AccessSupportDetails />
     </div>
   )
@@ -201,7 +212,11 @@ function AccessSupportDetails() {
  * dashboard layout already hydrated. Without a query client (a bare render)
  * there is no session to read, so nothing is drawn rather than a guess.
  */
-function SignedInAccess(props: { area: string; whoCanHelp: string }) {
+function SignedInAccess(props: {
+  area: string
+  whoCanHelp: string
+  whoCanGrant: string
+}) {
   const client = React.useContext(QueryClientContext)
   if (!client) return null
   return <SignedInAccessCards {...props} />
@@ -210,9 +225,11 @@ function SignedInAccess(props: { area: string; whoCanHelp: string }) {
 function SignedInAccessCards({
   area,
   whoCanHelp,
+  whoCanGrant,
 }: {
   area: string
   whoCanHelp: string
+  whoCanGrant: string
 }) {
   const session = useSession().data?.session
   if (!session) return null
@@ -252,7 +269,7 @@ function SignedInAccessCards({
       </SystemCard>
       <SystemCard
         title="Who can give you access"
-        description={`Owners and admins in ${session.organisationName}. They change roles on the Team page.`}
+        description={`${whoCanGrant} in ${session.organisationName}. They change roles on the Team page.`}
       />
     </div>
   )

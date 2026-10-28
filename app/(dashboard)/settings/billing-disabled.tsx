@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 
+import { NOT_FOUND_TITLE } from "@/components/app-shell/boundary"
 import { NotFoundContent } from "@/components/app-shell/not-found-content"
 import { getServerEnv } from "@/lib/server/env"
 
@@ -21,12 +22,15 @@ export function billingRoutesEnabled(): boolean {
   return getServerEnv().BILLING_ENABLED
 }
 
-/** The page's metadata: its own title while enabled, the 404's while not. */
+/**
+ * The page's metadata: its own title while enabled, the 404's while not.
+ * The tab title is the 404 heading's own words, so the two never disagree.
+ */
 export function billingRouteMetadata(title: string): Metadata {
   return billingRoutesEnabled()
     ? { title }
     : {
-        title: "Page not found · NabaPresence",
+        title: `${NOT_FOUND_TITLE} · NabaPresence`,
         robots: { index: false, follow: false },
       }
 }

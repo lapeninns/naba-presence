@@ -34,7 +34,7 @@ test.describe("connections OAuth return", () => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto("/settings/connections?google=error&status=502")
-    await expect(page.getByText(/temporarily unavailable/i)).toBeVisible()
+    await expect(page.getByText(/didn’t answer/i)).toBeVisible()
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible()
     await expect(page.getByText(/status=502/)).toHaveCount(0)
   })

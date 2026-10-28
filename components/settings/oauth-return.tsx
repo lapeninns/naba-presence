@@ -11,11 +11,13 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
+import { SupportDetails } from "@/components/editors/support-details"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { useOutcomeToast } from "@/components/ui/toast"
 import type { ConnectStartBody } from "@/lib/contracts/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useStartGoogleConnect } from "@/lib/queries/use-connection-workspace"
+import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
@@ -34,28 +36,27 @@ const OAUTH_PARAMS = [
 /** Where a successful connection gets its own confirmation panel. */
 const CONNECTIONS_PATH = "/settings/connections"
 
+/**
+ * The callback's failure in plain words. One source with setup's connect
+ * step (`describeGoogleConnectStatus`), so Settings and setup never say
+ * different things about the same failure; only the lost-offline-access
+ * case, which setup doesn't name, is worded here. The 401, 403 and 429
+ * wordings don't say nothing happened, which Settings always has: the
+ * callback fails those before any connection is written.
+ */
 function describeOAuthStatus(
   status: string | null,
-  reason: string | null
+  reason: string | null,
+  mode: "business" | "agency"
 ): string {
-  if (reason === "google_scope_missing") {
-    return "Google didn’t give NabaPresence permission to manage your Business Profiles, so nothing was connected. Connect again and leave the Business Profile permission ticked on Google’s consent screen."
-  }
   if (reason === "google_offline_access_missing") {
     return "Google didn’t grant lasting access, so the connection would have stopped within the hour. Nothing was connected. Try again."
   }
-  switch (status) {
-    case "400":
-      return "Google sign-in was cancelled or couldn’t be completed. Try connecting again."
-    case "401":
-      return "Your session expired during sign-in. Sign in again, then reconnect."
-    case "403":
-      return "You don’t have permission to connect Google for this organisation."
-    case "429":
-      return "Google is rate-limiting requests right now. Try again shortly."
-    default:
-      return "Google is temporarily unavailable. Try connecting again shortly."
-  }
+  const message = describeGoogleConnectStatus(status, reason, mode)
+  return reason !== "google_scope_missing" &&
+    (status === "401" || status === "403" || status === "429")
+    ? `${message} Nothing was changed.`
+    : message
 }
 
 type Outcome =
@@ -66,7 +67,13 @@ type Outcome =
       catchUp: number
       locationLimit?: boolean
     }
-  | { kind: "error"; title: string; message: string }
+  | {
+      kind: "error"
+      title: string
+      message: string
+      /** The callback's `rid`, for quoting to support. */
+      requestId: string | null
+    }
 
 /**
  * What a successful connect or reconnect says. Only facts the callback
@@ -161,7 +168,13 @@ export function OAuthReturn({
               reason === "google_scope_missing"
                 ? "Permission not granted"
                 : "We couldn’t connect Google",
-            message: describeOAuthStatus(status, reason),
+            message: describeOAuthStatus(
+              status,
+              reason,
+              business ? "business" : "agency"
+            ),
+            // Read before the strip below; the panel keeps it afterwards.
+            requestId: params.get("rid"),
           }
         : null
   useEffect(() => {
@@ -199,6 +212,13 @@ export function OAuthReturn({
   if (!outcome) return null
   if (outcome.kind === "connected") {
     const message = connectedMessage(outcome)
+    // A reconnect or a plan-limit result already has its own next step in
+    // the copy; only a plain new connection gets the setup sentence.
+    const plain =
+      !outcome.reconnected && !outcome.mismatch && !outcome.locationLimit
+    // A different login came back active and usable (the callback upserts
+    // it as its own connection), so it can be set up like a new one.
+    const nextStep = plain || (outcome.mismatch && !outcome.locationLimit)
     return (
       <Alert
         variant={
@@ -208,20 +228,26 @@ export function OAuthReturn({
         <AlertTitle>{message.title}</AlertTitle>
         <AlertDescription>
           {message.description}
-          {outcome.reconnected || outcome.mismatch || outcome.locationLimit
-            ? ""
-            : business
-              ? " Link its locations from setup."
-              : " Link its locations to a client from client setup."}
+          {plain
+            ? business
+              ? // The callback may already have linked a lone listing, so
+                // this must read true either way.
+                " Setup shows which of its listings are linked, and lets you link the rest."
+              : " Link its locations to a client from client setup."
+            : ""}
         </AlertDescription>
-        <AlertActions>
-          <Link
-            href={business ? "/setup" : "/clients/new"}
-            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
-          >
-            {business ? "Add locations with it" : "Set up a client with it"}
-          </Link>
-        </AlertActions>
+        {nextStep ? (
+          <AlertActions>
+            <Link
+              href={business ? "/setup" : "/clients/new"}
+              className={cn(
+                buttonVariants({ variant: "secondary", size: "sm" })
+              )}
+            >
+              {business ? "Add locations with it" : "Set up a client with it"}
+            </Link>
+          </AlertActions>
+        ) : null}
       </Alert>
     )
   }
@@ -229,7 +255,8 @@ export function OAuthReturn({
     <Alert variant="destructive">
       <AlertTitle>{outcome.title}</AlertTitle>
       <AlertDescription>
-        {outcome.message} Nothing was changed.
+        <p>{outcome.message}</p>
+        <SupportDetails items={[outcome.requestId]} />
       </AlertDescription>
       <AlertActions>
         <Button

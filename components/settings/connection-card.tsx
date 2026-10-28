@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -55,6 +55,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
+import { ApiClientError, isMfaStepUpError } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatShortDate } from "@/lib/format"
 import type { ConnectionSummary } from "@/lib/api/connections"
@@ -164,7 +165,7 @@ export function ReconnectDialogView({
       <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle className="[overflow-wrap:anywhere]">
-            Reconnect {email}
+            Reconnect <EmailWithBreak value={email} />
           </DialogTitle>
           <DialogDescription>
             Google opens and asks you to sign in. Which login you choose there
@@ -246,6 +247,7 @@ function DisconnectDialog({
   served,
   open,
   pending,
+  error,
   finalFocus,
   onOpenChange,
   onConfirm,
@@ -254,8 +256,13 @@ function DisconnectDialog({
   served: ServedClient[] | undefined
   open: boolean
   pending: boolean
-  /** Where focus returns on close: the ⋯ trigger the dialog was opened from. */
-  finalFocus: RefObject<HTMLElement | null>
+  /** Why the last attempt failed, said inside the dialog where focus is. */
+  error: string | null
+  /**
+   * Where focus goes on close: the ⋯ trigger the dialog was opened from, or
+   * after a disconnect (which removes that ⋯) the section's heading.
+   */
+  finalFocus: () => HTMLElement | null
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
 }) {
@@ -278,7 +285,7 @@ function DisconnectDialog({
         finalFocus={finalFocus}
       >
         <AlertDialogTitle className="[overflow-wrap:anywhere]">
-          Disconnect {email}?
+          Disconnect <EmailWithBreak value={email} />?
         </AlertDialogTitle>
         <AlertDialogDescription>
           Reviews and publishing stop immediately
@@ -312,6 +319,11 @@ function DisconnectDialog({
           onMatchChange={setArmed}
           fieldClassName="[overflow-wrap:anywhere]"
         />
+        {error ? (
+          <p role="alert" className="text-ui font-medium text-danger-ink">
+            {error}
+          </p>
+        ) : null}
         <AlertDialogFooter>
           <AlertDialogClose
             render={<Button variant="ghost">Keep it connected</Button>}
@@ -368,7 +380,9 @@ export function ConnectionCard({
   // on that account's ⋯, however its menu was opened (a click, or a key such
   // as ArrowDown, which fires no click on the trigger).
   const menuTriggers = useRef(new Map<string, HTMLElement>())
-  const menuTrigger = useRef<HTMLElement | null>(null)
+  // The table, to find the heading of the section it sits in: a disconnect
+  // removes the row's ⋯, so focus goes there rather than to the page body.
+  const table = useRef<HTMLTableElement | null>(null)
 
   const connections = query.data?.connections
   const focused = focusId
@@ -414,6 +428,10 @@ export function ConnectionCard({
   const rows = query.data.connections
 
   if (rows.length === 0) {
+    // Said before Google opens: an unticked Business Profile permission is
+    // the commonest way a first connection fails (google_scope_missing).
+    const consent =
+      " Google opens next: sign in with that login and leave the Business Profile permission ticked."
     return (
       <Card flush>
         <Empty
@@ -421,8 +439,8 @@ export function ConnectionCard({
           title="No Google account connected"
           description={
             business
-              ? "Connect a Google login that manages your Business Profiles to import locations and reviews."
-              : "Connect a Google login that manages your clients’ Business Profiles to import locations and reviews."
+              ? `Connect a Google login that manages your Business Profiles to import locations and reviews.${consent}`
+              : `Connect a Google login that manages your clients’ Business Profiles to import locations and reviews.${consent}`
           }
           action={
             <Button
@@ -450,7 +468,12 @@ export function ConnectionCard({
           </AlertDescription>
         </Alert>
       ) : null}
-      <Table surface responsive aria-label="Connected Google accounts">
+      <Table
+        ref={table}
+        surface
+        responsive
+        aria-label="Connected Google accounts"
+      >
         <TableHeader>
           <TableRow>
             <TableHead>Google login</TableHead>
@@ -476,7 +499,15 @@ export function ConnectionCard({
                 key={connection.id}
                 data-selected={isFocused || undefined}
               >
-                <TableCell label="Google login" priority="primary">
+                {/* On a phone card the address keeps 11rem: when the pill and
+                    buttons don't fit beside that, they wrap to the next line
+                    rather than squeezing the login to a letter per line. The
+                    table's 1px basis out-specifies a plain class, hence `!`. */}
+                <TableCell
+                  label="Google login"
+                  priority="primary"
+                  className="@max-3xl/table:basis-44!"
+                >
                   <span className="flex min-w-0 items-center gap-2.5">
                     <Avatar aria-hidden>
                       <AvatarFallback>
@@ -574,8 +605,7 @@ export function ConnectionCard({
                           <DropdownMenuItem
                             variant="destructive"
                             onClick={() => {
-                              menuTrigger.current =
-                                menuTriggers.current.get(connection.id) ?? null
+                              disconnect.reset()
                               setDisconnectTarget(connection)
                               setDisconnectOpen(true)
                             }}
@@ -614,17 +644,53 @@ export function ConnectionCard({
         }
         open={disconnectOpen}
         pending={disconnect.isPending}
-        finalFocus={menuTrigger}
+        // A step-up 403 opens the two-step prompt, which says what to do;
+        // anything else is said here, once (the hook no longer toasts it).
+        error={
+          disconnect.error && !isMfaStepUpError(disconnect.error)
+            ? describeActionError(disconnect.error)
+            : null
+        }
+        finalFocus={() =>
+          (disconnectTarget
+            ? menuTriggers.current.get(disconnectTarget.id)
+            : null) ?? sectionHeading(table.current)
+        }
         onOpenChange={setDisconnectOpen}
         onConfirm={() => {
           if (disconnectTarget) {
             const label = disconnectTarget.googleEmail ?? "Google account"
             disconnect.mutate(disconnectTarget.id, {
-              onSuccess: () => {
+              onSuccess: (data) => {
                 setDisconnectOpen(false)
                 // The outcome, with no Undo (D5): disconnecting asks Google to
-                // revoke the grant and schedules the purge.
-                toast.show({ kind: "google", title: `Disconnected ${label}` })
+                // revoke the grant and schedules the purge (7 days, the
+                // server's purge_due_at). Never "revoked" unless Google said
+                // so; "failed" may leave the grant in the Google account.
+                toast.show({
+                  kind: "google",
+                  title: `Disconnected ${label}`,
+                  description: [
+                    data?.googleRevocation === "failed"
+                      ? "Google didn’t confirm removing access: you can remove NabaPresence in the Google account’s security settings."
+                      : null,
+                    // Connecting the same login again (any Connect) brings
+                    // the row back and clears purge_due_at; its listings
+                    // stay unlinked, so this promises the reviews only.
+                    "Its reviews are kept for 7 days; connect the same Google login again before then to keep them.",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                })
+              },
+              onError: (error) => {
+                // Already gone (a second tab, or a retry): show the list as
+                // it is now, beside the message.
+                if (
+                  error instanceof ApiClientError &&
+                  error.code === "connection_not_found"
+                )
+                  void query.refetch()
               },
             })
           }
@@ -632,6 +698,22 @@ export function ConnectionCard({
       />
     </>
   )
+}
+
+/**
+ * The heading of the section the connections table sits in (Settings ›
+ * Google connections' "Google accounts"), made a script-only focus target
+ * with the shared focus halo. Null when the table stands alone.
+ */
+function sectionHeading(from: HTMLElement | null): HTMLElement | null {
+  const id = from
+    ?.closest("section[aria-labelledby]")
+    ?.getAttribute("aria-labelledby")
+  const heading = id ? from?.ownerDocument.getElementById(id) : null
+  if (!heading) return null
+  if (!heading.hasAttribute("tabindex")) heading.tabIndex = -1
+  heading.classList.add("rounded-(--np-radius-tag)", "focus-halo")
+  return heading
 }
 
 /**
