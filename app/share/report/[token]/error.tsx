@@ -1,6 +1,7 @@
 "use client"
 
-import { CircleAlertIcon } from "lucide-react"
+import { CircleAlertIcon, RotateCw } from "lucide-react"
+import * as React from "react"
 
 import { boundaryButtonClass } from "@/components/app-shell/boundary"
 import { ShareStateCard } from "@/components/share/share-state-card"
@@ -8,8 +9,22 @@ import { ShareStateCard } from "@/components/share/share-state-card"
 /**
  * The report could not be read (the database, not the link). Says so without
  * detail, offers nothing but trying again, and links nowhere into the app.
+ *
+ * "Try again" re-runs the server page: Next 16.3+ passes that as `retry`
+ * (`unstable_retry` before), while `reset` only re-renders the payload that
+ * already failed. It reads the same link again, so a link that has died
+ * meanwhile gets the same not-found page as any other.
  */
-export default function ShareReportError({ reset }: { reset: () => void }) {
+export default function ShareReportError({
+  reset,
+  retry,
+  unstable_retry,
+}: {
+  reset: () => void
+  retry?: () => void
+  unstable_retry?: () => void
+}) {
+  const [pending, startTransition] = React.useTransition()
   return (
     <ShareStateCard
       icon={<CircleAlertIcon />}
@@ -19,9 +34,16 @@ export default function ShareReportError({ reset }: { reset: () => void }) {
         <button
           type="button"
           className={boundaryButtonClass("primary", "lg", "w-full")}
-          onClick={() => reset()}
+          disabled={pending}
+          aria-busy={pending || undefined}
+          onClick={() =>
+            startTransition(() => {
+              ;(retry ?? unstable_retry ?? reset)()
+            })
+          }
         >
-          Try again
+          <RotateCw strokeWidth={1.75} aria-hidden />
+          {pending ? "Trying again…" : "Try again"}
         </button>
       }
     />

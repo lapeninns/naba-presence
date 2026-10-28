@@ -9,12 +9,13 @@ import {
   UserRound,
 } from "lucide-react"
 import Link from "next/link"
+import { useEffect, useRef, useState } from "react"
 
 import { AuthCard } from "@/components/auth/auth-card"
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { InvitationActions } from "@/components/auth/invitation-actions"
 import { SignInForm, type SignInMode } from "@/components/auth/sign-in-form"
-import { Alert, AlertTitle } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -30,13 +31,15 @@ import { invitationRoleSummary } from "@/lib/settings/roles"
 // Shared across the three dead-end branches below (not-found, already
 // accepted, expired) so the copy/href can't drift out of sync between them.
 // The only way on from a dead end, so it is the full-width primary action.
-function GoToSignInLink() {
+// It follows the session: /sign-in would only bounce a signed-in visitor
+// on to the Inbox, so say where they are actually going.
+function DeadEndLink({ signedIn }: { signedIn: boolean }) {
   return (
     <Link
-      href="/sign-in"
+      href={signedIn ? "/inbox" : "/sign-in"}
       className={buttonVariants({ size: "lg", block: true })}
     >
-      Go to sign in
+      {signedIn ? "Go to Inbox" : "Go to sign in"}
     </Link>
   )
 }
@@ -147,6 +150,22 @@ function InvitationView({
     queryFn: () => authApi.lookupInvitation(token),
     retry: false,
   })
+  // The form's mode lives here so the description above it follows the
+  // toggle; `?mode` only sets where it starts.
+  const [mode, setMode] = useState<SignInMode>(initialMode)
+
+  // "Try again" with no data puts the query back to pending, which swaps in
+  // the skeleton and drops focus with the button. Once that retry settles,
+  // whichever way, the new title takes focus so its outcome is read out.
+  // Keyed on the update counts too: a fast answer can land in the same
+  // render as the pending state, so pending alone may never be seen.
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const retried = useRef(false)
+  useEffect(() => {
+    if (!retried.current || query.isPending) return
+    retried.current = false
+    titleRef.current?.focus()
+  }, [query.isPending, query.errorUpdateCount, query.dataUpdatedAt])
 
   if (query.isPending) {
     return (
@@ -169,31 +188,54 @@ function InvitationView({
 
   if (query.isError) {
     // A missing, expired or already-accepted invitation is a dead end with
-    // one way out (sign in on your own). The lookup answers those with an
-    // error and no details (D8), so the title can't name the organisation.
-    // Every other failure (network trouble, a 500, ...) is transient, so it
-    // gets a retry instead of being routed away.
+    // one way out (sign in, or the Inbox when signed in). The lookup answers
+    // those with an error and no details (D8), so the title can't name the
+    // organisation. Every other failure (network trouble, a 500, ...) is
+    // transient, so it gets a retry instead of being routed away.
     const code =
       query.error instanceof ApiClientError ? query.error.code : undefined
     if (code === "invitation_already_used") {
       return (
-        <AuthCard aside="invite" eyebrow="Invitation" title="Accept invitation">
+        <AuthCard
+          aside="invite"
+          eyebrow="Invitation"
+          title="Accept invitation"
+          titleRef={titleRef}
+        >
+          {/* Neutral about who accepted it: the link may have been
+              forwarded. */}
           <Alert variant="info">
-            <AlertTitle>You have already accepted this invitation.</AlertTitle>
+            <AlertTitle>This invitation has already been accepted.</AlertTitle>
+            {viewer === null ? (
+              <AlertDescription>Sign in to continue.</AlertDescription>
+            ) : null}
           </Alert>
-          <GoToSignInLink />
+          <DeadEndLink signedIn={viewer !== null} />
         </AuthCard>
       )
     }
     const deadEnd =
       code === "invitation_not_found" || code === "invitation_expired"
     return (
-      <AuthCard aside="invite" eyebrow="Invitation" title="Accept invitation">
+      <AuthCard
+        aside="invite"
+        eyebrow="Invitation"
+        title="Accept invitation"
+        titleRef={titleRef}
+      >
         <AuthErrorAlert message={authErrorMessage(query.error, "invitation")} />
         {deadEnd ? (
-          <GoToSignInLink />
+          <DeadEndLink signedIn={viewer !== null} />
         ) : (
-          <Button type="button" size="lg" block onClick={() => query.refetch()}>
+          <Button
+            type="button"
+            size="lg"
+            block
+            onClick={() => {
+              retried.current = true
+              void query.refetch()
+            }}
+          >
             Try again
           </Button>
         )}
@@ -209,8 +251,9 @@ function InvitationView({
         aside="invite"
         eyebrow="Invitation"
         title={`Join ${data.organisationName}`}
+        titleRef={titleRef}
         description={
-          initialMode === "sign-in"
+          mode === "sign-in"
             ? `Sign in with the invited address and you will be able to work on what ${data.organisationName} has given you access to.`
             : `Set a password and you will be able to work on what ${data.organisationName} has given you access to.`
         }
@@ -222,7 +265,8 @@ function InvitationView({
           expiresAt={data.expiresAt}
         />
         <SignInForm
-          initialMode={initialMode}
+          mode={mode}
+          onModeChange={setMode}
           inviteToken={token}
           invitedEmail={data.email}
         />
@@ -232,8 +276,10 @@ function InvitationView({
 
   return (
     <AuthCard
+      aside="invite"
       eyebrow="Invitation"
       title={`Join ${data.organisationName}`}
+      titleRef={titleRef}
       description={
         viewer.email.trim().toLowerCase() === data.email.trim().toLowerCase()
           ? `Accepting adds ${data.organisationName} to the account you are already signed in with.`

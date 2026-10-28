@@ -1,6 +1,8 @@
 import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import ShareReportError from "@/app/share/report/[token]/error"
 import ShareReportNotFound from "@/app/share/report/[token]/not-found"
 import SharedReportPage from "@/app/share/report/[token]/page"
 import { SharedClientReportView } from "@/components/share/shared-client-report"
@@ -242,6 +244,49 @@ describe("the not-found page", () => {
   })
 })
 
+describe("the error page", () => {
+  it("re-fetches the report with Next's retry, not a bare re-render", async () => {
+    const retry = vi.fn()
+    const unstableRetry = vi.fn()
+    const reset = vi.fn()
+    render(
+      <ShareReportError
+        reset={reset}
+        retry={retry}
+        unstable_retry={unstableRetry}
+      />
+    )
+    expect(
+      screen.getByText("This report couldn’t be loaded")
+    ).toBeInTheDocument()
+    const button = screen.getByRole("button", { name: "Try again" })
+    expect(button).not.toBeDisabled()
+    expect(button).not.toHaveAttribute("aria-busy")
+    await userEvent.click(button)
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(unstableRetry).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+    // Nothing to follow into the app.
+    expect(screen.queryAllByRole("link")).toHaveLength(0)
+  })
+
+  it("falls back to unstable_retry, then to reset", async () => {
+    const unstableRetry = vi.fn()
+    const reset = vi.fn()
+    const { unmount } = render(
+      <ShareReportError reset={reset} unstable_retry={unstableRetry} />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(unstableRetry).toHaveBeenCalledTimes(1)
+    expect(reset).not.toHaveBeenCalled()
+    unmount()
+
+    render(<ShareReportError reset={reset} />)
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(reset).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("SharedClientReportView", () => {
   it("shows the client, venues, period, agency and figures", () => {
     render(<SharedClientReportView report={REPORT} />)
@@ -267,11 +312,16 @@ describe("SharedClientReportView", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       // The skip link stays on the page.
       "#main",
-      // Each ends #main so switching period lands on the figures, not the top.
-      "?period=28d#main",
-      "?period=90d#main",
-      "?period=12m#main",
+      // Each ends #period so switching period lands on the period line,
+      // with the period links and the first figures under it.
+      "?period=28d#period",
+      "?period=90d#period",
+      "?period=12m#period",
     ])
+    const periodLine = document.getElementById("period")
+    expect(periodLine?.tagName).toBe("P")
+    expect(periodLine).toHaveTextContent(/^Last 28 days/)
+    expect(periodLine).toHaveClass("scroll-mt-4")
     const nav = screen.getByRole("navigation", { name: "Report period" })
     expect(
       within(nav).getByRole("link", { name: "Last 28 days" })
@@ -326,11 +376,91 @@ describe("SharedClientReportView", () => {
     ).toBeInTheDocument()
   })
 
-  it("leaves out the Google section when there are no Google figures", () => {
-    render(<SharedClientReportView report={{ ...REPORT, google: null }} />)
+  it("says the report has no listings yet, instead of zero figures", () => {
+    render(
+      <SharedClientReportView
+        report={{
+          ...REPORT,
+          venues: [],
+          google: null,
+          replies: {
+            ...REPORT.replies,
+            summary: {
+              reviewVolume: 0,
+              averageRating: null,
+              responseRate: null,
+              medianFirstResponseSeconds: null,
+            },
+            previous: null,
+            series: [],
+            locations: [],
+          },
+        }}
+      />
+    )
+    const main = screen.getByRole("main")
     expect(
-      screen.queryByRole("heading", { name: "Google Business Profile" })
+      within(main).getByRole("heading", {
+        level: 3,
+        name: "No listings in this report yet",
+      })
+    ).toBeInTheDocument()
+    expect(main).toHaveTextContent(
+      "Harbour Agency hasn’t added any listings for Old Crown Group yet. Figures appear here once they do."
+    )
+    // Not the reply panel's "for these listings", and no zero tiles.
+    expect(
+      within(main).queryByText("No reviews in this period")
     ).not.toBeInTheDocument()
+    expect(within(main).queryByText("Response rate")).not.toBeInTheDocument()
+    // With no listings there is no Google section to explain either.
+    expect(
+      within(main).queryByRole("heading", { name: "Google Business Profile" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps the Google section, with one sentence, when the period has no Google figures", () => {
+    render(<SharedClientReportView report={{ ...REPORT, google: null }} />)
+    const section = screen
+      .getByRole("heading", { level: 2, name: "Google Business Profile" })
+      .closest("section") as HTMLElement
+    expect(
+      within(section).getByText("No Google profile figures for this period.")
+    ).toBeInTheDocument()
+    expect(within(section).queryByRole("button")).not.toBeInTheDocument()
+    expect(within(section).queryByText("Search views")).not.toBeInTheDocument()
+  })
+
+  it("states Google's period and last day in one line, without the fetch history", () => {
+    render(<SharedClientReportView report={REPORT} />)
+    const section = screen
+      .getByRole("heading", { level: 2, name: "Google Business Profile" })
+      .closest("section") as HTMLElement
+    expect(
+      within(section).getByText(
+        /^24 Aug( 2026)? – 20 Sept( 2026)? · Figures up to 18 Sept( 2026)?, as reported by Google$/
+      )
+    ).toBeInTheDocument()
+    expect(section).not.toHaveTextContent(/fetch/i)
+    expect(section).not.toHaveTextContent(/up to date/)
+  })
+
+  it("leaves out the last day when Google has reported none", () => {
+    render(
+      <SharedClientReportView
+        report={{
+          ...REPORT,
+          google: { ...REPORT.google!, freshThrough: null },
+        }}
+      />
+    )
+    const section = screen
+      .getByRole("heading", { level: 2, name: "Google Business Profile" })
+      .closest("section") as HTMLElement
+    expect(
+      within(section).getByText(/^24 Aug( 2026)? – 20 Sept( 2026)?$/)
+    ).toBeInTheDocument()
+    expect(section).not.toHaveTextContent(/Figures up to/)
   })
 
   it("states the venues it covers and never shows a missing venue as zero", () => {
@@ -370,10 +500,10 @@ describe("SharedClientReportView", () => {
         /Complete for every listing shown through 12 Sept/
       )
     ).toBeInTheDocument()
-    // The oldest complete date also reads in the provenance line.
+    // Said once, in the alert: the provenance line is gone from this page.
     expect(
-      screen.getByText(/All reporting listings complete through 12 Sept/)
-    ).toBeInTheDocument()
+      screen.queryByText(/All reporting listings complete through/)
+    ).not.toBeInTheDocument()
   })
 
   it("shows no coverage banner for a complete report", () => {

@@ -23,10 +23,14 @@ import { AuthLink } from "@/components/auth/auth-link"
 export default function AuthError({
   error,
   reset,
+  retry,
   unstable_retry,
 }: {
   error: Error & { digest?: string }
   reset: () => void
+  /** Re-fetches and re-renders the segment (Next 16.3+). */
+  retry?: () => void
+  /** The same, under its pre-16.3 name. */
   unstable_retry?: () => void
 }) {
   const [pending, startTransition] = React.useTransition()
@@ -54,7 +58,9 @@ export default function AuthError({
         aria-busy={pending || undefined}
         onClick={() =>
           startTransition(() => {
-            ;(unstable_retry ?? reset)()
+            // `reset` alone only re-renders the payload that failed, so
+            // the error would come straight back.
+            ;(retry ?? unstable_retry ?? reset)()
           })
         }
       >

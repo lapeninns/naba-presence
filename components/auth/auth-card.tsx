@@ -80,7 +80,7 @@ const ASIDES: Record<
       },
     ],
     footnote:
-      "If this link has expired, request another from the sign-in page.",
+      "If this link has expired, request another from Forgot password on the sign-in page.",
   },
   invite: {
     label: "About NabaPresence",
@@ -268,6 +268,17 @@ function AuthCard({
             <footer className="flex flex-col items-center gap-2 text-center text-ui text-ink-muted">
               {footer}
             </footer>
+          ) : null}
+
+          {/* Below lg the product panel is not drawn, so a first-time
+              visitor on a phone would never learn who this is for: its
+              footnote, the panel's own approved line, stands in. Product
+              screens only; the recovery and invite panels repeat what
+              their forms already say. */}
+          {aside === "product" ? (
+            <p className="text-center text-caption text-pretty text-ink-muted lg:hidden">
+              {ASIDES.product.footnote}
+            </p>
           ) : null}
 
           {/* `/` lands here, so this is the public home page Google's OAuth

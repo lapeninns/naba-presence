@@ -172,6 +172,63 @@ describe("authErrorMessage", () => {
     expect(message.description).toBe("Sign in to continue.")
   })
 
+  it("names a dropped connection, for writes and reads alike", () => {
+    for (const error of [
+      new ApiClientError(0, "network_error", "client copy"),
+      new TypeError("Failed to fetch"),
+    ]) {
+      expect(authErrorMessage(error, "sign-in")).toEqual({
+        title: "We couldn’t reach NabaPresence.",
+        description: "Check your connection and try again.",
+      })
+    }
+  })
+
+  it("says how long to wait when the 429 states it", () => {
+    const limited = (retryAfter?: unknown) =>
+      authErrorMessage(
+        new ApiClientError(
+          429,
+          "auth_rate_limited",
+          "x",
+          retryAfter === undefined ? undefined : { retryAfter }
+        ),
+        "sign-in"
+      ).description
+    expect(limited(840)).toBe("Try again in about 14 minutes.")
+    expect(limited(30)).toBe("Try again in a minute.")
+    expect(limited()).toBe("Wait a while, then try again.")
+    expect(limited("soon")).toBe("Wait a while, then try again.")
+  })
+
+  it("treats an unnamed server failure as an outage of the surface", () => {
+    expect(
+      authErrorMessage(
+        new ApiClientError(500, "internal_error", "x"),
+        "invitation"
+      )
+    ).toEqual({
+      title: "Accepting invitations is temporarily unavailable.",
+      description: "This is a problem on our side. Try again shortly.",
+    })
+    // A refused request that is not ours stays generic.
+    expect(
+      authErrorMessage(new ApiClientError(400, "unknown_code", "x"), "sign-in")
+        .title
+    ).toBe("Something went wrong.")
+  })
+
+  it("points an unconfirmed password save at signing in", () => {
+    const message = authErrorMessage(
+      new ApiClientError(503, "password_reset_outcome_unknown", "x"),
+      "reset-password"
+    )
+    expect(message.title).toBe(
+      "We couldn’t confirm your new password was saved."
+    )
+    expect(message.description).toMatch(/^Try signing in with the new password/)
+  })
+
   it("falls back safely for unknown errors", () => {
     const message = authErrorMessage(new Error("boom"), "sign-in")
     expect(message.title).toBe("Something went wrong.")
@@ -195,6 +252,27 @@ describe("confirmStatusMessage", () => {
   it("titles a sign-in outage from the status by default", () => {
     expect(confirmStatusMessage("auth_provider_unavailable").title).toBe(
       "Sign-in is temporarily unavailable."
+    )
+  })
+  it("words a failed email link as a confirmation, not a password reset", () => {
+    for (const status of ["invalid_email_link", "provider-said-no"]) {
+      const message = confirmStatusMessage(status, "sign-in", "email-link")
+      expect(message.title).toBe(
+        "That email link has expired or was already used."
+      )
+      expect(message.action).toBe("resend-confirmation")
+    }
+    expect(
+      confirmStatusMessage("auth_rate_limited", "sign-in", "email-link")
+        .description
+    ).toMatch(/open the link from your email again/)
+    // Statuses it has no own words for keep their usual ones.
+    expect(
+      confirmStatusMessage("invitation_expired", "sign-in", "email-link").title
+    ).toBe("That invitation has expired.")
+    // Without the marker nothing changes.
+    expect(confirmStatusMessage("invalid_email_link").action).toBe(
+      "request-reset-link"
     )
   })
 })

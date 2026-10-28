@@ -3,12 +3,10 @@
 import { EYEBROW_CLASS } from "@/components/app-shell/page-frame"
 import { PresenceFigures } from "@/components/performance/presence-figures"
 import { PartialCoverageAlert } from "@/components/reporting/partial-coverage-alert"
-import {
-  PresenceProvenance,
-  ZonedTime,
-} from "@/components/reporting/presence-provenance"
+import { ZonedTime } from "@/components/reporting/presence-provenance"
 import { ReplyLocationsTable } from "@/components/performance/reply-locations-table"
 import { ReplyFigures } from "@/components/reporting/reply-figures"
+import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { textTabItemClassName } from "@/components/ui/tabs"
 import type { AnalyticsLocation } from "@/lib/contracts/analytics"
 import type { PresenceResponse } from "@/lib/contracts/analytics"
@@ -16,6 +14,7 @@ import {
   SHARE_PERIODS,
   type SharedClientReport,
 } from "@/lib/contracts/report-shares"
+import { formatDate } from "@/lib/format"
 import { formatPeriod } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
 import { LISTING_TERMS } from "@/lib/workspace/terms"
@@ -29,8 +28,9 @@ import { LISTING_TERMS } from "@/lib/workspace/terms"
  * client's, venues' and agency's names only. The page has no app chrome and
  * no links into the app; the only links are the three periods, which reload
  * this same page (plain links, so they work before or without JavaScript,
- * and each ends `#main` so the reload lands on the figures rather than the
- * top), and the skip link to the figures. Printing (the browser's own Print, or
+ * and each ends `#period` so the reload lands on the period line, with the
+ * period links and the first figures under it, rather than the top), and
+ * the skip link to the figures. Printing (the browser's own Print, or
  * Save as PDF) drops the period switcher and the charts' buttons, keeps the
  * figures, and starts the Google section on a new page.
  *
@@ -100,6 +100,17 @@ export function SharedClientReportView({
           : null,
       }
     : null
+  // Google's own days, never shifted into the organisation's zone.
+  const googleCaption = presence
+    ? [
+        formatPeriod(presence, "UTC"),
+        presence.freshThrough
+          ? `Figures up to ${formatDate(presence.freshThrough, "UTC")}, as reported by Google`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "No Google profile figures for this period."
 
   return (
     <div
@@ -120,7 +131,7 @@ export function SharedClientReportView({
         <h1 className="text-page-title font-semibold text-balance [overflow-wrap:anywhere] text-ink">
           {report.clientName}
         </h1>
-        <p className="text-ui text-ink">
+        <p id="period" className="scroll-mt-4 text-ui text-ink">
           {period.label}
           {periodText ? (
             <span className="text-ink-muted"> · {periodText}</span>
@@ -135,7 +146,7 @@ export function SharedClientReportView({
             {SHARE_PERIODS.map((option) => (
               <li key={option.id} className="flex">
                 <a
-                  href={`?period=${option.id}#main`}
+                  href={`?period=${option.id}#period`}
                   aria-current={option.id === period.id ? "page" : undefined}
                   className={textTabItemClassName}
                 >
@@ -163,18 +174,30 @@ export function SharedClientReportView({
             Reviews and replies
           </h2>
 
-          <ReplyFigures
-            audience="public"
-            summary={replies.summary}
-            previous={replies.previous}
-            series={replies.series}
-            timezone={timezone}
-            unit={period.granularity}
-            rangeLabel={period.label}
-            periodText={periodText}
-            csvPrefix={report.clientName}
-            divergent={replies.incomplete}
-          />
+          {/* No listings filed under the client: say that, rather than
+              "no reviews for these listings" beside a footer of none. */}
+          {report.venues.length === 0 ? (
+            <ReportingPanel
+              framed
+              titleAs="h3"
+              variant="empty"
+              title="No listings in this report yet"
+              description={`${report.agencyName} hasn’t added any listings for ${report.clientName} yet. Figures appear here once they do.`}
+            />
+          ) : (
+            <ReplyFigures
+              audience="public"
+              summary={replies.summary}
+              previous={replies.previous}
+              series={replies.series}
+              timezone={timezone}
+              unit={period.granularity}
+              rangeLabel={period.label}
+              periodText={periodText}
+              csvPrefix={report.clientName}
+              divergent={replies.incomplete}
+            />
+          )}
 
           {locations.length > 1 ? (
             <section
@@ -197,7 +220,12 @@ export function SharedClientReportView({
           ) : null}
         </section>
 
-        {presence ? (
+        {/* The Google section stays, with one sentence, when the period has
+            no Google figures, so switching period never drops half the
+            report without a word. The fetch history and per-listing states
+            are the agency's concern, and the coverage alert already names
+            any gap. */}
+        {presence || report.venues.length ? (
           <section
             aria-labelledby="shared-google"
             className="flex flex-col gap-(--np-gap-section) print:break-before-page"
@@ -209,13 +237,16 @@ export function SharedClientReportView({
               >
                 Google Business Profile
               </h2>
-              <p className="text-caption text-ink-muted">
-                {formatPeriod(presence, "UTC")}
+              <p className="text-caption text-ink-muted tabular-nums">
+                {googleCaption}
               </p>
-              <PresenceProvenance data={presence} timeZone={timezone} />
             </div>
-            <PartialCoverageAlert completeness={presence.completeness} />
-            <PresenceFigures data={presence} />
+            {presence ? (
+              <>
+                <PartialCoverageAlert completeness={presence.completeness} />
+                <PresenceFigures data={presence} />
+              </>
+            ) : null}
           </section>
         ) : null}
       </main>
