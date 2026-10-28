@@ -6,38 +6,47 @@
 > updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
 > separate scheduler process).
 
-## Latest production promotion — 23 October 2026
+## Latest production promotion — 28 October 2026
 
 - Production: [nabapresence.com](https://nabapresence.com).
-- Deployed commit: `7f46cc382c51fd4a96d7f74877eb1831aa262350` (PR #251 on
-  PR #249: the testing and CI/CD modernisation, with the Next.js 16.4.1 and
-  Vite 8.1.6 security fixes). It also ships main's unreleased PRs #247 and
-  #248 (AMA-146).
-- Vercel deployment: `dpl_8MYQaZ1JUboLWM7QVK3xRjo23o51`.
-- Promoted at `2026-10-23T16:44:51Z` (17:44 Europe/London).
-- [Production receipt](../release/receipts/20261023T164451Z-7f46cc382c51.json)
-  and its byte-pinned [local gate receipt](../release/receipts/20261023T164451Z-7f46cc382c51.local.json).
-- All 17 local release gate steps passed with no requested skips (a serial
-  run, 57.4 minutes): 8,459 unit/component tests (one opt-in live AI case
-  skipped), 1,568 integration tests with no skips, and 593 browser cases with
-  no failures, retries or skips. Formatting, the design ratchet, first-load JS
-  ceilings, workflow lint, the production dependency audit and the
-  full-history secret scan passed.
-- Production schema readback (`db:status --expect-current`) confirmed all 149
-  migrations applied, with no pending or unknown versions. No migration was
-  applied for this promotion; the upgrade base was
-  `45ae103a70a6dcf484f5bfc490ca29a705b6a68a`.
-- The deployment was staged with `--skip-domain` and its own readiness probe
-  reported this exact SHA before `vercel promote`. The production probe then
-  saw `nabapresence.com` serve it on the first attempt, with the existing
-  `telemetry_disabled` degradation (`no_endpoint`).
-- Public check: `/` and `/login` redirect to `/sign-in`, which answers HTTP
-  200. Authenticated smoke, the public e2e supplement and independent Vercel
-  API reads were not run for this promotion.
-- No business publishing, password reset, email, edit or provider-sync action
-  was triggered. PRs #249 and #251 were merged with the owner-approved admin
-  merge for the budget-blocked hosted check; this record does not describe
-  hosted Actions as green.
+- Deployed commit: `7a70387b365412c33ffe7c6fbca28d27059f103b`, shipping
+  PR #259 (Zod security dependency update, scheduled-post admission clock fix
+  and pre-push Git-environment isolation) and PR #258 (responsive shell,
+  enlarged-text tabs, skip link and short-phone profile strip).
+- Vercel deployment: `dpl_6TcH6wu5TSj9iMiP41m18g8Bm6kQ`.
+- Promoted at `2026-10-28T16:03:10Z` (16:03 Europe/London).
+- [Production receipt](../release/receipts/20261028T160310Z-7a70387b3654.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261028T160310Z-7a70387b3654.local.json).
+- All 17 exact-main local release gate steps passed with no requested skips,
+  in 15.1 minutes: 8,463 unit/component tests (one existing opt-in live AI
+  case skipped), 1,568 integration tests with no skips and 600 browser cases
+  with no skips. Formatting, design/contrast, bundle budgets, migration
+  checks, production dependency audit, workflow lint and full-history secret
+  scanning passed. Upgrade base: `7f46cc382c51fd4a96d7f74877eb1831aa262350`.
+- A private PostgreSQL 17 custom-format production snapshot completed before
+  the migration command; archive listing validated 2,118 entries. No restore
+  was executed. `db:migrate` reported all 149 migrations already applied;
+  subsequent `db:status --expect-current` confirmed no pending or unknown
+  versions. No new migration was applied for this promotion.
+- The source-owned helper staged with `--skip-domain`; its authenticated
+  staged readiness probe passed before `vercel promote`. The production
+  receipt's first probe confirmed this exact SHA and `productionProbe.ok`
+  is true. Follow-up protected readiness and platform health returned HTTP
+  200, exact release SHA and schema compatibility for all 149 migrations.
+  Readiness remains **degraded** solely for existing `telemetry_disabled`
+  (`no_endpoint`); this is not a fully healthy telemetry claim.
+- Public agentic e2e supplement: one test / 17 steps passed, zero failures or
+  skips, 8.13 seconds, two actual `gpt-6-luna` model calls, replay disabled.
+  It checked sign-in at 390×844 and 1440×900 and followed the phone recovery
+  link without submitting information. Public screenshots were inspected.
+- An existing owner browser session reloaded the released Inbox. Read-only
+  phone navigation verified Listings, Clients, Reports, More, Team and
+  Settings, including active navigation states; 390×844, 667×375 and
+  1440×900 checks found no document horizontal overflow. The temporary
+  viewport was restored and the agent-created tab closed. No fresh
+  password/MFA sign-in, customer/provider mutation, publishing, sync,
+  password reset or email delivery was exercised. Authenticated page content,
+  real-person data and screenshots were not exported into this record.
 
 ## Historical PR #66 certification record
 
