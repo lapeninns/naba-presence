@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { editorGate } from "@/lib/editors/gate"
+import { ASK_OWNER_OR_ADMIN, editorGate } from "@/lib/editors/gate"
 import type { LocationCapabilities } from "@/lib/locations/gating"
 
 /**
- * The one banner the profile, hours and booking editors show when they
+ * The one banner the profile, hours, menu and booking editors show when they
  * cannot do everything they look like they can (lib/editors/gate.ts).
  */
 
@@ -50,6 +50,37 @@ describe("editorGate", () => {
       description: "Only an owner or admin can change hours.",
       code: "permission_denied",
     })
+  })
+
+  it("tells a role that can't edit what to do instead", () => {
+    const banner = editorGate({
+      caps: { canEditCanonical: false, canPublish: false, canWrite: true },
+      resource: "hours",
+      editReason: "Only owners and admins can edit this location.",
+      publishReason: "You do not have permission to publish.",
+      noun: "these hours",
+      savesHere: true,
+    })
+    expect(banner?.description).toBe(
+      `Only owners and admins can edit this location. ${ASK_OWNER_OR_ADMIN}`
+    )
+    expect(ASK_OWNER_OR_ADMIN).toBe(
+      "Ask an owner or admin if something here needs to change."
+    )
+  })
+
+  it("offers no ask line when billing holds everyone read-only", () => {
+    const banner = editorGate({
+      caps: { canEditCanonical: false, canPublish: false, canWrite: false },
+      resource: "hours",
+      editReason: "This workspace's subscription is read-only.",
+      publishReason: "This workspace's subscription is read-only.",
+      noun: "these hours",
+      savesHere: true,
+    })
+    expect(banner?.description).toBe(
+      "This workspace's subscription is read-only."
+    )
   })
 
   it("keeps a non-role reason code out of a look-don't-change banner", () => {

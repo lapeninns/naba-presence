@@ -270,19 +270,27 @@ function AreaCards({
             synced?.status === "core_dirty" ||
             synced?.status === "conflict" ||
             synced?.status === "google_dirty"
-          const verb = needsReview
-            ? "Review"
-            : readOnly ||
-                (area.key === "menu" && summary?.menu.eligible === false)
-              ? "View"
-              : !summary ||
-                  (synced && comparisonCheck(synced, now) !== "checked") ||
-                  ["photos", "posts", "people", "verification"].includes(
-                    area.key
-                  )
-                ? // "Check" belongs to the action that asks Google (DSK-15).
-                  "Open"
-                : "Edit"
+          // A role that can't change canonical data opens an area with
+          // changes (or Suggested updates) only to look: the pill still says
+          // what is waiting, the verb doesn't promise a review it can't do.
+          const viewOnlyRole =
+            caps?.canEditCanonical === false &&
+            (readOnly || area.key === "suggestions")
+          const verb = viewOnlyRole
+            ? "View"
+            : needsReview
+              ? "Review"
+              : readOnly ||
+                  (area.key === "menu" && summary?.menu.eligible === false)
+                ? "View"
+                : !summary ||
+                    (synced && comparisonCheck(synced, now) !== "checked") ||
+                    ["photos", "posts", "people", "verification"].includes(
+                      area.key
+                    )
+                  ? // "Check" belongs to the action that asks Google (DSK-15).
+                    "Open"
+                  : "Edit"
           const action = (
             // The card's link. `static` so the stretched hit area reaches the
             // card's edges (no button's touch overhang can shrink it to a

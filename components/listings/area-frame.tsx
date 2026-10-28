@@ -52,6 +52,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { QueryPending } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { TabNav } from "@/components/ui/tabs"
@@ -304,6 +305,9 @@ function AreaInfo({
         <div className="flex flex-col gap-3 text-body text-ink-secondary">
           <p data-slot="model-note">{modelNote(area.model, area.key)}</p>
           {freshness ? <GoogleFreshnessLine report={freshness} /> : null}
+          {/* A "Check Google now" pressed here fails here, beside the
+              button to try again. */}
+          <GoogleFreshnessFailure report={freshness} />
         </div>
       </PopoverContent>
     </Popover>
@@ -870,14 +874,12 @@ function AreaFrameBody({
  * survives switching to another page, so the header never remounts; the
  * overview renders its own header and passes through.
  */
-/** The editor's placeholder while its code loads on an in-app area switch. */
+/**
+ * The editor's placeholder while its code loads on an in-app area switch:
+ * the same announced rows as the route's loading state.
+ */
 function AreaEditorLoading() {
-  return (
-    <Skeleton
-      aria-busy="true"
-      className="h-40 w-full rounded-(--np-radius-card)"
-    />
-  )
+  return <QueryPending label="Loading this page…" />
 }
 
 /**

@@ -1,10 +1,20 @@
 "use client"
 
-import { createContext, useContext, useState, type Dispatch, type SetStateAction, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+  type ReactNode,
+} from "react"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { SavedWorkList, type SavedWorkItem } from "@/components/reviewed-write"
 import { ApiClientError } from "@/lib/api/client"
-import { fetchLifecycleAttempt, fetchLifecycleWorkflows } from "@/lib/api/google-lifecycle"
+import {
+  fetchLifecycleAttempt,
+  fetchLifecycleWorkflows,
+} from "@/lib/api/google-lifecycle"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
@@ -22,23 +32,52 @@ import { useLifecycle } from "./use-lifecycle"
  */
 export function savedLifecycleErrorText(error: unknown): string {
   const lead = "Saved lifecycle work could not be loaded."
-  if (error instanceof TypeError || (error instanceof ApiClientError && error.code === "network_error")) return `${lead} We couldn’t reach NabaPresence. Check your connection and try again.`
-  if (error instanceof ApiClientError && error.status === 403) return `${lead} Check your current access.`
+  if (
+    error instanceof TypeError ||
+    (error instanceof ApiClientError && error.code === "network_error")
+  )
+    return `${lead} We couldn’t reach NabaPresence. Check your connection and try again.`
+  if (error instanceof ApiClientError && error.status === 403)
+    return `${lead} Check your current access.`
   return `${lead} Try again.`
 }
 
-const Context = createContext<(ReturnType<typeof useLifecycle> & { setAccessBlocked: Dispatch<SetStateAction<boolean>>; ended: LifecycleEnded | null }) | null>(null)
+const Context = createContext<
+  | (ReturnType<typeof useLifecycle> & {
+      setAccessBlocked: Dispatch<SetStateAction<boolean>>
+      ended: LifecycleEnded | null
+    })
+  | null
+>(null)
 export const useLifecycleContext = () => useContext(Context)
-export function LifecycleWorkspace({ locationId, locationName, children }: {
-  readonly locationId: string; readonly locationName?: string; readonly children: ReactNode
+export function LifecycleWorkspace({
+  locationId,
+  locationName,
+  children,
+}: {
+  readonly locationId: string
+  readonly locationName?: string
+  readonly children: ReactNode
 }) {
   const [accessBlocked, setAccessBlocked] = useState(false)
-  const workflow = useLifecycle(locationId, accessBlocked), capabilities = useLocationCapabilities(locationId)
-  const role = useSessionRole(), directory = useLocationDirectory(role)
-  const name = locationName ?? directory.data?.find((entry) => entry.id === locationId)?.name ?? ""
-  const visible = (role === "owner" || role === "admin") && capabilities.data?.canEditCanonical === true
-  const saved = useInfiniteQuery({ queryKey: queryKeys.locationLifecycleWorkflows(locationId), enabled: visible, initialPageParam: "",
-    queryFn: ({ pageParam, signal }) => fetchLifecycleWorkflows(locationId, pageParam, { signal }), getNextPageParam: (page) => page.nextCursor ?? undefined,
+  const workflow = useLifecycle(locationId, accessBlocked),
+    capabilities = useLocationCapabilities(locationId)
+  const role = useSessionRole(),
+    directory = useLocationDirectory(role)
+  const name =
+    locationName ??
+    directory.data?.find((entry) => entry.id === locationId)?.name ??
+    ""
+  const visible =
+    (role === "owner" || role === "admin") &&
+    capabilities.data?.canEditCanonical === true
+  const saved = useInfiniteQuery({
+    queryKey: queryKeys.locationLifecycleWorkflows(locationId),
+    enabled: visible,
+    initialPageParam: "",
+    queryFn: ({ pageParam, signal }) =>
+      fetchLifecycleWorkflows(locationId, pageParam, { signal }),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
   const items = saved.data?.pages.flatMap((page) => page.items) ?? []
   // The latest recorded lifecycle outcome decides whether this account still
@@ -46,58 +85,135 @@ export function LifecycleWorkspace({ locationId, locationName, children }: {
   const latestIndex = items.findIndex((item) => item.attemptId)
   const latestRecorded = latestIndex >= 0 ? items[latestIndex] : undefined
   const latest = useQuery({
-    queryKey: queryKeys.locationLifecycleAttempt(locationId, latestRecorded?.reviewId), enabled: visible && Boolean(latestRecorded), retry: false,
-    queryFn: ({ signal }) => fetchLifecycleAttempt(locationId, latestRecorded?.reviewId ?? "", { signal }),
+    queryKey: queryKeys.locationLifecycleAttempt(
+      locationId,
+      latestRecorded?.reviewId
+    ),
+    enabled: visible && Boolean(latestRecorded),
+    retry: false,
+    queryFn: ({ signal }) =>
+      fetchLifecycleAttempt(locationId, latestRecorded?.reviewId ?? "", {
+        signal,
+      }),
   })
   // An outcome held in this session counts unless it belongs to work that is
   // known to be older than the latest recorded outcome.
-  const olderReviewIds = new Set(latestIndex >= 0 ? items.slice(latestIndex + 1).map((item) => item.reviewId) : [])
-  const sessionAttempt = workflow.attempt && !olderReviewIds.has(workflow.attempt.reviewId) ? workflow.attempt : null
-  const ended = visible ? lifecycleEnded(sessionAttempt) ?? lifecycleEnded(latest.data) : null
+  const olderReviewIds = new Set(
+    latestIndex >= 0
+      ? items.slice(latestIndex + 1).map((item) => item.reviewId)
+      : []
+  )
+  const sessionAttempt =
+    workflow.attempt && !olderReviewIds.has(workflow.attempt.reviewId)
+      ? workflow.attempt
+      : null
+  const ended = visible
+    ? (lifecycleEnded(sessionAttempt) ?? lifecycleEnded(latest.data))
+    : null
   // Each time a review is prepared or a saved item is opened, the panel takes
   // focus again, even when it is the same review (see ReviewedWritePanel).
   const [opened, setOpened] = useState(0)
   const context = {
     ...workflow,
-    preview: async (request: Parameters<typeof workflow.preview>[0]) => { await workflow.preview(request); setOpened((value) => value + 1) },
-    open: (item: Parameters<typeof workflow.open>[0]) => { setOpened((value) => value + 1); workflow.open(item) },
+    preview: async (...args: Parameters<typeof workflow.preview>) => {
+      await workflow.preview(...args)
+      setOpened((value) => value + 1)
+    },
+    open: (item: Parameters<typeof workflow.open>[0]) => {
+      setOpened((value) => value + 1)
+      workflow.open(item)
+    },
     setAccessBlocked,
     ended,
   }
-  const focusKey = workflow.attempt ? `attempt:${workflow.attempt.reviewId}:${opened}` : workflow.review ? `review:${workflow.review.changeSet.id}:${opened}` : null
+  // Why sending waits, named for its real cause rather than one generic line.
+  const sendPaused = accessBlocked
+    ? "Sending is paused until the current access change is resolved."
+    : !capabilities.data
+      ? "Checking your permissions…"
+      : !capabilities.data.canPublish
+        ? "Your current permissions don’t allow sending changes to Google for this listing."
+        : null
+  const focusKey = workflow.attempt
+    ? `attempt:${workflow.attempt.reviewId}:${opened}`
+    : workflow.review
+      ? `review:${workflow.review.changeSet.id}:${opened}`
+      : null
   const savedItems: SavedWorkItem[] = items.map((item) => ({
     id: item.reviewId,
-    operation: item.request.operation === "transfer_location" ? "Account transfer" : "Managed-location deletion",
+    operation:
+      item.request.operation === "transfer_location"
+        ? "Account transfer"
+        : "Managed-location deletion",
     stage: item.attemptId ? "Recorded outcome" : "Saved review",
     createdAt: item.createdAt,
-    actionLabel: item.attemptId ? "Open lifecycle outcome" : "Open lifecycle review",
-    disabled: workflow.busy || Boolean(workflow.unresolved && (workflow.review?.changeSet.id ?? workflow.attempt?.reviewId) !== item.reviewId),
+    actionLabel: item.attemptId
+      ? "Open lifecycle outcome"
+      : "Open lifecycle review",
+    disabled:
+      workflow.busy ||
+      Boolean(
+        workflow.unresolved &&
+        (workflow.review?.changeSet.id ?? workflow.attempt?.reviewId) !==
+          item.reviewId
+      ),
     onOpen: () => context.open(item),
   }))
-  return <Context.Provider value={context}><div className="flex min-w-0 flex-col gap-6">
-    {visible && (workflow.review || workflow.attempt || workflow.error) ? <div className="flex min-w-0 flex-col gap-3">
-      {workflow.error ? <p role="alert" className="text-ui text-danger-ink">{workflow.error}</p> : null}
-      {accessBlocked ? <p role="status" className="text-ui text-ink-secondary">Resolve the current access action before approving or sending a lifecycle request.</p> : null}
-      {workflow.attempt ? <LifecycleOutcome workflow={workflow} focusKey={focusKey} /> : <LifecycleReview workflow={workflow} locationName={name} disabled={!capabilities.data?.canPublish || accessBlocked} focusKey={focusKey} />}
-    </div> : null}
-    {children}
-    {visible ? <SavedWorkList
-      id="lifecycle-saved-work"
-      title="Saved lifecycle work"
-      description="Read recorded outcomes after reloading, expiry or disconnection. Sending and independent confirmation remain separate."
-      items={savedItems}
-      pending={saved.isPending}
-      failed={saved.isError}
-      loadingText="Loading saved lifecycle work…"
-      errorText={savedLifecycleErrorText(saved.error)}
-      emptyText="No saved lifecycle work."
-      reloadLabel="Reload saved lifecycle work"
-      reloading={saved.isFetching}
-      onReload={() => { void saved.refetch() }}
-      loadMoreLabel="Load earlier lifecycle work"
-      hasMore={saved.hasNextPage}
-      loadingMore={saved.isFetchingNextPage}
-      onLoadMore={() => { void saved.fetchNextPage() }}
-    /> : null}
-  </div></Context.Provider>
+  return (
+    <Context.Provider value={context}>
+      <div className="flex min-w-0 flex-col gap-6">
+        {visible && (workflow.review || workflow.attempt || workflow.error) ? (
+          <div className="flex min-w-0 flex-col gap-3">
+            {workflow.error ? (
+              <p role="alert" className="text-ui text-danger-ink">
+                {workflow.error}
+              </p>
+            ) : null}
+            {accessBlocked ? (
+              <p role="status" className="text-ui text-ink-secondary">
+                Resolve the current access action before approving or sending a
+                lifecycle request.
+              </p>
+            ) : null}
+            {workflow.attempt ? (
+              <LifecycleOutcome workflow={workflow} focusKey={focusKey} />
+            ) : (
+              <LifecycleReview
+                workflow={workflow}
+                locationName={name}
+                disabled={sendPaused !== null}
+                disabledReason={sendPaused}
+                focusKey={focusKey}
+              />
+            )}
+          </div>
+        ) : null}
+        {children}
+        {visible ? (
+          <SavedWorkList
+            id="lifecycle-saved-work"
+            title="Saved lifecycle work"
+            description="Read recorded outcomes after reloading, expiry or disconnection. Sending and independent confirmation remain separate."
+            items={savedItems}
+            pending={saved.isPending}
+            failed={saved.isError}
+            loadingText="Loading saved lifecycle work…"
+            errorText={savedLifecycleErrorText(saved.error)}
+            emptyText="No saved lifecycle work."
+            reloadLabel="Reload saved lifecycle work"
+            reloading={saved.isFetching}
+            onReload={() => {
+              void saved.refetch()
+            }}
+            loadMoreLabel="Load earlier lifecycle work"
+            hasMore={saved.hasNextPage}
+            loadingMore={saved.isFetchingNextPage}
+            onLoadMore={() => {
+              void saved.fetchNextPage()
+            }}
+          />
+        ) : null}
+      </div>
+    </Context.Provider>
+  )
 }

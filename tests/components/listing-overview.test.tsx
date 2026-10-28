@@ -36,9 +36,11 @@ import * as locationsHook from "@/lib/queries/use-locations"
 function stub({
   summary,
   caps,
+  entry,
 }: {
   summary: ListingSummary | undefined
   caps?: LocationCapabilities
+  entry?: { linked?: boolean; clientId?: string | null }
 }) {
   vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
     data: [
@@ -50,6 +52,7 @@ function stub({
         clientId: "c1",
         clientName: "Old Crown Group",
         address: { addressLines: ["89 High Street"], locality: "Girton" },
+        ...entry,
       },
       {
         id: "l2",
@@ -154,14 +157,56 @@ describe("ListingOverview", () => {
       }),
     })
     render(<ListingOverview locationId="l1" role="owner" />)
-    expect(
-      screen.getByRole("link", { name: "Review & publish (2)" })
-    ).toHaveAttribute("href", "/listings/l1/changes")
+    // The header's button from md, and the same link under the alerts for a
+    // phone, whose header keeps it in the overflow menu.
+    const links = screen.getAllByRole("link", { name: "Review & publish (2)" })
+    expect(links).toHaveLength(2)
+    for (const link of links) {
+      expect(link).toHaveAttribute("href", "/listings/l1/changes")
+    }
+    expect(links[1]).toHaveClass("md:hidden")
     expect(screen.getAllByText("Changes to publish").length).toBeGreaterThan(0)
     const areas = screen.getByRole("region", { name: "Areas" })
     expect(
       within(areas).getByText("2 fields not yet on Google")
     ).toBeInTheDocument()
+  })
+
+  it("offers neither Review & publish link while Google can't be reached", () => {
+    stub({
+      summary: summary({
+        connection: {
+          status: "revoked",
+          reconnectRequired: true,
+          googleEmail: "owner@example.com",
+        },
+        profile: { status: "core_dirty", dirtyCount: 2, observedAt: null },
+      }),
+    })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.queryByRole("link", { name: /Review & publish \(/ })
+    ).toBeNull()
+  })
+
+  it("tells a read-only role what the areas are for, and who can verify", () => {
+    stub({
+      summary: summary({ verified: false }),
+      caps: { canEditCanonical: false, canPublish: false, resources: {} },
+    })
+    render(<ListingOverview locationId="l1" role="viewer" />)
+    expect(
+      screen.getByText("Open an area to see what it holds here and on Google.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Check a problem, review changes or edit an area.")
+    ).toBeNull()
+    expect(
+      screen.getByText(/An owner or admin can start verification\./)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Start verification" })
+    ).toBeNull()
   })
 
   it("hides the consoles from members and says why an area is unavailable", () => {
@@ -250,9 +295,18 @@ describe("ListingOverview", () => {
       }),
     })
     render(<ListingOverview locationId="l1" role="owner" />)
-    expect(
-      screen.getByText(/The last food menu publish failed/)
-    ).toBeInTheDocument()
+    const alert = document.querySelector('[data-slot="alert"]') as HTMLElement
+    expect(alert).toHaveTextContent(/The last food menu publish failed/)
+    // Present on load, so it is page content, not an interruption.
+    expect(alert).not.toHaveAttribute("role")
+    expect(alert).toHaveTextContent(
+      /Activity, at the top of this page, has the attempt details/
+    )
+    // The Google row uses the same words, not the summary's key.
+    expect(screen.getByRole("region", { name: "Google" })).toHaveTextContent(
+      "The last food menu publish failed"
+    )
+    expect(screen.queryByRole("alert")).toBeNull()
   })
 
   it("puts actionable areas before secondary health details", () => {
@@ -291,7 +345,7 @@ describe("ListingOverview", () => {
     expect(rows[0]).toHaveTextContent("Up to date")
     expect(rows[0]).toHaveTextContent("owner@example.com")
     expect(rows[1]).toHaveTextContent("Last published")
-    expect(rows[1]).toHaveTextContent("Last change: hours")
+    expect(rows[1]).toHaveTextContent("Last change: opening hours")
     expect(within(google).queryByText("Verification")).toBeNull()
     expect(within(google).queryByText("Sync with Google")).toBeNull()
     expect(screen.queryByRole("region", { name: "Health" })).toBeNull()
@@ -339,23 +393,68 @@ describe("ListingOverview", () => {
     ).toBeVisible()
   })
 
-  it("offers Reconnect Google on the connection row to owners and admins only", () => {
-    stub({
-      summary: summary({
-        connection: {
-          status: "revoked",
-          reconnectRequired: true,
-          googleEmail: "owner@example.com",
-        },
-      }),
+  it("leads with the broken connection: Reconnect for owners and admins, who to ask for everyone else", () => {
+    const revoked = summary({
+      connection: {
+        status: "revoked",
+        reconnectRequired: true,
+        googleEmail: "owner@example.com",
+      },
     })
+    stub({ summary: revoked })
     const { unmount } = render(<ListingOverview locationId="l1" role="owner" />)
+    const alert = document.querySelector(
+      '[data-slot="connection-alert"]'
+    ) as HTMLElement
+    expect(alert).toHaveTextContent("Google can’t be reached for this listing")
+    expect(alert).toHaveTextContent(/saved changes are kept/)
+    expect(alert).not.toHaveTextContent(/Ask an owner or admin/)
+    // The only Reconnect, in the alert above the areas.
     expect(
-      screen.getByRole("link", { name: "Reconnect Google" })
+      within(alert).getByRole("link", { name: "Reconnect Google" })
     ).toHaveAttribute("href", "/setup?client=c1&step=connect")
+    expect(
+      screen.getAllByRole("link", { name: "Reconnect Google" })
+    ).toHaveLength(1)
+    const areas = screen.getByRole("region", { name: "Areas" })
+    expect(
+      alert.compareDocumentPosition(areas) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     unmount()
+
+    stub({ summary: revoked })
     render(<ListingOverview locationId="l1" role="member" />)
     expect(screen.queryByRole("link", { name: "Reconnect Google" })).toBeNull()
+    expect(
+      screen.getByText(/Ask an owner or admin to reconnect it\./)
+    ).toBeInTheDocument()
+  })
+
+  it("says a listing isn't linked, with the way to link it for owners and admins", () => {
+    const unlinked = emptyListingSummary({
+      locationId: "l1",
+      linked: false,
+      verified: false,
+    })
+    stub({ summary: unlinked, entry: { linked: false } })
+    const { unmount } = render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.getByText("This listing isn’t linked to Google")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Link to Google" })
+    ).toHaveAttribute("href", "/setup?client=c1&step=locations")
+    unmount()
+
+    stub({ summary: unlinked, entry: { linked: false } })
+    render(<ListingOverview locationId="l1" role="viewer" />)
+    expect(
+      screen.getByText("This listing isn’t linked to Google")
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Link to Google" })).toBeNull()
+    expect(
+      screen.getByText(/An owner or admin can link it from Setup\./)
+    ).toBeInTheDocument()
   })
 
   it("asks for a fresh comparison after a failed publish without denying partial success", () => {

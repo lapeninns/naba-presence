@@ -283,14 +283,34 @@ function AccessNotice({
   publishReason: string | null
 }) {
   const ended = useLifecycleContext()?.ended
+  // After an irreversible outcome the way forward is to unlink the listing
+  // here, or to read the outcome that ended it.
   if (ended)
     return (
       <Alert variant="destructive" icon={<UnplugIcon aria-hidden />}>
         <AlertTitle>{lifecycleEndedTitle(ended)}</AlertTitle>
         <AlertDescription>
-          {lifecycleEndedReason(ended)} The people listed below were read from
-          Google before this change and may no longer apply.
+          {lifecycleEndedReason(ended)}
+          {ended.operation === "delete_location"
+            ? " It may still appear on Search or Maps."
+            : ""}{" "}
+          The people listed below were read from Google before this change and
+          may no longer apply.
         </AlertDescription>
+        <AlertActions>
+          <Link
+            href="/settings/connections"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Open Google connections
+          </Link>
+          <a
+            href="#lifecycle-saved-work"
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            See the saved outcome
+          </a>
+        </AlertActions>
       </Alert>
     )
   return <WritesBlocked reason={editReason ? null : publishReason} />
@@ -298,6 +318,13 @@ function AccessNotice({
 
 function countOf(result: { data: unknown }, key: string): number {
   return asArray(asRecord(result.data)[key]).length
+}
+
+/** Listed people whose invitation Google says they haven't accepted yet. */
+function pendingCountOf(result: { data: unknown }, key: string): number {
+  return asArray(asRecord(result.data)[key]).filter(
+    (row) => row.pendingInvitation === true
+  ).length
 }
 
 function plural(count: number, one: string, many: string) {
@@ -335,21 +362,27 @@ function PeopleSummary({
     state.locationAdmins.error || state.accountAdmins.error
   )
   const invitationsFailed = Boolean(state.invitations.error)
+  // Two kinds of invitation: people invited here are listed with the people
+  // (not yet accepted), and invitations to the connected login wait for an
+  // answer below, so neither count contradicts the other.
+  const notAccepted =
+    pendingCountOf(state.locationAdmins, "admins") +
+    pendingCountOf(state.accountAdmins, "accountAdmins")
   const people = peopleFailed
     ? "People count unavailable"
-    : plural(
+    : `${plural(
         countOf(state.locationAdmins, "admins") +
           countOf(state.accountAdmins, "accountAdmins"),
         "person",
         "people"
-      )
+      )}${notAccepted > 0 ? `, ${notAccepted} not yet accepted` : ""}`
   const invitations = invitationsFailed
     ? "invitation count unavailable"
-    : plural(
+    : `${plural(
         countOf(state.invitations, "invitations"),
         "invitation",
         "invitations"
-      )
+      )} to answer`
   const readAt = client.getQueryState(
     queryKeys.locationAdministration(locationId)
   )?.dataUpdatedAt
@@ -384,7 +417,9 @@ function InvitationsSummary({ state }: { state: AdministrationState }) {
   if (rosterUpdating) return <>Updating from Google…</>
   if (rosterUnavailable) return <>Count unavailable</>
   if (state.invitations.error) return <>Count unavailable</>
-  return <>{`${countOf(state.invitations, "invitations")} waiting`}</>
+  return (
+    <>{`${countOf(state.invitations, "invitations")} waiting for the connected Google login`}</>
+  )
 }
 
 /** Who may edit this listing on Google, and the operations that end it. */
@@ -405,7 +440,39 @@ export function AccessTab({
       >
         {({ state, editReason, publishReason }) => {
           return (
-            <AdministrationAccessWorkspace>
+            <AdministrationAccessWorkspace
+              after={
+                <div className="flex flex-col gap-6">
+                  {/* The rules that explain the roster, after it and its
+                  saved work: the roster and "Invite someone" come first on a
+                  phone, and the danger zone stays last. */}
+                  <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
+                    <AlertTitle>Primary owner rules</AlertTitle>
+                    <AlertDescription>
+                      Google keeps exactly one primary owner per listing. The
+                      primary owner can’t be removed or demoted here, and a
+                      listing is never left without an owner. To hand over
+                      primary ownership, make someone an owner first, then
+                      transfer it on Google.
+                    </AlertDescription>
+                  </Alert>
+                  <p className="text-caption text-ink-muted">
+                    These are the people Google lets manage this listing. Who
+                    can see it in NabaPresence is usually managed per{" "}
+                    {terms.scope}, from{" "}
+                    <Link
+                      href="/team"
+                      className="font-semibold text-ink underline"
+                    >
+                      Team → {terms.access}
+                    </Link>
+                    .
+                  </p>
+
+                  <DangerZone />
+                </div>
+              }
+            >
               <div className="flex flex-col gap-6">
                 <AccessNotice
                   editReason={editReason}
@@ -466,40 +533,13 @@ export function AccessTab({
                   <SectionHeader
                     as="h3"
                     id="people-invitations"
-                    title="Pending invitations"
+                    title="Invitations to answer"
                     description={<InvitationsSummary state={state} />}
                   />
                   <Sub title="Invitations" result={state.invitations}>
                     {(data) => <InvitationsList data={data} />}
                   </Sub>
                 </section>
-
-                {/* The rules that explain the roster, after it: the roster and
-                "Invite someone" come first on a phone. */}
-                <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
-                  <AlertTitle>Primary owner rules</AlertTitle>
-                  <AlertDescription>
-                    Google keeps exactly one primary owner per listing. The
-                    primary owner can’t be removed or demoted here, and a
-                    listing is never left without an owner. To hand over primary
-                    ownership, make someone an owner first, then transfer it on
-                    Google.
-                  </AlertDescription>
-                </Alert>
-                <p className="text-caption text-ink-muted">
-                  These are the people Google lets manage this listing. Who can
-                  see it in NabaPresence is usually managed per {terms.scope},
-                  from{" "}
-                  <Link
-                    href="/team"
-                    className="font-semibold text-ink underline"
-                  >
-                    Team → {terms.access}
-                  </Link>
-                  .
-                </p>
-
-                <DangerZone />
               </div>
             </AdministrationAccessWorkspace>
           )

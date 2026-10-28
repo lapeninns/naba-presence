@@ -208,8 +208,35 @@ export function closingDayOptions(
   })
 }
 
-/** Every problem in the draft, in page order, each tied to a field. */
-export function validateHours(hours: NormalizedHours): HoursIssue[] {
+/**
+ * A special day as the summary names it: by its date, as its row and sheet
+ * title do (rows are sorted by date, so a position would not match what the
+ * operator sees), or "New special day" before it has one.
+ */
+function specialLabel(entry: NormalizedHours["special"][number] | undefined) {
+  return entry?.effectiveDate
+    ? `Special hours, ${formatSpecialDate(entry.effectiveDate)}`
+    : "New special day"
+}
+
+/**
+ * Every problem in the draft, in page order, each tied to a field. A
+ * service schedule is named by Google's display name for it ("Kitchen")
+ * when `supportedHoursTypes` has one, else by its type id.
+ */
+export function validateHours(
+  hours: NormalizedHours,
+  supportedHoursTypes: ReadonlyArray<{
+    hoursTypeId: string
+    displayName: string
+  }> = []
+): HoursIssue[] {
+  const serviceName = (hoursTypeId: string | undefined) =>
+    (hoursTypeId &&
+      supportedHoursTypes.find((type) => type.hoursTypeId === hoursTypeId)
+        ?.displayName) ||
+    hoursTypeId ||
+    "Service"
   const issues: HoursIssue[] = []
   const parsed = hoursFormSchema.safeParse(hours)
   if (!parsed.success) {
@@ -232,7 +259,7 @@ export function validateHours(hours: NormalizedHours): HoursIssue[] {
                 : hoursFieldId.opens(day, periodIndex)
             : hoursFieldId.dayOpen(day)
       } else if (area === "special") {
-        label = `Special date ${index + 1}`
+        label = specialLabel(hours.special[index])
         fieldId =
           field === "endDate"
             ? hoursFieldId.specialEnd(index)
@@ -248,7 +275,7 @@ export function validateHours(hours: NormalizedHours): HoursIssue[] {
           entry?.periods
             .slice(0, periodIndex)
             .filter((period) => period.dayOfWeek === day).length ?? 0
-        label = `${entry?.hoursTypeId ?? "Service"} · ${DAY_LABELS[day]}`
+        label = `${serviceName(entry?.hoursTypeId)} · ${DAY_LABELS[day]}`
         const id =
           periodField === "closeDayOfWeek"
             ? hoursFieldId.ends(day, dayIndex)
@@ -349,7 +376,7 @@ export function validateHours(hours: NormalizedHours): HoursIssue[] {
 
   const specialSpans: Array<{ start: number; end: number }> = []
   hours.special.forEach((entry, index) => {
-    const label = `Special date ${index + 1}`
+    const label = specialLabel(entry)
     const fieldId = hoursFieldId.specialDate(index)
     if (!entry.effectiveDate) {
       issues.push({ fieldId, label, message: "Choose a date." })
@@ -417,7 +444,7 @@ export function validateHours(hours: NormalizedHours): HoursIssue[] {
       ...serviceIssues.map((issue) => ({
         ...issue,
         fieldId: `service-${encodeURIComponent(entry.hoursTypeId)}-${issue.fieldId}`,
-        label: `${entry.hoursTypeId} · ${issue.label}`,
+        label: `${serviceName(entry.hoursTypeId)} · ${issue.label}`,
       }))
     )
   }

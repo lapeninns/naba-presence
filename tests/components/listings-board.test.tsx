@@ -500,6 +500,106 @@ describe("ListingsBoard", () => {
     expect(line).toHaveClass("sr-only")
   })
 
+  it("announces how many listings a search leaves, out of all", async () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: "Search listings" }),
+      "Harbour"
+    )
+    const line = screen.getByText(/^1 of 3 listings shown/).closest("p")!
+    expect(line).toHaveAttribute("aria-live", "polite")
+  })
+
+  it("names the search and keeps it when the match is under another health", async () => {
+    search = "health=healthy&q=Old Crown"
+    window.history.replaceState(null, "", `/listings?${search}`)
+    stub({
+      entries,
+      summaries: [
+        summary({
+          locationId: "l1",
+          profile: { status: "core_dirty", dirtyCount: 1, observedAt: null },
+        }),
+        summary({ locationId: "l2" }),
+        summary({ locationId: "l3" }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByText("No listings match “Old Crown”")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("1 listing matches outside “In sync”.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear filters" })
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Show 1 match" }))
+    expect(
+      screen.getByRole("link", { name: "Old Crown Girton" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("searchbox", { name: "Search listings" })
+    ).toHaveValue("Old Crown")
+    // The button went with the empty state: focus lands on the search.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("searchbox", { name: "Search listings" })
+      ).toHaveFocus()
+    )
+    expect(replace).toHaveBeenLastCalledWith("/listings?q=Old+Crown")
+  })
+
+  it("asks to check the spelling when the search matches nothing anywhere", async () => {
+    search = "q=zzzz"
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(screen.getByText("No listings match “zzzz”")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Check the spelling, or clear the search/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Show/ })
+    ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("searchbox", { name: "Search listings" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("names the client when a client with no listings leaves nothing", () => {
+    search = "clientId=c3"
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    vi.spyOn(clientsHook, "useClients").mockReturnValue({
+      data: {
+        items: [
+          { id: "c1", name: "Old Crown Group" },
+          { id: "c2", name: "Harbour Kitchen" },
+          { id: "c3", name: "Railway Arms" },
+        ],
+        unassignedLocationCount: 1,
+      },
+      isPending: false,
+    } as unknown as ReturnType<typeof clientsHook.useClients>)
+    render(<ListingsBoard role="owner" />)
+    expect(screen.getByText("No listings match")).toBeInTheDocument()
+    expect(
+      screen.getByText("No listing is in “Railway Arms” right now.")
+    ).toBeInTheDocument()
+  })
+
   it("selects every listing shown from the table header's select-all bar, and docks the selection bar", async () => {
     stub({
       entries,
@@ -540,6 +640,75 @@ describe("ListingsBoard", () => {
       screen.queryByRole("region", { name: "Bulk change selection" })
     ).not.toBeInTheDocument()
     expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
+    // The bar took the focused button with it: focus returns to select-all.
+    await waitFor(() => expect(all).toHaveFocus())
+  })
+
+  it("says how many selected listings are not shown or not linked to Google", async () => {
+    const unlinked: locationsHook.DirectoryEntry[] = [
+      ...entries,
+      {
+        id: "l4",
+        name: "Station Inn",
+        linked: false,
+        verified: undefined,
+        clientId: "c1",
+        clientName: "Old Crown Group",
+      },
+    ]
+    stub({
+      entries: unlinked,
+      summaries: [
+        summary({
+          locationId: "l1",
+          profile: { status: "core_dirty", dirtyCount: 1, observedAt: null },
+        }),
+        summary({ locationId: "l2" }),
+        summary({ locationId: "l3" }),
+      ],
+    })
+    const user = userEvent.setup()
+    render(<ListingsBoard role="owner" bulkEnabled />)
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all shown (4)" })
+    )
+    const bar = screen.getByRole("region", { name: "Bulk change selection" })
+    expect(bar).toHaveTextContent(/^4 selected · 1 not linked to Google/)
+    await user.click(screen.getByRole("button", { name: /^To publish/ }))
+    expect(bar).toHaveTextContent(
+      /4 selected · 3 not shown · 1 not linked to Google/
+    )
+  })
+
+  it("tells a row checkbox switched off at the cap why", async () => {
+    const many = Array.from({ length: 51 }, (_, index) => ({
+      id: `m${index}`,
+      name: `Listing ${String(index).padStart(2, "0")}`,
+      linked: true,
+      verified: true,
+      clientId: "c1",
+      clientName: "Old Crown Group",
+    }))
+    stub({ entries: many, summaries: [] })
+    render(<ListingsBoard role="owner" bulkEnabled />)
+    for (let index = 0; index < 50; index++)
+      fireEvent.click(
+        screen.getByRole("checkbox", {
+          name: `Select Listing ${String(index).padStart(2, "0")} for a bulk change`,
+        })
+      )
+    const last = screen.getByRole("checkbox", {
+      name: "Select Listing 50 for a bulk change",
+    })
+    expect(last).toHaveAttribute("aria-disabled", "true")
+    expect(last).toHaveAccessibleDescription(
+      // jsdom's name computation drops the space before the muted words.
+      /50 selected ?\(the most one change can cover\)/
+    )
+    const ticked = screen.getByRole("checkbox", {
+      name: "Select Listing 00 for a bulk change",
+    })
+    expect(ticked).not.toHaveAccessibleDescription(/the most/)
   })
 
   it("refuses to select all shown past 50 listings instead of trimming", () => {
@@ -592,9 +761,30 @@ describe("ListingsBoard", () => {
     stub({ entries: [], summaries: [] })
     render(<ListingsBoard role="owner" />)
     expect(screen.getByText("No listings yet")).toBeInTheDocument()
-    expect(
-      screen.getByRole("link", { name: /Add listings from Google/ })
-    ).toHaveAttribute("href", "/setup")
+    const add = screen.getByRole("link", { name: /Add listings from Google/ })
+    expect(add).toHaveAttribute("href", "/setup")
+    // The same primary action as everywhere else on the board.
+    expect(add).toHaveClass("bg-primary")
+  })
+
+  it("sends Add listings to the client the board is narrowed to, if it is one the session can see", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    for (const [query, href] of [
+      ["clientId=c1", "/setup?client=c1"],
+      ["clientId=__unfiled__", "/setup"],
+      ["clientId=gone", "/setup"],
+      ["", "/setup"],
+    ] as const) {
+      search = query
+      const { unmount } = render(<ListingsBoard role="owner" />)
+      expect(
+        screen.getByRole("link", { name: "Add listings from Google" })
+      ).toHaveAttribute("href", href)
+      unmount()
+    }
   })
 
   it("says the board failed to load and offers a retry, rather than a partial board", async () => {
@@ -613,13 +803,80 @@ describe("ListingsBoard", () => {
       data: undefined,
       isPending: true,
     } as unknown as UseQueryResult<ListingSummary[]>)
-    render(<ListingsBoard role="owner" />)
+    const { unmount } = render(<ListingsBoard role="owner" />)
     expect(
       screen.getByRole("heading", { name: "We couldn’t load your listings" })
     ).toBeInTheDocument()
+    // Announced, with the retry outside the alert so it reads what happened.
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent("We couldn’t load your listings")
+    expect(alert).not.toHaveTextContent("Try again")
     expect(screen.queryByRole("table")).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: /Try again/ }))
     expect(refetch).toHaveBeenCalled()
+    unmount()
+
+    // While it tries again, the button says so.
+    vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: true,
+      refetch,
+    } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+    render(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByRole("button", { name: /Trying again/ })
+    ).toHaveAttribute("aria-busy", "true")
+  })
+
+  it("offers Check again when the summaries fail, and says so on screen", async () => {
+    stub({ entries, summaries: [] })
+    const refetch = vi.fn()
+    vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      refetch,
+    } as unknown as UseQueryResult<ListingSummary[]>)
+    render(<ListingsBoard role="owner" />)
+    const line = screen
+      .getByText(/We couldn’t check what is waiting on each listing/)
+      .closest("p")!
+    expect(line).not.toHaveClass("sr-only")
+    expect(line).toHaveAttribute("aria-live", "polite")
+    const again = screen.getByRole("button", { name: "Check again" })
+    // Beside the line, not inside the live region.
+    expect(line).not.toContainElement(again)
+    await userEvent.click(again)
+    expect(refetch).toHaveBeenCalled()
+  })
+
+  it("says a failed refresh still shows the last check", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
+      data: entries.map((entry) => summary({ locationId: entry.id })),
+      isPending: false,
+      isError: true,
+      isFetching: true,
+      refetch: vi.fn(),
+    } as unknown as UseQueryResult<ListingSummary[]>)
+    render(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByText(
+        /We couldn’t refresh what is waiting; this is the last check/
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We couldn’t check what is waiting/)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /Checking again/ })
+    ).toHaveAttribute("aria-busy", "true")
   })
 
   it("still offers Add listings from Google to owners and admins while loading or failed, and to no one else", () => {
@@ -729,6 +986,88 @@ describe("ListingsBoard", () => {
       expect(
         within(dialog).getByRole("link", { name: "Open listing" })
       ).toHaveAttribute("href", link.getAttribute("href"))
+    })
+
+    it("uses the overview's words for each area", async () => {
+      stubWidth(true)
+      const recent = new Date().toISOString()
+      stub({
+        entries,
+        summaries: [
+          summary({
+            locationId: "l1",
+            hours: {
+              status: "in_sync",
+              dirtyCount: 0,
+              observedAt: recent,
+              checkStatus: "checked",
+              googleEmpty: true,
+            },
+          }),
+          summary({
+            locationId: "l2",
+            connection: {
+              status: "expired",
+              reconnectRequired: true,
+              googleEmail: "a@b.c",
+            },
+          }),
+          summary({ locationId: "l3" }),
+        ],
+      })
+      const { unmount } = render(<ListingsBoard role="owner" />)
+      fireEvent.click(screen.getByRole("link", { name: "Old Crown Girton" }), {
+        detail: 1,
+      })
+      const dialog = await screen.findByRole("dialog", {
+        name: "Old Crown Girton",
+      })
+      expect(within(dialog).getByText("Needs attention")).toBeInTheDocument()
+      expect(
+        within(dialog).getByText(
+          "Google shows no opening hours for this listing."
+        )
+      ).toBeInTheDocument()
+      expect(within(dialog).getByText("No hours on Google")).toBeInTheDocument()
+      expect(within(dialog).queryByText("In sync")).not.toBeInTheDocument()
+      unmount()
+
+      render(<ListingsBoard role="owner" />)
+      fireEvent.click(screen.getByRole("link", { name: "Harbour View" }), {
+        detail: 1,
+      })
+      const disconnected = await screen.findByRole("dialog", {
+        name: "Harbour View",
+      })
+      expect(
+        within(disconnected).getAllByText("Unknown — can’t reach Google").length
+      ).toBeGreaterThan(0)
+      expect(
+        within(disconnected).queryByText("In sync")
+      ).not.toBeInTheDocument()
+    })
+
+    it("says the listing could not be checked when the summaries failed", async () => {
+      stubWidth(true)
+      stub({ entries, summaries: [] })
+      vi.spyOn(summaryHook, "useListingSummaries").mockReturnValue({
+        data: undefined,
+        isPending: false,
+        isError: true,
+        isFetching: false,
+        refetch: vi.fn(),
+      } as unknown as UseQueryResult<ListingSummary[]>)
+      render(<ListingsBoard role="owner" />)
+      fireEvent.click(screen.getByRole("link", { name: "Old Crown Girton" }), {
+        detail: 1,
+      })
+      const dialog = await screen.findByRole("dialog", {
+        name: "Old Crown Girton",
+      })
+      expect(
+        within(dialog).getByText(/We couldn’t check this listing just now/)
+      ).toBeInTheDocument()
+      expect(within(dialog).queryByText("Not checked")).not.toBeInTheDocument()
     })
 
     it("leaves Enter and a modifier click on the row link to open the listing", () => {

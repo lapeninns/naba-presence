@@ -64,6 +64,7 @@ export function IdentitySection({
   disabled,
   googleReady,
   changed,
+  marks,
 }: {
   values: ProfileFormValues
   setValues: Dispatch<SetStateAction<ProfileFormValues>>
@@ -74,6 +75,11 @@ export function IdentitySection({
   /** False while Google's half of the listing has not arrived. */
   googleReady: boolean
   changed: { name: boolean; storeCode: boolean; labels: boolean }
+  /**
+   * The word on the name's row: whose change it is ("Changed", "Changed on
+   * Google", "Not on Google yet"). Falls back to "Changed".
+   */
+  marks?: { name?: string }
 }) {
   return (
     <SectionCard
@@ -88,7 +94,7 @@ export function IdentitySection({
       <SettingsRow
         label="Business name"
         controlId={PROFILE_FIELD_IDS.name}
-        changed={changed.name ? "Changed" : undefined}
+        changed={changed.name ? (marks?.name ?? "Changed") : undefined}
         control={
           <Field measure="short" error={errors.name}>
             <Input

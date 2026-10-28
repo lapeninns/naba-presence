@@ -200,6 +200,107 @@ describe("MenuTab", () => {
   })
 })
 
+describe("emptying the menu and read-only roles", () => {
+  function loaded(state: FoodMenusState, caps: Record<string, unknown>) {
+    useMenuMock.mockReturnValue({
+      data: state,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({ data: caps })
+  }
+
+  it("keeps the editor and Undo after removing the last section", async () => {
+    const user = userEvent.setup()
+    loaded(
+      makeMenus({
+        googleCounts: { menus: 1, sections: 1, items: 1, options: 0 },
+      }),
+      { canEditCanonical: true, canPublish: true }
+    )
+    renderTab()
+    await user.click(
+      screen.getByRole("button", { name: "Actions for section Starters" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Remove section" })
+    )
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Remove section",
+      })
+    )
+    expect(
+      screen.queryByRole("heading", { name: "No food menu yet" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Start with a section" })
+    ).toBeInTheDocument()
+    // Said before review, not claimed as a result.
+    expect(
+      screen.getByText(
+        /This draft has no sections, so publishing it would leave Google with no food menu\./
+      )
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Undo removal" }))
+    expect(screen.getByDisplayValue("Starters")).toBeInTheDocument()
+    expect(
+      screen.queryByText(/would leave Google with no food menu/)
+    ).toBeNull()
+  })
+
+  it("a member sees the view-only bar, not a disabled Review changes", () => {
+    // Google's menu differs from the saved one: an owner would see
+    // "Review changes" here.
+    loaded(makeMenus(), { canEditCanonical: false, canPublish: false })
+    renderTab()
+    expect(
+      screen.getByText("You can look, but not change this menu")
+    ).toBeInTheDocument()
+    expect(screen.getByText(/View-only access\./)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+  })
+
+  it("the empty menu doesn't tell a member to start one", () => {
+    loaded(makeMenus({ canonicalMenus: [], status: "in_sync" }), {
+      canEditCanonical: false,
+      canPublish: false,
+    })
+    renderTab()
+    expect(
+      screen.getByRole("heading", { name: "No food menu yet" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Neither NabaPresence nor Google has a food menu for Riverside."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Start one here/)).toBeNull()
+    expect(screen.queryByRole("button", { name: "Start a menu" })).toBeNull()
+  })
+
+  it("tells an owner when publishing is switched off, and still lets them save", () => {
+    loaded(makeMenus(), {
+      canEditCanonical: true,
+      canPublish: true,
+      resources: {
+        menu: { state: "blocked", reasonCode: "publishing_paused" },
+      },
+    })
+    renderTab()
+    expect(
+      screen.getByText("Publishing to Google is switched off in NabaPresence")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/View-only access/)).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
+  })
+})
+
 describe("reviewed menu preconditions", () => {
   it("keeps the reviewed Google hash when saving before publication", async () => {
     const user = userEvent.setup()
@@ -425,7 +526,9 @@ describe("menu draft preservation across revisions", () => {
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     const search = screen.getByRole("searchbox", { name: "Search menu" })
     await user.type(search, "Starters")
-    const section = screen.getByRole("textbox", { name: "Section 1 name" })
+    const section = screen.getByRole("textbox", {
+      name: "Section name — section 1",
+    })
     await user.clear(section)
     expect(section).toHaveFocus()
     expect(search).toHaveValue("Starters")

@@ -34,7 +34,7 @@ async function prepare(
   ).toBeVisible()
   await page
     .getByRole("button", {
-      name: transfer ? "Transfer this location" : "Delete this location",
+      name: transfer ? "Transfer this location" : "Request deletion",
       exact: true,
     })
     .click()

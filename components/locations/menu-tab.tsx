@@ -18,6 +18,7 @@ import {
 } from "@/components/locations/menu-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { countNoun } from "@/components/ui/count-text"
 import { Empty } from "@/components/ui/empty"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import {
@@ -26,13 +27,17 @@ import {
   saveFoodMenus,
   type FoodMenusState,
 } from "@/lib/api/location-menu"
+import { editorGate } from "@/lib/editors/gate"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
   usePublishFlow,
   type PublishStep,
 } from "@/lib/editors/use-publish-flow"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
-import type { TabGateReasons } from "@/lib/locations/gating"
+import type {
+  LocationCapabilities,
+  TabGateReasons,
+} from "@/lib/locations/gating"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useFoodMenus } from "@/lib/queries/use-location-menu"
@@ -46,7 +51,7 @@ export function MenuTab({ locationId }: { locationId: string }) {
       useResource={useFoodMenus}
       resource="menu"
     >
-      {({ data: state, disabled, editReason, publishReason }) =>
+      {({ data: state, caps, disabled, editReason, publishReason }) =>
         state.eligible ? (
           <MenuForm
             // No remount on a revision change: useEditorDraft follows the
@@ -54,6 +59,7 @@ export function MenuTab({ locationId }: { locationId: string }) {
             // keep) when a colleague's save lands mid-edit.
             locationId={locationId}
             state={state}
+            caps={caps}
             disabled={disabled}
             editReason={editReason}
             publishReason={publishReason}
@@ -75,10 +81,15 @@ export function MenuTab({ locationId }: { locationId: string }) {
 function MenuForm({
   locationId,
   state,
+  caps,
   disabled,
   editReason,
   publishReason: gateReason,
-}: TabGateReasons & { locationId: string; state: FoodMenusState }) {
+}: TabGateReasons & {
+  locationId: string
+  state: FoodMenusState
+  caps: LocationCapabilities | undefined
+}) {
   const editor = useEditorDraft({
     initial: state.canonicalMenus,
     revision: state.canonicalResource.revision,
@@ -230,7 +241,20 @@ function MenuForm({
   const publishReason = editReason ?? gateReason
   const draftCounts = countFoodMenus(clean as Array<Record<string, unknown>>)
   const googleHasMenu = state.googleCounts.sections > 0
-  const noMenu = draftCounts.sections === 0
+  // Only a clean draft with no sections is "no menu yet". Emptying the menu
+  // by hand keeps the editor, so its Undo stays on screen, and the
+  // description below says what publishing that would do.
+  const noMenu = draftCounts.sections === 0 && !isDirty
+  // The same one banner hours and profile show: a role limit reads as
+  // "look, don't change"; paused publishing says so.
+  const gate = editorGate({
+    caps,
+    resource: "menu",
+    editReason,
+    publishReason: gateReason,
+    noun: "this menu",
+    savesHere: true,
+  })
 
   function review() {
     const found = validateMenu(draft)
@@ -273,7 +297,7 @@ function MenuForm({
       title="Food menu"
       titleHidden
       description={
-        noMenu && !isDirty ? undefined : (
+        noMenu ? undefined : (
           <>
             Publishing replaces the whole food menu on Google, every menu, not
             only what you changed.{" "}
@@ -283,13 +307,19 @@ function MenuForm({
             {draftCounts.sections === 1 ? "section" : "sections"},{" "}
             <span className="tabular-nums">{draftCounts.items}</span>{" "}
             {draftCounts.items === 1 ? "item" : "items"}.
+            {draftCounts.sections === 0 && googleHasMenu
+              ? " This draft has no sections, so publishing it would leave Google with no food menu."
+              : null}
           </>
         )
       }
-      gateReason={editReason}
+      gateReason={gate?.description}
+      gateTitle={gate?.title}
+      gateTone={gate?.tone}
+      gateCode={gate?.code}
       readView={Boolean(editReason)}
       footer={
-        noMenu && !isDirty ? undefined : (
+        noMenu ? undefined : (
           <EditorFooter
             status={
               isDirty
@@ -308,6 +338,9 @@ function MenuForm({
             saving={save.isPending}
             saveDisabledReason={editReason}
             disabledReason={publishReason}
+            // A role that can't edit gets the one view-only bar, not a
+            // disabled "Review changes" over Google's differences.
+            readOnlyReason={editReason}
           />
         )
       }
@@ -338,10 +371,12 @@ function MenuForm({
           icon={<UtensilsCrossed aria-hidden />}
           titleAs="h3"
           title="No food menu yet"
+          // Someone who can't start a menu isn't told to: the banner above
+          // already says why.
           description={
             googleHasMenu
-              ? `NabaPresence has no menu for ${state.location.name}, but Google has one with ${state.googleCounts.items} ${state.googleCounts.items === 1 ? "item" : "items"}. Start from Google’s menu, or start a new one here.`
-              : `Neither NabaPresence nor Google has a food menu for ${state.location.name}. Start one here; nothing reaches Google until you publish.`
+              ? `NabaPresence has no menu for ${state.location.name}, but Google has one with ${countNoun(state.googleCounts.items, "item")}.${disabled ? "" : " Start from Google’s menu, or start a new one here."}`
+              : `Neither NabaPresence nor Google has a food menu for ${state.location.name}.${disabled ? "" : " Start one here; nothing reaches Google until you publish."}`
           }
           action={
             disabled ? undefined : (

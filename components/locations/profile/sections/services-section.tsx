@@ -103,7 +103,11 @@ function ServiceEditor({
   const draft = useEditorDraft({
     initial: serviceDraftRows(initial),
     revision: business.locationHash,
-    scope: { resource: "location-services", resourceId: locationId, schemaVersion: 1 },
+    scope: {
+      resource: "location-services",
+      resourceId: locationId,
+      schemaVersion: 1,
+    },
     parseStashed: parseServiceDraft,
   })
   const metadata = useQuery({
@@ -123,17 +127,28 @@ function ServiceEditor({
   const disabled = readOnly || !business.canPublish || !business.writesEnabled
   const workspace = useServiceWorkspace()
   const localWorkflow = useServiceReview(locationId, (change) => {
-    if (built.success && serviceItemsMatch(change.payload.serviceItems, built.items)) draft.expectSave()
+    if (
+      built.success &&
+      serviceItemsMatch(change.payload.serviceItems, built.items)
+    )
+      draft.expectSave()
   })
   const workflow = workspace ?? localWorkflow
   const setConfirmedHandler = workspace?.setConfirmedHandler
   useEffect(() => {
-    setConfirmedHandler?.((change) => { if (built.success && serviceItemsMatch(change.payload.serviceItems, built.items)) draft.expectSave() })
+    setConfirmedHandler?.((change) => {
+      if (
+        built.success &&
+        serviceItemsMatch(change.payload.serviceItems, built.items)
+      )
+        draft.expectSave()
+    })
     return () => setConfirmedHandler?.(null)
   }, [setConfirmedHandler, built, draft])
   const review = workflow.review
   function preview() {
-    if (!disabled && built.success && !draft.incoming) workflow.preview(built.items, business.locationHash)
+    if (!disabled && built.success && !draft.incoming)
+      workflow.preview(built.items, business.locationHash)
   }
   const categories = metadata.data?.categories ?? []
   const choices = [
@@ -170,14 +185,16 @@ function ServiceEditor({
       ? "Service changes are being processed."
       : workflow.unresolved
         ? "Read the saved service outcome before another change."
-      : draft.incoming
-        ? "Resolve the newer service data before reviewing."
-        : !built.success
-          ? built.message
-          : null
+        : draft.incoming
+          ? "Resolve the newer service data before reviewing."
+          : !built.success
+            ? built.message
+            : null
   useImperativeHandle(actions, () => ({
     review: preview,
-    discard: () => { if (!workflow.busy && !workflow.unresolved) draft.discard() },
+    discard: () => {
+      if (!workflow.busy && !workflow.unresolved) draft.discard()
+    },
   }))
   useEffect(() => {
     onStatus({ dirty: draft.isDirty, blocked })
@@ -219,176 +236,180 @@ function ServiceEditor({
           <p className="text-ui text-ink-muted">No services added.</p>
         ) : null}
         {draft.draft.length > 0 ? (
-        <ListRows>
-        {draft.draft.map((row, index) => (
-          <ListRow
-            key={index}
-            interactive={false}
-            flush
-            wrap
-            emphasis="neutral"
-            titleAs="h4"
-            title={label(row.item) || `Service ${index + 1}`}
-            // The row's own control, on the title line where it always was
-            // (before the fields in reading and tab order).
-            meta={
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  draft.setDraft((rows) =>
-                    rows.filter((_, position) => position !== index)
-                  )
+          <ListRows>
+            {draft.draft.map((row, index) => (
+              <ListRow
+                key={index}
+                interactive={false}
+                flush
+                wrap
+                emphasis="neutral"
+                titleAs="h4"
+                title={label(row.item) || `Service ${index + 1}`}
+                // The row's own control, on the title line where it always was
+                // (before the fields in reading and tab order).
+                meta={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      draft.setDraft((rows) =>
+                        rows.filter((_, position) => position !== index)
+                      )
+                    }
+                    // Named by the service its row heading shows.
+                    aria-label={`Remove ${label(row.item) || `service ${index + 1}`}`}
+                  >
+                    Remove
+                  </Button>
                 }
-                aria-label={`Remove service ${index + 1}`}
-              >
-                Remove
-              </Button>
-            }
-            footerLayout="stack"
-            footer={
-            <div className="flex min-w-0 flex-col gap-3">
-            {"freeFormServiceItem" in row.item ? (
-              <Field>
-                <FieldLabel htmlFor={`service-${index}-name`}>
-                  Service name
-                </FieldLabel>
-                <Input
-                  id={`service-${index}-name`}
-                  value={row.item.freeFormServiceItem.label.displayName}
-                  onChange={(event) =>
-                    update(index, (current) =>
-                      "freeFormServiceItem" in current.item
-                        ? {
-                            ...current,
-                            item: {
-                              ...current.item,
-                              freeFormServiceItem: {
-                                ...current.item.freeFormServiceItem,
-                                label: {
-                                  ...current.item.freeFormServiceItem.label,
-                                  displayName: event.target.value,
-                                },
-                              },
-                            },
+                footerLayout="stack"
+                footer={
+                  <div className="flex min-w-0 flex-col gap-3">
+                    {"freeFormServiceItem" in row.item ? (
+                      <Field>
+                        <FieldLabel htmlFor={`service-${index}-name`}>
+                          Service name
+                        </FieldLabel>
+                        <Input
+                          id={`service-${index}-name`}
+                          value={row.item.freeFormServiceItem.label.displayName}
+                          onChange={(event) =>
+                            update(index, (current) =>
+                              "freeFormServiceItem" in current.item
+                                ? {
+                                    ...current,
+                                    item: {
+                                      ...current.item,
+                                      freeFormServiceItem: {
+                                        ...current.item.freeFormServiceItem,
+                                        label: {
+                                          ...current.item.freeFormServiceItem
+                                            .label,
+                                          displayName: event.target.value,
+                                        },
+                                      },
+                                    },
+                                  }
+                                : current
+                            )
                           }
-                        : current
-                    )
-                  }
-                />
-              </Field>
-            ) : null}
-            <Field>
-              <FieldLabel htmlFor={`service-${index}-description`}>
-                Description
-              </FieldLabel>
-              <Input
-                id={`service-${index}-description`}
-                value={
-                  "freeFormServiceItem" in row.item
-                    ? (row.item.freeFormServiceItem.label.description ?? "")
-                    : (row.item.structuredServiceItem.description ?? "")
-                }
-                onChange={(event) =>
-                  update(index, (current) => ({
-                    ...current,
-                    item: setServiceDescription(
-                      current.item,
-                      event.target.value
-                    ),
-                  }))
+                        />
+                      </Field>
+                    ) : null}
+                    <Field>
+                      <FieldLabel htmlFor={`service-${index}-description`}>
+                        Description
+                      </FieldLabel>
+                      <Input
+                        id={`service-${index}-description`}
+                        value={
+                          "freeFormServiceItem" in row.item
+                            ? (row.item.freeFormServiceItem.label.description ??
+                              "")
+                            : (row.item.structuredServiceItem.description ?? "")
+                        }
+                        onChange={(event) =>
+                          update(index, (current) => ({
+                            ...current,
+                            item: setServiceDescription(
+                              current.item,
+                              event.target.value
+                            ),
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-mt-2 self-start"
+                      onClick={() =>
+                        update(index, (current) => ({
+                          ...current,
+                          item: setServiceDescription(current.item, undefined),
+                        }))
+                      }
+                    >
+                      Clear description
+                    </Button>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field>
+                        <FieldLabel htmlFor={`service-${index}-price`}>
+                          Price
+                        </FieldLabel>
+                        <Input
+                          id={`service-${index}-price`}
+                          inputMode="decimal"
+                          value={
+                            row.priceEdit.mode === "set"
+                              ? row.priceEdit.amount
+                              : row.priceEdit.mode === "clear"
+                                ? ""
+                                : servicePriceText(row.item.price)
+                          }
+                          onChange={(event) =>
+                            update(index, (current) => ({
+                              ...current,
+                              priceEdit: {
+                                mode: "set",
+                                amount: event.target.value,
+                                currency:
+                                  current.priceEdit.mode === "set"
+                                    ? current.priceEdit.currency
+                                    : (current.item.price?.currencyCode ??
+                                      "GBP"),
+                              },
+                            }))
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor={`service-${index}-currency`}>
+                          Currency
+                        </FieldLabel>
+                        <Input
+                          id={`service-${index}-currency`}
+                          maxLength={3}
+                          value={
+                            row.priceEdit.mode === "set"
+                              ? row.priceEdit.currency
+                              : (row.item.price?.currencyCode ?? "GBP")
+                          }
+                          onChange={(event) =>
+                            update(index, (current) => ({
+                              ...current,
+                              priceEdit: {
+                                mode: "set",
+                                currency: event.target.value,
+                                amount:
+                                  current.priceEdit.mode === "set"
+                                    ? current.priceEdit.amount
+                                    : servicePriceText(current.item.price),
+                              },
+                            }))
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-mt-2 self-start"
+                      onClick={() =>
+                        update(index, (current) => ({
+                          ...current,
+                          priceEdit: { mode: "clear" },
+                        }))
+                      }
+                    >
+                      Clear price
+                    </Button>
+                  </div>
                 }
               />
-            </Field>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="-mt-2 self-start"
-              onClick={() =>
-                update(index, (current) => ({
-                  ...current,
-                  item: setServiceDescription(current.item, undefined),
-                }))
-              }
-            >
-              Clear description
-            </Button>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor={`service-${index}-price`}>
-                  Price
-                </FieldLabel>
-                <Input
-                  id={`service-${index}-price`}
-                  inputMode="decimal"
-                  value={
-                    row.priceEdit.mode === "set"
-                      ? row.priceEdit.amount
-                      : row.priceEdit.mode === "clear"
-                        ? ""
-                        : servicePriceText(row.item.price)
-                  }
-                  onChange={(event) =>
-                    update(index, (current) => ({
-                      ...current,
-                      priceEdit: {
-                        mode: "set",
-                        amount: event.target.value,
-                        currency:
-                          current.priceEdit.mode === "set"
-                            ? current.priceEdit.currency
-                            : (current.item.price?.currencyCode ?? "GBP"),
-                      },
-                    }))
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={`service-${index}-currency`}>
-                  Currency
-                </FieldLabel>
-                <Input
-                  id={`service-${index}-currency`}
-                  maxLength={3}
-                  value={
-                    row.priceEdit.mode === "set"
-                      ? row.priceEdit.currency
-                      : (row.item.price?.currencyCode ?? "GBP")
-                  }
-                  onChange={(event) =>
-                    update(index, (current) => ({
-                      ...current,
-                      priceEdit: {
-                        mode: "set",
-                        currency: event.target.value,
-                        amount:
-                          current.priceEdit.mode === "set"
-                            ? current.priceEdit.amount
-                            : servicePriceText(current.item.price),
-                      },
-                    }))
-                  }
-                />
-              </Field>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="-mt-2 self-start"
-              onClick={() =>
-                update(index, (current) => ({
-                  ...current,
-                  priceEdit: { mode: "clear" },
-                }))
-              }
-            >
-              Clear price
-            </Button>
-            </div>
-            }
-          />
-        ))}
-        </ListRows>
+            ))}
+          </ListRows>
         ) : null}
         <Field>
           <FieldLabel htmlFor="add-structured-service">
@@ -424,35 +445,35 @@ function ServiceEditor({
           </Select>
         </Field>
         {categories.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-        {categories.map((category) => (
-          <Button
-            key={category.name}
-            variant="outline"
-            disabled={draft.draft.length >= 100}
-            onClick={() =>
-              draft.setDraft((rows) => [
-                ...rows,
-                {
-                  item: {
-                    freeFormServiceItem: {
-                      category: serviceCategoryId(category.name),
-                      label: {
-                        displayName: "",
-                        languageCode: metadata.data?.languageCode ?? "en",
+          <div className="flex flex-wrap gap-2">
+            {categories.map((category) => (
+              <Button
+                key={category.name}
+                variant="outline"
+                disabled={draft.draft.length >= 100}
+                onClick={() =>
+                  draft.setDraft((rows) => [
+                    ...rows,
+                    {
+                      item: {
+                        freeFormServiceItem: {
+                          category: serviceCategoryId(category.name),
+                          label: {
+                            displayName: "",
+                            languageCode: metadata.data?.languageCode ?? "en",
+                          },
+                        },
                       },
+                      priceEdit: { mode: "keep" },
                     },
-                  },
-                  priceEdit: { mode: "keep" },
-                },
-              ])
-            }
-          >
-            <PlusIcon aria-hidden />
-            Add custom service for {category.displayName ?? category.name}
-          </Button>
-        ))}
-        </div>
+                  ])
+                }
+              >
+                <PlusIcon aria-hidden />
+                Add custom service for {category.displayName ?? category.name}
+              </Button>
+            ))}
+          </div>
         ) : null}
       </Fieldset>
       {!built.success ? <InlineError>{built.message}</InlineError> : null}
@@ -465,35 +486,37 @@ function ServiceEditor({
         </Alert>
       ) : null}
       <div className="flex flex-wrap gap-2">
-      <Button
-        disabled={
-          disabled ||
-          pending ||
-          workflow.unresolved ||
-          !draft.isDirty ||
-          !built.success ||
-          draft.incoming
-        }
-        onClick={preview}
-      >
-        Review service changes
-      </Button>
-      {(saved.data ?? [])
-        .filter(
-          (change) =>
-            change.updateMask.length === 1 &&
-            change.updateMask[0] === "serviceItems"
-        )
-        .map((change) => (
-          <Button
-            key={change.id}
-            variant="outline"
-            disabled={pending || workflow.unresolved && review?.id !== change.id}
-            onClick={() => workflow.restore(change)}
-          >
-            Open saved service review
-          </Button>
-        ))}
+        <Button
+          disabled={
+            disabled ||
+            pending ||
+            workflow.unresolved ||
+            !draft.isDirty ||
+            !built.success ||
+            draft.incoming
+          }
+          onClick={preview}
+        >
+          Review service changes
+        </Button>
+        {(saved.data ?? [])
+          .filter(
+            (change) =>
+              change.updateMask.length === 1 &&
+              change.updateMask[0] === "serviceItems"
+          )
+          .map((change) => (
+            <Button
+              key={change.id}
+              variant="outline"
+              disabled={
+                pending || (workflow.unresolved && review?.id !== change.id)
+              }
+              onClick={() => workflow.restore(change)}
+            >
+              Open saved service review
+            </Button>
+          ))}
       </div>
       {saved.error ? (
         <InlineError>

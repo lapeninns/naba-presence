@@ -216,7 +216,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
           })
         ).toBeEnabled()
         await expect(
-          dialog.getByRole("button", { name: "Keep editing", exact: true })
+          dialog.getByRole("button", { name: "Close for now", exact: true })
         ).toBeEnabled()
         await capture(page, info, "lost-response")
         await dialog
@@ -301,7 +301,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         ).toBeVisible()
         await capture(page, info, "unknown-unresolved")
         await dialog
-          .getByRole("button", { name: "Keep editing", exact: true })
+          .getByRole("button", { name: "Close for now", exact: true })
           .click()
         // Changes are paused: no review action is offered until the saved
         // outcome has been read.
@@ -333,7 +333,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         })
         await dialog
           .getByRole("button", {
-            name: "Refresh booking link observation",
+            name: "Check this change on Google",
             exact: true,
           })
           .click()
@@ -486,7 +486,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         ).toBeVisible()
         await expect(
           sheet.getByRole("button", {
-            name: "Refresh booking link observation",
+            name: "Check this change on Google",
             exact: true,
           })
         ).toHaveCount(0)
@@ -506,7 +506,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         .click()
       await page
         .getByRole("button", {
-          name: "Prepare preferred link review",
+          name: "Review preferred link",
           exact: true,
         })
         .click()
@@ -520,9 +520,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       await approveAndSend()
       expect(f.writes().map((call) => call.method)).toEqual(["PATCH"])
       await capture(page, info, "preferred-confirmed")
-      await sheet
-        .getByRole("button", { name: "Keep editing", exact: true })
-        .click()
+      await sheet.getByRole("button", { name: "Done", exact: true }).click()
       await page
         .getByRole("button", { name: "Edit the Shop online link", exact: true })
         .first()
@@ -547,9 +545,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       ).toBeVisible()
       await approveAndSend()
       expect(f.writes().map((call) => call.method)).toEqual(["PATCH", "PATCH"])
-      await sheet
-        .getByRole("button", { name: "Keep editing", exact: true })
-        .click()
+      await sheet.getByRole("button", { name: "Done", exact: true }).click()
       await page
         .getByRole("button", {
           name: "More actions for the Shop online link",
@@ -561,7 +557,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         .getByRole("menuitem", { name: "Remove link", exact: true })
         .click()
       await page
-        .getByRole("button", { name: "Prepare removal review", exact: true })
+        .getByRole("button", { name: "Review removal", exact: true })
         .click()
       await expect(
         sheet.getByText("Remove this link", { exact: true })
@@ -612,14 +608,14 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
           .getByRole("menuitem", { name: "Remove link", exact: true })
           .click()
         await page
-          .getByRole("button", { name: "Prepare removal review", exact: true })
+          .getByRole("button", { name: "Review removal", exact: true })
           .click()
         const confirm = page
           .getByRole("alertdialog")
           .or(page.getByRole("dialog"))
-          .filter({ hasText: "Review removing this booking link?" })
+          .filter({ hasText: "Remove this Shop online link?" })
         await expect(confirm.getByRole("alert")).toContainText(
-          "Google no longer lists this action link"
+          "Google no longer lists this booking link"
         )
         await capture(
           page,

@@ -6,6 +6,7 @@ import * as React from "react"
 
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { PageFrame } from "@/components/app-shell/page-frame"
+import { ListingSkeleton } from "@/components/listings/listing-skeleton"
 import {
   Alert,
   AlertActions,
@@ -15,7 +16,6 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ApiClientError } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
   useLocationDirectory,
   type DirectoryEntry,
@@ -62,29 +62,11 @@ function ListingGate({
     />
   ) : null
 
+  // The same announced shape as the route's loading state, so the page
+  // doesn't swap one skeleton for another, and an area page never flashes
+  // the overview's cards.
   if (directory.isPending || (!entry && directory.isFetching)) {
-    return (
-      <PageFrame width="wide">
-        <div className="flex flex-col gap-4" aria-busy="true">
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-4 w-24" />
-            <div className="flex items-center gap-2.5">
-              <Skeleton className="h-7 w-64 max-w-full" />
-              <Skeleton className="h-(--np-pill-h) w-28 rounded-(--np-radius-pill)" />
-            </div>
-            <Skeleton className="h-4 w-72 max-w-full" />
-          </div>
-          <div className="grid gap-(--np-gap-card) sm:grid-cols-2 xl:grid-cols-4">
-            {[0, 1, 2, 3].map((index) => (
-              <Skeleton
-                key={index}
-                className="h-24 rounded-(--np-radius-card)"
-              />
-            ))}
-          </div>
-        </div>
-      </PageFrame>
-    )
+    return <ListingSkeleton />
   }
 
   if (!entry) {

@@ -390,7 +390,9 @@ test.describe("listings", () => {
         })
         await page.goto(`/listings/${state.primaryLocationId}/people`)
         await expect(
-          page.getByText("This section is available to owners and admins")
+          page.getByRole("heading", {
+            name: "Only owners and admins can see who has access",
+          })
         ).toBeVisible()
         expect(
           administrationResponses,
@@ -789,7 +791,9 @@ test.describe("listings", () => {
       page.getByRole("heading", { name: "Danger zone" })
     ).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
 
-    await page.getByRole("button", { name: "Delete this location" }).click()
+    await page
+      .getByRole("button", { name: "Request deletion", exact: true })
+      .click()
     await page
       .getByRole("button", { name: "Prepare deletion review", exact: true })
       .click()

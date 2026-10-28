@@ -145,7 +145,9 @@ describe("large menu navigation", () => {
       hidden: true,
     })
     // The invalid item's row is shown, saying what is wrong in words.
-    const row = within(lastSection).getByRole("button", { name: "Edit untitled item 8" })
+    const row = within(lastSection).getByRole("button", {
+      name: "Edit untitled item 8",
+    })
     expect(row).toBeVisible()
     expect(row).toHaveAccessibleDescription(
       expect.stringContaining("Section 33, item 8: name this item.")
@@ -306,7 +308,9 @@ describe("large menu navigation", () => {
     const search = screen.getByRole("searchbox", { name: "Search menu" })
     await user.click(search)
     await user.paste("Section 33")
-    const section = screen.getByRole("textbox", { name: "Section 33 name" })
+    const section = screen.getByRole("textbox", {
+      name: "Section name — section 33",
+    })
     await user.clear(section)
     await user.type(section, "New section")
     expect(section).toHaveFocus()

@@ -74,7 +74,12 @@ export function ContactSection({
   errors,
   disabled,
   changed,
-}: ValuesProps & { changed: { phone: boolean; website: boolean } }) {
+  marks,
+}: ValuesProps & {
+  changed: { phone: boolean; website: boolean }
+  /** Whose change each row's word names; falls back to "Changed". */
+  marks?: { phone?: string; website?: string }
+}) {
   return (
     <SectionCard
       id="section-contact"
@@ -85,7 +90,7 @@ export function ContactSection({
       <SettingsRow
         label="Phone"
         controlId={PROFILE_FIELD_IDS.phone}
-        changed={changed.phone ? "Changed" : undefined}
+        changed={changed.phone ? (marks?.phone ?? "Changed") : undefined}
         control={
           <Field error={errors.phone}>
             <Input
@@ -107,7 +112,7 @@ export function ContactSection({
       <SettingsRow
         label="Website"
         controlId={PROFILE_FIELD_IDS.website}
-        changed={changed.website ? "Changed" : undefined}
+        changed={changed.website ? (marks?.website ?? "Changed") : undefined}
         control={
           <Field error={errors.website}>
             <Input
@@ -153,7 +158,14 @@ export function AddressSection({
   setDraft: Dispatch<SetStateAction<BusinessInformationDraft>>
   issues: PayloadFieldErrors
   disabled: boolean
-  changed: { lines: boolean; locality: boolean; postalCode: boolean; administrativeArea?: boolean; sublocality?: boolean; addressDetails?: boolean }
+  changed: {
+    lines: boolean
+    locality: boolean
+    postalCode: boolean
+    administrativeArea?: boolean
+    sublocality?: boolean
+    addressDetails?: boolean
+  }
 }) {
   // The textarea keeps what the operator typed (a trailing space, a new empty
   // line) while the draft keeps only the clean lines. Rendering the cleaned
@@ -168,7 +180,14 @@ export function AddressSection({
       id="section-address"
       title="Address"
       description="Where customers find the business. Moving the map pin happens in Google."
-      changed={changed.lines || changed.locality || changed.postalCode || changed.administrativeArea || changed.sublocality || changed.addressDetails}
+      changed={
+        changed.lines ||
+        changed.locality ||
+        changed.postalCode ||
+        changed.administrativeArea ||
+        changed.sublocality ||
+        changed.addressDetails
+      }
     >
       {/* Inline, not a sheet: these fields are pinned in place across
           widths, and their edits apply to the draft as they are typed
@@ -238,9 +257,23 @@ export function AddressSection({
         changed={changed.sublocality ? "Changed" : undefined}
         control={
           <Field error={issues.sublocality}>
-            <Input id="profile-sublocality" value={draft.sublocality ?? ""} maxLength={100} disabled={disabled} autoComplete="address-level3"
-              onChange={(event) => setDraft((current) => ({ ...current, sublocality: event.target.value }))} />
-            <FieldDescription>Use only when it is part of your postal address. Leave blank to remove an existing value.</FieldDescription>
+            <Input
+              id="profile-sublocality"
+              value={draft.sublocality ?? ""}
+              maxLength={100}
+              disabled={disabled}
+              autoComplete="address-level3"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  sublocality: event.target.value,
+                }))
+              }
+            />
+            <FieldDescription>
+              Use only when it is part of your postal address. Leave blank to
+              remove an existing value.
+            </FieldDescription>
             <FieldError />
           </Field>
         }
@@ -251,14 +284,33 @@ export function AddressSection({
         changed={changed.administrativeArea ? "Changed" : undefined}
         control={
           <Field error={issues.administrativeArea}>
-            <Input id="profile-administrative-area" value={draft.administrativeArea ?? ""} maxLength={100} disabled={disabled} autoComplete="address-level1"
-              onChange={(event) => setDraft((current) => ({ ...current, administrativeArea: event.target.value }))} />
-            <FieldDescription>Not required for a UK postal address. Preserve the existing value unless you intend to change it.</FieldDescription>
+            <Input
+              id="profile-administrative-area"
+              value={draft.administrativeArea ?? ""}
+              maxLength={100}
+              disabled={disabled}
+              autoComplete="address-level1"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  administrativeArea: event.target.value,
+                }))
+              }
+            />
+            <FieldDescription>
+              Not needed for a UK address. Leave it as it is unless it’s wrong.
+            </FieldDescription>
             <FieldError />
           </Field>
         }
       />
-      <AddressDetailsFields draft={draft} setDraft={setDraft} location={location} disabled={disabled} error={issues.addressDetails} />
+      <AddressDetailsFields
+        draft={draft}
+        setDraft={setDraft}
+        location={location}
+        disabled={disabled}
+        error={issues.addressDetails}
+      />
     </SectionCard>
   )
 }
@@ -272,7 +324,12 @@ export function DescriptionSection({
   errors,
   disabled,
   changed,
-}: ValuesProps & { changed: boolean }) {
+  mark,
+}: ValuesProps & {
+  changed: boolean
+  /** Whose change the row's word names; falls back to "Changed". */
+  mark?: string
+}) {
   const length = values.description.length
   const over = length > DESCRIPTION_LIMIT
   return (
@@ -285,10 +342,11 @@ export function DescriptionSection({
       <SettingsRow
         label="Description"
         controlId={PROFILE_FIELD_IDS.description}
-        changed={changed ? "Changed" : undefined}
+        changed={changed ? (mark ?? "Changed") : undefined}
+        // The count describes the field and is read on focus. Read on
+        // every keystroke it was noise; only crossing the limit is news.
         description={
           <span
-            aria-live="polite"
             className={cn(
               "tabular-nums",
               over ? "font-semibold text-danger-ink" : "text-ink-muted"
@@ -309,6 +367,11 @@ export function DescriptionSection({
               }
             />
             <FieldError />
+            <span role="status" className="sr-only">
+              {over
+                ? `Over Google’s ${DESCRIPTION_LIMIT}-character limit.`
+                : ""}
+            </span>
           </Field>
         }
       />
@@ -486,7 +549,12 @@ export function OpeningSection({
         </div>
       )}
 
-      <OpeningDateFields draft={draft} setDraft={setDraft} disabled={disabled} error={issues.openingDate} />
+      <OpeningDateFields
+        draft={draft}
+        setDraft={setDraft}
+        disabled={disabled}
+        error={issues.openingDate}
+      />
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent
           finalFocus={() =>

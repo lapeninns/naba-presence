@@ -1,0 +1,78 @@
+# worktree /tmp/naba-presence-p3
+# HEAD 46301fa4338f82963e2f6f9b975fb4e78651d581
+# started 2026-10-28T22:14:27Z
+# shoot 01-board light 390,1280
+{"file":"/tmp/p3-capture-png/01-board-chromium-light-390.png","width":390,"status":200,"url":"/listings","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/01-board-chromium-light-1280.png","width":1280,"status":200,"url":"/listings","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 01-board dark 390
+{"file":"/tmp/p3-capture-png/01-board-chromium-dark-390.png","width":390,"status":200,"url":"/listings","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 02-board-no-match light 390,1280
+{"file":"/tmp/p3-capture-png/02-board-no-match-chromium-light-390.png","width":390,"status":200,"url":"/listings?q=zzqx","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/02-board-no-match-chromium-light-1280.png","width":1280,"status":200,"url":"/listings?q=zzqx","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 02-board-no-match dark 390
+{"file":"/tmp/p3-capture-png/02-board-no-match-chromium-dark-390.png","width":390,"status":200,"url":"/listings?q=zzqx","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 04-overview light 390,1280
+{"file":"/tmp/p3-capture-png/04-overview-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/04-overview-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 04-overview dark 390
+{"file":"/tmp/p3-capture-png/04-overview-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 05-overview-viewer light 390,1280
+{"file":"/tmp/p3-capture-png/05-overview-viewer-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/05-overview-viewer-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 05-overview-viewer dark 390
+{"file":"/tmp/p3-capture-png/05-overview-viewer-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 06-profile light 390,1280
+{"file":"/tmp/p3-capture-png/06-profile-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/profile","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/06-profile-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/profile","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 06-profile dark 390
+{"file":"/tmp/p3-capture-png/06-profile-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/profile","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 07-hours light 390,1280
+{"file":"/tmp/p3-capture-png/07-hours-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/07-hours-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 07-hours dark 390
+{"file":"/tmp/p3-capture-png/07-hours-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 09-hours-viewer light 390,1280
+{"file":"/tmp/p3-capture-png/09-hours-viewer-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/09-hours-viewer-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 09-hours-viewer dark 390
+{"file":"/tmp/p3-capture-png/09-hours-viewer-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 10-menu light 390,1280
+{"file":"/tmp/p3-capture-png/10-menu-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/menu","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/10-menu-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/menu","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 10-menu dark 390
+{"file":"/tmp/p3-capture-png/10-menu-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/menu","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 11-menu-member light 390,1280
+{"file":"/tmp/p3-capture-png/11-menu-member-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/menu","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/11-menu-member-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/menu","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 11-menu-member dark 390
+{"file":"/tmp/p3-capture-png/11-menu-member-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/menu","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 12-people light 390,1280
+{"file":"/tmp/p3-capture-png/12-people-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/people","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/12-people-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/people","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 12-people dark 390
+{"file":"/tmp/p3-capture-png/12-people-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/people","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 14-booking light 390,1280
+{"file":"/tmp/p3-capture-png/14-booking-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/14-booking-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 14-booking dark 390
+{"file":"/tmp/p3-capture-png/14-booking-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 15-booking-viewer light 390,1280
+{"file":"/tmp/p3-capture-png/15-booking-viewer-chromium-light-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"overflow":[],"errors":[]}
+{"file":"/tmp/p3-capture-png/15-booking-viewer-chromium-light-1280.png","width":1280,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"overflow":[],"errors":[]}
+# shoot 15-booking-viewer dark 390
+{"file":"/tmp/p3-capture-png/15-booking-viewer-chromium-dark-390.png","width":390,"status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"overflow":[],"errors":[]}
+# interactions
+{"name":"03-board-quick-look","viewport":"1280","file":"/tmp/p3-capture-png/03-board-quick-look-1280.png","status":200,"url":"/listings","horizontalOverflow":false,"steps":[{"step":"board settled (a row's Waiting column)","result":"ok"},{"step":"click the first listing row (not its name) to open the quick look","result":"ok"}],"errors":[]}
+{"name":"08-hours-day-sheet","viewport":"390-light","file":"/tmp/p3-capture-png/08-hours-day-sheet-390-light.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"steps":[{"step":"open Monday's day row","result":"ok"},{"step":"make sure Monday is open in the sheet (only toggles if it is closed; unsaved)","result":"ok"},{"step":"opens 18:00","result":"ok"},{"step":"closes 02:00 (earlier than opening), then Tab","result":"ok"}],"errors":[]}
+{"name":"08-hours-day-sheet","viewport":"390-dark","file":"/tmp/p3-capture-png/08-hours-day-sheet-390-dark.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"steps":[{"step":"open Monday's day row","result":"ok"},{"step":"make sure Monday is open in the sheet (only toggles if it is closed; unsaved)","result":"ok"},{"step":"opens 18:00","result":"ok"},{"step":"closes 02:00 (earlier than opening), then Tab","result":"ok"}],"errors":[]}
+{"name":"08-hours-day-sheet","viewport":"1280","file":"/tmp/p3-capture-png/08-hours-day-sheet-1280.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/hours","horizontalOverflow":false,"steps":[{"step":"open Monday's day row","result":"ok"},{"step":"make sure Monday is open in the sheet (only toggles if it is closed; unsaved)","result":"ok"},{"step":"opens 18:00","result":"ok"},{"step":"closes 02:00 (earlier than opening), then Tab","result":"ok"}],"errors":[]}
+{"name":"13-people-invite","viewport":"390-light","file":"/tmp/p3-capture-png/13-people-invite-390-light.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/people","horizontalOverflow":false,"steps":[{"step":"open the invite sheet (button /invite/i)","result":"ok"},{"step":"type not-an-email into Email address, then Tab","result":"ok"}],"errors":[]}
+{"name":"13-people-invite","viewport":"390-dark","file":"/tmp/p3-capture-png/13-people-invite-390-dark.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/people","horizontalOverflow":false,"steps":[{"step":"open the invite sheet (button /invite/i)","result":"ok"},{"step":"type not-an-email into Email address, then Tab","result":"ok"}],"errors":[]}
+{"name":"13-people-invite","viewport":"1280","file":"/tmp/p3-capture-png/13-people-invite-1280.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/people","horizontalOverflow":false,"steps":[{"step":"open the invite sheet (button /invite/i)","result":"ok"},{"step":"type not-an-email into Email address, then Tab","result":"ok"}],"errors":[]}
+{"name":"16-booking-add","viewport":"390-light","file":"/tmp/p3-capture-png/16-booking-add-390-light.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"steps":[{"step":"type example.com/book into the booking link field (no submit)","result":"ok"}],"errors":[]}
+{"name":"16-booking-add","viewport":"390-dark","file":"/tmp/p3-capture-png/16-booking-add-390-dark.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"steps":[{"step":"type example.com/book into the booking link field (no submit)","result":"ok"}],"errors":[]}
+{"name":"16-booking-add","viewport":"1280","file":"/tmp/p3-capture-png/16-booking-add-1280.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/booking","horizontalOverflow":false,"steps":[{"step":"type example.com/book into the booking link field (no submit)","result":"ok"}],"errors":[]}
+{"name":"17-profile-invalid","viewport":"390-light","file":"/tmp/p3-capture-png/17-profile-invalid-390-light.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/profile","horizontalOverflow":false,"steps":[{"step":"clear Business name, then Tab (no save)","result":"ok"}],"errors":[]}
+{"name":"17-profile-invalid","viewport":"390-dark","file":"/tmp/p3-capture-png/17-profile-invalid-390-dark.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/profile","horizontalOverflow":false,"steps":[{"step":"clear Business name, then Tab (no save)","result":"ok"}],"errors":[]}
+{"name":"17-profile-invalid","viewport":"1280","file":"/tmp/p3-capture-png/17-profile-invalid-1280.png","status":200,"url":"/listings/9582d078-42b7-4b1c-838e-d55f9518fb2c/profile","horizontalOverflow":false,"steps":[{"step":"clear Business name, then Tab (no save)","result":"ok"}],"errors":[]}
+# finished 2026-10-28T22:17:45Z

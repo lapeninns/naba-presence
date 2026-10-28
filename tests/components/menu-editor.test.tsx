@@ -406,12 +406,12 @@ describe("MenuEditor structured workspace", () => {
     ).toEqual(["Soup", "Garden salad"])
   })
 
-  it("confirms the affected item count before removing a section", async () => {
+  it("confirms the affected items before removing a section", async () => {
     const user = userEvent.setup()
     render(<Harness />)
     await rowAction(user, "Actions for section Starters", "Remove section")
     expect(screen.getByRole("alertdialog")).toHaveTextContent(
-      "2 items will be removed"
+      "This removes the section and its 2 items from this draft."
     )
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
@@ -439,6 +439,84 @@ describe("MenuEditor structured workspace", () => {
       [{ displayName: "Lunch" }],
       [{ displayName: "Dinner" }],
     ])
+  })
+
+  it("names the sections as well as the items a menu removal takes", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await user.click(screen.getByRole("button", { name: "Remove menu Lunch" }))
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(
+      "This removes the menu, its 1 section and 2 items from this draft."
+    )
+  })
+
+  it("calls an empty section empty rather than counting no items", async () => {
+    const user = userEvent.setup()
+    const initial: FoodMenu[] = [
+      {
+        labels: [{ displayName: "Lunch" }],
+        sections: [{ labels: [{ displayName: "Specials" }], items: [] }],
+      },
+    ]
+    render(<Harness initial={initial} />)
+    await rowAction(user, "Actions for section Specials", "Remove section")
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(
+      "This removes the empty section from this draft."
+    )
+  })
+
+  it("removing the only menu offers Create menu and keeps Undo", async () => {
+    const user = userEvent.setup()
+    render(<Harness initial={[fixture()[0]!]} />)
+    await user.click(screen.getByRole("button", { name: "Remove menu Lunch" }))
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Remove menu",
+      })
+    )
+    expect(wire()).toEqual([])
+    expect(
+      screen.getByRole("heading", { name: "Build your first menu" })
+    ).toBeInTheDocument()
+    const undo = screen.getByRole("button", { name: "Undo removal" })
+    await waitFor(() => expect(undo).toHaveFocus())
+    await user.click(undo)
+    expect(menuSwitcher()).toHaveTextContent(/^Lunch$/)
+    expect(wire()[0].sections[0].items).toHaveLength(2)
+  })
+
+  it("says why Preview is off, beside it, before anyone clicks it", () => {
+    const initial: FoodMenu[] = [
+      {
+        labels: [{ displayName: "Lunch" }],
+        sections: [
+          {
+            labels: [{ displayName: "Starters" }],
+            items: [{ labels: [{ displayName: "" }] }],
+          },
+        ],
+      },
+    ]
+    render(<Harness initial={initial} />)
+    const preview = screen.getByRole("tab", { name: "Preview" })
+    expect(preview).toHaveAttribute("aria-disabled", "true")
+    expect(preview).toHaveAccessibleDescription(
+      "Preview opens once every menu, section and item has a name and each price reads as an amount, like 12.50."
+    )
+    // One menu: nothing to say about "every menu, not only the one selected".
+    expect(screen.queryByText(/include every menu/)).not.toBeInTheDocument()
+  })
+
+  it("says saving covers every menu only when there are several", () => {
+    render(<Harness />)
+    expect(
+      screen.getByText(
+        "2 menus in this draft. Saving, review and publishing include every menu, not only the one selected."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("tab", { name: "Preview" })
+    ).not.toHaveAccessibleDescription()
   })
 
   it("supports reordering without moving raw input to the wrong item", async () => {
@@ -491,7 +569,9 @@ describe("MenuEditor structured workspace", () => {
     expect(screen.getByLabelText("Menu name")).toHaveFocus()
     await user.type(screen.getByLabelText("Menu name"), "Lunch")
     await user.click(screen.getByRole("button", { name: "Add section" }))
-    const section = screen.getByRole("textbox", { name: "Section 1 name" })
+    const section = screen.getByRole("textbox", {
+      name: "Section name — section 1",
+    })
     expect(section).toHaveFocus()
     await user.type(section, "Mains")
     await user.click(screen.getByRole("button", { name: "Add item" }))

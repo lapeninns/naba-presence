@@ -12,16 +12,21 @@ import { cardClassName } from "@/components/ui/card"
 
 export type ConsoleKind = "people" | "verification"
 
-const DENIED_COPY: Record<ConsoleKind, { title: string; why: string }> = {
-  people: {
-    title: "Only owners and admins can see who has access",
-    why: "People with access on Google decide who can change or delete the listing, so this page is limited to owners and admins.",
-  },
-  verification: {
-    title: "Only owners and admins can manage verification",
-    why: "Verification decides who Google trusts to speak for the business, so starting or completing it is limited to owners and admins.",
-  },
-}
+// The title already says who can open the page, so People's description
+// leads with why and the way forward instead of repeating it. Verification's
+// wording is unchanged.
+const DENIED_COPY: Record<ConsoleKind, { title: string; description: string }> =
+  {
+    people: {
+      title: "Only owners and admins can see who has access",
+      description:
+        "Whoever has access on Google can change or delete the listing. Ask an owner or admin if you need to see or change who that is.",
+    },
+    verification: {
+      title: "Only owners and admins can manage verification",
+      description: `${GATED_SECTION_TITLE}. Verification decides who Google trusts to speak for the business, so starting or completing it is limited to owners and admins.`,
+    },
+  }
 
 /**
  * The page a member or viewer sees instead of a console. It never fires the
@@ -48,7 +53,7 @@ export function AdministrationDenied({
         icon={<LockIcon />}
         titleAs="h2"
         title={copy.title}
-        description={`${GATED_SECTION_TITLE}. ${copy.why}`}
+        description={copy.description}
         action={
           <>
             <Link
