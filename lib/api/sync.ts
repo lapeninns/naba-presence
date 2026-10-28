@@ -4,7 +4,9 @@ import { apiFetch } from "./client"
  * The part of a manual sync's envelope the refresh reads back: one entry per
  * listing that was due and checked (`outcomes`, an empty list when none was
  * due), and `truncated` when the time budget stopped the walk with listings
- * still due (the job runner picks those up). Optional throughout: an answer
+ * still due (the job runner picks those up). The walk also stops at a
+ * per-request listing cap without setting `truncated`, so a full count of
+ * outcomes does not prove nothing is left. Optional throughout: an answer
  * without them is read as "started", as before.
  */
 export type ManualSyncResult = {

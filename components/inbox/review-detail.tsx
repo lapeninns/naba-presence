@@ -1041,10 +1041,18 @@ function nextStepNote(
   canManageConnections: boolean
 ): string | undefined {
   const caps = review.capabilities
+  // Someone who can only submit for approval has no Retry or Publish: their
+  // next step is to submit it again.
   if (
     review.workflowStatus === "failed" &&
-    (caps.canPublish || caps.canRequestApproval)
+    !caps.canPublish &&
+    caps.canRequestApproval
   ) {
+    return publishFailureCause(review.reply) === "content"
+      ? "edit the reply, then submit it again"
+      : "submit it for approval again"
+  }
+  if (review.workflowStatus === "failed" && caps.canPublish) {
     switch (publishFailureCause(review.reply)) {
       case "content":
         return "edit the reply, then publish again"
@@ -1195,7 +1203,9 @@ function replyVisibility(review: Review): string {
   // The status line and the banner say who it waits on; this line only says
   // where the reply is seen.
   if (review.workflowStatus === "awaiting_approval") {
-    return "Private until it’s approved"
+    // An edit to a live reply can be parked while the earlier reply is
+    // still public, so this makes no privacy claim.
+    return "Not sent to Google until it’s approved"
   }
   const status = review.reply?.publishStatus ?? null
   if (!review.reply || !status || status === "not_published") {

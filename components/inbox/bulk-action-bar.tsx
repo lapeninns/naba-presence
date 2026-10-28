@@ -279,6 +279,13 @@ function BulkActionBar({
   hasMore?: boolean
 }) {
   const { selected, replace, setSelectMode } = useSelection()
+  // Whether anything is still ticked when a run comes back: a selection
+  // cancelled or cleared while it ran is the person's answer, and the
+  // result does not undo it.
+  const selectedCountRef = React.useRef(selected.size)
+  React.useEffect(() => {
+    selectedCountRef.current = selected.size
+  }, [selected])
   const bulk = useReviewTriage()
   // On a phone the overflow is a bottom action sheet, where a flyout
   // submenu has nowhere to fly to; the assignees are listed in the sheet.
@@ -534,18 +541,18 @@ function BulkActionBar({
     setOutcome(result)
     // Only the rows that did not take effect stay ticked, to retry or look
     // at: those the server did, or queued, leave the selection (as after a
-    // template batch), so the bar's notes are about what is left. Ticked
-    // again even if the selection was cancelled while the request ran,
-    // because the toast points here for which ones, and why.
+    // template batch), so the bar's notes are about what is left. That
+    // includes the rows Approve skipped before asking (never sent, so not in
+    // the results). A selection cancelled while the request ran stays
+    // cancelled; the toast still says what happened.
+    if (selectedCountRef.current === 0) return
     const settled = new Set(
       result.results
         .filter((row) => row.status === "ok" || row.status === "queued")
         .map((row) => row.reviewId)
     )
     setSelectMode(true)
-    replace(
-      result.results.map((row) => row.reviewId).filter((id) => !settled.has(id))
-    )
+    replace(ids.filter((id) => !settled.has(id)))
   }
 
   // Per-row results come back as ids; the operator knows reviews by who

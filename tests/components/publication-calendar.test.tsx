@@ -555,9 +555,7 @@ describe("PublicationCalendar period summary", () => {
         { id: RED_LION, name: "Red Lion" },
       ],
     })
-    nav.set(
-      `locationId=${OLD_CROWN}&clientId=00000000-0000-4000-8000-0000000000c1`
-    )
+    nav.set(`locationId=${OLD_CROWN}`)
     renderWithProviders(<PublicationCalendar />)
     expect(
       await screen.findByText(
@@ -707,8 +705,13 @@ describe("PublicationCalendar filters from the address", () => {
     nav.set("locationId=00000000-0000-4000-8000-000000000999")
     renderWithProviders(<PublicationCalendar />)
     await waitFor(() => expect(calls.at(-1)).not.toMatch(/locationId=/))
+    // Asked once, after the directory said the id is not pickable, and the
+    // widening is said rather than silent.
+    expect(calls.filter((url) => url.includes("locationId="))).toHaveLength(0)
     expect(
-      await screen.findByText("2 publications in October 2026.")
+      await screen.findByText(
+        "The filter in this link isn’t one you can pick, so every listing is shown. 2 publications in October 2026."
+      )
     ).toBeInTheDocument()
   })
 })

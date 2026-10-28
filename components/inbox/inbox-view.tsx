@@ -573,9 +573,13 @@ function InboxViewInner({
   // over rows already loaded. Those rows stay: only a first load that failed
   // is the error state (as `usePagedResource` treats a failed load-more).
   const { isFetchNextPageError, isRefetchError } = reviewsQuery
+  // An empty list whose refresh failed is not known to be empty, so it is
+  // the error state too, never "You're all caught up".
   const listStatus = reviewsQuery.isPending
     ? "pending"
-    : reviewsQuery.isError && reviewsQuery.data === undefined
+    : reviewsQuery.isError &&
+        (reviewsQuery.data === undefined ||
+          (isRefetchError && reviews.length === 0))
       ? "error"
       : "ready"
   // A queue switch keeps the previous queue's rows while the new one loads.
@@ -893,10 +897,19 @@ function InboxViewInner({
   const listEndRef = useRef<HTMLParagraphElement>(null)
   const loadMoreHadFocus = useRef(false)
   const pageCount = reviewsQuery.data?.pages.length ?? 0
+  // Only that press counts: once its page settles with more still to come,
+  // the button is still there and keeps focus, so the flag is spent. And the
+  // end takes focus only if it was lost with the button, never from wherever
+  // the person has gone since (the composer, say).
+  useEffect(() => {
+    if (!isFetchingNextPage && hasNextPage) loadMoreHadFocus.current = false
+  }, [isFetchingNextPage, hasNextPage])
   useEffect(() => {
     if (!hasNextPage && loadMoreHadFocus.current) {
       loadMoreHadFocus.current = false
-      listEndRef.current?.focus({ preventScroll: true })
+      const active = document.activeElement
+      if (!active || active === document.body || !active.isConnected)
+        listEndRef.current?.focus({ preventScroll: true })
     }
   }, [hasNextPage])
 

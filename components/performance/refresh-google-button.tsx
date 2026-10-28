@@ -120,6 +120,9 @@ export function RefreshStatus({
   )
 }
 
+/** The listings one manual request checks at most, by kind (the routes' defaults). */
+const SYNC_CAP: Record<Kind, number> = { performance: 25, keywords: 10 }
+
 function countListings(count: number) {
   return `${formatNumber(count)} ${count === 1 ? LISTING_TERMS.place : LISTING_TERMS.placePlural}`
 }
@@ -143,6 +146,11 @@ export function refreshResultToast(
     Array.isArray(entry?.outcomes) ? entry.outcomes : []
   )
   const checked = outcomes.length
+  // The walk also stops at a per-request cap (25 listings for performance,
+  // 10 for keywords; lib/server/performance.ts, lib/server/keywords.ts)
+  // without saying so. A walk that reached the cap may have left listings
+  // due, so it is only "started", and the tab keeps following it.
+  if (checked >= SYNC_CAP[kind]) return null
   const failed = outcomes.filter(
     (outcome) => outcome.status === "failed"
   ).length
@@ -163,7 +171,7 @@ export function refreshResultToast(
     title: "Refreshed from Google",
     description: `Checked ${countListings(checked)}${
       scopedToClient ? " across your clients" : ""
-    }. The ${kind === "performance" ? "figures" : "search terms"} shown are the latest Google has sent.`,
+    }. The ${kind === "performance" ? "figures" : "search terms"} shown include this check.`,
   }
 }
 

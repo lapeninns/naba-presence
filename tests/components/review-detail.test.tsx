@@ -1799,7 +1799,33 @@ describe("ReviewDetail — the bar says what to do next", () => {
     )
   })
 
-  it("says a parked reply is private until it is approved", () => {
+  it("tells someone who can only submit to submit again after a failure", () => {
+    const failed = failedWith("google_timeout")
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: {
+        review: {
+          ...failed.review,
+          capabilities: {
+            ...failed.review.capabilities,
+            canPublish: false,
+            canRequestApproval: true,
+          },
+        },
+      },
+    })
+    const { container } = renderPane(
+      <ReviewDetail reviewId="rev-1" actions={<span />} />
+    )
+    expect(statusStrip(container)).toHaveTextContent(
+      "Publish failed · submit it for approval again"
+    )
+  })
+})
+
+describe("ReviewDetail — where a parked reply is seen", () => {
+  it("says a parked reply is not sent to Google until it is approved", () => {
     fakeDetail({
       isPending: false,
       isError: false,
@@ -1808,7 +1834,7 @@ describe("ReviewDetail — the bar says what to do next", () => {
     renderPane(<ReviewDetail reviewId="rev-1" />)
     expect(
       screen.getByRole("region", { name: "Your reply" })
-    ).toHaveTextContent("Private until it’s approved")
+    ).toHaveTextContent("Not sent to Google until it’s approved")
   })
 
   it("does not say 'you publish' to someone who cannot", () => {

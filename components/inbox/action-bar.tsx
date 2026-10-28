@@ -623,7 +623,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           <AlertDialogTitle>Send this reply back?</AlertDialogTitle>
           <AlertDialogDescription>
             It goes back to Needs reply so it can be edited and submitted again.
-            Your note is shown to the person who submitted it.
+            Your note is shown on this review, with your name.
           </AlertDialogDescription>
           <div className="flex flex-col gap-1.5">
             <label

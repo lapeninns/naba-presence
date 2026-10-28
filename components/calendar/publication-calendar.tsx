@@ -113,21 +113,33 @@ export function PublicationCalendar({
   // from the address counts only if it is one the server accepts and, once
   // the list is known, one the select offers. A business has no client
   // layer, so a stale `?clientId=` is ignored there too.
-  const clientId = business
-    ? undefined
-    : pickableId(
-        searchParams.get("clientId"),
-        clients.isSuccess ? clients.data.items : null
-      )
+  const rawClientId = business ? null : searchParams.get("clientId")
+  const rawLocationId = searchParams.get("locationId")
+  const clientsKnown = clients.isSuccess || clients.isError
   // The directory is keyed by role: wait for the role's own list.
+  const directoryKnown =
+    (directory.isSuccess && role !== null) || directory.isError
+  const clientId = pickableId(
+    rawClientId,
+    clients.isSuccess ? clients.data.items : null
+  )
   const locationId = pickableId(
-    searchParams.get("locationId"),
+    rawLocationId,
     directory.isSuccess && role !== null
       ? directory.data.filter(
           (entry) => !clientId || entry.clientId === clientId
         )
       : null
   )
+  // A filter in the address is checked before anything is asked for, so the
+  // calendar never shows one client and then, once the list arrives, every
+  // listing. One that was dropped is said, not silently widened.
+  const filtersKnown =
+    (!rawClientId || clientsKnown) && (!rawLocationId || directoryKnown)
+  const droppedFilter =
+    filtersKnown &&
+    ((Boolean(rawClientId) && !clientId) ||
+      (Boolean(rawLocationId) && !locationId))
 
   // Once the route has said "switched off", that is the answer: nothing
   // asks again, whatever the address says next.
@@ -152,7 +164,7 @@ export function PublicationCalendar({
         throw error
       }
     },
-    enabled: !off,
+    enabled: !off && filtersKnown,
     // Switched off for the workspace is an answer, not a failure to retry;
     // anything else follows the app's own rule.
     retry: (count, error) =>
@@ -448,6 +460,9 @@ export function PublicationCalendar({
                 says so, and offers the one useful next step. */}
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <p role="status" className="text-ui text-pretty text-ink-muted">
+                {droppedFilter
+                  ? "The filter in this link isn’t one you can pick, so every listing is shown. "
+                  : null}
                 {total > 0
                   ? `${countLabel(total)} in ${periodText}.`
                   : `Nothing scheduled in ${periodText}.${filtered ? "" : ` Use the arrows to look at another ${periodNoun}. Posts are scheduled from each listing’s Posts tab.`}`}
