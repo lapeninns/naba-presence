@@ -15,6 +15,7 @@ import { ApiClientError } from "@/lib/api/client"
 import type { ImportProposal } from "@/lib/api/location-import-review"
 import { AMBIGUOUS_LABELS_WARNING } from "@/lib/domain/food-menu-import"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { reasonCodeMessage } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
 import { useDecideImportProposal } from "@/lib/queries/use-import-review"
 import { useQueryClient } from "@tanstack/react-query"
@@ -111,6 +112,43 @@ function proposalFieldLabel(proposal: ImportProposal): string {
 
 type Decision = "apply" | "ignore" | "delete_local" | "keep_local"
 
+const BILLING_HOLD_REASON = reasonCodeMessage("billing_read_only")
+
+/**
+ * Whether the page's edit gate is the workspace's billing hold rather than
+ * the person's role. They need different words: a read-only workspace stops
+ * an owner too, so "only owners and admins" would not be true.
+ */
+export function isBillingHold(editDisabledReason: string | null): boolean {
+  return (
+    editDisabledReason !== null && editDisabledReason === BILLING_HOLD_REASON
+  )
+}
+
+/** The role gate in this page's words (the server allows owners and admins). */
+const DECIDE_ROLE_REASON =
+  "Only owners and admins can accept or ignore suggestions."
+
+/** A decided row waits here, with its buttons held, until the list refetches. */
+const SETTLED_REASON = "Already decided. The list is updating."
+
+/**
+ * The server released the claim: the suggestion stays pending, so the row's
+ * own "Not applied" alert (and its Retry) stays and announces it.
+ */
+const RELEASED_CODES = new Set(["canonical_resource_stale"])
+
+/**
+ * The server marked the suggestion `failed`: the refetch drops the row and
+ * its inline alert, so the toast has to say which suggestion it was.
+ */
+const TERMINAL_CODES = new Set([
+  "proposal_target_missing",
+  "proposal_patch_invalid",
+  "proposal_apply_failed",
+  "proposal_action_unsupported",
+])
+
 const DECISION_TOAST: Record<Decision, { title: string; description: string }> =
   {
     apply: {
@@ -145,7 +183,9 @@ const DECISION_TOAST: Record<Decision, { title: string; description: string }> =
  * Each row shows what NabaPresence holds ("Here now") against what Google
  * shows ("On Google"), then Accept / Ignore. Accepting changes the local
  * copy only; nothing is published. A decision that fails stays on its row
- * with the reason and a Retry.
+ * with the reason and a Retry. A decision the server confirmed keeps its
+ * row's buttons held until the refetch takes the row away, so a second tap
+ * can't reach the server as "already decided".
  *
  * The parent owns the query (for counts, loading and errors); this renders
  * the pending proposals it is given.
@@ -176,14 +216,23 @@ export function SuggestionList({
   const [failures, setFailures] = useState<
     Record<string, { action: Decision; message: string }>
   >({})
+  // Ids the server has answered for (onSuccess only, never optimistic).
+  const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set())
 
   const label = resourceType === "profile" ? "Business profile" : "Food menu"
   const headingId = `suggestions-${resourceType}`
   // The page explains the gate once; each button also carries it, so a
   // focused, disabled Accept says why instead of being silently dead.
   const gateReason = editDisabledReason
-    ? "Only owners and admins can accept or ignore suggestions."
+    ? isBillingHold(editDisabledReason)
+      ? editDisabledReason
+      : DECIDE_ROLE_REASON
     : undefined
+  const hasAcceptRows = proposals.some(
+    (proposal) =>
+      proposal.kind !== "item_missing_from_google" &&
+      proposal.kind !== "section_missing_from_google"
+  )
   const disabled = decide.isPending
   const workingId = decide.isPending ? decide.variables?.proposalId : null
 
@@ -203,6 +252,7 @@ export function SuggestionList({
       {
         onSuccess: () => {
           setConfirming(null)
+          setSettled((current) => new Set(current).add(proposal.id))
           setFailures((current) => {
             const next = { ...current }
             delete next[proposal.id]
@@ -236,7 +286,19 @@ export function SuggestionList({
             ...current,
             [proposal.id]: { action, message },
           }))
-          toasts.add({ title: message, type: "error" })
+          const code = error instanceof ApiClientError ? error.code : null
+          // The row's own alert says it, and stays: no second announcement.
+          if (code && RELEASED_CODES.has(code)) return
+          toasts.add({
+            title: `${proposalTitle(proposal)}: ${message}`,
+            ...(code && TERMINAL_CODES.has(code)
+              ? {
+                  description:
+                    "Check Google now to load the latest suggestions.",
+                }
+              : null),
+            type: "error",
+          })
         },
       }
     )
@@ -276,6 +338,12 @@ export function SuggestionList({
             </span>
           </>
         }
+        caption={
+          // Once per group, not on every row: what the two buttons do.
+          hasAcceptRows
+            ? "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."
+            : undefined
+        }
         actions={openEditor}
         card
         bodyAs={proposals.length === 0 ? "div" : "ul"}
@@ -295,6 +363,10 @@ export function SuggestionList({
             )
             const failure = failures[proposal.id]
             const working = workingId === proposal.id
+            const rowSettled = settled.has(proposal.id)
+            const rowDisabled = disabled || rowSettled
+            const rowReason =
+              gateReason ?? (rowSettled ? SETTLED_REASON : undefined)
             return (
               <ListRow
                 key={proposal.id}
@@ -377,8 +449,8 @@ export function SuggestionList({
                         <Button
                           variant="secondary"
                           size="sm"
-                          disabled={disabled}
-                          disabledReason={gateReason}
+                          disabled={rowDisabled}
+                          disabledReason={rowReason}
                           onClick={() =>
                             startDecision(proposal, failure.action)
                           }
@@ -394,12 +466,13 @@ export function SuggestionList({
                           <>
                             <Button
                               variant="secondary"
-                              disabled={disabled}
-                              disabledReason={gateReason}
+                              disabled={rowDisabled}
+                              disabledReason={rowReason}
                               pending={
                                 working &&
                                 decide.variables?.action === "keep_local"
                               }
+                              pendingLabel="Keeping…"
                               onClick={() =>
                                 startDecision(proposal, "keep_local")
                               }
@@ -408,12 +481,13 @@ export function SuggestionList({
                             </Button>
                             <Button
                               variant="danger-outline"
-                              disabled={disabled}
-                              disabledReason={gateReason}
+                              disabled={rowDisabled}
+                              disabledReason={rowReason}
                               pending={
                                 working &&
                                 decide.variables?.action === "delete_local"
                               }
+                              pendingLabel="Removing…"
                               onClick={() =>
                                 startDecision(proposal, "delete_local")
                               }
@@ -425,8 +499,8 @@ export function SuggestionList({
                           <>
                             <Button
                               variant="secondary"
-                              disabled={disabled}
-                              disabledReason={gateReason}
+                              disabled={rowDisabled}
+                              disabledReason={rowReason}
                               pending={
                                 working && decide.variables?.action === "apply"
                               }
@@ -438,8 +512,8 @@ export function SuggestionList({
                             </Button>
                             <Button
                               variant="ghost"
-                              disabled={disabled}
-                              disabledReason={gateReason}
+                              disabled={rowDisabled}
+                              disabledReason={rowReason}
                               pending={
                                 working && decide.variables?.action === "ignore"
                               }
@@ -451,11 +525,11 @@ export function SuggestionList({
                           </>
                         )}
                       </div>
-                      <p className="text-caption text-ink-muted">
-                        {missing
-                          ? "Only changes NabaPresence’s copy."
-                          : "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."}
-                      </p>
+                      {missing ? (
+                        <p className="text-caption text-ink-muted">
+                          Only changes NabaPresence’s copy.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 }

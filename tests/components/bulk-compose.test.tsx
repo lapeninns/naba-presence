@@ -84,6 +84,19 @@ afterEach(() => {
   push.mockReset()
 })
 
+/**
+ * The visible copies of a line: a disabled button also carries its reason
+ * as a hidden description, and the docked bar repeats a change's problem.
+ */
+const shown = (text: string | RegExp) =>
+  screen.getAllByText(text).filter((node) => !node.closest("[hidden]"))
+
+/** A button that can't be used now, still focusable, saying why. */
+function expectBlocked(button: HTMLElement, reason?: string | RegExp) {
+  expect(button).toHaveAttribute("aria-disabled", "true")
+  if (reason) expect(button).toHaveAccessibleDescription(reason)
+}
+
 /** Picks the kind of change from the "What to change" list. */
 async function chooseChange(
   user: ReturnType<typeof userEvent.setup>,
@@ -211,12 +224,11 @@ describe("BulkCompose (P09-R9)", () => {
       /A special date can’t run past midnight/
     )
     expect(closes).toHaveAttribute("aria-invalid", "true")
-    expect(
-      screen.getByText("Check the times marked above.")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Preview this change" })
-    ).toBeDisabled()
+    expect(shown("Check the times marked above.").length).toBeGreaterThan(0)
+    expectBlocked(
+      screen.getByRole("button", { name: "Preview this change" }),
+      "Check the times marked above."
+    )
   })
 
   it("keeps the selected listings behind a count", () => {
@@ -240,11 +252,12 @@ describe("BulkCompose (P09-R9)", () => {
     ])
       await user.click(screen.getByRole("checkbox", { name: day }))
     expect(
-      screen.getByText("Tick at least one weekday to change.")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Preview this change" })
-    ).toBeDisabled()
+      shown("Tick at least one weekday to change.").length
+    ).toBeGreaterThan(0)
+    expectBlocked(
+      screen.getByRole("button", { name: "Preview this change" }),
+      "Tick at least one weekday to change."
+    )
   })
 
   it("builds an ordered change list, reorders it and previews exactly that list", async () => {
@@ -285,14 +298,14 @@ describe("BulkCompose (P09-R9)", () => {
     fireEvent.change(date, { target: { value: "2026-12-25" } })
     await user.click(screen.getByRole("button", { name: "Add to the batch" }))
     expect(
-      screen.queryByText(/The change being edited above is not in this batch/)
+      screen.queryByText(/The change above isn’t in the batch yet/)
     ).not.toBeInTheDocument()
     fireEvent.change(date, { target: { value: "2026-12-31" } })
     expect(
-      screen.getByText(/The change being edited above is not in this batch/)
+      screen.getByText(/The change above isn’t in the batch yet/)
     ).toBeInTheDocument()
     await user.click(
-      screen.getByRole("button", { name: "Preview the 1 change in the list" })
+      screen.getByRole("button", { name: "Preview the batch (1 change)" })
     )
     await vi.waitFor(() => expect(previewBody()).toBeDefined())
     expect(
@@ -310,10 +323,11 @@ describe("BulkCompose (P09-R9)", () => {
     })
     await user.click(screen.getByRole("button", { name: "Add to the batch" }))
     await user.click(screen.getByRole("button", { name: "Add to the batch" }))
-    expect(screen.getByText(/Change 2 overlaps change 1/)).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Preview these 2 changes" })
-    ).toBeDisabled()
+    expect(shown(/Change 2 overlaps change 1/)).toHaveLength(1)
+    expectBlocked(
+      screen.getByRole("button", { name: "Preview these 2 changes" }),
+      /Change 2 overlaps change 1/
+    )
   })
 
   it("refuses a selection of more than 50 listings instead of trimming it", () => {
@@ -326,14 +340,16 @@ describe("BulkCompose (P09-R9)", () => {
       target: { value: "2026-12-25" },
     })
     expect(
-      screen.getByText(/covers at most 50 listings; this selection has 51/)
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Preview this change" })
-    ).toBeDisabled()
-    expect(
-      screen.getByRole("button", { name: "Add to the batch" })
-    ).toBeDisabled()
+      shown(/covers at most 50 listings; this selection has 51/)
+    ).toHaveLength(1)
+    expectBlocked(
+      screen.getByRole("button", { name: "Preview this change" }),
+      /covers at most 50 listings/
+    )
+    expectBlocked(
+      screen.getByRole("button", { name: "Add to the batch" }),
+      /covers at most 50 listings/
+    )
   })
 
   it("uploads a photo in three steps and previews it as a photos change", async () => {
@@ -341,8 +357,8 @@ describe("BulkCompose (P09-R9)", () => {
     renderWithProviders(<BulkCompose />)
     await chooseChange(user, "Photos")
     expect(
-      screen.getByText("Upload a photo or choose one already uploaded.")
-    ).toBeInTheDocument()
+      shown("Upload a photo or choose one already uploaded.").length
+    ).toBeGreaterThan(0)
     const file = new File([new Uint8Array(20_000)], "front.jpg", {
       type: "image/jpeg",
     })

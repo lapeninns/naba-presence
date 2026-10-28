@@ -119,6 +119,11 @@ export function ReviewedCompletionVerification({
       if (result.error) throw result.error
     })
   }
+  // Google's requests were never read (or the read failed with nothing
+  // earlier to show): say so, rather than "no request is waiting".
+  const panelOpen = Boolean(attempt || review)
+  const unreadable =
+    !panelOpen && !pending.length && current.isError && !current.data
   const errorNote = error && (
     <p role="alert" className="text-ui text-danger-ink">
       {error}
@@ -140,7 +145,7 @@ export function ReviewedCompletionVerification({
           <Instant value={current.data.checkedAt} />.
         </p>
       )}
-      {current.isError && (
+      {current.isError && !unreadable && (
         <p role="status" className="text-ui text-ink-secondary">
           Current Google state could not be refreshed. Any request details still
           shown are earlier observations.
@@ -192,7 +197,11 @@ export function ReviewedCompletionVerification({
                   variant="ghost"
                   className="h-auto min-h-(--np-control-h) max-w-full self-start py-2 text-left leading-snug whitespace-normal"
                   disabled={busy}
-                  onClick={reset}
+                  onClick={() => {
+                    // Back to the PIN list, then a read-only check of Google.
+                    reset()
+                    checkState()
+                  }}
                 >
                   Check Google, then review a corrected PIN
                 </Button>
@@ -312,12 +321,22 @@ export function ReviewedCompletionVerification({
         </ReviewedWritePanel>
       ) : (
         <>
-          {!pending.length && (
+          {/* "No request" is a claim about Google, so it needs an observation. */}
+          {pending.length ? null : current.data ? (
             <p className="text-ui text-ink-muted">
-              Google has no PIN request waiting for this listing. Check
-              Google again, or look at saved PIN reviews below.
+              Google has no PIN request waiting for this listing. Check Google
+              again, or look at saved PIN reviews below.
             </p>
-          )}
+          ) : unreadable ? (
+            <p role="status" className="text-ui text-ink-secondary">
+              Google’s PIN requests can’t be read right now. Check Google again
+              before entering a PIN.
+            </p>
+          ) : current.isFetching ? (
+            <p role="status" className="text-ui text-ink-muted">
+              Reading PIN requests from Google…
+            </p>
+          ) : null}
           {/* A pending request is a list row that carries its own PIN form, so
           the row itself is not a target (`interactive={false}`). */}
           <div
@@ -361,6 +380,7 @@ export function ReviewedCompletionVerification({
                         {supported ? (
                           <VerificationPinField
                             name={item.name}
+                            method={item.method}
                             blocked={writeBlocked}
                             busy={busy}
                             onSubmit={(pin) =>

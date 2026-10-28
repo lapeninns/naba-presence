@@ -524,12 +524,12 @@ describe("PostsTab", () => {
     expect(
       within(screen.getByRole("article")).getByText("Awaiting approval")
     ).toBeInTheDocument()
-    // Reject is a second choice, so it is in the post's menu.
+    // Sending it back is a second choice, so it is in the post’s menu.
     await userEvent.click(
       screen.getByRole("button", { name: "More actions for Open late tonight" })
     )
     expect(
-      await screen.findByRole("menuitem", { name: "Reject" })
+      await screen.findByRole("menuitem", { name: "Send back to draft" })
     ).toBeInTheDocument()
   })
 

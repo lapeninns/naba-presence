@@ -23,9 +23,15 @@ const describeChildChange = (
     ...child,
   })
 
-const session = vi.hoisted(() => ({ role: "owner" }))
+const session = vi.hoisted(() => ({
+  role: "owner",
+  userId: "00000000-0000-4000-8000-0000000000e9",
+}))
 vi.mock("@/lib/queries/use-session", () => ({
   useSessionRole: () => session.role,
+  useSession: () => ({
+    data: { session: { role: session.role, userId: session.userId } },
+  }),
 }))
 const push = vi.fn()
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
@@ -116,6 +122,7 @@ const operation: Operation = {
 
 afterEach(() => {
   session.role = "owner"
+  session.userId = "00000000-0000-4000-8000-0000000000e9"
   vi.unstubAllGlobals()
   vi.useRealTimers()
   push.mockReset()
@@ -458,9 +465,14 @@ describe("BulkOperationView follow-ups (P09-R9)", () => {
         /This preview expired at .* can no longer be approved/
       )
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Approve this exact change" })
-    ).toBeDisabled()
+    // Still focusable, and it says why it can't be used.
+    const closed = screen.getByRole("button", {
+      name: "Approve this exact change",
+    })
+    expect(closed).toHaveAttribute("aria-disabled", "true")
+    expect(closed).toHaveAccessibleDescription(
+      "This preview expired; prepare a new one"
+    )
     expect(
       screen.getByRole("button", { name: "New preview for 1 listing not sent" })
     ).toBeInTheDocument()
@@ -487,7 +499,7 @@ describe("BulkOperationView follow-ups (P09-R9)", () => {
     await vi.advanceTimersByTimeAsync(5_000)
     expect(
       screen.getByRole("button", { name: "Approve this exact change" })
-    ).toBeDisabled()
+    ).toHaveAttribute("aria-disabled", "true")
   })
 
   it("leaves a post draft out of a new preview that would make it again at a listing", async () => {

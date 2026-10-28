@@ -1,7 +1,12 @@
 "use client"
 
 import { useId, type HTMLAttributes } from "react"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import {
   Fieldset,
   FieldsetDescription,
@@ -29,6 +34,8 @@ export function VerificationTextField({
   spellCheck,
   enterKeyHint,
   autoComplete = "off",
+  error,
+  onBlur,
 }: {
   readonly label: string
   readonly value: string
@@ -43,15 +50,19 @@ export function VerificationTextField({
   readonly spellCheck?: boolean
   readonly enterKeyHint?: HTMLAttributes<HTMLInputElement>["enterKeyHint"]
   readonly autoComplete?: string
+  /** Shown under the field, and marks it invalid, once the caller decides it should be. */
+  readonly error?: string
+  readonly onBlur?: () => void
 }) {
   const id = useId()
   return (
-    <Field>
+    <Field error={error}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input
         id={id}
         value={value}
         onChange={(event) => onChange?.(event.target.value)}
+        onBlur={onBlur}
         disabled={disabled}
         readOnly={readOnly}
         maxLength={maxLength}
@@ -63,11 +74,22 @@ export function VerificationTextField({
         enterKeyHint={enterKeyHint}
       />
       {hint && <FieldDescription>{hint}</FieldDescription>}
+      <FieldError announce="polite" />
     </Field>
   )
 }
 
 type Address = NonNullable<VerificationOptionsInput["context"]>["address"]
+
+/** Per-field reasons the address cannot be checked yet, already filtered to fields the person has left. */
+export type VerificationAddressErrors = {
+  readonly addressLines?: string
+  readonly regionCode?: string
+  readonly addressLanguage?: string
+  readonly recipients?: string
+  /** A problem no single field owns. */
+  readonly address?: string
+}
 // The address as people write it; the codes Google needs come last.
 const placeFields = [
   ["locality", "Town or city"],
@@ -81,10 +103,16 @@ export function VerificationContextFields({
   value,
   disabled,
   onChange,
+  errors = {},
+  onFieldBlur,
 }: {
   readonly value: Address
   readonly disabled: boolean
   readonly onChange: (value: Address) => void
+  readonly errors?: VerificationAddressErrors
+  readonly onFieldBlur?: (
+    field: Exclude<keyof VerificationAddressErrors, "address">
+  ) => void
 }) {
   const linesId = useId(),
     recipientsId = useId()
@@ -98,7 +126,7 @@ export function VerificationContextFields({
         is verification context, not a public profile address change.
       </FieldsetDescription>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field className="sm:col-span-2">
+        <Field className="sm:col-span-2" error={errors.addressLines}>
           <FieldLabel htmlFor={linesId}>Street address</FieldLabel>
           <Textarea
             id={linesId}
@@ -109,12 +137,14 @@ export function VerificationContextFields({
                 addressLines: event.target.value.split("\n"),
               })
             }
+            onBlur={() => onFieldBlur?.("addressLines")}
             autoComplete="off"
             autoCapitalize="words"
           />
           <FieldDescription>
             One address line per line; up to five.
           </FieldDescription>
+          <FieldError announce="polite" />
         </Field>
         {placeFields.map(([key, label]) => (
           <VerificationTextField
@@ -129,7 +159,7 @@ export function VerificationContextFields({
             spellCheck={key === "postalCode" ? false : undefined}
           />
         ))}
-        <Field className="sm:col-span-2">
+        <Field className="sm:col-span-2" error={errors.recipients}>
           <FieldLabel htmlFor={recipientsId}>Address recipients</FieldLabel>
           <Textarea
             id={recipientsId}
@@ -142,10 +172,12 @@ export function VerificationContextFields({
                   : undefined,
               })
             }
+            onBlur={() => onFieldBlur?.("recipients")}
             autoComplete="off"
             autoCapitalize="words"
           />
           <FieldDescription>Optional; one recipient per line.</FieldDescription>
+          <FieldError announce="polite" />
         </Field>
         <VerificationTextField
           label="Country code"
@@ -154,6 +186,8 @@ export function VerificationContextFields({
           onChange={(regionCode) =>
             onChange({ ...value, regionCode: regionCode.toUpperCase() })
           }
+          onBlur={() => onFieldBlur?.("regionCode")}
+          error={errors.regionCode}
           {...inputHints.identifier}
           autoCapitalize="characters"
           hint={
@@ -168,6 +202,8 @@ export function VerificationContextFields({
           onChange={(languageCode) =>
             onChange({ ...value, languageCode: languageCode || undefined })
           }
+          onBlur={() => onFieldBlur?.("addressLanguage")}
+          error={errors.addressLanguage}
           {...inputHints.identifier}
           hint={
             language

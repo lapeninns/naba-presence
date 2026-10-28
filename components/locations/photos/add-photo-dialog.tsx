@@ -5,12 +5,14 @@ import {
   CircleAlertIcon,
   ImagesIcon,
   LinkIcon,
+  RotateCcwIcon,
   UploadIcon,
   XIcon,
 } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 
 import { GateNote } from "@/components/locations/publish-gate"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -36,7 +38,12 @@ import {
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import { answerOutcome, describeOutcome } from "@/lib/editors/outcome"
-import { ApiClientError } from "@/lib/api/client"
+import {
+  ApiClientError,
+  isMfaStepUpError,
+  MFA_STEP_UP_EVENT,
+  type MfaStepUpEventDetail,
+} from "@/lib/api/client"
 import {
   createMediaFromUrl,
   uploadMediaFile,
@@ -47,6 +54,7 @@ import {
   MAX_MEDIA_UPLOAD_BYTES,
   MIN_PHOTO_UPLOAD_BYTES,
 } from "@/lib/contracts/location-media"
+import { MFA_ENROLLMENT_REQUIRED } from "@/lib/contracts/wire-codes"
 import {
   describeActionError,
   isUnconfirmedFailure,
@@ -65,6 +73,12 @@ type UploadEntry = {
   key: string
   /** Sent as Idempotency-Key; kept after a lost response so a retry cannot upload twice. */
   intent: string
+  /**
+   * The category a kept intent was sent with. A retry resends it, so the
+   * same intent always carries the same request, whatever the picker says
+   * now.
+   */
+  sentCategory?: MediaCategory
   file: File
   status: UploadStatus
   progress: number
@@ -85,6 +99,57 @@ function checkFile(file: File): string | undefined {
   if (file.size < MIN_PHOTO_UPLOAD_BYTES)
     return `Too small at ${formatFileSize(file.size)}. Google needs photos of at least ${MIN_PHOTO_UPLOAD_BYTES / 1024} KB.`
   return undefined
+}
+
+/**
+ * Refusals that would answer every file the same way: the run stops at the
+ * first and says it once. Each is the route's or the write gate's answer
+ * before anything is claimed, so nothing of this file went to Google.
+ */
+const RUN_REFUSALS = new Set([
+  "listing_change_upload_unsupported",
+  "media_paused",
+  "publish_not_allowed",
+])
+
+function runRefusal(error: unknown): string | null {
+  if (isMfaStepUpError(error))
+    return error.code === MFA_ENROLLMENT_REQUIRED
+      ? "Uploads need two-step verification. Set it up, then tap Upload again. The photos marked Ready weren’t sent to Google."
+      : "Confirm it’s you with your two-step code, then tap Upload again. The photos marked Ready weren’t sent to Google."
+  if (!(error instanceof ApiClientError) || !RUN_REFUSALS.has(error.code))
+    return null
+  if (error.code === "listing_change_upload_unsupported")
+    return "Uploads can’t be sent for approval yet, so the photos marked Ready weren’t sent to Google. Import the photo from a public link instead."
+  return `${describeActionError(error)} The photos marked Ready weren’t sent to Google.`
+}
+
+/**
+ * Unconfirmed answers a retry must not resend: the server is waiting on a
+ * person's verdict, or another create of the same photo is still running
+ * (sent again once that lands, it would be a second copy).
+ */
+const NO_RETRY_CODES = new Set([
+  "media_needs_resolution",
+  "media_create_in_progress",
+])
+
+/** "1 sent · 2 ready · 1 not confirmed", leaving out the parts that are zero. */
+function summaryParts(counts: {
+  done: number
+  ready: number
+  unsure: number
+  cannot: number
+  uploading: boolean
+}): string[] {
+  return [
+    counts.done > 0 ? `${counts.done} sent` : null,
+    counts.ready > 0
+      ? `${counts.ready} ${counts.uploading ? "still to send" : "ready"}`
+      : null,
+    counts.unsure > 0 ? `${counts.unsure} not confirmed` : null,
+    counts.cannot > 0 ? `${counts.cannot} can’t upload` : null,
+  ].filter((part): part is string => part !== null)
 }
 
 function previewFor(file: File): string | undefined {
@@ -127,6 +192,14 @@ const STATUS_PILL: Record<
  * leaves the others alone and names its own reason and code. Only real
  * outcomes are shown: "On Google" is the route reporting the write as
  * succeeded.
+ *
+ * A file that failed or was not confirmed offers Try again. A failure
+ * already freed a new intent; an unconfirmed upload resends its kept one
+ * (and its category), so the server answers from the first attempt's
+ * receipt rather than adding the photo twice. A refusal that would answer
+ * every file alike (two-step verification due, approvals, paused, no
+ * permission) stops the run and is said once. When nothing is left to send
+ * the primary becomes Done, in place, so focus stays on it.
  */
 export function AddPhotoDialog({
   open,
@@ -157,6 +230,10 @@ export function AddPhotoDialog({
   const [entries, setEntries] = useState<UploadEntry[]>([])
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
+  // Why the last run stopped early, said once above the files.
+  const [stopped, setStopped] = useState<string | null>(null)
+  const [urlError, setUrlError] = useState<string | null>(null)
+  const urlErrorId = useId()
   const disabled = Boolean(writeReason)
 
   // Thumbnails are object URLs: release every one still held on unmount.
@@ -179,6 +256,9 @@ export function AddPhotoDialog({
       ),
     intentKey: () => [category, url],
     invalidate: onAdded,
+    // Beside the field as well as in the toast, which a phone may draw
+    // over the footer.
+    onError: (_error, message) => setUrlError(message),
     successToast: (result) => {
       const outcome = answerOutcome(result)
       return {
@@ -206,6 +286,25 @@ export function AddPhotoDialog({
   const cannot = entries.filter(
     (entry) => entry.status === "invalid" || entry.status === "failed"
   ).length
+  const unsure = entries.filter(
+    (entry) => entry.status === "unconfirmed"
+  ).length
+  const summary = summaryParts({
+    done,
+    ready: ready.length,
+    unsure,
+    cannot,
+    uploading,
+  })
+  // Something went through an upload and nothing is left to send: the run
+  // is over, and the one primary says so rather than going dead.
+  const finished =
+    !uploading &&
+    ready.length === 0 &&
+    url.trim().length === 0 &&
+    entries.some(
+      (entry) => entry.status !== "invalid" && entry.status !== "ready"
+    )
 
   function patch(key: string, next: Partial<UploadEntry>) {
     setEntries((current) =>
@@ -232,17 +331,25 @@ export function AddPhotoDialog({
     setEntries((current) => [...current, ...added])
   }
 
-  async function uploadAll() {
+  async function upload(list: readonly UploadEntry[]) {
     setUploading(true)
+    setStopped(null)
     let succeeded = 0
     let failed = 0
     let unconfirmed = 0
-    for (const entry of ready) {
-      patch(entry.key, { status: "uploading", progress: 0 })
+    let stop: string | null = null
+    for (const entry of list) {
+      const sendCategory = entry.sentCategory ?? category
+      patch(entry.key, {
+        status: "uploading",
+        progress: 0,
+        error: undefined,
+        code: undefined,
+      })
       const form = new FormData()
       form.set("file", entry.file)
       form.set("mediaFormat", "PHOTO")
-      form.set("category", category)
+      form.set("category", sendCategory)
       try {
         const result = await uploadMediaFile(
           locationId,
@@ -255,16 +362,37 @@ export function AddPhotoDialog({
           status:
             answerOutcome(result) === "confirmed_applied" ? "done" : "sent",
           progress: 1,
+          sentCategory: undefined,
         })
       } catch (error) {
+        stop = runRefusal(error)
+        if (stop) {
+          // Refused before anything was claimed: the file goes back to how
+          // it was, intent and all, and the rest are not sent.
+          if (isMfaStepUpError(error) && typeof window !== "undefined")
+            window.dispatchEvent(
+              new CustomEvent<MfaStepUpEventDetail>(MFA_STEP_UP_EVENT, {
+                detail: { code: error.code as MfaStepUpEventDetail["code"] },
+              })
+            )
+          patch(entry.key, {
+            status: entry.status,
+            progress: 0,
+            error: entry.error,
+            code: entry.code,
+          })
+          break
+        }
         const maybeSent = isUnconfirmedFailure(error)
         if (maybeSent) unconfirmed += 1
         else failed += 1
         patch(entry.key, {
-          // An unconfirmed upload keeps its token so a retry finds the
-          // first upload; a definite answer frees the next attempt to be a
-          // new upload.
-          ...(maybeSent ? {} : { intent: crypto.randomUUID() }),
+          // An unconfirmed upload keeps its token (and the category it was
+          // sent with) so a retry finds the first upload; a definite answer
+          // frees the next attempt to be a new upload.
+          ...(maybeSent
+            ? { sentCategory: sendCategory }
+            : { intent: crypto.randomUUID(), sentCategory: undefined }),
           status: maybeSent ? "unconfirmed" : "failed",
           error: describeActionError(error),
           code: error instanceof ApiClientError ? error.code : undefined,
@@ -272,26 +400,46 @@ export function AddPhotoDialog({
       }
     }
     setUploading(false)
-    if (succeeded > 0) onAdded()
+    setStopped(stop)
+    // Re-read after anything that may have landed: an unconfirmed upload
+    // shows up on the page as one to resolve, or as the photo itself.
+    if (succeeded + unconfirmed > 0) onAdded()
     if (fileRef.current) fileRef.current.value = ""
     if (cameraRef.current) cameraRef.current.value = ""
+    // A run stopped before sending anything has said why above the files.
+    if (stop && succeeded + failed + unconfirmed === 0) return
     toasts.add({
       title:
         succeeded > 0
           ? `${succeeded} ${succeeded === 1 ? "photo" : "photos"} sent to Google`
-          : "No photos were uploaded",
+          : unconfirmed > 0
+            ? `Google hasn’t confirmed ${unconfirmed === 1 ? "this photo" : `${unconfirmed} photos`}`
+            : "No photos were uploaded",
       description:
-        failed + unconfirmed > 0
+        failed + unconfirmed > 0 || stop
           ? [
               failed > 0 ? `${failed} failed.` : null,
               unconfirmed > 0 ? `${unconfirmed} not confirmed.` : null,
-              "The reason is beside each one.",
+              stop ? "The rest weren’t sent." : null,
+              failed + unconfirmed > 0
+                ? "The reason is beside each one."
+                : null,
             ]
               .filter(Boolean)
               .join(" ")
           : undefined,
-      type: failed > 0 ? "error" : unconfirmed > 0 ? "warning" : "success",
+      type:
+        failed > 0 ? "error" : unconfirmed > 0 || stop ? "warning" : "success",
     })
+  }
+
+  function close() {
+    revoke(entries)
+    setEntries([])
+    setUrl("")
+    setUrlError(null)
+    setStopped(null)
+    onOpenChange(false)
   }
 
   function onDrop(event: React.DragEvent<HTMLDivElement>) {
@@ -322,9 +470,8 @@ export function AddPhotoDialog({
           return
         }
         if (!next) {
-          revoke(entries)
-          setEntries([])
-          setUrl("")
+          close()
+          return
         }
         onOpenChange(next)
       }}
@@ -446,10 +593,16 @@ export function AddPhotoDialog({
           <p className="sr-only" aria-live="polite">
             {entries.length > 0
               ? uploading
-                ? `Uploading. ${done} sent, ${ready.length} still to send, ${cannot} can’t upload.`
-                : `${done} sent, ${ready.length} ready, ${cannot} can’t upload.`
+                ? `Uploading. ${summary.join(", ")}${summary.length > 0 ? "." : ""}`
+                : `${summary.join(", ")}.`
               : ""}
           </p>
+
+          {stopped ? (
+            <Alert variant="warning">
+              <AlertDescription>{stopped}</AlertDescription>
+            </Alert>
+          ) : null}
 
           {/* Notion Mail's attachment cards: stacked full width on a
                   phone, two to a row in the wide dialog at the desk. */}
@@ -466,6 +619,15 @@ export function AddPhotoDialog({
                     entry.status === "invalid" ||
                     entry.status === "unconfirmed" ||
                     entry.status === "failed")
+                const retryable =
+                  !uploading &&
+                  !disabled &&
+                  (entry.status === "failed" ||
+                    (entry.status === "unconfirmed" &&
+                      !NO_RETRY_CODES.has(entry.code ?? "")))
+                const needsVerdict =
+                  entry.status === "unconfirmed" &&
+                  entry.code === "media_needs_resolution"
                 return (
                   <FileCard
                     key={entry.key}
@@ -488,7 +650,13 @@ export function AddPhotoDialog({
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Remove ${entry.file.name}`}
+                          // Taking a sent photo off this list undoes nothing
+                          // on Google.
+                          aria-label={
+                            entry.status === "unconfirmed"
+                              ? `Remove ${entry.file.name} from this list`
+                              : `Remove ${entry.file.name}`
+                          }
                           onClick={() => {
                             revoke([entry])
                             setEntries((current) =>
@@ -523,6 +691,27 @@ export function AddPhotoDialog({
                         </span>
                       </p>
                     ) : null}
+                    {needsVerdict ? (
+                      <p className="text-caption text-ink-muted">
+                        Close this, then use “It is on Google” or “It is not on
+                        Google” on the photos page.
+                      </p>
+                    ) : null}
+                    {retryable ? (
+                      <div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          // The visible words first (label in name), then
+                          // which file.
+                          aria-label={`Try again to upload ${entry.file.name}`}
+                          onClick={() => void upload([entry])}
+                        >
+                          <RotateCcwIcon aria-hidden />
+                          Try again
+                        </Button>
+                      </div>
+                    ) : null}
                   </FileCard>
                 )
               })}
@@ -547,11 +736,16 @@ export function AddPhotoDialog({
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   value={url}
-                  onChange={(event) => setUrl(event.target.value)}
+                  onChange={(event) => {
+                    setUrl(event.target.value)
+                    setUrlError(null)
+                  }}
                   placeholder="https://example.com/photo.jpg"
                   inputMode="url"
                   type="url"
                   aria-label="Photo URL"
+                  aria-invalid={urlError ? true : undefined}
+                  aria-describedby={urlError ? urlErrorId : undefined}
                   disabled={pickDisabled}
                   className="min-w-0 flex-1"
                 />
@@ -565,27 +759,43 @@ export function AddPhotoDialog({
                   Add from URL
                 </Button>
               </div>
+              {urlError ? (
+                <p id={urlErrorId} className="text-caption text-danger-ink">
+                  {urlError}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         </div>
 
         <GateNote reason={writeReason} />
         <DialogFooter className="sm:items-center">
-          {entries.length > 0 ? (
+          {uploading ? (
+            // The dialog cannot close mid-upload; this says so before × is
+            // tried.
+            <span className="text-caption text-ink-muted sm:mr-auto">
+              Keep this open until the uploads finish.
+            </span>
+          ) : entries.length > 0 ? (
             <span className="text-caption text-ink-muted tabular-nums sm:mr-auto">
-              {done} sent · {ready.length} ready · {cannot} can’t upload
+              {summary.join(" · ")}
             </span>
           ) : null}
+          {/* One button whatever it says, so focus stays on it when the
+              run ends and it turns into Done. */}
           <Button
-            onClick={() => void uploadAll()}
+            variant={finished ? "secondary" : "default"}
+            onClick={finished ? close : () => void upload(ready)}
             pending={uploading}
             pendingLabel="Uploading…"
-            disabled={disabled || ready.length === 0}
+            disabled={!finished && (disabled || ready.length === 0)}
           >
-            <UploadIcon aria-hidden />
-            {ready.length > 0
-              ? `Upload ${ready.length} ${ready.length === 1 ? "photo" : "photos"}`
-              : "Upload photos"}
+            {finished ? null : <UploadIcon aria-hidden />}
+            {finished
+              ? "Done"
+              : ready.length > 0
+                ? `Upload ${ready.length} ${ready.length === 1 ? "photo" : "photos"}`
+                : "Upload photos"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -47,9 +47,8 @@ export function VerificationCompletionReview({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <p className="text-ui text-ink-secondary">
-        Approval binds the PIN entered during preview to this exact pending
-        request. The PIN is not displayed or restored. Nothing is sent to Google
-        until the approved PIN is re-entered and submitted.
+        Approving doesn’t send anything. To send, someone with the PIN Google
+        sent types it again. It isn’t saved here.
       </p>
       <SummaryList
         aria-label="PIN completion to send"
@@ -96,8 +95,8 @@ export function VerificationCompletionReview({
         <>
           <p className="text-ui text-ink-secondary">
             {change.requiresSecondApprover
-              ? "A different authorised owner or admin must approve this exact request. They can find it under Saved PIN completions."
-              : "Approve this exact PIN completion before submitting to Google."}
+              ? "A different authorised owner or admin must approve this request. They’ll find it under Saved PIN completions, and whoever sends needs the PIN."
+              : "Approve this PIN completion before sending it to Google."}
           </p>
           <Button
             className="self-start"
@@ -125,6 +124,7 @@ export function VerificationCompletionReview({
           </p>
           <VerificationPinField
             name={review.payload.name}
+            method={review.payload.method}
             blocked={blocked || uncertain}
             busy={busy}
             reentry
@@ -140,15 +140,19 @@ export function VerificationCompletionReview({
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" disabled={busy} onClick={onCheck}>
-          Check saved PIN outcome
-        </Button>
+        {/* Only an approved review can have been sent, so only then (or after
+        a lost send) is there an outcome to check. */}
+        {(change.approvedBy || uncertain) && (
+          <Button variant="secondary" disabled={busy} onClick={onCheck}>
+            Check saved PIN outcome
+          </Button>
+        )}
         <Button
           variant="ghost"
           disabled={busy || uncertain}
           onClick={onRefresh}
         >
-          Refresh exact PIN review
+          Refresh this review
         </Button>
         <Button variant="ghost" disabled={busy || uncertain} onClick={onReset}>
           Create a fresh PIN review

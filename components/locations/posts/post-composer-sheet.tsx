@@ -54,12 +54,14 @@ import {
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useOutcomeToast } from "@/components/ui/toast"
+import { ApiClientError, isMfaStepUpError } from "@/lib/api/client"
 import {
   createPost,
   publishPost,
   updatePost,
   type Post,
 } from "@/lib/api/location-posts"
+import { MFA_ENROLLMENT_REQUIRED } from "@/lib/contracts/auth"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 import {
   DAYS_OF_WEEK,
@@ -289,6 +291,37 @@ function toCandidate(
   return candidate
 }
 
+/** A save refused because someone else saved the post after it was opened. */
+function isPostChanged(error: unknown): boolean {
+  return error instanceof ApiClientError && error.code === "post_changed"
+}
+
+/**
+ * A failed save, in words. A stale edit says what happened and what to do:
+ * the refetched post raises the "Load theirs / Keep mine" notice above the
+ * fields, and the edits stay where they are.
+ */
+function saveErrorCopy(error: unknown): string {
+  return isPostChanged(error)
+    ? "Someone else saved this post while you were editing. Your edits are still here: choose whose version to keep, then save again."
+    : describeActionError(error, { context: "post" })
+}
+
+/**
+ * A publish held for two-step verification. The check runs before the
+ * publish itself (the route's `mfa: "step_up"`), so nothing was sent to
+ * Google; `saved` says the post was saved first and waits in the list.
+ */
+function stepUpCopy(error: ApiClientError, saved: boolean): string {
+  if (error.code === MFA_ENROLLMENT_REQUIRED)
+    return saved
+      ? "Publishing needs two-step verification set up first, so nothing was sent to Google. The post is kept in NabaPresence: publish it from the list once it’s set up."
+      : "Set up two-step verification, then publish again. Nothing was sent to Google."
+  return saved
+    ? "Publishing needs you to confirm it’s you first, so nothing was sent to Google. The post is kept in NabaPresence: publish it from the list once you’ve confirmed."
+    : "Confirm it’s you, then publish again. Nothing was sent to Google."
+}
+
 /**
  * Writing a post, with the result visible while you write it (reference
  * `#composer`): the type as a segmented control, the event or offer title
@@ -409,17 +442,33 @@ export function PostComposerSheet({
       ?.focus()
   }, [attempt])
 
+  // Refetch the list now rather than at its next refetch: after a stale
+  // edit, the newer save raises the "Load theirs / Keep mine" notice.
+  const refetchPosts = () =>
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.locationPosts(locationId),
+    })
+
   const create = useResourceMutation({
-    mutationFn: async (input: LocalPostFormValues): Promise<unknown> =>
-      post
-        ? updatePost(locationId, post.id, input, post.updatedAt)
-        : createPost(locationId, input),
+    mutationFn: async (input: LocalPostFormValues): Promise<unknown> => {
+      if (!post) return createPost(locationId, input)
+      const saved = await updatePost(locationId, post.id, input, post.updatedAt)
+      // Only a save that went through is this editor's own: a refused one
+      // must leave a colleague's newer save to the notice, not follow it
+      // silently over the edits.
+      editor.expectSave()
+      return saved
+    },
     invalidate: [queryKeys.locationPosts(locationId)],
     successToast: post
       ? "Draft updated. Google is not affected."
       : "Draft saved. Google is not affected.",
     errorContext: "post",
-    onError: (_error, message) => setServerError(message),
+    errorToast: saveErrorCopy,
+    onError: (error, message) => {
+      setServerError(message)
+      if (isPostChanged(error)) refetchPosts()
+    },
     onSuccess: () => {
       // A new post's fields empty for the next one; an edit keeps the saved
       // values until the refetched post (its own save) replaces them.
@@ -454,6 +503,7 @@ export function PostComposerSheet({
             input,
             post.updatedAt
           )
+          editor.expectSave()
           // A post that was already live is republished by the save itself:
           // its answer is the outcome, and there is nothing left to publish.
           if (!("post" in saved)) return saved
@@ -479,11 +529,17 @@ export function PostComposerSheet({
     invalidate: [queryKeys.locationPosts(locationId)],
     errorContext: "post",
     errorToast: (error) => {
+      // Held for two-step verification: the person may publish, and nothing
+      // went to Google, so "You do not have permission" would be wrong.
+      if (isMfaStepUpError(error))
+        return stepUpCopy(error, savedBeforeFailure.current)
+      // Nothing saved yet: the save's own refusal.
+      if (!savedBeforeFailure.current) return saveErrorCopy(error)
       const reason = describeActionError(error, { context: "post" })
       // Only a definite refusal says the post is kept here: after a lost
       // answer Google may hold it, and the message above already says to
       // check the list before changing it.
-      return savedBeforeFailure.current && !isUnconfirmedFailure(error)
+      return !isUnconfirmedFailure(error)
         ? `${reason} The post is kept in NabaPresence, not lost.`
         : reason
     },
@@ -494,9 +550,10 @@ export function PostComposerSheet({
       setOpen(false)
       outcomeToast.show(publishToast(result))
     },
-    onError: (_error, message) => {
+    onError: (error, message) => {
       if (!savedBeforeFailure.current) {
         setServerError(message)
+        if (isPostChanged(error)) refetchPosts()
         return
       }
       // Saved, not published: the draft is in the list with its own retry.
@@ -505,9 +562,7 @@ export function PostComposerSheet({
       setErrors({})
       setServerError(null)
       setOpen(false)
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.locationPosts(locationId),
-      })
+      refetchPosts()
     },
   })
 
@@ -531,6 +586,8 @@ export function PostComposerSheet({
       : editing
         ? "No changes to save yet."
         : "Write the post first."
+  // The footer note names the button it is about.
+  const saveLabel = editing ? "Save changes" : "Save draft"
   const event = values.topicType !== "STANDARD"
   const offer = values.topicType === "OFFER"
   const summaryLength = values.summary.length
@@ -593,7 +650,6 @@ export function PostComposerSheet({
   function submit() {
     const input = parsedInput(false)
     if (!input) return
-    if (post) editor.expectSave()
     create.mutate(input)
   }
 
@@ -606,7 +662,6 @@ export function PostComposerSheet({
     }
     const input = parsedInput(true)
     if (!input) return
-    if (post) editor.expectSave()
     publish.mutate(input)
   }
 
@@ -1123,11 +1178,6 @@ export function PostComposerSheet({
                 ) : null}
               </div>
 
-              {serverError ? (
-                <p role="alert" className="pt-3 text-ui text-danger-ink">
-                  {serverError}
-                </p>
-              ) : null}
               {disabledReason ? (
                 <p
                   id={disabledReasonId}
@@ -1159,9 +1209,10 @@ export function PostComposerSheet({
                   )}
                 />
               </button>
-              <aside
+              {/* Named once: by the toggle on a phone and by the preview's
+                  own caption, not by a landmark as well. */}
+              <div
                 id={previewId}
-                aria-label="Preview"
                 className={cn(
                   "min-w-0 flex-col gap-2 @[760px]/composer:flex",
                   previewOpen ? "flex" : "hidden"
@@ -1187,7 +1238,7 @@ export function PostComposerSheet({
                 <span className="text-caption text-ink-muted">
                   An illustration. Google decides the final layout.
                 </span>
-              </aside>
+              </div>
             </div>
           </div>
         </SheetBody>
@@ -1195,6 +1246,13 @@ export function PostComposerSheet({
         <SheetFooter className="sm:items-center">
           {/* Shown at every width: on a phone it wraps above the buttons. */}
           <div className="flex min-w-0 flex-col gap-1 text-caption text-pretty text-ink-muted sm:mr-auto sm:flex-1">
+            {/* A refused save or publish, beside the button that was
+                pressed rather than at the end of the fields. */}
+            {serverError ? (
+              <p role="alert" className="text-ui text-danger-ink">
+                {serverError}
+              </p>
+            ) : null}
             {saveReason ? <p id={saveReasonId}>{saveReason}</p> : null}
             {gate ? (
               // The consent. It is drawn by the same condition as the
@@ -1217,8 +1275,8 @@ export function PostComposerSheet({
             ) : null}
             <p>
               {post?.status === "failed"
-                ? "Save draft turns it back into a draft. Nothing reaches Google until you publish it."
-                : "Save draft keeps it here only. Google is not affected."}
+                ? `${saveLabel} turns it back into a draft. Nothing reaches Google until you publish it.`
+                : `${saveLabel} keeps it here only. Google is not affected.`}
             </p>
           </div>
           <Button
@@ -1235,14 +1293,24 @@ export function PostComposerSheet({
             pending={create.isPending}
             pendingLabel="Saving…"
           >
-            {editing ? "Save changes" : "Save draft"}
+            {saveLabel}
           </Button>
           {gate ? (
             <Button
               onClick={submitPublish}
               disabled={disabled || (!post && !isDirty) || create.isPending}
               disabledReason={gate.reason ?? undefined}
-              aria-describedby={consentId}
+              // The consent first, always; then why it is off, as for Save.
+              aria-describedby={[
+                consentId,
+                disabled
+                  ? disabledReasonId
+                  : !post && saveReason
+                    ? saveReasonId
+                    : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
               pending={publish.isPending}
               pendingLabel={
                 gate.requestApproval ? "Requesting…" : "Publishing…"

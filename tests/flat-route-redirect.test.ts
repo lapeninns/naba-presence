@@ -6,6 +6,20 @@ const primary = vi.hoisted(() => ({
 vi.mock("@/lib/server/primary-location", () => ({
   resolvePrimaryLocation: async () => primary.current,
 }))
+const auth = vi.hoisted(() => ({
+  signedIn: true,
+  requested: null as string | null,
+}))
+vi.mock("@/lib/server/session", () => ({
+  getSession: async () => (auth.signedIn ? { userId: "user-1" } : null),
+  isLocalBootstrapEnabled: () => false,
+}))
+vi.mock("next/headers", () => ({
+  headers: async () =>
+    new Headers(
+      auth.requested ? { "x-naba-request-path": auth.requested } : {}
+    ),
+}))
 
 import {
   flatRouteTarget,
@@ -15,6 +29,9 @@ import {
 
 beforeEach(() => {
   primary.current = { locationCount: 2, locationId: null }
+  auth.signedIn = true
+  auth.requested = null
+  vi.unstubAllEnvs()
 })
 
 describe("flatRouteTarget", () => {
@@ -39,6 +56,33 @@ describe("flatRouteTarget", () => {
 
   it("stays bare without a query", async () => {
     await expect(flatRouteTarget("")).resolves.toBe("/clients")
+  })
+
+  it("sends a signed-out visitor to sign-in, then back to the old link", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    auth.signedIn = false
+    auth.requested = "/photos?tab=cover"
+    await expect(
+      flatRouteTarget("photos", {
+        searchParams: { tab: "cover" },
+        moved: "photos",
+      })
+    ).resolves.toBe("/sign-in?next=%2Fphotos%3Ftab%3Dcover")
+  })
+
+  it("never puts an off-site path in next", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    auth.signedIn = false
+    auth.requested = "//evil.example/photos"
+    await expect(flatRouteTarget("photos")).resolves.toBe("/sign-in")
+  })
+
+  it("keeps the anonymous dev fallback outside production", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    auth.signedIn = false
+    await expect(flatRouteTarget("photos", { moved: "photos" })).resolves.toBe(
+      "/clients?moved=photos"
+    )
   })
 })
 
@@ -77,7 +121,12 @@ describe("flatSegmentFor", () => {
   // A plain object answers inherited names too; indexing it turned
   // /profile/constructor into /listings/<id>/function Object()...
   it("never returns an inherited Object property", () => {
-    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    for (const name of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+    ]) {
       expect(flatSegmentFor(name)).toBe("")
     }
   })

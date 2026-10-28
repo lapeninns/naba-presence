@@ -231,11 +231,10 @@ describe("Posts tab scheduling (P08-R5)", () => {
     expect(await scheduleOffered("Sunday roast is back")).toBe(true)
     // A published post cannot be scheduled.
     expect(await scheduleOffered("Already live")).toBe(false)
-    // The scheduled post says so and is changed from its schedule instead.
+    // The scheduled post says so and is changed from its schedule instead
+    // (the post card's own words, posts-tab.tsx).
     expect(
-      await screen.findByText(
-        /Scheduled publication active: 2026-10-20 at 09:00 \(Europe\/London, UTC\+01:00\)/
-      )
+      await screen.findByText(/Scheduled for Tue 20 Oct, 09:00 BST/)
     ).toBeInTheDocument()
     expect(await scheduleOffered("Quiz night")).toBe(false)
 
@@ -340,7 +339,7 @@ describe("Posts tab scheduling (P08-R5)", () => {
     })
     expect(
       within(section).getByText(
-        `Was set for ${wall.date} ${wall.time} (Europe/London), with a repeat that is no longer used.`
+        `Was set for ${formatWallDay(wall.date)}, ${wall.time} UK time, with a repeat that is no longer used.`
       )
     ).toBeInTheDocument()
 
@@ -528,7 +527,7 @@ describe("Schedule presets (presentation shortcut over the one-time form)", () =
     expect(tomorrow).toBeChecked()
     // Each preset says the resolved day and the zone in words.
     expect(tomorrow).toHaveAccessibleDescription(
-      `${formatWallDay(dates.tomorrow)}, 09:00 · venue time (Europe/London)`
+      `${formatWallDay(dates.tomorrow)}, 09:00 UK time`
     )
     // The full form waits behind "Pick a date and time".
     expect(within(sheet).queryByLabelText("Date")).toBeNull()
@@ -539,7 +538,7 @@ describe("Schedule presets (presentation shortcut over the one-time form)", () =
     await user.click(within(sheet).getByRole("radio", { name: "Next Monday" }))
     expect(
       within(sheet).getByText(
-        new RegExp(`^Once on ${dates.monday} at 09:00 \\(Europe/London`)
+        new RegExp(`^Once on ${dates.monday} at 09:00 \\(UK time`)
       )
     ).toBeInTheDocument()
     await user.click(
@@ -572,7 +571,7 @@ describe("Schedule presets (presentation shortcut over the one-time form)", () =
     expect(
       within(sheet).getByRole("button", { name: /^Pick a date and time/ })
     ).toHaveAccessibleDescription(
-      new RegExp(`^${formatWallDay(dates.monday)}, 09:00 · `)
+      new RegExp(`^${formatWallDay(dates.monday)}, 09:00 UK time$`)
     )
 
     // Never "Schedule" or "Send": the same submit-for-approval path.
@@ -616,15 +615,13 @@ describe("Schedule presets (presentation shortcut over the one-time form)", () =
       within(sheet).getByRole("radio", { name: "Next Monday" })
     ).not.toBeChecked()
     // The presets are still offered, resolved in the venue's zone.
-    expect(tomorrow).toHaveAccessibleDescription(
-      "Fri 16 Oct, 09:00 · venue time (Europe/London)"
-    )
+    expect(tomorrow).toHaveAccessibleDescription("Fri 16 Oct, 09:00 UK time")
     // The custom row and the preview carry the default.
     expect(
       within(sheet).getByRole("button", { name: /^Pick a date and time/ })
-    ).toHaveAccessibleDescription(/^Thu 15 Oct, 09:00 · Europe \/ London$/)
+    ).toHaveAccessibleDescription(/^Thu 15 Oct, 09:00 UK time$/)
     expect(
-      within(sheet).getByText(/^Once on 2026-10-15 at 09:00 \(Europe\/London/)
+      within(sheet).getByText(/^Once on 2026-10-15 at 09:00 \(UK time/)
     ).toBeInTheDocument()
     await user.click(
       within(sheet).getByRole("button", { name: /^Pick a date and time/ })
@@ -663,9 +660,7 @@ describe("Schedule presets (presentation shortcut over the one-time form)", () =
       within(sheet).getByRole("radio", { name: "Tomorrow morning" })
     ).not.toBeChecked()
     expect(
-      within(sheet).getByText(
-        /^Once on 2026-10-15 at 09:00 \(America\/New_York/
-      )
+      within(sheet).getByText(/^Once on 2026-10-15 at 09:00 \(Eastern time/)
     ).toBeInTheDocument()
     await user.click(
       within(sheet).getByRole("button", { name: /^Pick a date and time/ })

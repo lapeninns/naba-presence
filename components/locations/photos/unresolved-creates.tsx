@@ -22,6 +22,10 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
  * for (lib/server/media.ts, "needs_resolution"). Adding the same photo again
  * is refused until someone checks Google and records what they found, so a
  * lost answer can never put the photo on the listing twice.
+ *
+ * One verdict is sent at a time: while it is, every button waits and the
+ * tapped one says it is saving. Someone who cannot publish is told who can
+ * record it, rather than asked to do what they have no buttons for.
  */
 export function UnresolvedCreates({
   locationId,
@@ -49,6 +53,10 @@ export function UnresolvedCreates({
   })
 
   if (creates.length === 0) return null
+  const saving = (attemptId: string, resolution: MediaResolution) =>
+    resolve.isPending &&
+    resolve.variables?.attemptId === attemptId &&
+    resolve.variables.resolution === resolution
   return (
     <div className="flex flex-col gap-2">
       {creates.map((create) => {
@@ -58,16 +66,22 @@ export function UnresolvedCreates({
             <AlertDescription>
               {describeCreate(create)} was sent{" "}
               <RelativeTime iso={create.startedAt} />, but Google did not say
-              whether it was added and it is not among the listing’s photos yet.
-              Check the listing on Google, then record what you find. Adding it
-              again is blocked until then.
+              whether it was added and it is not among the listing’s photos yet.{" "}
+              {canResolve
+                ? "Check the listing on Google, then record what you find."
+                : "Someone who can publish to Google needs to check the listing and record what they find."}{" "}
+              Adding it again is blocked until then.
             </AlertDescription>
             {canResolve ? (
               <AlertActions>
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={resolve.isPending}
+                  disabled={
+                    resolve.isPending && !saving(create.attemptId, "adopted")
+                  }
+                  pending={saving(create.attemptId, "adopted")}
+                  pendingLabel="Saving…"
                   onClick={() =>
                     resolve.mutate({
                       attemptId: create.attemptId,
@@ -80,7 +94,11 @@ export function UnresolvedCreates({
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={resolve.isPending}
+                  disabled={
+                    resolve.isPending && !saving(create.attemptId, "abandoned")
+                  }
+                  pending={saving(create.attemptId, "abandoned")}
+                  pendingLabel="Saving…"
                   onClick={() =>
                     resolve.mutate({
                       attemptId: create.attemptId,

@@ -1,6 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { CircleAlertIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -8,6 +9,14 @@ import { useEffect, useState } from "react"
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { OperationReceiptNotice } from "@/components/locations/operation-outcome"
 import { ActionBar } from "@/components/ui/action-bar"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cardClassName, cardLinkClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -37,10 +46,11 @@ import {
   serverClockOffset,
 } from "@/lib/domain/bulk-repreview"
 import { formatDateTime } from "@/lib/format"
+import { formatTimeOfDay } from "@/lib/format/time"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
-import { useSessionRole } from "@/lib/queries/use-session"
+import { useSession, useSessionRole } from "@/lib/queries/use-session"
 
 import { describeChildChange, maskLabel } from "./bulk-change-summary"
 
@@ -184,18 +194,27 @@ const OPERATION_LABEL: Record<Operation["operation"], string> = {
  */
 export function BulkOperationView({ operationId }: { operationId: string }) {
   const role = useSessionRole()
+  const userId = useSession().data?.session?.userId ?? null
   const manager = role === "owner" || role === "admin"
   const client = useQueryClient()
   const router = useRouter()
   const [acknowledged, setAcknowledged] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  /** What the last action did when that is not visible elsewhere (a retry that requeued nothing). */
+  const [notice, setNotice] = useState<string | null>(null)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
   const query = useQuery({
     queryKey: queryKeys.bulkChange(operationId),
     queryFn: (context) => fetchBulkChange(operationId, requestOptions(context)),
-    refetchInterval: (state) =>
-      state.state.data?.status === "running" ? 5_000 : false,
+    // While anything is still moving: a running batch, and a cancelled (or
+    // just-started) one whose listings already sending have yet to settle.
+    refetchInterval: (state) => (moving(state.state.data) ? 5_000 : false),
   })
   const mutate = useMutation({
+    onMutate: () => {
+      setNotice(null)
+      return { before: query.data }
+    },
     mutationFn: (action: "approve" | "start" | "cancel" | "retry") => {
       const op = query.data!
       return action === "approve"
@@ -206,17 +225,39 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
             ? cancelBulkChange(op.id)
             : retryBulkChange(op.id)
     },
-    onSuccess: (data) => {
+    onSuccess: (data, action, context) => {
       setFailure(null)
       client.setQueryData(queryKeys.bulkChange(operationId), data)
       void client.invalidateQueries({ queryKey: queryKeys.bulkChanges })
+      // A retry requeues only what can be sent again; say so when that was
+      // nothing, rather than leave the same failures with no word.
+      if (action === "retry" && context?.before) {
+        const before = new Map(
+          context.before.children.map((child) => [child.id, child.status])
+        )
+        const requeued = data.children.some(
+          (child) =>
+            (before.get(child.id) === "failed" ||
+              before.get(child.id) === "ambiguous") &&
+            child.status !== before.get(child.id)
+        )
+        if (!requeued)
+          setNotice(
+            "Nothing could be retried yet: these listings need a new preview or are still being checked on Google."
+          )
+      }
     },
-    onError: (error) =>
+    onError: (error) => {
       setFailure(
         error instanceof ApiClientError
           ? error.message
           : "That action could not be completed."
-      ),
+      )
+      // Someone else moved the batch on (approved, started, cancelled it, or
+      // the preview changed): read it again so the buttons match the server.
+      if (error instanceof ApiClientError && error.status === 409)
+        void query.refetch()
+    },
   })
   const op = query.data
   // The 15-minute approval window, counted down on the page; once it closes
@@ -264,16 +305,43 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
       (child) => child.status === "failed" || child.status === "ambiguous"
     ).length ?? 0
 
-  const approveDisabled =
-    !op?.canApprove || previewClosed || (skipped > 0 && !acknowledged)
+  // Why Approve can't be used now, on the button and in the bar's words.
+  const approveBlocked = !op
+    ? undefined
+    : previewClosed
+      ? "This preview expired; prepare a new one"
+      : !op.canApprove
+        ? "A different owner or administrator must approve"
+        : skipped > 0 && !acknowledged
+          ? `Tick the box about the skipped ${unit(skipped)} to approve`
+          : undefined
   const canRepreview = Boolean(
-    op && repreview?.items.length && !isBulkReviewOperation(op.operation)
+    manager &&
+    op &&
+    repreview?.items.length &&
+    !isBulkReviewOperation(op.operation)
   )
+  // Who may stop or retry a batch, as the server decides it
+  // (requireBatchControl): an owner or admin, or the member who started a
+  // review batch, since they are its only decider. Approving and starting
+  // stay with owners and admins.
+  const canControl = Boolean(
+    op &&
+    (manager ||
+      (role === "member" &&
+        isBulkReviewOperation(op.operation) &&
+        userId !== null &&
+        op.requestedBy === userId))
+  )
+  // Listings a cancel stops (not yet sent) and those it leaves (already
+  // sending, already confirmed), from the server's counts.
+  const unsent = (op?.counts.previewed ?? 0) + (op?.counts.queued ?? 0)
+  const sending = op?.counts.running ?? 0
   // The quiet actions first and the one primary last (nearest the thumb on
   // a phone): approving while the window is open, starting once approved,
   // or the new preview once Google must be read again.
   const buttons =
-    manager && op
+    canControl && op
       ? [
           op.status === "running" ||
           op.status === "approved" ||
@@ -282,9 +350,11 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
               key="cancel"
               variant="ghost-dark"
               disabled={mutate.isPending}
-              onClick={() => mutate.mutate("cancel")}
+              onClick={() => setConfirmingCancel(true)}
             >
-              Cancel remaining listings
+              {op.status === "previewed"
+                ? "Discard this preview"
+                : "Stop listings not yet sent"}
             </Button>
           ) : null,
           retryable &&
@@ -293,9 +363,12 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
               key="retry"
               variant="ghost-dark"
               disabled={mutate.isPending}
-              onClick={() => mutate.mutate("retry")}
+              onClick={() => {
+                setFailure(null)
+                mutate.mutate("retry")
+              }}
             >
-              Retry {retryable} unsettled {unit(retryable)}
+              Retry {retryable} unconfirmed {unit(retryable)}
             </Button>
           ) : null,
           canRepreview && repreview ? (
@@ -318,22 +391,28 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
               sent
             </Button>
           ) : null,
-          op.status === "previewed" ? (
+          manager && op.status === "previewed" ? (
             <Button
               key="approve"
               variant={previewClosed ? "ghost-dark" : "default"}
-              disabled={approveDisabled}
+              disabledReason={approveBlocked}
               pending={mutate.isPending}
-              onClick={() => mutate.mutate("approve")}
+              onClick={() => {
+                setFailure(null)
+                mutate.mutate("approve")
+              }}
             >
               Approve this exact change
             </Button>
           ) : null,
-          op.status === "approved" ? (
+          manager && op.status === "approved" ? (
             <Button
               key="start"
               pending={mutate.isPending}
-              onClick={() => mutate.mutate("start")}
+              onClick={() => {
+                setFailure(null)
+                mutate.mutate("start")
+              }}
             >
               Start bulk change
             </Button>
@@ -341,6 +420,17 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
         ].filter(Boolean)
       : []
   const actions = buttons.length ? <>{buttons}</> : null
+  // What the bar says beside its buttons, where the thumb is on a phone:
+  // the last action's error, a retry that moved nothing, or why Approve
+  // can't be used. Nothing otherwise, so the bar keeps its one row.
+  const barStatus =
+    failure ??
+    notice ??
+    (manager && op?.status === "previewed" ? approveBlocked : undefined)
+  const notFound =
+    query.error instanceof ApiClientError &&
+    query.error.status === 404 &&
+    query.error.code !== "feature_disabled"
   // Progress once the change is under way: how many of its listing changes
   // Google has confirmed, from the same counts the status line reads. A
   // skipped listing is never sent, so it is not part of the total.
@@ -367,11 +457,26 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
           </Link>
         }
       />
+      {/* A failed refresh keeps the last batch the server sent on screen
+          (labelled below as such); only a first load that fails is an
+          error page. A batch that isn't there, or isn't this person's,
+          offers no retry that could not succeed. */}
       <QueryStates
-        status={queryStatus(query)}
+        status={queryStatus({
+          isPending: query.isPending,
+          isError: query.isError && !query.data,
+        })}
         pendingLabel="bulk change"
-        error="The bulk change could not be loaded"
-        onRetry={() => void query.refetch()}
+        error={
+          notFound
+            ? {
+                title: "This bulk change wasn’t found",
+                description:
+                  "It may belong to someone else, or the link is wrong. Bulk changes you can see open from their notification or from the inbox.",
+              }
+            : "The bulk change could not be loaded"
+        }
+        onRetry={notFound ? undefined : () => void query.refetch()}
       >
         {op ? (
           <div
@@ -425,38 +530,59 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                   />
                 </div>
               ) : null}
-              <Deadline operation={op} now={now} offset={offset} />
-              {/* Approving, starting, cancelling and retrying are for owners
-                and admins; say so rather than leave the page without actions
-                or a reason. One sentence true in every unfinished status. */}
-              {role &&
-              !manager &&
-              op.status !== "completed" &&
-              op.status !== "cancelled" ? (
+              {op.status === "cancelled" && sending > 0 ? (
                 <p className="text-caption text-ink-muted">
-                  Only owners and admins can approve, start, cancel or retry a
-                  bulk change.
+                  {`${sending} ${unit(sending)} ${sending === 1 ? "is" : "are"} still finishing; this page updates on its own.`}
+                </p>
+              ) : null}
+              <Deadline operation={op} now={now} offset={offset} />
+              {query.isRefetchError ? (
+                <div className="flex flex-wrap items-center gap-x-2">
+                  <p className="text-caption text-ink-muted" role="status">
+                    {`Couldn’t refresh at ${clockTime(query.errorUpdatedAt)}. Showing the last known state${moving(op) ? "; trying again." : "."}`}
+                  </p>
+                  {/* Polling tries again by itself; a settled batch only
+                      refreshes when asked (or on returning to the tab). */}
+                  {moving(op) ? null : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      pending={query.isFetching}
+                      onClick={() => void query.refetch()}
+                    >
+                      Refresh
+                    </Button>
+                  )}
+                </div>
+              ) : null}
+              {/* Approving, starting, cancelling and retrying are for owners
+                and admins (and stopping or retrying a review batch for the
+                member who started it); say so rather than leave the page
+                without actions or a reason. */}
+              {role && !manager && !canControl ? (
+                op.status !== "completed" && op.status !== "cancelled" ? (
+                  <p className="text-caption text-ink-muted">
+                    Only owners and admins can approve, start, cancel or retry a
+                    bulk change.
+                  </p>
+                ) : null
+              ) : role &&
+                !manager &&
+                (op.status === "previewed" || op.status === "approved") ? (
+                <p className="text-caption text-ink-muted">
+                  Only owners and admins can approve or start a bulk change.
                 </p>
               ) : null}
             </div>
-            <FormError>{failure}</FormError>
-            {manager && op.status === "previewed" ? (
-              <div className="flex flex-col gap-1">
-                {skipped ? (
-                  <Checkbox
-                    label={`I understand ${skipped} ${unit(skipped)} ${skipped === 1 ? "is" : "are"} skipped and will not be sent`}
-                    checked={acknowledged}
-                    onCheckedChange={(checked) =>
-                      setAcknowledged(checked === true)
-                    }
-                  />
-                ) : null}
-                {!op.canApprove ? (
-                  <p className="text-caption text-ink-muted">
-                    A different owner or administrator must approve.
-                  </p>
-                ) : null}
-              </div>
+            {/* With a bar, its status carries the error beside the buttons;
+                without one (the batch has moved on), it shows here. */}
+            {actions ? null : <FormError>{failure}</FormError>}
+            {manager && op.status === "previewed" && skipped ? (
+              <Checkbox
+                label={`I understand ${skipped} ${unit(skipped)} ${skipped === 1 ? "is" : "are"} skipped and will not be sent`}
+                checked={acknowledged}
+                onCheckedChange={(checked) => setAcknowledged(checked === true)}
+              />
             ) : null}
             {actions ? (
               // One bar of actions with one primary: docked to the bottom
@@ -467,9 +593,74 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 safeArea={false}
                 sticky={false}
                 className="max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:rounded-none max-md:pb-[max(--spacing(3),var(--np-dock-bottom))]"
+                status={
+                  barStatus ? (
+                    <>
+                      {failure ? <CircleAlertIcon aria-hidden /> : null}
+                      <span data-slot="bulk-action-status">{barStatus}</span>
+                    </>
+                  ) : undefined
+                }
                 actions={actions}
               />
             ) : null}
+            <AlertDialog
+              open={confirmingCancel}
+              onOpenChange={(open) => {
+                if (!open) setConfirmingCancel(false)
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogTitle>
+                  {op.status === "previewed"
+                    ? "Discard this preview?"
+                    : unsent > 0
+                      ? `Stop ${unsent} ${unit(unsent)} not yet sent?`
+                      : "Stop this bulk change?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {op.status === "previewed"
+                    ? "Nothing has been sent to Google. To make this change later, prepare a new preview."
+                    : [
+                        confirmed > 0
+                          ? `${confirmed} confirmed ${unit(confirmed)} ${confirmed === 1 ? "keeps its" : "keep their"} change.`
+                          : null,
+                        sending > 0
+                          ? `${sending === 1 ? "The one" : `The ${sending}`} already sending ${sending === 1 ? "finishes" : "finish"}.`
+                          : null,
+                        "This can’t be undone.",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                </AlertDialogDescription>
+                <AlertDialogFooter>
+                  <AlertDialogClose
+                    render={
+                      <Button variant="ghost">
+                        {op.status === "running" ? "Keep sending" : "Keep it"}
+                      </Button>
+                    }
+                  />
+                  <Button
+                    variant="danger"
+                    pending={mutate.isPending}
+                    pendingLabel={
+                      op.status === "previewed" ? "Discarding…" : "Stopping…"
+                    }
+                    onClick={() => {
+                      setFailure(null)
+                      mutate.mutate("cancel", {
+                        onSettled: () => setConfirmingCancel(false),
+                      })
+                    }}
+                  >
+                    {op.status === "previewed"
+                      ? "Discard preview"
+                      : "Stop sending"}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             {manager && repreview?.omitted.length ? (
               <p className="text-caption text-ink-muted" role="note">
                 {`Not in the new preview: ${repreview.omitted
@@ -557,6 +748,27 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
 
 const localTime = (iso: string) =>
   formatDateTime(iso, Intl.DateTimeFormat().resolvedOptions().timeZone)
+
+/** "HH:mm" on this device's clock, for when the page last tried to refresh. */
+const clockTime = (ms: number) => {
+  const at = new Date(ms)
+  return formatTimeOfDay({ hours: at.getHours(), minutes: at.getMinutes() })
+}
+
+/**
+ * Whether the server may still move this batch on by itself: it is
+ * running, or a listing in it is queued or still sending (a cancelled
+ * batch's in-flight listing finishes; the runner does not reopen it).
+ */
+function moving(operation: Operation | undefined) {
+  return Boolean(
+    operation &&
+    (operation.status === "running" ||
+      operation.children.some(
+        (child) => child.status === "queued" || child.status === "running"
+      ))
+  )
+}
 
 /**
  * The window that applies now: a preview can be approved for 15 minutes

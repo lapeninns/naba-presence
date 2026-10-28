@@ -31,6 +31,7 @@ export function PostCard({
   thumbnailUrl,
   lang,
   problem,
+  problemTone = "bad",
   actions,
   lifecycle,
   className,
@@ -53,6 +54,12 @@ export function PostCard({
   lang?: string
   /** A failure or rejection to show in words beside the post. */
   problem?: React.ReactNode
+  /**
+   * The problem's tint, matching the status pill: `bad` for a failure or a
+   * rejection, `warn` for an outcome that is only unknown, so one row never
+   * speaks in two tones.
+   */
+  problemTone?: "bad" | "warn"
   /** The row's buttons (publish, approve, check) and its menu. */
   actions?: React.ReactNode
   lifecycle?: LifecycleStage[]
@@ -90,9 +97,13 @@ export function PostCard({
               {topic}
             </span>
           ) : null}
+          {/* Focusable from script only: after an action whose own button
+              goes away (Publish once sent, Approve once decided), focus
+              comes back here rather than dropping to the page. */}
           <h3
             id={headingId}
-            className="min-w-0 text-body font-semibold break-words text-ink"
+            tabIndex={-1}
+            className="min-w-0 rounded-sm text-body font-semibold break-words text-ink focus-halo"
           >
             {title}
           </h3>
@@ -128,7 +139,10 @@ export function PostCard({
         {problem ? (
           <div
             role="note"
-            className="mt-1 rounded-(--np-radius-control) bg-danger-tint px-3 py-2 text-ui text-ink"
+            className={cn(
+              "mt-1 rounded-(--np-radius-control) px-3 py-2 text-ui text-ink",
+              problemTone === "warn" ? "bg-warning-tint" : "bg-danger-tint"
+            )}
           >
             {problem}
           </div>
@@ -144,6 +158,8 @@ export function PostCard({
                 className="size-3.5 transition-transform group-open/lc:rotate-90 motion-reduce:transition-none"
               />
               History
+              {/* Every row has one: the name says whose it is. */}
+              <span className="sr-only"> of {title}</span>
             </summary>
             <Lifecycle
               className="mt-2"

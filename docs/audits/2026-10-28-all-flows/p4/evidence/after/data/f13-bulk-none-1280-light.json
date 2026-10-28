@@ -1,0 +1,12 @@
+{
+  "state": "f13-bulk-none",
+  "variant": "1280-light",
+  "url": "/listings/bulk",
+  "h1": "Bulk change",
+  "activeElement": "body \"((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"ligh\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [],
+  "disabledButtons": [],
+  "violations": []
+}

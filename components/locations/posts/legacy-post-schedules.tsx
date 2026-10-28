@@ -3,16 +3,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
+import {
+  formatWallDateTime,
+  zoneName,
+} from "@/components/locations/posts/schedule-dates"
 import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
 import { Button } from "@/components/ui/button"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { StatusPill } from "@/components/ui/status-pill"
+import { showToast } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import {
   dismissLegacySchedule,
   fetchLegacySchedules,
 } from "@/lib/api/publication-schedules"
 import { localWallTime } from "@/lib/domain/publication-schedule"
+import { POST_TOPIC_LABEL } from "@/lib/locations/post-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -50,6 +56,7 @@ export function LegacyPostSchedules({
       void client.invalidateQueries({
         queryKey: queryKeys.legacyPostSchedules(locationId),
       })
+      showToast({ title: "Old time dismissed" })
     },
     onError: (error) =>
       setFailure(
@@ -89,7 +96,10 @@ export function LegacyPostSchedules({
           const wall = row.scheduledPublishTime
             ? localWallTime(row.scheduledPublishTime, timezone)
             : null
-          const label = row.summary.slice(0, 80) || row.topicType
+          const label =
+            row.summary.slice(0, 80) ||
+            ((POST_TOPIC_LABEL as Record<string, string>)[row.topicType] ??
+              row.topicType)
           return (
             // A plain row: its two actions are its own buttons, in the
             // footer outside the row's body.
@@ -103,7 +113,7 @@ export function LegacyPostSchedules({
               subtitle={
                 <span className="tabular-nums">
                   {wall
-                    ? `Was set for ${wall.date} ${wall.time} (${timezone})`
+                    ? `Was set for ${formatWallDateTime(wall.date, wall.time)} ${zoneName(timezone)}`
                     : "No time was set"}
                   {row.repeats ? ", with a repeat that is no longer used" : ""}.
                 </span>
@@ -154,6 +164,10 @@ export function LegacyPostSchedules({
                       size="sm"
                       variant="ghost"
                       disabled={dismiss.isPending}
+                      pending={
+                        dismiss.isPending && dismiss.variables === row.id
+                      }
+                      pendingLabel="Dismissing…"
                       onClick={() => dismiss.mutate(row.id)}
                       aria-label={`Dismiss old time: ${label}`}
                     >

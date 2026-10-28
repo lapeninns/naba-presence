@@ -5,12 +5,17 @@ import { CircleAlertIcon, CircleCheckIcon, RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 
 import { LocationTab } from "@/components/locations/location-tab"
-import { SuggestionList } from "@/components/locations/suggestions/suggestion-list"
+import {
+  isBillingHold,
+  SuggestionList,
+} from "@/components/locations/suggestions/suggestion-list"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { countNoun } from "@/components/ui/count-text"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToastManager } from "@/components/ui/toast"
+import type { ImportReviewRefreshResponse } from "@/lib/contracts/location-import-review"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { listingHref } from "@/lib/listings/areas"
@@ -47,10 +52,31 @@ export function SuggestionsTab({ locationId }: { locationId: string }) {
   )
 }
 
+/** The refresh route answers owners and admins only (refresh/route.ts). */
+const CHECK_ROLE_REASON =
+  "Only owners and admins can check Google for suggestions."
+
+/**
+ * What the check found, from the server's own counts: `raised` is the
+ * suggestions it added or changed, so the same toast never stands for
+ * both "nothing" and "five new".
+ */
+function checkResult(outcomes: ImportReviewRefreshResponse["outcomes"]) {
+  const raised =
+    (outcomes.profile?.raised ?? 0) + (outcomes.foodMenus?.raised ?? 0)
+  return raised === 0
+    ? "Nothing new since the last check."
+    : `${countNoun(raised, "new suggestion")} to review.`
+}
+
 /** The shape of the loaded page: the summary line, then a group of rows. */
 function SuggestionsSkeleton() {
   return (
     <div aria-busy="true" className="flex flex-col gap-6">
+      {/* The shapes say nothing to a screen reader; this line does. */}
+      <p role="status" className="sr-only">
+        Loading suggested updates…
+      </p>
       <Skeleton className="h-6 w-2/3" />
       <div className="flex flex-col gap-1.5">
         <Skeleton className="h-4 w-1/4" />
@@ -88,7 +114,7 @@ function SuggestionsView({
 
   const refreshFromGoogle = (resourceType: "profile" | "food_menus" | "all") =>
     refresh.mutate(resourceType, {
-      onSuccess: () => {
+      onSuccess: (data) => {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.listingSummary(locationId),
         })
@@ -97,8 +123,7 @@ function SuggestionsView({
         })
         toasts.add({
           title: "Checked with Google",
-          description:
-            "Anything Google changed since the last check is listed here.",
+          description: checkResult(data.outcomes),
           type: "info",
         })
       },
@@ -117,9 +142,11 @@ function SuggestionsView({
         tone="bad"
         icon={<CircleAlertIcon />}
         titleAs="h2"
+        role="alert"
         title="We couldn’t load Google’s suggestions"
         description={`Nothing was accepted or ignored. ${describeActionError(failed.error)}`}
-        action={
+        // Outside the alert, so it reads what happened, not the button.
+        actions={
           <Button
             variant="secondary"
             onClick={() => {
@@ -146,17 +173,47 @@ function SuggestionsView({
   const total = pendingProfile.length + pendingMenu.length
   const enabled = profile.importReviewEnabled || menu.importReviewEnabled
   const refreshing = refresh.isPending
+  const billingHold = isBillingHold(editReason)
+  // A UI hint only: the route stays the authority on who may check.
+  const checkReason = editReason
+    ? billingHold
+      ? editReason
+      : CHECK_ROLE_REASON
+    : undefined
 
   const gate = editReason ? (
     <Alert variant="info">
-      <AlertTitle>
-        Only owners and admins can accept or ignore suggestions
-      </AlertTitle>
-      <AlertDescription>
-        You can see what Google changed. Ask an owner or admin to decide.
-      </AlertDescription>
+      {billingHold ? (
+        <>
+          <AlertTitle>Suggestions can’t be decided right now</AlertTitle>
+          <AlertDescription>{editReason}</AlertDescription>
+        </>
+      ) : (
+        <>
+          <AlertTitle>
+            Only owners and admins can accept or ignore suggestions
+          </AlertTitle>
+          <AlertDescription>
+            You can see what Google changed. Ask an owner or admin to decide.
+          </AlertDescription>
+        </>
+      )}
     </Alert>
   ) : null
+
+  const checkButton = (variant: "secondary" | "ghost") => (
+    <Button
+      variant={variant}
+      size={variant === "ghost" ? "sm" : "default"}
+      onClick={() => refreshFromGoogle("all")}
+      disabledReason={checkReason}
+      pending={refreshing}
+      pendingLabel="Checking…"
+    >
+      <RefreshCwIcon aria-hidden />
+      Check Google now
+    </Button>
+  )
 
   if (!enabled) {
     return (
@@ -197,17 +254,7 @@ function SuggestionsView({
           titleAs="h2"
           title="No suggestions from Google"
           description="When Google or a customer changes this listing on Google, the change shows up here for you to accept or ignore."
-          action={
-            <Button
-              variant="secondary"
-              onClick={() => refreshFromGoogle("all")}
-              pending={refreshing}
-              pendingLabel="Checking…"
-            >
-              <RefreshCwIcon aria-hidden />
-              Check Google now
-            </Button>
-          }
+          action={checkButton("secondary")}
         />
       </div>
     )
@@ -224,20 +271,16 @@ function SuggestionsView({
           <span className="mr-1.5 align-baseline text-section font-semibold text-ink tabular-nums">
             {formatNumber(total)}
           </span>
-          {total === 1 ? "suggestion" : "suggestions"} waiting ·{" "}
-          {formatNumber(pendingProfile.length)} business profile ·{" "}
-          {formatNumber(pendingMenu.length)} food menu
+          {total === 1 ? "suggestion" : "suggestions"} waiting
+          {/* Only the parts with something in them. */}
+          {pendingProfile.length > 0
+            ? ` · ${formatNumber(pendingProfile.length)} business profile`
+            : null}
+          {pendingMenu.length > 0
+            ? ` · ${formatNumber(pendingMenu.length)} food menu`
+            : null}
         </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => refreshFromGoogle("all")}
-          pending={refreshing}
-          pendingLabel="Checking…"
-        >
-          <RefreshCwIcon aria-hidden />
-          Refresh from Google
-        </Button>
+        {checkButton("ghost")}
       </div>
 
       {pendingProfile.length > 0 ? (

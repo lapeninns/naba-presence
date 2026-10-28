@@ -1,0 +1,14 @@
+{
+  "state": "f02-add-photos-ready",
+  "variant": "390-light",
+  "url": "/listings/c9c8f560-dd92-4e07-af3b-f32eb938d7fd/photos",
+  "h1": "Photos",
+  "activeElement": "div \"Add photosPhotos go to Google when you tap Upload.Google pho\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [],
+  "disabledButtons": [
+    "Add from URL"
+  ],
+  "violations": []
+}

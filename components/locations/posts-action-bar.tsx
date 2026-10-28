@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import {
   AlertDialog,
@@ -109,9 +109,11 @@ function checkOutcomeTitle(state: PostsState, postId: string) {
  * A post's actions: ONE visible action — the next step for the post as it
  * stands (Publish / Request approval / Retry, Approve, Check Google, or View
  * on Google) — and everything else in a "More actions" menu (an action sheet
- * on a phone): Edit, Schedule, Reject, then Delete last, which still asks
- * first. Every action keeps its gate, and a disabled one says why in words:
- * under the visible action, and on the menu row itself.
+ * on a phone): Edit, Schedule, Send back to draft (a decision against the
+ * request), then Delete last, which still asks first. Every action keeps its
+ * gate, and a disabled one says why in words: under the visible action, and
+ * on the menu row itself. Waiting on someone else's authority is status, not
+ * a disabled Approve.
  */
 export function PostsActionBar({
   locationId,
@@ -121,6 +123,7 @@ export function PostsActionBar({
   writesEnabled,
   timezone = DEFAULT_TIMEZONE,
   scheduling,
+  onRemoved,
 }: {
   locationId: string
   post: Post
@@ -133,7 +136,8 @@ export function PostsActionBar({
   /**
    * Set when the organisation schedules posts (P08-R5): Publish reads
    * "Publish now" beside Schedule, and a post with a one-time schedule
-   * (`scheduledFor`, its description) says that publishing now replaces it.
+   * (`scheduledFor`, when it runs: "Tue 20 Oct, 09:00 BST") says that
+   * publishing now replaces it.
    */
   scheduling?: {
     scheduledFor: string | null
@@ -145,6 +149,12 @@ export function PostsActionBar({
     /** caps.postSchedulingRecurring: repeating schedules may be offered. */
     recurring?: boolean
   }
+  /**
+   * Where focus goes once this post is deleted and its row goes away (the
+   * list's next post, say). Asked as the delete dialog closes; null leaves
+   * Base UI's default.
+   */
+  onRemoved?: () => HTMLElement | null
 }) {
   const queryClient = useQueryClient()
   const outcomeToast = useOutcomeToast()
@@ -152,10 +162,40 @@ export function PostsActionBar({
   const [publishOpen, setPublishOpen] = useState(false)
   // Approving publishes, so the approver sees exactly what goes to Google.
   const [approveOpen, setApproveOpen] = useState(false)
+  // A failed delete keeps its dialog open and says why there, beside the
+  // button that was pressed, not only in a toast across the screen.
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Set when a dialog closes because its action succeeded: the button that
+  // opened it may be about to go (Publish once sent, Approve once decided,
+  // the whole row once deleted), so focus goes to the post, not the page.
+  const settled = useRef(false)
   const composer = useDeferredSheet()
   const scheduler = useDeferredSheet()
   const name = label || post.summary.slice(0, 60) || "this post"
   const invalidate = [queryKeys.locationPosts(locationId)]
+  const heading = () => document.getElementById(`post-${post.id}-title`)
+  // An action with no dialog (Request approval, Send back to draft) moves
+  // focus itself, but only when it was still on this post or lost: a
+  // person who has moved on keeps their place.
+  const focusPost = () => {
+    const target = heading()
+    const active = document.activeElement
+    if (
+      target &&
+      (!active ||
+        active === document.body ||
+        target.closest("article")?.contains(active))
+    )
+      target.focus()
+  }
+  // A dialog's finalFocus: after a success, the given element if it is
+  // still on the page; otherwise Base UI's default (what opened it).
+  const afterSuccess = (target: () => HTMLElement | null) => () => {
+    if (!settled.current) return true
+    settled.current = false
+    const element = target()
+    return element && element.isConnected ? element : true
+  }
 
   const publish = useResourceMutation({
     mutationFn: (_: void, intent) =>
@@ -172,6 +212,10 @@ export function PostsActionBar({
     invalidate,
     errorContext: "post",
     onSuccess: (result) => {
+      // A request for approval had no dialog; its button goes as the row
+      // turns to Awaiting approval.
+      if (offerRequestApproval) focusPost()
+      else settled.current = true
       setPublishOpen(false)
       outcomeToast.show(publishToast(result))
     },
@@ -206,7 +250,10 @@ export function PostsActionBar({
       decision === "reject" ? "Sent back to draft" : null,
     errorContext: "post",
     onSuccess: (result, decision) => {
-      if (decision === "approve") outcomeToast.show(publishToast(result))
+      if (decision === "approve") {
+        settled.current = true
+        outcomeToast.show(publishToast(result))
+      } else focusPost()
     },
   })
   const remove = useResourceMutation({
@@ -217,7 +264,10 @@ export function PostsActionBar({
     intentKey: () => post.id,
     invalidate,
     errorContext: "post",
+    onError: (_, message) => setDeleteError(message),
     onSuccess: () => {
+      settled.current = true
+      setDeleteError(null)
       setDeleteOpen(false)
       // Deleting a live post removes it from Google: a Google write. A
       // draft's delete touches NabaPresence only.
@@ -255,6 +305,17 @@ export function PostsActionBar({
   const approveReason =
     resourceDisabledReason(caps, "posts", writesEnabled) ?? decideReason
   const rejectReason = pausedReason ?? decideReason
+  // Lacking the authority is not a fault: the post is waiting for someone
+  // who has it, so that reads as status rather than as a disabled Approve.
+  // A pause or read-only billing does stop an approver, so those keep the
+  // disabled button and its reason.
+  const postsPaused =
+    !writesEnabled || caps?.resources?.posts?.reasonCode === "publishing_paused"
+  const waitingForApprover =
+    post.status === "awaiting_approval" &&
+    decideReason !== null &&
+    caps?.canWrite !== false &&
+    !postsPaused
   // Deleting a live (published) post needs publish permission; a draft delete
   // still 503s when paused, so it is gated on writesEnabled too, and it is an
   // edit, which a viewer may not make.
@@ -300,7 +361,12 @@ export function PostsActionBar({
   const canSchedule = Boolean(scheduling?.canSchedule)
   const awaiting = post.status === "awaiting_approval"
   // The visible action's reason, in words beside it.
-  const shownReason = editable ? primaryReason : awaiting ? approveReason : null
+  const shownReason = editable
+    ? primaryReason
+    : awaiting && !waitingForApprover
+      ? approveReason
+      : null
+  const retry = post.status === "failed"
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -337,16 +403,23 @@ export function PostsActionBar({
           Check Google
         </Button>
       ) : null}
-      {awaiting ? (
+      {awaiting && !waitingForApprover ? (
         <Button
           size="sm"
           variant="secondary"
           onClick={() => setApproveOpen(true)}
           disabled={Boolean(approveReason) || decide.isPending}
           pending={decide.isPending && decide.variables === "approve"}
+          pendingLabel="Approving…"
         >
           Approve
         </Button>
+      ) : null}
+      {waitingForApprover ? (
+        <p className="text-caption text-ink-muted">
+          Waiting for an approver. Only someone who can publish this location
+          can approve it.
+        </p>
       ) : null}
       {post.status === "published" && post.googleSearchUrl ? (
         <a
@@ -406,7 +479,9 @@ export function PostsActionBar({
               onClick={() => decide.mutate("reject")}
             >
               <UndoIcon aria-hidden />
-              Reject
+              {/* What it does, in the toast's words; "rejected" is kept for
+                  Google's own verdict on a post. */}
+              Send back to draft
             </DropdownMenuItem>
           ) : null}
           {editable || canSchedule || awaiting ? (
@@ -419,7 +494,10 @@ export function PostsActionBar({
               (remove.isPending ? "Deleting…" : null) ??
               undefined
             }
-            onClick={() => setDeleteOpen(true)}
+            onClick={() => {
+              setDeleteError(null)
+              setDeleteOpen(true)
+            }}
           >
             <Trash2Icon aria-hidden />
             {live ? "Delete from Google" : "Delete"}
@@ -459,6 +537,12 @@ export function PostsActionBar({
           }}
         />
       ) : null}
+      {decide.isPending && decide.variables === "reject" ? (
+        // The menu that started it has closed: the row says it is working.
+        <span role="status" className="w-full text-caption text-ink-muted">
+          Sending back to draft…
+        </span>
+      ) : null}
       {shownReason ? (
         <span className="w-full text-caption text-ink-muted">
           {shownReason}
@@ -470,15 +554,32 @@ export function PostsActionBar({
           if (!publish.isPending) setPublishOpen(open)
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogTitle>Publish this post to Google?</AlertDialogTitle>
+        <AlertDialogContent finalFocus={afterSuccess(heading)}>
+          <AlertDialogTitle>
+            {retry
+              ? "Publish this post to Google again?"
+              : "Publish this post to Google?"}
+          </AlertDialogTitle>
+          {/* The client cannot tell whether a second approver is required
+              (the server decides and parks the post), so the consent covers
+              both answers rather than promise customers see it at once. */}
           <AlertDialogDescription>
-            Customers see it on the listing as soon as Google accepts it. To
-            change it afterwards, edit it here and it is sent again.
+            Customers see it on the listing as soon as Google accepts it. If
+            your organisation needs a second approver, it waits for them first
+            and nothing goes to Google yet. To change it afterwards, edit it
+            here and it is sent again.
           </AlertDialogDescription>
+          {retry ? (
+            // A failed post is a settled attempt Google does not hold live
+            // (lib/server/posts.ts readback), so this send replaces it.
+            <p className="text-ui text-ink">
+              The last attempt didn’t go live, so sending it again won’t make a
+              second post.
+            </p>
+          ) : null}
           {scheduling?.scheduledFor ? (
             <p className="text-ui text-ink">
-              This post is also scheduled ({scheduling.scheduledFor}).
+              This post is also scheduled for {scheduling.scheduledFor}.
               Publishing it now means the scheduled publication does not run.
             </p>
           ) : null}
@@ -504,7 +605,7 @@ export function PostsActionBar({
           if (!decide.isPending) setApproveOpen(open)
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent finalFocus={afterSuccess(heading)}>
           <AlertDialogTitle>Approve and publish this post?</AlertDialogTitle>
           <AlertDialogDescription>
             Approving sends exactly this post to Google. Customers see it once
@@ -536,7 +637,9 @@ export function PostsActionBar({
           if (!remove.isPending) setDeleteOpen(open)
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          finalFocus={afterSuccess(() => onRemoved?.() ?? null)}
+        >
           <AlertDialogTitle>
             {live ? "Delete this post from Google?" : "Delete this post?"}
           </AlertDialogTitle>
@@ -558,6 +661,11 @@ export function PostsActionBar({
                   : "Only NabaPresence has it, so Google is not affected."}
             </p>
           )}
+          {deleteError ? (
+            // Not live: the toast has already announced it. This is where it
+            // stays while the dialog is open.
+            <p className="text-ui text-danger-ink">{deleteError}</p>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogClose
               render={<Button variant="ghost">Keep it</Button>}

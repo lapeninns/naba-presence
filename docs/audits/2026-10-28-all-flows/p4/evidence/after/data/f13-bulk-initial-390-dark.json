@@ -1,0 +1,17 @@
+{
+  "state": "f13-bulk-initial",
+  "variant": "390-dark",
+  "url": "/listings/bulk?ids=7fbc314a-40a3-472e-9ee4-c9a855b4f2fd,3a82d907-db30-47ce-8fbc-8af589155146",
+  "h1": "Bulk change",
+  "activeElement": "body \"((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"ligh\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Choose a date."
+  ],
+  "disabledButtons": [
+    "Add to the batchChoose a date.",
+    "Preview this changeChoose a date."
+  ],
+  "violations": []
+}
