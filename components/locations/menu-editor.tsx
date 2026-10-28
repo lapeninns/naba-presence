@@ -201,6 +201,8 @@ const itemRowId = (s: number, i: number, m = 0) =>
 
 /** The menu search field: focus falls back here when a filtered row is gone. */
 const MENU_SEARCH_ID = "menu-search"
+/** The note under the toolbar: it also describes a disabled Preview. */
+const MENU_TOOLBAR_NOTE_ID = "menu-toolbar-note"
 
 /** Where a field id points: its menu, and its section and item if any. */
 function parseFieldId(
@@ -344,13 +346,25 @@ function removalName(removal: Removal): string {
   return readLabel(removal.node).displayName.trim() || `this ${removal.kind}`
 }
 
-function removalItemCount(removal: Removal): number {
-  if (removal.kind === "item") return 1
-  if (removal.kind === "section") return itemsOf(removal.node).length
-  return sectionsOf(removal.node).reduce(
+/** What a removal takes with it, in words: sections as well as items. */
+function removalSummary(removal: Removal): string {
+  if (removal.kind === "item") return "This removes the item from this draft."
+  if (removal.kind === "section") {
+    const items = itemsOf(removal.node).length
+    return items === 0
+      ? "This removes the empty section from this draft."
+      : `This removes the section and its ${countNoun(items, "item")} from this draft.`
+  }
+  const sections = sectionsOf(removal.node)
+  const items = sections.reduce(
     (sum, section) => sum + itemsOf(section).length,
     0
   )
+  if (sections.length === 0)
+    return "This removes the empty menu from this draft."
+  return items === 0
+    ? `This removes the menu and its ${countNoun(sections.length, "section")} from this draft.`
+    : `This removes the menu, its ${countNoun(sections.length, "section")} and ${countNoun(items, "item")} from this draft.`
 }
 
 /**
@@ -764,7 +778,6 @@ export function MenuEditor({
   const menuLabel = readLabel(menu)
   const menuNameId = menuFieldId.menuName(activeIndex)
   const menuNameError = problemFor(menuNameId)
-  const pendingCount = pending ? removalItemCount(pending) : 0
 
   // The item in the sheet, found by identity in the menu on screen: a move
   // keeps it, and a removal (or a replaced draft) closes the sheet.
@@ -796,28 +809,28 @@ export function MenuEditor({
     return null
   })()
 
-  if (menus.length === 0) {
-    return (
-      <Empty
-        placement="page"
-        icon={<UtensilsCrossed aria-hidden />}
-        titleAs="h3"
-        title="Build your first menu"
-        description="Create a menu, organise it into sections, and add your dishes or drinks. Nothing changes on Google until you review and publish."
-        action={
-          disabled ? undefined : (
-            <Button onClick={addMenu}>
-              <Plus aria-hidden />
-              Create menu
-            </Button>
-          )
-        }
-      />
-    )
-  }
+  // Why Preview is off, and "every menu" only when there are several: said
+  // under the toolbar whenever it applies, never only after a click.
+  const toolbarNote = [
+    menus.length > 1
+      ? `${menus.length} menus in this draft. Saving, review and publishing include every menu, not only the one selected.`
+      : null,
+    menus.length >= MAX_MENUS
+      ? `Google allows at most ${MAX_MENUS} menus.`
+      : null,
+    previewBlocked
+      ? "Preview opens once every menu, section and item has a name and each price reads as an amount, like 12.50."
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
 
-  return (
-    <div data-slot="menu-editor" className="flex min-w-0 flex-col gap-6">
+  // The live region, Undo and the remove dialog stay mounted with no menu
+  // left, so removing the only menu can still be undone. The dialog's key
+  // keeps it the same dialog across both returns below, so it closes (and
+  // hands focus to "Undo removal") rather than being torn down.
+  const notices = (
+    <>
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>
@@ -840,6 +853,74 @@ export function MenuEditor({
           </AlertDescription>
         </Alert>
       ) : null}
+    </>
+  )
+  const removeDialog = (
+    <AlertDialog
+      key="remove-dialog"
+      open={pending !== null}
+      onOpenChange={(open) => {
+        if (!open) setPending(null)
+      }}
+    >
+      <AlertDialogContent
+        initialFocus={cancelRef}
+        finalFocus={() => {
+          if (!removedRef.current) return true
+          removedRef.current = false
+          return undoRef.current ?? true
+        }}
+      >
+        <AlertDialogTitle>
+          Remove {pending ? removalName(pending) : "this entry"}?
+        </AlertDialogTitle>
+        <AlertDialogDescription>
+          {pending ? removalSummary(pending) : null} You can undo the last
+          removal, and Google keeps its menu until you review and publish.
+        </AlertDialogDescription>
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={
+              <Button ref={cancelRef} variant="ghost">
+                Keep editing
+              </Button>
+            }
+          />
+          <Button variant="danger" disabled={disabled} onClick={remove}>
+            Remove {pending?.kind ?? "entry"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+
+  if (menus.length === 0) {
+    return (
+      <div data-slot="menu-editor" className="flex min-w-0 flex-col gap-6">
+        {notices}
+        <Empty
+          placement="page"
+          icon={<UtensilsCrossed aria-hidden />}
+          titleAs="h3"
+          title="Build your first menu"
+          description="Create a menu, organise it into sections, and add your dishes or drinks. Nothing changes on Google until you review and publish."
+          action={
+            disabled ? undefined : (
+              <Button onClick={addMenu}>
+                <Plus aria-hidden />
+                Create menu
+              </Button>
+            )
+          }
+        />
+        {removeDialog}
+      </div>
+    )
+  }
+
+  return (
+    <div data-slot="menu-editor" className="flex min-w-0 flex-col gap-6">
+      {notices}
 
       <div data-slot="menu-toolbar" className={GROUP_CLASS}>
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -891,7 +972,13 @@ export function MenuEditor({
               <SegmentedControlItem value="edit">
                 Edit menu
               </SegmentedControlItem>
-              <SegmentedControlItem value="preview" disabled={previewBlocked}>
+              <SegmentedControlItem
+                value="preview"
+                disabled={previewBlocked}
+                aria-describedby={
+                  previewBlocked ? MENU_TOOLBAR_NOTE_ID : undefined
+                }
+              >
                 Preview
               </SegmentedControlItem>
             </SegmentedControl>
@@ -907,17 +994,11 @@ export function MenuEditor({
             ) : null}
           </div>
         </div>
-        <p className="text-caption text-ink-muted">
-          {menus.length} {menus.length === 1 ? "menu" : "menus"} in this draft.
-          Saving, review and publishing include every menu, not only the one
-          selected.
-          {menus.length >= MAX_MENUS
-            ? ` Google allows at most ${MAX_MENUS} menus.`
-            : ""}
-          {previewBlocked && view === "preview"
-            ? " Fix the names and prices that need attention to preview."
-            : ""}
-        </p>
+        {toolbarNote ? (
+          <p id={MENU_TOOLBAR_NOTE_ID} className="text-caption text-ink-muted">
+            {toolbarNote}
+          </p>
+        ) : null}
       </div>
 
       {showPreview ? (
@@ -1295,42 +1376,7 @@ export function MenuEditor({
         />
       ) : null}
 
-      <AlertDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open) setPending(null)
-        }}
-      >
-        <AlertDialogContent
-          initialFocus={cancelRef}
-          finalFocus={() => {
-            if (!removedRef.current) return true
-            removedRef.current = false
-            return undoRef.current ?? true
-          }}
-        >
-          <AlertDialogTitle>
-            Remove {pending ? removalName(pending) : "this entry"}?
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {pendingCount} {pendingCount === 1 ? "item will" : "items will"} be
-            removed from this draft. You can undo the last removal, and Google
-            keeps its menu until you review and publish.
-          </AlertDialogDescription>
-          <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button ref={cancelRef} variant="ghost">
-                  Keep editing
-                </Button>
-              }
-            />
-            <Button variant="danger" disabled={disabled} onClick={remove}>
-              Remove {pending?.kind ?? "entry"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {removeDialog}
     </div>
   )
 }
