@@ -456,25 +456,33 @@ function LoginLine({
   const lost = accessLost ? diagnosis.accessLost : 0
   return (
     <span className="flex flex-wrap items-center gap-2 text-caption text-ink-secondary">
-      <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
-      <span className="min-w-0 [overflow-wrap:anywhere]">
-        Google login:{" "}
-        <strong className="font-semibold text-ink">
-          {shown.googleEmail ?? "Google account"}
-        </strong>
-        {others > 0 ? ` and ${formatNumber(others)} more` : ""}
-        {!shownBroken && !accessLost ? (
-          <>
-            {" · "}
-            <span>Connected</span>
-            {shown.lastRefreshAt ? (
-              <>
-                {", "}
-                <RelativeTime iso={shown.lastRefreshAt} prefix="refreshed " />
-              </>
-            ) : null}
-          </>
-        ) : null}
+      {/* The key stays with the words it marks: the pill may wrap below,
+          the icon never wraps away on its own. */}
+      <span className="flex min-w-0 items-start gap-2">
+        <KeyRoundIcon
+          aria-hidden
+          strokeWidth={1.75}
+          className="mt-0.5 size-3.5 shrink-0"
+        />
+        <span className="min-w-0 [overflow-wrap:anywhere]">
+          Google login:{" "}
+          <strong className="font-semibold text-ink">
+            {shown.googleEmail ?? "Google account"}
+          </strong>
+          {others > 0 ? ` and ${formatNumber(others)} more` : ""}
+          {!shownBroken && !accessLost ? (
+            <>
+              {" · "}
+              <span>Connected</span>
+              {shown.lastRefreshAt ? (
+                <>
+                  {", "}
+                  <RelativeTime iso={shown.lastRefreshAt} prefix="refreshed " />
+                </>
+              ) : null}
+            </>
+          ) : null}
+        </span>
       </span>
       {shownBroken ? (
         <StatusPill tone="at-risk">
