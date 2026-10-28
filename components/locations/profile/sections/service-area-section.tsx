@@ -286,17 +286,8 @@ export function ServiceAreaSection({
                 />
                 <FieldError />
                 <FieldDescription>
-                  A Google place ID looks like ChIJ…. Look one up with{" "}
-                  <a
-                    className="underline underline-offset-4"
-                    href="https://developers.google.com/maps/documentation/places/web-service/place-id"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Google’s place ID finder (opens in a new tab)
-                  </a>
-                  . We only check the format here; Google checks the area when
-                  you publish.
+                  A Google place ID looks like ChIJ…. We only check the format
+                  here; Google checks the area when you publish.
                 </FieldDescription>
               </Field>
               <Button
@@ -329,6 +320,15 @@ export function ServiceAreaSection({
               >
                 Add service area
               </Button>
+              {/* After the button, so the field leads straight to Add. */}
+              <a
+                className="self-start text-ui underline underline-offset-4"
+                href="https://developers.google.com/maps/documentation/places/web-service/place-id"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Find a place ID with Google’s finder (opens in a new tab)
+              </a>
             </div>
           )}
         </>
