@@ -55,8 +55,8 @@ describe("describeException: rejected by the approver", () => {
       submit,
       "connected"
     )
-    expect(exception?.title).toBe("Sent back by the approver")
-    expect(exception?.description).toContain("Priya")
+    expect(exception?.title).toBe("Sent back by Priya")
+    expect(exception?.description).toContain("Priya sent this reply back")
     expect(exception?.description).toContain("Please mention the spa.")
   })
 
@@ -72,6 +72,7 @@ describe("describeException: rejected by the approver", () => {
       submit,
       "connected"
     )
+    expect(exception?.title).toBe("Sent back by an approver")
     expect(exception?.description).toContain("without a note")
   })
 
@@ -81,7 +82,9 @@ describe("describeException: rejected by the approver", () => {
       submit,
       "connected"
     )
-    expect(exception?.title).toBe("Approval required")
+    expect(exception?.title).toBe(
+      "Someone with publishing rights approves this reply"
+    )
   })
 })
 
@@ -199,7 +202,7 @@ describe("describeException: two-person approval (R01b)", () => {
       approve,
       "connected"
     )
-    expect(exception?.title).toBe("Approval required")
+    expect(exception?.title).toBe("Waiting for your approval")
     expect(exception?.description).toContain("waiting for your approval")
   })
 
@@ -214,7 +217,7 @@ describe("describeException: two-person approval (R01b)", () => {
     )
     expect(exception?.title).toBe("Waiting for another approver")
     expect(exception?.description).toContain("You wrote this reply")
-    expect(exception?.description).toContain("reject")
+    expect(exception?.description).toContain("send it back")
   })
 
   it("explains a publisher's submit under the two-person rule", () => {
@@ -223,7 +226,26 @@ describe("describeException: two-person approval (R01b)", () => {
       submit,
       "connected"
     )
-    expect(exception?.title).toBe("Approval required")
+    expect(exception?.title).toBe("A second person approves this reply")
     expect(exception?.description).toContain("second person")
+  })
+})
+
+describe("describeException: view-only access", () => {
+  // A permanent role state, said once under the reply heading; the branch
+  // still stops a viewer from reading as "Publisher needed".
+  it("raises nothing for someone who can only read", () => {
+    const exception = describeException(
+      review({
+        capabilities: {
+          canPublish: false,
+          canEdit: false,
+          canRequestApproval: false,
+        },
+      }),
+      { kind: "publish" } as unknown as PrimaryAction,
+      "connected"
+    )
+    expect(exception).toBeNull()
   })
 })

@@ -479,6 +479,28 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     )
   })
 
+  it("offers Clear only when a filter is on, and keeps focus in the sheet", async () => {
+    const onClear = vi.fn()
+    const user = await openPanel({ age: "7d" }, { onClear })
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
+    expect(onClear).toHaveBeenCalledTimes(1)
+    // The button that shows the result takes focus from the Clear that goes.
+    expect(
+      screen.getByRole("button", { name: "Show 12 reviews" })
+    ).toHaveFocus()
+  })
+
+  it("has no Clear with nothing to clear, and says where the ratings are", async () => {
+    await openPanel()
+    const sheet = screen.getByRole("dialog", { name: "Filters" })
+    expect(
+      within(sheet).queryByRole("button", { name: "Clear all filters" })
+    ).not.toBeInTheDocument()
+    expect(sheet).toHaveAccessibleDescription(
+      "Changes apply as you make them. Star ratings are the chips above the list."
+    )
+  })
+
   it("says the live result count on its closing button and aloud", async () => {
     // The count comes from the list itself (InboxToolbar's `resultLabel`),
     // so the sheet follows each change as the query settles.

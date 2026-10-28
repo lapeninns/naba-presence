@@ -1,12 +1,11 @@
 "use client"
 
-import { CalendarIcon } from "lucide-react"
+import { CircleAlertIcon } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useRef } from "react"
 
 import { longDay, utcDay } from "@/components/calendar/calendar-dates"
 import { Card } from "@/components/ui/card"
-import { Empty } from "@/components/ui/empty"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import {
   Sheet,
@@ -17,7 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
-import type { StatusTone } from "@/lib/ui/status-tone"
+import { toneClasses, type StatusTone } from "@/lib/ui/status-tone"
 import {
   Table,
   TableBody,
@@ -47,6 +46,24 @@ const STATUS: Record<
   cancelled: { label: "Cancelled", tone: "outline" },
 }
 
+/**
+ * Runs that did not go out as planned, named in the grid in their tone's ink
+ * (the word, not the colour, carries it) so a problem is seen in the month
+ * without opening the agenda. Scheduled, publishing and published stay one
+ * line.
+ */
+const FLAGGED_INK: Partial<Record<ScheduleOccurrence["status"], string>> = {
+  missed: toneClasses("attention").text,
+  ambiguous: toneClasses("attention").text,
+  rejected: toneClasses("at-risk").text,
+  cancelled: "text-ink-muted",
+}
+const NEEDS_ATTENTION: ReadonlySet<ScheduleOccurrence["status"]> = new Set([
+  "missed",
+  "rejected",
+  "ambiguous",
+])
+
 const WEEKDAY_NAMES = [
   "Monday",
   "Tuesday",
@@ -56,17 +73,21 @@ const WEEKDAY_NAMES = [
   "Saturday",
   "Sunday",
 ]
-const countLabel = (count: number) =>
+export const countLabel = (count: number) =>
   `${count} ${count === 1 ? "publication" : "publications"}`
+const dayListLabel = (count: number) =>
+  `${countLabel(count)}, at each listing’s local time.`
 
 type ByDate = Map<string, ScheduleOccurrence[]>
 
 /**
  * One publication in a grid cell: the one-line form inside a wide cell, with
- * the status for screen readers only. Lists use `DayEntries` (mail rows).
+ * the status for screen readers, and shown as a second line only for a run
+ * that did not go out as planned. Lists use `DayEntries` (mail rows).
  */
 function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const status = STATUS[occurrence.status]
+  const flagged = FLAGGED_INK[occurrence.status]
   return (
     <Link
       href={`/listings/${occurrence.locationId}/posts`}
@@ -76,6 +97,11 @@ function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
         <span className="tabular-nums">{occurrence.localTime}</span>{" "}
         {occurrence.locationName}
       </span>
+      {flagged ? (
+        <span aria-hidden className={cn("truncate text-caption", flagged)}>
+          {status.label}
+        </span>
+      ) : null}
       <span className="sr-only">
         {status.label}: {occurrence.summary}
       </span>
@@ -95,10 +121,7 @@ function occurrenceMeta(
   viewerZone: string | null
 ): string | null {
   const parts = [
-    formatTimeZoneLabel(
-      occurrence.timezone,
-      viewerZone ?? occurrence.timezone
-    ),
+    formatTimeZoneLabel(occurrence.timezone, viewerZone ?? occurrence.timezone),
     clockChangeNote(occurrence.adjustment),
     occurrenceReasonText(occurrence),
   ].filter(Boolean)
@@ -215,6 +238,7 @@ export function CalendarGrid({
   month,
   picked,
   onPick,
+  onShowDay,
 }: {
   days: string[]
   byDate: ByDate
@@ -223,6 +247,8 @@ export function CalendarGrid({
   month: number | null
   picked: string | null
   onPick: (day: string | null) => void
+  /** Opens every publication on a day whose wide cell shows only three. */
+  onShowDay: (day: string) => void
 }) {
   // Behaviour only: whether the picked day opens a sheet. Unknown until
   // hydrated, when neither form renders.
@@ -284,6 +310,10 @@ export function CalendarGrid({
               >
                 {week.map((day) => {
                   const entries = byDate.get(day) ?? []
+                  const attention = entries.filter((entry) =>
+                    NEEDS_ATTENTION.has(entry.status)
+                  ).length
+                  const badge = toneClasses(attention ? "attention" : "pending")
                   const outside =
                     month !== null && utcDay(day).getUTCMonth() !== month
                   const isSelected = selected === day
@@ -305,7 +335,7 @@ export function CalendarGrid({
                             type="button"
                             data-slot="calendar-day"
                             aria-pressed={isSelected}
-                            aria-label={`${longDay(day)}${isToday ? " (today)" : ""}, ${countLabel(entries.length)}`}
+                            aria-label={`${longDay(day)}${isToday ? " (today)" : ""}, ${countLabel(entries.length)}${attention ? `, ${attention} ${attention === 1 ? "needs" : "need"} attention` : ""}`}
                             onClick={() => {
                               revealPending.current = !isSelected
                               onPick(isSelected ? null : day)
@@ -321,10 +351,20 @@ export function CalendarGrid({
                               isSelected={isSelected}
                               compact
                             />
+                            {/* A day with a run that needs attention takes
+                                the attention tint and a mark, not the
+                                colour alone; its label says so in words. */}
                             <span
                               aria-hidden
-                              className="min-w-5 rounded-full bg-info-tint px-1 text-center text-caption font-semibold text-info-ink tabular-nums"
+                              className={cn(
+                                "inline-flex min-w-5 items-center justify-center gap-0.5 rounded-full px-1 text-caption font-semibold tabular-nums",
+                                badge.tint,
+                                badge.text
+                              )}
                             >
+                              {attention ? (
+                                <CircleAlertIcon className="size-3" />
+                              ) : null}
                               {entries.length}
                             </span>
                           </button>
@@ -367,10 +407,20 @@ export function CalendarGrid({
                             </li>
                           ))}
                         </ul>
+                        {/* The rest of a busy day: the agenda from that
+                            day lists all of them. */}
                         {entries.length > 3 ? (
-                          <p className="px-1.5 text-caption text-ink-muted">
+                          <button
+                            type="button"
+                            onClick={() => onShowDay(day)}
+                            className="min-h-6 rounded-(--np-radius-control) px-1.5 text-left text-caption text-ink-muted focus-halo hover:bg-fill hover:text-ink focus-visible:outline-none"
+                          >
                             +{entries.length - 3} more
-                          </p>
+                            <span className="sr-only">
+                              {" "}
+                              on {longDay(day)}, in the agenda
+                            </span>
+                          </button>
                         ) : null}
                       </div>
                     </TableCell>
@@ -400,8 +450,7 @@ export function CalendarGrid({
                 ) : null}
               </SheetTitle>
               <SheetDescription>
-                {countLabel(selectedEntries.length)}. Times are the listing’s
-                local time.
+                {dayListLabel(selectedEntries.length)}
               </SheetDescription>
             </SheetHeader>
             <SheetBody>
@@ -429,6 +478,9 @@ export function CalendarGrid({
               >
                 <time dateTime={selected}>{longDay(selected)}</time>
               </h3>
+              <p className="px-(--card-spacing) text-caption text-ink-muted">
+                {dayListLabel(selectedEntries.length)}
+              </p>
               <DayEntries
                 entries={selectedEntries}
                 flush
@@ -447,6 +499,10 @@ export function CalendarGrid({
   )
 }
 
+/**
+ * The period's days that have publications, each with its list. An empty
+ * period is the caller's to say, with its filter in the words.
+ */
 export function CalendarAgenda({
   days,
   byDate,
@@ -457,16 +513,7 @@ export function CalendarAgenda({
   today: string
 }) {
   const withEntries = days.filter((day) => byDate.get(day)?.length)
-  if (!withEntries.length)
-    return (
-      <Empty
-        size="sm"
-        framed
-        icon={<CalendarIcon />}
-        title="No scheduled publications in this period."
-        description="Use the arrows to look at another period."
-      />
-    )
+  if (!withEntries.length) return null
   return (
     <ol className="flex flex-col gap-6" aria-label="Scheduled publications">
       {withEntries.map((day) => (

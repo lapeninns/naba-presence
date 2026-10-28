@@ -4,7 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { GoogleFreshness } from "@/components/inbox/google-freshness"
 import * as clientsHook from "@/lib/queries/use-clients"
 
-function stubClients(state: "fresh" | "data_delayed") {
+function stubClients(
+  state: "up_to_date" | "data_delayed" | "action_needed",
+  {
+    reason = null,
+    ageMs = 300_000,
+  }: { reason?: string | null; ageMs?: number } = {}
+) {
   vi.spyOn(clientsHook, "useClients").mockReturnValue({
     data: {
       items: [
@@ -13,7 +19,8 @@ function stubClients(state: "fresh" | "data_delayed") {
           linkedCount: 1,
           freshness: {
             state,
-            lastSuccessfulCheckAt: new Date(Date.now() - 300_000).toISOString(),
+            reason,
+            lastSuccessfulCheckAt: new Date(Date.now() - ageMs).toISOString(),
           },
         },
       ],
@@ -25,7 +32,7 @@ afterEach(() => vi.restoreAllMocks())
 
 describe("GoogleFreshness", () => {
   it("takes the caller's layout when the data is current", () => {
-    stubClients("fresh")
+    stubClients("up_to_date")
     const { container } = render(
       <GoogleFreshness className="max-desk:hidden min-w-0 truncate" />
     )
@@ -47,5 +54,19 @@ describe("GoogleFreshness", () => {
     expect(note).toHaveClass("min-w-0", "truncate", "max-desk:hidden")
     expect(note).toHaveClass("text-warning-ink")
     expect(note).not.toHaveClass("text-ink-muted")
+  })
+
+  it("names what a person must do when checks are blocked", () => {
+    stubClients("action_needed", { reason: "reconnect_required" })
+    const { container } = render(<GoogleFreshness />)
+    const note = container.firstElementChild!
+    expect(note).toHaveTextContent(/Google checked .+ · reconnect needed$/)
+    expect(note).toHaveClass("text-warning-ink")
+  })
+
+  it("reads “just now” in lower case, mid-sentence", () => {
+    stubClients("up_to_date", { ageMs: 0 })
+    render(<GoogleFreshness />)
+    expect(screen.getByText("Google checked just now")).toBeInTheDocument()
   })
 })

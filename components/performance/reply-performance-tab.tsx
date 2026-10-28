@@ -10,13 +10,20 @@ import {
   type ReportShareTarget,
 } from "@/components/reporting/report-actions-menu"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
-import { ReportingPanel } from "@/components/reporting/reporting-states"
+import {
+  ReportingPanel,
+  StaleFiguresAlert,
+} from "@/components/reporting/reporting-states"
 import { ReportsSkeleton } from "@/components/reporting/reports-skeleton"
 import {
   replyLocationsCsv,
   ReplyLocationsTable,
 } from "@/components/performance/reply-locations-table"
-import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
+import {
+  CsvDownloadButton,
+  ReportExportScope,
+} from "@/components/reporting/csv-download-button"
+import { Button } from "@/components/ui/button"
 import { csvFilename } from "@/lib/reporting/csv"
 import {
   DEFAULT_RANGES,
@@ -43,6 +50,11 @@ function windowIsOld(windowNow: string | undefined): boolean {
 }
 
 const noopSubscribe = () => () => {}
+
+/** An instant as its calendar day in `timeZone`: "2026-10-27". */
+function calendarDay(iso: string, timeZone: string) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(iso))
+}
 
 function ReplyPerformanceLoading() {
   return <ReportsSkeleton variant="tab" label="Loading reply performance…" />
@@ -115,26 +127,38 @@ export function ReplyPerformanceTab({
       />
     ) : null
 
-  if (now.isPending || now.isError) {
+  // The tab's dates go into its CSV file names (London calendar days, as
+  // the period is told), after the page's scope. The same wrapper in every
+  // state, so the head and its menu are not remounted when figures arrive.
+  const exportPeriod = now.data
+    ? `${calendarDay(now.data.from, now.data.timezone)} ${calendarDay(now.data.to, now.data.timezone)}`
+    : undefined
+
+  // A failed first load has nothing to show; a failed re-read of figures
+  // already on screen keeps them, labelled as the last load (below).
+  if (now.isPending || (now.isError && !now.data)) {
     return (
-      <div className="@container/report flex flex-col gap-(--np-gap-section)">
-        <h2 className="sr-only">Reply performance</h2>
-        {/* No "as at" line: there are no figures to date. */}
-        {head(null)}
-        {now.isPending ? (
-          <ReplyPerformanceLoading />
-        ) : (
-          <ReportingPanel
-            variant="error"
-            cause={now.error}
-            onRetry={() => void now.refetch()}
-          />
-        )}
-      </div>
+      <ReportExportScope value={{ period: exportPeriod }}>
+        <div className="@container/report flex flex-col gap-(--np-gap-section)">
+          <h2 className="sr-only">Reply performance</h2>
+          {/* No "as at" line: there are no figures to date. */}
+          {head(null)}
+          {now.isPending ? (
+            <ReplyPerformanceLoading />
+          ) : (
+            <ReportingPanel
+              variant="error"
+              cause={now.error}
+              onRetry={() => void now.refetch()}
+            />
+          )}
+        </div>
+      </ReportExportScope>
     )
   }
 
   const timezone = now.data.timezone
+  const comparedWith = rangeLabel.toLowerCase().replace(/^last /, "")
   const replyFigures = (
     <ReplyFigures
       audience="internal"
@@ -150,52 +174,75 @@ export function ReplyPerformanceTab({
       periodText={period}
       divergent={now.data.providerTotals.divergence}
       pending={<ReplyPerformanceLoading />}
+      // A failed comparison would otherwise look like there being none.
+      comparisonNote={
+        prior.isError ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-caption text-ink-muted">
+            Changes against the {comparedWith} before couldn’t be loaded.
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void prior.refetch()}
+            >
+              Try again
+            </Button>
+          </p>
+        ) : undefined
+      }
     />
   )
   const waiting = now.data.summary.reviewVolume === 0 && prior.isPending
 
   return (
-    <div className="@container/report flex flex-col gap-(--np-gap-section)">
-      {/* Leading h2 keeps the heading order valid: page h1 -> tab h2 -> card h3 (REV-2). */}
-      <h2 className="sr-only">Reply performance</h2>
-      {/* No "as at" line while there are no figures to date. */}
-      {head(
-        waiting ? null : (
-          <FetchedAtCaption iso={now.data.to} timezone={timezone} />
-        )
-      )}
+    <ReportExportScope value={{ period: exportPeriod }}>
+      <div className="@container/report flex flex-col gap-(--np-gap-section)">
+        {/* Leading h2 keeps the heading order valid: page h1 -> tab h2 -> card h3 (REV-2). */}
+        <h2 className="sr-only">Reply performance</h2>
+        {/* No "as at" line while there are no figures to date. */}
+        {head(
+          waiting ? null : (
+            <FetchedAtCaption iso={now.data.to} timezone={timezone} />
+          )
+        )}
 
-      {replyFigures}
-
-      {/* Only meaningful as a comparison. For a single-location org the table
-          would be one row restating the stat tiles directly above it, and at
-          zero it would be an empty panel saying what those tiles already say.
-          Derived from the data rather than a prop, so it reappears on its own
-          the moment a second location is added. */}
-      {now.data.locations.length > 1 ? (
-        <section
-          aria-labelledby="reply-by-location"
-          className="flex flex-col gap-2.5"
-        >
-          <SectionHeader
-            as="h3"
-            id="reply-by-location"
-            title={`By ${LISTING_TERMS.place}`}
-            description="Highest response rate first. Missing figures show “—”, never zero."
-            actions={
-              <CsvDownloadButton
-                filename={csvFilename(
-                  `reply performance by ${LISTING_TERMS.place}`,
-                  rangeLabel
-                )}
-                accessibleLabel={`Download reply performance by ${LISTING_TERMS.place} as CSV`}
-                rows={() => replyLocationsCsv(now.data.locations)}
-              />
-            }
+        {now.isError ? (
+          <StaleFiguresAlert
+            cause={now.error}
+            retrying={now.isFetching}
+            onRetry={() => void now.refetch()}
           />
-          <ReplyLocationsTable locations={now.data.locations} />
-        </section>
-      ) : null}
-    </div>
+        ) : null}
+        {replyFigures}
+
+        {/* Only meaningful as a comparison. For a single-location org the table
+            would be one row restating the stat tiles directly above it, and at
+            zero it would be an empty panel saying what those tiles already say.
+            Derived from the data rather than a prop, so it reappears on its own
+            the moment a second location is added. */}
+        {now.data.locations.length > 1 ? (
+          <section
+            aria-labelledby="reply-by-location"
+            className="flex flex-col gap-2.5"
+          >
+            <SectionHeader
+              as="h3"
+              id="reply-by-location"
+              title={`By ${LISTING_TERMS.place}`}
+              description="Highest response rate first. Unresolved counts 1- and 2-star reviews with no reply on Google."
+              actions={
+                <CsvDownloadButton
+                  filename={csvFilename(
+                    `reply performance by ${LISTING_TERMS.place}`
+                  )}
+                  accessibleLabel={`Download reply performance by ${LISTING_TERMS.place} as CSV`}
+                  rows={() => replyLocationsCsv(now.data.locations)}
+                />
+              }
+            />
+            <ReplyLocationsTable locations={now.data.locations} />
+          </section>
+        ) : null}
+      </div>
+    </ReportExportScope>
   )
 }

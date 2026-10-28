@@ -3,6 +3,13 @@
 import { ClockIcon, PauseCircleIcon, PowerOffIcon } from "lucide-react"
 import type * as React from "react"
 
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { QueryError, QueryPending } from "@/components/ui/query-states"
@@ -17,16 +24,16 @@ const COPY: Record<
 > = {
   empty: {
     title: "Nothing to show yet",
-    description: "There is no data for this window.",
+    description: "There is no data for this period.",
   },
   // A state the screen cannot resolve by waiting: the request already came
-  // back, and it said Google has not sent any figures for this window yet.
+  // back, and it said Google has not sent any figures for this period yet.
   // It used to render as `loading` — a skeleton that could only ever stop on
   // a reload, days later.
   collecting: {
     title: "Nothing collected yet",
     description:
-      "Google has not sent any figures for this window. They appear here once it does.",
+      "Google has not sent any figures for this period. They appear here once it does.",
   },
   error: {
     title: "We could not load this report",
@@ -148,6 +155,44 @@ export function ReportingPanel({
   )
   if (!framed) return empty
   return <Card flush>{empty}</Card>
+}
+
+/**
+ * A background re-read of figures already on screen failed (a laptop waking,
+ * a network flap, a focus refetch). The figures stay: the server returned
+ * them, and they are labelled as the last successful load rather than thrown
+ * away for a full error panel. Only a first load with nothing to show is the
+ * `error` panel.
+ */
+export function StaleFiguresAlert({
+  cause,
+  retrying = false,
+  onRetry,
+}: {
+  cause: unknown
+  /** A retry is in flight. */
+  retrying?: boolean
+  onRetry: () => void
+}) {
+  return (
+    <Alert variant="warning">
+      <AlertTitle>We couldn’t refresh these figures</AlertTitle>
+      <AlertDescription>
+        {`${describeActionError(cause)} The figures below are from the last successful load.`}
+      </AlertDescription>
+      <AlertActions>
+        <Button
+          variant="secondary"
+          size="sm"
+          pending={retrying}
+          pendingLabel="Trying again…"
+          onClick={onRetry}
+        >
+          Try again
+        </Button>
+      </AlertActions>
+    </Alert>
+  )
 }
 
 // Honest-null helper: a missing metric is "—" flagged isNull (so tables can

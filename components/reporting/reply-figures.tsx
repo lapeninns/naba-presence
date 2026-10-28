@@ -145,6 +145,7 @@ export function ReplyFigures({
   csvPrefix = "",
   divergent = false,
   pending,
+  comparisonNote,
 }: {
   audience: ReportAudience
   summary: ReplySummaryFigures
@@ -170,6 +171,13 @@ export function ReplyFigures({
   divergent?: boolean
   /** Drawn while the comparison is pending for an empty window. */
   pending?: React.ReactNode
+  /**
+   * Said under the tiles, where the comparison line sits, when there is no
+   * comparison (`previous` is null). Opt-in: a caller that knows the earlier
+   * period failed to load says so, with a retry; without it the line is left
+   * out, as before.
+   */
+  comparisonNote?: React.ReactNode
 }) {
   const copy = COPY[audience]
   const span = copy.span
@@ -280,7 +288,9 @@ export function ReplyFigures({
           <p className="text-caption text-ink-muted">
             Changes compare with the {comparedWith} before this {span}.
           </p>
-        ) : null}
+        ) : (
+          (comparisonNote ?? null)
+        )}
       </div>
 
       {points ? (

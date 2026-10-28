@@ -18,7 +18,11 @@ import { StatusPill } from "@/components/ui/status-pill"
 import { replyStatusPill } from "@/components/inbox/situation-tone"
 import { formatDate, formatDateTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
-import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
+import {
+  deriveReplyStatus,
+  replyStateFromRow,
+  type ReplyStatus,
+} from "@/lib/inbox/reply-state"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { mediaQuery } from "@/lib/ui/breakpoints"
@@ -42,6 +46,26 @@ const QUEUE_SAYS: Record<string, readonly string[]> = {
   publishing: ["Publishing"],
   failed: ["Publish failed"],
   done: ["Replied"],
+}
+
+/**
+ * The workflow statuses of a review that still needs a reply. Done holds
+ * published reviews and reviews someone marked as needing no reply
+ * (lib/server/review-queues.ts `done`), so a row in Done at one of these is
+ * there only because it was marked.
+ */
+const NEEDS_REPLY_STATUSES: ReadonlySet<string> = new Set([
+  "new",
+  "drafted",
+  "verified",
+  "rejected",
+])
+
+const MARKED_NO_REPLY: ReplyStatus = {
+  text: "Marked as no reply needed",
+  short: "No reply needed",
+  tone: "neutral",
+  icon: "circle",
 }
 
 /**
@@ -153,6 +177,10 @@ function ReviewList({
   const containerRef = useRef<HTMLUListElement>(null)
   // The row whose "No reply needed" is being done: at once, with Undo in its toast.
   const [noReplyFor, setNoReplyFor] = useState<string | null>(null)
+  // Where that row sat, so the keyboard keeps its place when the row leaves
+  // the list: its ⋯ menu hands focus back to its own trigger, which then
+  // unmounts with the row.
+  const leavingRow = useRef<{ id: string; index: number } | null>(null)
 
   function focusRow(index: number) {
     const buttons = containerRef.current?.querySelectorAll<HTMLButtonElement>(
@@ -177,6 +205,18 @@ function ReviewList({
     }
     previouslySelectedId.current = selectedId
   }, [selectedId, reviews])
+
+  // A row marked from its ⋯ has left the list: if focus went with it, the
+  // row now in its place takes it (the last row, if it was the last).
+  useEffect(() => {
+    const leaving = leavingRow.current
+    if (!leaving || reviews.some((review) => review.id === leaving.id)) return
+    leavingRow.current = null
+    const active = document.activeElement
+    const lost = !active || active === document.body || !active.isConnected
+    if (lost && reviews.length > 0)
+      focusRow(Math.min(leaving.index, reviews.length - 1))
+  }, [reviews])
 
   // Keep the selected row in view when selection changes (keyboard, auto-
   // select, or deep link) without fighting intentional scroll while paging.
@@ -292,7 +332,10 @@ function ReviewList({
           const displayName = review.reviewer.isAnonymous
             ? "Anonymous"
             : (review.reviewer.displayName ?? "Anonymous")
-          const status = deriveReplyStatus(replyStateFromRow(review, queue))
+          const status =
+            queue === "done" && NEEDS_REPLY_STATUSES.has(review.workflowStatus)
+              ? MARKED_NO_REPLY
+              : deriveReplyStatus(replyStateFromRow(review, queue))
           const pill = replyStatusPill(status)
           const pillRepeatsQueue = Boolean(
             queue && QUEUE_SAYS[queue]?.includes(status.short)
@@ -348,14 +391,19 @@ function ReviewList({
               onKeyDown={(event) => onKeyDown(event, index)}
               // Triage from the row: a swipe on touch, the ⋯ button for
               // everyone else. Offered where the tick boxes are (not to a
-              // viewer), and not while select mode is ticking rows.
+              // viewer), and not while select mode is ticking rows. Not in
+              // Done, where every row is already dealt with; hidden for the
+              // whole queue so the ⋯ column stays aligned.
               swipeActions={
-                selection && !selection.selectMode
+                selection && !selection.selectMode && queue !== "done"
                   ? [
                       {
                         label: "No reply needed",
                         icon: <CircleSlashIcon aria-hidden />,
-                        onAction: () => setNoReplyFor(review.id),
+                        onAction: () => {
+                          leavingRow.current = { id: review.id, index }
+                          setNoReplyFor(review.id)
+                        },
                       },
                     ]
                   : undefined
@@ -582,21 +630,24 @@ function ReviewList({
         <RowNoReplyNeeded
           key={noReplyFor}
           reviewId={noReplyFor}
-          onDone={() =>
+          onDone={(marked) => {
+            // Not marked: the row stays, so there is no place to keep.
+            if (!marked && leavingRow.current?.id === noReplyFor)
+              leavingRow.current = null
             setNoReplyFor((current) =>
               current === noReplyFor ? null : current
             )
-          }
+          }}
         />
       ) : null}
       {onReachEnd ? (
         <div ref={sentinelRef} aria-hidden className="h-px shrink-0" />
       ) : null}
+      {/* Said, not drawn: the load-more button under the list already
+          reads "Loading…", and two visible signs for one wait is one too
+          many. */}
       {isLoadingMore ? (
-        <p
-          className="px-(--np-page-pad-x) py-2.5 text-caption text-ink-muted"
-          aria-live="polite"
-        >
+        <p className="sr-only" aria-live="polite">
           Loading more reviews…
         </p>
       ) : null}
@@ -614,14 +665,21 @@ function RowNoReplyNeeded({
   onDone,
 }: {
   reviewId: string
-  onDone: () => void
+  /** Called once it has run, with whether the server marked the review. */
+  onDone: (marked: boolean) => void
 }) {
   const triage = useReviewTriage()
   const started = useRef(false)
   useEffect(() => {
     if (started.current) return
     started.current = true
-    void triage.run(markNoReplyNeeded([reviewId])).finally(onDone)
+    void triage
+      .run(markNoReplyNeeded([reviewId]))
+      .then(
+        (result) => result?.results[0]?.status === "ok",
+        () => false
+      )
+      .then(onDone)
   })
   return null
 }

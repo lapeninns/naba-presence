@@ -34,7 +34,7 @@ describe("ReportingPanel", () => {
     render(<ReportingPanel variant="collecting" />)
     expect(screen.getByText("Nothing collected yet")).toBeInTheDocument()
     expect(
-      screen.getByText(/Google has not sent any figures for this window/)
+      screen.getByText(/Google has not sent any figures for this period/)
     ).toBeInTheDocument()
   })
 

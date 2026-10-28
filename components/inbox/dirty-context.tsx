@@ -152,7 +152,8 @@ function DirtyGuardProvider({ children }: { children: ReactNode }) {
           <AlertDialogContent aria-label="Discard unsaved reply?">
             <AlertDialogTitle>Discard unsaved reply?</AlertDialogTitle>
             <AlertDialogDescription>
-              You have unsaved changes to this reply. Discard them?
+              Your changes to this reply aren&rsquo;t saved. If you discard
+              them, they can&rsquo;t be recovered.
             </AlertDialogDescription>
             <AlertDialogFooter>
               <AlertDialogClose render={<Button variant="secondary" />}>

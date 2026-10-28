@@ -115,7 +115,8 @@ export function evaluateApproval(input: {
   if (input.approvalScope === "others") {
     return {
       enabled: false,
-      reason: "Someone else with publishing rights needs to approve this reply.",
+      reason:
+        "Someone else with publishing rights needs to approve this reply.",
     }
   }
   return { enabled: true }
@@ -239,8 +240,19 @@ export function describeOutcomeToast(
         description: "Nothing was live on Google.",
         type: "success",
       }
+    case "pending":
+      // Google has the reply and has not said what became of it: "sent",
+      // the word the status line and the inbox's announcement use, never
+      // "submitted" (the approval word) or "published".
+      return {
+        kind: "google",
+        title: "Reply sent",
+        description:
+          "Google hasn’t confirmed it yet. This review updates when it does.",
+        type: "info",
+      }
     default:
-      // e.g. "pending" — an honest, non-committal message; never claims
+      // An unknown status — an honest, non-committal message; never claims
       // the reply is published.
       return {
         kind: "google",

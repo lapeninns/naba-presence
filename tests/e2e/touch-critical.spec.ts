@@ -875,7 +875,8 @@ test.describe("touch: critical journeys at 390x844", () => {
       // A toast clears the bar as it clears the tab bar: Sync's result
       // lands above the bar, not over the field.
       await tap(toolbar.getByRole("button", { name: "Sync reviews" }))
-      const toast = page.locator("[data-slot=toast]").first()
+      // The progress toast shows at once; the result replaces it in place.
+      const toast = page.locator("[data-slot=toast][data-phase=result]").first()
       // A sync reads every listing from the Google stub (12 here).
       await expect(toast).toBeVisible({ timeout: 30_000 })
       await settle(page, toast)

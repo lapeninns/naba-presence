@@ -35,8 +35,9 @@ describe("EmptyState", () => {
     expect(
       screen.getByText("No reviews match these filters.")
     ).toBeInTheDocument()
+    // One name for clearing everything, as the chips and the sheet say it.
     expect(
-      screen.getByRole("button", { name: "Clear filters" })
+      screen.getByRole("button", { name: "Clear all filters" })
     ).toBeInTheDocument()
 
     // This state carries the whole message now. It used to defer the headline
@@ -86,6 +87,101 @@ describe("EmptyState", () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
   })
 
+  it("says an empty Needs reply is all caught up only when no queue has work", () => {
+    const { rerender } = render(
+      <EmptyState reason="queue_empty" queue="needs_reply" />
+    )
+    expect(screen.getByText(/You’re all caught up\./)).toBeInTheDocument()
+
+    rerender(
+      <EmptyState
+        reason="queue_empty"
+        queue="needs_reply"
+        nextQueue={{ label: "Approval", count: 1, onSelect: () => {} }}
+      />
+    )
+    expect(screen.queryByText(/all caught up/)).not.toBeInTheDocument()
+    // The button says where the work is; the copy does not repeat it.
+    expect(screen.queryByText(/Choose another queue/)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Go to Approval (1)" })
+    ).toBeInTheDocument()
+  })
+
+  it("tells an approver how many replies wait for them, and takes them there", async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn()
+    render(
+      <EmptyState
+        reason="queue_empty"
+        queue="needs_reply"
+        nextQueue={{ label: "Approval", count: 3, onSelect: () => {} }}
+        approvalsWaiting={{ count: 2, onSelect }}
+      />
+    )
+    expect(screen.getByText("Nothing needs a reply.")).toBeInTheDocument()
+    expect(
+      screen.getByText("2 replies are waiting for your approval.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /^Go to/ })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Review your approvals (2)" })
+    )
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it("names the search and the queue when a search alone matches nothing", async () => {
+    const user = userEvent.setup()
+    const onClear = vi.fn()
+    render(
+      <EmptyState
+        reason="filtered"
+        onClear={onClear}
+        filtered={{
+          search: "parking",
+          searchOnly: true,
+          queueLabel: "Needs reply",
+          queueTotal: 2,
+        }}
+      />
+    )
+    expect(screen.getByText("No reviews match “parking”")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Nothing in Needs reply matches. Try other words, or choose another queue above. Your search stays."
+      )
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Clear search" }))
+    expect(onClear).toHaveBeenCalledTimes(1)
+  })
+
+  it("says how many the queue holds when filters match none of them", () => {
+    render(
+      <EmptyState
+        reason="filtered"
+        onClear={() => {}}
+        filtered={{
+          searchOnly: false,
+          queueLabel: "Needs reply",
+          queueTotal: 2,
+        }}
+      />
+    )
+    expect(
+      screen.getByText("No reviews match these filters.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Needs reply has 2 reviews, but none match. Remove a filter above, or clear them all."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear all filters" })
+    ).toBeInTheDocument()
+  })
+
   it("sends an owner or admin straight to adding a first client", () => {
     render(<EmptyState reason="no_clients" canManageClients />)
     expect(screen.getByRole("link", { name: "Add a client" })).toHaveAttribute(
@@ -104,7 +200,7 @@ describe("EmptyState", () => {
     const user = userEvent.setup()
     const onClear = vi.fn()
     render(<EmptyState reason="filtered" onClear={onClear} />)
-    await user.click(screen.getByRole("button", { name: "Clear filters" }))
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
     expect(onClear).toHaveBeenCalledTimes(1)
   })
 

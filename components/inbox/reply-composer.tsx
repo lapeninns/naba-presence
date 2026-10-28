@@ -515,14 +515,32 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         >
           {seededBody || "No reply yet."}
         </p>
+        {/* The status line and the banner say what it waits on; this says
+            only why the box cannot be typed in, and opens it (the same
+            event as the bar's ⋯ › Edit reply). */}
         {canEdit && parkedReadOnly ? (
-          <p
+          <div
             data-slot="parked-note"
-            className="m-0 text-caption text-ink-muted"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1"
           >
-            Waiting for approval. To change this reply, choose Edit reply from
-            the Review actions menu (⋯). It then goes back to Needs reply.
-          </p>
+            <p className="m-0 text-caption text-ink-muted">
+              Read-only while it&rsquo;s waiting for approval.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent<ReplyEditDetail>(REPLY_EDIT_EVENT, {
+                    detail: { reviewId },
+                  })
+                )
+              }
+            >
+              <PenLineIcon aria-hidden data-icon="inline-start" />
+              Edit reply
+            </Button>
+          </div>
         ) : null}
       </div>
     )
@@ -617,7 +635,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           data-slot="parked-editing-note"
           className="m-0 px-1 text-caption text-ink-muted"
         >
-          Saving a change sends this reply back to Needs reply.
+          Saving your edit takes this reply out of approval. It goes back to
+          Needs reply for submitting again.
         </p>
       ) : null}
       {generateErrorNote}
@@ -669,7 +688,12 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
               window.dispatchEvent(new Event(PRIMARY_ACTION_EVENT))
             }
           }}
-          placeholder="Write a reply, or generate one."
+          // Generate is not on offer with no AI or no credits left.
+          placeholder={
+            aiUnavailable || creditsExhausted
+              ? "Write your reply."
+              : "Write a reply, or generate one."
+          }
           className={cn(
             // text-body is 16px on touch, so iOS does not zoom into the box.
             "rounded-none border-0 bg-transparent px-1 pt-3 pb-4 text-reading shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",

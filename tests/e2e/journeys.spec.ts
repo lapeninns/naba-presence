@@ -285,7 +285,7 @@ test.describe("inbox critical journeys", () => {
     ).toBeVisible()
     await expect(
       page.getByText(
-        "View-only access. You can read reviews and replies; an owner or admin can reply."
+        "View-only access for this location. You can read the review and its reply; ask an owner or admin for reply access."
       )
     ).toBeVisible()
     await expect(
