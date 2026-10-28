@@ -181,12 +181,19 @@ const SAVED_LODGING_WORKFLOWS = {
   nextCursor: null,
 }
 
-function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailure?: boolean; lodgingWorkflows?: unknown }) {
+function stubRoutes(overrides?: {
+  caps?: unknown
+  business?: unknown
+  saveFailure?: boolean
+  lodgingWorkflows?: unknown
+}) {
   let reviewed: GbpChangeSet | null = null
   const fetchMock = vi.fn(async (...args: [RequestInfo, RequestInit?]) => {
     const url = String(args[0])
     if (url.includes("/industry") && url.includes("type=workflows"))
-      return jsonResponse(overrides?.lodgingWorkflows ?? { items: [], nextCursor: null })
+      return jsonResponse(
+        overrides?.lodgingWorkflows ?? { items: [], nextCursor: null }
+      )
     if (url.includes("/capabilities"))
       return jsonResponse({
         capabilities: overrides?.caps ?? {
@@ -228,7 +235,12 @@ function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailur
       return jsonResponse({ changeSets: reviewed ? [reviewed] : [] })
     if (url.includes("/business-information"))
       return jsonResponse(overrides?.business ?? BUSINESS)
-    if (url.includes("/profile") && args[1]?.method === "PUT" && overrides?.saveFailure) return jsonResponse({ error: "http_error" }, 503)
+    if (
+      url.includes("/profile") &&
+      args[1]?.method === "PUT" &&
+      overrides?.saveFailure
+    )
+      return jsonResponse({ error: "http_error" }, 503)
     if (url.includes("/profile")) return jsonResponse(PROFILE)
     if (url.includes("/import-review"))
       return jsonResponse({ items: [], counts: {} })
@@ -242,10 +254,19 @@ function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailur
  * The saved-review routes a custom fetch stub needs so "Review changes" can
  * freeze a change set and publishing can approve it before the Google write.
  */
-function reviewRoute(url: string, init: RequestInit | undefined, state: { reviewed: GbpChangeSet | null; attributes?: GbpChangeSet | null }) {
-  if (url.includes("/industry") && url.includes("type=workflows")) return jsonResponse({ items: [], nextCursor: null })
-  if (url.includes("type=reviews")) return jsonResponse({ changeSets: state.reviewed ? [state.reviewed] : [] })
-  if (url.includes("type=attribute_reviews")) return jsonResponse({ changeSets: state.attributes ? [state.attributes] : [] })
+function reviewRoute(
+  url: string,
+  init: RequestInit | undefined,
+  state: { reviewed: GbpChangeSet | null; attributes?: GbpChangeSet | null }
+) {
+  if (url.includes("/industry") && url.includes("type=workflows"))
+    return jsonResponse({ items: [], nextCursor: null })
+  if (url.includes("type=reviews"))
+    return jsonResponse({ changeSets: state.reviewed ? [state.reviewed] : [] })
+  if (url.includes("type=attribute_reviews"))
+    return jsonResponse({
+      changeSets: state.attributes ? [state.attributes] : [],
+    })
   if (!url.includes("/business-information")) return null
   const raw = init?.body ? JSON.parse(String(init.body)) : {}
   if (init?.method === "PUT" && raw.operation === "update_attributes") {
@@ -266,9 +287,13 @@ function reviewRoute(url: string, init: RequestInit | undefined, state: { review
     return jsonResponse({ changeSet: state.attributes })
   }
   if (init?.method === "POST" && raw.resourceType === "attributes")
-    return jsonResponse({ changeSet: { ...state.attributes, approvedBy: "owner" } })
+    return jsonResponse({
+      changeSet: { ...state.attributes, approvedBy: "owner" },
+    })
   if (init?.method === "PUT") {
-    const body = businessInformationPreviewSchema.parse(JSON.parse(String(init.body)))
+    const body = businessInformationPreviewSchema.parse(
+      JSON.parse(String(init.body))
+    )
     state.reviewed = {
       id: "00000000-0000-4000-8000-000000000013",
       locationName: "Camden Hotel",
@@ -285,13 +310,19 @@ function reviewRoute(url: string, init: RequestInit | undefined, state: { review
     }
     return jsonResponse({ changeSet: state.reviewed })
   }
-  if (init?.method === "POST") return jsonResponse({ changeSet: { ...state.reviewed, approvedBy: "owner" } })
+  if (init?.method === "POST")
+    return jsonResponse({
+      changeSet: { ...state.reviewed, approvedBy: "owner" },
+    })
   return null
 }
 
 /** One answer of the Wi-Fi attribute's Yes / No / Not set choice. */
 function wifiAnswer(option: string) {
-  return within(screen.getByRole("radiogroup", { name: /Wi-Fi/ })).getByRole("radio", { name: option })
+  return within(screen.getByRole("radiogroup", { name: /Wi-Fi/ })).getByRole(
+    "radio",
+    { name: option }
+  )
 }
 
 afterEach(() => {
@@ -662,7 +693,9 @@ describe("ProfileTab", () => {
     expect(
       within(footer).getByRole("button", { name: "Review changes" })
     ).toBeEnabled()
-    expect(screen.getAllByRole("button", { name: "Review changes" })).toHaveLength(1)
+    expect(
+      screen.getAllByRole("button", { name: "Review changes" })
+    ).toHaveLength(1)
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull()
     // serviceItems has no editor -> the read-only pressure valve names it.
     expect(screen.getByText(/can edit yet/i)).toBeInTheDocument()
@@ -852,9 +885,9 @@ describe("ProfileTab on a phone", () => {
       within(sheet).getByRole("option", { name: "Temporarily closed" })
     )
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Open status/ })).toHaveTextContent(
-        "Temporarily closed"
-      )
+      expect(
+        screen.getByRole("button", { name: /Open status/ })
+      ).toHaveTextContent("Temporarily closed")
     )
     await userEvent.click(screen.getByRole("button", { name: /Open status/ }))
     const again = await screen.findByRole("dialog", { name: "Open status" })
@@ -876,9 +909,9 @@ describe("ProfileTab on a phone", () => {
     await userEvent.click(within(confirm).getByRole("checkbox"))
     await userEvent.click(mark)
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Open status/ })).toHaveTextContent(
-        "Permanently closed"
-      )
+      expect(
+        screen.getByRole("button", { name: /Open status/ })
+      ).toHaveTextContent("Permanently closed")
     )
   })
 })
@@ -990,10 +1023,9 @@ describe("ProfileTab on a phone: sheet focus return", () => {
 
   it("focuses the Additional categories label when the 9th category disables the opener", async () => {
     stubPhone()
-    stubWithCategories(
-      ["A", "B", "C", "D", "E", "F", "G", "H"].map(category),
-      [category("Spa")]
-    )
+    stubWithCategories(["A", "B", "C", "D", "E", "F", "G", "H"].map(category), [
+      category("Spa"),
+    ])
     renderWithProviders(<ProfileTab locationId="loc-1" />)
     const row = await screen.findByRole("button", {
       name: /Add another category/,
@@ -1117,18 +1149,32 @@ describe("ProfileTab save and review boundaries", () => {
     // The bar says why Save here can't take this edit, once (the repeated
     // save-scope paragraph is gone).
     expect(
-      within(screen.getByRole("region", { name: "Editor actions" })).getByRole("note")
-    ).toHaveTextContent(/Only the name, description, primary phone and website are saved here/i)
-    expect(screen.queryByText("No draft · reviewed, then sent to Google")).toBeNull()
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+      within(screen.getByRole("region", { name: "Editor actions" })).getByRole(
+        "note"
+      )
+    ).toHaveTextContent(
+      /Only the name, description, primary phone and website are saved here/i
+    )
+    expect(
+      screen.queryByText("No draft · reviewed, then sent to Google")
+    ).toBeNull()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     const review = await screen.findByRole("dialog")
     expect(await within(review).findByText("CAMDEN-2")).toBeInTheDocument()
     // One plain line, built from what is in the sheet.
-    expect(within(review).getByText("Store code goes to Google when you publish.")).toBeInTheDocument()
-    await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
+    expect(
+      within(review).getByText("Store code goes to Google when you publish.")
+    ).toBeInTheDocument()
+    await userEvent.click(
+      within(review).getByRole("button", { name: "Keep editing" })
+    )
     expect(screen.getByDisplayValue("CAMDEN-2")).toBeInTheDocument()
     // Preparing a review saves it here; nothing is written to Google.
-    expect(fetcher.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
+    expect(
+      fetcher.mock.calls.some(([, init]) => init?.method === "PATCH")
+    ).toBe(false)
     const beforeUnload = new Event("beforeunload", { cancelable: true })
     window.dispatchEvent(beforeUnload)
     expect(beforeUnload.defaultPrevented).toBe(true)
@@ -1139,12 +1185,17 @@ describe("ProfileTab save and review boundaries", () => {
     const reviews = { reviewed: null as GbpChangeSet | null }
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
-      if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (url.includes("/capabilities"))
+        return jsonResponse({
+          capabilities: { canEditCanonical: true, canPublish: true },
+        })
       const review = reviewRoute(url, init, reviews)
       if (review) return review
       if (url.includes("/business-information") && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body))
-        return body.operation === "update_attributes" ? jsonResponse({ error: "PERMISSION_DENIED" }, 403) : jsonResponse({ id: "m1", status: "succeeded", idempotent: false })
+        return body.operation === "update_attributes"
+          ? jsonResponse({ error: "PERMISSION_DENIED" }, 403)
+          : jsonResponse({ id: "m1", status: "succeeded", idempotent: false })
       }
       if (url.includes("/business-information")) return jsonResponse(BUSINESS)
       if (url.includes("/profile")) return jsonResponse(PROFILE)
@@ -1157,11 +1208,19 @@ describe("ProfileTab save and review boundaries", () => {
     await userEvent.clear(storeCode)
     await userEvent.type(storeCode, "CAMDEN-2")
     await userEvent.click(wifiAnswer("Yes"))
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     const review = await screen.findByRole("dialog")
-    await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
-    expect(await within(review).findByRole("button", { name: "Try again" })).toBeInTheDocument()
-    const progress = within(review).getByRole("list", { name: "Publish progress" })
+    await userEvent.click(
+      await within(review).findByRole("button", { name: "Publish to Google" })
+    )
+    expect(
+      await within(review).findByRole("button", { name: "Try again" })
+    ).toBeInTheDocument()
+    const progress = within(review).getByRole("list", {
+      name: "Publish progress",
+    })
     // One result per changed row, from the step that carries it.
     const rows = within(progress).getAllByRole("listitem")
     const storeRow = rows.find((row) => row.textContent?.includes("Store code"))
@@ -1174,8 +1233,14 @@ describe("ProfileTab save and review boundaries", () => {
     expect(wifiRow).toHaveTextContent("Rejected by Google")
     expect(review).toHaveTextContent("Earlier steps were sent to Google.")
     expect(review).not.toHaveTextContent("Nothing was changed")
-    expect(await within(screen.getByRole("region", { name: "Notifications" })).findByText("Publishing stopped. See the steps.")).toBeVisible()
-    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(2)
+    expect(
+      await within(
+        screen.getByRole("region", { name: "Notifications" })
+      ).findByText("Publishing stopped. See the steps.")
+    ).toBeVisible()
+    expect(
+      fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH")
+    ).toHaveLength(2)
   })
 })
 
@@ -1184,10 +1249,38 @@ it("keeps provider edits unsaved after a successful local save and discards only
   let saved = false
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input)
-    if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+    if (url.includes("/capabilities"))
+      return jsonResponse({
+        capabilities: { canEditCanonical: true, canPublish: true },
+      })
     if (url.includes("/business-information")) return jsonResponse(BUSINESS)
-    if (url.includes("/profile") && init?.method === "PUT") { saved = true; return jsonResponse({ saved: true, revision: "4" }) }
-    if (url.includes("/profile")) return jsonResponse(saved ? { profile: { ...PROFILE.profile, canonicalResource: { ...PROFILE.profile.canonicalResource, revision: "4" }, fields: PROFILE.profile.fields.map((entry) => entry.key === "name" ? { ...entry, canonicalValue: "Camden House", status: "core_dirty" } : entry) } } : PROFILE)
+    if (url.includes("/profile") && init?.method === "PUT") {
+      saved = true
+      return jsonResponse({ saved: true, revision: "4" })
+    }
+    if (url.includes("/profile"))
+      return jsonResponse(
+        saved
+          ? {
+              profile: {
+                ...PROFILE.profile,
+                canonicalResource: {
+                  ...PROFILE.profile.canonicalResource,
+                  revision: "4",
+                },
+                fields: PROFILE.profile.fields.map((entry) =>
+                  entry.key === "name"
+                    ? {
+                        ...entry,
+                        canonicalValue: "Camden House",
+                        status: "core_dirty",
+                      }
+                    : entry
+                ),
+              },
+            }
+          : PROFILE
+      )
     return jsonResponse({ items: [], counts: {} })
   })
   vi.stubGlobal("fetch", fetcher)
@@ -1200,20 +1293,35 @@ it("keeps provider edits unsaved after a successful local save and discards only
   await userEvent.clear(name)
   await userEvent.type(name, "Camden House")
   await userEvent.click(screen.getByRole("button", { name: "Save here" }))
-  expect(await screen.findByText(/Other profile edits still need review and publication/)).toBeInTheDocument()
+  expect(
+    await screen.findByText(
+      /Other profile edits still need review and publication/
+    )
+  ).toBeInTheDocument()
   // Nothing saveable is left, so Save here leaves the bar (it isn't greyed).
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Save here" })).toBeNull())
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+  )
   const beforeUnload = new Event("beforeunload", { cancelable: true })
   window.dispatchEvent(beforeUnload)
   expect(beforeUnload.defaultPrevented).toBe(true)
   await userEvent.click(screen.getByRole("button", { name: "Discard edits" }))
-  await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Discard changes" })
+  )
   expect(screen.getByDisplayValue("CAMDEN-1")).toBeInTheDocument()
-  expect(screen.getByRole("textbox", { name: "Business name" })).toHaveValue("Camden House")
-  expect(fetcher.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1)
-  expect(fetcher.mock.calls.some(([, init]) => init?.method === "PATCH" || init?.method === "POST")).toBe(false)
+  expect(screen.getByRole("textbox", { name: "Business name" })).toHaveValue(
+    "Camden House"
+  )
+  expect(
+    fetcher.mock.calls.filter(([, init]) => init?.method === "PUT")
+  ).toHaveLength(1)
+  expect(
+    fetcher.mock.calls.some(
+      ([, init]) => init?.method === "PATCH" || init?.method === "POST"
+    )
+  ).toBe(false)
 })
-
 
 it("retains local edits and reload protection when Save here fails", async () => {
   sessionStorage.clear()
@@ -1234,88 +1342,188 @@ it("retains local edits and reload protection when Save here fails", async () =>
 
 function RefreshProfileFixture() {
   const client = useQueryClient()
-  return <button onClick={() => void client.invalidateQueries()}>Refresh fixture</button>
+  return (
+    <button onClick={() => void client.invalidateQueries()}>
+      Refresh fixture
+    </button>
+  )
 }
 
-it.each(["save", "review"])("preserves dirty name after failed %s and colleague revision", async (action) => {
-  sessionStorage.clear()
-  let external = false
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-    const url = String(input)
-    if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
-    if (url.includes("/business-information")) return jsonResponse(BUSINESS)
-    if (url.includes("/profile") && init?.method === "PUT") return jsonResponse({ error: "http_error" }, 503)
-    if (url.includes("/profile")) return jsonResponse(external ? { profile: { ...PROFILE.profile, canonicalResource: { ...PROFILE.profile.canonicalResource, revision: "4" }, fields: PROFILE.profile.fields.map((entry) => entry.key === "name" ? { ...entry, canonicalValue: "Colleague name" } : entry) } } : PROFILE)
-    return jsonResponse({ items: [], counts: {} })
-  }))
-  renderWithProviders(<><ProfileTab locationId="loc-1" /><RefreshProfileFixture /></>)
-  const name = await screen.findByRole("textbox", { name: "Business name" })
-  await waitFor(() => expect(name).toBeEnabled())
-  await userEvent.clear(name)
-  await userEvent.type(name, "My unsaved name")
-  if (action === "save") {
-    await userEvent.click(screen.getByRole("button", { name: "Save here" }))
-    await screen.findByText(/temporarily unavailable/)
-  } else {
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
-    const review = await screen.findByRole("dialog")
-    await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
-    await within(review).findByRole("button", { name: "Try again" })
-    await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
-  }
-  external = true
-  await userEvent.click(screen.getByRole("button", { name: "Refresh fixture" }))
-  await screen.findByRole("button", { name: "Load theirs" })
-  expect(name).toHaveValue("My unsaved name")
-  const beforeUnload = new Event("beforeunload", { cancelable: true })
-  window.dispatchEvent(beforeUnload)
-  expect(beforeUnload.defaultPrevented).toBe(true)
-})
-
-it.each(["listing", "attributes"])("preserves failed %s edits after partial flow and later Google snapshot", async (failedStep) => {
-  sessionStorage.clear()
-  let external = false
-  let listingSent = false
-  const reviews = { reviewed: null as GbpChangeSet | null }
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-    const url = String(input)
-    if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
-    const review = reviewRoute(url, init, reviews)
-    if (review) return review
-    if (url.includes("/business-information") && init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body))
-      if (failedStep === "listing" || body.operation === "update_attributes") return jsonResponse({ error: "PERMISSION_DENIED" }, 403)
-      listingSent = true
-      return jsonResponse({ id: "m1", status: "succeeded", idempotent: false })
+it.each(["save", "review"])(
+  "preserves dirty name after failed %s and colleague revision",
+  async (action) => {
+    sessionStorage.clear()
+    let external = false
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        const url = String(input)
+        if (url.includes("/capabilities"))
+          return jsonResponse({
+            capabilities: { canEditCanonical: true, canPublish: true },
+          })
+        if (url.includes("/business-information")) return jsonResponse(BUSINESS)
+        if (url.includes("/profile") && init?.method === "PUT")
+          return jsonResponse({ error: "http_error" }, 503)
+        if (url.includes("/profile"))
+          return jsonResponse(
+            external
+              ? {
+                  profile: {
+                    ...PROFILE.profile,
+                    canonicalResource: {
+                      ...PROFILE.profile.canonicalResource,
+                      revision: "4",
+                    },
+                    fields: PROFILE.profile.fields.map((entry) =>
+                      entry.key === "name"
+                        ? { ...entry, canonicalValue: "Colleague name" }
+                        : entry
+                    ),
+                  },
+                }
+              : PROFILE
+          )
+        return jsonResponse({ items: [], counts: {} })
+      })
+    )
+    renderWithProviders(
+      <>
+        <ProfileTab locationId="loc-1" />
+        <RefreshProfileFixture />
+      </>
+    )
+    const name = await screen.findByRole("textbox", { name: "Business name" })
+    await waitFor(() => expect(name).toBeEnabled())
+    await userEvent.clear(name)
+    await userEvent.type(name, "My unsaved name")
+    if (action === "save") {
+      await userEvent.click(screen.getByRole("button", { name: "Save here" }))
+      await screen.findByText(/temporarily unavailable/)
+    } else {
+      await userEvent.click(
+        screen.getByRole("button", { name: "Review changes" })
+      )
+      const review = await screen.findByRole("dialog")
+      await userEvent.click(
+        await within(review).findByRole("button", { name: "Publish to Google" })
+      )
+      await within(review).findByRole("button", { name: "Try again" })
+      await userEvent.click(
+        within(review).getByRole("button", { name: "Keep editing" })
+      )
     }
-    if (url.includes("/business-information")) return jsonResponse({ businessInformation: { ...BUSINESS.businessInformation, location: { ...BUSINESS.businessInformation.location, storeCode: listingSent ? "CAMDEN-2" : external ? "COLLEAGUE" : "CAMDEN-1" }, locationHash: listingSent ? "e".repeat(64) : external ? "f".repeat(64) : BUSINESS.businessInformation.locationHash, attributesHash: external ? "f".repeat(64) : BUSINESS.businessInformation.attributesHash } })
-    if (url.includes("/profile")) return jsonResponse(PROFILE)
-    return jsonResponse({ items: [], counts: {} })
-  }))
-  renderWithProviders(<><ProfileTab locationId="loc-1" /><RefreshProfileFixture /></>)
-  const store = await screen.findByDisplayValue("CAMDEN-1")
-  await waitFor(() => expect(store).toBeEnabled())
-  await userEvent.clear(store)
-  await userEvent.type(store, "CAMDEN-2")
-  await userEvent.click(wifiAnswer("Yes"))
-  await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
-  const review = await screen.findByRole("dialog")
-  await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
-  await within(review).findByRole("button", { name: "Try again" })
-  await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
-  external = true
-  await userEvent.click(screen.getByRole("button", { name: "Refresh fixture" }))
-  await screen.findByRole("button", { name: "Load theirs" })
-  expect(wifiAnswer("Yes")).toBeChecked()
-  expect(store).toHaveValue("CAMDEN-2")
-  if (listingSent) {
-    await userEvent.click(screen.getByRole("button", { name: "Discard edits" }))
-    await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
-    expect(store).toHaveValue("CAMDEN-2")
-    expect(wifiAnswer("Yes")).not.toBeChecked()
-    expect(wifiAnswer("No")).toBeChecked()
+    external = true
+    await userEvent.click(
+      screen.getByRole("button", { name: "Refresh fixture" })
+    )
+    await screen.findByRole("button", { name: "Load theirs" })
+    expect(name).toHaveValue("My unsaved name")
+    const beforeUnload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(beforeUnload)
+    expect(beforeUnload.defaultPrevented).toBe(true)
   }
-})
+)
+
+it.each(["listing", "attributes"])(
+  "preserves failed %s edits after partial flow and later Google snapshot",
+  async (failedStep) => {
+    sessionStorage.clear()
+    let external = false
+    let listingSent = false
+    const reviews = { reviewed: null as GbpChangeSet | null }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        const url = String(input)
+        if (url.includes("/capabilities"))
+          return jsonResponse({
+            capabilities: { canEditCanonical: true, canPublish: true },
+          })
+        const review = reviewRoute(url, init, reviews)
+        if (review) return review
+        if (url.includes("/business-information") && init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body))
+          if (
+            failedStep === "listing" ||
+            body.operation === "update_attributes"
+          )
+            return jsonResponse({ error: "PERMISSION_DENIED" }, 403)
+          listingSent = true
+          return jsonResponse({
+            id: "m1",
+            status: "succeeded",
+            idempotent: false,
+          })
+        }
+        if (url.includes("/business-information"))
+          return jsonResponse({
+            businessInformation: {
+              ...BUSINESS.businessInformation,
+              location: {
+                ...BUSINESS.businessInformation.location,
+                storeCode: listingSent
+                  ? "CAMDEN-2"
+                  : external
+                    ? "COLLEAGUE"
+                    : "CAMDEN-1",
+              },
+              locationHash: listingSent
+                ? "e".repeat(64)
+                : external
+                  ? "f".repeat(64)
+                  : BUSINESS.businessInformation.locationHash,
+              attributesHash: external
+                ? "f".repeat(64)
+                : BUSINESS.businessInformation.attributesHash,
+            },
+          })
+        if (url.includes("/profile")) return jsonResponse(PROFILE)
+        return jsonResponse({ items: [], counts: {} })
+      })
+    )
+    renderWithProviders(
+      <>
+        <ProfileTab locationId="loc-1" />
+        <RefreshProfileFixture />
+      </>
+    )
+    const store = await screen.findByDisplayValue("CAMDEN-1")
+    await waitFor(() => expect(store).toBeEnabled())
+    await userEvent.clear(store)
+    await userEvent.type(store, "CAMDEN-2")
+    await userEvent.click(wifiAnswer("Yes"))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
+    const review = await screen.findByRole("dialog")
+    await userEvent.click(
+      await within(review).findByRole("button", { name: "Publish to Google" })
+    )
+    await within(review).findByRole("button", { name: "Try again" })
+    await userEvent.click(
+      within(review).getByRole("button", { name: "Keep editing" })
+    )
+    external = true
+    await userEvent.click(
+      screen.getByRole("button", { name: "Refresh fixture" })
+    )
+    await screen.findByRole("button", { name: "Load theirs" })
+    expect(wifiAnswer("Yes")).toBeChecked()
+    expect(store).toHaveValue("CAMDEN-2")
+    if (listingSent) {
+      await userEvent.click(
+        screen.getByRole("button", { name: "Discard edits" })
+      )
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Discard changes" })
+      )
+      expect(store).toHaveValue("CAMDEN-2")
+      expect(wifiAnswer("Yes")).not.toBeChecked()
+      expect(wifiAnswer("No")).toBeChecked()
+    }
+  }
+)
 
 describe("ProfileTab section navigation", () => {
   it("lists every block on the page, in page order, with saved work after the editor", async () => {
@@ -1342,7 +1550,9 @@ describe("ProfileTab section navigation", () => {
         : original(...args)
     )
     renderWithProviders(<ProfileTab locationId="loc-1" />)
-    const nav = await screen.findByRole("navigation", { name: "Profile sections" })
+    const nav = await screen.findByRole("navigation", {
+      name: "Profile sections",
+    })
     // Wait for the self-rendering blocks: Google's half, saved reviews and
     // saved lodging work.
     await within(nav).findByRole("link", { name: "Saved profile reviews" })
@@ -1371,25 +1581,43 @@ describe("ProfileTab section navigation", () => {
       ])
     )
     // Google Ads phone sits before Chain affiliation on the page and in the nav.
-    expect(navIds.indexOf("section-advertising")).toBeLessThan(navIds.indexOf("section-chain"))
+    expect(navIds.indexOf("section-advertising")).toBeLessThan(
+      navIds.indexOf("section-chain")
+    )
     // Saved work is in one place, after the editor's content.
     const savedWork = document.getElementById("profile-saved-work")
-    expect(savedWork).toContainElement(document.getElementById("section-saved-reviews"))
-    expect(savedWork).toContainElement(document.getElementById("section-saved-lodging"))
-    expect(navIds.indexOf("section-saved-reviews")).toBeGreaterThan(navIds.indexOf("section-other-google-details"))
+    expect(savedWork).toContainElement(
+      document.getElementById("section-saved-reviews")
+    )
+    expect(savedWork).toContainElement(
+      document.getElementById("section-saved-lodging")
+    )
+    expect(navIds.indexOf("section-saved-reviews")).toBeGreaterThan(
+      navIds.indexOf("section-other-google-details")
+    )
     // A block that is not on the page is not offered.
     expect(document.getElementById("section-retail-products")).toBeNull()
-    expect(within(nav).queryByRole("link", { name: "Product catalogue" })).toBeNull()
+    expect(
+      within(nav).queryByRole("link", { name: "Product catalogue" })
+    ).toBeNull()
   })
 
   it("jumps to a section and focuses its heading", async () => {
     stubRoutes({ lodgingWorkflows: SAVED_LODGING_WORKFLOWS })
     renderWithProviders(<ProfileTab locationId="loc-1" />)
-    const nav = await screen.findByRole("navigation", { name: "Profile sections" })
-    await userEvent.click(await within(nav).findByRole("link", { name: "Description" }))
+    const nav = await screen.findByRole("navigation", {
+      name: "Profile sections",
+    })
+    await userEvent.click(
+      await within(nav).findByRole("link", { name: "Description" })
+    )
     expect(document.getElementById("section-description-heading")).toHaveFocus()
-    await userEvent.click(await within(nav).findByRole("link", { name: "Saved lodging work" }))
-    expect(screen.getByRole("heading", { name: "Saved lodging work" })).toHaveFocus()
+    await userEvent.click(
+      await within(nav).findByRole("link", { name: "Saved lodging work" })
+    )
+    expect(
+      screen.getByRole("heading", { name: "Saved lodging work" })
+    ).toHaveFocus()
   })
 })
 
@@ -1412,15 +1640,25 @@ it("publishes from the save's answer without fetching the profile again (W0-04)"
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input)
     if (url.includes("/capabilities"))
-      return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      return jsonResponse({
+        capabilities: { canEditCanonical: true, canPublish: true },
+      })
     if (url.includes("/profile") && !url.includes("/import-review")) {
       const method = init?.method ?? "GET"
       profileCalls.push(method)
       if (method === "PUT")
-        return jsonResponse({ saved: true, revision: "4", profile: savedProfile })
+        return jsonResponse({
+          saved: true,
+          revision: "4",
+          profile: savedProfile,
+        })
       if (method === "POST") {
         publishBody = JSON.parse(String(init?.body))
-        return jsonResponse({ status: "published", attemptId: "a1", idempotent: false })
+        return jsonResponse({
+          status: "published",
+          attemptId: "a1",
+          idempotent: false,
+        })
       }
       return jsonResponse(PROFILE)
     }
@@ -1470,17 +1708,29 @@ describe("ProfileTab one review sheet (L14)", () => {
   }
 
   /** Routes for a profile whose prepared requests may need a second approver. */
-  function stubCombined({ secondApprover, profileHeld = false }: { secondApprover: boolean; profileHeld?: boolean }) {
+  function stubCombined({
+    secondApprover,
+    profileHeld = false,
+  }: {
+    secondApprover: boolean
+    profileHeld?: boolean
+  }) {
     const reviews = { reviewed: null as GbpChangeSet | null }
     const calls: { method: string; url: string }[] = []
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
       calls.push({ method: init?.method ?? "GET", url })
       if (url.includes("/capabilities"))
-        return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+        return jsonResponse({
+          capabilities: { canEditCanonical: true, canPublish: true },
+        })
       if (url.includes("/profile") && !url.includes("/import-review")) {
         if (init?.method === "PUT")
-          return jsonResponse({ saved: true, revision: "4", profile: savedProfile })
+          return jsonResponse({
+            saved: true,
+            revision: "4",
+            profile: savedProfile,
+          })
         if (init?.method === "POST" && profileHeld)
           // Two-person mode with listing approvals on: the route parks the
           // publish (lib/server/listing-changes.ts) and answers 202.
@@ -1510,17 +1760,31 @@ describe("ProfileTab one review sheet (L14)", () => {
             202
           )
         if (init?.method === "POST")
-          return jsonResponse({ status: "published", attemptId: "a1", idempotent: false })
+          return jsonResponse({
+            status: "published",
+            attemptId: "a1",
+            idempotent: false,
+          })
         return jsonResponse(PROFILE)
       }
       if (url.includes("/business-information") && init?.method === "PUT") {
         reviewRoute(url, init, reviews)
         if (secondApprover)
-          reviews.reviewed = { ...reviews.reviewed!, requiresSecondApprover: true, canApprove: false }
+          reviews.reviewed = {
+            ...reviews.reviewed!,
+            requiresSecondApprover: true,
+            canApprove: false,
+          }
         return jsonResponse({ changeSet: reviews.reviewed })
       }
       if (url.includes("/business-information") && init?.method === "PATCH")
-        return jsonResponse({ id: "m1", status: "succeeded", idempotent: false, confirmationState: "confirmed", executionState: "accepted" })
+        return jsonResponse({
+          id: "m1",
+          status: "succeeded",
+          idempotent: false,
+          confirmationState: "confirmed",
+          executionState: "accepted",
+        })
       const review = reviewRoute(url, init, reviews)
       if (review) return review
       if (url.includes("/business-information")) return jsonResponse(BUSINESS)
@@ -1547,9 +1811,13 @@ describe("ProfileTab one review sheet (L14)", () => {
     const calls = stubCombined({ secondApprover: false })
     renderWithProviders(<ProfileTab locationId="loc-1" />)
     await editNameAndStoreCode()
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     const review = await screen.findByRole("dialog", { name: "Review changes" })
-    expect(within(review).getByText("2 changes for Camden Hotel.")).toBeInTheDocument()
+    expect(
+      within(review).getByText("2 changes for Camden Hotel.")
+    ).toBeInTheDocument()
     expect(
       within(review).getByText(
         "Name saves here first, then goes to Google with the store code when you publish."
@@ -1560,16 +1828,26 @@ describe("ProfileTab one review sheet (L14)", () => {
     // Nothing internal: no model names in the sheet.
     expect(review).not.toHaveTextContent(/No draft|canonical|change set/i)
 
-    await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+    await userEvent.click(
+      within(review).getByRole("button", { name: "Publish to Google" })
+    )
     // Everything went out, so the sheet closes as before.
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review changes" })).toBeNull())
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Review changes" })
+      ).toBeNull()
+    )
     // In order: approve the prepared request, send it, then save the copy
     // and publish it (the business information goes first, as on main).
     const writes = calls
       .filter(({ method }) => method !== "GET")
-      .map(({ method, url }) => `${method} ${new URL(url, "http://x").pathname}`)
+      .map(
+        ({ method, url }) => `${method} ${new URL(url, "http://x").pathname}`
+      )
       .filter((call) => /\/(business-information|profile)$/.test(call))
-    const sent = writes.slice(writes.indexOf("POST /api/locations/loc-1/business-information"))
+    const sent = writes.slice(
+      writes.indexOf("POST /api/locations/loc-1/business-information")
+    )
     expect(sent).toEqual([
       "POST /api/locations/loc-1/business-information",
       "PATCH /api/locations/loc-1/business-information",
@@ -1583,7 +1861,9 @@ describe("ProfileTab one review sheet (L14)", () => {
     const calls = stubCombined({ secondApprover: true })
     renderWithProviders(<ProfileTab locationId="loc-1" />)
     await editNameAndStoreCode()
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     const review = await screen.findByRole("dialog", { name: "Review changes" })
     // The plain line says why; the copy field doesn't unlock the button.
     expect(
@@ -1591,13 +1871,26 @@ describe("ProfileTab one review sheet (L14)", () => {
         "The store code needs a different authorised user to approve it before anything is sent."
       )
     ).toBeInTheDocument()
-    expect(within(review).getByRole("button", { name: "Publish to Google" })).toBeDisabled()
+    expect(
+      within(review).getByRole("button", { name: "Publish to Google" })
+    ).toBeDisabled()
     expect(
       within(review).getByText("Publishing unlocks once they approve.")
     ).toBeInTheDocument()
     // Nothing was approved, saved here or sent.
-    expect(calls.some(({ method, url }) => url.includes("/business-information") && (method === "POST" || method === "PATCH"))).toBe(false)
-    expect(calls.some(({ method, url }) => url.includes("/profile") && (method === "PUT" || method === "POST"))).toBe(false)
+    expect(
+      calls.some(
+        ({ method, url }) =>
+          url.includes("/business-information") &&
+          (method === "POST" || method === "PATCH")
+      )
+    ).toBe(false)
+    expect(
+      calls.some(
+        ({ method, url }) =>
+          url.includes("/profile") && (method === "PUT" || method === "POST")
+      )
+    ).toBe(false)
   })
 
   it("stays open on its results when the server holds the profile publish for another publisher", async () => {
@@ -1608,23 +1901,39 @@ describe("ProfileTab one review sheet (L14)", () => {
     await waitFor(() => expect(name).toBeEnabled())
     await userEvent.clear(name)
     await userEvent.type(name, "Camden House")
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     const review = await screen.findByRole("dialog", { name: "Review changes" })
-    await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+    await userEvent.click(
+      within(review).getByRole("button", { name: "Publish to Google" })
+    )
 
     const done = await within(review).findByRole("button", { name: "Done" })
-    const rows = within(within(review).getByRole("list", { name: "Publish progress" })).getAllByRole("listitem")
+    const rows = within(
+      within(review).getByRole("list", { name: "Publish progress" })
+    ).getAllByRole("listitem")
     expect(rows).toHaveLength(1)
     // The server's answer, not a client guess: held for approval, not sent.
     expect(rows[0]).toHaveTextContent("Business name")
     expect(rows[0]).toHaveTextContent("Awaiting approval")
     expect(rows[0]).not.toHaveTextContent(/Sent to Google|Live on Google/)
-    expect(calls.filter(({ method, url }) => method === "POST" && url.includes("/profile"))).toHaveLength(1)
     expect(
-      await within(screen.getByRole("region", { name: "Notifications" })).findByText("Sent for approval")
+      calls.filter(
+        ({ method, url }) => method === "POST" && url.includes("/profile")
+      )
+    ).toHaveLength(1)
+    expect(
+      await within(
+        screen.getByRole("region", { name: "Notifications" })
+      ).findByText("Sent for approval")
     ).toBeVisible()
     await userEvent.click(done)
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review changes" })).toBeNull())
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Review changes" })
+      ).toBeNull()
+    )
   })
 })
 
@@ -1648,14 +1957,18 @@ describe("ProfileTab review always says what to fix", () => {
     const review = screen.getByRole("button", { name: "Review changes" })
     // The bar no longer blocks without saying where the problem is.
     expect(review).toBeEnabled()
-    expect(screen.queryByText("Fix the highlighted fields before publishing.")).toBeNull()
+    expect(
+      screen.queryByText("Fix the highlighted fields before publishing.")
+    ).toBeNull()
     await userEvent.click(review)
     const summary = await screen.findByRole("alert", { name: "Fix 1 problem" })
     const link = within(summary).getByRole("link", { name: /^Opening date: / })
     await userEvent.click(link)
     // The link names the date as a whole; focus lands on its first part.
     await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Day (optional)" })).toHaveFocus()
+      expect(
+        screen.getByRole("textbox", { name: "Day (optional)" })
+      ).toHaveFocus()
     )
     expect(previews(fetcher)).toHaveLength(0)
   })
@@ -1684,7 +1997,9 @@ describe("ProfileTab review always says what to fix", () => {
     await userEvent.type(menu, "example.com")
     // Nothing is said before Review is tried.
     expect(menu).not.toHaveAttribute("aria-invalid")
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     const summary = await screen.findByRole("alert", { name: "Fix 1 problem" })
     const link = within(summary).getByRole("link", {
       name: "Menu link: Use an http or https link.",
@@ -1698,7 +2013,9 @@ describe("ProfileTab review always says what to fix", () => {
     await userEvent.clear(menu)
     await userEvent.type(menu, "https://example.com/menu")
     expect(menu).not.toHaveAttribute("aria-invalid")
-    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
     await waitFor(() =>
       expect(
         fetcher.mock.calls.some(
@@ -1724,7 +2041,11 @@ describe("ProfileTab field marks", () => {
           entry.key === "name"
             ? { ...entry, status: "google_dirty", googleValue: "Camden Inn" }
             : entry.key === "phone"
-              ? { ...entry, status: "core_dirty", googleValue: "+44 20 7946 0001" }
+              ? {
+                  ...entry,
+                  status: "core_dirty",
+                  googleValue: "+44 20 7946 0001",
+                }
               : entry
         ),
       },
@@ -1745,7 +2066,9 @@ describe("ProfileTab field marks", () => {
     await waitFor(() => expect(name).toBeEnabled())
     expect(markOf("profile-name")).toHaveTextContent("Changed on Google")
     expect(markOf("profile-phone")).toHaveTextContent("Not on Google yet")
-    expect(markOf("profile-website")).not.toHaveTextContent(/Changed|Not on Google/)
+    expect(markOf("profile-website")).not.toHaveTextContent(
+      /Changed|Not on Google/
+    )
     await userEvent.type(name, "s")
     expect(markOf("profile-name")).toHaveTextContent("Changed")
     expect(markOf("profile-name")).not.toHaveTextContent("Changed on Google")
@@ -1756,7 +2079,9 @@ describe("ProfileTab description counter", () => {
   it("announces only crossing Google's limit, not every keystroke", async () => {
     stubRoutes()
     renderWithProviders(<ProfileTab locationId="loc-1" />)
-    const description = await screen.findByRole("textbox", { name: "Description" })
+    const description = await screen.findByRole("textbox", {
+      name: "Description",
+    })
     await waitFor(() => expect(description).toBeEnabled())
     const counter = document.getElementById("profile-description-description")
     expect(counter).toHaveTextContent("11 / 750")
@@ -1780,28 +2105,48 @@ describe("ProfileTab saved work", () => {
         : original(...args)
     )
     renderWithProviders(<ProfileTab locationId="loc-1" />)
-    const nav = await screen.findByRole("navigation", { name: "Profile sections" })
+    const nav = await screen.findByRole("navigation", {
+      name: "Profile sections",
+    })
     await within(nav).findByRole("link", { name: "Attributes" })
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.some(([url]) => String(url).includes("type=service_workflows"))
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("type=service_workflows")
+        )
       ).toBe(true)
     )
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.some(([url]) => String(url).includes("/industry") && String(url).includes("type=workflows"))
+        fetchMock.mock.calls.some(
+          ([url]) =>
+            String(url).includes("/industry") &&
+            String(url).includes("type=workflows")
+        )
       ).toBe(true)
     )
-    expect(screen.queryByRole("region", { name: "Saved lodging work" })).toBeNull()
-    expect(screen.queryByRole("region", { name: "Saved service work" })).toBeNull()
-    expect(within(nav).queryByRole("link", { name: "Saved lodging work" })).toBeNull()
-    expect(within(nav).queryByRole("link", { name: "Saved service work" })).toBeNull()
+    expect(
+      screen.queryByRole("region", { name: "Saved lodging work" })
+    ).toBeNull()
+    expect(
+      screen.queryByRole("region", { name: "Saved service work" })
+    ).toBeNull()
+    expect(
+      within(nav).queryByRole("link", { name: "Saved lodging work" })
+    ).toBeNull()
+    expect(
+      within(nav).queryByRole("link", { name: "Saved service work" })
+    ).toBeNull()
   })
 
   it("keeps a lodging section with saved work", async () => {
     stubRoutes({ lodgingWorkflows: SAVED_LODGING_WORKFLOWS })
     renderWithProviders(<ProfileTab locationId="loc-1" />)
-    const saved = await screen.findByRole("region", { name: "Saved lodging work" })
-    expect(within(saved).getByText("Lodging details for Camden Hotel")).toBeInTheDocument()
+    const saved = await screen.findByRole("region", {
+      name: "Saved lodging work",
+    })
+    expect(
+      within(saved).getByText("Lodging details for Camden Hotel")
+    ).toBeInTheDocument()
   })
 })
