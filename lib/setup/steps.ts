@@ -288,9 +288,9 @@ export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
         : "Link at least one listing to continue."
     case "backfill":
       if (facts.backfill === "failed")
-        return "The review import hasn’t worked yet. Check the reason on each listing, then Retry import, or finish later."
+        return "The review import hasn’t worked yet. Check the reason on each listing and import again, or finish later."
       return facts.backfill === "not_started"
-        ? "Start the review import to continue."
+        ? "Run the review import to continue."
         : null
     default:
       return null

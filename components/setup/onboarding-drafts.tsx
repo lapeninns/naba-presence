@@ -139,7 +139,7 @@ export function OnboardingDrafts({
         <p className="text-body text-ink-muted">
           Connect this client to Google before searching.
         </p>
-      ) : accounts.query.isError ? (
+      ) : accounts.query.isError && !accounts.query.data ? (
         // The listings card above reads the same accounts query and owns the
         // one announced error and its retry; a second alert here repeated it.
         <p className="text-body text-ink-muted">

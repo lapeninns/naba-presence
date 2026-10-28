@@ -71,12 +71,13 @@ function describeBackfillError(code: string): string {
 }
 
 // A stopped (dead) import is never retried by the runner; only starting the
-// import again (the header's Retry import) re-arms it (the checkpoint upsert
+// import again (the header's button) re-arms it. The row names the button by
+// place, not label: it reads Start while another listing is still queued (the checkpoint upsert
 // in syncLinkedLocation).
 function describeStoppedImport(code: string | null): string {
   if (code === "location_not_verified")
-    return "This location is not yet verified on Google. Use Retry import once it is."
-  return "The import stopped after repeated failures. Use Retry import to try again."
+    return "This location is not yet verified on Google. Import again with the button above once it is."
+  return "The import stopped after repeated failures. Import again with the button above to try again."
 }
 
 const IN_FLIGHT = new Set(["running", "pending"])

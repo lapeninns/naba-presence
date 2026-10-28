@@ -252,6 +252,24 @@ describe("ImportCard", () => {
     expect(refetch).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps the listings when only a background reload of the accounts failed", () => {
+    renderCard([discovered({})], undefined, undefined, {
+      accountsQuery: {
+        isPending: false,
+        isError: true,
+        error: new Error("rate limited"),
+        data: {
+          accounts: [
+            { id: "a1", googleAccountName: "accounts/1", isActive: true },
+          ],
+        },
+        refetch: vi.fn(),
+      },
+    })
+    expect(screen.getByText("Riverside Rooms")).toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
   it("asks for an account only once accounts load with none on, with a way to choose", () => {
     const onChooseAccounts = vi.fn()
     renderCard([], undefined, undefined, {

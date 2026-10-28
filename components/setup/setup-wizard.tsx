@@ -210,6 +210,11 @@ function SetupWizard({ clientId }: { clientId: string }) {
   ) {
     setRefused({ requested: refusedStep, landed: current })
   }
+  // Leaving the step it explained (a rail link, not only goTo) ends the
+  // note, so coming back later does not show a stale refusal.
+  if (refused && !refusedStep && refused.landed !== current) {
+    setRefused(null)
+  }
   React.useEffect(() => {
     if (!refusedStep) return
     const next = new URLSearchParams(params.toString())

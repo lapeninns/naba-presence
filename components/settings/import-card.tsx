@@ -186,8 +186,10 @@ export function ImportCard({
   ) : null
 
   // The accounts load is named here, once, with its retry: the drafts section
-  // below reads the same query and points back to this one.
-  if (accounts.query.isError) {
+  // below reads the same query and points back to this one. A failed
+  // background reload that still holds the earlier accounts is not a failed
+  // load: the listings they found stay usable.
+  if (accounts.query.isError && !accounts.query.data) {
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {heading}
@@ -198,7 +200,7 @@ export function ImportCard({
           variant="error"
           role="alert"
           title="We couldn’t load your Google accounts"
-          description={describeActionError(accounts.query.error)}
+          description={`${describeActionError(accounts.query.error)} Nothing was changed.`}
           actions={
             <Button
               variant="secondary"
@@ -274,7 +276,7 @@ export function ImportCard({
         <Empty
           icon={<MapPin />}
           title="No listings to link"
-          description="This account has no Business Profile listings. If the business is under another account, change it in Accounts, or search for it below."
+          description="This account has no Business Profile listings. The business may be under a different account, or you can search for it below."
           action={chooseAccounts}
         />
       </section>

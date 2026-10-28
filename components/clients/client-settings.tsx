@@ -559,7 +559,7 @@ function SettingsBody({
                   description={
                     unassigned.length > 0
                       ? "Pick one from Unfiled listings below, or bring new ones in from Google."
-                      : "Every imported listing is already filed under a client. Bring new ones in from Google."
+                      : "There are no unfiled listings to add. Bring this client’s listings in from Google."
                   }
                 />
               </Card>
@@ -786,13 +786,6 @@ async function undoArchive(
 ): Promise<LocalToastOptions> {
   try {
     await updateClient(clientId, { archived: false })
-    if (detached.length > 0) {
-      await assignLocationsToClient(clientId, {
-        locationIds: detached,
-        grantToClientMembers: false,
-      })
-    }
-    return { type: "success", title: `${name} restored` }
   } catch (error) {
     return {
       type: "error",
@@ -800,6 +793,23 @@ async function undoArchive(
       description: `${describeActionError(error)} Restore it from Clients › Archived.`,
     }
   }
+  // The restore is confirmed by now; a failed re-file must not read as if it
+  // were not, so it gets its own answer.
+  if (detached.length > 0) {
+    try {
+      await assignLocationsToClient(clientId, {
+        locationIds: detached,
+        grantToClientMembers: false,
+      })
+    } catch (error) {
+      return {
+        type: "error",
+        title: `${name} is restored, but its listings weren’t filed back`,
+        description: `${describeActionError(error)} File them again from ${name}’s settings, under Listings.`,
+      }
+    }
+  }
+  return { type: "success", title: `${name} restored` }
 }
 
 /**

@@ -254,7 +254,7 @@ describe("ClientSettings", () => {
     renderSettings()
     expect(
       await screen.findByText(
-        "Every imported listing is already filed under a client. Bring new ones in from Google."
+        "There are no unfiled listings to add. Bring this client’s listings in from Google."
       )
     ).toBeInTheDocument()
     expect(screen.queryByText(/unfiled list below/i)).not.toBeInTheDocument()
@@ -446,6 +446,29 @@ describe("ClientSettings", () => {
       .map(([, init]) => JSON.parse(String(init?.body)))
     expect(patches[0]).toMatchObject({ archived: true, detachLocations: true })
     expect(patches[1]).toMatchObject({ archived: false })
+  })
+
+  it("says the client is restored when only re-filing its listings fails", async () => {
+    const fetchMock = stub({ attached: true })
+    const answer = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).includes("/api/clients/c1/locations") &&
+      init?.method === "POST"
+        ? json({ error: { code: "internal_error" } }, 500)
+        : answer(input, init)
+    )
+    renderSettings()
+    await screen.findByText(/still has its listing/)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive Old Crown Group" })
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }))
+    expect(
+      await screen.findByText(
+        "Old Crown Group is restored, but its listings weren’t filed back"
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Old Crown Group wasn’t restored")).toBeNull()
   })
 
   it("runs the archive's Undo once, however often it is tapped", async () => {

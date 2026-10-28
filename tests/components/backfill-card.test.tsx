@@ -237,7 +237,7 @@ describe("BackfillCard", () => {
 describe("BackfillCard stopped imports", () => {
   // `dead` is terminal (lib/contracts/sync.ts): the runner never retries it,
   // so the row must not leak the raw enum or promise an automatic retry.
-  it("names a stopped import and says only Retry import retries it", () => {
+  it("names a stopped import and says only importing again retries it", () => {
     renderCard([
       item({
         status: "dead",
@@ -249,7 +249,7 @@ describe("BackfillCard stopped imports", () => {
     expect(screen.queryByText("dead")).not.toBeInTheDocument()
     expect(
       screen.getByText(
-        "The import stopped after repeated failures. Use Retry import to try again."
+        "The import stopped after repeated failures. Import again with the button above to try again."
       )
     ).toBeInTheDocument()
     expect(screen.queryByText(/retry automatically/)).not.toBeInTheDocument()

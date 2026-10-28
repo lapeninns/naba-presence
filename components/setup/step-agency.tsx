@@ -136,10 +136,18 @@ function StepAgency({
         </div>
         <DiscardDialog
           {...unsaved.leavePrompt}
-          title="Leave without saving the timezone?"
+          title={
+            nameDirty
+              ? "Leave without saving the name and timezone?"
+              : "Leave without saving the timezone?"
+          }
           confirmLabel="Leave and discard"
           announce={false}
-          description="The new timezone isn’t saved. Leaving keeps the current one."
+          description={
+            nameDirty
+              ? "Neither the new name nor the new timezone is saved. Leaving keeps the current ones."
+              : "The new timezone isn’t saved. Leaving keeps the current one."
+          }
         />
       </div>
     </div>
