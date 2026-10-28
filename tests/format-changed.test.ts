@@ -283,7 +283,11 @@ describe("pre-push hook skip rules", () => {
     mkdirSync(join(dir, "scripts"))
     writeFileSync(
       join(dir, "scripts/format-changed.mjs"),
-      `import { appendFileSync } from "node:fs"\nappendFileSync("${log}", "format-changed\\n")\n`
+      `import { appendFileSync } from "node:fs"\n
+if (process.env.ASSERT_CLEAN_GIT_ENV === "1" &&
+    ["GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE"]
+      .some((name) => name in process.env)) process.exit(9)
+appendFileSync("${log}", "format-changed\\n")\n`
     )
     put("README.md", "root\n")
     rootCommit = commit("root")
@@ -318,6 +322,18 @@ describe("pre-push hook skip rules", () => {
 
   it("runs verify and the format check when code changed", () => {
     const result = push(line(codeCommit, rootCommit))
+    expect(result.status).toBe(0)
+    expect(result.ran).toEqual(CHECKS)
+  })
+
+  it("clears Git's repository environment before running checks", () => {
+    const result = push(line(codeCommit, rootCommit), {
+      ASSERT_CLEAN_GIT_ENV: "1",
+      GIT_DIR: join(dir, ".git"),
+      GIT_WORK_TREE: dir,
+      GIT_IMPLICIT_WORK_TREE: "0",
+      GIT_INDEX_FILE: join(dir, ".git/index"),
+    })
     expect(result.status).toBe(0)
     expect(result.ran).toEqual(CHECKS)
   })
