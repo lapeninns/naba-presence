@@ -42,7 +42,7 @@ export function AddressDetailsFields({ draft, setDraft, location, disabled, erro
       {showSorting && <Field><FieldLabel htmlFor="profile-address-sorting">Postal sorting code (optional)</FieldLabel>
         <Input id="profile-address-sorting" value={draft.addressSortingCode ?? ""} maxLength={100} disabled={blocked("sortingCode")}
           {...inputHints.identifier} autoCapitalize="characters" onChange={(event) => setDraft((current) => ({ ...current, addressSortingCode: event.target.value }))} />
-        <FieldDescription>A country-specific code, such as CEDEX in France. It is not a UK postcode. Existing values are shown so they can be preserved or explicitly cleared.</FieldDescription>
+        <FieldDescription>A country-specific code, such as CEDEX in France. It is not a UK postcode. Clear it to remove it from Google.</FieldDescription>
       </Field>}
       {/* The language tag is a code: it follows the human address details. */}
       <Field error={error}>

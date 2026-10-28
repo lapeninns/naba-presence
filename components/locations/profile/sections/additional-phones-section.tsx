@@ -19,7 +19,7 @@ export function AdditionalPhonesSection({ draft, setDraft, disabled, changed, er
   const [newPhone, setNewPhone] = useState("")
   const numbers = draft.additionalPhones ?? []
   const blocked = disabled || !draft.primaryPhone.trim()
-  return <SectionCard id="section-additional-phones" title="Additional phone numbers" description="Up to two additional mobile or landline numbers. Your primary number is preserved." changed={changed}>
+  return <SectionCard id="section-additional-phones" title="Additional phones" description="Up to two additional mobile or landline numbers. Your primary number is preserved." changed={changed}>
     {!draft.primaryPhone.trim() && <p className="text-ui text-ink-muted">Publish a primary phone number before adding additional numbers.</p>}
     {/* Each number edits in place, as a settings row with its own Remove. */}
     {numbers.map((number, index) => <SettingsRow key={index} label={`Additional phone ${index + 1}`} controlId={`profile-additional-phone-${index}`} control={

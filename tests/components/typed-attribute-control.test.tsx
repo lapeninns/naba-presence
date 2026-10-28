@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
-import { TypedAttributeControl } from "@/components/locations/typed-attribute-control"
+import { attributeFieldId, TypedAttributeControl } from "@/components/locations/typed-attribute-control"
 
 /** One answer in the Yes / No / Not set choice named `group`. */
 function answer(group: string, option: string) {
@@ -250,6 +250,32 @@ describe("TypedAttributeControl", () => {
       )
       expect(answer("Wi-Fi", "Yes")).toBeChecked()
       expect(screen.queryByText("Free for guests")).toBeNull()
+    })
+  })
+  describe("with an error", () => {
+    it("marks a single URL field invalid and describes it with the message", () => {
+      render(<TypedAttributeControl layout="row" description="Where the menu lives" metadata={{ parent: "attributes/url_menu", displayName: "Menu", valueType: "URL" }} attribute={{ name: "attributes/url_menu", uriValues: [{ uri: "example.com" }] }} disabled={false} onChange={vi.fn()} error="Use an http or https link." />)
+      const field = screen.getByRole("textbox", { name: "Menu" })
+      // The summary links here.
+      expect(field).toHaveAttribute("id", attributeFieldId("attributes/url_menu"))
+      expect(field).toHaveAttribute("aria-invalid", "true")
+      // The row's description and the message both describe the field.
+      expect(field).toHaveAccessibleDescription("Where the menu lives Use an http or https link.")
+    })
+    it("says nothing without an error", () => {
+      render(<TypedAttributeControl metadata={{ parent: "attributes/url_menu", displayName: "Menu", valueType: "URL" }} attribute={{ name: "attributes/url_menu", uriValues: [{ uri: "example.com" }] }} disabled={false} onChange={vi.fn()} />)
+      const field = screen.getByRole("textbox", { name: "Menu" })
+      expect(field).not.toHaveAttribute("aria-invalid")
+      expect(field).not.toHaveAttribute("aria-describedby")
+    })
+    it("marks only the repeated URLs Google can't take, and lands the summary link on the first", () => {
+      render(<TypedAttributeControl metadata={{ parent: "attributes/menu", displayName: "Menu", valueType: "URL", repeatable: true }} attribute={{ name: "attributes/menu", uriValues: [{ uri: "https://example.com/1" }, { uri: "example.com/2" }] }} disabled={false} onChange={vi.fn()} error="Use an http or https link." />)
+      const first = screen.getByRole("textbox", { name: "Menu URL 1" })
+      const second = screen.getByRole("textbox", { name: "Menu URL 2" })
+      expect(first).toHaveAttribute("id", attributeFieldId("attributes/menu"))
+      expect(first).not.toHaveAttribute("aria-invalid")
+      expect(second).toHaveAttribute("aria-invalid", "true")
+      expect(second).toHaveAccessibleDescription("Use an http or https link.")
     })
   })
 })

@@ -72,7 +72,7 @@ function RelationshipControl({ draft, setDraft, location, disabled, kind }: Prop
         // A place ID is a case-sensitive code: no capitalising, correcting or spell-check marks.
         {...inputHints.identifier}
         onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} />
-      <FieldDescription>Use an existing Google place ID. Local checks validate format only; provider validation and confirmation are separate.</FieldDescription>
+      <FieldDescription>Use an existing Google place ID. We check its format here; Google checks the place when you publish.</FieldDescription>
       <FieldError />
     </Field>
     <Field>

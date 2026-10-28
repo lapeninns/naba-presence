@@ -156,12 +156,37 @@ const BUSINESS = {
   },
 }
 
-function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailure?: boolean }) {
+/** One saved lodging outcome, so the saved lodging section is drawn. */
+const SAVED_LODGING_WORKFLOWS = {
+  items: [
+    {
+      changeSet: {
+        id: "11111111-1111-4111-8111-111111111112",
+        locationName: "Camden Hotel",
+        targetResourceName: "locations/camden",
+        payloadHash: "b".repeat(64),
+        baselineHash: "a".repeat(64),
+        payload: { pets: { petsAllowed: true } },
+        baseline: { pets: { petsAllowed: false } },
+        updateMask: ["pets.petsAllowed"],
+        requestedBy: "owner",
+        approvedBy: "owner",
+        requiresSecondApprover: false,
+        canApprove: true,
+        expiresAt: "2027-01-01T12:00:00Z",
+      },
+      attemptId: "22222222-2222-4222-8222-222222222223",
+    },
+  ],
+  nextCursor: null,
+}
+
+function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailure?: boolean; lodgingWorkflows?: unknown }) {
   let reviewed: GbpChangeSet | null = null
   const fetchMock = vi.fn(async (...args: [RequestInfo, RequestInit?]) => {
     const url = String(args[0])
     if (url.includes("/industry") && url.includes("type=workflows"))
-      return jsonResponse({ items: [], nextCursor: null })
+      return jsonResponse(overrides?.lodgingWorkflows ?? { items: [], nextCursor: null })
     if (url.includes("/capabilities"))
       return jsonResponse({
         capabilities: overrides?.caps ?? {
@@ -1308,7 +1333,7 @@ describe("ProfileTab section navigation", () => {
       canApprove: true,
       expiresAt: "2027-01-01T00:00:00Z",
     }
-    const fetchMock = stubRoutes()
+    const fetchMock = stubRoutes({ lodgingWorkflows: SAVED_LODGING_WORKFLOWS })
     const original = fetchMock.getMockImplementation()
     if (!original) throw new Error("Profile fixture missing")
     fetchMock.mockImplementation(async (...args) =>
@@ -1358,7 +1383,7 @@ describe("ProfileTab section navigation", () => {
   })
 
   it("jumps to a section and focuses its heading", async () => {
-    stubRoutes()
+    stubRoutes({ lodgingWorkflows: SAVED_LODGING_WORKFLOWS })
     renderWithProviders(<ProfileTab locationId="loc-1" />)
     const nav = await screen.findByRole("navigation", { name: "Profile sections" })
     await userEvent.click(await within(nav).findByRole("link", { name: "Description" }))
@@ -1568,7 +1593,7 @@ describe("ProfileTab one review sheet (L14)", () => {
     ).toBeInTheDocument()
     expect(within(review).getByRole("button", { name: "Publish to Google" })).toBeDisabled()
     expect(
-      within(review).getByText("A different authorised user must approve this saved review.")
+      within(review).getByText("Publishing unlocks once they approve.")
     ).toBeInTheDocument()
     // Nothing was approved, saved here or sent.
     expect(calls.some(({ method, url }) => url.includes("/business-information") && (method === "POST" || method === "PATCH"))).toBe(false)
@@ -1600,5 +1625,183 @@ describe("ProfileTab one review sheet (L14)", () => {
     ).toBeVisible()
     await userEvent.click(done)
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review changes" })).toBeNull())
+  })
+})
+
+describe("ProfileTab review always says what to fix", () => {
+  /** The requests that would prepare a review (a saved change set). */
+  const previews = (fetcher: ReturnType<typeof stubRoutes>) =>
+    fetcher.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes("/business-information") && init?.method === "PUT"
+    )
+
+  it("keeps Review on for a Google-only field error, then lists it and focuses the field", async () => {
+    sessionStorage.clear()
+    const fetcher = stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const add = await screen.findByRole("button", { name: "Add opening date" })
+    await waitFor(() => expect(add).toBeEnabled())
+    await userEvent.click(add)
+    await userEvent.type(screen.getByRole("textbox", { name: "Month" }), "13")
+    await userEvent.type(screen.getByRole("textbox", { name: "Year" }), "2020")
+    const review = screen.getByRole("button", { name: "Review changes" })
+    // The bar no longer blocks without saying where the problem is.
+    expect(review).toBeEnabled()
+    expect(screen.queryByText("Fix the highlighted fields before publishing.")).toBeNull()
+    await userEvent.click(review)
+    const summary = await screen.findByRole("alert", { name: "Fix 1 problem" })
+    const link = within(summary).getByRole("link", { name: /^Opening date: / })
+    await userEvent.click(link)
+    // The link names the date as a whole; focus lands on its first part.
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Day (optional)" })).toHaveFocus()
+    )
+    expect(previews(fetcher)).toHaveLength(0)
+  })
+
+  it("names an attribute link Google won't take, on the field and in the summary, without preparing a review", async () => {
+    sessionStorage.clear()
+    const fetcher = stubRoutes({
+      business: {
+        businessInformation: {
+          ...BUSINESS.businessInformation,
+          attributes: { name: "locations/camden/attributes", attributes: [] },
+          attributeMetadata: [
+            {
+              parent: "attributes/url_menu",
+              displayName: "Menu link",
+              groupDisplayName: "Links",
+              valueType: "URL",
+            },
+          ],
+        },
+      },
+    })
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const menu = await screen.findByRole("textbox", { name: "Menu link" })
+    await waitFor(() => expect(menu).toBeEnabled())
+    await userEvent.type(menu, "example.com")
+    // Nothing is said before Review is tried.
+    expect(menu).not.toHaveAttribute("aria-invalid")
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    const summary = await screen.findByRole("alert", { name: "Fix 1 problem" })
+    const link = within(summary).getByRole("link", {
+      name: "Menu link: Use an http or https link.",
+    })
+    expect(menu).toHaveAttribute("aria-invalid", "true")
+    expect(menu).toHaveAccessibleDescription("Use an http or https link.")
+    await userEvent.click(link)
+    await waitFor(() => expect(menu).toHaveFocus())
+    expect(previews(fetcher)).toHaveLength(0)
+    // A fixed value clears its message and the review goes ahead.
+    await userEvent.clear(menu)
+    await userEvent.type(menu, "https://example.com/menu")
+    expect(menu).not.toHaveAttribute("aria-invalid")
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.some(
+          ([, init]) =>
+            init?.method === "PUT" &&
+            JSON.parse(String(init.body)).operation === "update_attributes"
+        )
+      ).toBe(true)
+    )
+  })
+})
+
+describe("ProfileTab field marks", () => {
+  function markOf(controlId: string) {
+    return document.getElementById(`${controlId}-label`)?.parentElement
+  }
+
+  it("says a change came from Google until the operator edits the field", async () => {
+    const drifted = {
+      profile: {
+        ...PROFILE.profile,
+        fields: PROFILE.profile.fields.map((entry) =>
+          entry.key === "name"
+            ? { ...entry, status: "google_dirty", googleValue: "Camden Inn" }
+            : entry.key === "phone"
+              ? { ...entry, status: "core_dirty", googleValue: "+44 20 7946 0001" }
+              : entry
+        ),
+      },
+    }
+    const fetchMock = stubRoutes()
+    const original = fetchMock.getMockImplementation()
+    if (!original) throw new Error("Profile fixture missing")
+    fetchMock.mockImplementation(async (...args) => {
+      const url = String(args[0])
+      return url.includes("/profile") &&
+        !url.includes("/import-review") &&
+        (args[1]?.method ?? "GET") === "GET"
+        ? jsonResponse(drifted)
+        : original(...args)
+    })
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const name = await screen.findByRole("textbox", { name: "Business name" })
+    await waitFor(() => expect(name).toBeEnabled())
+    expect(markOf("profile-name")).toHaveTextContent("Changed on Google")
+    expect(markOf("profile-phone")).toHaveTextContent("Not on Google yet")
+    expect(markOf("profile-website")).not.toHaveTextContent(/Changed|Not on Google/)
+    await userEvent.type(name, "s")
+    expect(markOf("profile-name")).toHaveTextContent("Changed")
+    expect(markOf("profile-name")).not.toHaveTextContent("Changed on Google")
+  })
+})
+
+describe("ProfileTab description counter", () => {
+  it("announces only crossing Google's limit, not every keystroke", async () => {
+    stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const description = await screen.findByRole("textbox", { name: "Description" })
+    await waitFor(() => expect(description).toBeEnabled())
+    const counter = document.getElementById("profile-description-description")
+    expect(counter).toHaveTextContent("11 / 750")
+    expect(counter).not.toHaveAttribute("aria-live")
+    const section = screen.getByRole("region", { name: "Description" })
+    const status = within(section).getByRole("status")
+    expect(status).toHaveTextContent("")
+    fireEvent.change(description, { target: { value: "a".repeat(751) } })
+    expect(status).toHaveTextContent("Over Google’s 750-character limit.")
+  })
+})
+
+describe("ProfileTab saved work", () => {
+  it("leaves out empty lodging and service work while Google can be read", async () => {
+    const fetchMock = stubRoutes()
+    const original = fetchMock.getMockImplementation()
+    if (!original) throw new Error("Profile fixture missing")
+    fetchMock.mockImplementation(async (...args) =>
+      String(args[0]).includes("type=service_workflows")
+        ? jsonResponse({ items: [], nextCursor: null })
+        : original(...args)
+    )
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const nav = await screen.findByRole("navigation", { name: "Profile sections" })
+    await within(nav).findByRole("link", { name: "Attributes" })
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes("type=service_workflows"))
+      ).toBe(true)
+    )
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes("/industry") && String(url).includes("type=workflows"))
+      ).toBe(true)
+    )
+    expect(screen.queryByRole("region", { name: "Saved lodging work" })).toBeNull()
+    expect(screen.queryByRole("region", { name: "Saved service work" })).toBeNull()
+    expect(within(nav).queryByRole("link", { name: "Saved lodging work" })).toBeNull()
+    expect(within(nav).queryByRole("link", { name: "Saved service work" })).toBeNull()
+  })
+
+  it("keeps a lodging section with saved work", async () => {
+    stubRoutes({ lodgingWorkflows: SAVED_LODGING_WORKFLOWS })
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const saved = await screen.findByRole("region", { name: "Saved lodging work" })
+    expect(within(saved).getByText("Lodging details for Camden Hotel")).toBeInTheDocument()
   })
 })

@@ -6,10 +6,10 @@ import { SavedWorkList } from "@/components/reviewed-write/saved-work-list"
 import { ReviewChangesSheet } from "@/components/reviewed-write/lazy-sheets"
 import { savedChangeItem } from "./saved-change-work"
 import { approveBusinessInformation, fetchBusinessInformationReviews, publishBusinessInformation } from "@/lib/api/location-business-information"
-import { businessInformationLocationUpdateSchema } from "@/lib/contracts/location-business-information"
+import { businessInformationLocationUpdateSchema, type BusinessMask } from "@/lib/contracts/location-business-information"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { draftFromLocation } from "@/lib/locations/business-information-draft"
-import { locationDiffRows } from "@/lib/locations/google-values"
+import { LOCATION_FIELD_LABELS, locationDiffRows } from "@/lib/locations/google-values"
 import { usePublishFlow } from "@/lib/editors/use-publish-flow"
 import { queryKeys } from "@/lib/queries/keys"
 
@@ -53,7 +53,8 @@ export function SavedListingReviews({ locationId, enabled, publishReason }: { lo
       description="Review exact changes saved by your team. Publishing rechecks access and Google's current state."
       items={reviews.map((review) => savedChangeItem({
         change: review, recorded: false,
-        operation: `Profile changes for ${review.locationName}`,
+        // Named by what it changes, so two saved reviews can be told apart.
+        operation: `${review.updateMask.map((mask) => LOCATION_FIELD_LABELS[mask as BusinessMask] ?? mask).join(", ")} for ${review.locationName}`,
         actionLabel: `Review ${review.updateMask.length} saved profile ${review.updateMask.length === 1 ? "field" : "fields"}${review.approvedBy ? " (approved)" : ""}`,
         onOpen: () => { flow.reset(); setSelected(review) },
         disabled: false,

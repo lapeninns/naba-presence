@@ -313,7 +313,9 @@ describe("ServicesSection", () => {
     const { calls } = routes()
     const { user } = setup()
     await ready()
-    await user.click(screen.getByRole("button", { name: "Remove service 1" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove Sunday roast" })
+    )
     expect(screen.getByText("No services added.")).toBeInTheDocument()
     await user.click(reviewButton())
     await waitFor(() =>
@@ -336,7 +338,9 @@ describe("ServicesSection", () => {
     )
     const { user } = setup()
     await ready()
-    await user.click(screen.getByRole("button", { name: "Remove service 1" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove Sunday roast" })
+    )
     await user.click(reviewButton())
     expect(
       await screen.findByText("Google changed since you loaded this.")
@@ -361,14 +365,18 @@ describe("ServicesSection", () => {
     const { calls } = routes()
     const { user, actions, statuses } = setup()
     await ready()
-    await user.click(screen.getByRole("button", { name: "Remove service 1" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove Sunday roast" })
+    )
     expect(statuses.at(-1)?.dirty).toBe(true)
     await act(async () => actions.current?.discard())
     expect(
       screen.getByRole("heading", { name: "Sunday roast" })
     ).toBeInTheDocument()
     expect(statuses.at(-1)).toEqual({ dirty: false, blocked: null })
-    await user.click(screen.getByRole("button", { name: "Remove service 1" }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove Sunday roast" })
+    )
     await act(async () => actions.current?.review())
     await waitFor(() =>
       expect(calls.some((call) => call.method === "PUT")).toBe(true)
@@ -381,7 +389,7 @@ describe("ServicesSection", () => {
     await ready()
     expect(screen.getByLabelText("Price")).toBeDisabled()
     expect(
-      screen.getByRole("button", { name: "Remove service 1" })
+      screen.getByRole("button", { name: "Remove Sunday roast" })
     ).toBeDisabled()
     expect(reviewButton()).toBeDisabled()
     expect(statuses.at(-1)).toEqual({

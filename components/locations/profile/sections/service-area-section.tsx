@@ -83,7 +83,7 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
         <Field><FieldLabel htmlFor="profile-area-name">New area name</FieldLabel><Input id="profile-area-name" value={name} maxLength={255} disabled={blocked} onChange={(event) => { setName(event.target.value); setEntryError(undefined) }} /></Field>
         <Field error={entryError}><FieldLabel htmlFor="profile-area-id">New area place ID</FieldLabel><Input id="profile-area-id" value={placeId} maxLength={255} disabled={blocked}
           {...inputHints.identifier} onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} /><FieldError />
-          <FieldDescription>Use an existing Google place ID. These checks validate format only; Google validates the proposed areas before publication.</FieldDescription>
+          <FieldDescription>A Google place ID looks like ChIJ…. Look one up with <a className="underline underline-offset-4" href="https://developers.google.com/maps/documentation/places/web-service/place-id" target="_blank" rel="noopener noreferrer">Google’s place ID finder (opens in a new tab)</a>. We only check the format here; Google checks the area when you publish.</FieldDescription>
         </Field>
         <Button className="self-start" type="button" variant="outline" disabled={blocked || !name.trim() || !placeId.trim()} onClick={() => {
           const next = googleServiceAreaSchema.safeParse({ ...area, places: { placeInfos: [...places, { placeName: name, placeId }] } })

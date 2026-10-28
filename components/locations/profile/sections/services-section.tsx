@@ -240,7 +240,8 @@ function ServiceEditor({
                     rows.filter((_, position) => position !== index)
                   )
                 }
-                aria-label={`Remove service ${index + 1}`}
+                // Named by the service its row heading shows.
+                aria-label={`Remove ${label(row.item) || `service ${index + 1}`}`}
               >
                 Remove
               </Button>

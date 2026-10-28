@@ -74,7 +74,12 @@ export function ContactSection({
   errors,
   disabled,
   changed,
-}: ValuesProps & { changed: { phone: boolean; website: boolean } }) {
+  marks,
+}: ValuesProps & {
+  changed: { phone: boolean; website: boolean }
+  /** Whose change each row's word names; falls back to "Changed". */
+  marks?: { phone?: string; website?: string }
+}) {
   return (
     <SectionCard
       id="section-contact"
@@ -85,7 +90,7 @@ export function ContactSection({
       <SettingsRow
         label="Phone"
         controlId={PROFILE_FIELD_IDS.phone}
-        changed={changed.phone ? "Changed" : undefined}
+        changed={changed.phone ? (marks?.phone ?? "Changed") : undefined}
         control={
           <Field error={errors.phone}>
             <Input
@@ -107,7 +112,7 @@ export function ContactSection({
       <SettingsRow
         label="Website"
         controlId={PROFILE_FIELD_IDS.website}
-        changed={changed.website ? "Changed" : undefined}
+        changed={changed.website ? (marks?.website ?? "Changed") : undefined}
         control={
           <Field error={errors.website}>
             <Input
@@ -253,7 +258,7 @@ export function AddressSection({
           <Field error={issues.administrativeArea}>
             <Input id="profile-administrative-area" value={draft.administrativeArea ?? ""} maxLength={100} disabled={disabled} autoComplete="address-level1"
               onChange={(event) => setDraft((current) => ({ ...current, administrativeArea: event.target.value }))} />
-            <FieldDescription>Not required for a UK postal address. Preserve the existing value unless you intend to change it.</FieldDescription>
+            <FieldDescription>Not needed for a UK address. Leave it as it is unless it’s wrong.</FieldDescription>
             <FieldError />
           </Field>
         }
@@ -272,7 +277,12 @@ export function DescriptionSection({
   errors,
   disabled,
   changed,
-}: ValuesProps & { changed: boolean }) {
+  mark,
+}: ValuesProps & {
+  changed: boolean
+  /** Whose change the row's word names; falls back to "Changed". */
+  mark?: string
+}) {
   const length = values.description.length
   const over = length > DESCRIPTION_LIMIT
   return (
@@ -285,10 +295,11 @@ export function DescriptionSection({
       <SettingsRow
         label="Description"
         controlId={PROFILE_FIELD_IDS.description}
-        changed={changed ? "Changed" : undefined}
+        changed={changed ? (mark ?? "Changed") : undefined}
+        // The count describes the field and is read on focus. Read on
+        // every keystroke it was noise; only crossing the limit is news.
         description={
           <span
-            aria-live="polite"
             className={cn(
               "tabular-nums",
               over ? "font-semibold text-danger-ink" : "text-ink-muted"
@@ -309,6 +320,9 @@ export function DescriptionSection({
               }
             />
             <FieldError />
+            <span role="status" className="sr-only">
+              {over ? `Over Google’s ${DESCRIPTION_LIMIT}-character limit.` : ""}
+            </span>
           </Field>
         }
       />

@@ -21,6 +21,8 @@ it.each([false, true])("saved relationship review preserves exact approved field
     return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
   }))
   renderWithProviders(<SavedListingReviews locationId="location" enabled />)
+  // The row is named by what it changes, not "Profile changes for …".
+  expect(await screen.findByText("Chain affiliation, Parent business for Camden Hotel")).toBeInTheDocument()
   await userEvent.click(await screen.findByRole("button", { name: "Review 2 saved profile fields" }))
   const dialog = await screen.findByRole("dialog")
   for (const text of ["chains/123", "chains/456", "ChIJ_parent (Department)", "Not set"]) expect(within(dialog).getByText(text, { exact: true })).toBeInTheDocument()

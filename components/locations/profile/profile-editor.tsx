@@ -30,6 +30,7 @@ import { parseListingDraft } from "@/lib/locations/forms/listing-draft"
 import type { ChangeRow } from "@/components/editors/change-diff"
 import { LocationTab } from "@/components/locations/location-tab"
 import { AttributesSection } from "@/components/locations/profile/sections/attributes-section"
+import { attributeFieldId } from "@/components/locations/typed-attribute-control"
 import {
   AddressSection,
   ContactSection,
@@ -69,7 +70,7 @@ import {
   type ProfileState,
 } from "@/lib/api/location-profile"
 import { businessInformationPayloadSchema } from "@/lib/domain/business-information"
-import { businessInformationLocationUpdateSchema, businessInformationAttributeUpdateSchema } from "@/lib/contracts/location-business-information"
+import { businessInformationLocationUpdateSchema, businessInformationAttributeUpdateSchema, type BusinessMask } from "@/lib/contracts/location-business-information"
 import { googleAttributeWriteSchema } from "@/lib/domain/google-attributes"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { editorGate } from "@/lib/editors/gate"
@@ -85,6 +86,7 @@ import {
   draftFromLocation,
   fieldErrorsFromPayload,
   presentUnsupportedLeaves,
+  type PayloadFieldKey,
 } from "@/lib/locations/business-information-draft"
 import {
   profileFormSchema,
@@ -94,6 +96,7 @@ import {
 import {
   attributesFromState,
   describeAttributeValue,
+  LOCATION_FIELD_LABELS,
   locationDiffRows,
 } from "@/lib/locations/google-values"
 import { reasonCodeMessage, type LocationCapabilities } from "@/lib/locations/gating"
@@ -166,6 +169,43 @@ const FIELD_MESSAGES: Partial<Record<keyof ProfileFormValues, string>> = {
   website: "Enter a full web address starting with https://",
 }
 
+/**
+ * Listing payload problems on a field the copy fields mirror. The editor
+ * has no listing input for them, so the summary links to the copy field.
+ */
+const MIRRORED_PAYLOAD_FIELDS: Partial<Record<PayloadFieldKey, { fieldId: string; label: string }>> = {
+  title: { fieldId: PROFILE_FIELD_IDS.name, label: "Business name" },
+  description: { fieldId: PROFILE_FIELD_IDS.description, label: "Description" },
+  primaryPhone: { fieldId: PROFILE_FIELD_IDS.phone, label: "Phone" },
+  websiteUri: { fieldId: PROFILE_FIELD_IDS.website, label: "Website" },
+}
+
+/** Where a listing payload problem with no field error of its own is fixed. */
+const UNPLACED_PAYLOAD_TARGETS: Partial<Record<string, string>> = {
+  storeCode: PROFILE_FIELD_IDS.storeCode,
+  labels: PROFILE_FIELD_IDS.labels,
+  categories: "section-categories-heading",
+}
+
+/**
+ * Opens the disclosure that holds a summary link's field, and where the link
+ * names a group or a row rather than one control (the opening date, an
+ * attribute's choice), focuses its first control. The summary then scrolls
+ * to the target; its own focus call leaves a group's control focused.
+ */
+function revealField(fieldId: string) {
+  const target = document.getElementById(fieldId)
+  if (!target) return
+  const details = target.closest("details")
+  if (details && !details.open) details.open = true
+  if (target.matches("input, textarea, select, button, [tabindex]")) return
+  target
+    .querySelector<HTMLElement>(
+      "input:not(:disabled), textarea:not(:disabled), button:not(:disabled)"
+    )
+    ?.focus({ preventScroll: true })
+}
+
 // Server zod errors on the PUT body arrive under path ["values", <field>]; map
 // them back to form fields (mirrors lib/api/auth-errors.ts fieldErrorsFrom,
 // adapted for the nested `values` body).
@@ -210,6 +250,8 @@ type SavedReviewsGate = {
   enabled: boolean
   metadata: readonly AttributeMetadata[]
   publishReason: string | null
+  /** Google's half of the listing could not be read. */
+  googleUnread: boolean
 }
 const NO_METADATA: readonly AttributeMetadata[] = []
 
@@ -226,6 +268,10 @@ export function ProfileTab({ locationId }: { locationId: string }) {
   // The saved profile and attribute reviews live with the other saved work,
   // after the editor; the editor says whether they may load.
   const [savedReviews, setSavedReviews] = useState<SavedReviewsGate | null>(null)
+  // Lodging and service work only take up the page when there is some.
+  // While Google can't be read they stay, empty or not, so "See saved work"
+  // always lands on something.
+  const hideEmptyWork = !unreachable && !savedReviews?.googleUnread
   return (
     <LodgingWorkspaceProvider key={locationId} locationId={locationId}>
     <ServiceWorkspaceProvider locationId={locationId}>
@@ -260,8 +306,8 @@ export function ProfileTab({ locationId }: { locationId: string }) {
       <SavedListingReviews locationId={locationId} enabled={savedReviews.enabled} publishReason={savedReviews.publishReason} />
       <SavedAttributeReviews locationId={locationId} enabled={savedReviews.enabled} metadata={savedReviews.metadata} publishReason={savedReviews.publishReason} />
     </> : null}
-    <SavedLodgingWorkspace locationId={locationId} />
-    <SavedServiceWorkspace locationId={locationId} />
+    <SavedLodgingWorkspace locationId={locationId} hideWhenEmpty={hideEmptyWork} />
+    <SavedServiceWorkspace locationId={locationId} hideWhenEmpty={hideEmptyWork} />
     </div>
     <ProductCatalogueHandoff locationId={locationId} />
     </div>
@@ -378,6 +424,31 @@ function ProfileEditor({
       ),
     [business, initialAttributes, attributes]
   )
+  // The same check the review request makes, run first, so a value Google
+  // won't take (a link without https://) is named on its field instead of
+  // failing the review with a general error.
+  const attributeErrors = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const attribute of attributesUpdate.attributes) {
+      const parsed = googleAttributeWriteSchema.safeParse(attribute)
+      if (!parsed.success)
+        out[attribute.name] =
+          parsed.error.issues.find((issue) => issue.path.includes("uri"))
+            ?.message ??
+          "Google can’t accept this value. Clear it or choose another answer."
+    }
+    return out
+  }, [attributesUpdate.attributes])
+  // A listing problem the payload check can't tie to a field of its own.
+  const unplacedListingIssue = useMemo(() => {
+    const parsed = businessInformationPayloadSchema.safeParse(listingUpdate.payload)
+    if (parsed.success || Object.keys(fieldErrorsFromPayload(listingUpdate.payload)).length > 0) return null
+    const key = String(parsed.error.issues[0]?.path[0] ?? "")
+    return {
+      fieldId: UNPLACED_PAYLOAD_TARGETS[key] ?? "section-identity-heading",
+      message: `${LOCATION_FIELD_LABELS[key as BusinessMask] ?? "Profile"}: Google can’t accept this value. Change it, then review again.`,
+    }
+  }, [listingUpdate.payload])
 
   // Fields NabaPresence can push whose copy already differs from Google's.
   const driftedEditable = profile.fields.filter(
@@ -626,6 +697,13 @@ function ProfileEditor({
   // Validation shows after the first save or review attempt, then follows
   // every edit so a fixed field clears its message straight away.
   const [attempts, setAttempts] = useState(0)
+  const summaryHost = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (attempts > 0)
+      summaryHost.current
+        ?.querySelector<HTMLElement>('[data-slot="validation-summary"]')
+        ?.focus()
+  }, [attempts])
 
   // "Save here" keeps NabaPresence's copy of the name, description, phone
   // and website. The other sections have no copy here, so their edits stay
@@ -687,18 +765,44 @@ function ProfileEditor({
     if (listingIssues.openingDate) out.push({ fieldId: "profile-opening-date", message: `Opening date: ${listingIssues.openingDate}` })
     if (listingIssues.additionalPhones) out.push({ fieldId: "profile-additional-phone-0", message: `Additional phones: ${listingIssues.additionalPhones}` })
     if (listingIssues.adPhone) out.push({ fieldId: "profile-ad-phone", message: `Google Ads phone: ${listingIssues.adPhone}` })
-    if (listingIssues.addressDetails) out.push({ fieldId: "profile-address-details", message: `Additional address details: ${listingIssues.addressDetails}` })
+    if (listingIssues.addressDetails) out.push({ fieldId: "profile-address-language", message: `Additional address details: ${listingIssues.addressDetails}` })
     if (listingIssues.serviceArea) out.push({ fieldId: "profile-service-area", message: `Service area: ${listingIssues.serviceArea}` })
     if (listingIssues.relationshipData) out.push({ fieldId: "profile-chain-search", message: `Related businesses: ${listingIssues.relationshipData}` })
     if (listingIssues.sublocality) out.push({ fieldId: "profile-sublocality", message: `District or neighbourhood: ${listingIssues.sublocality}` })
     if (listingIssues.administrativeArea) out.push({ fieldId: "profile-administrative-area", message: `County or region: ${listingIssues.administrativeArea}` })
-    return { list: out, clientErrors }
-  }, [values, listingIssues])
+    // Every listing problem is listed, so the review is never refused
+    // without saying where: the copy-field mirrors once (not twice when the
+    // copy field already has its own message), then any the payload check
+    // couldn't place.
+    for (const [key, target] of Object.entries(MIRRORED_PAYLOAD_FIELDS)) {
+      const message = listingIssues[key as PayloadFieldKey]
+      if (message && target && !out.some((issue) => issue.fieldId === target.fieldId))
+        out.push({ fieldId: target.fieldId, message: `${target.label}: ${message}` })
+    }
+    if (unplacedListingIssue) out.push(unplacedListingIssue)
+    for (const attribute of attributesUpdate.attributes) {
+      const message = attributeErrors[attribute.name]
+      if (!message) continue
+      const meta = business?.attributeMetadata.find((entry) => entry.parent === attribute.name)
+      out.push({ fieldId: attributeFieldId(attribute.name), message: `${meta?.displayName ?? attribute.name}: ${message}` })
+    }
+    return {
+      list: out,
+      clientErrors,
+      // The guard under the list: nothing goes to review while any check
+      // fails, even one the list above somehow missed.
+      blocking:
+        out.length > 0 ||
+        Object.keys(listingIssues).length > 0 ||
+        unplacedListingIssue !== null ||
+        Object.keys(attributeErrors).length > 0,
+    }
+  }, [values, listingIssues, unplacedListingIssue, attributesUpdate.attributes, attributeErrors, business?.attributeMetadata])
 
   function check() {
     setAttempts((count) => count + 1)
     setErrors(issues.clientErrors)
-    return issues.list.length === 0
+    return !issues.blocking
   }
 
   /** Only the four saved-here fields decide whether "Save here" can run. */
@@ -740,9 +844,10 @@ function ProfileEditor({
   // (ProfileTab); tell it whether they may load and what they need.
   const savedReviewsEnabled = Boolean(business?.canPublish) && !editReason
   const attributeMetadata = business?.attributeMetadata ?? NO_METADATA
+  const googleUnread = Boolean(state.businessError)
   useEffect(() => {
-    onSavedReviews?.({ enabled: savedReviewsEnabled, metadata: attributeMetadata, publishReason })
-  }, [onSavedReviews, savedReviewsEnabled, attributeMetadata, publishReason])
+    onSavedReviews?.({ enabled: savedReviewsEnabled, metadata: attributeMetadata, publishReason, googleUnread })
+  }, [onSavedReviews, savedReviewsEnabled, attributeMetadata, publishReason, googleUnread])
   useEffect(() => () => onSavedReviews?.(null), [onSavedReviews])
 
   const lodgingDirty = lodgingWork?.draftStatus.dirty ?? false
@@ -754,18 +859,18 @@ function ProfileEditor({
   // Claiming "in sync" here is worse than saying nothing.
   const googleReady = business !== null
   const settled = googleReady && rows.length === 0 && !serviceStatus.dirty && !lodgingDirty
+  // A field Google won't accept doesn't disable Review: pressing it lists
+  // every problem with a link to its field, and refuses to prepare a review.
   const blocked =
     (prepareReview.isPending ? "Preparing the exact review." : publishReason) ??
-    (Object.keys(listingIssues).length > 0
-      ? "Fix the highlighted fields before publishing."
-      : // While Google's half is outstanding the Review button is already
-        // disabled by having nothing to review, and the status line beside the
-        // fields says why. A gate note here would be the same sentence twice.
-        !googleReady
-        ? null
-        : rows.length === 0
-          ? "Everything already matches Google."
-          : null)
+    // While Google's half is outstanding the Review button is already
+    // disabled by having nothing to review, and the status line beside the
+    // fields says why. A gate note here would be the same sentence twice.
+    (!googleReady
+      ? null
+      : rows.length === 0
+        ? "Everything already matches Google."
+        : null)
 
   const unsupported = business
     ? presentUnsupportedLeaves(business.location).filter((field) => field.key !== "serviceItems" || business.capabilityDetails?.fields.serviceItems?.eligibility !== "eligible")
@@ -814,6 +919,17 @@ function ProfileEditor({
     opening: googleReady && (listing.openStatus !== initialListing.openStatus || differs(listing.openingDate ?? null, initialListing.openingDate ?? null)),
     attributes: attributesUpdate.attributeMask.length > 0,
   }
+  // The word on a copy field's row says whose change it is: the operator's
+  // edit, Google's, or one saved here and not yet published. Display only;
+  // the review, `needsAck` and the publish body don't read it.
+  const fieldMark = (key: "name" | "description" | "phone" | "website") => {
+    if (!changed[key]) return undefined
+    if (values[key] !== initialValues[key]) return "Changed"
+    const status = profile.fields.find((field) => field.key === key)?.status
+    if (status === "google_dirty" || status === "conflict") return "Changed on Google"
+    if (status === "core_dirty") return "Not on Google yet"
+    return "Changed"
+  }
   const additionalPhonesChanged = differs(listing.additionalPhones ?? [], initialListing.additionalPhones ?? [])
   const chainChanged = listing.relationshipData?.parentChain !== initialListing.relationshipData?.parentChain
   const adPhoneChanged = listingUpdate.updateMask.includes("adWordsLocationExtensions")
@@ -837,6 +953,7 @@ function ProfileEditor({
         disabled={disabled}
         googleReady={googleReady}
         changed={changed}
+        marks={{ name: fieldMark("name") }}
       />
     ) },
     { id: "section-categories", label: "Categories", changed: changed.primary || changed.additional, show: googleReady, render: () => (
@@ -867,6 +984,7 @@ function ProfileEditor({
         errors={errors}
         disabled={disabled}
         changed={changed}
+        marks={{ phone: fieldMark("phone"), website: fieldMark("website") }}
       />
     ) },
     { id: "section-additional-phones", label: "Additional phones", changed: additionalPhonesChanged, show: googleReady, render: () => (
@@ -895,6 +1013,7 @@ function ProfileEditor({
         errors={errors}
         disabled={disabled}
         changed={changed.description}
+        mark={fieldMark("description")}
       />
     ) },
     { id: "profile-business-pending", show: state.businessPending, render: () => (
@@ -943,6 +1062,7 @@ function ProfileEditor({
           })
         }
         disabled={disabled}
+        errors={attempts > 0 ? attributeErrors : undefined}
       />
     ) },
     // Renders itself only for a lodging listing whose details have loaded.
@@ -982,7 +1102,7 @@ function ProfileEditor({
   const saveReason =
     editReason ??
     (!valuesDirty && (listingDirty || attributesDirty)
-      ? "Additional phones, categories, related businesses, address, service areas, opening state and attributes go to Google when you publish. Only the name, description, primary phone and website are saved here."
+      ? "Only the name, description, primary phone and website are saved here. Your other edits go to Google when you review and publish."
       : null)
 
   // No bar when there is nothing to save, publish or discard and nothing it
@@ -1070,10 +1190,17 @@ function ProfileEditor({
         {/* Settings groups: flat on a phone, so the space between them is
             what sets one group apart from the next. */}
         <div className="@container/profile-body flex min-w-0 flex-col gap-(--np-gap-section)">
-          <ValidationSummary
-            errors={attempts > 0 ? issues.list : []}
-            focusKey={attempts}
-          />
+          <div ref={summaryHost} className="contents">
+            <ValidationSummary
+              errors={attempts > 0 ? issues.list : []}
+              // Focus moves to the summary on each Review or Save press
+              // only (the `attempts` effect). The list follows every edit,
+              // so focusing it whenever it reappeared took the caret out of
+              // the field being typed in.
+              autoFocus={false}
+              onNavigate={revealField}
+            />
+          </div>
 
           {blocks.map((block) => block.show ? <Fragment key={block.id}>{block.render()}</Fragment> : null)}
         </div>
@@ -1110,7 +1237,7 @@ function ProfileEditor({
         error={flow.error}
         // Two-person gating is unchanged: any prepared request this person
         // can't approve keeps the whole publish off.
-        publishDisabledReason={publishReason ?? (reviewFingerprint !== fingerprint ? "The draft or Google baseline changed. Close this review and review again." : [listingReview, attributeReview].some(waitsForApprover) ? "A different authorised user must approve this saved review." : null)}
+        publishDisabledReason={publishReason ?? (reviewFingerprint !== fingerprint ? "Google or your edits changed since this review opened. Close it and choose Review changes again." : [listingReview, attributeReview].some(waitsForApprover) ? "Publishing unlocks once they approve." : null)}
       />
     </EditorFrame>
   )

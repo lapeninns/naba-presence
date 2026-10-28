@@ -47,12 +47,18 @@ export const useLodgingWorkspace = () => useContext(Context)
 /** The jump target for saved lodging work on the profile page. */
 export const SAVED_LODGING_ID = "section-saved-lodging"
 
-export function SavedLodgingWorkspace({ locationId }: { readonly locationId: string }) {
+export function SavedLodgingWorkspace({ locationId, hideWhenEmpty }: { readonly locationId: string; readonly hideWhenEmpty?: boolean }) {
   const caps = useLocationCapabilities(locationId).data
-  return <SavedLodgingWork locationId={locationId} enabled={Boolean(caps?.canEditCanonical)} disabled={!caps?.canPublish || Boolean(resourceDisabledReason(caps, "industry", true))} />
+  return <SavedLodgingWork locationId={locationId} enabled={Boolean(caps?.canEditCanonical)} disabled={!caps?.canPublish || Boolean(resourceDisabledReason(caps, "industry", true))} hideWhenEmpty={hideWhenEmpty} />
 }
 
-export function SavedLodgingWork({ locationId, enabled, disabled }: { readonly locationId: string; readonly enabled: boolean; readonly disabled: boolean }) {
+/**
+ * `hideWhenEmpty`: draw nothing while the list loads or when it is empty, so
+ * a listing with no lodging work doesn't end with an empty section. A
+ * failed read still shows, and so does the review sheet the lodging section
+ * opens through this workspace.
+ */
+export function SavedLodgingWork({ locationId, enabled, disabled, hideWhenEmpty = false }: { readonly locationId: string; readonly enabled: boolean; readonly disabled: boolean; readonly hideWhenEmpty?: boolean }) {
   const workflow = useLodgingWorkspace()
   const query = useInfiniteQuery({
     queryKey: [...queryKeys.locationIndustry(locationId), "workflows"], initialPageParam: "",
@@ -65,7 +71,11 @@ export function SavedLodgingWork({ locationId, enabled, disabled }: { readonly l
   }, [hasSavedWork])
   if (!enabled || !workflow) return null
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
-  return <div id={SAVED_LODGING_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
+  const sheet = workflow.review ? <LodgingApprovalSheet workflow={workflow} disabled={disabled} /> : null
+  // The sheet keeps its place in the tree whether the list shows or not, so
+  // a review opened while the list was hidden isn't remounted when it lands.
+  const hidden = hideWhenEmpty && (query.isPending || (!query.isError && items.length === 0))
+  return <>{hidden ? null : <div id={SAVED_LODGING_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
     <SavedWorkList
       id={`${SAVED_LODGING_ID}-heading`}
       headingLevel="h3"
@@ -91,6 +101,5 @@ export function SavedLodgingWork({ locationId, enabled, disabled }: { readonly l
       loadingMore={query.isFetchingNextPage}
       onLoadMore={() => void query.fetchNextPage()}
     />
-    {workflow.review ? <LodgingApprovalSheet workflow={workflow} disabled={disabled} /> : null}
-  </div>
+  </div>}{sheet}</>
 }

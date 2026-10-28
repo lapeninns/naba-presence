@@ -29,7 +29,12 @@ export { serviceReviewRows }
 /** The jump target for saved service work on the profile page. */
 export const SAVED_SERVICES_ID = "section-saved-services"
 
-export function SavedServiceWorkspace({ locationId }: { readonly locationId: string }) {
+/**
+ * `hideWhenEmpty`: draw no section while the list loads or when it is empty.
+ * A failed read still shows, and the review sheet stays mounted: the
+ * services section opens its reviews through this workspace.
+ */
+export function SavedServiceWorkspace({ locationId, hideWhenEmpty = false }: { readonly locationId: string; readonly hideWhenEmpty?: boolean }) {
   const caps = useLocationCapabilities(locationId).data
   const workflow = useServiceWorkspace()
   const categories = useQueryClient().getQueryData<Awaited<ReturnType<typeof fetchServiceMetadata>>>([...queryKeys.locationBusinessInformation(locationId), "services"])?.categories ?? []
@@ -40,7 +45,11 @@ export function SavedServiceWorkspace({ locationId }: { readonly locationId: str
   })
   if (!enabled || !workflow) return null
   const items = query.data?.pages.flatMap((page) => page.items) ?? [], reviewRows = serviceReviewRows(workflow.review, categories)
-  return <div id={SAVED_SERVICES_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
+  const sheet = <ServiceApprovalSheet workflow={workflow} rows={reviewRows ?? []} disabled={!caps?.canPublish || !reviewRows || Boolean(resourceDisabledReason(caps, "businessInformation", true))} />
+  // The sheet keeps its place in the tree whether the list shows or not, so
+  // a review opened while the list was hidden isn't remounted when it lands.
+  const hidden = hideWhenEmpty && (query.isPending || (!query.isError && items.length === 0))
+  return <>{hidden ? null : <div id={SAVED_SERVICES_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
     <SavedWorkList
       id={`${SAVED_SERVICES_ID}-heading`}
       headingLevel="h3"
@@ -66,6 +75,5 @@ export function SavedServiceWorkspace({ locationId }: { readonly locationId: str
       loadingMore={query.isFetchingNextPage}
       onLoadMore={() => void query.fetchNextPage()}
     />
-    <ServiceApprovalSheet workflow={workflow} rows={reviewRows ?? []} disabled={!caps?.canPublish || !reviewRows || Boolean(resourceDisabledReason(caps, "businessInformation", true))} />
-  </div>
+  </div>}{sheet}</>
 }

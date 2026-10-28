@@ -54,8 +54,8 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
       <FieldDescription>Choose the exact chain from Google&apos;s results. Search results do not confirm this location&apos;s affiliation; review and publish to request the change.</FieldDescription>
       <FieldError />
     </Field>
-    {searched && <div className="flex flex-col gap-2" aria-label="Chain search results">
-      {search.isFetching ? <p role="status" className="text-ui text-ink-muted">Searching Google chains...</p>
+    {searched && <div role="group" className="flex flex-col gap-2" aria-label="Chain search results">
+      {search.isFetching ? <p role="status" className="text-ui text-ink-muted">Searching Google chains…</p>
         : search.isError || (search.data && choices === null) ? <InlineError>Chain results could not be loaded. Search again to retry.</InlineError>
         : choices?.length === 0 ? <p role="status" className="text-ui text-ink-muted">No chains found for {searched}. Try another name.</p>
         : choices?.length ? <RowList>{choices.map((choice) => <ItemRow key={choice.name} title={choice.label} detail={choice.name}

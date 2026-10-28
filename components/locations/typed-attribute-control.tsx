@@ -49,6 +49,15 @@ import { enumOptionsFor } from "@/lib/locations/google-values"
  */
 type Answer = boolean | null
 
+/**
+ * The id the profile's validation summary links to for one attribute: the
+ * URL field itself, or the row holding the choice (the summary then moves
+ * focus to its first control).
+ */
+export function attributeFieldId(name: string): string {
+  return `attribute-${name.replace(/[^A-Za-z0-9_-]/g, "-")}`
+}
+
 /** The answer an attribute value holds: `null` is "Not set". */
 function answerOf(value: unknown): Answer {
   return value === true ? true : value === false ? false : null
@@ -63,6 +72,7 @@ export function TypedAttributeControl({
   changed = false,
   layout = "stack",
   description,
+  error,
 }: {
   metadata: AttributeMetadata
   attribute: GoogleAttribute | undefined
@@ -76,6 +86,11 @@ export function TypedAttributeControl({
   layout?: "stack" | "row"
   /** A muted line under the label. Drawn in the `row` layout only. */
   description?: ReactNode
+  /**
+   * What Google won't accept about this value, said under the control and
+   * tied to it. The profile passes it once Review has been tried.
+   */
+  error?: string
 }) {
   const labelId = useId()
   const [newUri, setNewUri] = useState("")
@@ -88,8 +103,20 @@ export function TypedAttributeControl({
   const descriptionId = useId()
   // The muted line describes the control (aria-describedby); it is never
   // part of the label or legend, so the accessible name stays the label.
-  const describedBy = row && description ? descriptionId : undefined
-  const descriptionLine = describedBy ? (
+  const descriptionRef = row && description ? descriptionId : undefined
+  const fieldId = attributeFieldId(name)
+  const errorId = `${fieldId}-error`
+  // Merged by hand: an explicit aria-describedby on a control would replace
+  // any wiring a wrapping Field adds.
+  const describedBy =
+    [descriptionRef, error ? errorId : null].filter(Boolean).join(" ") ||
+    undefined
+  const errorLine = error ? (
+    <p id={errorId} className="basis-full text-caption text-danger-ink">
+      {error}
+    </p>
+  ) : null
+  const descriptionLine = descriptionRef ? (
     <span id={descriptionId} className="text-caption text-ink-muted">
       {description}
     </span>
@@ -121,7 +148,7 @@ export function TypedAttributeControl({
   if (!metadata.deprecated && metadata.valueType === "REPEATED_ENUM" && enumOptions.length > 0) {
     const selected = attribute?.repeatedEnumValue?.setValues ?? []
     const unselected = attribute?.repeatedEnumValue?.unsetValues ?? []
-    return <Fieldset disabled={disabled} className="w-full" aria-describedby={describedBy}>
+    return <Fieldset id={fieldId} disabled={disabled} className="w-full" aria-describedby={describedBy}>
       <FieldsetLegend className="mb-2">{labelLine}</FieldsetLegend>
       {descriptionLine}
       {enumOptions.map((option) => {
@@ -146,13 +173,14 @@ export function TypedAttributeControl({
         </div>
       })}
       {(selected.length > 0 || unselected.length > 0) && onClear && !disabled ? <Button type="button" variant="ghost" size="sm" className="self-start" onClick={() => onClear(name)} aria-label={`Clear ${label}`}>Clear all answers</Button> : null}
+      {errorLine}
     </Fieldset>
   }
 
   if (kind === "bool") {
     const answer = answerOf(attribute?.values?.[0])
     return (
-      <div className={rowClass}>
+      <div id={fieldId} className={rowClass}>
         {labelBlock}
         {onClear ? (
           <TriState
@@ -193,6 +221,7 @@ export function TypedAttributeControl({
             </SegmentedControlItem>
           </SegmentedControl>
         )}
+        {errorLine}
       </div>
     )
   }
@@ -200,7 +229,7 @@ export function TypedAttributeControl({
     const value = attribute?.values?.[0]
     const current = typeof value === "string" ? value : ""
     return (
-      <div className={rowClass}>
+      <div id={fieldId} className={rowClass}>
         {labelBlock}
         <span className="flex w-full items-center gap-2 sm:w-auto">
         {current && onClear && !disabled ? (
@@ -213,7 +242,7 @@ export function TypedAttributeControl({
           }}
           disabled={disabled}
         >
-          <SelectTrigger aria-label={label} aria-describedby={describedBy} className="w-full sm:w-70">
+          <SelectTrigger aria-label={label} aria-describedby={describedBy} aria-invalid={error ? true : undefined} className="w-full sm:w-70">
             <SelectValue placeholder="Not set" />
           </SelectTrigger>
           <SelectContent title={label}>
@@ -225,6 +254,7 @@ export function TypedAttributeControl({
           </SelectContent>
         </Select>
         </span>
+        {errorLine}
       </div>
     )
   }
@@ -232,11 +262,17 @@ export function TypedAttributeControl({
     if (metadata.repeatable || (attribute?.uriValues?.length ?? 0) > 1) {
       const uris = attribute?.uriValues ?? []
       const canAdd = metadata.repeatable === true && googleAttributeWriteSchema.safeParse({ name, uriValues: [{ uri: newUri }] }).success
-      return <Fieldset disabled={disabled} className="w-full" aria-describedby={describedBy}>
+      // The summary's link lands on the first link; each link Google can't
+      // take is marked and described by the one message under the list.
+      const invalidAt = (uri: string) => Boolean(error) && !googleAttributeWriteSchema.safeParse({ name, uriValues: [{ uri }] }).success
+      const anyInvalid = uris.some((entry) => invalidAt(entry.uri))
+      return <Fieldset disabled={disabled} className="w-full" aria-describedby={anyInvalid ? descriptionRef : describedBy}>
         <FieldsetLegend className="mb-2">{labelLine}</FieldsetLegend>
         {descriptionLine}
         {uris.map((entry, index) => <div key={index} className="flex items-center gap-2">
-          <Input type="url" inputMode="url" value={entry.uri} aria-label={`${label} URL ${index + 1}`} disabled={disabled} onChange={(event) => onChange({ name, uriValues: uris.map((item, position) => position === index ? { ...item, uri: event.target.value } : item) })} />
+          <Input id={index === 0 ? fieldId : undefined} type="url" inputMode="url" value={entry.uri} aria-label={`${label} URL ${index + 1}`}
+            aria-invalid={invalidAt(entry.uri) ? true : undefined} aria-describedby={invalidAt(entry.uri) ? errorId : undefined}
+            disabled={disabled} onChange={(event) => onChange({ name, uriValues: uris.map((item, position) => position === index ? { ...item, uri: event.target.value } : item) })} />
           <Button type="button" variant="ghost" size="sm" disabled={disabled} aria-label={`Remove ${label} URL ${index + 1}`} onClick={() => {
             const remaining = uris.filter((_, position) => position !== index)
             if (!remaining.length && onClear) onClear(name)
@@ -250,6 +286,7 @@ export function TypedAttributeControl({
             setNewUri("")
           }}>Add URL</Button>
         </div> : null}
+        {errorLine}
       </Fieldset>
     }
     const uri = attribute?.uriValues?.[0]?.uri ?? ""
@@ -257,6 +294,7 @@ export function TypedAttributeControl({
       <div className={rowClass}>
         {labelBlock}
         <Input
+          id={fieldId}
           type="url"
           value={uri}
           disabled={disabled}
@@ -264,6 +302,7 @@ export function TypedAttributeControl({
           placeholder="https://…"
           aria-label={label}
           aria-describedby={describedBy}
+          aria-invalid={error ? true : undefined}
           className="w-full sm:w-70"
           onChange={(event) => {
             if (!event.target.value && onClear) {
@@ -278,6 +317,7 @@ export function TypedAttributeControl({
             })
           }}
         />
+        {errorLine}
       </div>
     )
   }
