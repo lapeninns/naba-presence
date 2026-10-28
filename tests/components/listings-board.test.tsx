@@ -545,10 +545,16 @@ describe("ListingsBoard", () => {
     expect(
       screen.getByRole("searchbox", { name: "Search listings" })
     ).toHaveValue("Old Crown")
+    // The button went with the empty state: focus lands on the search.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("searchbox", { name: "Search listings" })
+      ).toHaveFocus()
+    )
     expect(replace).toHaveBeenLastCalledWith("/listings?q=Old+Crown")
   })
 
-  it("asks to check the spelling when the search matches nothing anywhere", () => {
+  it("asks to check the spelling when the search matches nothing anywhere", async () => {
     search = "q=zzzz"
     stub({
       entries,
@@ -562,9 +568,12 @@ describe("ListingsBoard", () => {
     expect(
       screen.queryByRole("button", { name: /^Show/ })
     ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Clear filters" })
-    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("searchbox", { name: "Search listings" })
+      ).toHaveFocus()
+    )
   })
 
   it("names the client when a client with no listings leaves nothing", () => {
