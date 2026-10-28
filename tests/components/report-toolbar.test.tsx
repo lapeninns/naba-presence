@@ -330,3 +330,72 @@ describe("LocationReport period", () => {
     expect(scope.closest(".hidden")).toBeNull()
   })
 })
+
+describe("LocationReport ways back and carried period", () => {
+  it.each([
+    [
+      "locationId=l1&range_kw=6m",
+      "This report counts in days: showing the last 90 days.",
+    ],
+    [
+      "locationId=l1&range_kw=1m",
+      "This report counts in days: showing the last 28 days.",
+    ],
+    [
+      "locationId=l1&range=6m",
+      "This report counts in days: showing the last 90 days.",
+    ],
+  ])(
+    "says %s was carried over, in its own words, at every width",
+    async (query, note) => {
+      stubDirectory()
+      search = query
+      renderView()
+      const said = await screen.findByText(note)
+      expect(said).toHaveAttribute("role", "status")
+      expect(said.closest(".md\\:hidden")).toBeNull()
+      expect(
+        screen.queryByText(/This tab counts in days/)
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it.each(["locationId=l1&range=90d", "locationId=l1&range_kw=12m"])(
+    "says nothing for %s, where nothing was carried",
+    async (query) => {
+      stubDirectory()
+      search = query
+      renderView()
+      expect(await screen.findByText(/^Reporting on/)).toBeInTheDocument()
+      expect(screen.queryByText(/counts in days/)).not.toBeInTheDocument()
+    }
+  )
+
+  it("goes back to the whole client on the same tab and period", async () => {
+    stubDirectory()
+    search = "locationId=l1&tab=google&range=12m"
+    renderView()
+    const [whole] = await screen.findAllByRole("link", { name: "Whole client" })
+    expect(whole).toHaveAttribute(
+      "href",
+      "/reports?tab=google&range=12m&clientId=c1"
+    )
+  })
+
+  it("says it can't find a listing, and the way back keeps the tab and period", async () => {
+    stubDirectory()
+    search = "locationId=zz&tab=google&range=90d"
+    renderView()
+    expect(
+      await screen.findByRole("heading", { name: "We can’t find this listing" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /belongs to a client you can’t see\. No figures are shown for it\./
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Show all clients" })
+    ).toHaveAttribute("href", "/reports?tab=google&range=90d")
+  })
+})

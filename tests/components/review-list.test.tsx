@@ -438,9 +438,9 @@ describe("ReviewList", () => {
         onSelect={() => true}
       />
     )
-    expect(screen.getByLabelText("Approval required")).toHaveTextContent(
-      "For approval"
-    )
+    expect(
+      screen.getByLabelText("Waiting for your approval")
+    ).toHaveTextContent("Your approval")
 
     rerender(
       <ReviewList
@@ -896,6 +896,66 @@ describe("ReviewList — triage from the row", () => {
       screen.queryByRole("button", { name: /^Actions for / })
     ).not.toBeInTheDocument()
   })
+
+  // Every row in Done is already dealt with, so none offers the mark.
+  it("offers no row ⋯ or swipe in the Done queue", () => {
+    render(
+      <ReviewList
+        reviews={[row({ id: "a" }), row({ id: "b" })]}
+        selectedId={undefined}
+        queue="done"
+        onSelect={() => true}
+        selection={{
+          selected: new Set(),
+          toggle: vi.fn(),
+          extendTo: vi.fn(),
+          selectMode: false,
+        }}
+      />
+    )
+    expect(
+      screen.queryByRole("button", { name: /^Actions for / })
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector('[data-slot="list-row-swipe"]')
+    ).not.toBeInTheDocument()
+  })
+
+  // The ⋯ menu hands focus back to its trigger inside the row, and the row
+  // then leaves the list: the row now in its place takes focus.
+  it("keeps the keyboard's place when a row leaves after its ⋯ action", async () => {
+    const user = userEvent.setup()
+    const rows = [row({ id: "a" }), row({ id: "b" }), row({ id: "c" })]
+    const ui = (reviews: ReviewRow[]) => (
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster>
+          <ReviewList
+            reviews={reviews}
+            selectedId={undefined}
+            onSelect={() => true}
+            selection={{
+              selected: new Set(),
+              toggle: vi.fn(),
+              extendTo: vi.fn(),
+              selectMode: false,
+            }}
+          />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(ui(rows))
+    const actions = screen.getAllByRole("button", { name: /^Actions for / })
+    await user.click(actions[1])
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
+    // The refetch drops "b", and focus with it.
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    rerender(ui([rows[0], rows[2]]))
+    const remaining = document.querySelectorAll('[data-slot="review-row"]')
+    await waitFor(() => expect(remaining[1]).toHaveFocus())
+  })
 })
 
 // Notion Mail's row (REFERENCE-BRIEF §2.1): three lines, avatar-led, with a
@@ -970,6 +1030,26 @@ describe("ReviewList row anatomy", () => {
       "Needs reply"
     )
     expect(screen.getByLabelText("Live on Google")).toHaveTextContent("Replied")
+  })
+
+  // A row in Done that is not published is there only because someone
+  // marked it, so it says that rather than "Needs reply".
+  it("says 'No reply needed' for a marked review in Done", () => {
+    render(
+      <ReviewList
+        reviews={[row({ id: "a", workflowStatus: "new" })]}
+        selectedId={undefined}
+        queue="done"
+        onSelect={() => true}
+      />
+    )
+    const marked = screen.getByRole("button", { name: /^Sam Traveller/ })
+    expect(marked).toHaveAttribute("data-emphasis", "read")
+    expect(marked.querySelector('[data-slot="list-row-unread-dot"]')).toBeNull()
+    expect(
+      screen.getByLabelText("Marked as no reply needed")
+    ).toHaveTextContent("No reply needed")
+    expect(screen.queryByText("Needs reply")).not.toBeInTheDocument()
   })
 
   it("speaks 'Needs reply' once: in words where the pill is dropped, never twice", () => {

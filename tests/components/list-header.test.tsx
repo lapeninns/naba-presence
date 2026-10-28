@@ -182,7 +182,7 @@ describe("ListHeader", () => {
     const user = userEvent.setup()
     renderHeader()
     const all = screen.getByRole("checkbox", {
-      name: "Select every review in this view",
+      name: "Select all loaded reviews",
     })
     await user.click(all)
     expect(readout()).toBe("a,b · off")
@@ -202,7 +202,7 @@ describe("ListHeader", () => {
     // (selectionHitAreaClassName) is the target.
     expect(column.tagName).toBe("SPAN")
     const box = screen.getByRole("checkbox", {
-      name: "Select every review in this view",
+      name: "Select all loaded reviews",
     })
     expect(box).toHaveClass(...selectionHitAreaClassName.split(" "))
   })
@@ -213,7 +213,7 @@ describe("ListHeader", () => {
     await user.click(screen.getByRole("button", { name: "Select" }))
     expect(readout()).toBe("none · on")
     await user.click(
-      screen.getByRole("checkbox", { name: "Select every review in this view" })
+      screen.getByRole("checkbox", { name: "Select all loaded reviews" })
     )
     // Cancel ends the mode and drops what was ticked.
     const cancel = screen.getByRole("button", { name: "Cancel selection" })
@@ -240,7 +240,7 @@ describe("ListHeader", () => {
       screen.queryByText("2 reviews", { selector: "span:not([role=status])" })
     ).toBeNull()
     await user.click(
-      screen.getByRole("checkbox", { name: "Select every review in this view" })
+      screen.getByRole("checkbox", { name: "Select all loaded reviews" })
     )
     // The header owns the count and the Cancel: the selection bar below
     // holds only the actions, so there is one of each.
@@ -266,7 +266,7 @@ describe("ListHeader", () => {
     const select = screen.getByRole("button", { name: "Select" })
     expect(select).toHaveClass("desk:hidden")
     await user.click(
-      screen.getByRole("checkbox", { name: "Select every review in this view" })
+      screen.getByRole("checkbox", { name: "Select all loaded reviews" })
     )
     expect(readout()).toBe("a,b · off")
     const cancel = screen.getByRole("button", { name: "Cancel selection" })
@@ -344,7 +344,7 @@ describe("ListHeader", () => {
     const user = userEvent.setup()
     renderHeader()
     await user.click(
-      screen.getByRole("checkbox", { name: "Select every review in this view" })
+      screen.getByRole("checkbox", { name: "Select all loaded reviews" })
     )
     const cancel = screen.getByRole("button", { name: "Cancel selection" })
     cancel.focus()
@@ -353,7 +353,7 @@ describe("ListHeader", () => {
     // Cancel is folded away on a desk once nothing is ticked; focus does
     // not fall to <body> with it.
     expect(
-      screen.getByRole("checkbox", { name: "Select every review in this view" })
+      screen.getByRole("checkbox", { name: "Select all loaded reviews" })
     ).toHaveFocus()
     expect(document.body).not.toHaveFocus()
   })

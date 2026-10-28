@@ -1200,3 +1200,234 @@ describe("InboxView — list stability", () => {
     expect(observers).toBe(settled)
   })
 })
+
+// Loose on purpose, like the casts above: only the fields the inbox reads.
+function mockList(result: Record<string, unknown>) {
+  vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+    data: { pages: [{ items: [row()], nextCursor: null }] },
+    isPending: false,
+    isError: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+    refetch: vi.fn(),
+    ...result,
+  } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+}
+
+function mockCounts(
+  byQueue: Partial<ReviewCounts["byQueue"]>,
+  extra: Partial<ReviewCounts> = {}
+) {
+  const total = Object.values(byQueue).reduce((sum, n) => sum + (n ?? 0), 0)
+  vi.spyOn(countsHook, "useReviewCounts").mockReturnValue({
+    data: {
+      total,
+      byStatus: {},
+      byQueue: {
+        needs_reply: 0,
+        approval: 0,
+        awaiting_my_approval: 0,
+        awaiting_others: 0,
+        publishing: 0,
+        failed: 0,
+        done: 0,
+        all: total,
+        ...byQueue,
+      },
+      ...extra,
+    },
+    isPending: false,
+  } as unknown as UseQueryResult<ReviewCounts>)
+}
+
+const EMPTY_PAGE = { pages: [{ items: [], nextCursor: null }] }
+
+// A failed refresh or next page keeps the rows already loaded: TanStack's
+// `isError` is true for both, and it used to replace the list with the
+// first-load error.
+describe("InboxView — a failure over loaded rows", () => {
+  it("keeps the rows when the next page fails, and offers it again", async () => {
+    const user = userEvent.setup()
+    const fetchNextPage = vi.fn()
+    mockList({
+      data: { pages: [{ items: [row()], nextCursor: "c" }] },
+      isError: true,
+      isFetchNextPageError: true,
+      hasNextPage: true,
+      fetchNextPage,
+    })
+    renderInbox()
+    expect(
+      screen.getByRole("button", { name: /^Sam Traveller/ })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("We could not load your reviews.")
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "We couldn’t load more reviews."
+    )
+    await user.click(screen.getByRole("button", { name: "Try again" }))
+    expect(fetchNextPage).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the rows when a refresh fails, and says so", async () => {
+    const user = userEvent.setup()
+    const refetch = vi.fn()
+    mockList({ isError: true, isRefetchError: true, refetch })
+    const view = renderInbox()
+    expect(
+      screen.getByRole("button", { name: /^Sam Traveller/ })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Queue unavailable")).not.toBeInTheDocument()
+    const line = view.container.querySelector<HTMLElement>(
+      '[data-slot="inbox-refresh-failed"]'
+    )!
+    expect(within(line).getByRole("status")).toHaveTextContent(
+      /^Couldn’t refresh this list\./
+    )
+    await user.click(within(line).getByRole("button", { name: "Try again" }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("InboxView — load more", () => {
+  it("names what it loads and stays focusable while it loads", () => {
+    mockList({
+      data: { pages: [{ items: [row()], nextCursor: "c" }] },
+      hasNextPage: true,
+      isFetchingNextPage: true,
+    })
+    renderInbox()
+    const button = screen.getByRole("button", { name: "Loading…" })
+    expect(button).toHaveAttribute("aria-disabled", "true")
+    expect(button).not.toBeDisabled()
+  })
+
+  it("moves focus to the end of the list when the last page lands", async () => {
+    const user = userEvent.setup()
+    mockList({
+      data: { pages: [{ items: [row()], nextCursor: "c" }] },
+      hasNextPage: true,
+    })
+    const view = renderInbox()
+    await user.click(screen.getByRole("button", { name: "Load more reviews" }))
+    mockList({
+      data: {
+        pages: [
+          { items: [row()], nextCursor: "c" },
+          { items: [row({ id: "rev-2" })], nextCursor: null },
+        ],
+      },
+    })
+    view.rerender(inboxUi())
+    const end = view.container.querySelector('[data-slot="inbox-list-end"]')
+    // The test URL carries a rating, so the end says "that matches".
+    expect(end).toHaveTextContent("That’s every review that matches.")
+    await waitFor(() => expect(end).toHaveFocus())
+  })
+})
+
+describe("InboxView — an empty queue", () => {
+  it("is not a filtered list because of a sort, and points at work, not Done", () => {
+    currentParams = new URLSearchParams("queue=failed&sort=rating_asc")
+    mockList({ data: EMPTY_PAGE })
+    mockCounts({ needs_reply: 4, done: 9 })
+    renderInbox()
+    expect(screen.getByText("No failed publishes.")).toBeInTheDocument()
+    expect(
+      screen.queryByText("No reviews match these filters.")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Go to Needs reply (4)" })
+    ).toBeInTheDocument()
+  })
+
+  it("tells an approver about the replies waiting for them", async () => {
+    const user = userEvent.setup()
+    currentParams = new URLSearchParams("")
+    mockList({ data: EMPTY_PAGE })
+    mockCounts({ awaiting_my_approval: 1, approval: 1 }, { approvableByMe: 1 })
+    renderInbox()
+    expect(
+      screen.getByText("1 reply is waiting for your approval.")
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Review your approvals (1)" })
+    )
+    expect(replace).toHaveBeenLastCalledWith(
+      expect.stringContaining("queue=awaiting_my_approval")
+    )
+  })
+
+  it("says nothing is open beside it, and promises no shortcut", () => {
+    currentParams = new URLSearchParams("queue=failed")
+    mockList({ data: EMPTY_PAGE })
+    mockCounts({ needs_reply: 2 })
+    renderInbox()
+    const inspector = screen.getByRole("region", { name: "Selected review" })
+    expect(
+      within(inspector).getByRole("heading", { name: "No review open" })
+    ).toBeInTheDocument()
+    expect(inspector).not.toHaveTextContent(/press J/i)
+  })
+
+  it("is not called empty while a switch from an empty queue loads", () => {
+    currentParams = new URLSearchParams("")
+    mockList({ data: EMPTY_PAGE, isPlaceholderData: true })
+    mockCounts({ needs_reply: 2 })
+    const view = renderInbox()
+    expect(
+      view.container.querySelector('[data-slot="review-rows-skeleton"]')
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Nothing needs a reply.")).not.toBeInTheDocument()
+    const inspector = screen.getByRole("region", { name: "Selected review" })
+    expect(inspector).toHaveTextContent("Loading reviews")
+  })
+})
+
+describe("InboxView — a search that matches nothing", () => {
+  it("writes /inbox, not /inbox?, when Clear all filters leaves nothing", async () => {
+    const user = userEvent.setup()
+    currentParams = new URLSearchParams("rating=1")
+    mockList({ data: EMPTY_PAGE })
+    mockCounts({ needs_reply: 2 })
+    renderInbox()
+    expect(
+      screen.getByText(
+        "Needs reply has 2 reviews, but none match. Remove a filter above, or clear them all."
+      )
+    ).toBeInTheDocument()
+    await user.click(
+      within(screen.getByRole("region", { name: "Reviews" })).getByRole(
+        "button",
+        { name: "Clear all filters" }
+      )
+    )
+    expect(replace).toHaveBeenLastCalledWith("/inbox")
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Filters/ })).toHaveFocus()
+    )
+  })
+
+  it("names the search and the queue, and clears it with focus on Filters", async () => {
+    const user = userEvent.setup()
+    currentParams = new URLSearchParams("search=parking")
+    mockList({ data: EMPTY_PAGE })
+    mockCounts({ needs_reply: 2 })
+    renderInbox()
+    expect(screen.getByText("No reviews match “parking”")).toBeInTheDocument()
+    expect(screen.getByText(/^Nothing in Needs reply matches\./)).toBeVisible()
+    // The empty state's own, beside the search field's.
+    await user.click(
+      within(screen.getByRole("region", { name: "Reviews" })).getByRole(
+        "button",
+        { name: "Clear search" }
+      )
+    )
+    expect(replace).toHaveBeenLastCalledWith("/inbox")
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Filters/ })).toHaveFocus()
+    )
+  })
+})

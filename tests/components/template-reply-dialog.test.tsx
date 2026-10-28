@@ -70,7 +70,10 @@ function draftFor(id: string, verdict = "pass") {
   }
 }
 
-function renderDialog(rows: ReviewRow[], options: { bulkEngine?: boolean } = {}) {
+function renderDialog(
+  rows: ReviewRow[],
+  options: { bulkEngine?: boolean } = {}
+) {
   const onFinished = vi.fn()
   const onOpenChange = vi.fn()
   render(
@@ -131,9 +134,13 @@ describe("TemplateReplyDialog", () => {
     await screen.findByText(/drafts are checked and ready/)
     expect(generateOrSaveDraft).toHaveBeenCalledTimes(2)
     // Each draft carries its own intent (the draft route's generation key).
-    expect(generateOrSaveDraft).toHaveBeenCalledWith("a", {}, {
-      intentId: expect.any(String),
-    })
+    expect(generateOrSaveDraft).toHaveBeenCalledWith(
+      "a",
+      {},
+      {
+        intentId: expect.any(String),
+      }
+    )
     const [first, second] = generateOrSaveDraft.mock.calls.map(
       (call) => call[2].intentId
     )
@@ -166,7 +173,9 @@ describe("TemplateReplyDialog", () => {
       )
     renderDialog([row("a")], { bulkEngine: true })
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await user.click(await screen.findByRole("button", { name: "Reply to 1" }))
+      await user.click(
+        await screen.findByRole("button", { name: "Send 1 reply" })
+      )
       await waitFor(() =>
         expect(runBulkReviewAction).toHaveBeenCalledTimes(attempt + 1)
       )
@@ -182,6 +191,34 @@ describe("TemplateReplyDialog", () => {
     expect(intents[1]).toBe(intents[0])
     // A definite refusal started nothing: the next press is a new start.
     expect(intents[2]).not.toBe(intents[1])
+  })
+
+  it("says the engine's one press sends them all, shows it queuing, and words a failed start", async () => {
+    const user = userEvent.setup()
+    let refuse: (error: unknown) => void = () => {}
+    runBulkReviewAction.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject
+        })
+    )
+    renderDialog([row("a"), row("b")], { bulkEngine: true })
+    expect(screen.getByText(/There’s no second step/)).toBeInTheDocument()
+    const send = screen.getByRole("button", { name: "Send 2 replies" })
+    await user.click(send)
+    // Never a blank body or an empty footer while the one request is out.
+    expect(await screen.findByText("Queuing 2 replies…")).toHaveAttribute(
+      "role",
+      "status"
+    )
+    const queuing = screen.getByRole("button", { name: "Queuing…" })
+    expect(queuing).toHaveAttribute("aria-busy", "true")
+    refuse(new ApiClientError(503, "publishing_paused", "Paused"))
+    // The batch never started, so it is not "Stopped".
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent(/Press Send again when you’re ready/)
+    expect(alert).not.toHaveTextContent(/Stopped:/)
+    expect(screen.getByRole("button", { name: "Send 2 replies" })).toBeEnabled()
   })
 
   it("holds back drafts that fail their checks", async () => {

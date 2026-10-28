@@ -115,7 +115,7 @@ const PENDING_ACTION_LABELS: Partial<Record<ReplyPendingKind, string>> = {
   publish: "Publishing…",
   submit: "Submitting…",
   approve: "Approving…",
-  reject: "Rejecting…",
+  reject: "Sending back…",
 }
 
 const VERIFIED = new Set(["pass", "warn"])
@@ -314,7 +314,7 @@ const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
   publish: ["Publishing reply", "Publishing"],
   submit: ["Submitting for approval", "Submitting"],
   approve: ["Recording your approval", "Approving"],
-  reject: ["Sending the reply back", "Rejecting"],
+  reject: ["Sending the reply back", "Sending back"],
   save: ["Saving and checking the draft", "Saving draft"],
   generate: ["Generating a draft", "Generating"],
 }
@@ -364,7 +364,12 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
     // The draft's author under two-person approval may send it back but
     // not approve it, so it still waits for another approver.
     return scope === "me" && input.capabilities.canApprove !== false
-      ? status("Approval required", "For approval", "caution", "check-circle")
+      ? status(
+          "Waiting for your approval",
+          "Your approval",
+          "caution",
+          "check-circle"
+        )
       : status(
           "Waiting for another approver",
           "Awaiting approval",
@@ -470,10 +475,12 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
       : status("Publisher needed", "Publisher needed", "caution", "lock")
   }
 
+  // Ready for the requester to submit. "Waiting for your approval" is the
+  // approver's phrase alone, so one phrase never has two owners.
   if (action.kind === "submit") {
     return status(
-      "Draft checked · Approval required",
-      "Approval required",
+      "Draft checked · Ready to submit for approval",
+      "Ready to submit",
       "caution",
       "check-circle"
     )

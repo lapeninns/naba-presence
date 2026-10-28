@@ -35,11 +35,13 @@ export function keywordsCsv(keywords: KeywordRow[]): CsvCell[][] {
 }
 
 /**
- * Search terms by impressions (reference `keywords-table`): rank, the term
+ * Search terms by how often the profile was shown for them (Google's
+ * "impressions", in plain words; reference `keywords-table`): rank, the term
  * as the customer typed it, and the honest "N+" for thresholded volumes.
+ * The CSV keeps Google's word in its headers.
  *
  * Under 48rem of its own width each row is a record card: the term as the
- * headline, the impressions figure trailing it, and one meta line with the
+ * headline, the times-shown figure trailing it, and one meta line with the
  * position. Wider, it is the three-column table.
  */
 export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
@@ -50,25 +52,21 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
           <TableHead numeric className="w-12">
             <span aria-hidden>#</span>
             <span className="sr-only">
-              Position by impressions, not a search ranking
+              Position by times shown, not a search ranking
             </span>
           </TableHead>
           <TableHead>Search term</TableHead>
-          <TableHead numeric>Impressions</TableHead>
+          <TableHead numeric>Times shown</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {keywords.map((keyword) => (
           <TableRow key={`${keyword.rank}-${keyword.keyword}`}>
-            {/* The meta line on a card: "No. 3 by impressions". */}
-            <TableCell
-              numeric
-              priority="meta"
-              className="text-ink-muted"
-            >
+            {/* The meta line on a card: "No. 3 by times shown". */}
+            <TableCell numeric priority="meta" className="text-ink-muted">
               <span className="@min-3xl/table:hidden">No. </span>
               {keyword.rank}
-              <span className="@min-3xl/table:hidden"> by impressions</span>
+              <span className="@min-3xl/table:hidden"> by times shown</span>
             </TableCell>
             <TableCell
               priority="primary"
@@ -86,7 +84,7 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
               <span>{formatKeywordImpressions(keyword)}</span>
               <span className="sr-only @min-3xl/table:hidden">
                 {" "}
-                impressions
+                times shown
               </span>
             </TableCell>
           </TableRow>

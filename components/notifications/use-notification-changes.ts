@@ -5,8 +5,10 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query"
+import { useRef } from "react"
 
 import { showToast } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import {
   markNotificationsRead,
   resolveNotification,
@@ -116,6 +118,24 @@ function partialSave(
 }
 
 /**
+ * Why a resolve was refused, in words for this action: the shared wording
+ * for these codes is about other screens ("This changed since you loaded
+ * it" is untrue for a condition, which clears on its own). The role gate
+ * answers `permission_denied`; the service's own check, `forbidden`.
+ */
+function resolveRefusal(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (error.code === "permission_denied" || error.code === "forbidden")
+      return "Only an owner or admin can resolve notifications. If your role just changed, reload the page."
+    if (error.code === "notification_not_found")
+      return "This notification no longer exists. The list is being refreshed."
+    if (error.code === "notification_condition_active")
+      return "This one can’t be resolved by hand. It clears on its own once the problem is fixed."
+  }
+  return describeActionError(error)
+}
+
+/**
  * Read and resolve for the notifications list. Each shows at once as a
  * pending change laid over the cached rows, never written into them, and
  * ends in one of three ways:
@@ -125,8 +145,25 @@ function partialSave(
  *  - the session's scope moved on meanwhile: the change is dropped without
  *    touching the cache, so another scope's rows are never put back.
  */
-export function useNotificationChanges() {
+export function useNotificationChanges({
+  onResolved,
+}: {
+  /**
+   * A resolve the server confirmed, with the label it was sent with: only
+   * for a change in the scope it was made in.
+   */
+  onResolved?: (label: string) => void
+} = {}) {
   const client = useQueryClient()
+  // What each resolve is called, by change id, so a refusal or a
+  // confirmation can name it even once its row has left the list. Kept here
+  // rather than on the pending change, which is shared with the shell.
+  const labels = useRef(new Map<string, string>())
+  const takeLabel = (change: PendingChange) => {
+    const label = labels.current.get(change.id)
+    labels.current.delete(change.id)
+    return label
+  }
   const mutation = useMutation<ChangeResult, unknown, PendingChange>({
     mutationKey: CHANGE_KEY,
     scope: CHANGE_SCOPE,
@@ -150,6 +187,9 @@ export function useNotificationChanges() {
       const live = isChangeLive(client, change)
       commitPendingChange(client, change, saved)
       void client.invalidateQueries({ queryKey: queryKeys.notificationsAll })
+      const label = takeLabel(change)
+      if (live && change.kind === "resolve" && saved.length && label)
+        onResolved?.(label)
       if (failure === null && short === null) return
       // Said only where the change was made: not in another scope.
       if (!live) return
@@ -168,13 +208,23 @@ export function useNotificationChanges() {
     onError: (error, change) => {
       removePendingChange(client, change.id)
       void client.invalidateQueries({ queryKey: queryKeys.notificationsAll })
+      const label = takeLabel(change)
+      if (change.kind === "resolve") {
+        // The title stays general; the description names the notification
+        // first, since its row may be off screen on a long list.
+        const reason = resolveRefusal(error)
+        showToast({
+          id: ERROR_TOAST_ID,
+          type: "error",
+          title: "The notification wasn’t resolved",
+          description: label ? `${label}: ${reason}` : reason,
+        })
+        return
+      }
       showToast({
         id: ERROR_TOAST_ID,
         type: "error",
-        title:
-          change.kind === "resolve"
-            ? "The notification wasn’t resolved"
-            : "Your change wasn’t saved",
+        title: "Your change wasn’t saved",
         description: describeActionError(error),
       })
     },
@@ -185,8 +235,14 @@ export function useNotificationChanges() {
       mutation.mutate(
         addPendingChange(client, { kind: "read", ids: [...new Set(ids)], read })
       ),
-    /** Resolves one notification, at once, then asks the server. */
-    resolve: (id: string) =>
-      mutation.mutate(addPendingChange(client, { kind: "resolve", ids: [id] })),
+    /**
+     * Resolves one notification, at once, then asks the server. The label
+     * names it in what is said afterwards.
+     */
+    resolve: (id: string, label?: string) => {
+      const change = addPendingChange(client, { kind: "resolve", ids: [id] })
+      if (label) labels.current.set(change.id, label)
+      mutation.mutate(change)
+    },
   }
 }

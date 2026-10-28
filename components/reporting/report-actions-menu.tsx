@@ -23,9 +23,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
-import { healthLabel } from "@/lib/clients/health"
+import { ReportingPanel } from "@/components/reporting/reporting-states"
+import { formatNumber } from "@/lib/format"
 import { useClients } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
  * What "Share report" shares. One client in scope (or a business's one home
@@ -49,6 +51,8 @@ export type ReportRefresh = {
   onStart?: () => void
   /** The request failed, so there is nothing to wait for. */
   onFailed?: () => void
+  /** The server says the sync has finished, so there is nothing to wait for. */
+  onSettled?: () => void
 }
 
 type MenuProps = {
@@ -197,9 +201,23 @@ function MenuView({
 }
 
 /**
+ * What a client's shared report would cover: its listing count, already in
+ * the client list. None is a warning, not a bar: the report would be empty.
+ */
+function listingCount(count: number) {
+  if (count === 0)
+    return (
+      <span className="text-warning-ink">
+        No {LISTING_TERMS.placePlural} yet: their report is empty
+      </span>
+    )
+  return `${formatNumber(count)} ${count === 1 ? LISTING_TERMS.place : LISTING_TERMS.placePlural}`
+}
+
+/**
  * The first step of sharing with every client in scope: the scope sheet's
- * client rows (mark, name, health in words); choosing one goes on to the
- * share step for that client.
+ * client rows (mark, name, how many listings the report covers); choosing
+ * one goes on to the share step for that client.
  */
 function ClientPickerSheet({
   open,
@@ -223,14 +241,20 @@ function ClientPickerSheet({
         </SheetHeader>
         <SheetBody>
           {clients.isPending ? (
-            <div aria-hidden className="flex flex-col gap-2">
-              <Skeleton className="h-(--np-touch) w-full" />
-              <Skeleton className="h-(--np-touch) w-full" />
+            <div className="flex flex-col gap-2">
+              <span role="status" className="sr-only">
+                Loading clients…
+              </span>
+              <Skeleton aria-hidden className="h-(--np-touch) w-full" />
+              <Skeleton aria-hidden className="h-(--np-touch) w-full" />
             </div>
           ) : clients.isError ? (
-            <p role="alert" className="text-ui text-danger-ink">
-              We couldn’t load your clients. Close this and try again.
-            </p>
+            <ReportingPanel
+              variant="error"
+              title="We couldn’t load your clients"
+              cause={clients.error}
+              onRetry={() => void clients.refetch()}
+            />
           ) : items.length === 0 ? (
             <p className="text-ui text-ink-muted">There are no clients yet.</p>
           ) : (
@@ -247,7 +271,7 @@ function ClientPickerSheet({
                     />
                   }
                   label={<span className="block truncate">{client.name}</span>}
-                  description={healthLabel(client.health)}
+                  description={listingCount(client.locationCount)}
                   onClick={() => onChoose(client)}
                 />
               ))}

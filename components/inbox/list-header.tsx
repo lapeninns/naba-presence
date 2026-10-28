@@ -117,7 +117,9 @@ function ListHeader({
             checked={allTicked}
             indeterminate={ticked.length > 0 && !allTicked}
             disabled={!loaded || reviews.length === 0}
-            aria-label="Select every review in this view"
+            // Only the rows loaded so far: the rest of a long queue is not
+            // ticked until it is loaded, and the name says so.
+            aria-label="Select all loaded reviews"
             onCheckedChange={(checked) => {
               if (checked) selection.replace(reviews.map((review) => review.id))
               else selection.clear()

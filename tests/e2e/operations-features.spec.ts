@@ -132,7 +132,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       await page
         .getByRole("button", { name: "Yes, resolve: Publishing failed" })
         .click()
-      // The row says Resolved at once (optimistic); the server catches up.
+      // The row says Resolving… until the server confirms, then Resolved.
       await expect(
         page.getByText("Resolved", { exact: true }).first()
       ).toBeVisible()
@@ -359,11 +359,13 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await backend.admin`select count(*)::int as count from post_publication_occurrence o join post_publication_schedule s on s.id = o.schedule_id where s.location_id = ${f.linked[0].locationId}`
       expect(count).toBe(3)
       await f.goto("/calendar")
-      await page.getByRole("tab", { name: "Agenda", exact: true }).click()
+      const agendaTab = page.getByRole("tab", { name: "Agenda", exact: true })
+      await agendaTab.click()
+      // The Month view's summary line says "Nothing scheduled in …" too:
+      // wait for the Agenda view itself before reading its answer.
+      await expect(agendaTab).toHaveAttribute("aria-selected", "true")
       const agenda = page.getByRole("list", { name: "Scheduled publications" })
-      const nothingHere = page.getByText(
-        "No scheduled publications in this period"
-      )
+      const nothingHere = page.getByText(/^Nothing scheduled in /)
       for (let step = 0; step < 14; step += 1) {
         // Wait for this period's answer before deciding to move on: the
         // agenda's list or its empty message, which exist only in the Agenda

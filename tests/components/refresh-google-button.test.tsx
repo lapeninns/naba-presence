@@ -12,7 +12,9 @@ afterEach(() => {
 })
 
 function renderMenu(canTrigger: boolean, scopedToClient = false) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
@@ -41,32 +43,150 @@ describe("Refresh from Google in the report's actions menu", () => {
     ).not.toBeInTheDocument()
   })
   it("says it checks across clients on a report scoped to one client (D7), and keeps the same request", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ organisations: [], skipped: false, nextCursor: null }), { headers: { "content-type": "application/json" } }))
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            organisations: [],
+            skipped: false,
+            nextCursor: null,
+          }),
+          { headers: { "content-type": "application/json" } }
+        )
+    )
     vi.stubGlobal("fetch", fetchMock)
     renderMenu(true, true)
     await openMenu()
-    expect(screen.queryByRole("menuitem", { name: "Refresh from Google" })).not.toBeInTheDocument()
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Check for new data across clients" }))
+    expect(
+      screen.queryByRole("menuitem", { name: "Refresh from Google" })
+    ).not.toBeInTheDocument()
+    await userEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "Check for new data across clients",
+      })
+    )
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     expect(fetchMock.mock.calls[0][0]).toBe("/api/sync/performance")
   })
-  it("POSTs the performance sync and shows a pending state", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ organisations: [], skipped: false, nextCursor: null }), { headers: { "content-type": "application/json" } }))
+  it("POSTs the performance sync and says nothing was due when the server checked none", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            organisations: [],
+            skipped: false,
+            nextCursor: null,
+          }),
+          { headers: { "content-type": "application/json" } }
+        )
+    )
     vi.stubGlobal("fetch", fetchMock)
     renderMenu(true)
     await openMenu()
-    await userEvent.click(await screen.findByRole("menuitem", { name: /refresh from google/i }))
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: /refresh from google/i })
+    )
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     expect(fetchMock.mock.calls[0][0]).toBe("/api/sync/performance")
     expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST")
-    // Success is said, not left to an unchanged-looking page.
+    // The server's own answer, not a "started" for work that already ended.
+    expect(
+      await screen.findByText("Nothing to refresh yet")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Refresh started")).not.toBeInTheDocument()
+  })
+  it.each([
+    [
+      "every listing checked",
+      [{ status: "succeeded" }, { status: "succeeded" }],
+      false,
+      "Refreshed from Google",
+      /^Checked 2 listings\. The figures shown/,
+    ],
+    [
+      "one client's report",
+      [{ status: "succeeded" }],
+      true,
+      "Refreshed from Google",
+      /^Checked 1 listing across your clients\./,
+    ],
+    [
+      "some failed",
+      [{ status: "succeeded" }, { status: "failed" }],
+      false,
+      "1 of 2 listings could not be refreshed",
+      /^The report says why\.$/,
+    ],
+  ])(
+    "says what the server found: %s",
+    async (_case, outcomes, scoped, title, description) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(
+          async () =>
+            new Response(
+              JSON.stringify({
+                organisations: [{ organisationId: "o1", outcomes }],
+                truncated: false,
+              }),
+              { headers: { "content-type": "application/json" } }
+            )
+        )
+      )
+      renderMenu(true, scoped)
+      await openMenu()
+      await userEvent.click(
+        await screen.findByRole("menuitem", {
+          name: scoped
+            ? "Check for new data across clients"
+            : "Refresh from Google",
+        })
+      )
+      expect(await screen.findByText(title)).toBeInTheDocument()
+      expect(screen.getByText(description)).toBeInTheDocument()
+    }
+  )
+  it("says only that it started when the server cut the sync short", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({
+              organisations: [
+                { organisationId: "o1", outcomes: [{ status: "succeeded" }] },
+              ],
+              truncated: true,
+            }),
+            { headers: { "content-type": "application/json" } }
+          )
+      )
+    )
+    renderMenu(true)
+    await openMenu()
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: /refresh from google/i })
+    )
     expect(await screen.findByText("Refresh started")).toBeInTheDocument()
   })
   it("says why a refresh could not start, beside the menu button", async () => {
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ error: "sync_in_progress", message: "busy" }), { status: 409, headers: { "content-type": "application/json" } })))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({ error: "sync_in_progress", message: "busy" }),
+            { status: 409, headers: { "content-type": "application/json" } }
+          )
+      )
+    )
     renderMenu(true)
     await openMenu()
-    await userEvent.click(await screen.findByRole("menuitem", { name: /refresh from google/i }))
-    expect(await screen.findByRole("alert")).toHaveTextContent(/already running/)
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: /refresh from google/i })
+    )
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /already running/
+    )
   })
 })

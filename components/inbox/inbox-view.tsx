@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
+import { Spinner } from "@/components/ui/spinner"
 import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
 import { useClients } from "@/lib/queries/use-clients"
 import {
@@ -50,12 +51,15 @@ import {
   scopeInboxState,
   serializeInboxState,
   toReviewsFilters,
-  VISIBLE_QUEUES,
   visibleQueue,
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
-import { REVIEW_QUEUE_LABELS } from "@/lib/contracts/review-values"
+import {
+  DEFAULT_REVIEW_SORT,
+  REVIEW_QUEUE_LABELS,
+} from "@/lib/contracts/review-values"
+import { inboxWaiting } from "@/lib/inbox/waiting"
 import { INBOX_SPLIT_STYLE } from "@/lib/inbox/layout"
 import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
 import {
@@ -117,6 +121,46 @@ function refreshedAt(timestamp: number | undefined): string | null {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(timestamp))
+}
+
+/**
+ * Where an empty queue sends the operator: the queues that hold work, in
+ * order. Done is history, never the next piece of work, so it is not here.
+ */
+const NEXT_WORK = ["needs_reply", "failed", "approval", "publishing"] as const
+
+/**
+ * Filters that hide rows. The client scope is the app bar's, and a sort only
+ * orders the rows, so neither makes an empty list a filtered one (the queue
+ * tabs ask the same question the same way).
+ */
+function narrowsList(state: InboxState): boolean {
+  return hasActiveFilters({
+    ...state,
+    clientId: undefined,
+    sort: DEFAULT_REVIEW_SORT,
+  })
+}
+
+/**
+ * Focuses the Filters button that is on screen, the control that narrows the
+ * list again, after the filters were cleared from somewhere that then went
+ * away (the chip strip, the empty state). On a phone in search mode the
+ * button comes back a render later, so it is looked for over a few frames.
+ */
+function focusFiltersButton(root: HTMLElement | null, frames = 10) {
+  const target = [
+    ...(root?.querySelectorAll<HTMLElement>(
+      '[data-slot="inbox-filter-toolbar"] button[aria-haspopup="dialog"]'
+    ) ?? []),
+  ].find((element) => element.checkVisibility?.() ?? true)
+  if (target) {
+    target.focus({ preventScroll: true })
+    return
+  }
+  if (frames > 0) {
+    requestAnimationFrame(() => focusFiltersButton(root, frames - 1))
+  }
 }
 
 function InboxViewInner({
@@ -324,19 +368,24 @@ function InboxViewInner({
   )
   // Like a filter change: a dirty reply stays open while the list widens.
   const onClearFilters = useCallback(() => {
-    replaceUrl(
-      `/inbox?${serializeInboxState({
-        queue: state.queue,
-        locationIds: [],
-        ratings: [],
-        search: "",
-        sort: "updated_desc",
-        // The client scope is the app bar's, not a filter: it stays.
-        clientId: state.clientId,
-        selected: readIsDirty() ? state.selected : undefined,
-      }).toString()}`
-    )
+    const query = serializeInboxState({
+      queue: state.queue,
+      locationIds: [],
+      ratings: [],
+      search: "",
+      sort: "updated_desc",
+      // The client scope is the app bar's, not a filter: it stays.
+      clientId: state.clientId,
+      selected: readIsDirty() ? state.selected : undefined,
+    }).toString()
+    replaceUrl(query ? `/inbox?${query}` : "/inbox")
   }, [readIsDirty, state.clientId, state.queue, state.selected])
+  // The chip strip and the empty state's button go away once nothing is
+  // filtered, taking keyboard focus with them; it goes to the Filters
+  // button, as leaving search mode does (inbox-toolbar.tsx).
+  const focusFilters = useCallback(() => {
+    focusFiltersButton(rootRef.current)
+  }, [])
   // Same gate as the handlers above: returning to the list also drops
   // `selected`, which would otherwise silently unmount a dirty composer.
   // When the review was pushed over the list, Back to Inbox pops that entry
@@ -520,6 +569,21 @@ function InboxViewInner({
     reviewsQuery.isFetching &&
     !reviewsQuery.isPending &&
     !reviewsQuery.isFetchingNextPage
+  // TanStack's `isError` is also true when a refresh or the next page failed
+  // over rows already loaded. Those rows stay: only a first load that failed
+  // is the error state (as `usePagedResource` treats a failed load-more).
+  const { isFetchNextPageError, isRefetchError } = reviewsQuery
+  const listStatus = reviewsQuery.isPending
+    ? "pending"
+    : reviewsQuery.isError && reviewsQuery.data === undefined
+      ? "error"
+      : "ready"
+  // A queue switch keeps the previous queue's rows while the new one loads.
+  // Kept rows are covered by the refresh bar; kept NO rows would draw the new
+  // queue's empty state ("Nothing needs a reply.") before the server has
+  // said so, so that case is still loading.
+  const switchingFromEmpty =
+    reviews.length === 0 && Boolean(reviewsQuery.isPlaceholderData)
 
   // The rows a real list draws, in outline: the avatar, then the name and
   // age, the stars and venue, and the review's words — at the rows' own
@@ -535,13 +599,7 @@ function InboxViewInner({
     // empty states stay in renderLoadedList.
     return (
       <QueryStates
-        status={
-          reviewsQuery.isPending
-            ? "pending"
-            : reviewsQuery.isError
-              ? "error"
-              : "ready"
-        }
+        status={listStatus}
         pending={renderListSkeleton()}
         error={{
           title: "We could not load your reviews.",
@@ -556,6 +614,7 @@ function InboxViewInner({
   }
 
   function renderLoadedList() {
+    if (switchingFromEmpty) return renderListSkeleton()
     if (reviews.length === 0) {
       // The clients this view already has in cache carry the import facts, so
       // the empty state can name which of the reasons it is instead of
@@ -564,7 +623,7 @@ function InboxViewInner({
       // filter is the scope here rather than a filter hiding rows: an empty
       // queue for one client is that client's queue being clear.
       const facts = {
-        hasActiveFilters: hasActiveFilters({ ...state, clientId: undefined }),
+        hasActiveFilters: narrowsList(state),
         queue: state.queue,
         totalOutsideFilters: countsQuery.data?.total ?? 0,
         connection:
@@ -578,22 +637,51 @@ function InboxViewInner({
           clientsQuery.isSuccess &&
           (clientsQuery.data?.items ?? []).length === 0,
       }
-      // From an empty queue, the next one along that has work in it.
+      // From an empty queue, the first other queue that has work in it.
       const current = visibleQueue(state.queue)
-      const start = current ? VISIBLE_QUEUES.indexOf(current) : -1
-      const next = [
-        ...VISIBLE_QUEUES.slice(start + 1),
-        ...VISIBLE_QUEUES.slice(0, Math.max(start, 0)),
-      ].find(
+      const next = NEXT_WORK.find(
         (queue) =>
           queue !== current && (countsQuery.data?.byQueue[queue] ?? 0) > 0
       )
+      // An approver's Inbox count includes the replies parked for them, so
+      // an empty Needs reply says where those are.
+      const approvalsWaiting =
+        current === "needs_reply"
+          ? (inboxWaiting(countsQuery.data)?.awaitingMyApproval ?? 0)
+          : 0
+      // What matched nothing, and where. A search runs inside the queue on
+      // screen, so the queue is named ("All reviews" is not a queue to name).
+      const shownQueue = current ? state.queue : undefined
+      const filtered = {
+        search: state.search || undefined,
+        searchOnly:
+          Boolean(state.search) && !narrowsList({ ...state, search: "" }),
+        queueLabel: shownQueue && REVIEW_QUEUE_LABELS[shownQueue],
+        queueTotal: shownQueue
+          ? countsQuery.data?.byQueue[shownQueue]
+          : undefined,
+      }
       return (
         <div className="flex min-h-0 flex-1 flex-col justify-center">
           <EmptyState
             reason={emptyReason(facts)}
             counts={emptyCounts(facts)}
-            onClear={onClearFilters}
+            onClear={() => {
+              // "Clear search" clears the search alone, as the search
+              // field's own clear does; anything else clears every filter.
+              if (filtered.searchOnly) onFilterChange({ search: "" })
+              else onClearFilters()
+              focusFilters()
+            }}
+            filtered={filtered}
+            approvalsWaiting={
+              approvalsWaiting > 0
+                ? {
+                    count: approvalsWaiting,
+                    onSelect: () => onQueueChange("awaiting_my_approval"),
+                  }
+                : undefined
+            }
             queue={state.queue}
             nextQueue={
               next
@@ -738,17 +826,18 @@ function InboxViewInner({
           onRemove: () => void applyClientScope(undefined),
         }
       : undefined
-  const loaded = !reviewsQuery.isPending && !reviewsQuery.isError
+  const loaded = listStatus === "ready"
   // In the viewer's own clock, which the server rendering a prefetched list
   // does not share: held back until hydration so the two renders agree.
   const refreshed = hydrated ? refreshedAt(reviewsQuery.dataUpdatedAt) : null
-  const countLabel = reviewsQuery.isPending
-    ? "Loading reviews…"
-    : reviewsQuery.isError
-      ? "Queue unavailable"
-      : `${formatNumber(reviews.length)} ${
-          reviews.length === 1 ? "review" : "reviews"
-        }${reviewsQuery.hasNextPage ? " so far" : ""}`
+  const countLabel =
+    listStatus === "pending" || switchingFromEmpty
+      ? "Loading reviews…"
+      : listStatus === "error"
+        ? "Queue unavailable"
+        : `${formatNumber(reviews.length)} ${
+            reviews.length === 1 ? "review" : "reviews"
+          }${reviewsQuery.hasNextPage ? " so far" : ""}`
   // "Adjusting state when a prop changes": the announcement follows the
   // filter set, and only once its first page has landed.
   const filtersKey = JSON.stringify(filters)
@@ -793,9 +882,23 @@ function InboxViewInner({
         clientChip={clientChip}
         onChange={onFilterChange}
         onClear={onClearFilters}
+        onEmpty={focusFilters}
       />
     </div>
   )
+
+  // The load-more button had focus when the last page was asked for: the end
+  // of the list takes it when the button goes.
+  const loadMoreRef = useRef<HTMLButtonElement>(null)
+  const listEndRef = useRef<HTMLParagraphElement>(null)
+  const loadMoreHadFocus = useRef(false)
+  const pageCount = reviewsQuery.data?.pages.length ?? 0
+  useEffect(() => {
+    if (!hasNextPage && loadMoreHadFocus.current) {
+      loadMoreHadFocus.current = false
+      listEndRef.current?.focus({ preventScroll: true })
+    }
+  }, [hasNextPage])
 
   // Reference `.queue`: a card with a quiet head (select all, how many,
   // when the list was fetched), the rows, and the bulk bar pinned under
@@ -820,29 +923,83 @@ function InboxViewInner({
         refreshed={refreshed}
         clientId={state.clientId}
       />
+      {/* A refresh that failed leaves the rows as they were, and says so. */}
+      {isRefetchError && reviews.length > 0 ? (
+        <div
+          data-slot="inbox-refresh-failed"
+          className="flex shrink-0 items-center justify-between gap-2 border-b border-line-subtle py-1 pr-1 pl-(--np-page-pad-x)"
+        >
+          <span role="status" className="text-caption text-ink-muted">
+            {refreshed
+              ? `Couldn’t refresh this list. Showing it as of ${refreshed}.`
+              : "Couldn’t refresh this list."}
+          </span>
+          <Button variant="ghost" onClick={() => void reviewsQuery.refetch()}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
       {renderList()}
       {/* The list has no known total, so this is not the shared LoadMore
           ("Showing 50 of 120"): it says only that more follow. The rows
-          also load on their own as the end scrolls into view. */}
-      {loaded && reviews.length > 0 && reviewsQuery.hasNextPage ? (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle py-1 pr-1 pl-(--np-page-pad-x)">
-          <span className="text-caption text-ink-muted">
-            More reviews below
-          </span>
+          also load on their own as the end scrolls into view. The button
+          stays focusable while the page loads (aria-disabled, not disabled),
+          and when the last page lands the end of the list takes its focus,
+          as LoadMore does. */}
+      {loaded && reviews.length > 0 && hasNextPage ? (
+        <div
+          data-slot="inbox-load-more"
+          className="flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle py-1 pr-1 pl-(--np-page-pad-x)"
+        >
+          {isFetchNextPageError && !isFetchingNextPage ? (
+            <span role="alert" className="text-caption text-danger-ink">
+              We couldn’t load more reviews.
+            </span>
+          ) : (
+            <span className="text-caption text-ink-muted">
+              More reviews below
+            </span>
+          )}
           <Button
+            ref={loadMoreRef}
             variant="ghost"
-            disabled={reviewsQuery.isFetchingNextPage}
-            onClick={loadMore}
+            aria-disabled={isFetchingNextPage || undefined}
+            onClick={() => {
+              loadMoreHadFocus.current =
+                document.activeElement === loadMoreRef.current
+              loadMore()
+            }}
           >
-            {reviewsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+            {isFetchingNextPage
+              ? "Loading…"
+              : isFetchNextPageError
+                ? "Try again"
+                : "Load more reviews"}
           </Button>
         </div>
+      ) : loaded && reviews.length > 0 && pageCount > 1 ? (
+        <p
+          ref={listEndRef}
+          role="status"
+          tabIndex={-1}
+          data-slot="inbox-list-end"
+          className="shrink-0 border-t border-line-subtle py-2.5 pl-(--np-page-pad-x) text-caption text-ink-muted outline-none"
+        >
+          {narrowsList(state)
+            ? "That’s every review that matches."
+            : visibleQueue(state.queue)
+              ? `That’s every review in ${REVIEW_QUEUE_LABELS[state.queue]}.`
+              : "That’s every review."}
+        </p>
       ) : null}
       {canBatch ? (
         <LazyBulkActionBar
           rows={reviews}
           bulkEngine={bulkEngine}
           scopeKey={state.clientId ?? ""}
+          // Select all ticks the loaded rows only; the bar says so while
+          // more follow.
+          hasMore={Boolean(hasNextPage)}
         />
       ) : null}
       <InboxBottomToolbarSpacer />
@@ -932,21 +1089,29 @@ function InboxViewInner({
         PHONE_BLEED
       )}
     >
-      {detail ?? (
-        <Statement
-          title="No review selected"
-          description={
-            <>
-              Pick a review from the list
-              <span className="hidden desk:inline">
-                , or press J to open the first one
-              </span>
-              .
-            </>
-          }
-          className="my-auto"
-        />
-      )}
+      {/* Only what is true beside the list: while it loads, the route
+          outline's words (loading.tsx), so nothing changes when the list
+          takes over from it; beside an empty or failed list, that nothing
+          is open; and beside rows, to pick one. */}
+      {detail ??
+        (listStatus === "pending" || switchingFromEmpty ? (
+          <p className="my-auto flex items-center justify-center gap-2 text-ui text-ink-muted">
+            <Spinner decorative size="sm" />
+            Loading reviews
+          </p>
+        ) : reviews.length === 0 ? (
+          <Statement
+            title="No review open"
+            description="Reviews in this list open here."
+            className="my-auto"
+          />
+        ) : (
+          <Statement
+            title="No review selected"
+            description="Pick a review from the list."
+            className="my-auto"
+          />
+        ))}
     </section>
   )
 

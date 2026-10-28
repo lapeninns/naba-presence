@@ -1,16 +1,35 @@
 import { apiFetch } from "./client"
 
-// The session branch of these routes syncs only the caller's org. We send an
-// empty body and ignore the batch envelope — the surface only needs success
-// vs an ApiClientError (which the trigger button maps to copy). The session
-// branch never returns a "did nothing" 200: contention is a 409 and the kill
-// switch a 503, so success here really means the sync ran.
-export async function triggerPerformanceSync(): Promise<void> {
-  await apiFetch("/api/sync/performance", { method: "POST", body: {} })
+/**
+ * The part of a manual sync's envelope the refresh reads back: one entry per
+ * listing that was due and checked (`outcomes`, an empty list when none was
+ * due), and `truncated` when the time budget stopped the walk with listings
+ * still due (the job runner picks those up). Optional throughout: an answer
+ * without them is read as "started", as before.
+ */
+export type ManualSyncResult = {
+  organisations?: Array<{
+    outcomes?: Array<{ status: "succeeded" | "failed" }>
+  }>
+  truncated?: boolean
 }
 
-export async function triggerKeywordsSync(): Promise<void> {
-  await apiFetch("/api/sync/keywords", { method: "POST", body: {} })
+// The session branch of these routes syncs only the caller's org. We send an
+// empty body. The session branch never returns a "did nothing" 200:
+// contention is a 409 and the kill switch a 503, so success here really
+// means the sync ran, and the envelope says what it found.
+export async function triggerPerformanceSync(): Promise<ManualSyncResult> {
+  return apiFetch<ManualSyncResult>("/api/sync/performance", {
+    method: "POST",
+    body: {},
+  })
+}
+
+export async function triggerKeywordsSync(): Promise<ManualSyncResult> {
+  return apiFetch<ManualSyncResult>("/api/sync/keywords", {
+    method: "POST",
+    body: {},
+  })
 }
 
 export type ReviewSyncResult = {

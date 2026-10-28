@@ -9,6 +9,7 @@ import { LocationPerformance } from "@/components/performance/location-performan
 import { LocationSelect } from "@/components/performance/location-select"
 import { RangeSelect } from "@/components/performance/range-select"
 import { NotInDirectory } from "@/components/performance/report-scope"
+import { ReportExportScope } from "@/components/reporting/csv-download-button"
 import { ReportActionsMenu } from "@/components/reporting/report-actions-menu"
 import {
   ReportPeriodStrip,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
-import { LISTING_TERMS, workspaceTerms } from "@/lib/workspace/terms"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
 
 /**
  * Reports scoped to one location.
@@ -72,8 +73,12 @@ function LocationReport({
 
   // The figures start from `locationId` alone, in parallel with the
   // directory; only the name and the sibling picker wait for it.
+  // Their CSV files are named for the listing once the directory names it;
+  // the wrapper is there from the first render, so the figures never remount.
   const figures = (
-    <LocationPerformance locationId={locationId} rangeId={rangeId} />
+    <ReportExportScope value={{ name: location?.name }}>
+      <LocationPerformance locationId={locationId} rangeId={rangeId} />
+    </ReportExportScope>
   )
 
   if (directory.isPending) {
@@ -126,15 +131,26 @@ function LocationReport({
   const periodLabel =
     REPLY_RANGES.find((option) => option.id === rangeId)?.label ?? ""
   const openListingHref = `/listings/${location.id}`
-  const wholeHref =
-    location.clientId && !business
-      ? `/reports?clientId=${location.clientId}`
-      : "/reports"
+  // Back out to the whole client (or everything) on the same address minus
+  // the listing: the tab and period come along, whichever way back is used.
+  const back = new URLSearchParams(searchParams.toString())
+  back.delete("locationId")
+  back.delete("selected")
+  if (business || !location.clientId) back.delete("clientId")
+  else back.set("clientId", location.clientId)
+  const wholeHref = back.toString()
+    ? `${pathname}?${back.toString()}`
+    : pathname
   const wholeLabel = business
-    ? `All ${workspaceTerms(mode).scopePlural}`
+    ? `All ${LISTING_TERMS.placePlural}`
     : location.clientId
       ? "Whole client"
       : "All clients"
+  // Carried over from Keywords' months: said at every width, in this
+  // report's own words (it has no tabs).
+  const periodNote = rangeNote
+    ? `This report counts in days: showing the ${periodLabel.toLowerCase()}.`
+    : null
   const whose = business
     ? null
     : (location.clientName ?? "Not filed under a client")
@@ -168,13 +184,12 @@ function LocationReport({
                   locations={siblings}
                   value={locationId}
                   onChange={(next) => {
-                    const params = new URLSearchParams(searchParams.toString())
-                    if (next) params.set("locationId", next)
-                    else {
-                      params.delete("locationId")
-                      if (location.clientId && !business)
-                        params.set("clientId", location.clientId)
+                    if (!next) {
+                      router.replace(wholeHref, { scroll: false })
+                      return
                     }
+                    const params = new URLSearchParams(searchParams.toString())
+                    params.set("locationId", next)
                     router.replace(`${pathname}?${params.toString()}`, {
                       scroll: false,
                     })
@@ -209,29 +224,34 @@ function LocationReport({
             </>
           }
         />
-        {/* A phone: the period in one tap, and the two links in the menu. */}
-        <div className="flex items-start gap-2 md:hidden">
+        {/* A phone: the period in one tap, and the two links in the menu.
+            From `md` only a carried-period note is left to show here. */}
+        <div
+          className={cn("flex items-start gap-2", !periodNote && "md:hidden")}
+        >
           {onRangeChange ? (
             <ReportPeriodStrip
-              className="min-w-0 flex-1 py-2"
+              className="min-w-0 flex-1 py-2 md:py-0"
               value={rangeId}
               options={REPLY_RANGES}
               onChange={(next) => onRangeChange(next as ReplyRangeId)}
-              note={rangeNote}
+              note={periodNote}
             />
           ) : (
             <span className="flex-1" />
           )}
-          <ReportActionsMenu>
-            <DropdownMenuItem render={<Link href={openListingHref} />}>
-              <ExternalLinkIcon aria-hidden strokeWidth={1.75} />
-              Open listing
-            </DropdownMenuItem>
-            <DropdownMenuItem render={<Link href={wholeHref} />}>
-              <BarChart3Icon aria-hidden strokeWidth={1.75} />
-              {wholeLabel}
-            </DropdownMenuItem>
-          </ReportActionsMenu>
+          <div className="md:hidden">
+            <ReportActionsMenu>
+              <DropdownMenuItem render={<Link href={openListingHref} />}>
+                <ExternalLinkIcon aria-hidden strokeWidth={1.75} />
+                Open listing
+              </DropdownMenuItem>
+              <DropdownMenuItem render={<Link href={wholeHref} />}>
+                <BarChart3Icon aria-hidden strokeWidth={1.75} />
+                {wholeLabel}
+              </DropdownMenuItem>
+            </ReportActionsMenu>
+          </div>
         </div>
       </div>
       {/* The period picker is the toolbar's (or the strip's), so none is drawn below. */}

@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react"
 import {
   CheckIcon,
   CloudUploadIcon,
+  CornerUpLeftIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RotateCwIcon,
+  SaveIcon,
   SendHorizonalIcon,
   Trash2Icon,
-  XIcon,
 } from "lucide-react"
 
 import {
@@ -65,10 +66,10 @@ const REJECT_NOTE_LIMIT = 2000
  * for (publish, submit, approve, retry), sized to its words at the control
  * height (44px on touch) so the docked bar on a phone stays one row beside
  * the status words. Everything else sits behind the ⋯ menu: Delete always
- * (last, as the danger row, behind a confirm), and Reject below md, where it
- * would crowd the primary off the row; from md up Reject is a quiet button
- * beside Approve. Why a button is off is said by the status line beside it,
- * not hidden in a title attribute.
+ * (last, as the danger row, behind a confirm), and Send back below md, where
+ * it would crowd the primary off the row; from md up Send back is a quiet
+ * button beside Approve. Why a button is off is said by the status line
+ * beside it, not hidden in a title attribute.
  *
  * They are drawn for the CHARCOAL bar (D4: the action that reaches Google
  * lives on the one dark bar): the primary keeps the accent fill (its own
@@ -96,6 +97,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // own save, and Publish runs it first.
   const composerSave = useComposerSave()
   const [deleteOpen, setDeleteOpen] = useState(false)
+  // A failed delete is said in the dialog that asked for it, where focus is.
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectNote, setRejectNote] = useState("")
 
@@ -221,18 +224,45 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       // `pending` moves on too: Google has the reply, nothing more can be
       // done to it here, and waiting on it left the operator parked on a
       // review whose only button read "Publishing…".
-      if (isAdvancingOutcome(result.status)) announceOutcome(result.status)
+      if (isAdvancingOutcome(result.status)) {
+        announceOutcome(result.status, result.googleReplyState)
+      }
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
     }
   }
 
-  const announceOutcome = (status: "published" | "pending") => {
+  // A reply Google is still checking is announced as sent, not published,
+  // as the toast says: the inbox's "Reply published. Now showing …" waits
+  // for Google.
+  const announceOutcome = (
+    status: "published" | "pending",
+    googleReplyState?: string | null
+  ) => {
     window.dispatchEvent(
       new CustomEvent<PublishPulseDetail>(PUBLISH_PULSE_EVENT, {
-        detail: { reviewId: review.id, status },
+        detail: {
+          reviewId: review.id,
+          status: googleReplyState === "PENDING" ? "pending" : status,
+        },
       })
     )
+  }
+
+  // A parked reply edited on screen: the composer's own save (the drafts
+  // route, as Generate uses from here), which moves it back to a draft and
+  // so takes it out of approval. Nothing is approved or sent.
+  const onSaveParked = async () => {
+    if (!composerSave) return
+    const saved = await composerSave.save()
+    // A failed save or check is said by the composer, under the reply.
+    if (!saved || saved.verification.verdict === "fail") return
+    outcomeToast.show({
+      kind: "local",
+      title: "Edit saved",
+      description: "The reply is out of approval and back in Needs reply.",
+      type: "success",
+    })
   }
 
   const onDecision = async (decision: "approve" | "reject", note?: string) => {
@@ -258,28 +288,47 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         })
       )
       if (decision === "approve" && isAdvancingOutcome(result.status)) {
-        announceOutcome(result.status)
+        announceOutcome(result.status, result.googleReplyState)
       }
       if (decision === "reject") {
         setRejectOpen(false)
         setRejectNote("")
       }
     } catch (error) {
-      toasts.add({ title: describeActionError(error), type: "error" })
+      // The shared copy for `review_changed` speaks to a composer ("Re-verify
+      // the draft"), which an approver does not have. The hook has already
+      // reloaded the review (use-approval-decision.ts), so say that.
+      const reviewChanged =
+        decision === "approve" &&
+        error instanceof ApiClientError &&
+        error.code === "review_changed"
+      toasts.add({
+        title: reviewChanged
+          ? "The customer changed their review after you opened it. It has been reloaded. Read it, then approve or send back."
+          : describeActionError(error),
+        type: "error",
+      })
     }
   }
 
   const onDelete = async () => {
+    setDeleteError(null)
     try {
       const result = await remove.mutateAsync()
       outcomeToast.show(describeOutcomeToast(result.status))
       setDeleteOpen(false)
     } catch (error) {
-      toasts.add({ title: describeActionError(error), type: "error" })
+      setDeleteError(describeActionError(error))
     }
   }
 
   const awaitingApproval = primary.kind === "approve"
+  // The parked reply opened with Edit reply and changed: what is on screen is
+  // no longer the reply waiting, so neither Approve nor Send back is offered
+  // (⌘↵ and `a` press the bar's main button, and must not approve text that
+  // is no longer shown). The one action is to save the edit, which takes the
+  // reply out of approval. Revert brings the parked text, and Approve, back.
+  const editingParked = awaitingApproval && isDirty && composerSave !== null
   // A parked reply this person may not decide (the server says it waits on
   // someone else: under two-person approval, the person who asked). The
   // status line says "Waiting for another approver"; there is no Approve or
@@ -334,13 +383,20 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     !oneStep &&
     (primary.kind === "publish" || primary.kind === "update")
 
-  // Reject is offered with Approve: inline from md up, in the ⋯ menu below.
-  const offerReject = awaitingApproval && !inFlight && !waitingOnOthers
+  // Send back is offered with Approve: inline from md up, in the ⋯ menu below.
+  const offerReject =
+    awaitingApproval && !inFlight && !waitingOnOthers && !editingParked
 
   // The parked reply is read-only (it is under review); editing it sends it
   // back to Needs reply, so it is asked for here rather than one tap away.
   const offerEdit =
-    awaitingApproval && !inFlight && Boolean(review.capabilities.canEdit)
+    awaitingApproval &&
+    !inFlight &&
+    !editingParked &&
+    Boolean(review.capabilities.canEdit)
+  // Approve's pending words only while it is Approve that runs.
+  const approving =
+    approval.isPending && approval.variables?.decision === "approve"
 
   const shortcutHint = oneStep ? (
     // Desk only: a key hint means nothing to a thumb.
@@ -356,9 +412,20 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           <Button variant="ghost-dark" pending pendingLabel="Publishing…">
             Publishing…
           </Button>
+        ) : editingParked ? (
+          <Button
+            ref={primaryRef}
+            disabled={composerSave.blockedReason !== null}
+            pending={checking}
+            pendingLabel="Saving…"
+            onClick={() => void onSaveParked()}
+          >
+            <SaveIcon aria-hidden strokeWidth={1.75} data-icon="inline-start" />
+            Save and take out of approval
+          </Button>
         ) : waitingOnOthers ? null : awaitingApproval ? (
           <>
-            {/* Beside Approve, Reject sits in ⋯ on a phone; alone (the
+            {/* Beside Approve, Send back sits in ⋯ on a phone; alone (the
                 draft's author), it is the bar's one action at every width.
                 It is not the `a` shortcut's target: that key approves. */}
             <Button
@@ -367,8 +434,12 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               disabled={!primary.enabled || approval.isPending}
               onClick={() => setRejectOpen(true)}
             >
-              <XIcon aria-hidden strokeWidth={1.75} data-icon="inline-start" />
-              Reject reply
+              <CornerUpLeftIcon
+                aria-hidden
+                strokeWidth={1.75}
+                data-icon="inline-start"
+              />
+              Send back
             </Button>
             {offerApprove ? (
               <Button
@@ -381,7 +452,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   strokeWidth={1.75}
                   data-icon="inline-start"
                 />
-                {approval.isPending ? "Approving…" : "Approve reply"}
+                {approving ? "Approving…" : "Approve reply"}
               </Button>
             ) : null}
           </>
@@ -435,8 +506,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   variant="ghost-dark"
                   size="icon"
                   aria-label="Review actions"
-                  // Holding only Reject, the menu is the phone's way to it;
-                  // from md up Reject has its own button.
+                  // Holding only Send back, the menu is the phone's way to
+                  // it; from md up Send back has its own button.
                   className={
                     deleteState.enabled || offerEdit ? undefined : "md:hidden"
                   }
@@ -470,20 +541,23 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   disabled={!primary.enabled || approval.isPending}
                   onClick={() => setRejectOpen(true)}
                 >
-                  <XIcon aria-hidden />
-                  Reject reply
+                  <CornerUpLeftIcon aria-hidden />
+                  Send back
                 </DropdownMenuItem>
               ) : null}
               {deleteState.enabled ? (
                 <>
                   {/* The destructive row comes last, after a rule (phone
-                      only: from md the Reject row above it is hidden). */}
+                      only: from md the Send back row above it is hidden). */}
                   {offerReject && offerApprove ? (
                     <DropdownMenuSeparator className="md:hidden" />
                   ) : null}
                   <DropdownMenuItem
                     variant="destructive"
-                    onClick={() => setDeleteOpen(true)}
+                    onClick={() => {
+                      setDeleteError(null)
+                      setDeleteOpen(true)
+                    }}
                   >
                     <Trash2Icon aria-hidden />
                     Delete published reply
@@ -495,13 +569,28 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : null}
       </div>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          if (!open) setDeleteError(null)
+        }}
+      >
         <AlertDialogContent aria-label="Delete published reply?">
           <AlertDialogTitle>Delete published reply?</AlertDialogTitle>
           <AlertDialogDescription>
             This removes your reply from Google. You can write a new one
             afterwards.
           </AlertDialogDescription>
+          {deleteError ? (
+            <p
+              role="alert"
+              data-slot="delete-error"
+              className="text-caption text-danger-ink"
+            >
+              {deleteError}
+            </p>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="secondary" />}>
               Keep reply
@@ -517,11 +606,12 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reject reverts workflow_status→drafted and clears
-          approval_requested_by server-side, so — like Delete — it must be
-          confirmed rather than fired straight from the trigger button
-          (fix-round-1 IMPORTANT #3). The note is optional and mirrors the
-          approval route's accepted length (note ≤2000 chars). */}
+      {/* Send back (the `reject` decision) reverts workflow_status→drafted
+          and clears approval_requested_by server-side, so — like Delete —
+          it must be confirmed rather than fired straight from the trigger
+          button (fix-round-1 IMPORTANT #3). Nothing is destroyed, so the
+          confirm is not the danger fill. The note is optional and mirrors
+          the approval route's accepted length (note ≤2000 chars). */}
       <AlertDialog
         open={rejectOpen}
         onOpenChange={(open) => {
@@ -529,11 +619,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           if (!open) setRejectNote("")
         }}
       >
-        <AlertDialogContent aria-label="Reject this reply?">
-          <AlertDialogTitle>Reject this reply?</AlertDialogTitle>
+        <AlertDialogContent aria-label="Send this reply back?">
+          <AlertDialogTitle>Send this reply back?</AlertDialogTitle>
           <AlertDialogDescription>
-            The draft returns to its author to edit. You can add a note
-            explaining why.
+            It goes back to Needs reply so it can be edited and submitted again.
+            Your note is shown to the person who submitted it.
           </AlertDialogDescription>
           <div className="flex flex-col gap-1.5">
             <label
@@ -547,7 +637,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               maxLength={REJECT_NOTE_LIMIT}
               value={rejectNote}
               onChange={(event) => setRejectNote(event.target.value)}
-              placeholder="Explain what needs to change…"
+              placeholder="Say what to change…"
             />
             <p className="text-caption text-ink-muted tabular-nums">
               {rejectNote.length.toLocaleString("en-GB")} /{" "}
@@ -559,13 +649,12 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Cancel
             </AlertDialogClose>
             <Button
-              variant="danger"
               disabled={approval.isPending}
               onClick={() =>
                 void onDecision("reject", rejectNote.trim() || undefined)
               }
             >
-              {approval.isPending ? "Rejecting…" : "Confirm reject"}
+              {approval.isPending ? "Sending back…" : "Send back"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

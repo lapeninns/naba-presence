@@ -271,7 +271,7 @@ describe("derivePrimaryAction — availability and reasons", () => {
   it.each([
     ["submit", "Submitting…"],
     ["approve", "Approving…"],
-    ["reject", "Rejecting…"],
+    ["reject", "Sending back…"],
   ] as const)("labels the in-flight %s", (pending, pendingLabel) => {
     expect(
       derivePrimaryAction({ ...readyToPublish(), pending }).pendingLabel
@@ -302,7 +302,7 @@ describe("deriveReplyStatus", () => {
     ["publish", "Publishing reply", "Publishing"],
     ["submit", "Submitting for approval", "Submitting"],
     ["approve", "Recording your approval", "Approving"],
-    ["reject", "Sending the reply back", "Rejecting"],
+    ["reject", "Sending the reply back", "Sending back"],
     ["save", "Saving and checking the draft", "Saving draft"],
     ["generate", "Generating a draft", "Generating"],
   ] as [ReplyPendingKind, string, string][])(
@@ -429,8 +429,8 @@ describe("deriveReplyStatus", () => {
         },
       })
     ).toMatchObject({
-      text: "Draft checked · Approval required",
-      short: "Approval required",
+      text: "Draft checked · Ready to submit for approval",
+      short: "Ready to submit",
       tone: "caution",
     })
   })
@@ -558,8 +558,8 @@ describe("deriveReplyStatus — approval scope", () => {
     expect(
       deriveReplyStatus(input({ ...awaiting, approvalScope: "me" }))
     ).toMatchObject({
-      text: "Approval required",
-      short: "For approval",
+      text: "Waiting for your approval",
+      short: "Your approval",
       tone: "caution",
     })
   })
@@ -799,7 +799,7 @@ describe("replyStateFromRow", () => {
  * the cases where a plausible order gets it wrong.
  */
 describe("deriveReplyStatus — the ladder names what actually blocks the action", () => {
-  it("keeps an approver on 'Approval required' while their edits are unsaved", () => {
+  it("keeps an approver on 'Waiting for your approval' while their edits are unsaved", () => {
     // `evaluateApproval` does not consider dirtiness, so Approve stays live.
     // Ordering `isDirty` above `awaiting_approval` would tell an approver to
     // save a draft with an enabled Approve button sitting underneath them.
@@ -809,7 +809,7 @@ describe("deriveReplyStatus — the ladder names what actually blocks the action
       isDirty: true,
       approvalScope: "me",
     })
-    expect(deriveReplyStatus(state).text).toBe("Approval required")
+    expect(deriveReplyStatus(state).text).toBe("Waiting for your approval")
     expect(derivePrimaryAction(state).enabled).toBe(true)
   })
 
@@ -850,7 +850,7 @@ describe("two-person approval wording (R01b)", () => {
     expect(action.label).toBe("Submit for approval")
     expect(action.enabled).toBe(true)
     expect(deriveReplyStatus(state).text).toBe(
-      "Draft checked · Approval required"
+      "Draft checked · Ready to submit for approval"
     )
   })
 
@@ -917,7 +917,7 @@ describe("two-person approval wording (R01b)", () => {
       capabilities: { ...twoPerson, approvalScope: "me" },
       approvalScope: "others",
     })
-    expect(deriveReplyStatus(state).text).toBe("Approval required")
+    expect(deriveReplyStatus(state).text).toBe("Waiting for your approval")
     expect(derivePrimaryAction(state).enabled).toBe(true)
   })
 
@@ -940,7 +940,7 @@ describe("two-person approval wording (R01b)", () => {
       capabilities: { ...twoPerson, approvalScope: null },
       approvalScope: "me",
     })
-    expect(deriveReplyStatus(state).text).toBe("Approval required")
+    expect(deriveReplyStatus(state).text).toBe("Waiting for your approval")
     expect(derivePrimaryAction(state).enabled).toBe(true)
   })
 })

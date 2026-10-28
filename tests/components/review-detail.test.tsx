@@ -1,12 +1,22 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+} from "@tanstack/react-query"
 import type { UseQueryResult } from "@tanstack/react-query"
-import type { ReactElement } from "react"
+import { useEffect, type ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
+import {
+  DirtyGuardProvider,
+  useRegisterDirtyGuard,
+} from "@/components/inbox/dirty-context"
 import { ReviewDetail } from "@/components/inbox/review-detail"
+import { ApiClientError } from "@/lib/api/client"
+import { replyMutationKey } from "@/lib/queries/use-reply-pending"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as connHealthHook from "@/lib/queries/use-connection-health"
@@ -446,7 +456,9 @@ describe("ReviewDetail", () => {
     renderPane(<ReviewDetail reviewId="rev-1" />)
 
     const replySection = screen.getByRole("region", { name: "Your reply" })
-    expect(screen.getByRole("status")).toHaveTextContent("Approval required")
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Waiting for your approval"
+    )
     expect(
       within(replySection).getByRole("button", {
         name: /differs from the reply below/,
@@ -595,8 +607,45 @@ describe("ReviewDetail", () => {
       expect(within(dialog).getByText("Review received")).toBeInTheDocument()
     })
     expect(screen.getByText("30 Jul, 11:00")).toBeInTheDocument()
-    expect(screen.getByText("Google profile")).toBeInTheDocument()
-    expect(screen.getByText("Riverside · verified")).toBeInTheDocument()
+    expect(screen.getByText("Listing")).toBeInTheDocument()
+    expect(
+      screen.getByText("Riverside · verified on Google")
+    ).toBeInTheDocument()
+  })
+
+  // The drafts route writes `review.draft.edited` / `review.draft.generated`;
+  // the dialog used to look for keys nothing writes and said "Not recorded".
+  it("names who last saved the draft, from the audit trail", async () => {
+    const user = userEvent.setup()
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        timeline: [
+          {
+            action: "review.draft.edited",
+            createdAt: "2026-07-30T10:06:00.000Z",
+            actorName: "Aman",
+            metadataSummary: null,
+          },
+        ],
+      }),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Review details" })
+    )
+    await waitFor(() => {
+      const dialog = screen.getByRole("dialog", { name: "Review details" })
+      expect(
+        within(dialog).getByText("Draft last saved by")
+      ).toBeInTheDocument()
+    })
+    const dialog = screen.getByRole("dialog", { name: "Review details" })
+    const row = within(dialog).getByText("Draft last saved by").parentElement
+    expect(row).toHaveTextContent("Aman")
+    expect(dialog).not.toHaveTextContent("Not recorded")
   })
 
   it("opens the review's history from ⋯ → History", async () => {
@@ -758,6 +807,84 @@ describe("ReviewDetail", () => {
         reviewIds: ["rev-1"],
         assigneeId: "u1",
       })
+      // The toast names who, not "1 review updated".
+      expect(await screen.findByText("Assigned to Priya")).toBeInTheDocument()
+    })
+
+    it("says Unassigned when the review is assigned to no one", async () => {
+      const user = userEvent.setup()
+      mutateAsync.mockResolvedValueOnce({
+        results: [{ reviewId: "rev-1", status: "ok" }],
+      })
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(await screen.findByRole("menuitem", { name: "Assign…" }))
+      ;(await screen.findByRole("menuitem", { name: "Unassign" })).focus()
+      await user.keyboard("{Enter}")
+      expect(await screen.findByText("Unassigned")).toBeInTheDocument()
+      expect(screen.queryByText(/review updated/)).not.toBeInTheDocument()
+    })
+
+    it("gives the real reason when the person cannot take the review", async () => {
+      const user = userEvent.setup()
+      mutateAsync.mockResolvedValueOnce({
+        results: [
+          {
+            reviewId: "rev-1",
+            status: "skipped",
+            code: "assignee_not_eligible",
+          },
+        ],
+      })
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(await screen.findByRole("menuitem", { name: "Assign…" }))
+      ;(await screen.findByRole("menuitem", { name: "Priya" })).focus()
+      await user.keyboard("{Enter}")
+      expect(await screen.findByText("Nothing changed")).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          "That person can’t work on reviews at this location, so it wasn’t assigned to them."
+        )
+      ).toBeInTheDocument()
+    })
+
+    it("says a failed row in its own words, with no bar to point at", async () => {
+      const user = userEvent.setup()
+      mutateAsync.mockResolvedValueOnce({
+        results: [
+          { reviewId: "rev-1", status: "failed", code: "bulk_row_failed" },
+        ],
+      })
+      fakeDetail({ isPending: false, isError: false, data: detail })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      await user.click(
+        await screen.findByRole("menuitem", { name: "No reply needed" })
+      )
+      expect(
+        await screen.findByText("That review was not updated")
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/The bar lists/)).not.toBeInTheDocument()
+    })
+
+    it("offers no No reply needed on a reply that is live on Google", async () => {
+      const user = userEvent.setup()
+      fakeDetail({
+        isPending: false,
+        isError: false,
+        data: reviewWith({ workflowStatus: "published" }),
+      })
+      renderPane(<ReviewDetail reviewId="rev-1" />)
+      await user.click(screen.getByRole("button", { name: "More actions" }))
+      expect(
+        await screen.findByRole("menuitem", { name: "Assign…" })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("menuitem", { name: "No reply needed" })
+      ).not.toBeInTheDocument()
     })
 
     // /api/members is for owners and admins to read. A member may still
@@ -787,6 +914,7 @@ describe("ReviewDetail", () => {
         reviewIds: ["rev-1"],
         assigneeId: "me-1",
       })
+      expect(await screen.findByText("Assigned to you")).toBeInTheDocument()
     })
 
     it("says so when an admin's team list cannot be loaded", async () => {
@@ -1355,8 +1483,40 @@ describe("ReviewDetail — photos that will not load", () => {
     )
     expect(placeholder).toHaveAttribute("title", "Photo unavailable")
     expect(placeholder?.querySelector("svg")).not.toBeNull()
+    // Said in words, on the tile and to a screen reader, not only in a
+    // tooltip a thumb cannot reach.
+    expect(placeholder).toHaveTextContent("Photo unavailable")
+    expect(tile).toHaveAccessibleName("Open Review photo")
+    expect(tile).toHaveAccessibleDescription("Photo unavailable")
     // The tile is still there to open.
     expect(tile).toBeEnabled()
+  })
+
+  it("explains a failed photo in the lightbox and offers the review on Google", async () => {
+    const user = userEvent.setup()
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: {
+        review: {
+          ...photos.review,
+          googleReplyUrl: "https://maps.google.com/review/1",
+        },
+      },
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    const tile = screen.getByRole("button", { name: "Open Review photo" })
+    act(() => {
+      tile.querySelector("img")!.dispatchEvent(new Event("error"))
+    })
+    await user.click(tile)
+    const lightbox = await screen.findByRole("dialog", { name: "Review photo" })
+    expect(lightbox).toHaveTextContent(
+      "This photo could not be loaded. Google may have moved or removed it."
+    )
+    expect(
+      within(lightbox).getByRole("link", { name: "Open on Google" })
+    ).toHaveAttribute("href", "https://maps.google.com/review/1")
   })
 })
 
@@ -1502,7 +1662,7 @@ describe("ReviewDetail — publish bar", () => {
     const reply = screen.getByRole("region", { name: "Your reply" })
     expect(within(reply).getByRole("status")).toBeInTheDocument()
     expect(reply).toHaveTextContent(
-      "View-only access. You can read reviews and replies; an owner or admin can reply."
+      "View-only access for this location. You can read the review and its reply; ask an owner or admin for reply access."
     )
   })
 })
@@ -1528,5 +1688,159 @@ describe("DetailErrorBoundary", () => {
     ).toBeInTheDocument()
     screen.getByRole("button", { name: "Back to Inbox" }).click()
     expect(onBack).toHaveBeenCalledTimes(1)
+  })
+})
+
+// p5 F03/F04/F05: what the publish bar and the pane say, and what they offer.
+describe("ReviewDetail — the bar says what to do next", () => {
+  function failedWith(
+    lastErrorCode: string | null,
+    violation: string | null = null
+  ) {
+    return reviewWith({
+      workflowStatus: "failed",
+      reply: {
+        id: "reply-1",
+        body: "We are sorry to hear that.",
+        publishStatus: "failed",
+        googleReplyState: null,
+        googlePolicyViolation: violation,
+        googleReplyUpdatedAt: null,
+        lastErrorCode,
+      },
+    })
+  }
+
+  it.each([
+    ["owner", "google_reconnect_required", "reconnect Google, then retry"],
+    ["member", "google_reconnect_required", "Google needs reconnecting"],
+    ["owner", "INVALID_ARGUMENT", "edit the reply, then publish again"],
+    ["owner", "google_timeout", "the reply is fine; retry"],
+    ["owner", null, "retry, or edit the reply"],
+  ])(
+    "says the next step after a failed publish (%s, %s)",
+    (role, code, note) => {
+      vi.spyOn(sessionHook, "useSessionRole").mockReturnValue(role)
+      fakeDetail({ isPending: false, isError: false, data: failedWith(code) })
+      const { container } = renderPane(
+        <ReviewDetail reviewId="rev-1" actions={<span />} />
+      )
+      expect(statusStrip(container)).toHaveTextContent(
+        `Publish failed · ${note}`
+      )
+    }
+  )
+
+  it("points an editor at the box when there is no reply yet", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({ drafts: [], workflowStatus: "new" }),
+    })
+    const { container } = renderPane(
+      <ReviewDetail reviewId="rev-1" actions={<span />} />
+    )
+    expect(statusStrip(container)).toHaveTextContent(
+      "No reply yet · write one above"
+    )
+  })
+
+  it("says Generating a draft while Generate runs, not Saving", async () => {
+    const client = new QueryClient()
+    function PendingGenerate() {
+      // Generate's input is a tone alone (no body); it never settles here.
+      const generate = useMutation<never, Error, { tone: string }>({
+        mutationKey: replyMutationKey("rev-1", "draft"),
+        mutationFn: () => new Promise(() => {}),
+      })
+      const { mutate } = generate
+      useEffect(() => {
+        mutate({ tone: "warm" })
+      }, [mutate])
+      return null
+    }
+    fakeDetail({ isPending: false, isError: false, data: readyToPublish })
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <PendingGenerate />
+          <ReviewDetail reviewId="rev-1" actions={<span />} />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await waitFor(() =>
+      expect(statusStrip(container)).toHaveTextContent("Generating a draft")
+    )
+    expect(statusStrip(container)).not.toHaveTextContent("Saving")
+  })
+
+  it("says an edited parked reply is not saved, and what saving does", () => {
+    function Dirty() {
+      useRegisterDirtyGuard(true, async () => true, {
+        save: async () => null,
+        blockedReason: null,
+        saving: false,
+      })
+      return null
+    }
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({ workflowStatus: "awaiting_approval" }),
+    })
+    const { container } = renderPane(
+      <DirtyGuardProvider>
+        <Dirty />
+        <ReviewDetail reviewId="rev-1" actions={<span />} />
+      </DirtyGuardProvider>
+    )
+    expect(statusStrip(container)).toHaveTextContent(
+      "Your edit isn’t saved · saving takes it out of approval"
+    )
+  })
+
+  it("says a parked reply is private until it is approved", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({ workflowStatus: "awaiting_approval" }),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    expect(
+      screen.getByRole("region", { name: "Your reply" })
+    ).toHaveTextContent("Private until it’s approved")
+  })
+
+  it("does not say 'you publish' to someone who cannot", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: true,
+        },
+      }),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    const reply = screen.getByRole("region", { name: "Your reply" })
+    expect(reply).toHaveTextContent("Private until published")
+    expect(reply).not.toHaveTextContent("Private until you publish")
+  })
+
+  it("offers no Try again for a review that is gone", () => {
+    fakeDetail({
+      isPending: false,
+      isError: true,
+      error: new ApiClientError(404, "review_not_found", "x"),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    expect(
+      screen.getByText("This review is no longer available.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Try again/ })
+    ).not.toBeInTheDocument()
   })
 })

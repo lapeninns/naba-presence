@@ -17,6 +17,7 @@ import { RelativeTime } from "@/components/ui/relative-time"
 import { Empty } from "@/components/ui/empty"
 import { formatNumber } from "@/lib/format"
 import type { EmptyReason } from "@/lib/inbox/empty-reason"
+import { CLEAR_FILTERS_LABEL } from "@/lib/inbox/filter-labels"
 import { visibleQueue, type Queue } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -41,10 +42,11 @@ type Content = {
  * empty Failed queue answered a question nobody had asked there.
  */
 const QUEUE_EMPTY: Record<string, Content> = {
+  // The description when another queue has work: the button under it says
+  // where. Without one, see `needsReplyEmpty`.
   needs_reply: {
     title: "Nothing needs a reply.",
-    description:
-      "Every review in this queue has been dealt with. Choose another queue above to keep working.",
+    description: "Every review in this queue has been dealt with.",
   },
   approval: {
     title: "Nothing is waiting for approval.",
@@ -64,24 +66,102 @@ const QUEUE_EMPTY: Record<string, Content> = {
   },
 }
 
+/**
+ * What a filtered list was narrowed by, for an empty state that says what
+ * matched nothing and where. Built by the inbox beside the empty-state facts.
+ */
+export type FilteredFacts = {
+  /** The search in force, if any. */
+  search?: string
+  /** The search is the only narrowing (a sort hides nothing, so it is not one). */
+  searchOnly: boolean
+  /** The queue searched, by name; omitted for "All reviews". */
+  queueLabel?: string
+  /** The server's count for that queue in scope, filters aside. */
+  queueTotal?: number
+}
+
+/** "Needs reply has 2 reviews", or nothing when the count is not known. */
+function queueHas(filtered: FilteredFacts): string | null {
+  const { queueLabel, queueTotal } = filtered
+  if (!queueLabel || !queueTotal) return null
+  return `${queueLabel} has ${formatNumber(queueTotal)} ${queueTotal === 1 ? "review" : "reviews"}`
+}
+
+function filteredContent(filtered: FilteredFacts | undefined): Content {
+  // A search alone gets its own words: it names what was looked for and
+  // where, since a search runs inside the queue on screen and a review in
+  // another queue is not "missing".
+  if (filtered?.searchOnly && filtered.search) {
+    return {
+      title: `No reviews match “${filtered.search}”`,
+      description: filtered.queueLabel
+        ? `Nothing in ${filtered.queueLabel} matches. Try other words, or choose another queue above. Your search stays.`
+        : "Try other words.",
+    }
+  }
+  const has = filtered ? queueHas(filtered) : null
+  if (filtered) {
+    return {
+      title: "No reviews match these filters.",
+      description: has
+        ? `${has}, but none match. Remove a filter above, or clear them all.`
+        : "Remove a filter above, or clear them all.",
+    }
+  }
+  return {
+    title: "No reviews match these filters.",
+    description: "Widen or clear them to see the rest of the queue.",
+  }
+}
+
+/**
+ * An empty Needs reply. An approver with replies parked for them is told so
+ * (the inbox's count includes them); otherwise it says whether another queue
+ * has work, which the button under it names.
+ */
+function needsReplyEmpty(
+  hasNext: boolean,
+  approvalsWaiting: number | undefined
+): Content {
+  if (approvalsWaiting && approvalsWaiting > 0) {
+    return {
+      title: QUEUE_EMPTY.needs_reply.title,
+      description: `${formatNumber(approvalsWaiting)} ${
+        approvalsWaiting === 1 ? "reply is" : "replies are"
+      } waiting for your approval.`,
+    }
+  }
+  return hasNext
+    ? QUEUE_EMPTY.needs_reply
+    : {
+        title: QUEUE_EMPTY.needs_reply.title,
+        description:
+          "You’re all caught up. Every review in this queue has been dealt with.",
+      }
+}
+
 function content(
   reason: EmptyReason,
   counts: EmptyCounts,
   queue: Queue | undefined,
   canManageClients: boolean,
-  business: boolean
+  business: boolean,
+  extra: {
+    hasNext: boolean
+    approvalsWaiting?: number
+    filtered?: FilteredFacts
+  }
 ): Content {
   switch (reason) {
     case "filtered":
-      return {
-        title: "No reviews match these filters.",
-        description: "Widen or clear them to see the rest of the queue.",
-      }
-    case "queue_empty":
-      return (
-        QUEUE_EMPTY[(queue && visibleQueue(queue)) || "needs_reply"] ??
-        QUEUE_EMPTY.needs_reply
-      )
+      return filteredContent(extra.filtered)
+    case "queue_empty": {
+      const shown = (queue && visibleQueue(queue)) || "needs_reply"
+      if (shown === "needs_reply")
+        return needsReplyEmpty(extra.hasNext, extra.approvalsWaiting)
+      return QUEUE_EMPTY[shown] ?? QUEUE_EMPTY.needs_reply
+    }
     // The first run. Only owners and admins can add a client, so everyone
     // else is told who can rather than sent to a page that would refuse them.
     case "no_clients":
@@ -419,6 +499,8 @@ function EmptyState({
   onClear,
   queue,
   nextQueue,
+  approvalsWaiting,
+  filtered,
   canManageClients = false,
   placement,
 }: {
@@ -429,23 +511,59 @@ function EmptyState({
   queue?: Queue
   /** The next queue with work in it, offered from an empty one. */
   nextQueue?: { label: string; count: number; onSelect: () => void }
+  /**
+   * Replies waiting for this person's approval, from an empty Needs reply,
+   * with the way to them. Said and offered in place of `nextQueue`.
+   */
+  approvalsWaiting?: { count: number; onSelect: () => void }
+  /** What a filtered list was narrowed by (see `FilteredFacts`). */
+  filtered?: FilteredFacts
   /** Owners and admins, who can add a client and manage Google connections. */
   canManageClients?: boolean
   /** `page` when the state fills the list pane (see `Statement`). */
   placement?: "inline" | "page"
 }) {
   const business = useWorkspaceMode() === "business"
+  const approvals =
+    reason === "queue_empty" &&
+    queue &&
+    visibleQueue(queue) === "needs_reply" &&
+    approvalsWaiting &&
+    approvalsWaiting.count > 0
+      ? approvalsWaiting
+      : undefined
   const { title, description } = content(
     reason,
     counts,
     queue,
     canManageClients,
-    business
+    business,
+    {
+      hasNext: Boolean(nextQueue),
+      approvalsWaiting: approvals?.count,
+      filtered,
+    }
   )
+  // A connection problem. Members and viewers are not sent to a page that
+  // would refuse them (/settings/connections is owners and admins only): the
+  // sentence above says who can fix it, and there is no button.
+  const connectionFixFor =
+    reason === "disconnected" ||
+    reason === "import_failed" ||
+    reason === "never_imported" ||
+    reason === "not_connected"
   const action =
     reason === "filtered" && onClear ? (
+      // One name for clearing everything, as the chips and the Filters sheet
+      // say it; a search on its own is cleared by name.
       <Button variant="secondary" onClick={onClear}>
-        Clear filters
+        {filtered?.searchOnly && filtered.search
+          ? "Clear search"
+          : CLEAR_FILTERS_LABEL}
+      </Button>
+    ) : approvals ? (
+      <Button variant="secondary" onClick={approvals.onSelect}>
+        Review your approvals ({formatNumber(approvals.count)})
       </Button>
     ) : reason === "queue_empty" && nextQueue ? (
       <Button variant="secondary" onClick={nextQueue.onSelect}>
@@ -458,15 +576,8 @@ function EmptyState({
       >
         {business ? "Link your listings" : "Add a client"}
       </Link>
-    ) : !canManageClients &&
-      (reason === "disconnected" ||
-        reason === "import_failed" ||
-        reason === "never_imported" ||
-        reason ===
-          "not_connected") ? // Members and viewers are not sent to a page that would refuse them
-    // (/settings/connections is owners and admins only): the sentence above
-    // says who can fix it, and there is no button.
-    undefined : reason === "disconnected" ? (
+    ) : connectionFixFor && !canManageClients ? undefined : reason ===
+      "disconnected" ? (
       // Says what the page it opens is for here. Same place as below.
       <Link
         href="/settings/connections"

@@ -1,6 +1,6 @@
 "use client"
 
-import { useId } from "react"
+import { useId, useRef } from "react"
 
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import { WrittenFilter } from "@/components/inbox/filter-controls"
@@ -32,7 +32,7 @@ import {
   resultsAnnouncement,
   showResultsLabel,
 } from "@/lib/inbox/filter-labels"
-import type { InboxState } from "@/lib/inbox/url-state"
+import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 
 /**
@@ -128,6 +128,10 @@ function FiltersSheet({
   const ageId = useId()
   const ownerId = useId()
   const phone = usePhoneOverlay()
+  const showRef = useRef<HTMLButtonElement>(null)
+  // Clear is offered only when there is something for it to clear (the
+  // client scope is the app bar's, so it does not count).
+  const filtered = hasActiveFilters({ ...state, clientId: undefined })
   const venueItems: Record<string, string> = {
     "": "All venues",
     ...Object.fromEntries(
@@ -166,7 +170,8 @@ function FiltersSheet({
         <SheetHeader>
           <SheetTitle>Filters</SheetTitle>
           <SheetDescription>
-            Narrow the queue. Changes apply as you make them.
+            Changes apply as you make them. Star ratings are the chips above the
+            list.
           </SheetDescription>
         </SheetHeader>
 
@@ -303,10 +308,20 @@ function FiltersSheet({
           <p role="status" className="sr-only">
             {resultsAnnouncement(resultLabel)}
           </p>
-          <Button variant="ghost" onClick={onClear}>
-            {CLEAR_FILTERS_LABEL}
-          </Button>
-          <Button onClick={() => onOpenChange(false)}>
+          {filtered ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                onClear()
+                // The button goes with the filters: focus stays in the
+                // sheet, on the button that shows the result.
+                showRef.current?.focus()
+              }}
+            >
+              {CLEAR_FILTERS_LABEL}
+            </Button>
+          ) : null}
+          <Button ref={showRef} onClick={() => onOpenChange(false)}>
             {showResultsLabel(resultLabel)}
           </Button>
         </SheetFooter>

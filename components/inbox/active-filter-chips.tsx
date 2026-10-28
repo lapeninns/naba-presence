@@ -107,7 +107,8 @@ function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
  * it does ("Remove filter: Rating: 1–2 stars"), in the inbox's own wording.
  * The strip (`FilterChipStrip`) is one row that scrolls sideways with faded
  * edges rather than wrapping or cutting a label short, and it keeps focus on
- * a neighbour when the focused chip goes.
+ * a neighbour when the focused chip goes. When the last one goes (or "Clear
+ * all filters" empties the strip), `onEmpty` says where focus goes instead.
  */
 function ActiveFilterChips({
   state,
@@ -115,6 +116,7 @@ function ActiveFilterChips({
   clientChip,
   onChange,
   onClear,
+  onEmpty,
 }: {
   state: InboxState
   locations: LocationOption[]
@@ -126,6 +128,8 @@ function ActiveFilterChips({
   clientChip?: { name?: string; onRemove: () => void }
   onChange: (partial: Partial<InboxState>) => void
   onClear: () => void
+  /** Focus has nowhere left in the strip: the caller puts it somewhere useful. */
+  onEmpty?: () => void
 }) {
   // The client scope lives in the app bar, so it is not a filter here: a
   // scoped inbox with nothing narrowed shows no chip row and no "Clear all".
@@ -136,7 +140,11 @@ function ActiveFilterChips({
   if (!filtered && !scope) return null
   const chips = buildChips(state, locations)
   return (
-    <FilterChipStrip data-slot="active-filter-chips" className="items-center">
+    <FilterChipStrip
+      data-slot="active-filter-chips"
+      className="items-center"
+      onEmpty={onEmpty}
+    >
       {scope ? (
         <FilterChip
           removeLabel={removeFilterLabel(

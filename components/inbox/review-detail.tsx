@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -23,13 +24,14 @@ import {
   TriangleAlertIcon,
   UserPlusIcon,
 } from "lucide-react"
+import { useMutationState } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
 import Link from "next/link"
 
 import { ReviewAvatar } from "@/components/inbox/review-avatar"
 import { ActionBar } from "@/components/ui/action-bar"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
 import {
   Dialog,
@@ -74,6 +76,7 @@ import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
 import { formatDateTime } from "@/lib/format"
+import { ApiClientError } from "@/lib/api/client"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
   derivePrimaryAction,
@@ -89,11 +92,16 @@ import {
   isLiveOnGoogle,
   replyWork,
 } from "@/lib/inbox/review-situation"
+import { publishFailureCause } from "@/lib/inbox/publish-failure"
 import { parseReviewText } from "@/lib/inbox/review-text"
 import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
-import { useReplyPending } from "@/lib/queries/use-reply-pending"
+import {
+  replyMutationKey,
+  useReplyPending,
+} from "@/lib/queries/use-reply-pending"
 import { useSessionRole } from "@/lib/queries/use-session"
+import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { cn } from "@/lib/utils"
 import { PUBLISH_PULSE_EVENT, PUBLISH_PULSE_MS } from "@/lib/inbox/events"
 
@@ -354,7 +362,7 @@ function ReviewAssignItems({
   onAssign,
 }: {
   review: Review
-  onAssign: (assigneeId: string | null) => void
+  onAssign: (assigneeId: string | null, label?: string) => void
 }) {
   const assignees = useAssignees([review.locationId])
   return <AssigneeItems {...assignees} onAssign={onAssign} />
@@ -414,8 +422,7 @@ function DetailsLoadingShell() {
         <DialogHeader>
           <DialogTitle>Review details</DialogTitle>
           <DialogDescription>
-            When the review arrived, its Google profile and who worked on the
-            reply.
+            When the review arrived, its listing and who worked on the reply.
           </DialogDescription>
         </DialogHeader>
         <p role="status" className="text-ui text-ink-secondary">
@@ -463,8 +470,15 @@ function ReviewMenu({ review }: { review: Review }) {
   // On a phone the menu is a bottom sheet, where a flyout submenu has
   // nowhere to fly to; the people are listed in the sheet.
   const menuIsSheet = useMenuSheet()
-  const assign = (assigneeId: string | null) =>
-    void triage.run(assignReviews([review.id], assigneeId))
+  // The person's name goes with the request, so the toast can say who it
+  // went to ("Assigned to Priya") rather than "1 review updated".
+  const assign = (assigneeId: string | null, label?: string) =>
+    void triage.run(assignReviews([review.id], assigneeId), {
+      assigneeLabel: label,
+    })
+  // A reply live on Google has had its reply: marking it as needing none
+  // would only contradict that.
+  const offerNoReplyNeeded = review.workflowStatus !== "published"
 
   return (
     <>
@@ -502,14 +516,24 @@ function ReviewMenu({ review }: { review: Review }) {
               )}
               {/* Triage, not a reply: it clears the review from Needs
                   reply and sends nothing to Google. Done at once, with
-                  Undo in its toast. */}
-              <DropdownMenuItem
-                onClick={() => void triage.run(markNoReplyNeeded([review.id]))}
-              >
-                <CircleSlashIcon aria-hidden />
-                No reply needed
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+                  Undo in its toast; off while a triage is on its way, so
+                  a second press cannot answer "Nothing changed". */}
+              {offerNoReplyNeeded ? (
+                <DropdownMenuItem
+                  disabled={triage.isPending}
+                  onClick={() =>
+                    void triage.run(markNoReplyNeeded([review.id]))
+                  }
+                >
+                  <CircleSlashIcon aria-hidden />
+                  No reply needed
+                </DropdownMenuItem>
+              ) : null}
+              {/* In the sheet, Assign is listed at the foot, so with no
+                  No reply needed there is nothing above to rule off. */}
+              {menuIsSheet && !offerNoReplyNeeded ? null : (
+                <DropdownMenuSeparator />
+              )}
             </>
           ) : null}
           <DropdownMenuItem
@@ -693,7 +717,15 @@ function ReviewBody({ review }: { review: Review }) {
   )
 }
 
-function ReviewMedia({ media }: { media: Review["media"] }) {
+function ReviewMedia({
+  media,
+  googleReplyUrl,
+}: {
+  media: Review["media"]
+  /** The review on Google, offered when a photo could not be loaded. */
+  googleReplyUrl?: string | null
+}) {
+  const unavailableId = useId()
   // A media row with neither a thumbnail nor a video is nothing to render —
   // the old grid emitted an empty <li> for each one, leaving phantom gaps.
   const items = media.filter((item) => item.thumbnailUrl ?? item.videoUrl)
@@ -740,11 +772,18 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
             item.thumbnailLabel ??
             (item.videoUrl ? "Review video" : "Review photo")
           const unavailable = failed.has(item.id)
+          // The tile's words, for touch and for a screen reader: the name
+          // stays "Open …", the description says it would not load.
+          const unavailableText =
+            unavailable && !item.videoUrl
+              ? `${unavailableId}-${index}`
+              : undefined
           return (
             <li key={item.id} className="relative">
               <button
                 type="button"
                 aria-label={`Open ${label}`}
+                aria-describedby={unavailableText}
                 onClick={() => setActiveIndex(index)}
                 className="relative block w-full overflow-hidden rounded-(--np-radius-control) bg-fill focus-halo hairline transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:scale-[0.98]"
               >
@@ -777,14 +816,22 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                   <span
                     data-slot={unavailable ? "media-unavailable" : undefined}
                     title={unavailable ? "Photo unavailable" : undefined}
-                    className="flex aspect-square w-full items-center justify-center text-ink-muted"
+                    className="flex aspect-square w-full flex-col items-center justify-center gap-1 px-1 text-ink-muted"
                   >
                     {unavailable && !item.videoUrl ? (
-                      <ImageOffIcon
-                        aria-hidden
-                        strokeWidth={1.75}
-                        className="size-4"
-                      />
+                      <>
+                        <ImageOffIcon
+                          aria-hidden
+                          strokeWidth={1.75}
+                          className="size-4"
+                        />
+                        <span
+                          id={unavailableText}
+                          className="text-center text-caption leading-tight"
+                        >
+                          Photo unavailable
+                        </span>
+                      </>
                     ) : (
                       <PlayIcon
                         aria-hidden
@@ -855,9 +902,23 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                 className="max-h-[70svh] w-full rounded-(--np-radius-control) object-contain"
               />
             ) : active ? (
-              <p className="py-10 text-center text-body text-ink-muted">
-                Photo unavailable
-              </p>
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <p className="text-body text-ink-muted">
+                  This photo could not be loaded. Google may have moved or
+                  removed it.
+                </p>
+                {googleReplyUrl ? (
+                  <a
+                    href={googleReplyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={buttonVariants({ variant: "secondary" })}
+                  >
+                    <ExternalLinkIcon aria-hidden data-icon="inline-start" />
+                    Open on Google
+                  </a>
+                ) : null}
+              </div>
             ) : null}
             {hasMultiple ? (
               <>
@@ -968,6 +1029,41 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
 }
 
 /**
+ * What to do next, after the status words, where the bar alone has to say
+ * it: a failed publish, whose cause is in the block at the head of the reply
+ * (off screen on a phone, where the docked bar is what is in view), and an
+ * empty reply beside a Publish that is off. Reconnecting is offered only to
+ * the roles that can open Settings › Connections, as in ReplyException.
+ */
+function nextStepNote(
+  review: Review,
+  derived: ReplyStatus,
+  canManageConnections: boolean
+): string | undefined {
+  const caps = review.capabilities
+  if (
+    review.workflowStatus === "failed" &&
+    (caps.canPublish || caps.canRequestApproval)
+  ) {
+    switch (publishFailureCause(review.reply)) {
+      case "content":
+        return "edit the reply, then publish again"
+      case "connection":
+        return canManageConnections
+          ? "reconnect Google, then retry"
+          : "Google needs reconnecting"
+      case "transient":
+        return "the reply is fine; retry"
+      default:
+        return "retry, or edit the reply"
+    }
+  }
+  // The ladder's empty state; the composer it points at is above the bar.
+  if (derived.text === "No reply yet" && caps.canEdit) return "write one above"
+  return undefined
+}
+
+/**
  * The one status line, on the publish bar beside the button it describes.
  *
  * It is a `role="status"` so a change announces itself, and it is the only
@@ -987,6 +1083,23 @@ function ReplyStatusStrip({
   const [pulse, setPulse] = useState(false)
   const isDirty = useIsDirty()
   const mutating = useReplyPending(review.id)
+  // Generate, save and check share the `draft` key; the input tells them
+  // apart (Generate sends only a tone, a save sends the body, a check sends
+  // a draft id), so the line says "Generating a draft" beside "Writing…".
+  const draftKinds = useMutationState({
+    filters: {
+      mutationKey: replyMutationKey(review.id, "draft"),
+      status: "pending",
+    },
+    select: (mutation) => {
+      const input = mutation.state.variables
+      return input && typeof input === "object" && !("body" in input)
+        ? "generate"
+        : "save"
+    },
+  })
+  const canManageConnections =
+    settingsGatingFromRole(useSessionRole()).canManageConnections
   const action = derivePrimaryAction(replyStateFor(review, isDirty, null))
   const pending: ReplyPendingKind | null =
     mutating === "publish"
@@ -998,16 +1111,34 @@ function ReplyStatusStrip({
         : mutating === "rejection"
           ? "reject"
           : mutating === "draft"
-            ? "save"
+            ? draftKinds.includes("generate")
+              ? "generate"
+              : "save"
             : null
   const composerSave = useComposerSave()
   const derived = deriveReplyStatus(replyStateFor(review, isDirty, pending))
   // Text the composer cannot send as it stands (empty, too long) outranks
-  // "Ready to publish": the button is off, and this is why.
+  // "Ready to publish": the button is off, and this is why. A parked reply
+  // opened with Edit reply and changed is no longer the one waiting: the bar
+  // offers to save it (which takes it out of approval), not to approve it.
+  const nextStep =
+    pending || isDirty
+      ? undefined
+      : nextStepNote(review, derived, canManageConnections)
   const status: ReplyStatus =
     !pending && composerSave?.blockedReason
       ? { ...derived, text: composerSave.blockedReason, icon: "pen" }
-      : derived
+      : !pending && isDirty && review.workflowStatus === "awaiting_approval"
+        ? {
+            ...derived,
+            text: "Your edit isn’t saved",
+            tone: "neutral",
+            icon: "pen",
+            note: "saving takes it out of approval",
+          }
+        : nextStep
+          ? { ...derived, note: nextStep }
+          : derived
 
   // The ring stays up for PUBLISH_PULSE_MS — the same constant InboxView waits
   // on before advancing — so the pulse is actually on screen before this
@@ -1061,9 +1192,17 @@ function ActionFooterSkeleton() {
  * while it is a draft, and what Google holds once something was sent.
  */
 function replyVisibility(review: Review): string {
+  // The status line and the banner say who it waits on; this line only says
+  // where the reply is seen.
+  if (review.workflowStatus === "awaiting_approval") {
+    return "Private until it’s approved"
+  }
   const status = review.reply?.publishStatus ?? null
   if (!review.reply || !status || status === "not_published") {
-    return "Private until you publish"
+    // "you" only for someone who can publish it.
+    return review.capabilities.canPublish
+      ? "Private until you publish"
+      : "Private until published"
   }
   const label = isAwaitingGoogleCheck(status, review.reply.googleReplyState)
     ? WAITING_FOR_GOOGLE_CHECK
@@ -1128,7 +1267,10 @@ function ReviewThread({
         </div>
         <div className={THREAD_BODY_CLASS}>
           <ReviewBody review={review} />
-          <ReviewMedia media={review.media} />
+          <ReviewMedia
+            media={review.media}
+            googleReplyUrl={review.googleReplyUrl}
+          />
         </div>
       </article>
 
@@ -1169,8 +1311,8 @@ function ReviewThread({
             <div className="flex flex-col gap-1.5" data-slot="view-only">
               <ReplyStatusStrip review={review} />
               <p className="text-caption text-ink-muted">
-                View-only access. You can read reviews and replies; an owner or
-                admin can reply.
+                View-only access for this location. You can read the review and
+                its reply; ask an owner or admin for reply access.
               </p>
             </div>
           ) : null}
@@ -1264,6 +1406,8 @@ function ReviewDetail({
   const review = query.data?.review
   const pending = query.isPending
   const failed = !pending && (query.isError || !review)
+  const gone =
+    query.error instanceof ApiClientError && query.error.status === 404
 
   // The steps row is drawn while loading, failed and loaded, but not as the
   // same element: when the review lands the loading row is replaced and the
@@ -1355,10 +1499,17 @@ function ReviewDetail({
             ) : titleIsHeading ? (
               <h1 className="sr-only">{title}</h1>
             ) : null}
+            {/* A review that is gone (404) stays gone: no Try again that
+                could only repeat it. The steps and "‹ Inbox" are the ways
+                on. */}
             <QueryError
-              title="We could not load this review."
+              title={
+                gone
+                  ? "This review is no longer available."
+                  : "We could not load this review."
+              }
               cause={query.error}
-              onRetry={() => void query.refetch()}
+              onRetry={gone ? undefined : () => void query.refetch()}
               className="p-(--np-card-pad)"
             />
           </>

@@ -19,6 +19,7 @@ import {
   ReportToolbar,
   reportToolbarFieldProps,
 } from "@/components/reporting/report-toolbar"
+import { ReportExportScope } from "@/components/reporting/csv-download-button"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { buttonVariants } from "@/components/ui/button"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
@@ -79,28 +80,29 @@ function isTab(value: string | null): value is TabValue {
 }
 
 /**
- * "3 listings", or "3 locations" in a business workspace, where the access
- * scope is the location (`workspaceTerms`).
+ * "3 listings": the Google listing is one word in both workspace modes, so
+ * the report never says "locations" beside "Every listing" (CLR-06).
  */
-function scopeCountPhrase(count: number, business: boolean) {
-  const terms = workspaceTerms(business ? "business" : "agency")
-  const [one, many] = business
-    ? [terms.scope, terms.scopePlural]
-    : [terms.place, terms.placePlural]
-  return `${formatNumber(count)} ${count === 1 ? one : many}`
+function listingCountPhrase(count: number) {
+  return `${formatNumber(count)} ${count === 1 ? LISTING_TERMS.place : LISTING_TERMS.placePlural}`
 }
 
 /**
  * A client with nothing filed under it: every report would be empty. Share
  * stays reachable (it was in the toolbar whatever the tab showed): the
  * tabs carry it in their own actions menu, which this panel replaces.
+ *
+ * Linking listings is an owner's or admin's job (the setup route checks the
+ * same), so only they are sent to do it; everyone else is told who can.
  */
 function NoLocationsPanel({
   client,
   share,
+  canManage,
 }: {
   client: ClientSummary
   share: ReportShareTarget | null
+  canManage: boolean
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -114,15 +116,28 @@ function NoLocationsPanel({
         titleAs="h2"
         variant="empty"
         icon={<Link2OffIcon />}
-        title={`No linked ${LISTING_TERMS.place}`}
-        description={`${client.name} has no Google ${LISTING_TERMS.place} yet. Add one to see how it is performing.`}
+        title={`No linked ${LISTING_TERMS.placePlural} yet`}
+        description={`${client.name} has no Google ${LISTING_TERMS.placePlural} linked, so there are no figures to show. ${
+          canManage
+            ? "Link one to start collecting reviews and figures."
+            : "An owner or admin can link one."
+        }`}
         action={
-          <Link
-            href={`/clients/${client.id}`}
-            className={cn(buttonVariants({ variant: "secondary" }))}
-          >
-            Open {client.name}
-          </Link>
+          canManage ? (
+            <Link
+              href={`/setup?client=${client.id}&step=locations`}
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              Add {LISTING_TERMS.placePlural} from Google
+            </Link>
+          ) : (
+            <Link
+              href={`/clients/${client.id}`}
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              Open {client.name}
+            </Link>
+          )
         }
       />
     </div>
@@ -282,10 +297,8 @@ export function PerformanceView({
       : totalLocations
   const locationsPart =
     scopeCount === null
-      ? business
-        ? `All ${terms.scopePlural}`
-        : `Every ${terms.place}`
-      : scopeCountPhrase(scopeCount, business)
+      ? `Every ${LISTING_TERMS.place}`
+      : listingCountPhrase(scopeCount)
   const clientPart = client
     ? client.name
     : clientId
@@ -297,6 +310,14 @@ export function PerformanceView({
     RANGE_OPTIONS[active].find((option) => option.id === activePeriod.id)
       ?.label ?? ""
   const empty = client && client.locationCount === 0
+  // Leads every CSV file name under the tabs; each tab adds its dates.
+  const exportName = business
+    ? items[0]?.name
+    : client
+      ? client.name
+      : clientId
+        ? undefined
+        : "all clients"
 
   return (
     // Browser "Save as PDF": controls drop out, figures and charts stay whole.
@@ -364,74 +385,89 @@ export function PerformanceView({
         // client names and the picker are missing.
         <ReportingPanel
           variant="error"
-          title={`We couldn’t load your ${terms.scopePlural}`}
+          title={`We couldn’t load your ${business ? LISTING_TERMS.placePlural : terms.scopePlural}`}
           cause={clients.error}
           onRetry={() => void clients.refetch()}
         />
       ) : null}
-      <Tabs value={active} onValueChange={selectTab}>
-        {/* Notion Mail text tabs: plain labels, the current one 600 ink with
+      <ReportExportScope value={{ name: exportName }}>
+        <Tabs value={active} onValueChange={selectTab}>
+          {/* Notion Mail text tabs: plain labels, the current one 600 ink with
             a 2px ink underline; still 44px tall on touch. `fill`: three
             equal columns on a phone, the ordinary row from `sm`. */}
-        <TabsList fill variant="text">
-          {TABS.map((tab) => (
-            <TabsTab key={tab.value} value={tab.value}>
-              {tab.lead}
-              {tab.rest ? (
-                <>
-                  {" "}
-                  <span className="sr-only sm:not-sr-only">{tab.rest}</span>
-                </>
-              ) : null}
-            </TabsTab>
-          ))}
-        </TabsList>
-        {/* One tap to change the period; a line says when it was carried over
+          <TabsList fill variant="text">
+            {TABS.map((tab) => (
+              <TabsTab key={tab.value} value={tab.value}>
+                {tab.lead}
+                {tab.rest ? (
+                  <>
+                    {" "}
+                    <span className="sr-only sm:not-sr-only">{tab.rest}</span>
+                  </>
+                ) : null}
+              </TabsTab>
+            ))}
+          </TabsList>
+          {/* One tap to change the period; a line says when it was carried over
             from another tab as its nearest equivalent. */}
-        <ReportPeriodStrip
-          className="pt-3 md:pt-0"
-          value={activePeriod.id}
-          options={RANGE_OPTIONS[active]}
-          onChange={setRange(active)}
-          note={activePeriod.note}
-        />
-        <TabsPanel value="reply" className="pt-3 md:pt-5">
-          {empty ? (
-            <NoLocationsPanel client={client} share={shareTarget} />
-          ) : (
-            <ReplyPerformanceTab
-              windowNow={windowNow}
-              clientId={clientId}
-              range={resolveTabRange("reply", rangeParams).id}
-              onRangeChange={setRange("reply")}
-              share={shareTarget}
-            />
-          )}
-        </TabsPanel>
-        <TabsPanel value="google" className="pt-3 md:pt-5">
-          {empty ? (
-            <NoLocationsPanel client={client} share={shareTarget} />
-          ) : (
-            <GooglePerformanceTab
-              clientId={clientId}
-              range={resolveTabRange("google", rangeParams).id}
-              onRangeChange={setRange("google")}
-              share={shareTarget}
-            />
-          )}
-        </TabsPanel>
-        <TabsPanel value="keywords" className="pt-3 md:pt-5">
-          {empty ? (
-            <NoLocationsPanel client={client} share={shareTarget} />
-          ) : (
-            <KeywordsTab
-              clientId={clientId}
-              range={resolveTabRange("keywords", rangeParams).id}
-              share={shareTarget}
-            />
-          )}
-        </TabsPanel>
-      </Tabs>
+          <ReportPeriodStrip
+            className="pt-3 md:pt-0"
+            value={activePeriod.id}
+            options={RANGE_OPTIONS[active]}
+            onChange={setRange(active)}
+            note={activePeriod.note}
+          />
+          <TabsPanel value="reply" className="pt-3 md:pt-5">
+            {empty ? (
+              <NoLocationsPanel
+                client={client}
+                share={shareTarget}
+                canManage={canShare}
+              />
+            ) : (
+              <ReplyPerformanceTab
+                windowNow={windowNow}
+                clientId={clientId}
+                range={resolveTabRange("reply", rangeParams).id}
+                onRangeChange={setRange("reply")}
+                share={shareTarget}
+              />
+            )}
+          </TabsPanel>
+          <TabsPanel value="google" className="pt-3 md:pt-5">
+            {empty ? (
+              <NoLocationsPanel
+                client={client}
+                share={shareTarget}
+                canManage={canShare}
+              />
+            ) : (
+              <GooglePerformanceTab
+                clientId={clientId}
+                range={resolveTabRange("google", rangeParams).id}
+                onRangeChange={setRange("google")}
+                share={shareTarget}
+              />
+            )}
+          </TabsPanel>
+          <TabsPanel value="keywords" className="pt-3 md:pt-5">
+            {empty ? (
+              <NoLocationsPanel
+                client={client}
+                share={shareTarget}
+                canManage={canShare}
+              />
+            ) : (
+              <KeywordsTab
+                clientId={clientId}
+                range={resolveTabRange("keywords", rangeParams).id}
+                onRangeChange={setRange("keywords")}
+                share={shareTarget}
+              />
+            )}
+          </TabsPanel>
+        </Tabs>
+      </ReportExportScope>
     </div>
   )
 }

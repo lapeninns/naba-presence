@@ -4,14 +4,16 @@ import { Link2OffIcon, SearchIcon } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 
-import { buttonVariants } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { EmptyIllustration } from "@/components/ui/empty"
-import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
+import {
+  CsvDownloadButton,
+  ReportExportScope,
+} from "@/components/reporting/csv-download-button"
 import {
   PartialCoverageAlert,
   RefreshFailedNote,
 } from "@/components/reporting/partial-coverage-alert"
-import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
@@ -34,23 +36,28 @@ import { ApiClientError } from "@/lib/api/client"
 import { formatNumber } from "@/lib/format"
 import { useAnalyticsKeywords } from "@/lib/queries/use-analytics-keywords"
 import { csvFilename } from "@/lib/reporting/csv"
-import {
-  DEFAULT_RANGES,
-  KEYWORD_RANGES,
-  type KeywordRangeId,
-} from "@/lib/reporting/ranges"
+import { DEFAULT_RANGES, type KeywordRangeId } from "@/lib/reporting/ranges"
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 import { LISTING_TERMS } from "@/lib/workspace/terms"
 
+/** "March 2026": Keywords count whole months, so the caption names one. */
+const MONTH = new Intl.DateTimeFormat("en-GB", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+})
+
 /**
  * Search keywords for the page's scope and period. The period is chosen in
- * the page's period strip or toolbar (`?range_kw=`).
+ * the page's period strip or toolbar (`?range_kw=`); `onRangeChange` is
+ * still used for the "Show the last 12 months" shortcut on a quiet period.
  */
 export function KeywordsTab({
   clientId,
   range,
+  onRangeChange,
   share,
 }: {
   clientId?: string
@@ -58,6 +65,7 @@ export function KeywordsTab({
   share?: ReportShareTarget | null
   /** The period (from `?range=`); the keywords default when absent. */
   range?: KeywordRangeId
+  onRangeChange?: (range: KeywordRangeId) => void
 }) {
   const rangeId = range ?? DEFAULT_RANGES.keywords
   const [query, setQuery] = useState("")
@@ -76,8 +84,12 @@ export function KeywordsTab({
     keywords.isError &&
     keywords.error instanceof ApiClientError &&
     keywords.error.code === "keywords_paused"
-  const rangeLabel =
-    KEYWORD_RANGES.find((option) => option.id === rangeId)?.label ?? ""
+  const countedFrom =
+    keywords.data &&
+    (keywords.data.state === "ready" || keywords.data.state === "empty") &&
+    Number.isFinite(Date.parse(keywords.data.from))
+      ? MONTH.format(new Date(keywords.data.from))
+      : null
 
   const canRefresh = canTriggerSync(role) && !paused
   const header = (
@@ -86,14 +98,20 @@ export function KeywordsTab({
         keywords.isPending ? (
           // One caption line once it arrives: keep its room.
           <Skeleton aria-hidden className="h-4 w-48 max-w-full" />
-        ) : !keywords.data ? null : (
+        ) : !countedFrom &&
+          !refresh.refreshing &&
+          !refresh.stillWaiting ? null : (
+          // The month the count starts, only over terms (or their absence)
+          // it describes: not over the no-link, collecting or failed panels.
           <>
-            <FetchedAtCaption
-              iso={keywords.data?.from ?? null}
-              timezone="UTC"
-              prefix="Impressions counted from"
-            />
-            {refresh.refreshing ? <RefreshStatus /> : null}
+            {countedFrom ? (
+              <p className="text-caption text-ink-muted tabular-nums">
+                Times shown in search, counted from {countedFrom}
+              </p>
+            ) : null}
+            {refresh.refreshing || refresh.stillWaiting ? (
+              <RefreshStatus stillWaiting={refresh.stillWaiting} />
+            ) : null}
           </>
         )
       }
@@ -110,6 +128,7 @@ export function KeywordsTab({
                     scopedToClient: Boolean(clientId),
                     onStart: refresh.onStart,
                     onFailed: refresh.onFailed,
+                    onSettled: refresh.onSettled,
                   }
                 : null
             }
@@ -120,12 +139,21 @@ export function KeywordsTab({
   )
 
   const frame = (body: React.ReactNode) => (
-    <div className="@container/report flex flex-col gap-(--np-gap-section)">
-      {/* Leading h2 keeps heading order valid when deep-linked via ?tab=keywords (REV-2). */}
-      <h2 className="sr-only">Search keywords</h2>
-      {header}
-      {body}
-    </div>
+    // The CSV file carries the first month counted, after the page's scope.
+    <ReportExportScope
+      value={{
+        period: keywords.data
+          ? `from ${keywords.data.from.slice(0, 7)}`
+          : undefined,
+      }}
+    >
+      <div className="@container/report flex flex-col gap-(--np-gap-section)">
+        {/* Leading h2 keeps heading order valid when deep-linked via ?tab=keywords (REV-2). */}
+        <h2 className="sr-only">Search keywords</h2>
+        {header}
+        {body}
+      </div>
+    </ReportExportScope>
   )
 
   // The route throws 503 keywords_paused before parsing when the flag is off.
@@ -160,8 +188,8 @@ export function KeywordsTab({
   // it that pushes the first search term off a phone's first screen.
   const note = (
     <p className="text-caption text-ink-muted">
-      How Google counts these: a “+” means Google reports at least this many
-      impressions (it gives a range for lower-volume terms).
+      How Google counts these: a “+” means at least this many. Google gives a
+      range, not an exact count, for less-searched terms.
     </p>
   )
 
@@ -205,7 +233,8 @@ export function KeywordsTab({
               ? data.unavailableReasons
               : ["keyword_sync_failed"]
           }
-          title="Some keywords could not be refreshed"
+          // Nothing came back at all here: not "some".
+          title="Search keywords could not be refreshed"
         >
           <RefreshFailedNote completeness={data.completeness} />
         </UnavailableAlert>
@@ -229,7 +258,16 @@ export function KeywordsTab({
           variant="empty"
           icon={<SearchIcon />}
           title="No keywords yet"
-          description="Google has not reported any search keywords for this window."
+          description="Google has not reported any search keywords for this period."
+          action={
+            // A short period on a quiet listing is often empty; a longer one
+            // usually is not, and is one press away (as on the Google tab).
+            onRangeChange && (rangeId === "1m" || rangeId === "6m") ? (
+              <Button variant="secondary" onClick={() => onRangeChange("12m")}>
+                Show the last 12 months
+              </Button>
+            ) : undefined
+          }
         />
       </>
     )
@@ -274,7 +312,11 @@ export function KeywordsTab({
         </p>
         <span className="ml-auto print:hidden">
           <CsvDownloadButton
-            filename={csvFilename("search keywords", rangeLabel)}
+            // A filtered export says so in its name, as the button's
+            // accessible name says "of the search terms shown".
+            filename={csvFilename(
+              needle ? "search keywords filtered" : "search keywords"
+            )}
             subject="the search terms shown"
             rows={() => keywordsCsv(shown)}
           />
