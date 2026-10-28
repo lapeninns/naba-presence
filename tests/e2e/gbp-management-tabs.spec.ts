@@ -134,7 +134,9 @@ for (const width of [375, 768, 1280]) test(`Additional address details review ex
   const recipients = details.getByLabel("Address recipients (optional)", { exact: true })
   const sorting = details.getByLabel("Postal sorting code (optional)", { exact: true })
   await language.fill("not a tag")
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // A value Google won't take no longer disables Review: pressing it lists
+  // the problem and links to the field (tests/components/profile-editor.test.tsx).
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeEnabled()
   await language.fill("cy")
   await organization.fill("New organisation")
   await recipients.fill("")
@@ -502,7 +504,9 @@ test("Service areas support keyboard-only initial setup without inventing a coun
   await page.keyboard.press("Tab")
   await expect(section.getByLabel("Service-area country code", { exact: true })).toBeFocused()
   await expect(section.getByLabel("Service-area country code", { exact: true })).toHaveValue("")
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // A value Google won't take no longer disables Review: pressing it lists
+  // the problem and links to the field (tests/components/profile-editor.test.tsx).
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeEnabled()
   await page.keyboard.type("GB")
   await page.keyboard.press("Tab")
   await expect(section.getByRole("checkbox")).toBeFocused()
@@ -591,7 +595,9 @@ for (const width of [375, 768, 1280]) test(`Service areas review conversion and 
   await page.keyboard.press("Enter")
   await section.getByRole("combobox").click()
   await page.getByRole("option", { name: "Customer locations only", exact: true }).click()
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // A value Google won't take no longer disables Review: pressing it lists
+  // the problem and links to the field (tests/components/profile-editor.test.tsx).
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeEnabled()
   await section.getByRole("checkbox", { name: "Remove the storefront address from this profile" }).check()
   await expect(section.getByRole("combobox")).toHaveText("Customer locations only")
   expect((await new AxeBuilder({ page }).include("#section-service-area").analyze()).violations).toEqual([])
@@ -691,7 +697,9 @@ for (const width of [375, 768, 1280]) test(`Additional phones preserve the prima
   await page.keyboard.press("Enter")
   await expect(section.getByLabel("Additional phone 2", { exact: true })).toHaveValue("+44 20 4444 4444")
   await section.getByLabel("Additional phone 2", { exact: true }).fill("")
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // A value Google won't take no longer disables Review: pressing it lists
+  // the problem and links to the field (tests/components/profile-editor.test.tsx).
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeEnabled()
   await section.getByLabel("Additional phone 2", { exact: true }).fill("+44 20 4444 4444")
   await section.scrollIntoViewIfNeeded()
   expect((await new AxeBuilder({ page }).include("#section-additional-phones").analyze()).violations).toEqual([])
@@ -889,7 +897,9 @@ for (const width of [375, 1280]) test(`Opening date review and clearing at ${wid
   await opening.getByLabel("Month", { exact: true }).fill("2")
   await opening.getByLabel("Day (optional)").fill("30")
   await expect(opening.getByRole("alert")).toContainText("valid day")
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // A value Google won't take no longer disables Review: pressing it lists
+  // the problem and links to the field (tests/components/profile-editor.test.tsx).
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeEnabled()
   await opening.getByLabel("Day (optional)").fill("")
   await opening.getByRole("button", { name: "Clear opening date" }).scrollIntoViewIfNeeded()
   await opening.getByRole("button", { name: "Clear opening date" }).focus()
@@ -1306,9 +1316,10 @@ test("Access tab humanises admin roles and gates delete behind a separate review
 
   // Deletion starts with a saved review; the typed-name and consent gates sit
   // on the approved review (covered end to end in lifecycle-backend.spec.ts).
-  await page.getByRole("button", { name: "Delete this location" }).click()
-  const dialog = page.getByRole("dialog", { name: "Review managed-location deletion" })
-  await expect(dialog.getByText(/No deletion is sent at this step/)).toBeVisible()
+  await page.getByRole("button", { name: "Request deletion", exact: true }).click()
+  // The dialog names the listing it acts on (the stubbed directory's name).
+  const dialog = page.getByRole("dialog", { name: /^Request deletion of / })
+  await expect(dialog.getByText(/Nothing is deleted or sent to Google at this step/)).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Prepare deletion review" })).toBeEnabled()
   await dialog.getByRole("button", { name: "Close" }).click()
   await expect(dialog).toHaveCount(0)
