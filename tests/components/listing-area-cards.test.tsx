@@ -12,6 +12,7 @@ vi.mock("next/link", () => ({
 
 import { AreaCards } from "@/components/listings/area-cards"
 import { emptyListingSummary } from "@/lib/contracts/location-summary"
+import type { LocationCapabilities } from "@/lib/locations/gating"
 
 const summary = emptyListingSummary({
   locationId: "l1",
@@ -95,6 +96,51 @@ describe("overview area actions", () => {
     expect(
       screen.queryByRole("heading", { name: "Verification" })
     ).not.toBeInTheDocument()
+  })
+  it("offers a read-only role View, not Review, for an area with changes", () => {
+    const blocked = {
+      state: "blocked" as const,
+      reasonCode: "publish_not_allowed",
+    }
+    const readOnlyRoles: LocationCapabilities[] = [
+      // A viewer, or a member without publish rights.
+      {
+        canEditCanonical: false,
+        canPublish: false,
+        resources: { profile: blocked, hours: blocked },
+      },
+      // A member who may publish, but not change canonical data.
+      { canEditCanonical: false, canPublish: true, resources: {} },
+    ]
+    for (const readOnlyCaps of readOnlyRoles) {
+      const { unmount } = render(
+        <AreaCards
+          locationId="l1"
+          linked
+          summary={{
+            ...summary,
+            hours: { status: "core_dirty", dirtyCount: 2, observedAt: null },
+            suggestions: { profile: 1, foodMenus: 0 },
+          }}
+          caps={readOnlyCaps}
+          canManageConsoles={false}
+        />
+      )
+      expect(
+        card("Opening hours").getByRole("link", { name: "View Opening hours" })
+      ).toHaveAttribute("href", "/listings/l1/hours")
+      // The pill still says what is waiting.
+      expect(
+        card("Opening hours").getByText("2 changes not on Google")
+      ).toBeVisible()
+      expect(
+        card("Suggested updates").getByRole("link", {
+          name: "View Suggested updates",
+        })
+      ).toHaveAttribute("href", "/listings/l1/suggestions")
+      expect(screen.queryByRole("link", { name: /^Review / })).toBeNull()
+      unmount()
+    }
   })
   it("puts a concrete failure ahead of ordinary cards and retains unavailable gates for read-only roles", () => {
     const { container } = render(

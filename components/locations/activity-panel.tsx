@@ -62,7 +62,7 @@ function ActivityList({
       <Empty
         size="sm"
         title="No changes yet"
-        description="No Google management changes recorded for this location yet."
+        description="No changes to Google have been recorded for this listing yet."
       />
     )
   }

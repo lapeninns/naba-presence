@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type * as React from "react"
 import type { ComponentProps } from "react"
@@ -362,6 +362,38 @@ describe("mobile listing area navigation", () => {
     expect(checks).toHaveLength(2)
     await userEvent.click(checks[1]!)
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+  it("shows a failed Google check inside the sheet, beside Check Google now", async () => {
+    render(
+      <GoogleFreshnessSlot>
+        <Header
+          current="hours"
+          status={<StatusPill tone="healthy">In sync</StatusPill>}
+        />
+        <GoogleFreshness
+          observedAt={new Date().toISOString()}
+          refreshing={false}
+          failed
+          onRefresh={() => {}}
+        />
+      </GoogleFreshnessSlot>
+    )
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "In sync, how changes reach Google",
+      })
+    )
+    // The note opens with the failure under its own Check Google now.
+    const note = (
+      await screen.findAllByText(/nothing reaches Google until you review/)
+    ).find((node) => !node.closest('[data-slot="listing-area-meta"]'))!
+    const sheet = note.parentElement!
+    expect(sheet).toHaveTextContent(
+      "Google couldn’t be checked just now. Try again."
+    )
+    expect(
+      within(sheet).getByRole("button", { name: /Check Google now/ })
+    ).toBeInTheDocument()
   })
   it("shows a failed Google check in the header, and drops the line when the editor leaves", () => {
     const view = render(

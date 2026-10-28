@@ -67,8 +67,12 @@ describe("the listing's loading state", () => {
       </InAreaFrameContext.Provider>
     )
     expect(container.children).toHaveLength(1)
-    expect(container.firstElementChild).toHaveAttribute("aria-busy", "true")
-    expect(container.firstElementChild).toHaveAttribute("data-slot", "skeleton")
+    const status = screen.getByRole("status")
+    expect(status).toBe(container.firstElementChild)
+    expect(status).toHaveAttribute("aria-busy", "true")
+    expect(status).toHaveTextContent("Loading this page…")
+    // The rows the editor's own loading state draws next, not a block.
+    expect(status.querySelector('[data-slot="skeleton-list"]')).not.toBeNull()
   })
 
   it("draws the whole page's shape outside a frame", () => {
@@ -77,5 +81,8 @@ describe("the listing's loading state", () => {
       document.querySelectorAll('[data-slot="skeleton"]').length
     ).toBeGreaterThan(3)
     expect(screen.queryByRole("heading")).toBeNull()
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Loading this listing…"
+    )
   })
 })

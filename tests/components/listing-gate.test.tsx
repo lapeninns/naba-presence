@@ -141,6 +141,8 @@ describe("ListingGate recovery", () => {
     mount([])
     expect(notFound).not.toHaveBeenCalled()
     expect(document.querySelector('[aria-busy="true"]')).toBeInTheDocument()
+    // The route's loading shape, announced, not a grid of overview cards.
+    expect(screen.getByRole("status")).toHaveTextContent("Loading this listing")
     await act(async () => {
       resolve?.(response({ locations: [listing] }))
     })
