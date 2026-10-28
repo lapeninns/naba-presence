@@ -136,10 +136,11 @@ const reportLocationSchema = z.object({ id: z.string(), name: z.string() })
 const metricTotalsSchema = z.object(
   Object.fromEntries(
     GOOGLE_PERFORMANCE_METRICS.map((m) => [m, z.number().nullable()])
-  )
-) as z.ZodType<
-  Record<(typeof GOOGLE_PERFORMANCE_METRICS)[number], number | null>
->
+  ) as Record<
+    (typeof GOOGLE_PERFORMANCE_METRICS)[number],
+    z.ZodNullable<z.ZodNumber>
+  >
+)
 
 /**
  * How many in-scope locations are in each reporting state. Every location is
