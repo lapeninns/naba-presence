@@ -640,7 +640,10 @@
   --np-rail-width: 72px;
   --np-toolbar-h: 56px;
   --np-appbar-h: 52px;
-  --np-tabbar-h: 56px;
+  /* 56px at the default text size. The icon (1.5rem), its gap (0.125rem)
+     and the caption line are rem, so with the browser's text enlarged the
+     bar grows with them instead of pushing its labels off the screen. */
+  --np-tabbar-h: max(56px, calc(1.625rem + var(--np-text-caption-lh) + 12px));
   --np-actionbar-h: 64px;
   --np-page-pad-x: clamp(16px, 2.4vw, 32px);
   --np-page-pad-y: clamp(16px, 2vw, 28px);

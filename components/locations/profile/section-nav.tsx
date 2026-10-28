@@ -146,7 +146,15 @@ export function SectionNav({
       // the line most of the way down the screen).
       const nav = navRef.current?.getBoundingClientRect()
       const rail = nav ? nav.height > nav.width : false
-      const line = (nav ? (rail ? nav.top : nav.bottom) : 0) + 24
+      // Never above the sticky chrome the page scrolls under (the document's
+      // scroll padding): a strip that scrolls with the page on a short phone
+      // has its bottom above the screen once it has scrolled away.
+      const chrome =
+        Number.parseFloat(
+          getComputedStyle(document.documentElement).scrollPaddingTop
+        ) || 0
+      const line =
+        Math.max(nav ? (rail ? nav.top : nav.bottom) : 0, chrome) + 24
       let next: string | null = sections[0]?.id ?? null
       for (const section of sections)
         if (section.getBoundingClientRect().top <= line) next = section.id
@@ -215,8 +223,10 @@ export function SectionNav({
         // Phone: a sticky tab strip under the app bar (the same offset the
         // page's scroll padding uses). From md the editor scrolls in its own
         // pane below the area header, so the strip, and the desk rail,
-        // stick to the top of that pane.
-        "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky bg-canvas md:top-0",
+        // stick to the top of that pane. A short phone (or one held
+        // sideways) keeps the strip in the page: the app bar, the strip and
+        // the tab bar together would take nearly half of its height.
+        "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky bg-canvas md:top-0 max-md:short:static",
         "desk:bg-transparent",
         className
       )}
