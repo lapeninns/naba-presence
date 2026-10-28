@@ -3,7 +3,6 @@
 import {
   ChevronDownIcon,
   CircleAlertIcon,
-  PlusIcon,
   RefreshCwIcon,
   StoreIcon,
 } from "lucide-react"
@@ -53,15 +52,15 @@ import {
 import { Toolbar } from "@/components/ui/toolbar"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { formatNumber } from "@/lib/format"
+import { areaState } from "@/lib/listings/area-state"
 import {
   googleChangedCount,
+  listingAttentionReason,
   listingHealth,
   listingHealthDescription,
   listingHealthLabel,
   listingHealthTone,
   summariseListingHealth,
-  syncStatusLabel,
-  syncStatusTone,
   unpublishedCount,
   type ListingHealth,
 } from "@/lib/listings/health"
@@ -324,17 +323,25 @@ const QUICK_LOOK_AREAS = [
  * The desk quick look for one listing (DSK-23): its health in words, the
  * state of each area compared with Google, what is waiting and when it was
  * last checked and published, with "Open listing" for the workspace. Each
- * area links straight to its tab.
+ * area links straight to its tab, and says where it stands in the
+ * overview's own words (`areaState`), so the panel never shows "In sync"
+ * beside a listing that needs attention or Google out of reach.
  */
 function ListingQuickLook({
   row,
   business,
+  now,
   summaryPending,
+  summaryFailed,
   ...panel
 }: {
   row: BoardRow
   business: boolean
+  /** The board's `useNow()`, so an overdue check reads the same everywhere. */
+  now: number
   summaryPending: boolean
+  /** The summaries could not be read at all (no earlier data to show). */
+  summaryFailed: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   returnFocus?: React.RefObject<HTMLElement | null>
@@ -342,7 +349,19 @@ function ListingQuickLook({
   const { entry, summary } = row
   const address = formatAddressLine(entry.address)
   const client = business || row.clientId === UNFILED ? null : row.clientName
-  const known = !(summaryPending && row.health === "unchecked")
+  // Without the summaries, "Not checked" would be a guess: the board's own
+  // read is what is missing, not a check of the listing.
+  const known = !(
+    (summaryPending || summaryFailed) &&
+    row.health === "unchecked"
+  )
+  // The one cause, when there is only one (no hours on Google); otherwise
+  // the general sentence.
+  const reason =
+    row.health === "attention"
+      ? (listingAttentionReason(summary, now) ??
+        listingHealthDescription(row.health))
+      : listingHealthDescription(row.health)
   const areas = QUICK_LOOK_AREAS.filter(
     (area) => area.key !== "menu" || summary?.menu.eligible !== false
   )
@@ -361,13 +380,13 @@ function ListingQuickLook({
             <StatusPill tone={listingHealthTone(row.health)}>
               {listingHealthLabel(row.health)}
             </StatusPill>
-            <span className="text-caption text-ink-muted">
-              {listingHealthDescription(row.health)}
-            </span>
+            <span className="text-caption text-ink-muted">{reason}</span>
           </>
         ) : (
           <span className="text-caption text-ink-muted">
-            Checking this listing…
+            {summaryFailed
+              ? "We couldn’t check this listing just now. Open it to see each area."
+              : "Checking this listing…"}
           </span>
         )
       }
@@ -377,23 +396,24 @@ function ListingQuickLook({
       {entry.linked && summary ? (
         <QuickLookSection title="Areas">
           <QuickLookFacts>
-            {areas.map((area) => (
-              <QuickLookFact
-                key={area.key}
-                label={
-                  <Link
-                    href={listingHref(entry.id, area.key)}
-                    className="rounded-(--np-radius-tag) underline-offset-4 focus-halo hover:underline"
-                  >
-                    {area.label}
-                  </Link>
-                }
-              >
-                <StatusPill tone={syncStatusTone(summary[area.key].status)}>
-                  {syncStatusLabel(summary[area.key].status)}
-                </StatusPill>
-              </QuickLookFact>
-            ))}
+            {areas.map((area) => {
+              const state = areaState(area.key, summary, now)
+              return (
+                <QuickLookFact
+                  key={area.key}
+                  label={
+                    <Link
+                      href={listingHref(entry.id, area.key)}
+                      className="rounded-(--np-radius-tag) underline-offset-4 focus-halo hover:underline"
+                    >
+                      {area.label}
+                    </Link>
+                  }
+                >
+                  <StatusPill tone={state.tone}>{state.label}</StatusPill>
+                </QuickLookFact>
+              )
+            })}
           </QuickLookFacts>
         </QuickLookSection>
       ) : null}
@@ -621,6 +641,9 @@ function ListingsBoard({
     () => new Set()
   )
   const selectAllReasonId = React.useId()
+  const selectionStatusId = React.useId()
+  // Where focus goes when "Clear selection" takes its own bar away.
+  const selectAllRef = React.useRef<HTMLSpanElement>(null)
   const toggle = (id: string, on: boolean) =>
     setSelected((current) => {
       const next = new Set(current)
@@ -731,6 +754,27 @@ function ListingsBoard({
     writeUrl({ order: value })
   }
 
+  // "Check again" after the summaries failed: once it lands, its line and
+  // button go, so focus that was on the button returns to the page.
+  const summaryRetry = React.useRef(false)
+  React.useEffect(() => {
+    if (!summaryRetry.current || summaries.isError) return
+    summaryRetry.current = false
+    if (document.activeElement === document.body)
+      document.getElementById("main")?.focus()
+  }, [summaries.isError])
+
+  // A board narrowed to one client sends "Add listings" straight to that
+  // client's setup. Only a client the session can see, so a stale address
+  // falls back to the chooser rather than a missing page.
+  const addClientId =
+    !business &&
+    clientFilter &&
+    clientFilter !== UNFILED &&
+    clients.data?.items.some((client) => client.id === clientFilter)
+      ? clientFilter
+      : undefined
+
   if (directory.isPending) return <BoardSkeleton canManage={canManage} />
   // A failed background refetch keeps the board it already has.
   if (directory.isError && !directory.data) {
@@ -740,11 +784,16 @@ function ListingsBoard({
           framed
           variant="error"
           titleAs="h2"
+          // It replaces the board, so it is announced; the retry sits
+          // outside the alert, which reads what happened, not the button.
+          role="alert"
           title="We couldn’t load your listings"
-          description="The listings service didn’t answer, so nothing is shown rather than a partial board. Nothing was changed."
-          action={
+          description="We didn’t get an answer just now, so nothing is shown rather than part of the list. Nothing was changed."
+          actions={
             <Button
               variant="secondary"
+              pending={directory.isFetching}
+              pendingLabel="Trying again…"
               onClick={() => void directory.refetch()}
             >
               <RefreshCwIcon aria-hidden />
@@ -756,7 +805,7 @@ function ListingsBoard({
             can still add listings while it is down. */}
         {canManage ? (
           <div>
-            <AddListingsLink />
+            <AddListingsLink clientId={addClientId} />
           </div>
         ) : null}
       </div>
@@ -802,29 +851,21 @@ function ListingsBoard({
             : "Nothing is linked to Google yet. An owner or admin can add the first listing."
         }
         action={
-          canManage ? (
-            <Link
-              href="/setup"
-              className={cn(buttonVariants({ variant: "secondary" }))}
-            >
-              <PlusIcon aria-hidden strokeWidth={1.75} />
-              Add listings from Google
-            </Link>
-          ) : undefined
+          canManage ? <AddListingsLink clientId={addClientId} /> : undefined
         }
       />
     )
   }
 
   const needle = search.trim().toLowerCase()
+  const matchesSearch = (row: BoardRow) =>
+    needle
+      ? row.entry.name.toLowerCase().includes(needle) ||
+        (!business && row.clientName.toLowerCase().includes(needle))
+      : true
   const inScope = rows
     .filter((row) => (clientFilter ? row.clientId === clientFilter : true))
-    .filter((row) =>
-      needle
-        ? row.entry.name.toLowerCase().includes(needle) ||
-          (!business && row.clientName.toLowerCase().includes(needle))
-        : true
-    )
+    .filter(matchesSearch)
   const visible = inScope
     .filter((row) => matchesHealth(row.health, health))
     .sort((a, b) => {
@@ -873,6 +914,31 @@ function ListingsBoard({
     setClientState(null)
     writeUrl({ q: "", health: "all", clientId: null })
   }
+  // With nothing shown, say what is narrowing the board, and when the search
+  // does match listings under another health or client, offer those without
+  // dropping what was typed.
+  const searchMatches = needle ? rows.filter(matchesSearch).length : 0
+  const narrowed = health !== "all" || clientFilter !== null
+  const healthLabel =
+    HEALTH_FILTERS.find((filter) => filter.value === health)?.label ?? ""
+  // A client with no listings left has no chip to show it is chosen, so its
+  // name is said here.
+  const clientName =
+    clientFilter === UNFILED
+      ? "Unfiled"
+      : clients.data?.items.find((client) => client.id === clientFilter)?.name
+  const clientLabel = clientName ? `“${clientName}”` : "this client"
+  const scope = [
+    health !== "all" ? `“${healthLabel}”` : null,
+    clientFilter ? clientLabel : null,
+  ]
+    .filter(Boolean)
+    .join(" and ")
+  const showAllMatches = () => {
+    setHealthState("all")
+    setClientState(null)
+    writeUrl({ health: "all", clientId: null })
+  }
 
   // "Select all shown" adds the shown listings to the selection (and clearing
   // it removes only them), so a filter never silently drops a listing picked
@@ -880,6 +946,10 @@ function ListingsBoard({
   // the cap: the selection is explicit ids and is never trimmed to fit.
   const visibleIds = visible.map((row) => row.entry.id)
   const shownSelected = visibleIds.filter((id) => selected.has(id)).length
+  const hiddenSelected = selected.size - shownSelected
+  const unlinkedSelected = rows.filter(
+    (row) => selected.has(row.entry.id) && !row.entry.linked
+  ).length
   const unionSize = selected.size + visibleIds.length - shownSelected
   const allShownSelected =
     visibleIds.length > 0 && shownSelected === visibleIds.length
@@ -902,6 +972,8 @@ function ListingsBoard({
     // address"); a desk has its own Client column, so this part is phone
     // only. An unfiled row keeps its Client cell on the phone instead.
     const clientInSubtitle = !business && !unfiledRow
+    const capped =
+      !selected.has(row.entry.id) && selected.size >= BULK_MAX_TARGETS
     return (
       <TableRow key={row.entry.id} interactive className="relative">
         {canSelect ? (
@@ -910,10 +982,10 @@ function ListingsBoard({
             <span className="relative z-raised flex">
               <Checkbox
                 checked={selected.has(row.entry.id)}
-                disabled={
-                  !selected.has(row.entry.id) &&
-                  selected.size >= BULK_MAX_TARGETS
-                }
+                disabled={capped}
+                // Why it is off: the bar's "50 selected (the most one
+                // change can cover)".
+                aria-describedby={capped ? selectionStatusId : undefined}
                 onCheckedChange={(checked) =>
                   toggle(row.entry.id, checked === true)
                 }
@@ -1132,54 +1204,105 @@ function ListingsBoard({
         </div>
         {/* The count line, spoken rather than drawn: a polite live region
             that announces "Checking each listing…" while the summaries load,
-            then how many listings there are (all of them, not just those a
-            filter leaves) and how healthy. It is drawn only when the check
-            of what is waiting failed, so that is never silent on screen. */}
-        <p
+            then how many listings a filter leaves, out of all of them, and
+            how healthy they all are. It is drawn only when the check of what
+            is waiting failed, so that is never silent on screen, with "Check
+            again" beside it (outside the live region, so the line is what is
+            read). The wrapper is always there, and draws no box of its own
+            until then, so the live region is never remounted. */}
+        <div
           className={
-            summaries.isError ? "text-caption text-ink-muted" : "sr-only"
+            summaries.isError
+              ? "flex flex-wrap items-center gap-x-2"
+              : "contents"
           }
-          aria-live="polite"
         >
-          {summaries.isPending ? (
-            "Checking each listing…"
-          ) : (
-            <>
-              <span className="tabular-nums">
-                {rows.length === 1
-                  ? "1 listing"
-                  : `${formatNumber(rows.length)} listings`}
-              </span>
-              {" · "}
-              <span>
-                {summariseListingHealth(rows.map((row) => row.health))}
-              </span>
-              {summaries.isError ? (
-                <span>
-                  . We couldn’t check what is waiting on each listing.
+          <p
+            className={
+              summaries.isError ? "text-caption text-ink-muted" : "sr-only"
+            }
+            aria-live="polite"
+          >
+            {summaries.isPending ? (
+              "Checking each listing…"
+            ) : (
+              <>
+                <span className="tabular-nums">
+                  {visible.length !== rows.length
+                    ? `${formatNumber(visible.length)} of ${formatNumber(rows.length)} ${rows.length === 1 ? "listing" : "listings"} shown`
+                    : rows.length === 1
+                      ? "1 listing"
+                      : `${formatNumber(rows.length)} listings`}
                 </span>
-              ) : (
-                <span>.</span>
-              )}
-            </>
-          )}
-        </p>
+                {" · "}
+                <span>
+                  {summariseListingHealth(rows.map((row) => row.health))}
+                </span>
+                {summaries.isError ? (
+                  <span>
+                    {/* After a failed refresh the last check is still on
+                        screen; only a first read that failed has nothing. */}
+                    {summaries.data
+                      ? ". We couldn’t refresh what is waiting; this is the last check."
+                      : ". We couldn’t check what is waiting on each listing."}
+                  </span>
+                ) : (
+                  <span>.</span>
+                )}
+              </>
+            )}
+          </p>
+          {summaries.isError ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              pending={summaries.isFetching}
+              pendingLabel="Checking again…"
+              onClick={() => {
+                summaryRetry.current = true
+                void summaries.refetch()
+              }}
+            >
+              <RefreshCwIcon aria-hidden />
+              Check again
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {visible.length === 0 ? (
         <Empty
           framed
           illustration={<EmptyIllustration name="search" />}
-          title="No listings match"
+          title={
+            needle
+              ? `No listings match “${search.trim()}”`
+              : "No listings match"
+          }
           description={
-            business
-              ? "Nothing fits this health and search together. Widen one of them to see the rest."
-              : "Nothing fits this client, health and search together. Widen one of them to see the rest."
+            !needle
+              ? `No listing is in ${scope} right now.`
+              : narrowed && searchMatches > 0
+                ? `${formatNumber(searchMatches)} ${searchMatches === 1 ? "listing matches" : "listings match"} outside ${scope}.`
+                : "Check the spelling, or clear the search to see every listing."
           }
           action={
-            <Button variant="secondary" onClick={clearFilters}>
-              Clear filters
-            </Button>
+            needle && narrowed && searchMatches > 0 ? (
+              <>
+                <Button variant="secondary" onClick={showAllMatches}>
+                  {searchMatches === 1
+                    ? "Show 1 match"
+                    : `Show ${formatNumber(searchMatches)} matches`}
+                </Button>
+                <Button variant="ghost" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </>
+            ) : (
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            )
           }
         />
       ) : (
@@ -1202,6 +1325,7 @@ function ListingsBoard({
               canSelect ? (
                 <>
                   <Checkbox
+                    ref={selectAllRef}
                     aria-label={selectAllName}
                     aria-describedby={
                       selectAllBlocked ? selectAllReasonId : undefined
@@ -1249,7 +1373,9 @@ function ListingsBoard({
             quick.item
           }
           business={business}
+          now={now}
           summaryPending={summaries.isPending}
+          summaryFailed={summaries.isError && !summaries.data}
           {...quick.panelProps}
         />
       ) : null}
@@ -1257,7 +1383,7 @@ function ListingsBoard({
           the end of the list so the first listing is not pushed down by it. */}
       {canManage ? (
         <div>
-          <AddListingsLink />
+          <AddListingsLink clientId={addClientId} />
         </div>
       ) : null}
       {/* Docked to the bottom of a phone (the tab bar steps aside for it,
@@ -1271,14 +1397,29 @@ function ListingsBoard({
         label="Bulk change selection"
         offset="bottom-3"
         safeArea={false}
+        statusRow={hiddenSelected > 0 && unlinkedSelected > 0}
         status={
-          <span>
+          // Also the description of a row checkbox the cap has switched off.
+          <span id={selectionStatusId}>
             <span className="font-semibold tabular-nums">
               {formatNumber(selected.size)}
             </span>{" "}
             selected
             {selected.size >= BULK_MAX_TARGETS ? (
               <ActionBarMuted> (the most one change can cover)</ActionBarMuted>
+            ) : null}
+            {/* What the count covers that the board does not show, or that
+                Google cannot be changed for. What a change then skips is
+                the preview's to say, from the server. */}
+            {hiddenSelected > 0 ? (
+              <ActionBarMuted>
+                {` · ${formatNumber(hiddenSelected)} not shown`}
+              </ActionBarMuted>
+            ) : null}
+            {unlinkedSelected > 0 ? (
+              <ActionBarMuted>
+                {` · ${formatNumber(unlinkedSelected)} not linked to Google`}
+              </ActionBarMuted>
             ) : null}
           </span>
         }
@@ -1287,7 +1428,16 @@ function ListingsBoard({
             <Button
               variant="ghost-dark"
               size="sm"
-              onClick={() => setSelected(new Set())}
+              onClick={() => {
+                setSelected(new Set())
+                // The bar (and this button) goes with the selection, so focus
+                // returns to the control that starts a new one, or the page.
+                requestAnimationFrame(() => {
+                  selectAllRef.current?.focus()
+                  if (document.activeElement !== selectAllRef.current)
+                    document.getElementById("main")?.focus()
+                })
+              }}
             >
               Clear selection
             </Button>
