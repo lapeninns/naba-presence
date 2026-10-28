@@ -41,6 +41,11 @@ const destinationCodes = new Set([
   "destination_management_required",
   "destination_already_contains_location",
 ])
+/** Refusals about the destination a scoped preview typed, and nothing else. */
+const ownDestinationCodes = new Set([
+  ...destinationCodes,
+  "destination_matches_source",
+])
 /**
  * Why a saved review can no longer be sent: its approval expired, the
  * destination account's access changed, Google account access or membership
@@ -138,14 +143,18 @@ export function useLifecycle(locationId: string, accessBlocked = false) {
       return await work()
     } catch (error) {
       if (!(error instanceof Error)) throw error
-      if (scoped) throw error
+      // A scoped preview's refusal is the dialog's to show. Only a refusal
+      // about its own destination stays there: one about the connection,
+      // the source or publishing also holds any review already open.
       if (
         error instanceof ApiClientError &&
-        safePreflightCodes.has(error.code)
+        safePreflightCodes.has(error.code) &&
+        !(scoped && ownDestinationCodes.has(error.code))
       ) {
         setBlock(blockFor(error.code))
         setBlockedAt(new Date().toISOString())
       }
+      if (scoped) throw error
       setError(
         error instanceof ApiClientError
           ? error.message

@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
@@ -202,6 +209,10 @@ function HoursForm({
   )
   const [reconciling, setReconciling] = useState(false)
   const [keepingGoogle, setKeepingGoogle] = useState(false)
+  const latestDraft = useRef(draft)
+  useEffect(() => {
+    latestDraft.current = draft
+  }, [draft])
   const refresh = useRefreshHours(locationId)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -460,9 +471,24 @@ function HoursForm({
    * discards it.
    */
   async function keepGoogle() {
+    const before = draft
     setKeepingGoogle(true)
     try {
       const fresh = await refresh.mutateAsync()
+      // The editor stays open during the read: an edit made meanwhile is
+      // never overwritten, and an empty read never empties the draft.
+      if (latestDraft.current !== before) {
+        setFormError(
+          "You edited the hours while Google was being read, so your draft was left as it is."
+        )
+        return
+      }
+      if (isEmptySchedule(fresh.google)) {
+        setFormError(
+          "Google now shows no opening hours, so your draft was left as it is."
+        )
+        return
+      }
       setDraft(structuredClone(fresh.google))
       setFormError(null)
       showToast({

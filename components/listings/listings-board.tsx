@@ -908,11 +908,20 @@ function ListingsBoard({
     ? visible.filter((row) => row.clientId !== UNFILED)
     : visible
 
+  // The empty state that held the button goes; focus moves to the search,
+  // where the board's narrowing starts, rather than falling to the page.
+  const focusSearch = () =>
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLInputElement>('input[aria-label="Search listings"]')
+        ?.focus()
+    )
   const clearFilters = () => {
     setSearchState("")
     setHealthState("all")
     setClientState(null)
     writeUrl({ q: "", health: "all", clientId: null })
+    focusSearch()
   }
   // With nothing shown, say what is narrowing the board, and when the search
   // does match listings under another health or client, offer those without
@@ -938,6 +947,7 @@ function ListingsBoard({
     setHealthState("all")
     setClientState(null)
     writeUrl({ health: "all", clientId: null })
+    focusSearch()
   }
 
   // "Select all shown" adds the shown listings to the selection (and clearing

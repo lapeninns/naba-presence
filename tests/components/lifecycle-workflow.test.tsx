@@ -507,6 +507,45 @@ describe("a refused review explains itself in its own dialog", () => {
     )
     expect(send).toBeEnabled()
   })
+  it("still holds an open deletion review when a transfer review finds the Google connection changed", async () => {
+    render()
+    const send = await approve()
+    vi.mocked(lifecycle.previewLifecycle).mockRejectedValueOnce(
+      new ApiClientError(
+        409,
+        "google_connection_changed",
+        "The Google connection changed. Refresh before reviewing again."
+      )
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "Transfer this location" })
+    )
+    const dialog = screen.getByRole("dialog", {
+      name: "Transfer Camden Hotel to another Google account",
+    })
+    await userEvent.type(
+      within(dialog).getByLabelText("Destination Google account"),
+      "987654321"
+    )
+    await userEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Continue to transfer review",
+      })
+    )
+    await within(dialog).findByRole("alert")
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }))
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Discard changes" })
+    )
+    // A connection-wide refusal applies to the review already open too.
+    const panel = screen.getByRole("region", {
+      name: "Review managed-location deletion",
+    })
+    expect(
+      await within(panel).findByRole("button", { name: "Start a fresh review" })
+    ).toBeInTheDocument()
+    expect(send).toBeDisabled()
+  })
   it("says why Google refused a deletion inside the deletion dialog, not behind it", async () => {
     vi.mocked(lifecycle.previewLifecycle).mockRejectedValueOnce(
       new ApiClientError(

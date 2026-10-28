@@ -811,7 +811,7 @@ describe("AccessTab (roster truthfulness)", () => {
     ).toBeDisabled()
     // A way forward after the irreversible outcome, and the caveat the outcome states.
     expect(
-      screen.getByRole("link", { name: "Remove from NabaPresence" })
+      screen.getByRole("link", { name: "Open Google connections" })
     ).toHaveAttribute("href", "/settings/connections")
     expect(
       screen.getByRole("link", { name: "See the saved outcome" })

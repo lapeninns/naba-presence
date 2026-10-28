@@ -835,6 +835,62 @@ describe("HoursTab changed on Google", () => {
     await expectMondayOpens(user, "09:00")
   })
 
+  it("never puts Google’s hours over unsaved edits", async () => {
+    const user = userEvent.setup()
+    show(googleChanged())
+    await setMondayOpens(user, "11:00")
+    expect(
+      screen.queryByRole("button", { name: "Keep Google’s hours" })
+    ).toBeNull()
+    expect(
+      screen.getByText(
+        "Save or discard your edits first to use Google’s hours."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("leaves an edit made while Google is read", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    let answer: (value: HoursState) => void = () => {}
+    refreshHours.mutateAsync.mockReturnValue(
+      new Promise<HoursState>((resolve) => {
+        answer = resolve
+      })
+    )
+    show(state)
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    await setMondayOpens(user, "11:00")
+    answer(structuredClone(state))
+    expect(
+      await screen.findByText(
+        "You edited the hours while Google was being read, so your draft was left as it is."
+      )
+    ).toBeInTheDocument()
+    await expectMondayOpens(user, "11:00")
+  })
+
+  it("doesn’t empty the draft when Google now shows no hours", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    refreshHours.mutateAsync.mockResolvedValue({
+      ...structuredClone(state),
+      google: emptyHours(),
+    })
+    show(state)
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    expect(
+      await screen.findByText(
+        "Google now shows no opening hours, so your draft was left as it is."
+      )
+    ).toBeInTheDocument()
+    await expectMondayOpens(user, "09:00")
+  })
+
   it("offers Save here, not Review, for edits that already match Google", async () => {
     const user = userEvent.setup()
     const google = emptyHours()

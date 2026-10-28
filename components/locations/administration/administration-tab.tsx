@@ -302,7 +302,7 @@ function AccessNotice({
             href="/settings/connections"
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
-            Remove from NabaPresence
+            Open Google connections
           </Link>
           <a
             href="#lifecycle-saved-work"
