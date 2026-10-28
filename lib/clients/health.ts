@@ -15,6 +15,8 @@
  * summary query, in the shell's health chip and in tests.
  */
 
+import { formatNumber } from "@/lib/format"
+
 export const CLIENT_HEALTH = [
   "not_connected",
   "disconnected",
@@ -371,6 +373,17 @@ export function summariseHealth(
  * The buckets run most urgent first, in the same order as
  * `HEALTH_SEVERITY` below, and the chip strip draws them in that order.
  *
+ * Severity order, not count order (follow-up 27 of the 2026-10-15 UX audit,
+ * which asked for the urgent buckets by count; recorded 2026-10-28, pending
+ * the owner's confirmation):
+ *   - the harm that request answered is gone: a bucket with no clients is
+ *     hidden, so a populated chip never sits behind empty ones;
+ *   - the first chip after All is the bucket at the top of the list, because
+ *     the list sorts "needing work first" by the same severity;
+ *   - chips do not jump when a background refresh changes the counts, so a
+ *     chip never moves under the pointer; each chip still shows its count;
+ *   - the Listings board's strip uses a fixed order too.
+ *
  * "Up to date" includes clients still importing their history: their checks
  * succeed, and the pill on the row says Importing.
  */
@@ -482,10 +495,12 @@ export function clientHealthNote(client: {
       return "Importing review history"
     case "not_connected":
       return "Setup unfinished"
+    // The listing pages' words for an area never checked against Google,
+    // so the note says what was not checked, and against what.
     case "unchecked":
-      return "Listing areas have not been compared"
+      return "Not compared with Google yet"
     case "partially_checked":
-      return "Some listing areas need checking"
+      return "Some areas not compared with Google yet"
     case "unpublished":
       return "Saved listing edits are waiting"
     case "healthy":
@@ -526,6 +541,53 @@ export function attentionDescription(
   return freshness?.reason
     ? freshnessSentence(freshness)
     : healthDescription("attention")
+}
+
+/**
+ * The listing states each client health is made of: which rows "caused" the
+ * word, so the hub can point at them. A listing that lost its login or its
+ * manager access counts towards attention, as on the Listings board.
+ */
+const CAUSE_HEALTHS: Partial<Record<ClientHealth, readonly string[]>> = {
+  attention: ["attention", "disconnected", "access_lost"],
+  unpublished: ["unpublished"],
+  unchecked: ["unchecked", "partially_checked"],
+  partially_checked: ["unchecked", "partially_checked"],
+}
+
+/**
+ * Where the client's health came from, as one link for the hub header
+ * (CLR-13): the one listing that needs a look, or, when several do, the
+ * Listings board filtered to them (attention and unpublished are board
+ * filters) or the hub's own listings table (the board has no "not checked"
+ * filter). Null when no listing explains the word, for example attention
+ * from a failed import or late checks, whose sentence already says "We'll
+ * keep trying", or an older response without listing health.
+ */
+export function healthCause(
+  clientId: string,
+  health: ClientHealth,
+  listings: readonly { locationId: string; name: string; health?: string }[]
+): { href: string; label: string } | null {
+  const causes = CAUSE_HEALTHS[health]
+  if (!causes) return null
+  const matched = listings.filter(
+    (listing) => listing.health !== undefined && causes.includes(listing.health)
+  )
+  const [only] = matched
+  if (!only) return null
+  if (matched.length === 1)
+    return { href: `/listings/${only.locationId}`, label: `Open ${only.name}` }
+  const count = formatNumber(matched.length)
+  if (health === "attention" || health === "unpublished")
+    return {
+      href: `/listings?clientId=${encodeURIComponent(clientId)}&health=${health}`,
+      label:
+        health === "attention"
+          ? `Show the ${count} listings that need attention`
+          : `Show the ${count} listings with changes to publish`,
+    }
+  return { href: "#client-listings", label: "See which listings below" }
 }
 
 /** The one non-"all" filter bucket a health state belongs to. */

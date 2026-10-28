@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import * as React from "react"
 
+import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { AgencyNameForm } from "@/components/settings/agency-name-form"
 import { TimezonePicker } from "@/components/settings/timezone-picker"
 import { Button } from "@/components/ui/button"
@@ -10,7 +11,9 @@ import { FormError } from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
 import { showToast, useToastManager } from "@/components/ui/toast"
 import { saveSettings } from "@/lib/api/settings"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import { queryKeys } from "@/lib/queries/keys"
 import { useSettings } from "@/lib/queries/use-settings"
 
@@ -22,19 +25,24 @@ import { useSettings } from "@/lib/queries/use-settings"
  * hours and report windows are interpreted, and getting it wrong is
  * invisible until a report looks wrong.
  *
- * `onDirtyChange` tells the wizard a changed timezone has not been saved, so
- * Continue can say so instead of dropping the change.
+ * The name and the timezone save separately, and both are guarded the same
+ * way: `onDirtyChange` tells the wizard which of them has not been saved, so
+ * Continue can say so instead of dropping the change, and a link or the back
+ * button asks first (the name form's own guard, and the timezone's here).
  */
+type AgencyUnsaved = { name: boolean; timezone: boolean }
+
 function StepAgency({
   onDirtyChange,
 }: {
-  onDirtyChange?: (dirty: boolean) => void
+  onDirtyChange?: (unsaved: AgencyUnsaved) => void
 }) {
   const settings = useSettings()
   const queryClient = useQueryClient()
   const toast = useToastManager()
   const [timezone, setTimezone] = React.useState<string | null>(null)
   const [saveError, setSaveError] = React.useState<string | null>(null)
+  const [nameDirty, setNameDirty] = React.useState(false)
 
   // The settings PATCH takes the whole policy object, so the current values
   // ride along unchanged; sending only the timezone would clear the rest.
@@ -61,14 +69,21 @@ function StepAgency({
   const dirty = saved !== undefined && current !== saved
 
   React.useEffect(() => {
-    onDirtyChange?.(dirty)
-  }, [dirty, onDirtyChange])
-  // Leaving the step clears the wizard's flag with it.
-  React.useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+    onDirtyChange?.({ name: nameDirty, timezone: dirty })
+  }, [nameDirty, dirty, onDirtyChange])
+  // Leaving the step clears the wizard's flags with it.
+  React.useEffect(
+    () => () => onDirtyChange?.({ name: false, timezone: false }),
+    [onDirtyChange]
+  )
+  // As the name form does: a reload warns, and a link (the rail, "Finish
+  // later") or the back button asks before an unsaved timezone is dropped.
+  const draftKey = useDraftKey({ resource: "setup-timezone", schemaVersion: 1 })
+  const unsaved = useUnsavedChanges({ scope: draftKey, isDirty: dirty })
 
   return (
     <div className="flex max-w-md flex-col gap-6">
-      <AgencyNameForm />
+      <AgencyNameForm onDirtyChange={setNameDirty} />
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="setup-agency-timezone" className="font-semibold">
@@ -119,9 +134,24 @@ function StepAgency({
             {saved === undefined ? "" : dirty ? "Unsaved change" : "Saved"}
           </span>
         </div>
+        <DiscardDialog
+          {...unsaved.leavePrompt}
+          title={
+            nameDirty
+              ? "Leave without saving the name and timezone?"
+              : "Leave without saving the timezone?"
+          }
+          confirmLabel="Leave and discard"
+          announce={false}
+          description={
+            nameDirty
+              ? "Neither the new name nor the new timezone is saved. Leaving keeps the current ones."
+              : "The new timezone isn’t saved. Leaving keeps the current one."
+          }
+        />
       </div>
     </div>
   )
 }
 
-export { StepAgency }
+export { StepAgency, type AgencyUnsaved }

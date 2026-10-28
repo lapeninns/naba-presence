@@ -20,7 +20,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
-import { describeActionError } from "@/lib/errors/action-errors"
+import { ApiClientError } from "@/lib/api/client"
+import {
+  describeActionError,
+  isUnconfirmedFailure,
+} from "@/lib/errors/action-errors"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { formatNumber } from "@/lib/format"
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
@@ -62,10 +66,45 @@ function NewClientForm({ listingId }: { listingId?: string }) {
       (name.trim() !== "" || colour !== null || notes.trim() !== ""),
   })
 
-  const serverError = create.error ? describeActionError(create.error) : null
+  // A taken name is the name field's problem, so it is said there, with the
+  // fix (the unique check counts archived clients too), not as a page alert
+  // telling them to refresh. It clears as soon as the name is edited.
+  const nameTaken = isNameTaken(create.error)
+  const takenName = create.variables?.name ?? name.trim()
+  const nameFieldError =
+    nameError ??
+    (nameTaken
+      ? `There’s already a client called “${takenName}”. Archived clients count too, so check Clients › Archived, or use a different name.`
+      : undefined)
+  // Everything else is the alert. A dropped connection or an unanswered
+  // server error may still have created the client, so that one never says
+  // "nothing was added"; and creating a client never touches Google, so a
+  // server failure is described here rather than in the shared copy that
+  // names Google.
+  const serverAlert =
+    create.error && !nameTaken
+      ? isUnconfirmedFailure(create.error)
+        ? {
+            title: "We couldn’t confirm the client was created",
+            body: "NabaPresence didn’t answer, so it may have been added. Check Clients before trying again. Your details are still here.",
+          }
+        : {
+            title: "The client wasn’t created",
+            body: `${
+              create.error instanceof ApiClientError &&
+              create.error.status >= 500
+                ? "NabaPresence couldn’t save it just now. Try again in a moment."
+                : describeActionError(create.error)
+            } Nothing was added, and your details are still here.`,
+          }
+      : null
+  // Created, and on the way to the next page: the button stays pending so a
+  // second tap cannot post the same client again.
+  const busy = create.isPending || create.isSuccess
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (busy) return
     const trimmed = name.trim()
     if (!trimmed) {
       setNameError("Give the client a name.")
@@ -88,8 +127,10 @@ function NewClientForm({ listingId }: { listingId?: string }) {
       router.push(
         returnPath ?? `/setup?client=${result.client.id}&step=connect`
       )
-    } catch {
-      // The alert below says what went wrong; the values stay in the form.
+    } catch (error) {
+      // The alert (or, for a taken name, the field) says what went wrong;
+      // the values stay in the form.
+      if (isNameTaken(error)) nameRef.current?.focus()
     }
   }
 
@@ -103,17 +144,14 @@ function NewClientForm({ listingId }: { listingId?: string }) {
       >
         <Card flush>
           <div className="flex flex-col gap-5 p-(--np-card-pad)">
-            {serverError ? (
+            {serverAlert ? (
               <Alert variant="destructive">
-                <AlertTitle>The client wasn’t created</AlertTitle>
-                <AlertDescription>
-                  {serverError} Nothing was added, and your details are still
-                  here.
-                </AlertDescription>
+                <AlertTitle>{serverAlert.title}</AlertTitle>
+                <AlertDescription>{serverAlert.body}</AlertDescription>
               </Alert>
             ) : null}
 
-            <Field error={nameError ?? undefined}>
+            <Field error={nameFieldError}>
               <FieldLabel>Client name</FieldLabel>
               <Input
                 ref={nameRef}
@@ -121,6 +159,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                 onChange={(event) => {
                   setName(event.target.value)
                   if (nameError && event.target.value.trim()) setNameError(null)
+                  if (nameTaken) create.reset()
                 }}
                 placeholder="Old Crown Group"
                 required
@@ -172,9 +211,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
           label="Create client"
           status={
             <span>
-              {create.isPending
-                ? "Creating the client…"
-                : "Creating the client doesn’t touch Google."}
+              {busy ? "Creating the client…" : "Nothing is sent to Google."}
             </span>
           }
           actions={
@@ -185,11 +222,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
               >
                 Cancel
               </Link>
-              <Button
-                type="submit"
-                pending={create.isPending}
-                pendingLabel="Creating…"
-              >
+              <Button type="submit" pending={busy} pendingLabel="Creating…">
                 Create client
               </Button>
             </>
@@ -261,6 +294,10 @@ function NewClientForm({ listingId }: { listingId?: string }) {
       )}
     </div>
   )
+}
+
+function isNameTaken(error: unknown): boolean {
+  return error instanceof ApiClientError && error.code === "client_name_taken"
 }
 
 export { NewClientForm }

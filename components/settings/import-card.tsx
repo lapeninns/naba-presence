@@ -13,7 +13,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
-import { Skeleton } from "@/components/ui/skeleton"
+import { QueryPending } from "@/components/ui/query-states"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { ApiClientError } from "@/lib/api/client"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
@@ -43,10 +43,13 @@ type RowState = "idle" | "pending" | "imported" | { error: string }
 export function ImportCard({
   clientId,
   connectionId: clientConnectionId,
+  onChooseAccounts,
 }: {
   clientId?: string
   /** The login this client's setup attached; the org's first one otherwise. */
   connectionId?: string | null
+  /** Opens the step where accounts are switched on, when there is one. */
+  onChooseAccounts?: () => void
 } = {}) {
   const business = useWorkspaceMode() === "business"
   const workspace = useConnectionWorkspace()
@@ -151,9 +154,10 @@ export function ImportCard({
 
   const heading = (
     <>
-      <h2 id={headingId} className="text-title font-semibold text-ink">
-        Link listings
-      </h2>
+      {/* An h3 under the setup step’s own h2 (“Link … listings”). */}
+      <h3 id={headingId} className="text-title font-semibold text-ink">
+        Listings on Google
+      </h3>
       {activeAccounts.length > 1 && accountName ? (
         <SegmentedControl
           value={accountName}
@@ -175,23 +179,69 @@ export function ImportCard({
     </>
   )
 
+  const chooseAccounts = onChooseAccounts ? (
+    <Button variant="secondary" onClick={onChooseAccounts}>
+      Choose accounts
+    </Button>
+  ) : null
+
+  // The accounts load is named here, once, with its retry: the drafts section
+  // below reads the same query and points back to this one. A failed
+  // background reload that still holds the earlier accounts is not a failed
+  // load: the listings they found stay usable.
+  if (accounts.query.isError && !accounts.query.data) {
+    return (
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        {/* As on the Account step: announced once, Try again outside the
+            alert and showing it is running (each retry is one rate-limited
+            discovery). */}
+        <Empty
+          variant="error"
+          role="alert"
+          title="We couldn’t load your Google accounts"
+          description={`${describeActionError(accounts.query.error)} Nothing was changed.`}
+          actions={
+            <Button
+              variant="secondary"
+              pending={accounts.query.isFetching}
+              pendingLabel="Trying again…"
+              onClick={() => void accounts.query.refetch()}
+            >
+              Try again
+            </Button>
+          }
+        />
+      </section>
+    )
+  }
+  if (accounts.query.isPending) {
+    return (
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <QueryPending label="Loading Google accounts…" />
+      </section>
+    )
+  }
+  // Loaded, and none of this login's accounts is switched on.
   if (!accountName) {
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {heading}
         <Empty
           title="Choose a Google account"
-          description="Switch on at least one Business Profile account for this Google login to see its locations."
+          description="Switch on at least one Business Profile account for this Google login to see its listings."
+          action={chooseAccounts}
         />
       </section>
     )
   }
   if (discovery.isPending) {
     return (
-      <div className="flex flex-col gap-3" aria-busy="true">
-        <Skeleton className="h-5 w-36" />
-        <Skeleton className="h-[calc(var(--np-row-h)*3)] w-full rounded-(--np-radius-card)" />
-      </div>
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        {heading}
+        <QueryPending label="Finding listings on Google…" />
+      </section>
     )
   }
   if (discovery.isError) {
@@ -201,10 +251,17 @@ export function ImportCard({
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {heading}
         <Empty
-          title="We couldn’t discover locations"
+          variant="error"
+          role="alert"
+          title="We couldn’t find this account’s listings"
           description={describeActionError(discovery.error)}
-          action={
-            <Button variant="outline" onClick={() => discovery.refetch()}>
+          actions={
+            <Button
+              variant="secondary"
+              pending={discovery.isFetching}
+              pendingLabel="Trying again…"
+              onClick={() => void discovery.refetch()}
+            >
               Try again
             </Button>
           }
@@ -219,7 +276,8 @@ export function ImportCard({
         <Empty
           icon={<MapPin />}
           title="No listings to link"
-          description="This account has no Business Profile listings."
+          description="This account has no Business Profile listings. The business may be under a different account, or you can search for it below."
+          action={chooseAccounts}
         />
       </section>
     )

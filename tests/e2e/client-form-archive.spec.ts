@@ -111,10 +111,11 @@ test.describe("new client", () => {
   test("a refused create keeps what was typed and says nothing was added", async ({
     page,
   }) => {
+    // A typed 5xx is the app's own verdict: definitely not created.
     await stubCreate(page, (route) =>
       route.fulfill({
-        status: 500,
-        json: { error: "internal_error", message: "Boom." },
+        status: 503,
+        json: { error: "service_unavailable", message: "Boom." },
       })
     )
     await page.goto("/clients/new")
@@ -126,6 +127,26 @@ test.describe("new client", () => {
     await expect(page.getByText(/Nothing was added/)).toBeVisible()
     await expect(name).toHaveValue("Harbour Kitchen")
     await expect(page).toHaveURL(/\/clients\/new$/)
+  })
+
+  test("an unanswered create says it may have been added", async ({ page }) => {
+    // An unhandled 500 may have run to completion: the outcome is unknown.
+    await stubCreate(page, (route) =>
+      route.fulfill({
+        status: 500,
+        json: { error: "internal_error", message: "Boom." },
+      })
+    )
+    await page.goto("/clients/new")
+    const name = page.getByRole("textbox", { name: "Client name" })
+    await name.fill("Harbour Kitchen")
+    await page.getByRole("button", { name: "Create client" }).click()
+
+    await expect(
+      page.getByText("We couldn’t confirm the client was created")
+    ).toBeVisible()
+    await expect(page.getByText(/Nothing was added/)).toHaveCount(0)
+    await expect(name).toHaveValue("Harbour Kitchen")
   })
 
   test("Cancel goes back to the clients list", async ({ page }) => {

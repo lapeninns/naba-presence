@@ -1,9 +1,6 @@
 "use client"
 
-import { InfoIcon } from "lucide-react"
-
 import { AccountPickerCard } from "@/components/settings/account-picker-card"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 /**
  * Which Business Profile accounts belong to this client.
@@ -12,37 +9,31 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
  * rules (auto-derived connection, explicit save) are the same job, and two
  * copies would drift the moment one gained a fix. The client and its login
  * scope the save, so choosing accounts here leaves other clients' accounts
- * alone.
+ * alone. The step description already says why to tick only some, so the
+ * list starts right under the title.
+ *
+ * `onChooseAnotherLogin` is the way back to Connect when this login has no
+ * accounts, so the step's blocker can be cleared from the screen that raises
+ * it.
  */
 function StepAccount({
-  clientName,
-  business,
   clientId,
   connectionId,
   saveBeforeContinueRef,
+  onChooseAnotherLogin,
 }: {
-  clientName: string
-  business: boolean
   clientId: string
   connectionId: string | null
   saveBeforeContinueRef: React.RefObject<(() => Promise<boolean>) | null>
+  onChooseAnotherLogin?: () => void
 }) {
   return (
-    <>
-      <Alert variant="info" icon={<InfoIcon aria-hidden />}>
-        <AlertTitle>One Google login can manage many accounts</AlertTitle>
-        <AlertDescription>
-          {business
-            ? "Tick the ones that belong to your business, then continue. Any you leave unticked stay available for later."
-            : `Tick only the ones that belong to ${clientName}, then continue. The rest stay available for other clients.`}
-        </AlertDescription>
-      </Alert>
-      <AccountPickerCard
-        clientId={clientId}
-        connectionId={connectionId}
-        saveBeforeContinueRef={saveBeforeContinueRef}
-      />
-    </>
+    <AccountPickerCard
+      clientId={clientId}
+      connectionId={connectionId}
+      saveBeforeContinueRef={saveBeforeContinueRef}
+      onChooseAnotherLogin={onChooseAnotherLogin}
+    />
   )
 }
 
