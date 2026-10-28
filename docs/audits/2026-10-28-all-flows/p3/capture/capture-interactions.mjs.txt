@@ -1,0 +1,321 @@
+// p3 interaction-state capture (BEFORE and AFTER use this same script).
+// Modelled on tests/visual/shoot.mjs: same cookie loading from
+// test-results/e2e-journey-state.json, same fixture-tenant guard, same
+// context options (Chromium, isMobile/hasTouch below 768, reduced motion,
+// height 860). Copied into $WT/test-results/ to run so @playwright/test
+// resolves from the worktree's node_modules; run with cwd = $WT.
+//
+//   node test-results/capture-interactions.mjs --base http://localhost:3532 \
+//     --out <dir> [--only 08-hours-day-sheet,13-people-invite]
+//
+// Never submits a write: it opens sheets and types into fields only.
+// For every shot it prints one JSON line (name, viewport, file, status,
+// overflow, console errors, and each step's ok / FAILED + error). A failed
+// step does not abort: the shot is saved with a -FAILED suffix.
+import { mkdir, readFile } from "node:fs/promises"
+import { resolve } from "node:path"
+
+import { chromium } from "@playwright/test"
+
+const argv = process.argv.slice(2)
+const arg = (name, fallback) => {
+  const index = argv.indexOf(`--${name}`)
+  if (index === -1) return fallback
+  const next = argv[index + 1]
+  return next === undefined || next.startsWith("--") ? true : next
+}
+
+const base = arg("base", "http://localhost:3532")
+const out = resolve(String(arg("out", "test-results/p3-capture")))
+const wait = Number.parseInt(String(arg("wait", "2500")), 10)
+const only = arg("only", "")
+  ? String(arg("only")).split(",")
+  : null
+const height = 860
+const state = JSON.parse(
+  await readFile(resolve("test-results/e2e-journey-state.json"), "utf8")
+)
+const cookies = {
+  owner: state.cookie,
+  viewer: state.viewerCookie,
+  admin: state.adminCookie,
+  member: state.memberAssignedCookie,
+}
+const loc = state.primaryLocationId
+
+const VIEWPORTS = {
+  "390-light": { width: 390, theme: "light" },
+  "390-dark": { width: 390, theme: "dark" },
+  1280: { width: 1280, theme: "light" },
+}
+const ALL = ["390-light", "390-dark", "1280"]
+const STEP_TIMEOUT = 15_000
+
+// Each state: a route, a role, the viewports, and its steps. A step is
+// [label, async (page, viewport) => void].
+const STATES = [
+  {
+    name: "03-board-quick-look",
+    route: "/listings",
+    role: "owner",
+    viewports: ["1280"],
+    steps: [
+      [
+        "board settled (a row's Waiting column)",
+        async (page) => {
+          const row = page
+            .getByRole("row")
+            .filter({ hasText: /Nothing waiting|to publish|Google change/ })
+            .first()
+          await row
+            .getByText(/Nothing waiting|to publish|Google change/)
+            .first()
+            .waitFor({ timeout: STEP_TIMEOUT })
+        },
+      ],
+      [
+        "click the first listing row (not its name) to open the quick look",
+        async (page) => {
+          const row = page
+            .getByRole("row")
+            .filter({ hasText: /Nothing waiting|to publish|Google change/ })
+            .first()
+          // As desk-quick-look.spec.ts does: a click on the row itself.
+          await row.click({ timeout: STEP_TIMEOUT })
+          const dialog = page.getByRole("dialog").first()
+          await dialog.waitFor({ timeout: STEP_TIMEOUT })
+          await dialog.evaluate((node) =>
+            Promise.all(node.getAnimations().map((a) => a.finished))
+          )
+        },
+      ],
+    ],
+  },
+  {
+    name: "08-hours-day-sheet",
+    route: `/listings/${loc}/hours`,
+    role: "owner",
+    viewports: ALL,
+    steps: [
+      [
+        "open Monday's day row",
+        async (page) => {
+          await page
+            .getByRole("button", { name: /^Monday/ })
+            .first()
+            .click({ timeout: STEP_TIMEOUT })
+          await page
+            .getByRole("dialog")
+            .first()
+            .waitFor({ timeout: STEP_TIMEOUT })
+        },
+      ],
+      [
+        "make sure Monday is open in the sheet (only toggles if it is closed; unsaved)",
+        async (page) => {
+          const opens = page.getByRole("textbox", {
+            name: /Monday period 1 opens/,
+          })
+          if ((await opens.count()) === 0) {
+            await page
+              .getByRole("switch", { name: /^(Monday open in this sheet|Open on Monday)/ })
+              .click({ timeout: STEP_TIMEOUT })
+            await opens.waitFor({ timeout: STEP_TIMEOUT })
+          }
+        },
+      ],
+      [
+        "opens 18:00",
+        async (page) => {
+          const field = page.getByRole("textbox", {
+            name: /Monday period 1 opens/,
+          })
+          await field.fill("18:00", { timeout: STEP_TIMEOUT })
+          await field.press("Tab")
+        },
+      ],
+      [
+        "closes 02:00 (earlier than opening), then Tab",
+        async (page) => {
+          const field = page.getByRole("textbox", {
+            name: /Monday period 1 closes/,
+          })
+          await field.fill("02:00", { timeout: STEP_TIMEOUT })
+          await field.press("Tab")
+        },
+      ],
+    ],
+  },
+  {
+    name: "13-people-invite",
+    route: `/listings/${loc}/people`,
+    role: "owner",
+    viewports: ALL,
+    steps: [
+      [
+        "open the invite sheet (button /invite/i)",
+        async (page) => {
+          await page
+            .getByRole("button", { name: /invite/i })
+            .first()
+            .click({ timeout: STEP_TIMEOUT })
+          await page
+            .getByRole("dialog")
+            .first()
+            .waitFor({ timeout: STEP_TIMEOUT })
+        },
+      ],
+      [
+        "type not-an-email into Email address, then Tab",
+        async (page) => {
+          const field = page
+            .getByRole("dialog")
+            .first()
+            .getByLabel(/email/i)
+            .first()
+          await field.fill("not-an-email", { timeout: STEP_TIMEOUT })
+          await field.press("Tab")
+        },
+      ],
+    ],
+  },
+  {
+    name: "16-booking-add",
+    route: `/listings/${loc}/booking`,
+    role: "owner",
+    viewports: ALL,
+    steps: [
+      [
+        "type example.com/book into the booking link field (no submit)",
+        async (page) => {
+          // Not getByLabel("Link"): the type control's label contains it.
+          const field = page
+            .getByRole("textbox", { name: "Link", exact: true })
+            .first()
+          await field.click({ timeout: STEP_TIMEOUT })
+          await field.fill("example.com/book", { timeout: STEP_TIMEOUT })
+        },
+      ],
+    ],
+  },
+  {
+    name: "17-profile-invalid",
+    route: `/listings/${loc}/profile`,
+    role: "owner",
+    viewports: ALL,
+    steps: [
+      [
+        "clear Business name, then Tab (no save)",
+        async (page) => {
+          const field = page
+            .getByRole("textbox", { name: "Business name" })
+            .first()
+          await field.fill("", { timeout: STEP_TIMEOUT })
+          await field.press("Tab")
+        },
+      ],
+    ],
+  },
+]
+
+await mkdir(out, { recursive: true })
+
+// Refuse to run unless every cookie used resolves to the fixture tenant:
+// `next dev` signs any request without a valid session in as the local owner.
+for (const role of new Set(STATES.map((s) => s.role))) {
+  const response = await fetch(`${base}/api/session`, {
+    headers: { cookie: cookies[role] },
+  })
+  const organisation = (await response.json())?.session?.organisationName
+  if (organisation !== "Sprint 5 Journey tenant") {
+    throw new Error(
+      `Refusing to shoot: cookie for ${role} resolves to "${organisation}", not the fixture tenant.`
+    )
+  }
+}
+
+const browser = await chromium.launch()
+try {
+  for (const shot of STATES) {
+    if (only && !only.includes(shot.name)) continue
+    for (const vpKey of shot.viewports) {
+      const { width, theme } = VIEWPORTS[vpKey]
+      const context = await browser.newContext({
+        viewport: { width, height },
+        colorScheme: theme === "dark" ? "dark" : "light",
+        reducedMotion: "reduce",
+        hasTouch: width < 768,
+        isMobile: width < 768,
+      })
+      const [cookieName, value] = cookies[shot.role].split("=")
+      await context.addCookies([
+        { name: cookieName, value, url: base, httpOnly: true, sameSite: "Lax" },
+      ])
+      const page = await context.newPage()
+      const errors = []
+      page.on("console", (message) => {
+        if (
+          message.type() === "error" &&
+          !message.text().includes("webpack-hmr")
+        )
+          errors.push(message.text().slice(0, 240))
+      })
+      page.on("pageerror", (error) => errors.push(String(error).slice(0, 240)))
+      const steps = []
+      let failed = false
+      let response = null
+      try {
+        response = await page.goto(base + shot.route, {
+          waitUntil: "networkidle",
+          timeout: 60_000,
+        })
+      } catch (error) {
+        failed = true
+        steps.push({ step: "goto", result: "FAILED", error: String(error).slice(0, 300) })
+      }
+      await page.waitForTimeout(wait)
+      if (!failed) {
+        for (const [label, run] of shot.steps) {
+          try {
+            await run(page, vpKey)
+            steps.push({ step: label, result: "ok" })
+          } catch (error) {
+            failed = true
+            steps.push({
+              step: label,
+              result: "FAILED",
+              error: String(error).split("\n")[0].slice(0, 300),
+            })
+            break
+          }
+        }
+      }
+      // Let validation messages and sheet motion settle.
+      await page.waitForTimeout(800)
+      const overflow = await page.evaluate(() => {
+        const doc = document.scrollingElement ?? document.documentElement
+        return { scrollWidth: doc.scrollWidth, viewport: window.innerWidth }
+      })
+      const file = resolve(
+        out,
+        `${shot.name}-${vpKey}${failed ? "-FAILED" : ""}.png`
+      )
+      await page.screenshot({ path: file, fullPage: true })
+      console.log(
+        JSON.stringify({
+          name: shot.name,
+          viewport: vpKey,
+          file,
+          status: response?.status(),
+          url: page.url().replace(base, ""),
+          horizontalOverflow: overflow.scrollWidth > overflow.viewport + 1,
+          steps,
+          errors,
+        })
+      )
+      await context.close()
+    }
+  }
+} finally {
+  await browser.close()
+}
