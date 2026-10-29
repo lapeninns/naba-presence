@@ -17,8 +17,9 @@ posts, photos, suggestions, Review & publish, verification and the bulk pages
 (p4), so their screens were not changed; where p3 code is shared with them it
 is listed under [Shared-file edits](#shared-file-edits).
 
-**Flows.** One analysis per flow (`flow-p3-F01.md` … `flow-p3-F13.md`, kept
-with the research notes) recorded the steps, protected rules, prior audit
+**Flows.** One analysis per flow
+([`flows/flow-p3-F01.md`](flows/flow-p3-F01.md) …
+[`flows/flow-p3-F13.md`](flows/flow-p3-F13.md)) recorded the steps, protected rules, prior audit
 status, friction with evidence and the proposed changes.
 
 | ID     | Flow                                                      | Route                                       | Start → end                                                                                                                                   |
@@ -62,7 +63,10 @@ and 23 touched files were unformatted at the base, including the whole of
   production build (`node .next/standalone/server.js`) on 3532, with the stub
   on 3533, under the `/tmp/naba-presence-visual.lock` lock.
 - Viewports: Chromium at 390 light, 390 dark and 1280 light (`isMobile` and
-  `hasTouch` below 768, reduced motion, height 860, full page).
+  `hasTouch` below 768, reduced motion, height 860). The 390 shots are full
+  page. The 1280 shots are 1280 × 860 and show the top of the page only: at
+  that width the app scrolls inside its shell, so a full-page capture stops
+  at the viewport.
 - The capture scripts are kept as reference text in [`capture/`](capture/),
   with [rerun instructions](capture/README.md).
 
@@ -439,7 +443,8 @@ removed.
 `e4123d25`, AFTER from the branch head `46301fa4`, with the same script
 (`capture/run-capture.sh`), fixtures ("Sprint 5 Journey" tenants), viewports
 (390 light, 390 dark, 1280 light) and steps: a production build, a throwaway
-PostgreSQL cluster, the Google stub, and full-page Chromium shots. The
+PostgreSQL cluster, the Google stub, and Chromium shots (full page at 390;
+the top 860 px only at 1280). The
 tenants are reseeded per run, so the listing names differ ("Stub location
 6e6edc4b" before, "Stub location 0da15fe2" after); that is fixture data, not a
 change. One BEFORE interaction step (03, opening the quick look) failed on
@@ -472,6 +477,14 @@ evidence folder. Paths are relative to this file.
 **Observed in the pairs.** Read from the 390 light and 1280 pairs, with the
 390 dark pairs checked for contrast and colour. No pair shows an error page, a
 skeleton in place of content, horizontal overflow or a dark-theme problem.
+The 1280 shots show the top 860 px only, so some differences are visible in
+the 390 shots only:
+
+- **06:** the place-ID and County hints, "Additional phones" and the removed
+  saved-work sections. At 1280 only the missing "Saved lodging work" entry in
+  the section nav shows.
+- **12:** the Danger zone's move and new description, and "Request deletion".
+- **17:** 06's differences further down the page.
 
 | State               | Visible difference (AFTER vs BEFORE)                                                                                                                                                                                                                                                                                                                                                                           | Change IDs                                     |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
@@ -557,7 +570,7 @@ production build (rows marked "head").
 ## Review response
 
 An independent reviewer with fresh context reviewed every commit except the
-Prettier one, on head `0d3a4852` (`REVIEW.md` in the research notes). It found
+Prettier one, on head `0d3a4852` ([`REVIEW.md`](REVIEW.md)). It found
 no P0. Fixes landed in `25839c91`.
 
 | Finding                                                                                | Disposition                                                                                                                                                                                                                                                | Evidence                                                                                                          |

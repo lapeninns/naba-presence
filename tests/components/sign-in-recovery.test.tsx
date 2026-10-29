@@ -50,6 +50,19 @@ describe("sign-in retry", () => {
 })
 
 describe("resend confirmation", () => {
+  it("keeps its live region in the accessibility tree while it is empty", () => {
+    const { container } = render(
+      <ResendConfirmationButton email="sam@example.test" />
+    )
+    const region = container.querySelector("[aria-live='polite']")
+    expect(region).toBeInTheDocument()
+    expect(region).toBeEmptyDOMElement()
+    // Visually hidden, never display:none, so what is written in is read out.
+    expect(region).not.toHaveClass("hidden")
+    expect(region).not.toHaveClass("empty:hidden")
+    expect(region).toHaveClass("empty:sr-only")
+  })
+
   it("stays on screen as Send another link, with a neutral result", async () => {
     const user = userEvent.setup()
     const resend = vi

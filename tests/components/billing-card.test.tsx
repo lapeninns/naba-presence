@@ -807,6 +807,35 @@ describe("BillingCard recovery, outcomes and notices", () => {
       scroll: false,
     })
   })
+
+  it("moves focus to the Subscription block before the dismissed notice unmounts", async () => {
+    const user = userEvent.setup()
+    mockBilling(ACTIVE)
+    render(
+      <>
+        <h1 tabIndex={-1}>Billing</h1>
+        <CheckoutCanceledNotice />
+        <BillingCard />
+      </>
+    )
+    await user.click(screen.getByRole("button", { name: "Dismiss" }))
+    const subscription = screen.getByRole("region", { name: "Subscription" })
+    expect(document.activeElement).toBe(
+      subscription.closest("[data-slot='billing-subscription-focus']")
+    )
+  })
+
+  it("falls back to the page heading when billing has not loaded", async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <h1 tabIndex={-1}>Billing</h1>
+        <CheckoutCanceledNotice />
+      </>
+    )
+    await user.click(screen.getByRole("button", { name: "Dismiss" }))
+    expect(screen.getByRole("heading", { name: "Billing" })).toHaveFocus()
+  })
 })
 
 describe("BillingBanner", () => {

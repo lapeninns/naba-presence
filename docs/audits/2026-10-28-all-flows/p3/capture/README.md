@@ -24,7 +24,8 @@ for BEFORE and AFTER.
    "visual-app" environment, `PASSWORD_AUTH_ENABLED=false` and
    `GOOGLE_API_PROXY_BASE` pointing at the stub. It then warms every route.
 4. **shoot**: twelve URL states through `tests/visual/shoot.mjs` (390 light,
-   390 dark, 1280 light; full page; `--wait 2500`), then the five interaction
+   390 dark, 1280 light; `--full`; `--wait 2500`; at 1280 the app scrolls
+   inside its shell, so those shots stop at 1280 × 860), then the five interaction
    states through the interaction script. PNGs become WebP (`cwebp -q 80`)
    named `<state>-<390-light|390-dark|1280>.webp` in `OUT`. A failed step
    still saves its shot, with a `-FAILED` suffix, and the run log says why.

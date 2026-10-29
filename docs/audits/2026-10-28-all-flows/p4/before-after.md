@@ -74,7 +74,8 @@ in [`flows/`](flows/), with the index in [`flows/FLOWS.md`](flows/FLOWS.md).
 - Viewports: the same rules as `shoot.mjs`. Chromium, 390 × 860 and 1280 × 860,
   with reduced motion, and touch plus `isMobile` below 768. Every state is
   shot at 390 light, 390 dark and 1280 light, as full-page captures (dialogs
-  are viewport captures).
+  are viewport captures). At 1280 the app scrolls inside its shell, so every
+  1280 shot is 1280 × 860 and shows the top of the page only.
 - The capture spec is kept as reference text,
   [`capture/p4-capture.spec.ts.txt`](capture/p4-capture.spec.ts.txt). To rerun
   it, copy it to `tests/e2e/p4-capture.spec.ts`, then run
@@ -95,6 +96,13 @@ and the unverified and pending verification states were verified with
 component tests only, not on screen. A publish, a bulk start and a verification
 send were never pressed in a capture: the stub would answer, but nothing is
 published from tests.
+
+**F15 signed out is unit-tested only.** The `f15-flat-photos-signed-out-*`
+images are the same before and after. The capture server runs with local
+bootstrap on, which lets anonymous visitors through, so both show the
+development fallback (`/clients?moved=photos`), not the production sign-in
+redirect. That redirect is covered by `tests/flat-route-redirect.test.ts`
+only.
 
 ### Protected rules derived from the code
 

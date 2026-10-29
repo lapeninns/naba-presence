@@ -123,7 +123,7 @@ export function PostsActionBar({
   writesEnabled,
   timezone = DEFAULT_TIMEZONE,
   scheduling,
-  onRemoved,
+  onDeleted,
 }: {
   locationId: string
   post: Post
@@ -150,11 +150,12 @@ export function PostsActionBar({
     recurring?: boolean
   }
   /**
-   * Where focus goes once this post is deleted and its row goes away (the
-   * list's next post, say). Asked as the delete dialog closes; null leaves
-   * Base UI's default.
+   * Told once this post is deleted, before its row goes away; answers where
+   * focus goes as the delete dialog closes (the list's next post, say), null
+   * for Base UI's default. The list also owns that move: a re-read that lands
+   * before the dialog has closed takes the row, and the dialog, with it.
    */
-  onRemoved?: () => HTMLElement | null
+  onDeleted?: () => HTMLElement | null
 }) {
   const queryClient = useQueryClient()
   const outcomeToast = useOutcomeToast()
@@ -169,6 +170,8 @@ export function PostsActionBar({
   // opened it may be about to go (Publish once sent, Approve once decided,
   // the whole row once deleted), so focus goes to the post, not the page.
   const settled = useRef(false)
+  // Where the list said focus goes once this post is deleted.
+  const [removedFocus, setRemovedFocus] = useState<HTMLElement | null>(null)
   const composer = useDeferredSheet()
   const scheduler = useDeferredSheet()
   const name = label || post.summary.slice(0, 60) || "this post"
@@ -267,6 +270,7 @@ export function PostsActionBar({
     onError: (_, message) => setDeleteError(message),
     onSuccess: () => {
       settled.current = true
+      setRemovedFocus(onDeleted?.() ?? null)
       setDeleteError(null)
       setDeleteOpen(false)
       // Deleting a live post removes it from Google: a Google write. A
@@ -637,9 +641,7 @@ export function PostsActionBar({
           if (!remove.isPending) setDeleteOpen(open)
         }}
       >
-        <AlertDialogContent
-          finalFocus={afterSuccess(() => onRemoved?.() ?? null)}
-        >
+        <AlertDialogContent finalFocus={afterSuccess(() => removedFocus)}>
           <AlertDialogTitle>
             {live ? "Delete this post from Google?" : "Delete this post?"}
           </AlertDialogTitle>

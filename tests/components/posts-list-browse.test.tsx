@@ -1,5 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { QueryClient } from "@tanstack/react-query"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useSyncExternalStore } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { PostsTab } from "@/components/locations/posts-tab"
@@ -307,6 +309,91 @@ describe("Posts list: focus after a delete", () => {
       expect(document.activeElement).toBe(
         screen.getByRole("heading", { name: "Second post" })
       )
+    )
+  })
+
+  // The list reads a store the test swaps, as the delete's re-read would.
+  function renderLive(posts: Post[]) {
+    let current = view(posts)
+    const listeners = new Set<() => void>()
+    usePostsMock.mockImplementation(() =>
+      useSyncExternalStore(
+        (listener) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        () => current
+      )
+    )
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderWithProviders(<PostsTab locationId={LOCATION} />)
+    return (next: Post[]) => {
+      current = view(next)
+      listeners.forEach((listener) => listener())
+    }
+  }
+  async function deleteFrom(name: string) {
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole("button", { name: `More actions for ${name}` })
+    )
+    await user.click(await screen.findByRole("menuitem", { name: /^Delete/ }))
+    const dialog = await screen.findByRole("alertdialog")
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }))
+  }
+
+  it("moves focus to the next post's heading when the re-read takes the row, and its dialog, first", async () => {
+    api.deletePost.mockResolvedValue({ status: "deleted" })
+    const first = post({
+      id: "a",
+      summary: "First post",
+      updatedAt: "2026-10-03T00:00:00.000Z",
+    })
+    const second = post({
+      id: "b",
+      summary: "Second post",
+      updatedAt: "2026-10-02T00:00:00.000Z",
+    })
+    const reread = renderLive([first, second])
+    // The re-read lands as the delete invalidates the list, so the row (and
+    // the dialog in it) unmounts before the dialog's own close can run.
+    const invalidate = vi
+      .spyOn(QueryClient.prototype, "invalidateQueries")
+      .mockImplementation(async () => reread([second]))
+    try {
+      await deleteFrom("First post")
+      await waitFor(() =>
+        expect(screen.queryByRole("heading", { name: "First post" })).toBeNull()
+      )
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("heading", { name: "Second post" })
+        )
+      )
+      expect(screen.queryByRole("alertdialog")).toBeNull()
+    } finally {
+      invalidate.mockRestore()
+    }
+  })
+
+  it("keeps focus on the posts when the last post's re-read takes the chips too", async () => {
+    api.deletePost.mockResolvedValue({ status: "deleted" })
+    const reread = renderLive([post({ id: "a", summary: "Only post" })])
+    await deleteFrom("Only post")
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: /^All/, pressed: true })
+      )
+    )
+    // No posts at all: the empty state replaces the chip focus was on.
+    act(() => reread([]))
+    expect(screen.getByText("No posts yet")).toBeInTheDocument()
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).toBe(
+      document.querySelector('[data-slot="editor-frame"]')
     )
   })
 

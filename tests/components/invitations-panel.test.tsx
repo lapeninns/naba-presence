@@ -863,7 +863,7 @@ function stubWidth(wide: boolean) {
 
 const expiredInvite: Invitation = {
   id: "i1",
-  email: "catherine.smith@oldcrowngroup.co.uk",
+  email: "catherine.smith@riverside-inns.example.test",
   role: "member",
   canPublish: false,
   expiresAt: "2020-01-01T00:00:00.000Z",
@@ -906,7 +906,7 @@ describe("InvitationsList on a phone", () => {
     expect(within(rows[1]).getByText("Pending")).toBeInTheDocument()
     expect(
       within(rows[0]).getByRole("button", {
-        name: "Copy invite link for catherine.smith@oldcrowngroup.co.uk",
+        name: "Copy invite link for catherine.smith@riverside-inns.example.test",
       })
     ).toHaveAttribute("aria-disabled", "true")
     await user.click(
@@ -940,22 +940,24 @@ describe("invitation email wrapping", () => {
   it("offers a break before the @ in the row and the revoke title", async () => {
     const user = userEvent.setup()
     renderPanel([expiredInvite])
-    const email = screen.getByText("catherine.smith@oldcrowngroup.co.uk")
+    const email = screen.getByText(
+      "catherine.smith@riverside-inns.example.test"
+    )
     expect(email.querySelector("wbr")).not.toBeNull()
     expect(email.className).toMatch(/overflow-wrap:break-word/)
     expect(email.className).not.toMatch(/overflow-wrap:anywhere/)
     await user.click(
       screen.getByRole("button", {
-        name: "More actions for catherine.smith@oldcrowngroup.co.uk",
+        name: "More actions for catherine.smith@riverside-inns.example.test",
       })
     )
     await user.click(
       await screen.findByRole("menuitem", {
-        name: "Revoke invitation for catherine.smith@oldcrowngroup.co.uk",
+        name: "Revoke invitation for catherine.smith@riverside-inns.example.test",
       })
     )
     const title = await screen.findByRole("heading", {
-      name: "Revoke the invitation for catherine.smith@oldcrowngroup.co.uk?",
+      name: "Revoke the invitation for catherine.smith@riverside-inns.example.test?",
     })
     expect(title.querySelector("wbr")).not.toBeNull()
   })
@@ -1045,7 +1047,7 @@ describe("re-inviting an address", () => {
     const create = refuse()
     renderPanel([expiredInvite])
     const email = screen.getByRole("textbox", { name: "Email address" })
-    await user.type(email, "Catherine.Smith@oldcrowngroup.co.uk")
+    await user.type(email, "Catherine.Smith@riverside-inns.example.test")
     await user.click(screen.getByRole("button", { name: "Create invite link" }))
     expect(
       await screen.findByText(
@@ -1056,7 +1058,7 @@ describe("re-inviting an address", () => {
     // Same request as any other invitation (the form lowercases the
     // address): no pre-check, no extra field.
     expect(create.mock.calls[0]?.[0]).toStrictEqual({
-      email: "catherine.smith@oldcrowngroup.co.uk",
+      email: "catherine.smith@riverside-inns.example.test",
       role: "member",
       canPublish: false,
     })

@@ -136,9 +136,11 @@ function ResendConfirmationButton({
           {pending ? "Sending…" : label}
         </button>
       )}
+      {/* Visually hidden while empty, never display:none: a region outside
+          the accessibility tree may not announce what is written into it. */}
       <span
         aria-live="polite"
-        className="text-caption text-pretty [overflow-wrap:anywhere] text-ink-muted empty:hidden"
+        className="text-caption text-pretty [overflow-wrap:anywhere] text-ink-muted empty:sr-only"
       >
         {note}
       </span>

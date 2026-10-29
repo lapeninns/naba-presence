@@ -157,6 +157,17 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         )
       )
       const listings = new Set([...walked, ...failed]).size
+      // Listings Google had more reviews for than this sync read (its page
+      // cap or time budget ran out mid-listing): not "up to date". Listings
+      // the walk never reached before its time budget are not in the answer
+      // at all, so "Up to date" below speaks only for the ones checked.
+      const partial = (result.locations ?? []).filter(
+        (location) => location.status === "partial"
+      ).length
+      const partialNote =
+        partial > 0
+          ? `Google had more reviews than this sync could read for ${formatNumber(partial)} ${partial === 1 ? "listing" : "listings"}. Scheduled checks keep running.`
+          : null
       // Some listings were checked and some were not: the sync ran, and
       // the result says so, with the ones it could not reach.
       const someChecked =
@@ -182,19 +193,26 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         before !== undefined && after !== undefined
           ? Math.max(0, after - before)
           : null
-      const found =
+      const found: { title: string; description: string | undefined } =
         added === null
-          ? { title: "Reviews synced", description: undefined }
+          ? partialNote
+            ? { title: "Reviews partly synced", description: partialNote }
+            : { title: "Reviews synced", description: undefined }
           : added === 0
-            ? {
-                title: "Up to date",
-                description: "Google has no reviews newer than these.",
-              }
+            ? partialNote
+              ? { title: "No new reviews so far", description: partialNote }
+              : {
+                  title: "Up to date",
+                  description:
+                    "Google has no newer reviews for the listings checked.",
+                }
             : {
                 title: `${formatNumber(added)} new ${added === 1 ? "review" : "reviews"}`,
                 // Not "in the list": a filter, queue or client scope can
                 // hide them from the one on screen.
-                description: "Added to your Inbox.",
+                description: partialNote
+                  ? `Added to your Inbox. ${partialNote}`
+                  : "Added to your Inbox.",
               }
       if (failure && someChecked) {
         const unchecked = `${formatNumber(failed.size)} of ${formatNumber(listings)} listings couldn’t be checked. ${describeSyncFailure(failure)}`
@@ -216,7 +234,11 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         })
         return
       }
-      toasts.add({ id: SYNC_TOAST_ID, ...found, type: "success" })
+      toasts.add({
+        id: SYNC_TOAST_ID,
+        ...found,
+        type: partialNote ? "info" : "success",
+      })
     } catch (caught) {
       if (
         caught instanceof ApiClientError &&

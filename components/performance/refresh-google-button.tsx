@@ -131,10 +131,18 @@ function countListings(count: number) {
  * What a finished sync found, in the server's own counts, or null when the
  * answer does not say (an older server) or the sync was cut short and the
  * rest is still to come: then the refresh is only "started".
+ *
+ * `reloadFailed`: Google answered, but re-reading the figures afterwards did
+ * not, so the ones on screen predate this check (the tab's StaleFiguresAlert
+ * says the same). The toast then says so instead of "include this check".
  */
 export function refreshResultToast(
   result: ManualSyncResult | null | undefined,
-  { kind, scopedToClient = false }: { kind: Kind; scopedToClient?: boolean }
+  {
+    kind,
+    scopedToClient = false,
+    reloadFailed = false,
+  }: { kind: Kind; scopedToClient?: boolean; reloadFailed?: boolean }
 ): {
   type: "success" | "info" | "warning"
   title: string
@@ -160,18 +168,27 @@ export function refreshResultToast(
       title: "Nothing to refresh yet",
       description: `No ${LISTING_TERMS.place} was due for a check. NabaPresence checks Google again automatically.`,
     }
+  const shown = kind === "performance" ? "figures" : "search terms"
+  const notReloaded = `The ${shown} couldn’t be reloaded; those shown are from the last successful load.`
   if (failed > 0)
     return {
       type: "warning",
       title: `${failed} of ${countListings(checked)} could not be refreshed`,
-      description: "The report says why.",
+      description: reloadFailed ? notReloaded : "The report says why.",
+    }
+  const across = `Checked ${countListings(checked)}${
+    scopedToClient ? " across your clients" : ""
+  }.`
+  if (reloadFailed)
+    return {
+      type: "warning",
+      title: "Refreshed from Google",
+      description: `${across} ${notReloaded}`,
     }
   return {
     type: "success",
     title: "Refreshed from Google",
-    description: `Checked ${countListings(checked)}${
-      scopedToClient ? " across your clients" : ""
-    }. The ${kind === "performance" ? "figures" : "search terms"} shown include this check.`,
+    description: `${across} The ${shown} shown include this check.`,
   }
 }
 
@@ -217,14 +234,31 @@ export function useRefreshGoogle({
           : await triggerKeywordsSync()
       // Awaits the re-read, so a "Refreshed" below is said over the
       // figures the server has just returned.
-      await queryClient.invalidateQueries({
+      const figures = {
         queryKey: queryKeys.analytics(
           kind === "performance" ? "presence" : "keywords",
           {}
         ),
         exact: false,
+      }
+      const rereadFrom = Date.now()
+      await queryClient.invalidateQueries(figures)
+      // The re-read's own failure is swallowed (no `throwOnError`): read it
+      // off the tab's queries, so "include this check" is never said over
+      // figures that are still the last successful load's.
+      const reloadFailed = queryClient
+        .getQueryCache()
+        .findAll({ ...figures, type: "active" })
+        .some(
+          (query) =>
+            query.state.status === "error" &&
+            query.state.errorUpdatedAt >= rereadFrom
+        )
+      const finished = refreshResultToast(result, {
+        kind,
+        scopedToClient,
+        reloadFailed,
       })
-      const finished = refreshResultToast(result, { kind, scopedToClient })
       if (finished) {
         onSettled?.()
         toast.add(finished)

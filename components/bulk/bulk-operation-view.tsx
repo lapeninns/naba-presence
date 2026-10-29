@@ -480,12 +480,10 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
       >
         {op ? (
           <div
-            className={cn(
-              "flex min-w-0 flex-col gap-4",
-              // Room under the last outcome for the docked phone bar.
-              actions &&
-                "max-md:pb-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))]"
-            )}
+            // The docked phone bar's spacer (its measured height) goes under
+            // the last outcome, not between the summary and the list, where
+            // the bar sits in the reading order.
+            className="flex min-w-0 flex-col gap-4 max-md:[&>[data-slot=action-bar-spacer]]:order-last"
           >
             {/* The summary: what is true now in words, progress once it
                 runs, and the window that applies. */}
@@ -586,13 +584,17 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
             ) : null}
             {actions ? (
               // One bar of actions with one primary: docked to the bottom
-              // of a phone (the tab bar steps aside), inline on a desk.
+              // of a phone (the tab bar steps aside, and the spacer and
+              // scroll padding follow its measured height, so a status that
+              // wraps never hides a focused row), inline on a desk.
+              // `statusRow`: the status is a sentence, too long to share a
+              // row with the buttons there.
               <ActionBar
-                data-docked="bottom"
+                dock
+                statusRow
                 label="Bulk change actions"
                 safeArea={false}
                 sticky={false}
-                className="max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:rounded-none max-md:pb-[max(--spacing(3),var(--np-dock-bottom))]"
                 status={
                   barStatus ? (
                     <>

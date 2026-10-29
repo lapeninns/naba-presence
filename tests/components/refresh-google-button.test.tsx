@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -6,19 +10,34 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { refreshResultToast } from "@/components/performance/refresh-google-button"
 import { ReportActionsMenu } from "@/components/reporting/report-actions-menu"
 import { Toaster } from "@/components/ui/toast"
+import { queryKeys } from "@/lib/queries/keys"
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
-function renderMenu(canTrigger: boolean, scopedToClient = false) {
+/** The tab's figures, as a mounted (so active) query the refresh re-reads. */
+function Figures({ load }: { load: () => Promise<unknown> }) {
+  useQuery({
+    queryKey: queryKeys.analytics("presence", { range: "28d" }),
+    queryFn: load,
+  })
+  return null
+}
+
+function renderMenu(
+  canTrigger: boolean,
+  scopedToClient = false,
+  figures?: () => Promise<unknown>
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
+        {figures ? <Figures load={figures} /> : null}
         <ReportActionsMenu
           refresh={canTrigger ? { kind: "performance", scopedToClient } : null}
         />
@@ -147,6 +166,52 @@ describe("Refresh from Google in the report's actions menu", () => {
       expect(screen.getByText(description)).toBeInTheDocument()
     }
   )
+  it("says the figures couldn’t be reloaded when Google answered but the re-read failed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({
+              organisations: [
+                {
+                  organisationId: "o1",
+                  outcomes: [{ status: "succeeded" }, { status: "succeeded" }],
+                },
+              ],
+              truncated: false,
+            }),
+            { headers: { "content-type": "application/json" } }
+          )
+      )
+    )
+    // The first load succeeds; the re-read after the sync does not, which
+    // TanStack swallows rather than throwing to the caller.
+    const load = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({ totals: {} })
+      .mockRejectedValue(new Error("reload failed"))
+    renderMenu(true, false, load)
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1))
+    await openMenu()
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: /refresh from google/i })
+    )
+    expect(
+      await screen.findByText(
+        "Checked 2 listings. The figures couldn’t be reloaded; those shown are from the last successful load."
+      )
+    ).toBeInTheDocument()
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(screen.getByText("Refreshed from Google")).toBeInTheDocument()
+    expect(
+      screen.queryByText(/The figures shown include this check/)
+    ).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+      "data-type",
+      "warning"
+    )
+  })
   it("says only that it started when the server cut the sync short", async () => {
     vi.stubGlobal(
       "fetch",

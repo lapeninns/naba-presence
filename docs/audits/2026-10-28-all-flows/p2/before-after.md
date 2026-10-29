@@ -35,8 +35,9 @@ in the isolated worktree `/tmp/naba-presence-p2`.
 - Fixtures: the seeded "Sprint 5 Journey tenant", client "Journey
   Hospitality", two stub listings and a stub Google login
   (`stub@example.test`). No real people, phones, emails or tokens appear.
-- Viewports: 390 (light and dark, touch, Chromium) and 1280 (light), full
-  page, reduced motion. Full-page captures draw fixed bars (tab bar, docked
+- Viewports: 390 (light and dark, touch, Chromium), full page, and 1280
+  (light), reduced motion. At 1280 the app scrolls inside its shell, so every
+  1280 shot is 1280 × 860 and shows the top of the page only. Full-page captures draw fixed bars (tab bar, docked
   action bar) mid-image, and the round "N" bottom-left is the Next dev
   indicator: capture artefacts, not friction.
 

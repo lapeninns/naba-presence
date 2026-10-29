@@ -114,7 +114,7 @@ function isExpired(invitation: Invitation, now: number): boolean {
 
 /**
  * An email address that may wrap only before its "@": "catherine.smith" /
- * "@oldcrowngroup.co.uk", never mid-word. `<wbr>` adds no text, so the
+ * "@riverside-inns.example.test", never mid-word. `<wbr>` adds no text, so the
  * accessible name and text content are the address as it is.
  */
 function EmailText({ email }: { email: string }) {

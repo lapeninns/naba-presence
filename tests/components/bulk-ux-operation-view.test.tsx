@@ -321,6 +321,32 @@ describe("action errors and results (p4-F14 C4)", () => {
     )
   })
 
+  it("docks the bar with its own spacer and gives a long status its own row", async () => {
+    serve(() => json({ operation: { ...base, canApprove: false } }))
+    renderWithProviders(<BulkOperationView operationId={base.id} />)
+    await screen.findByRole("button", { name: "Approve this exact change" })
+    const bar = screen.getByRole("region", { name: "Bulk change actions" })
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    // The ActionBar's spacer measures the bar (status row and all) and feeds
+    // the scroll padding, rather than a padding that assumes one row; it
+    // sits under the last outcome on a phone.
+    const spacer = bar.parentElement?.querySelector<HTMLElement>(
+      ':scope > [data-slot="action-bar-spacer"]'
+    )
+    expect(spacer).not.toBeNull()
+    expect(spacer?.nextElementSibling).toBe(bar)
+    expect(bar.parentElement?.className).toMatch(
+      /max-md:\[&>\[data-slot=action-bar-spacer\]\]:order-last/
+    )
+    expect(bar.parentElement?.className).not.toMatch(/--np-actionbar-h/)
+    expect(bar.className).toMatch(/max-md:flex-wrap/)
+    expect(barStatus()?.className).toMatch(/max-md:basis-full/)
+    expect(barStatus()?.className).not.toMatch(/line-clamp/)
+    expect(
+      bar.querySelector('[data-slot="bulk-action-status"]')
+    ).toHaveTextContent("A different owner or administrator must approve")
+  })
+
   it("says so when a retry could requeue nothing", async () => {
     const finished: Operation = {
       ...running(),

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react"
 
@@ -214,6 +215,22 @@ function HoursForm({
     latestDraft.current = draft
   }, [draft])
   const refresh = useRefreshHours(locationId)
+  // Once Google's hours are in the draft, "Keep Google’s hours" gives way to
+  // a note, and focus on a removed button falls to the page. It moves to the
+  // footer instead: its status says the draft changed, and its Save here (the
+  // next tab stop) keeps it. With no footer, the frame takes it.
+  const keptGoogleIn = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const frame = keptGoogleIn.current
+    if (!frame) return
+    keptGoogleIn.current = null
+    // Focus the operator has moved on their own is left where it is.
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    ;(
+      frame.querySelector<HTMLElement>("[data-slot=editor-footer]") ?? frame
+    ).focus()
+  })
   const [discardOpen, setDiscardOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   // Validation shows after the first save or review attempt, then follows
@@ -470,8 +487,11 @@ function HoursForm({
    * operator keeps it with Save here, the usual revision-checked save, or
    * discards it.
    */
-  async function keepGoogle() {
+  async function keepGoogle(event: ReactMouseEvent<HTMLElement>) {
     const before = draft
+    const frame = event.currentTarget.closest<HTMLElement>(
+      "[data-slot=editor-frame]"
+    )
     setKeepingGoogle(true)
     try {
       const fresh = await refresh.mutateAsync()
@@ -491,6 +511,7 @@ function HoursForm({
       }
       setDraft(structuredClone(fresh.google))
       setFormError(null)
+      keptGoogleIn.current = frame
       showToast({
         kind: "local",
         type: "info",
@@ -563,12 +584,13 @@ function HoursForm({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    disabled={reconciling}
+                    // Pending, not disabled: focus stays on the button while
+                    // Google is read.
+                    pending={reconciling}
+                    pendingLabel="Checking Google…"
                     onClick={reconcile}
                   >
-                    {reconciling
-                      ? "Checking Google…"
-                      : "Match Google closing boundaries"}
+                    Match Google closing boundaries
                   </Button>
                 ),
                 // It replaces the whole draft, so it never runs over
@@ -582,10 +604,11 @@ function HoursForm({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    disabled={keepingGoogle}
+                    pending={keepingGoogle}
+                    pendingLabel="Checking Google…"
                     onClick={keepGoogle}
                   >
-                    {keepingGoogle ? "Checking Google…" : "Keep Google’s hours"}
+                    Keep Google’s hours
                   </Button>
                 ),
               }

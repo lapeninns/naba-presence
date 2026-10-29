@@ -76,7 +76,7 @@ text; it ran from a gitignored copy) that uses `shoot.mjs`'s own context
 options: Chromium, viewport height 860, `reducedMotion: "reduce"`,
 `hasTouch` and `isMobile` below 768, `colorScheme` for the theme, at the repo
 convention of **390 light, 390 dark and 1280 light**, full-page except where
-noted. File names follow `shoot.mjs`: `<state>-chromium-<theme>-<width>`. It
+noted. At 1280 the app scrolls inside its shell, so most 1280 shots (33 of 40) are 1280 × 860 and show the top of the page only. File names follow `shoot.mjs`: `<state>-chromium-<theme>-<width>`. It
 uses neither the shared visual harness ports (3200/3201) nor `naba_visual`,
 so the lock was not needed and was not taken. Screenshots were converted from
 PNG to WebP (quality 78) equally on both sides.

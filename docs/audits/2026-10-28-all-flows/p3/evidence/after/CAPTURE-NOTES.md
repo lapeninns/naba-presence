@@ -8,8 +8,10 @@
   same script, fixtures, viewports and steps as BEFORE. The phases are lock,
   db, start, shoot, stop and dbstop. It runs a production build
   (`.next/standalone`) on 3532, the fixture server and Google stub on 3533,
-  and a throwaway PostgreSQL 17 cluster. Shots are full-page Chromium at 390
-  light, 390 dark and 1280 light, converted to WebP.
+  and a throwaway PostgreSQL 17 cluster. Shots are Chromium at 390 light, 390
+  dark and 1280 light, converted to WebP. The 390 shots are full page. The
+  1280 shots are 1280 × 860, the top of the page only, because the app
+  scrolls inside its shell at that width.
 - **Fixture:** "Sprint 5 Journey" tenants, reseeded, so the listing is
   "Stub location 0da15fe2" (`/listings/9582d078-…`). That is fixture data, not
   a change. Roles: owner, plus viewer (05, 09, 15) and member (11).

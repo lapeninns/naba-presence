@@ -162,6 +162,40 @@ describe("HoursTab", () => {
     ).toBeEnabled()
   })
 
+  it("keeps focus on Match Google closing boundaries while Google is read", async () => {
+    const user = userEvent.setup()
+    const state = makeHours({ reconciliationRequired: true })
+    let answer: (value: HoursState) => void = () => {}
+    vi.spyOn(hoursApi, "fetchHours").mockReturnValue(
+      new Promise<HoursState>((resolve) => {
+        answer = resolve
+      })
+    )
+    useHoursMock.mockReturnValue({
+      data: state,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    await user.click(
+      screen.getByRole("button", { name: "Match Google closing boundaries" })
+    )
+    // Pending, not natively disabled: the busy button keeps focus.
+    const busy = screen.getByRole("button", { name: "Checking Google…" })
+    expect(busy).toHaveAttribute("aria-busy", "true")
+    expect(busy).toHaveFocus()
+    answer(structuredClone(state))
+    const done = await screen.findByRole("button", {
+      name: "Match Google closing boundaries",
+    })
+    expect(done).toHaveFocus()
+  })
+
   it("names the time zone in words when it is not the viewer's own", () => {
     useHoursMock.mockReturnValue({
       data: makeHours({
@@ -795,11 +829,22 @@ describe("HoursTab changed on Google", () => {
     const save = vi
       .spyOn(hoursApi, "saveHours")
       .mockResolvedValue({ saved: true, revision: "3" })
+    const publish = vi.spyOn(hoursApi, "publishHours")
     show(state)
     await user.click(
       screen.getByRole("button", { name: "Keep Google’s hours" })
     )
     expect(refreshHours.mutateAsync).toHaveBeenCalledOnce()
+    // The button gave way to a note: focus moves to the footer, whose status
+    // says what changed and whose Save here keeps it, not to the page.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("region", { name: "Editor actions" })
+      ).toHaveFocus()
+    )
+    expect(
+      screen.queryByRole("button", { name: "Keep Google’s hours" })
+    ).toBeNull()
     // The draft now holds Google's hours; nothing has been saved.
     await expectMondayOpens(user, "10:00")
     expect(save).not.toHaveBeenCalled()
@@ -818,6 +863,22 @@ describe("HoursTab changed on Google", () => {
       expectedCanonicalRevision: "2",
       hours: state.google,
     })
+    // Keeping Google's hours only saves here; nothing is sent to Google.
+    expect(publish).not.toHaveBeenCalled()
+  })
+
+  it("keeps focus on Keep Google’s hours while Google is read", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    refreshHours.mutateAsync.mockReturnValue(new Promise<HoursState>(() => {}))
+    show(state)
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    // Pending, not natively disabled: the busy button keeps focus.
+    const busy = screen.getByRole("button", { name: "Checking Google…" })
+    expect(busy).toHaveAttribute("aria-busy", "true")
+    expect(busy).toHaveFocus()
   })
 
   it("leaves the draft alone when Google can't be read", async () => {

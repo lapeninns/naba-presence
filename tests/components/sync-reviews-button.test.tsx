@@ -97,6 +97,100 @@ describe("SyncReviewsButton", () => {
     }
   )
 
+  it("says up to date only for the listings it checked", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) =>
+        String(input).startsWith("/api/reviews/counts")
+          ? json(counts(12))
+          : json({
+              processed: 1,
+              nextCursor: null,
+              failures: [],
+              locations: [{ externalLocationId: "loc-a", status: "succeeded" }],
+            })
+      )
+    )
+    renderButton(true, 12)
+    await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
+    expect(await screen.findByText("Up to date")).toBeInTheDocument()
+    expect(
+      screen.getByText("Google has no newer reviews for the listings checked.")
+    ).toBeInTheDocument()
+  })
+
+  it.each([
+    [
+      "nothing new",
+      12,
+      "No new reviews so far",
+      "Google had more reviews than this sync could read for 1 listing. Scheduled checks keep running.",
+    ],
+    [
+      "some new",
+      14,
+      "2 new reviews",
+      "Added to your Inbox. Google had more reviews than this sync could read for 1 listing. Scheduled checks keep running.",
+    ],
+  ])(
+    "never says up to date when a listing was only partly read (%s)",
+    async (_case, after, title, description) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(async (input) =>
+          String(input).startsWith("/api/reviews/counts")
+            ? json(counts(after))
+            : json({
+                processed: 1,
+                nextCursor: null,
+                failures: [],
+                locations: [
+                  { externalLocationId: "loc-a", status: "succeeded" },
+                  { externalLocationId: "loc-b", status: "partial" },
+                ],
+              })
+        )
+      )
+      renderButton(true, 12)
+      await userEvent.click(
+        screen.getByRole("button", { name: "Sync reviews" })
+      )
+      expect(await screen.findByText(title)).toBeInTheDocument()
+      expect(screen.getByText(description)).toBeInTheDocument()
+      expect(screen.queryByText("Up to date")).toBeNull()
+      expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+        "data-type",
+        "info"
+      )
+    }
+  )
+
+  it("says a partly read sync was partly synced when the counts can't be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({
+          processed: 1,
+          nextCursor: null,
+          failures: [],
+          locations: [
+            { externalLocationId: "loc-a", status: "partial" },
+            { externalLocationId: "loc-b", status: "partial" },
+          ],
+        })
+      )
+    )
+    // No total before: what was added can't be told.
+    renderButton(true)
+    await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
+    expect(await screen.findByText("Reviews partly synced")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Google had more reviews than this sync could read for 2 listings. Scheduled checks keep running."
+      )
+    ).toBeInTheDocument()
+  })
+
   it("says when a sync is already running, as news rather than an error", async () => {
     vi.stubGlobal(
       "fetch",
@@ -201,7 +295,7 @@ describe("SyncReviewsButton", () => {
     expect(await screen.findByText("Up to date")).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Google has no reviews newer than these. 1 of 2 listings couldn’t be checked. Google hasn’t verified a listing yet."
+        "Google has no newer reviews for the listings checked. 1 of 2 listings couldn’t be checked. Google hasn’t verified a listing yet."
       )
     ).toBeInTheDocument()
     expect(screen.queryByText("Could not sync reviews")).toBeNull()
@@ -351,7 +445,9 @@ describe("SyncReviewsButton", () => {
       ).toBeInTheDocument()
       await waitFor(() => expect(screen.queryByText("Up to date")).toBeNull())
       expect(
-        screen.queryByText("Google has no reviews newer than these.")
+        screen.queryByText(
+          "Google has no newer reviews for the listings checked."
+        )
       ).toBeNull()
       expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(1)
       expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(

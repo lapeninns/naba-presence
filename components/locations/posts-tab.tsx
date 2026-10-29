@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { FilterIcon, Megaphone } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { SupportDetails } from "@/components/editors/support-details"
@@ -322,18 +322,53 @@ function PostsList({
   const editReason = contentEditDisabledReason(caps)
 
   // Once a post is deleted its row goes: focus moves to the next post's
-  // heading (or the one before, at the end), else to the chosen view's chip.
-  const focusAfterRemoving = (id: string): HTMLElement | null => {
-    const index = shown.findIndex((row) => row.id === id)
-    const neighbour = shown[index + 1] ?? shown[index - 1]
+  // heading (or the one before, at the end), else to the chosen view's chip,
+  // else (the last post gone, chips and all) to the frame.
+  const removed = useRef<{
+    id: string
+    neighbourId: string | undefined
+    frame: HTMLElement | null
+  } | null>(null)
+  const removedTarget = (): HTMLElement | null => {
+    const pending = removed.current
+    if (!pending) return null
     return (
-      (neighbour
-        ? document.getElementById(`post-${neighbour.id}-title`)
+      (pending.neighbourId
+        ? document.getElementById(`post-${pending.neighbourId}-title`)
         : null) ??
       chips.current?.querySelector<HTMLElement>('[aria-pressed="true"]') ??
-      null
+      (pending.frame?.isConnected ? pending.frame : null)
     )
   }
+  // The row's delete dialog moves focus there as it closes. A re-read that
+  // lands first takes the row and its open dialog with it, and focus falls
+  // to the page: once the row has gone, the list puts focus back, unless the
+  // person has already moved it somewhere real.
+  const settleRemoved = () => {
+    const pending = removed.current
+    // Asked of the page, not of `shown`: a row's callbacks can outlive it.
+    if (!pending || document.getElementById(`post-${pending.id}-title`)) return
+    const target = removedTarget()
+    removed.current = null
+    const active = document.activeElement
+    if (active && active !== document.body && active.isConnected) return
+    target?.focus()
+  }
+  const onDeleted = (id: string): HTMLElement | null => {
+    const index = shown.findIndex((row) => row.id === id)
+    removed.current = {
+      id,
+      neighbourId: (shown[index + 1] ?? shown[index - 1])?.id,
+      frame:
+        document
+          .getElementById(`post-${id}-title`)
+          ?.closest<HTMLElement>('[data-slot="editor-frame"]') ?? null,
+    }
+    settleRemoved()
+    return removedTarget()
+  }
+  // Every render: the rows are derived, and a stale entry is harmless.
+  useLayoutEffect(settleRemoved)
 
   const composer = (
     <PostComposerSheet
@@ -499,7 +534,7 @@ function PostsList({
                           caps={caps}
                           writesEnabled={writesEnabled}
                           timezone={timezone}
-                          onRemoved={() => focusAfterRemoving(post.id)}
+                          onDeleted={() => onDeleted(post.id)}
                           scheduling={
                             scheduling
                               ? {

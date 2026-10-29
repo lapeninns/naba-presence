@@ -100,10 +100,20 @@ export function BillingCard() {
 /**
  * Stripe's back link from Checkout (`?checkout=canceled`). The query string
  * is the only state, so Dismiss just drops it from the URL; nothing is sent
- * to the server.
+ * to the server. The notice unmounts with the pressed button, so focus first
+ * moves to the Subscription block below it, or to the page heading while
+ * billing is still loading or failed, never to the page body.
  */
 export function CheckoutCanceledNotice() {
   const router = useRouter()
+  const dismiss = () => {
+    const target =
+      document.querySelector<HTMLElement>(
+        "[data-slot='billing-subscription-focus']"
+      ) ?? document.querySelector<HTMLElement>("h1[tabindex='-1']")
+    target?.focus({ preventScroll: true })
+    router.replace("/settings/billing", { scroll: false })
+  }
   return (
     <Alert variant="info" data-slot="checkout-canceled">
       <AlertTitle>Checkout was not completed</AlertTitle>
@@ -115,7 +125,7 @@ export function CheckoutCanceledNotice() {
           variant="ghost"
           size="icon-sm"
           aria-label="Dismiss"
-          onClick={() => router.replace("/settings/billing", { scroll: false })}
+          onClick={dismiss}
         >
           <XIcon strokeWidth={1.75} aria-hidden />
         </Button>
