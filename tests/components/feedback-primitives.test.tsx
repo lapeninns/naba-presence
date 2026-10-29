@@ -100,7 +100,11 @@ describe("buttonVariants", () => {
   it("hovers only under a fine pointer, and never while disabled or pressed", () => {
     for (const variant of variants) {
       const classes = buttonVariants({ variant }).split(" ")
-      const hovers = classes.filter((c) => c.includes("hover:"))
+      // The hover-scoped transition is not a fill; disabled turns it off
+      // through `drawn-disabled:transition-none` (tested below).
+      const hovers = classes.filter(
+        (c) => c.includes("hover:") && !c.includes(":transition-")
+      )
       expect(hovers.length).toBeGreaterThan(0)
       for (const hover of hovers) {
         expect(hover).toMatch(
@@ -136,6 +140,19 @@ describe("buttonVariants", () => {
     // The link's cancel merges the base offset away instead of fighting it.
     const link = buttonVariants({ variant: "link" }).split(" ")
     expect(link.filter((c) => c.endsWith("translate-y-px"))).toHaveLength(0)
+  })
+
+  it("eases colour only as pointer feedback, so enabling or disabling switches at once", () => {
+    // A Send button enabled by a ticked consent must never be read (by a
+    // person or an axe sample) half-way between disabled grey and green.
+    const base = buttonVariants().split(" ")
+    const eased =
+      "transition-[background-color,border-color,color,box-shadow,transform]"
+    expect(base).toContain("transition-none")
+    expect(base).toContain(`hover-fine:hover:${eased}`)
+    expect(base).toContain(`active:${eased}`)
+    expect(base).toContain("drawn-disabled:transition-none")
+    expect(base).not.toContain(eased)
   })
 })
 

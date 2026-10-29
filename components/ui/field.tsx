@@ -517,8 +517,9 @@ export function useFieldTriggerProps({
  *             muted ink at 4.5:1 or better, quiet edge). The placeholder
  *             keeps its own readable ink.
  *
- * Only colours transition (140ms); the halo switches on at once, as it does
- * on a button, so nothing moves and no reduced-motion fallback is needed.
+ * Only the hover edge eases (140ms); every other change, the focus halo and
+ * the switch between disabled and enabled included, is at once, so a field
+ * never shows a half-disabled frame and no reduced-motion fallback is needed.
  * `text-body` is 16px everywhere but the desk (fine pointer and a wide
  * window), which is what stops iOS zooming into a focused field.
  *
@@ -529,7 +530,7 @@ export function useFieldTriggerProps({
  */
 const fieldFrameClassName = cn(
   "min-w-0 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) text-body text-ink outline-none",
-  "transition-[border-color,background-color,color] duration-(--np-duration-fast) ease-out-strong"
+  "transition-none duration-(--np-duration-fast) ease-out-strong hover-fine:hover:transition-[border-color]"
 )
 
 /**

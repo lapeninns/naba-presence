@@ -66,9 +66,16 @@ import { cn } from "@/lib/utils"
  * same specificity and the media-query hover is emitted later: without it a
  * mouse press would never show the stronger pressed fill. A natively disabled
  * button has `pointer-events: none`, so neither reaches it.
+ *
+ * Colours ease (140ms) only as pointer feedback: the transition is declared
+ * under hover and press, and is `none` at rest and while disabled. A change
+ * of state that is not a pointer's (a Send button enabled by a ticked
+ * consent, a step's button turning disabled) switches at once, as the old
+ * opacity drawing did, so no one, and no axe sample, ever reads a half-green
+ * frame between disabled and enabled.
  */
 const buttonCva = cva(
-  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-[background-color,border-color,color,box-shadow,transform] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none disabled:pointer-events-none aria-busy:cursor-progress aria-invalid:text-danger-ink motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px drawn-disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
+  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-none duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:transition-[background-color,border-color,color,box-shadow,transform] disabled:pointer-events-none aria-busy:cursor-progress aria-invalid:text-danger-ink motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px drawn-disabled:cursor-not-allowed drawn-disabled:transition-none hover-fine:hover:transition-[background-color,border-color,color,box-shadow,transform] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
