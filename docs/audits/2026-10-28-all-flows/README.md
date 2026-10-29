@@ -461,6 +461,14 @@ P2s were fixed on this branch after the merges:
 | P2-8: dismissing "Checkout was not completed" dropped focus (2.4.3)                         | p6    | Focus moves to the Subscription block, or the page heading, before the notice is removed                                                                                                                                                                        | `billing-card.test.tsx`: 2 tests                                                |
 | P2-9: evidence labels                                                                       | p1–p5 | 1280 shots relabelled "top of the page only" (1280 × 860) in p1–p4; p3's cited flow notes, `REVIEW.md` and `CAPTURE-BRIEF.md` committed; p4 F15 signed-out capture relabelled (development fallback, unit-tested only); p5 R1 and R9 lines now cite their tests | The reports                                                                     |
 
+Codex reviewed the PR at `2d4293a5` and raised one P2. If a bulk action in
+the Inbox came back partly failed, it trimmed the selection the run started
+with. That re-ticked rows unticked while the request was out, and dropped rows
+ticked meanwhile (p5, `components/inbox/bulk-action-bar.tsx`). It now trims
+the current selection; the template-reply path does the same. A new
+`bulk-action-bar.test.tsx` case fails on the old code. Codex found no issues
+at `8e440c05`.
+
 One review P3 was also fixed: a fixture email on a domain like a real
 venue's (`invitations-panel`) now uses `example.test`. The remaining P3s are
 in the review and are not fixed here.

@@ -279,12 +279,12 @@ function BulkActionBar({
   hasMore?: boolean
 }) {
   const { selected, replace, setSelectMode } = useSelection()
-  // Whether anything is still ticked when a run comes back: a selection
-  // cancelled or cleared while it ran is the person's answer, and the
-  // result does not undo it.
-  const selectedCountRef = React.useRef(selected.size)
+  // What is ticked when a run comes back: the checkboxes stay live while it
+  // runs, so ticks added or removed meanwhile (or a selection cancelled) are
+  // the person's answer, and the result does not undo them.
+  const selectedRef = React.useRef(selected)
   React.useEffect(() => {
-    selectedCountRef.current = selected.size
+    selectedRef.current = selected
   }, [selected])
   const bulk = useReviewTriage()
   // On a phone the overflow is a bottom action sheet, where a flyout
@@ -402,7 +402,7 @@ function BulkActionBar({
             }}
             onFinished={(sentIds) => {
               const sent = new Set(sentIds)
-              replace([...selected].filter((id) => !sent.has(id)))
+              replace([...selectedRef.current].filter((id) => !sent.has(id)))
             }}
           />
         </LazyDialogBoundary>
@@ -543,16 +543,19 @@ function BulkActionBar({
     // at: those the server did, or queued, leave the selection (as after a
     // template batch), so the bar's notes are about what is left. That
     // includes the rows Approve skipped before asking (never sent, so not in
-    // the results). A selection cancelled while the request ran stays
-    // cancelled; the toast still says what happened.
-    if (selectedCountRef.current === 0) return
+    // the results). The selection as it is now is trimmed, not the one the
+    // run started with: a selection cancelled while the request ran stays
+    // cancelled, and rows ticked or unticked meanwhile stay as they are. The
+    // toast still says what happened.
+    const current = selectedRef.current
+    if (current.size === 0) return
     const settled = new Set(
       result.results
         .filter((row) => row.status === "ok" || row.status === "queued")
         .map((row) => row.reviewId)
     )
     setSelectMode(true)
-    replace(ids.filter((id) => !settled.has(id)))
+    replace([...current].filter((id) => !settled.has(id)))
   }
 
   // Per-row results come back as ids; the operator knows reviews by who

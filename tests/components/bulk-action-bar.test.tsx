@@ -133,6 +133,12 @@ function Harness({
       <button type="button" onClick={() => selection.replace(select)}>
         test: tick again
       </button>
+      {/* Stands in for a row's checkbox, which stays live while a run is out. */}
+      {["a", "b", "c"].map((id) => (
+        <button key={id} type="button" onClick={() => selection.toggle(id)}>
+          {`test: toggle ${id}`}
+        </button>
+      ))}
       <BulkActionBar rows={rows} {...options} />
     </>
   )
@@ -386,6 +392,36 @@ describe("BulkActionBar", () => {
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
     await waitFor(() =>
       expect(screen.getByTestId("ticked")).toBeEmptyDOMElement()
+    )
+  })
+
+  it("keeps ticks changed while the run was out when trimming a partial result", async () => {
+    let answer: (value: BulkReviewResult) => void = () => {}
+    mutateAsync.mockReturnValueOnce(
+      new Promise<BulkReviewResult>((resolve) => {
+        answer = resolve
+      })
+    )
+    const user = userEvent.setup()
+    renderBar([row("a"), row("b"), row("c")], ["a", "b"])
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    // While the request is out: "b" is unticked and "c" is ticked.
+    await user.click(screen.getByRole("button", { name: "test: toggle b" }))
+    await user.click(screen.getByRole("button", { name: "test: toggle c" }))
+    expect(screen.getByTestId("ticked")).toHaveTextContent(/^a,c$/)
+    answer({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "skipped", code: "approval_not_pending" },
+      ],
+    })
+    expect(await screen.findByText("Skipped")).toBeInTheDocument()
+    // "a" took effect and leaves; "b" stays unticked and "c" stays ticked.
+    await waitFor(() =>
+      expect(screen.getByTestId("ticked")).toHaveTextContent(/^c$/)
     )
   })
 
