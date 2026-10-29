@@ -70,6 +70,12 @@
   }
 }
 
+/* A control drawn as disabled: native `:disabled`, Base UI’s data-disabled
+   and a hand-set aria-disabled, but never while it is pending (aria-busy):
+   a pending button is blocked yet keeps its colours beside its spinner.
+   Pairs with the --np-disabled-* roles; never opacity. */
+@custom-variant drawn-disabled (&:is(:disabled, [data-disabled], [aria-disabled="true"]):not([aria-busy="true"]));
+
 /* Hover motion only where a fine pointer can actually hover. */
 @custom-variant hover-fine (@media (hover: hover) and (pointer: fine));
 
@@ -180,6 +186,10 @@
   --text-display: var(--np-text-display);
   --text-display--line-height: 1.1;
   --text-display--letter-spacing: -0.015em;
+  /* A KPI's value (KpiStrip): tabular, one step under the page title. */
+  --text-figure: var(--np-text-figure);
+  --text-figure--line-height: var(--np-text-figure-lh);
+  --text-figure--letter-spacing: -0.01em;
   /* The customer's words: sans, 17/28 at every size, the largest readable
      body on the screen. Not a heading role. */
   --text-reading: var(--np-text-reading);
@@ -226,6 +236,9 @@
   --color-info-solid: var(--np-info-solid);
   --color-danger-on-solid: var(--np-danger-on-solid);
   --color-accent-hover: var(--np-accent-hover);
+  --color-disabled: var(--np-disabled-bg);
+  --color-disabled-ink: var(--np-disabled-ink);
+  --color-disabled-line: var(--np-disabled-line);
   --color-scrim: var(--np-scrim);
   --color-material-sidebar: var(--np-material-sidebar);
   --color-material-toolbar: var(--np-material-toolbar);
@@ -270,8 +283,10 @@
   --shadow-np-edge-bottom: inset 0 -1px 0 var(--np-line);
   --shadow-np-edge-right: inset -1px 0 0 var(--np-line);
   --shadow-np-focus: var(--np-focus-halo);
+  --shadow-np-focus-danger: var(--np-focus-halo-danger);
 
-  /* Skeleton shimmer: a highlight that travels once every two seconds. */
+  /* The indeterminate Progress highlight, travelling once every two seconds.
+     Skeletons no longer shimmer: they are flat bars (taste pilot P4). */
   --animate-shimmer: shimmer 2s var(--np-ease-standard) infinite;
   @keyframes shimmer {
     from {
@@ -477,7 +492,8 @@
 
   --np-accent: var(--np-ramp-accent-500);
   --np-accent-hover: var(--np-ramp-accent-600);
-  --np-accent-active: var(--np-ramp-accent-600);
+  /* Pressed sits one step past hover, so a press reads as a press. */
+  --np-accent-active: var(--np-ramp-accent-900);
   --np-accent-tint: var(--np-ramp-accent-100);
   --np-accent-tint-strong: var(--np-ramp-accent-200);
   --np-accent-vivid: var(--np-ramp-accent-400);
@@ -526,9 +542,22 @@
 
   --np-selection-bg: var(--np-accent-tint);
   --np-hover-bg: var(--np-ramp-neutral-150);
+  /* Disabled is drawn, never faded. A disabled control keeps its shape on
+     the sunken fill with its label at the muted step, so it still reads
+     (and clears 4.5:1, gated in contrast-pairs.ts), while the missing
+     accent and edge say it cannot be used. Roles of roles, so both themes
+     follow without a second definition. */
+  --np-disabled-bg: var(--np-fill-secondary);
+  --np-disabled-ink: var(--np-ink-muted);
+  --np-disabled-line: var(--np-line);
   --np-focus-ring: var(--np-ramp-accent-400);
   /* A 2px accent outline standing 2px off the control. */
   --np-focus-halo: 0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
+  /* The same halo in danger: a focused field that is invalid keeps its red
+     edge and rings in red, so focus and error never hide each other. A
+     role of roles, so the dark blocks need no copy. */
+  --np-focus-halo-danger:
+    0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-danger-line);
   /* A field's focus ring: a 3px tint outside its border, danger while
      invalid. */
   --np-field-ring: 0 0 0 3px var(--np-accent-tint);
@@ -628,6 +657,11 @@
   --np-text-section-lh: 1.625rem;
   --np-text-page-title: 1.625rem; /* 26 */
   --np-text-display: 2rem; /* 32 */
+  /* A KPI's value: large enough to be the figure the screen is about, one
+     step under the page title so a row of numbers never out-shouts the
+     h1 it sits beneath. */
+  --np-text-figure: 1.5rem; /* 24 */
+  --np-text-figure-lh: 2rem;
   --np-text-reading: 1.0625rem; /* 17 */
   --np-text-reading-lh: 1.75rem;
 
@@ -838,7 +872,7 @@
 
   --np-accent: oklch(0.74 0.14 150);
   --np-accent-hover: oklch(0.82 0.12 150);
-  --np-accent-active: oklch(0.82 0.12 150);
+  --np-accent-active: oklch(0.76 0.12 150);
   --np-accent-tint: oklch(0.3 0.05 150);
   --np-accent-tint-strong: oklch(0.36 0.07 150);
   --np-accent-vivid: oklch(0.72 0.15 145);
@@ -967,7 +1001,7 @@
 
     --np-accent: oklch(0.74 0.14 150);
     --np-accent-hover: oklch(0.82 0.12 150);
-    --np-accent-active: oklch(0.82 0.12 150);
+    --np-accent-active: oklch(0.76 0.12 150);
     --np-accent-tint: oklch(0.3 0.05 150);
     --np-accent-tint-strong: oklch(0.36 0.07 150);
     --np-accent-vivid: oklch(0.72 0.15 145);
@@ -1078,6 +1112,8 @@
     /* Fluid on a desk: 23px at 48rem, 28px from ~1180px. */
     --np-text-page-title: clamp(1.375rem, 1.1vw + 0.9375rem, 1.75rem);
     --np-text-display: clamp(1.75rem, 2vw + 1rem, 2.25rem);
+    --np-text-figure: 1.375rem; /* 22 */
+    --np-text-figure-lh: 1.75rem;
     --np-card-pad: 20px;
     --np-panel-pad: 20px;
     --np-chip-h: 24px;

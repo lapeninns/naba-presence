@@ -20,7 +20,31 @@ import { cn } from "@/lib/utils"
  *   `ghost-dark`     the quiet button on the charcoal action bar.
  *   `link`           inline text action.
  *
- * Every hover colour is a token. Focus is the `focus-halo` utility.
+ * Every hover and pressed colour is a token. Hover only draws under a fine
+ * pointer (`hover-fine:`), so a tap never leaves a stuck hover fill on touch;
+ * the pressed fill (`active:`) is the feedback a thumb gets, one step stronger
+ * than hover where the ladder has a step: `secondary`/`outline` hover on
+ * `--np-fill-secondary` and press on `--np-fill`. `ghost` has no fill at rest,
+ * so it draws relative to whatever surface it sits on (`ink` at 6% hover, 10%
+ * pressed, as `ghost-dark` does on charcoal) — a ladder step would vanish on
+ * the `surface-alt` dialog footer, which is the same step as `fill-secondary`.
+ * The other filled and tinted variants press on the same fill as hover until
+ * the token ladder gains an active step. The 1px press is motion-safe only. Transitions name
+ * their properties (colour, edge, shadow, transform), never `all`, at
+ * `--np-duration-fast`. Focus is the `focus-halo` utility.
+ *
+ * Disabled is drawn with the `--np-disabled-*` roles, never with opacity (a
+ * faded label falls to about 1.8:1). Filled variants become the sunken
+ * `bg-disabled` fill with `text-disabled-ink`, and every filled or outlined
+ * variant takes the quiet `border-disabled-line`, so a disabled button keeps
+ * its shape on `surface-alt` (the dialog footer), which is the same step as
+ * `bg-disabled` in light mode; `ghost` and `link` only change ink; and
+ * `ghost-dark` keeps a readable muted drawing on the charcoal bar. The rule
+ * matches every way a button is disabled — the native attribute, Base UI's
+ * `data-disabled` (also set when it stays focusable) and a hand-set
+ * `aria-disabled="true"` — except a pending button (`aria-busy`): pending is
+ * blocked too, but it keeps its variant colours beside the spinner and only
+ * the cursor changes. Hover and pressed fills never apply to any of them.
  *
  * Sizes read the control tokens, which are touch-first (globals.css): the
  * default is `--np-control-h` (44px on touch, 36px under `desk`), `sm` is
@@ -31,32 +55,46 @@ import { cn } from "@/lib/utils"
  * — the WCAG 2.5.8 floor — for dense meta actions only; never a primary.
  * Every `icon*` size is square at every density.
  */
+/*
+ * The disabled drawing reads the `drawn-disabled:` variant (globals.css):
+ * native `:disabled`, Base UI's `data-disabled`, or `aria-disabled="true"`,
+ * and never while pending.
+ *
+ * Hover reads `hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:`
+ * and press reads `active:not-data-disabled:not-aria-disabled:`. The hover
+ * rule steps aside while pressed (`not-active`), because both chains have the
+ * same specificity and the media-query hover is emitted later: without it a
+ * mouse press would never show the stronger pressed fill. A natively disabled
+ * button has `pointer-events: none`, so neither reaches it.
+ */
 const buttonCva = cva(
-  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-[background-color,border-color,color,box-shadow,transform] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:not-disabled:not-data-disabled:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress aria-invalid:text-danger-ink data-disabled:cursor-not-allowed data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
+  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-[background-color,border-color,color,box-shadow,transform] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none disabled:pointer-events-none aria-busy:cursor-progress aria-invalid:text-danger-ink motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px drawn-disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground hover:not-data-disabled:bg-accent-hover aria-expanded:bg-accent-hover",
+          "bg-primary text-primary-foreground active:not-data-disabled:not-aria-disabled:bg-(--np-accent-active) aria-expanded:bg-accent-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-accent-hover",
         tinted:
-          "bg-accent-tint text-accent-ink hover:not-data-disabled:bg-(--np-accent-tint-strong) aria-expanded:bg-(--np-accent-tint-strong)",
+          "bg-accent-tint text-accent-ink active:not-data-disabled:not-aria-disabled:bg-(--np-accent-tint-strong) aria-expanded:bg-(--np-accent-tint-strong) drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-(--np-accent-tint-strong)",
         secondary:
-          "border-line-strong bg-surface text-ink hover:not-data-disabled:bg-fill aria-expanded:bg-fill",
+          "border-line-strong bg-surface text-ink active:not-data-disabled:not-aria-disabled:bg-fill aria-expanded:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary",
         outline:
-          "border-line-strong bg-surface text-ink hover:not-data-disabled:bg-fill aria-expanded:bg-fill",
+          "border-line-strong bg-surface text-ink active:not-data-disabled:not-aria-disabled:bg-fill aria-expanded:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary",
         ghost:
-          "bg-transparent text-ink hover:not-data-disabled:bg-fill aria-expanded:bg-fill",
+          "bg-transparent text-ink active:not-data-disabled:not-aria-disabled:bg-ink/10 aria-expanded:bg-ink/10 drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink/6",
         danger:
-          "bg-danger-solid text-(--np-ink-on-accent) hover:not-data-disabled:bg-danger-ink dark:text-(--np-danger-on-solid)",
+          "bg-danger-solid text-(--np-ink-on-accent) active:not-data-disabled:not-aria-disabled:bg-danger-ink dark:text-(--np-danger-on-solid) drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-danger-ink",
         "danger-outline":
-          "border-danger-ink bg-surface text-danger-ink hover:not-data-disabled:bg-danger-tint",
+          "border-danger-ink bg-surface text-danger-ink active:not-data-disabled:not-aria-disabled:bg-danger-tint drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-danger-tint",
         destructive:
-          "border-danger-ink bg-surface text-danger-ink hover:not-data-disabled:bg-danger-tint",
+          "border-danger-ink bg-surface text-danger-ink active:not-data-disabled:not-aria-disabled:bg-danger-tint drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-danger-tint",
         "on-dark":
-          "bg-ink-on-charcoal text-charcoal hover:not-data-disabled:bg-ink-muted-on-charcoal",
+          "bg-ink-on-charcoal text-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal",
         "ghost-dark":
-          "border-ink-muted-on-charcoal bg-transparent text-ink-on-charcoal hover:not-data-disabled:bg-ink-on-charcoal/10",
-        link: "h-auto! border-0 px-0! font-medium text-accent-ink underline decoration-1 underline-offset-3 hover:decoration-2 active:translate-y-0",
+          "border-ink-muted-on-charcoal bg-transparent text-ink-on-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/15 drawn-disabled:border-ink-muted-on-charcoal/40 drawn-disabled:text-ink-muted-on-charcoal hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/10",
+        // The press offset is cancelled with the base's own variant chain,
+        // so the merge drops the base class instead of both reaching CSS.
+        link: "h-auto! border-0 px-0! font-medium text-accent-ink underline decoration-1 underline-offset-3 motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-0 drawn-disabled:text-disabled-ink hover-fine:hover:not-data-disabled:not-aria-disabled:decoration-2",
       },
       size: {
         // The default height follows the density token so a compact table

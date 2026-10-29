@@ -5,8 +5,12 @@ import { cn } from "@/lib/utils"
  * between skeletons and content sets aria-busy while loading — Skeleton
  * itself is always aria-hidden.
  *
- * Reference `.skeleton`: the hover-fill grey, the tag radius, at least 12px
- * tall, with a soft highlight travelling across it. Reduced motion freezes it.
+ * Drawing (taste pilot P4, "loading looks like the finished layout"): a flat
+ * bar in the fill grey (visible on a card and on the canvas in both themes),
+ * the tag radius, at least 12px tall, sized by the caller to the line it
+ * stands in for. No gradient and no travelling highlight: under
+ * `motion-safe` it breathes slowly in opacity only (`animate-pulse`, 2s);
+ * with reduced motion it is a still bar.
  */
 function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
   return (
@@ -14,7 +18,7 @@ function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="skeleton"
       aria-hidden="true"
       className={cn(
-        "relative min-h-3 overflow-hidden rounded-(--np-radius-tag) bg-fill before:absolute before:inset-0 before:animate-shimmer before:bg-linear-to-r before:from-transparent before:via-surface/55 before:to-transparent motion-reduce:before:animate-none dark:before:via-ink/6",
+        "min-h-3 rounded-(--np-radius-tag) bg-fill motion-safe:animate-pulse motion-reduce:animate-none",
         className
       )}
       {...props}

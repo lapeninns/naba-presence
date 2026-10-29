@@ -3,7 +3,11 @@
 import { OTPField as OTPFieldPrimitive } from "@base-ui/react/otp-field"
 import * as React from "react"
 
-import { fieldControlProps, useFieldContext } from "@/components/ui/field"
+import {
+  fieldChromeClassName,
+  fieldControlProps,
+  useFieldContext,
+} from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
 /**
@@ -147,14 +151,13 @@ function OtpField({
           }
           autoCapitalize={mode === "numeric" ? "none" : "characters"}
           className={cn(
-            // Field chrome, but centred large mono figures and a box that
-            // shrinks with its row instead of a full-width bar.
+            // The text-entry field chrome (focus halo, danger edge and
+            // danger halo while invalid, drawn disabled), but centred large
+            // mono figures and a box that shrinks with its row instead of a
+            // full-width bar.
+            fieldChromeClassName,
             // design-exempt R1: a 20px glyph sized to the 48px digit box, fixed at every width
-            "h-(--np-field-h) w-12 min-w-0 shrink rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) p-0 text-center font-mono text-[20px] leading-none font-semibold text-ink tabular-nums outline-none",
-            "transition-[border-color,box-shadow,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:border-ink-muted",
-            "focus:border-primary focus:shadow-(--np-field-ring) forced-colors:focus-halo",
-            "aria-invalid:border-danger-ink aria-invalid:shadow-(--np-field-ring-invalid)",
-            "read-only:bg-surface-alt disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted",
+            "h-(--np-field-h) w-12 shrink p-0 text-center font-mono text-[20px] leading-none font-semibold tabular-nums",
             inputClassName
           )}
         />

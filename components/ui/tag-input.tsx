@@ -3,7 +3,11 @@
 import { X } from "lucide-react"
 import * as React from "react"
 
-import { fieldControlProps, useFieldContext } from "@/components/ui/field"
+import {
+  fieldControlProps,
+  fieldWrapperChromeClassName,
+  useFieldContext,
+} from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
 /**
@@ -123,13 +127,13 @@ function TagInput({
           if (event.target === event.currentTarget) inputRef.current?.focus()
         }}
         data-disabled={disabled || undefined}
+        // The wrapper cut of the field chrome: focus on `:focus-within`, the
+        // error read from the input's `aria-invalid` (a Field error or a
+        // refused tag), so focusing an invalid field keeps the danger edge
+        // and turns the halo danger instead of replacing the error.
         className={cn(
-          "flex min-h-(--np-field-h) w-full min-w-0 flex-wrap items-center gap-1.5 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) px-1.5 py-1 text-body",
-          "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-ink-muted",
-          "focus-within:border-primary focus-within:shadow-(--np-field-ring)",
-          (wiring["aria-invalid"] || message) &&
-            "border-danger-ink shadow-(--np-field-ring-invalid)",
-          disabled && "cursor-not-allowed bg-surface-alt text-ink-muted"
+          fieldWrapperChromeClassName,
+          "flex min-h-(--np-field-h) w-full flex-wrap items-center gap-1.5 px-1.5 py-1"
         )}
       >
         <ul className="contents list-none" aria-label="Added">
@@ -196,7 +200,7 @@ function TagInput({
             }
           }}
           onBlur={commitDraft}
-          className="h-7 min-w-[8ch] flex-1 bg-transparent px-1.5 text-body text-ink outline-none placeholder:text-ink-muted disabled:cursor-not-allowed forced-colors:focus-ring-inset pointer-coarse:text-base"
+          className="h-7 min-w-[8ch] flex-1 bg-transparent px-1.5 text-body text-ink outline-none placeholder:text-ink-muted disabled:cursor-not-allowed disabled:text-disabled-ink forced-colors:focus-ring-inset pointer-coarse:text-base"
         />
       </div>
       {message ? (

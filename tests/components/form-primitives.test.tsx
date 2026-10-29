@@ -149,7 +149,7 @@ describe("FormErrorScope", () => {
     expect(alerts).toHaveLength(1)
     expect(alerts[0]).toHaveAttribute("data-slot", "validation-summary")
     expect(alerts[0]).toHaveClass(
-      "focus-visible:shadow-(--np-field-ring-invalid)",
+      "focus-visible:shadow-np-focus-danger",
       "forced-colors:focus-halo"
     )
     expect(
@@ -321,7 +321,7 @@ describe("Textarea", () => {
     expect(el.className).toContain("resize-none")
     expect(el.className).toContain("desk:resize-y")
     expect(el).toHaveClass(
-      "focus-visible:shadow-(--np-field-ring)",
+      "focus:shadow-(--np-focus-halo)",
       "forced-colors:focus-halo"
     )
   })

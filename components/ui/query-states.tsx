@@ -18,9 +18,10 @@ import { cn } from "@/lib/utils"
  *
  * One vocabulary with `Empty` (prim-14): the error state IS an
  * `<Empty variant="error">`, announced, with the retry as its action, and
- * an `empty` state should be an `<Empty>` too. Pending is a sentence plus
- * `SkeletonList` rows at the row height the content will have (or, with no
- * rows, a sentence plus a spinner: never both).
+ * an `empty` state should be an `<Empty>` too. Pending is `SkeletonList` rows
+ * at the row height the content will have, named by a sentence only a screen
+ * reader hears (or, with no rows, a visible sentence plus a spinner: never
+ * both).
  */
 
 export type QueryStatus = "pending" | "error" | "empty" | "ready"
@@ -50,6 +51,12 @@ export function queryStatus(
  * two grey rectangles that looked the same at 400ms and at 30s. Callers that
  * pass a `label` get a `role="status"` region, which is announced when it
  * appears and again if the label changes.
+ *
+ * Beside skeleton rows the sentence is visually hidden (`sr-only`): the rows
+ * already say "loading" to the eye and sit where the content will land, so a
+ * visible line above them only pushed the content down when the data arrived.
+ * With no rows (the spinner case) the sentence stays visible: it is the only
+ * thing on screen.
  */
 export function QueryPending({
   className,
@@ -75,10 +82,14 @@ export function QueryPending({
       role={label ? "status" : undefined}
     >
       {label ? (
-        <p className="flex items-center gap-2 text-ui text-ink-muted">
-          {hasSkeleton ? null : <Spinner decorative size="sm" />}
-          {label}
-        </p>
+        hasSkeleton ? (
+          <p className="sr-only">{label}</p>
+        ) : (
+          <p className="flex items-center gap-2 text-ui text-ink-muted">
+            <Spinner decorative size="sm" />
+            {label}
+          </p>
+        )
       ) : hasSkeleton ? null : (
         <Spinner />
       )}

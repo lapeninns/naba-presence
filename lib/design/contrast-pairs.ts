@@ -43,7 +43,9 @@ const MINIMUM: Record<PairKind, number> = {
  * A user tag's ink on its own tint and on a card. The tag ramp is decorative
  * (user labels, never a status), but a tag carries words, so both are text.
  */
-const tagPairs = (tag: "neutral" | "blue" | "pink" | "purple"): ContrastPair[] => [
+const tagPairs = (
+  tag: "neutral" | "blue" | "pink" | "purple"
+): ContrastPair[] => [
   {
     fg: `--np-tag-${tag}-ink`,
     bg: `--np-tag-${tag}-bg`,
@@ -58,7 +60,9 @@ const tagPairs = (tag: "neutral" | "blue" | "pink" | "purple"): ContrastPair[] =
   },
 ]
 
-const statusPairs = (status: "success" | "warning" | "danger" | "info"): ContrastPair[] => [
+const statusPairs = (
+  status: "success" | "warning" | "danger" | "info"
+): ContrastPair[] => [
   {
     fg: `--np-${status}-ink`,
     bg: "--np-surface-canvas",
@@ -87,80 +91,410 @@ const statusPairs = (status: "success" | "warning" | "danger" | "info"): Contras
 
 export const CONTRAST_PAIRS: ContrastPair[] = [
   // Ink on every surface it can land on.
-  { fg: "--np-ink", bg: "--np-surface-canvas", kind: "text", note: "body text on the page" },
-  { fg: "--np-ink", bg: "--np-surface", kind: "text", note: "body text in a card" },
-  { fg: "--np-ink", bg: "--np-surface-raised", kind: "text", note: "text on a raised surface" },
-  { fg: "--np-ink", bg: "--np-surface-sunken", kind: "text", note: "text in a table header or well" },
-  { fg: "--np-ink", bg: "--np-surface-overlay", kind: "text", note: "text in a popover or dialog" },
-  { fg: "--np-ink-secondary", bg: "--np-surface-canvas", kind: "text", note: "field labels and read list rows" },
-  { fg: "--np-ink-secondary", bg: "--np-surface", kind: "text", note: "field labels in a card" },
-  { fg: "--np-ink-secondary", bg: "--np-surface-overlay", kind: "text", note: "field labels in a dialog or sheet" },
-  { fg: "--np-ink-muted", bg: "--np-surface-canvas", kind: "text", note: "captions and secondary text" },
-  { fg: "--np-ink-muted", bg: "--np-surface", kind: "text", note: "secondary text in a card" },
-  { fg: "--np-ink-muted", bg: "--np-surface-sunken", kind: "text", note: "table column headers" },
-  { fg: "--np-ink-muted", bg: "--np-hover-bg", kind: "text", note: "secondary text on a hovered row" },
-  { fg: "--np-ink-inverse", bg: "--np-ink", kind: "text", note: "text on an inverted surface" },
+  {
+    fg: "--np-ink",
+    bg: "--np-surface-canvas",
+    kind: "text",
+    note: "body text on the page",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-surface",
+    kind: "text",
+    note: "body text in a card",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-surface-raised",
+    kind: "text",
+    note: "text on a raised surface",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-surface-sunken",
+    kind: "text",
+    note: "text in a table header or well",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-surface-overlay",
+    kind: "text",
+    note: "text in a popover or dialog",
+  },
+  {
+    fg: "--np-ink-secondary",
+    bg: "--np-surface-canvas",
+    kind: "text",
+    note: "field labels and read list rows",
+  },
+  {
+    fg: "--np-ink-secondary",
+    bg: "--np-surface",
+    kind: "text",
+    note: "field labels in a card",
+  },
+  {
+    fg: "--np-ink-secondary",
+    bg: "--np-surface-overlay",
+    kind: "text",
+    note: "field labels in a dialog or sheet",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-surface-canvas",
+    kind: "text",
+    note: "captions and secondary text",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-surface",
+    kind: "text",
+    note: "secondary text in a card",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-surface-sunken",
+    kind: "text",
+    note: "table column headers",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-hover-bg",
+    kind: "text",
+    note: "secondary text on a hovered row",
+  },
+  {
+    fg: "--np-ink-inverse",
+    bg: "--np-ink",
+    kind: "text",
+    note: "text on an inverted surface",
+  },
   // DECORATIVE ONLY: separators and inert icons. Gated at the non-text
   // threshold precisely because it is not allowed to carry words — anything
   // readable uses --np-ink-muted, which is measured at 4.5:1 above.
-  { fg: "--np-ink-faint", bg: "--np-surface-canvas", kind: "graphic", note: "separators and inert icons" },
-  { fg: "--np-ink-faint", bg: "--np-surface", kind: "graphic", note: "inert icons inside a card" },
+  {
+    fg: "--np-ink-faint",
+    bg: "--np-surface-canvas",
+    kind: "graphic",
+    note: "separators and inert icons",
+  },
+  {
+    fg: "--np-ink-faint",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "inert icons inside a card",
+  },
 
   // Fill ladder: the grey a control is made of.
-  { fg: "--np-ink", bg: "--np-fill", kind: "text", note: "grey button label and segmented control thumb text" },
-  { fg: "--np-ink-muted", bg: "--np-fill", kind: "text", note: "unselected segment label on the track" },
-  { fg: "--np-ink", bg: "--np-fill-secondary", kind: "text", note: "text in a search field or keycap" },
-  { fg: "--np-ink-muted", bg: "--np-fill-secondary", kind: "text", note: "placeholder in a search field" },
-  { fg: "--np-ink-muted", bg: "--np-fill-tertiary", kind: "text", note: "secondary text on a subtle well" },
-  { fg: "--np-accent-ink", bg: "--np-fill", kind: "text", note: "tinted action inside a grey control" },
+  {
+    fg: "--np-ink",
+    bg: "--np-fill",
+    kind: "text",
+    note: "grey button label and segmented control thumb text",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-fill",
+    kind: "text",
+    note: "unselected segment label on the track",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-fill-secondary",
+    kind: "text",
+    note: "text in a search field or keycap",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-fill-secondary",
+    kind: "text",
+    note: "placeholder in a search field",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-fill-tertiary",
+    kind: "text",
+    note: "secondary text on a subtle well",
+  },
+  {
+    fg: "--np-accent-ink",
+    bg: "--np-fill",
+    kind: "text",
+    note: "tinted action inside a grey control",
+  },
 
   // The third surface step and the counter surfaces.
-  { fg: "--np-ink", bg: "--np-surface-alt", kind: "text", note: "text on a list row or panel" },
-  { fg: "--np-ink-muted", bg: "--np-surface-alt", kind: "text", note: "secondary text on a list row or panel" },
-  { fg: "--np-accent-ink", bg: "--np-surface-alt", kind: "text", note: "link or selected label on a panel" },
-  { fg: "--np-success-ink", bg: "--np-surface-alt", kind: "text", note: "status text on a list row" },
-  { fg: "--np-warning-ink", bg: "--np-surface-alt", kind: "text", note: "attention text on a list row" },
-  { fg: "--np-danger-ink", bg: "--np-surface-alt", kind: "text", note: "danger text on a list row" },
-  { fg: "--np-info-ink", bg: "--np-surface-alt", kind: "text", note: "pending text on a list row" },
-  { fg: "--np-line-strong", bg: "--np-surface-alt", kind: "graphic", note: "control edge on a panel" },
-  { fg: "--np-rating", bg: "--np-surface-alt", kind: "graphic", note: "star rating on a list row" },
-  { fg: "--np-ink-on-charcoal", bg: "--np-charcoal", kind: "text", note: "composer footer and bulk bar labels" },
-  { fg: "--np-ink-muted-on-charcoal", bg: "--np-charcoal", kind: "text", note: "dark action bar meta" },
-  { fg: "--np-ink-muted-on-charcoal", bg: "--np-charcoal", kind: "graphic", note: "quiet button edge and the sign-in panel's icon ring on charcoal" },
+  {
+    fg: "--np-ink",
+    bg: "--np-surface-alt",
+    kind: "text",
+    note: "text on a list row or panel",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-surface-alt",
+    kind: "text",
+    note: "secondary text on a list row or panel",
+  },
+  {
+    fg: "--np-accent-ink",
+    bg: "--np-surface-alt",
+    kind: "text",
+    note: "link or selected label on a panel",
+  },
+  {
+    fg: "--np-success-ink",
+    bg: "--np-surface-alt",
+    kind: "text",
+    note: "status text on a list row",
+  },
+  {
+    fg: "--np-warning-ink",
+    bg: "--np-surface-alt",
+    kind: "text",
+    note: "attention text on a list row",
+  },
+  {
+    fg: "--np-danger-ink",
+    bg: "--np-surface-alt",
+    kind: "text",
+    note: "danger text on a list row",
+  },
+  {
+    fg: "--np-info-ink",
+    bg: "--np-surface-alt",
+    kind: "text",
+    note: "pending text on a list row",
+  },
+  {
+    fg: "--np-line-strong",
+    bg: "--np-surface-alt",
+    kind: "graphic",
+    note: "control edge on a panel",
+  },
+  {
+    fg: "--np-rating",
+    bg: "--np-surface-alt",
+    kind: "graphic",
+    note: "star rating on a list row",
+  },
+  {
+    fg: "--np-ink-on-charcoal",
+    bg: "--np-charcoal",
+    kind: "text",
+    note: "composer footer and bulk bar labels",
+  },
+  {
+    fg: "--np-ink-muted-on-charcoal",
+    bg: "--np-charcoal",
+    kind: "text",
+    note: "dark action bar meta",
+  },
+  {
+    fg: "--np-ink-muted-on-charcoal",
+    bg: "--np-charcoal",
+    kind: "graphic",
+    note: "quiet button edge and the sign-in panel's icon ring on charcoal",
+  },
 
   // Materials, measured against their opaque twins: the translucent value
   // composites over content and cannot be measured, so the twin is the floor.
-  { fg: "--np-ink", bg: "--np-material-sidebar-opaque", kind: "text", note: "sidebar item label" },
-  { fg: "--np-ink-muted", bg: "--np-material-sidebar-opaque", kind: "text", note: "sidebar group label" },
-  { fg: "--np-ink", bg: "--np-material-toolbar-opaque", kind: "text", note: "toolbar title" },
-  { fg: "--np-ink-muted", bg: "--np-material-toolbar-opaque", kind: "text", note: "toolbar breadcrumb" },
-  { fg: "--np-ink", bg: "--np-material-popover-opaque", kind: "text", note: "menu item label" },
-  { fg: "--np-ink-muted", bg: "--np-material-popover-opaque", kind: "text", note: "menu item shortcut hint" },
+  {
+    fg: "--np-ink",
+    bg: "--np-material-sidebar-opaque",
+    kind: "text",
+    note: "sidebar item label",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-material-sidebar-opaque",
+    kind: "text",
+    note: "sidebar group label",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-material-toolbar-opaque",
+    kind: "text",
+    note: "toolbar title",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-material-toolbar-opaque",
+    kind: "text",
+    note: "toolbar breadcrumb",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-material-popover-opaque",
+    kind: "text",
+    note: "menu item label",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-material-popover-opaque",
+    kind: "text",
+    note: "menu item shortcut hint",
+  },
 
   // Accent.
-  { fg: "--np-ink-on-accent", bg: "--np-accent", kind: "text", note: "primary button label" },
-  { fg: "--np-ink-on-accent", bg: "--np-accent-hover", kind: "text", note: "primary button label, hovered" },
-  { fg: "--np-ink-on-accent", bg: "--np-accent-active", kind: "text", note: "primary button label, pressed" },
-  { fg: "--np-accent-ink", bg: "--np-surface-canvas", kind: "text", note: "links on the page" },
-  { fg: "--np-accent-ink", bg: "--np-surface", kind: "text", note: "links in a card" },
-  { fg: "--np-accent-ink", bg: "--np-accent-tint", kind: "text", note: "active nav item and selected chip" },
-  { fg: "--np-accent-ink", bg: "--np-selection-bg", kind: "text", note: "text in a selected row" },
-  { fg: "--np-ink", bg: "--np-accent-tint", kind: "text", note: "primary text on a tinted card or selected row" },
-  { fg: "--np-ink-muted", bg: "--np-accent-tint", kind: "text", note: "secondary text in a selected row" },
-  { fg: "--np-success-ink", bg: "--np-accent-tint", kind: "text", note: "status text in a selected row" },
-  { fg: "--np-warning-ink", bg: "--np-accent-tint", kind: "text", note: "attention text in a selected row" },
-  { fg: "--np-danger-ink", bg: "--np-accent-tint", kind: "text", note: "danger text in a selected row" },
-  { fg: "--np-info-ink", bg: "--np-accent-tint", kind: "text", note: "pending text in a selected row" },
-  { fg: "--np-accent-ink", bg: "--np-accent-tint-strong", kind: "text", note: "text over a text selection" },
-  { fg: "--np-ink", bg: "--np-accent-tint-strong", kind: "text", note: "selected text" },
-  { fg: "--np-accent-vivid", bg: "--np-surface", kind: "graphic", note: "vivid accent used as a graphic: switch on-state, progress, active icon" },
-  { fg: "--np-ink-on-accent", bg: "--np-accent-vivid", kind: "large-text", note: "switch knob glyph on the vivid accent" },
+  {
+    fg: "--np-ink-on-accent",
+    bg: "--np-accent",
+    kind: "text",
+    note: "primary button label",
+  },
+  {
+    fg: "--np-ink-on-accent",
+    bg: "--np-accent-hover",
+    kind: "text",
+    note: "primary button label, hovered",
+  },
+  {
+    fg: "--np-ink-on-accent",
+    bg: "--np-accent-active",
+    kind: "text",
+    note: "primary button label, pressed",
+  },
+  {
+    fg: "--np-ink-on-accent",
+    bg: "--np-accent-active",
+    kind: "text",
+    note: "primary button label, pressed",
+  },
+  {
+    fg: "--np-accent-ink",
+    bg: "--np-surface-canvas",
+    kind: "text",
+    note: "links on the page",
+  },
+  {
+    fg: "--np-accent-ink",
+    bg: "--np-surface",
+    kind: "text",
+    note: "links in a card",
+  },
+  {
+    fg: "--np-accent-ink",
+    bg: "--np-accent-tint",
+    kind: "text",
+    note: "active nav item and selected chip",
+  },
+  {
+    fg: "--np-accent-ink",
+    bg: "--np-selection-bg",
+    kind: "text",
+    note: "text in a selected row",
+  },
+  {
+    fg: "--np-disabled-ink",
+    bg: "--np-disabled-bg",
+    kind: "text",
+    note: "label of a disabled control (drawn, not faded)",
+  },
+  {
+    fg: "--np-disabled-ink",
+    bg: "--np-surface",
+    kind: "text",
+    note: "disabled ghost or link label on a card",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-accent-tint",
+    kind: "text",
+    note: "primary text on a tinted card or selected row",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-accent-tint",
+    kind: "text",
+    note: "secondary text in a selected row",
+  },
+  {
+    fg: "--np-success-ink",
+    bg: "--np-accent-tint",
+    kind: "text",
+    note: "status text in a selected row",
+  },
+  {
+    fg: "--np-warning-ink",
+    bg: "--np-accent-tint",
+    kind: "text",
+    note: "attention text in a selected row",
+  },
+  {
+    fg: "--np-danger-ink",
+    bg: "--np-accent-tint",
+    kind: "text",
+    note: "danger text in a selected row",
+  },
+  {
+    fg: "--np-info-ink",
+    bg: "--np-accent-tint",
+    kind: "text",
+    note: "pending text in a selected row",
+  },
+  {
+    fg: "--np-accent-ink",
+    bg: "--np-accent-tint-strong",
+    kind: "text",
+    note: "text over a text selection",
+  },
+  {
+    fg: "--np-ink",
+    bg: "--np-accent-tint-strong",
+    kind: "text",
+    note: "selected text",
+  },
+  {
+    fg: "--np-accent-vivid",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "vivid accent used as a graphic: switch on-state, progress, active icon",
+  },
+  {
+    fg: "--np-ink-on-accent",
+    bg: "--np-accent-vivid",
+    kind: "large-text",
+    note: "switch knob glyph on the vivid accent",
+  },
 
   // Lines and focus: 3:1 as non-text indicators.
-  { fg: "--np-line-strong", bg: "--np-surface-canvas", kind: "graphic", note: "input and button borders" },
-  { fg: "--np-line-strong", bg: "--np-surface", kind: "graphic", note: "control borders inside a card" },
-  { fg: "--np-focus-ring", bg: "--np-surface-canvas", kind: "graphic", note: "focus ring on the page" },
-  { fg: "--np-focus-ring", bg: "--np-surface", kind: "graphic", note: "focus ring inside a card" },
+  {
+    fg: "--np-line-strong",
+    bg: "--np-surface-canvas",
+    kind: "graphic",
+    note: "input and button borders",
+  },
+  {
+    fg: "--np-line-strong",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "control borders inside a card",
+  },
+  {
+    fg: "--np-focus-ring",
+    bg: "--np-surface-canvas",
+    kind: "graphic",
+    note: "focus ring on the page",
+  },
+  {
+    fg: "--np-focus-ring",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "focus ring inside a card",
+  },
+  {
+    fg: "--np-focus-ring",
+    bg: "--np-selection-bg",
+    kind: "graphic",
+    note: "inset focus ring on a selected row",
+  },
+  {
+    fg: "--np-danger-line",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "danger focus halo around an invalid field",
+  },
 
   ...statusPairs("success"),
   ...statusPairs("warning"),
@@ -168,32 +502,142 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   ...statusPairs("info"),
 
   // Data.
-  { fg: "--np-chart-1", bg: "--np-surface", kind: "graphic", note: "chart series 1" },
-  { fg: "--np-chart-2", bg: "--np-surface", kind: "graphic", note: "chart series 2" },
-  { fg: "--np-chart-3", bg: "--np-surface", kind: "graphic", note: "chart series 3" },
-  { fg: "--np-chart-4", bg: "--np-surface", kind: "graphic", note: "chart series 4" },
-  { fg: "--np-chart-5", bg: "--np-surface", kind: "graphic", note: "chart series 5" },
-  { fg: "--np-chart-6", bg: "--np-surface", kind: "graphic", note: "chart series 6" },
-  { fg: "--np-chart-axis", bg: "--np-surface", kind: "text", note: "chart axis labels" },
-  { fg: "--np-rating", bg: "--np-surface", kind: "graphic", note: "star rating fill" },
+  {
+    fg: "--np-chart-1",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "chart series 1",
+  },
+  {
+    fg: "--np-chart-2",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "chart series 2",
+  },
+  {
+    fg: "--np-chart-3",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "chart series 3",
+  },
+  {
+    fg: "--np-chart-4",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "chart series 4",
+  },
+  {
+    fg: "--np-chart-5",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "chart series 5",
+  },
+  {
+    fg: "--np-chart-6",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "chart series 6",
+  },
+  {
+    fg: "--np-chart-axis",
+    bg: "--np-surface",
+    kind: "text",
+    note: "chart axis labels",
+  },
+  {
+    fg: "--np-rating",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "star rating fill",
+  },
 
   // Component tokens.
-  { fg: "--np-ink", bg: "--np-field-bg", kind: "text", note: "typed value in an input" },
-  { fg: "--np-ink-muted", bg: "--np-field-bg", kind: "text", note: "input placeholder" },
-  { fg: "--np-ink-muted", bg: "--np-table-header-bg", kind: "text", note: "table header label" },
-  { fg: "--np-line-strong", bg: "--np-field-bg", kind: "graphic", note: "field edge" },
-  { fg: "--np-danger-line", bg: "--np-field-bg", kind: "graphic", note: "invalid field edge" },
-  { fg: "--np-success-solid", bg: "--np-surface", kind: "graphic", note: "healthy status dot" },
-  { fg: "--np-danger-solid", bg: "--np-surface", kind: "graphic", note: "at-risk status dot" },
-  { fg: "--np-info-solid", bg: "--np-surface", kind: "graphic", note: "pending status dot" },
-  { fg: "--np-warning-ink", bg: "--np-surface", kind: "graphic", note: "attention status dot" },
+  {
+    fg: "--np-ink",
+    bg: "--np-field-bg",
+    kind: "text",
+    note: "typed value in an input",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-field-bg",
+    kind: "text",
+    note: "input placeholder",
+  },
+  {
+    fg: "--np-ink-muted",
+    bg: "--np-table-header-bg",
+    kind: "text",
+    note: "table header label",
+  },
+  {
+    fg: "--np-line-strong",
+    bg: "--np-field-bg",
+    kind: "graphic",
+    note: "field edge",
+  },
+  {
+    fg: "--np-danger-line",
+    bg: "--np-field-bg",
+    kind: "graphic",
+    note: "invalid field edge",
+  },
+  {
+    fg: "--np-success-solid",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "healthy status dot",
+  },
+  {
+    fg: "--np-danger-solid",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "at-risk status dot",
+  },
+  {
+    fg: "--np-info-solid",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "pending status dot",
+  },
+  {
+    fg: "--np-warning-ink",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "attention status dot",
+  },
 
   // Mail-style list chrome (Notion Mail foundation).
-  { fg: "--np-indicator-unread", bg: "--np-surface", kind: "graphic", note: "unread dot on a list row" },
-  { fg: "--np-indicator-unread", bg: "--np-surface-alt", kind: "graphic", note: "unread dot on a hovered list row" },
-  { fg: "--np-indicator-unread", bg: "--np-fill", kind: "graphic", note: "unread dot on a selected list row" },
-  { fg: "--np-avatar-ink", bg: "--np-avatar-bg", kind: "text", note: "initials in a neutral avatar" },
-  { fg: "--np-banner-ink", bg: "--np-banner-bg", kind: "text", note: "announcement banner text" },
+  {
+    fg: "--np-indicator-unread",
+    bg: "--np-surface",
+    kind: "graphic",
+    note: "unread dot on a list row",
+  },
+  {
+    fg: "--np-indicator-unread",
+    bg: "--np-surface-alt",
+    kind: "graphic",
+    note: "unread dot on a hovered list row",
+  },
+  {
+    fg: "--np-indicator-unread",
+    bg: "--np-fill",
+    kind: "graphic",
+    note: "unread dot on a selected list row",
+  },
+  {
+    fg: "--np-avatar-ink",
+    bg: "--np-avatar-bg",
+    kind: "text",
+    note: "initials in a neutral avatar",
+  },
+  {
+    fg: "--np-banner-ink",
+    bg: "--np-banner-bg",
+    kind: "text",
+    note: "announcement banner text",
+  },
 
   // User tags: decorative hues, measured because they carry words.
   ...tagPairs("neutral"),
@@ -216,9 +660,17 @@ export type PairResult = {
   outOfGamut: boolean
 }
 
-export type StructuralIssue = { kind: "structural"; theme: ThemeName; message: string }
+export type StructuralIssue = {
+  kind: "structural"
+  theme: ThemeName
+  message: string
+}
 
-function measure(tokens: TokenSet, pair: ContrastPair, theme: ThemeName): PairResult | StructuralIssue {
+function measure(
+  tokens: TokenSet,
+  pair: ContrastPair,
+  theme: ThemeName
+): PairResult | StructuralIssue {
   let fgValue: string
   let bgValue: string
   try {
@@ -235,7 +687,11 @@ function measure(tokens: TokenSet, pair: ContrastPair, theme: ThemeName): PairRe
   const bg = parseColor(bgValue)
   if (!fg || !bg) {
     const bad = fg ? `${pair.bg} = ${bgValue}` : `${pair.fg} = ${fgValue}`
-    return { kind: "structural", theme, message: `Cannot parse ${bad} as a colour` }
+    return {
+      kind: "structural",
+      theme,
+      message: `Cannot parse ${bad} as a colour`,
+    }
   }
 
   const minimum = MINIMUM[pair.kind]
@@ -254,7 +710,11 @@ function measure(tokens: TokenSet, pair: ContrastPair, theme: ThemeName): PairRe
   }
 }
 
-function hintFor(fg: ParsedColor, bg: ParsedColor, minimum: number): number | null {
+function hintFor(
+  fg: ParsedColor,
+  bg: ParsedColor,
+  minimum: number
+): number | null {
   return fg.oklch ? nearestPassingLightness(fg.oklch, bg, minimum) : null
 }
 
@@ -292,13 +752,19 @@ export function auditTokens(parsed: ParsedTokens): AuditReport {
     /^--np-(radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|appbar|tabbar|actionbar|page|gap|card|panel|row|cell|control|list|field-h|field-pad|field-ring|pill|menu|overlay|dialog|sheet|drawer|selection|segment|avatar-list|settings-row|chip-h|material-blur|material-saturate|measure|form-rail|focus-halo|text-|safe-|keyboard-inset|dock-bottom|z-)/
   const lightNames = semanticTokenNames(parsed.light)
   const darkOwn = new Set(
-    Object.keys(parsed.dark).filter((name) => parsed.dark[name] !== parsed.light[name])
+    Object.keys(parsed.dark).filter(
+      (name) => parsed.dark[name] !== parsed.light[name]
+    )
   )
   for (const name of lightNames) {
     if (themeIndependent.test(name)) continue
     if (name.startsWith("--np-ramp-")) continue
     if (name.startsWith("--np-shadow-")) continue
-    if (!darkOwn.has(name) && !name.startsWith("--np-chart-grid") && !name.startsWith("--np-chart-axis")) {
+    if (
+      !darkOwn.has(name) &&
+      !name.startsWith("--np-chart-grid") &&
+      !name.startsWith("--np-chart-axis")
+    ) {
       // A role that resolves through another role it DOES override is fine.
       const light = parsed.light[name]
       if (light?.startsWith("var(")) continue
@@ -330,5 +796,9 @@ export function auditTokens(parsed: ParsedTokens): AuditReport {
     }
   }
 
-  return { results, issues, failures: results.filter((result) => !result.passes) }
+  return {
+    results,
+    issues,
+    failures: results.filter((result) => !result.passes),
+  }
 }

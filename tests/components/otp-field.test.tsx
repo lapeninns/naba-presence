@@ -41,7 +41,8 @@ describe("OtpField", () => {
     for (const box of boxes) {
       expect(box).toHaveAttribute("inputmode", "numeric")
       expect(box).toHaveClass(
-        "focus:shadow-(--np-field-ring)",
+        "focus:shadow-(--np-focus-halo)",
+        "aria-invalid:focus:shadow-np-focus-danger",
         "forced-colors:focus-halo"
       )
     }

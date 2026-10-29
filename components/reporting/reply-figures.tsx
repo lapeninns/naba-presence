@@ -3,7 +3,7 @@
 import { BarChart3Icon } from "lucide-react"
 import type * as React from "react"
 
-import { KpiTile } from "@/components/ui/kpi-tile"
+import { KpiStrip, KpiTile } from "@/components/ui/kpi-tile"
 import { kpiDelta } from "@/components/reporting/delta-badge"
 import {
   DivergenceBanner,
@@ -104,7 +104,11 @@ const COPY: Record<
   },
 }
 
-/** Tiles two to a row on any phone, four from 48rem of report width. */
+/**
+ * Tiles two to a row on any phone, four from 48rem of report width.
+ *
+ * @deprecated Rows of figures use KpiStrip (components/ui/kpi-tile).
+ */
 export const REPLY_TILE_GRID =
   "grid grid-cols-2 gap-3 @[48rem]/report:grid-cols-4"
 
@@ -234,7 +238,9 @@ export function ReplyFigures({
     <div className="@container/report flex flex-col gap-(--np-gap-section)">
       {banner}
       <div className="flex flex-col gap-2">
-        <div className={REPLY_TILE_GRID} data-slot="reply-tiles">
+        {/* One strip, two to a row on any phone, four in a row from 48rem
+            of its own width (KpiStrip). */}
+        <KpiStrip data-slot="reply-tiles">
           <KpiTile
             label={REPLY_METRICS.reviews.label}
             value={formatNumber(summary.reviewVolume)}
@@ -283,7 +289,7 @@ export function ReplyFigures({
             )}
             hint={REPLY_METRICS.averageRating.hint}
           />
-        </div>
+        </KpiStrip>
         {prior ? (
           <p className="text-caption text-ink-muted">
             Changes compare with the {comparedWith} before this {span}.

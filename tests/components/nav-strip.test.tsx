@@ -470,24 +470,21 @@ describe("chip rows keep the 44px hit area", () => {
 })
 
 describe("the pressed filter chip", () => {
-  it("has cues beyond the tint: 600 weight and an accent-ink edge", () => {
+  it("is ink, not accent: the ink fill, the inverse label at 500", () => {
     render(<FilterChip pressed>Needs reply</FilterChip>)
     const chip = screen.getByRole("button", { name: "Needs reply" })
-    expect(chip).toHaveClass(
-      "bg-accent-tint",
-      "font-semibold",
-      "ring-1",
-      "ring-inset",
-      "ring-accent-ink"
-    )
-    expect(chip.className).not.toMatch(/\bbg-ink\b/)
+    expect(chip).toHaveClass("bg-ink", "text-ink-inverse", "font-medium")
+    // A hover does not lighten it back towards the unpressed grey.
+    expect(chip).toHaveClass("hover-fine:hover:bg-ink")
+    expect(chip.className).not.toMatch(/accent/)
   })
 
-  it("leaves an unpressed chip without the edge", () => {
+  it("leaves an unpressed chip on the quiet fill", () => {
     render(<FilterChip>Needs reply</FilterChip>)
     const chip = screen.getByRole("button", { name: "Needs reply" })
-    expect(chip).not.toHaveClass("ring-1")
-    expect(chip).not.toHaveClass("font-semibold")
+    expect(chip).toHaveClass("bg-fill-secondary", "hover-fine:hover:bg-fill")
+    expect(chip).not.toHaveClass("bg-ink")
+    expect(chip).not.toHaveClass("font-medium")
   })
 })
 

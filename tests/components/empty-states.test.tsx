@@ -315,14 +315,14 @@ describe("EmptyState", () => {
     }
   })
 
-  it("titles every state with an h2 at weight 500", () => {
+  it("titles every state with an h2 at weight 600", () => {
     render(<EmptyState reason="checked" />)
     const heading = screen.getByRole("heading", {
       level: 2,
       name: "No reviews yet.",
     })
-    // The Empty primitive's own title weight: text-title at 500.
-    expect(heading).toHaveClass("text-title", "font-medium")
+    // The Empty primitive's own title weight: text-title at 600 (taste P4).
+    expect(heading).toHaveClass("text-title", "font-semibold")
   })
 
   it.each([

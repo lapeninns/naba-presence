@@ -183,7 +183,8 @@ describe("ReviewList", () => {
     expect(screen.getByRole("button", { name: /First/ })).not.toHaveTextContent(
       "Selected review"
     )
-    expect(second.className).toContain("bg-fill")
+    // The selection tint ("you are here"), which a hover does not repaint.
+    expect(second).toHaveClass("bg-(--np-selection-bg)")
     expect(second.className).not.toContain("bg-surface-alt")
 
     // And it follows the selection rather than being painted on once.

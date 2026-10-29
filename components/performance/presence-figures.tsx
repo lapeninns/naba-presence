@@ -5,12 +5,11 @@ import { useId } from "react"
 import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
 import { kpiDelta } from "@/components/reporting/delta-badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { KpiTile } from "@/components/ui/kpi-tile"
+import { KpiStrip, KpiTile } from "@/components/ui/kpi-tile"
 import {
   ReportBarChart,
   ReportChartCard,
 } from "@/components/reporting/report-bar-chart"
-import { reportTileGridClassName } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import type { PresenceResponse } from "@/lib/contracts/analytics"
 import { formatNumber } from "@/lib/format"
@@ -90,7 +89,7 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      <div className={reportTileGridClassName(5)}>
+      <KpiStrip>
         {HEADLINE_METRICS.map((metric) => (
           <KpiTile
             key={metric.key}
@@ -108,7 +107,7 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
             }
           />
         ))}
-      </div>
+      </KpiStrip>
       {/* Under the tiles it exports, not above them. */}
       <div className="-mt-3 flex justify-end print:hidden">
         <CsvDownloadButton

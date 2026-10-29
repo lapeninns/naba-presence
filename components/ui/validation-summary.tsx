@@ -94,7 +94,7 @@ function ValidationSummary({
       aria-labelledby={titleId}
       data-slot="validation-summary"
       className={cn(
-        "grid scroll-mt-[calc(var(--np-appbar-h)+var(--np-safe-top)+--spacing(3))] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-transparent bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-(--np-field-ring-invalid) forced-colors:focus-halo",
+        "grid scroll-mt-[calc(var(--np-appbar-h)+var(--np-safe-top)+--spacing(3))] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-transparent bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-np-focus-danger forced-colors:focus-halo",
         className
       )}
     >

@@ -1,15 +1,35 @@
 import { Card } from "@/components/ui/card"
+import { KpiStrip } from "@/components/ui/kpi-tile"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
+/**
+ * One figure's cell inside a KpiStrip, drawn as the loaded tile draws it
+ * there (hairlines on its top and left, no card of its own): a label bar, a
+ * bar at the figure's line height, and a delta bar.
+ */
 function TileSkeleton() {
   return (
-    <Card size="sm" data-skeleton="tile" className="min-h-28 gap-2">
-      <Skeleton className="mx-4 h-3.5 w-20" />
-      <Skeleton className="mx-4 h-8 w-16" />
-      <Skeleton className="mx-4 mt-auto h-3 w-24 max-w-full" />
-    </Card>
+    <div
+      data-skeleton="tile"
+      className="flex min-h-28 flex-col gap-2 border-t border-l border-line-subtle p-4"
+    >
+      <Skeleton className="h-3.5 w-20" />
+      <Skeleton className="h-(--np-text-figure-lh) w-16" />
+      <Skeleton className="mt-auto h-3 w-24 max-w-full" />
+    </div>
+  )
+}
+
+/** The loaded row of figures is one KpiStrip; so is its stand-in. */
+function TileStripSkeleton({ count }: { count: number }) {
+  return (
+    <KpiStrip>
+      {Array.from({ length: count }, (_, tile) => (
+        <TileSkeleton key={tile} />
+      ))}
+    </KpiStrip>
   )
 }
 
@@ -35,11 +55,7 @@ function RecordCardSkeleton() {
 function GoogleBody() {
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 @[40rem]/report:grid-cols-3 @[60rem]/report:grid-cols-5">
-        {[0, 1, 2, 3, 4].map((tile) => (
-          <TileSkeleton key={tile} />
-        ))}
-      </div>
+      <TileStripSkeleton count={5} />
       <Card size="sm" className="gap-3">
         <Skeleton className="mx-4 h-4 w-48 max-w-full" />
         <div className="mx-4 grid grid-cols-2 gap-x-4 gap-y-3 @[40rem]/report:grid-cols-4">
@@ -101,11 +117,7 @@ export function ReportsSkeleton({
   const body = (
     <>
       <Skeleton className="h-3.5 w-48 max-w-full" />
-      <div className="grid grid-cols-2 gap-3 @[48rem]/report:grid-cols-4">
-        {[0, 1, 2, 3].map((tile) => (
-          <TileSkeleton key={tile} />
-        ))}
-      </div>
+      <TileStripSkeleton count={4} />
       <div className="grid grid-cols-1 gap-(--np-gap-card) @[60rem]/report:grid-cols-2">
         <ChartSkeleton />
         <ChartSkeleton />

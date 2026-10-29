@@ -98,7 +98,13 @@ describe("ListRow", () => {
     )
     const one = screen.getByRole("button", { name: "One" })
     expect(one).toHaveAttribute("aria-current", "true")
-    expect(one.className).toContain("bg-fill")
+    // The selection tint ("you are here"), not the neutral hover grey, and
+    // a hover does not repaint it.
+    expect(one).toHaveClass("bg-(--np-selection-bg)")
+    expect(one.className).not.toContain("hover-fine:hover:bg-surface-alt")
+    expect(screen.getByRole("button", { name: "Two" })).toHaveClass(
+      "hover-fine:hover:bg-surface-alt"
+    )
     expect(screen.getByRole("button", { name: "Two" })).not.toHaveAttribute(
       "aria-current"
     )

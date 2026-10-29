@@ -15,7 +15,7 @@ const ROWS = 6
 //
 // The shapes are the shape most pages take: a header (title and a muted
 // count) over list rows (a 32px avatar circle and three lines, divided by a
-// hairline inset to the text column). Skeleton stops its shimmer under
+// hairline inset to the text column). Skeleton stops its opacity pulse under
 // reduced motion.
 export default function DashboardLoading() {
   return (

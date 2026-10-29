@@ -64,15 +64,35 @@ describe("status variants", () => {
     )
   })
   it("when live, uses role=alert only for interrupting variants, role=status otherwise", () => {
-    const { rerender } = render(<Alert variant="destructive" live>Destructive</Alert>)
+    const { rerender } = render(
+      <Alert variant="destructive" live>
+        Destructive
+      </Alert>
+    )
     expect(screen.getByRole("alert")).toHaveTextContent("Destructive")
-    rerender(<Alert variant="warning" live>Warning</Alert>)
+    rerender(
+      <Alert variant="warning" live>
+        Warning
+      </Alert>
+    )
     expect(screen.getByRole("alert")).toHaveTextContent("Warning")
-    rerender(<Alert variant="info" live>Info</Alert>)
+    rerender(
+      <Alert variant="info" live>
+        Info
+      </Alert>
+    )
     expect(screen.getByRole("status")).toHaveTextContent("Info")
-    rerender(<Alert variant="success" live>Success</Alert>)
+    rerender(
+      <Alert variant="success" live>
+        Success
+      </Alert>
+    )
     expect(screen.getByRole("status")).toHaveTextContent("Success")
-    rerender(<Alert variant="default" live>Default</Alert>)
+    rerender(
+      <Alert variant="default" live>
+        Default
+      </Alert>
+    )
     expect(screen.getByRole("status")).toHaveTextContent("Default")
   })
 
@@ -80,7 +100,9 @@ describe("status variants", () => {
   // status by default (a result appearing after an action is still read
   // out), and `live={false}` makes a banner plain page content.
   it("interrupts only for destructive by default; the rest are polite; live={false} is static", () => {
-    const { container, rerender } = render(<Alert variant="warning">Heads up</Alert>)
+    const { container, rerender } = render(
+      <Alert variant="warning">Heads up</Alert>
+    )
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("Heads up")
     rerender(<Alert variant="info">Note</Alert>)
@@ -91,17 +113,39 @@ describe("status variants", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Plain")
     rerender(<Alert variant="destructive">Failed</Alert>)
     expect(screen.getByRole("alert")).toHaveTextContent("Failed")
-    rerender(<Alert variant="destructive" live={false}>Static failure</Alert>)
+    rerender(
+      <Alert variant="destructive" live={false}>
+        Static failure
+      </Alert>
+    )
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
-    expect(container.querySelector('[data-slot="alert"]')).toHaveTextContent("Static failure")
-    rerender(<Alert variant="warning" live={false}>Static warning</Alert>)
+    expect(container.querySelector('[data-slot="alert"]')).toHaveTextContent(
+      "Static failure"
+    )
+    rerender(
+      <Alert variant="warning" live={false}>
+        Static warning
+      </Alert>
+    )
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
-    rerender(<Alert variant="success" live="assertive">Forced</Alert>)
+    rerender(
+      <Alert variant="success" live="assertive">
+        Forced
+      </Alert>
+    )
     expect(screen.getByRole("alert")).toHaveTextContent("Forced")
-    rerender(<Alert variant="warning" live="polite">Polite</Alert>)
+    rerender(
+      <Alert variant="warning" live="polite">
+        Polite
+      </Alert>
+    )
     expect(screen.getByRole("status")).toHaveTextContent("Polite")
-    rerender(<Alert variant="warning" role="note">Own role</Alert>)
+    rerender(
+      <Alert variant="warning" role="note">
+        Own role
+      </Alert>
+    )
     expect(screen.getByRole("note")).toHaveTextContent("Own role")
   })
 })
@@ -114,5 +158,16 @@ describe("loading primitives", () => {
   it("Skeleton is hidden from AT", () => {
     render(<Skeleton data-testid="sk" className="h-4 w-24" />)
     expect(screen.getByTestId("sk")).toHaveAttribute("aria-hidden", "true")
+  })
+  it("Skeleton is a flat bar that only breathes in opacity, and stills under reduced motion", () => {
+    render(<Skeleton data-testid="sk" className="h-4 w-24" />)
+    const bar = screen.getByTestId("sk")
+    expect(bar).toHaveClass(
+      "bg-fill",
+      "motion-safe:animate-pulse",
+      "motion-reduce:animate-none"
+    )
+    // No travelling highlight and no gradient (principle 4).
+    expect(bar.className).not.toMatch(/shimmer|bg-linear|before:/)
   })
 })

@@ -73,6 +73,22 @@ describe("QueryPending", () => {
     expect(container.querySelector('[data-slot="spinner"]')).toBeNull()
   })
 
+  it("keeps the sentence for a screen reader only beside rows, so nothing shifts", () => {
+    // Principle 4: the rows sit where the content will land; a visible line
+    // above them pushed the content down when the data arrived.
+    render(<QueryPending label="Loading reviews…" />)
+    const status = screen.getByRole("status")
+    expect(status).toHaveTextContent("Loading reviews…")
+    expect(screen.getByText("Loading reviews…")).toHaveClass("sr-only")
+  })
+
+  it("keeps the sentence visible when it stands alone with the spinner", () => {
+    render(<QueryPending label="Checking the connection…" skeleton={null} />)
+    expect(screen.getByText("Checking the connection…")).not.toHaveClass(
+      "sr-only"
+    )
+  })
+
   it("draws the spinner, and only the spinner, when there are no rows", () => {
     const { container } = render(
       <QueryPending label="Checking the connection…" skeleton={null} />

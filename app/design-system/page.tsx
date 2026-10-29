@@ -99,7 +99,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Kbd } from "@/components/ui/kbd"
-import { KpiTile } from "@/components/ui/kpi-tile"
+import { KpiStrip, KpiTile } from "@/components/ui/kpi-tile"
 import { Lifecycle } from "@/components/ui/lifecycle"
 import {
   Popover,
@@ -821,7 +821,7 @@ export default function Page() {
 
             <Specimen
               title="Segmented and chips"
-              note="Segmented picks one view; chips filter and scope. A pressed chip takes the accent tint; a zero count draws no figure."
+              note="Segmented picks one view; chips filter and scope. A pressed chip is ink, not accent; a zero count draws no figure."
             >
               <Demo>
                 <SegmentedControl defaultValue="warm" aria-label="Tone">
@@ -1076,14 +1076,18 @@ export default function Page() {
 
             <UxP04Demo />
 
-            <Specimen title="Stat tiles">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Specimen
+              title="Stat tiles"
+              note="A row of figures is one strip: one edge, hairlines between cells. Delta colour only when its tone says which way is good."
+            >
+              <KpiStrip>
                 <KpiTile
                   label="Reviews received"
                   value="211"
                   delta={{
                     value: "+4",
                     direction: "up",
+                    tone: "success",
                     label: "vs previous 28 days",
                   }}
                 />
@@ -1107,7 +1111,7 @@ export default function Page() {
                   value="—"
                   hint="No comparison: missing is not zero"
                 />
-              </div>
+              </KpiStrip>
             </Specimen>
 
             <Specimen title="Charts and progress" note="Sample figures.">

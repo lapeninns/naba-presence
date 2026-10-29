@@ -243,7 +243,7 @@ function ListRowSwipe({
             // Room for the button's 44px overhang (it is 36px drawn): the
             // surface clips whatever passes the end edge.
             flush ? "pe-1" : "pe-[calc(var(--np-page-pad-x)-(--spacing(3)))]",
-            selected && "bg-fill"
+            selected && "bg-(--np-selection-bg)"
           )}
         >
           {hit}

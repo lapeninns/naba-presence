@@ -4,7 +4,10 @@ import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { CheckIcon, ChevronDownIcon } from "lucide-react"
 
-import { useFieldTriggerProps } from "@/components/ui/field"
+import {
+  fieldTriggerChromeClassName,
+  useFieldTriggerProps,
+} from "@/components/ui/field"
 import {
   MenuCloseProvider,
   MenuSheetClose,
@@ -27,8 +30,9 @@ export { menuItemClassName, menuPopupClassName }
 
 /**
  * The pop-up button (reference `.select`). The trigger is drawn as a field:
- * white, the 3:1 control edge, a caret on the right, the accent edge and
- * halo while open or focused. The popup is the shared menu: a floating
+ * the field fill, the 3:1 control edge, a caret on the right, the accent
+ * edge and the shared focus halo while open or keyboard-focused (danger
+ * edge and danger halo while invalid). The popup is the shared menu: a floating
  * panel on the desk, a bottom action sheet on a phone (see menu-surface).
  */
 function Select<Value>({
@@ -47,13 +51,15 @@ function Select<Value>({
   )
 }
 
-/** Shared by SelectTrigger and the Combobox trigger so both read as one control. */
+/**
+ * The trigger's own layout on top of the shared field chrome
+ * (`fieldTriggerChromeClassName`: rest, hover, focus-visible, invalid,
+ * focus-while-invalid and disabled are drawn there, once, for every field).
+ * Exported for callers that draw their own pop-up button as a Select.
+ */
 export const selectTriggerClassName = cn(
-  "inline-flex h-(--np-field-h) min-w-0 cursor-default items-center justify-between gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-2.5 pl-[11px] text-body text-ink outline-none select-none",
-  "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
-  "hover:border-ink-muted focus-visible:border-primary focus-visible:shadow-(--np-field-ring) data-popup-open:border-primary data-popup-open:shadow-(--np-field-ring) forced-colors:focus-halo",
-  "disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted data-disabled:cursor-not-allowed data-disabled:bg-surface-alt data-disabled:text-ink-muted",
-  "aria-invalid:border-danger-ink aria-invalid:shadow-(--np-field-ring-invalid)",
+  fieldTriggerChromeClassName,
+  "inline-flex h-(--np-field-h) cursor-default items-center justify-between gap-2 pr-2.5 pl-[11px] select-none",
   "pointer-coarse:text-base",
   "[&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:whitespace-nowrap",
   "[&_[data-slot=select-value][data-placeholder]]:text-ink-muted"
