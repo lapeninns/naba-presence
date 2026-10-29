@@ -29,6 +29,7 @@ export function AttributesSection({
   onChange,
   onClear,
   disabled,
+  errors,
 }: {
   metadata: readonly AttributeMetadata[]
   draft: Record<string, GoogleAttribute>
@@ -37,6 +38,8 @@ export function AttributesSection({
   onChange: (next: GoogleAttribute) => void
   onClear?: (name: string) => void
   disabled: boolean
+  /** Values Google won't accept, by attribute name, shown under each row. */
+  errors?: Readonly<Record<string, string>>
 }) {
   const grouped = useMemo(
     () => groupByLabel(metadata, (m) => m.groupDisplayName ?? "Other"),
@@ -86,6 +89,7 @@ export function AttributesSection({
                 onChange={onChange}
                 onClear={onClear}
                 changed={isChanged(meta.parent)}
+                error={errors?.[meta.parent]}
               />
             </li>
           ))}

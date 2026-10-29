@@ -86,6 +86,13 @@ describe("ReportsSkeleton tab shapes", () => {
     expect(container.querySelectorAll("[data-skeleton=record]")).toHaveLength(0)
   })
 
+  it("draws a phone's period chips on the page shape, and the description for a desk only", () => {
+    const { container } = render(<ReportsSkeleton label="Loading reports…" />)
+    const strip = container.querySelector("[data-skeleton=period-strip]")
+    expect(strip).toHaveClass("md:hidden")
+    expect(strip?.children).toHaveLength(4)
+  })
+
   it("draws the keywords' record cards and no tiles", () => {
     const { container } = render(
       <ReportsSkeleton variant="keywords" label="Loading keywords…" />
@@ -150,7 +157,9 @@ describe("refreshing from Google", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     let fetchedAt = "2026-08-30T06:00:00.000Z"
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === "POST") return json({ organisations: [] })
+      // Cut short: the rest is the job runner's, so the tab keeps watching.
+      if (init?.method === "POST")
+        return json({ organisations: [], truncated: true })
       return json(presence(fetchedAt))
     })
     vi.stubGlobal("fetch", fetchMock)
@@ -206,7 +215,7 @@ describe("refreshing from Google", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
       init?.method === "POST"
-        ? json({ organisations: [] })
+        ? json({ organisations: [], truncated: true })
         : json({
             range: "6m",
             from: "2026-03-01",
@@ -251,6 +260,40 @@ describe("refreshing from Google", () => {
     await waitFor(() =>
       expect(screen.queryByText("Refreshing…")).not.toBeInTheDocument()
     )
+    // The wait ran out, not the refresh: said, rather than going blank.
+    expect(screen.getByText("Still waiting for Google…")).toBeInTheDocument()
+  })
+
+  it("stops at once when the server says the refresh finished", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? json({
+            organisations: [
+              { organisationId: "o1", outcomes: [{ status: "succeeded" }] },
+            ],
+            truncated: false,
+          })
+        : json(presence("2026-08-30T06:00:00.000Z"))
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    render(
+      <QueryClientProvider client={client()}>
+        <Toaster>
+          <GooglePerformanceTab />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await screen.findByText(/^Through 29 Aug/)
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }))
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Refresh from Google" })
+    )
+    expect(await screen.findByText("Refreshed from Google")).toBeInTheDocument()
+    // The figures came back unchanged, and nothing is still running.
+    expect(screen.queryByText("Refreshing…")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Still waiting for Google…")
+    ).not.toBeInTheDocument()
   })
 
   it("stops waiting when the request fails", async () => {

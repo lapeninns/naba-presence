@@ -14,6 +14,7 @@ const useHoursMock = vi.fn()
 const useCapsMock = vi.fn()
 const refreshHours = vi.hoisted(() => ({
   mutate: vi.fn(),
+  mutateAsync: vi.fn(),
   isPending: false,
   isError: false,
 }))
@@ -161,6 +162,40 @@ describe("HoursTab", () => {
     ).toBeEnabled()
   })
 
+  it("keeps focus on Match Google closing boundaries while Google is read", async () => {
+    const user = userEvent.setup()
+    const state = makeHours({ reconciliationRequired: true })
+    let answer: (value: HoursState) => void = () => {}
+    vi.spyOn(hoursApi, "fetchHours").mockReturnValue(
+      new Promise<HoursState>((resolve) => {
+        answer = resolve
+      })
+    )
+    useHoursMock.mockReturnValue({
+      data: state,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    await user.click(
+      screen.getByRole("button", { name: "Match Google closing boundaries" })
+    )
+    // Pending, not natively disabled: the busy button keeps focus.
+    const busy = screen.getByRole("button", { name: "Checking Google…" })
+    expect(busy).toHaveAttribute("aria-busy", "true")
+    expect(busy).toHaveFocus()
+    answer(structuredClone(state))
+    const done = await screen.findByRole("button", {
+      name: "Match Google closing boundaries",
+    })
+    expect(done).toHaveFocus()
+  })
+
   it("names the time zone in words when it is not the viewer's own", () => {
     useHoursMock.mockReturnValue({
       data: makeHours({
@@ -177,6 +212,11 @@ describe("HoursTab", () => {
     expect(screen.getByText(/Times are in/)).toHaveTextContent(
       "Times are in New Zealand time."
     )
+    // It is the Regular hours caption, on the times it qualifies, not a
+    // line of its own above the schedule.
+    expect(
+      screen.getByRole("region", { name: "Regular hours" })
+    ).toHaveAccessibleDescription("Times are in New Zealand time.")
     expect(screen.queryByText(/Pacific\/Auckland/)).not.toBeInTheDocument()
   })
 
@@ -419,7 +459,7 @@ describe("HoursTab", () => {
       name: /problem to fix/i,
     })
     const link = within(summary).getByRole("link", {
-      name: /Special date 1: Opening and closing times are the same/,
+      name: /^Special hours, Thu,? 24 Dec 2099: Opening and closing times are the same/,
     })
     expect(link).toHaveAttribute("href", "#special-0-opens")
     // The field is in the day's sheet, which is closed until the link opens it.
@@ -741,5 +781,198 @@ describe("HoursTab selective publish", () => {
         { intentId: expect.any(String) }
       )
     )
+  })
+})
+
+describe("HoursTab changed on Google", () => {
+  function googleChanged(): HoursState {
+    const google = emptyHours()
+    google.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "10:00", closesAt: "16:00", closeDayOfWeek: 1 }],
+    }
+    const canonical = emptyHours()
+    canonical.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "09:00", closesAt: "17:00", closeDayOfWeek: 1 }],
+    }
+    return makeHours({ status: "google_dirty", canonical, google })
+  }
+  function show(state: HoursState) {
+    useHoursMock.mockReturnValue({
+      data: state,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    return renderTab()
+  }
+
+  it("says Google changed the hours, not that changes are waiting for Google", () => {
+    show(googleChanged())
+    expect(screen.getByText("Hours changed on Google")).toBeInTheDocument()
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveTextContent("Changed on Google")
+    expect(bar).not.toHaveTextContent(/changes? not on Google/)
+  })
+
+  it("keeps Google’s hours in the draft and saves only on Save here", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    refreshHours.mutateAsync.mockResolvedValue(structuredClone(state))
+    const save = vi
+      .spyOn(hoursApi, "saveHours")
+      .mockResolvedValue({ saved: true, revision: "3" })
+    const publish = vi.spyOn(hoursApi, "publishHours")
+    show(state)
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    expect(refreshHours.mutateAsync).toHaveBeenCalledOnce()
+    // The button gave way to a note: focus moves to the footer, whose status
+    // says what changed and whose Save here keeps it, not to the page.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("region", { name: "Editor actions" })
+      ).toHaveFocus()
+    )
+    expect(
+      screen.queryByRole("button", { name: "Keep Google’s hours" })
+    ).toBeNull()
+    // The draft now holds Google's hours; nothing has been saved.
+    await expectMondayOpens(user, "10:00")
+    expect(save).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText("Google’s hours are in your draft")
+    ).toBeInTheDocument()
+    // Nothing differs from Google any more: no Review, Save here leads.
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveTextContent("No changes to publish")
+    expect(
+      within(bar).queryByRole("button", { name: "Review changes" })
+    ).toBeNull()
+    await user.click(within(bar).getByRole("button", { name: "Save here" }))
+    await waitFor(() => expect(save).toHaveBeenCalledOnce())
+    expect(save.mock.calls[0]![1]).toMatchObject({
+      expectedCanonicalRevision: "2",
+      hours: state.google,
+    })
+    // Keeping Google's hours only saves here; nothing is sent to Google.
+    expect(publish).not.toHaveBeenCalled()
+  })
+
+  it("keeps focus on Keep Google’s hours while Google is read", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    refreshHours.mutateAsync.mockReturnValue(new Promise<HoursState>(() => {}))
+    show(state)
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    // Pending, not natively disabled: the busy button keeps focus.
+    const busy = screen.getByRole("button", { name: "Checking Google…" })
+    expect(busy).toHaveAttribute("aria-busy", "true")
+    expect(busy).toHaveFocus()
+  })
+
+  it("leaves the draft alone when Google can't be read", async () => {
+    const user = userEvent.setup()
+    refreshHours.mutateAsync.mockRejectedValue(new Error("offline"))
+    show(googleChanged())
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    expect(
+      await screen.findByText(
+        "Google’s current hours could not be loaded. Your draft is unchanged. Try again."
+      )
+    ).toBeInTheDocument()
+    await expectMondayOpens(user, "09:00")
+  })
+
+  it("never puts Google’s hours over unsaved edits", async () => {
+    const user = userEvent.setup()
+    show(googleChanged())
+    await setMondayOpens(user, "11:00")
+    expect(
+      screen.queryByRole("button", { name: "Keep Google’s hours" })
+    ).toBeNull()
+    expect(
+      screen.getByText(
+        "Save or discard your edits first to use Google’s hours."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("leaves an edit made while Google is read", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    let answer: (value: HoursState) => void = () => {}
+    refreshHours.mutateAsync.mockReturnValue(
+      new Promise<HoursState>((resolve) => {
+        answer = resolve
+      })
+    )
+    show(state)
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    await setMondayOpens(user, "11:00")
+    answer(structuredClone(state))
+    expect(
+      await screen.findByText(
+        "You edited the hours while Google was being read, so your draft was left as it is."
+      )
+    ).toBeInTheDocument()
+    await expectMondayOpens(user, "11:00")
+  })
+
+  it("doesn’t empty the draft when Google now shows no hours", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    refreshHours.mutateAsync.mockResolvedValue({
+      ...structuredClone(state),
+      google: emptyHours(),
+    })
+    show(state)
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    expect(
+      await screen.findByText(
+        "Google now shows no opening hours, so your draft was left as it is."
+      )
+    ).toBeInTheDocument()
+    await expectMondayOpens(user, "09:00")
+  })
+
+  it("offers Save here, not Review, for edits that already match Google", async () => {
+    const user = userEvent.setup()
+    const google = emptyHours()
+    google.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "08:00", closesAt: "17:00", closeDayOfWeek: 1 }],
+    }
+    // Saved here as 09:00, not yet published.
+    const canonical = structuredClone(google)
+    canonical.regular[1]!.periods[0]!.opensAt = "09:00"
+    show(makeHours({ status: "core_dirty", canonical, google }))
+    // The draft goes back to what Google already has: an edit to keep,
+    // but nothing to publish.
+    await setMondayOpens(user, "08:00")
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveTextContent("No changes to publish")
+    expect(bar).not.toHaveTextContent(/not on Google/)
+    expect(
+      within(bar).queryByRole("button", { name: "Review changes" })
+    ).toBeNull()
+    expect(within(bar).getByRole("button", { name: "Save here" })).toBeEnabled()
   })
 })

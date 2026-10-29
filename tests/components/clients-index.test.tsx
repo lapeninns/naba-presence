@@ -220,6 +220,22 @@ describe("ClientsIndex", () => {
     expect(replace).toHaveBeenCalledWith("/clients", { scroll: false })
   })
 
+  it("does not draw an empty In sync bucket as an all-clear", async () => {
+    search = new URLSearchParams("health=healthy")
+    stub([{ ...base, id: "a", name: "A", health: "disconnected" }])
+    renderIndex()
+    const title = await screen.findByText("No clients in “In sync”")
+    expect(title.closest("[data-tone]")).toHaveAttribute("data-tone", "neutral")
+  })
+
+  it("draws an empty urgent bucket as good news", async () => {
+    search = new URLSearchParams("health=disconnected")
+    stub([{ ...base, id: "a", name: "A", health: "healthy" }])
+    renderIndex()
+    const title = await screen.findByText("No clients in “Can’t reach Google”")
+    expect(title.closest("[data-tone]")).toHaveAttribute("data-tone", "ok")
+  })
+
   it("wraps the chips from md and puts search on a row of its own", async () => {
     stub([base])
     renderIndex()
@@ -409,6 +425,10 @@ describe("ClientsIndex", () => {
     expect(
       await screen.findByText("Photos moved — pick a client, then its listing.")
     ).toBeInTheDocument()
+    // `/settings/listing` lands here with `moved=listing`.
+    expect(movedNotice("listing")).toBe(
+      "Listing settings moved — pick a client, then its listing."
+    )
     expect(movedNotice("nonsense")).toBe(
       "That page moved — pick a client, then its listing."
     )

@@ -1,0 +1,474 @@
+// p4 BEFORE/AFTER capture for the listings content and operations area.
+// Reference copy: docs/audits/2026-10-28-all-flows/p4/capture/p4-capture.spec.ts.
+// Not part of the suite: copied into tests/e2e only for a capture run.
+//
+//   P4_OUT=<dir> PLAYWRIGHT_PORT=3540 node scripts/run-test-command.mjs e2e \
+//     pnpm exec playwright test tests/e2e/p4-capture.spec.ts
+//
+// Same viewport rules as tests/visual/shoot.mjs: 390 and 1280 wide, 860 tall,
+// reduced motion, touch and isMobile below 768, Chromium. Every state is shot
+// at 390 light, 390 dark and 1280 light. Nothing here publishes to Google:
+// the journey stub and the operations stub answer every Google call.
+import AxeBuilder from "@axe-core/playwright"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { resolve } from "node:path"
+import {
+  expect,
+  test,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test"
+
+import { startOperationsBackend } from "./helpers/operations-backend"
+import { readJourneyState } from "./helpers/stub-bridge"
+
+const OUT = resolve(process.env.P4_OUT ?? "test-results/p4-capture")
+mkdirSync(resolve(OUT, "data"), { recursive: true })
+
+const VARIANTS = [
+  { key: "390-light", width: 390, theme: "light" },
+  { key: "390-dark", width: 390, theme: "dark" },
+  { key: "1280-light", width: 1280, theme: "light" },
+] as const
+type Variant = (typeof VARIANTS)[number]
+
+const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
+
+test.describe.configure({ mode: "serial" })
+test.use({ actionTimeout: 15_000, navigationTimeout: 45_000 })
+test.setTimeout(240_000)
+
+async function newContext(
+  browser: Browser,
+  v: Variant,
+  baseURL: string,
+  cookie: string | null
+) {
+  const context = await browser.newContext({
+    viewport: { width: v.width, height: 860 },
+    colorScheme: v.theme,
+    reducedMotion: "reduce",
+    hasTouch: v.width < 768,
+    isMobile: v.width < 768,
+  })
+  if (cookie) {
+    const [name, value] = cookie.split("=", 2)
+    await context.addCookies([
+      { name, value, url: baseURL, httpOnly: true, sameSite: "Lax" },
+    ])
+  }
+  return context
+}
+
+async function settle(page: Page) {
+  await page.waitForLoadState("networkidle").catch(() => {})
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () => document.querySelectorAll('[aria-busy="true"]').length
+        ),
+      { timeout: 20_000 }
+    )
+    .toBe(0)
+    .catch(() => {})
+  await page.waitForTimeout(600)
+}
+
+async function shoot(
+  page: Page,
+  state: string,
+  v: Variant,
+  opts: { full?: boolean; scope?: string } = {}
+) {
+  const file = `${state}-${v.key}.png`
+  let violations: Array<{ id: string; nodes: number }> = []
+  try {
+    const axe = new AxeBuilder({ page }).withTags(WCAG)
+    if (opts.scope) axe.include(opts.scope)
+    violations = (await axe.analyze()).violations.map((violation) => ({
+      id: violation.id,
+      nodes: violation.nodes.length,
+    }))
+  } catch {
+    /* axe is evidence, not a gate, here */
+  }
+  const record = await page.evaluate(() => {
+    const active = document.activeElement
+    const doc = document.scrollingElement ?? document.documentElement
+    return {
+      url: location.pathname + location.search,
+      h1: document.querySelector("h1")?.textContent?.trim() ?? null,
+      activeElement: active
+        ? `${active.tagName.toLowerCase()}${active.getAttribute("aria-label") ? `[${active.getAttribute("aria-label")}]` : ""}${active.textContent ? ` "${active.textContent.trim().slice(0, 60)}"` : ""}`
+        : null,
+      horizontalOverflow: doc.scrollWidth > innerWidth + 1,
+      alerts: [...document.querySelectorAll('[role="alert"]')]
+        .map((node) => node.textContent?.trim().slice(0, 160))
+        .filter(Boolean),
+      statuses: [...document.querySelectorAll('[role="status"]')]
+        .map((node) => node.textContent?.trim().slice(0, 160))
+        .filter(Boolean),
+      disabledButtons: [...document.querySelectorAll("button")]
+        .filter(
+          (button) =>
+            (button as HTMLButtonElement).disabled ||
+            button.getAttribute("aria-disabled") === "true"
+        )
+        .map((button) => button.textContent?.trim().slice(0, 60))
+        .filter(Boolean),
+    }
+  })
+  await page.screenshot({
+    path: resolve(OUT, file),
+    fullPage: opts.full ?? true,
+    animations: "disabled",
+  })
+  writeFileSync(
+    resolve(OUT, "data", `${state}-${v.key}.json`),
+    JSON.stringify({ state, variant: v.key, ...record, violations }, null, 2)
+  )
+}
+
+/** Runs one state at every variant; a state that can't be reached is logged. */
+async function each(
+  browser: Browser,
+  baseURL: string,
+  cookie: string | null,
+  state: string,
+  body: (page: Page, v: Variant, context: BrowserContext) => Promise<void>
+) {
+  for (const v of VARIANTS) {
+    const context = await newContext(browser, v, baseURL, cookie)
+    const page = await context.newPage()
+    try {
+      await body(page, v, context)
+    } catch (error) {
+      writeFileSync(
+        resolve(OUT, "data", `${state}-${v.key}.error.txt`),
+        String(error).slice(0, 2000)
+      )
+    } finally {
+      await context.close()
+    }
+  }
+}
+
+async function jpeg(page: Page) {
+  const data = await page.evaluate(() => {
+    const canvas = document.createElement("canvas")
+    canvas.width = 1200
+    canvas.height = 900
+    const ctx = canvas.getContext("2d")!
+    const gradient = ctx.createLinearGradient(0, 0, 1200, 900)
+    gradient.addColorStop(0, "#c8743a")
+    gradient.addColorStop(1, "#2f4a3a")
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, 1200, 900)
+    for (let i = 0; i < 4000; i += 1) {
+      ctx.fillStyle = `hsl(${(i * 37) % 360} 40% 50% / 0.35)`
+      ctx.fillRect((i * 97) % 1200, (i * 53) % 900, 14, 14)
+    }
+    return canvas.toDataURL("image/jpeg", 0.92).split(",")[1]
+  })
+  return Buffer.from(data, "base64")
+}
+
+test("journey fixture states", async ({ browser, baseURL }) => {
+  const state = await readJourneyState()
+  const loc = state.primaryLocationId
+  const loc2 = state.approvalReview.locationId
+  const base = baseURL!
+
+  // F01 photo library at rest (the stub returns no media).
+  await each(
+    browser,
+    base,
+    state.cookie,
+    "f01-photos-library",
+    async (page, v) => {
+      await page.goto(`/listings/${loc}/photos`)
+      await settle(page)
+      await shoot(page, "f01-photos-library", v)
+    }
+  )
+  // F02 add photos: the sheet, then one file chosen.
+  await each(browser, base, state.cookie, "f02-add-photos", async (page, v) => {
+    await page.goto(`/listings/${loc}/photos`)
+    await settle(page)
+    await page
+      .getByRole("button", { name: /^Add photos/ })
+      .first()
+      .click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog).toBeVisible()
+    await page.waitForTimeout(500)
+    await shoot(page, "f02-add-photos-open", v, {
+      full: false,
+      scope: '[role="dialog"]',
+    })
+    const input = dialog.locator('input[type="file"]').last()
+    await input.setInputFiles({
+      name: "fixture-bar.jpg",
+      mimeType: "image/jpeg",
+      buffer: await jpeg(page),
+    })
+    await page.waitForTimeout(800)
+    await shoot(page, "f02-add-photos-ready", v, {
+      full: false,
+      scope: '[role="dialog"]',
+    })
+  })
+  // F04 posts empty, F05 composer.
+  await each(browser, base, state.cookie, "f04-posts", async (page, v) => {
+    await page.goto(`/listings/${loc}/posts`)
+    await settle(page)
+    await shoot(page, "f04-posts-empty", v)
+    await page
+      .getByRole("button", { name: /^New post/ })
+      .first()
+      .click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog).toBeVisible()
+    await page.waitForTimeout(500)
+    await shoot(page, "f05-composer-open", v, {
+      full: false,
+      scope: '[role="dialog"]',
+    })
+    await dialog
+      .getByRole("textbox")
+      .first()
+      .fill("Quiz night moves to Thursday from next week. Teams of up to six.")
+    await page.waitForTimeout(400)
+    await shoot(page, "f05-composer-written", v, {
+      full: false,
+      scope: '[role="dialog"]',
+    })
+  })
+  // F08 suggestions: owner and viewer.
+  await each(
+    browser,
+    base,
+    state.cookie,
+    "f08-suggestions",
+    async (page, v) => {
+      await page.goto(`/listings/${loc}/suggestions`)
+      await settle(page)
+      await shoot(page, "f08-suggestions-owner", v)
+    }
+  )
+  await each(
+    browser,
+    base,
+    state.viewerCookie,
+    "f08-suggestions-viewer",
+    async (page, v) => {
+      await page.goto(`/listings/${loc}/suggestions`)
+      await settle(page)
+      await shoot(page, "f08-suggestions-viewer", v)
+    }
+  )
+  // F09 review & publish: owner (nothing waiting) and viewer.
+  await each(
+    browser,
+    base,
+    state.cookie,
+    "f09-changes-owner",
+    async (page, v) => {
+      await page.goto(`/listings/${loc}/changes`)
+      await settle(page)
+      await shoot(page, "f09-changes-owner", v)
+    }
+  )
+  await each(
+    browser,
+    base,
+    state.viewerCookie,
+    "f09-changes-viewer",
+    async (page, v) => {
+      await page.goto(`/listings/${loc}/changes`)
+      await settle(page)
+      await shoot(page, "f09-changes-viewer", v)
+    }
+  )
+  // F10-F12 verification: verified at rest, the tools open, the second listing.
+  await each(
+    browser,
+    base,
+    state.cookie,
+    "f10-verification",
+    async (page, v) => {
+      await page.goto(`/listings/${loc}/verification`)
+      await settle(page)
+      await shoot(page, "f10-verification", v)
+      const tools = page
+        .getByText("Verification tools", { exact: false })
+        .first()
+      await tools.click()
+      await page.waitForTimeout(600)
+      await shoot(page, "f11-verification-tools", v)
+    }
+  )
+  await each(
+    browser,
+    base,
+    state.cookie,
+    "f10-verification-loc2",
+    async (page, v) => {
+      await page.goto(`/listings/${loc2}/verification`)
+      await settle(page)
+      await shoot(page, "f10-verification-loc2", v)
+    }
+  )
+  // F15 an old flat link: the owner has two listings, so it lands on Clients.
+  await each(
+    browser,
+    base,
+    state.cookie,
+    "f15-flat-photos-owner",
+    async (page, v) => {
+      await page.goto(`/photos`)
+      await settle(page)
+      await shoot(page, "f15-flat-photos-owner", v)
+    }
+  )
+  await each(
+    browser,
+    base,
+    state.memberAssignedCookie,
+    "f15-flat-posts-member",
+    async (page, v) => {
+      await page.goto(`/posts`)
+      await settle(page)
+      await shoot(page, "f15-flat-posts-member", v)
+    }
+  )
+  await each(
+    browser,
+    base,
+    null,
+    "f15-flat-photos-signed-out",
+    async (page, v) => {
+      await page.goto(`/photos`)
+      await settle(page)
+      await shoot(page, "f15-flat-photos-signed-out", v)
+    }
+  )
+})
+
+test("operations fixture states", async ({ browser }) => {
+  test.setTimeout(900_000)
+  const backend = await startOperationsBackend()
+  try {
+    const nextDecember = () => `${new Date().getUTCFullYear()}-12-24`
+    for (const v of VARIANTS) {
+      const context = await newContext(browser, v, backend.server.baseUrl, null)
+      const page = await context.newPage()
+      const run = async (state: string, body: () => Promise<void>) => {
+        try {
+          await body()
+        } catch (error) {
+          writeFileSync(
+            resolve(OUT, "data", `${state}-${v.key}.error.txt`),
+            String(error).slice(0, 2000)
+          )
+        }
+      }
+      try {
+        const f = await backend.fixture(page, 2)
+        await f.enableFeature("bulk_actions")
+        await backend.admin`
+          insert into organisation_feature (organisation_id, feature, enabled, changed_by)
+          values (${f.owner.organisationId}, 'post_scheduling', true, 'e2e')
+          on conflict (organisation_id, feature) do update set enabled = true`
+        const ids = f.linked.map((entry) => entry.locationId).join(",")
+        // F13 bulk compose: no selection, first view, then a date chosen.
+        await run("f13-bulk-none", async () => {
+          await f.goto(`/listings/bulk`)
+          await settle(page)
+          await shoot(page, "f13-bulk-none", v)
+        })
+        await run("f13-bulk-initial", async () => {
+          await f.goto(`/listings/bulk?ids=${ids}`)
+          await settle(page)
+          await shoot(page, "f13-bulk-initial", v)
+          await page.getByLabel("Date", { exact: true }).fill(nextDecember())
+          await page.waitForTimeout(300)
+          await shoot(page, "f13-bulk-ready", v)
+        })
+        // F14 the previewed operation.
+        await run("f14-bulk-previewed", async () => {
+          await page
+            .getByRole("button", { name: "Preview this change", exact: true })
+            .click()
+          await expect(
+            page.getByText("Waiting for approval.", { exact: false })
+          ).toBeVisible({ timeout: 20_000 })
+          await settle(page)
+          await shoot(page, "f14-bulk-previewed", v)
+        })
+        // F04/F06/F07 posts with a draft, scheduling on.
+        await run("f04-posts-draft", async () => {
+          const created = await page.request.post(
+            `${backend.server.baseUrl}/api/locations/${f.linked[0].locationId}/posts`,
+            {
+              data: {
+                topicType: "STANDARD",
+                languageCode: "en-GB",
+                summary: "Harvest supper club on Friday",
+                media: [],
+              },
+            }
+          )
+          expect(created.status()).toBe(201)
+          await f.goto(`/listings/${f.linked[0].locationId}/posts`)
+          await settle(page)
+          await shoot(page, "f04-posts-draft", v)
+          await page
+            .getByRole("button", { name: /^Publish/ })
+            .first()
+            .click()
+          await expect(page.getByRole("alertdialog")).toBeVisible()
+          await page.waitForTimeout(400)
+          await shoot(page, "f06-publish-confirm", v, { full: false })
+          await page.keyboard.press("Escape")
+          await page.waitForTimeout(400)
+        })
+        await run("f07-schedule-sheet", async () => {
+          await page
+            .getByRole("button", {
+              name: "More actions for Harvest supper club on Friday",
+            })
+            .click()
+          await page
+            .getByRole("menuitem", {
+              name: "Schedule publication",
+              exact: true,
+            })
+            .click()
+          const sheet = page.getByRole("dialog", {
+            name: "Schedule publication",
+            exact: true,
+          })
+          await expect(sheet).toBeVisible()
+          await page.waitForTimeout(500)
+          await shoot(page, "f07-schedule-sheet", v, {
+            full: false,
+            scope: '[role="dialog"]',
+          })
+          await sheet.getByText("Pick a date and time").click()
+          await page.waitForTimeout(500)
+          await shoot(page, "f07-schedule-custom", v, {
+            full: false,
+            scope: '[role="dialog"]',
+          })
+        })
+      } finally {
+        await context.close()
+      }
+    }
+  } finally {
+    await backend.stop()
+  }
+})

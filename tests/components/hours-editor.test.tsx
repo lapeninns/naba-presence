@@ -18,6 +18,7 @@ import {
   INVALID_TIME_MESSAGE,
   validateHours,
 } from "@/lib/editors/hours-presentation"
+import { Toaster } from "@/components/ui/toast"
 import { emptyHours } from "@/lib/locations/forms/hours"
 import type { NormalizedHours } from "@/lib/api/location-hours"
 
@@ -184,12 +185,15 @@ describe("HoursEditor day switch and special-day order", () => {
     fireEvent.change(within(dialog).getByLabelText("Monday period 1 opens"), {
       target: { value: "11:30" },
     })
+    // The sheet's switch is named by its visible words.
     const monday = within(dialog).getByRole("switch", {
-      name: "Monday open in this sheet",
+      name: "Open on Monday",
     })
+    expect(within(dialog).getByText("Open on Monday")).toBeVisible()
 
     fireEvent.click(monday) // off
     expect(within(dialog).queryByLabelText("Monday period 1 opens")).toBeNull()
+    expect(monday).toHaveAccessibleDescription("Closed all day.")
     fireEvent.click(monday) // on again
     expect(within(dialog).getByLabelText("Monday period 1 opens")).toHaveValue(
       "11:30"
@@ -298,6 +302,13 @@ describe("HoursEditor service and boundary preservation", () => {
         ]}
       />
     )
+    // Google's names, not its raw type ids, and what the group is for.
+    expect(screen.queryByText("KITCHEN")).toBeNull()
+    expect(
+      screen.getByRole("region", { name: "Service hours" })
+    ).toHaveAccessibleDescription(
+      "Separate hours for services such as a kitchen, delivery or takeaway."
+    )
     const barDay = await openDayRow("Bar Sunday")
     expect(
       within(barDay).getByRole("combobox", {
@@ -335,6 +346,10 @@ describe("HoursEditor service and boundary preservation", () => {
     ]
     const change = vi.fn()
     render(<HoursEditor value={initial} onChange={change} disabled={false} />)
+    // With no name from Google, the raw id is the only way to tell it apart.
+    expect(
+      screen.getByText(/^UNKNOWN_SERVICE · Google has not confirmed/)
+    ).toBeInTheDocument()
     const unknownDay = await openDayRow("UNKNOWN_SERVICE Sunday")
     expect(
       within(unknownDay).getByLabelText("UNKNOWN_SERVICE Sunday period 1 opens")
@@ -629,5 +644,300 @@ describe("HoursEditor phone-first controls", () => {
         periods: [{ opensAt: "10:00", closesAt: "22:00", closeDayOfWeek: day }],
       })
     expect(next.regular[6]).toEqual(value.regular[6])
+  })
+})
+
+describe("HoursEditor service hours empty state", () => {
+  it("says when Google offers no service hours for the category", () => {
+    render(
+      <HoursEditor value={emptyHours()} onChange={() => {}} disabled={false} />
+    )
+    expect(
+      screen.getByText(
+        "Google doesn’t offer service hours for this business’s category."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("says only that there are none yet when services can be added", () => {
+    render(
+      <HoursEditor
+        value={emptyHours()}
+        onChange={() => {}}
+        disabled={false}
+        supportedHoursTypes={[
+          { hoursTypeId: "KITCHEN", displayName: "Kitchen" },
+        ]}
+      />
+    )
+    expect(screen.getByText("No service schedules yet.")).toBeInTheDocument()
+  })
+})
+
+function withDay(
+  dayOfWeek: number,
+  periods: NormalizedHours["regular"][number]["periods"]
+): NormalizedHours {
+  const value = emptyHours()
+  value.regular[dayOfWeek] = { dayOfWeek, isClosed: false, periods }
+  return value
+}
+
+/** A controlled editor, so sheet edits re-render as they do in the tab. */
+function Live({ initial }: { initial: NormalizedHours }) {
+  const [hours, setHours] = useState(initial)
+  return (
+    <Toaster>
+      <HoursEditor value={hours} onChange={setHours} disabled={false} />
+    </Toaster>
+  )
+}
+
+describe("HoursEditor overnight periods", () => {
+  it("flags a period that closes before it opens and offers the next day", async () => {
+    const change = vi.fn()
+    render(
+      <HoursEditor
+        value={withDay(5, [
+          { opensAt: "18:00", closesAt: "02:00", closeDayOfWeek: 5 },
+        ])}
+        onChange={change}
+        disabled={false}
+      />
+    )
+    const sheet = await openDayRow("Friday")
+    const hint = within(sheet).getByText(
+      "Open past midnight? Close on the next day."
+    )
+    expect(
+      within(sheet).getByRole("combobox", {
+        name: "Friday period 1 closing day",
+      })
+    ).toHaveAccessibleDescription(hint.textContent!)
+    // Nothing is chosen until the operator taps the choice.
+    expect(change).not.toHaveBeenCalled()
+    fireEvent.click(
+      within(sheet).getByRole("button", { name: "Close on Saturday" })
+    )
+    expect(change.mock.calls[0][0].regular[5].periods[0]).toMatchObject({
+      opensAt: "18:00",
+      closesAt: "02:00",
+      closeDayOfWeek: 6,
+    })
+  })
+
+  it("says how to close at midnight when the closing time is 00:00", async () => {
+    render(
+      <HoursEditor
+        value={withDay(5, [
+          { opensAt: "18:00", closesAt: "00:00", closeDayOfWeek: 5 },
+        ])}
+        onChange={() => {}}
+        disabled={false}
+      />
+    )
+    const sheet = await openDayRow("Friday")
+    expect(
+      within(sheet).getByText(
+        "Closing at midnight? Close on the next day, or enter 24:00."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("says nothing for a period that closes later the same day", async () => {
+    render(
+      <HoursEditor
+        value={withDay(5, [
+          { opensAt: "09:00", closesAt: "17:00", closeDayOfWeek: 5 },
+        ])}
+        onChange={() => {}}
+        disabled={false}
+      />
+    )
+    const sheet = await openDayRow("Friday")
+    expect(within(sheet).queryByText(/past midnight|at midnight/)).toBeNull()
+    expect(
+      within(sheet).queryByRole("button", { name: /^Close on/ })
+    ).toBeNull()
+  })
+
+  it("moves focus to the closing day once the next day is chosen", async () => {
+    render(
+      <Live
+        initial={withDay(5, [
+          { opensAt: "18:00", closesAt: "02:00", closeDayOfWeek: 5 },
+        ])}
+      />
+    )
+    const sheet = await openDayRow("Friday")
+    fireEvent.click(
+      within(sheet).getByRole("button", { name: "Close on Saturday" })
+    )
+    const closingDay = within(sheet).getByRole("combobox", {
+      name: "Friday period 1 closing day",
+    })
+    await waitFor(() => expect(closingDay).toHaveFocus())
+    expect(closingDay).toHaveTextContent("Next day (Saturday)")
+    expect(
+      within(sheet).queryByRole("button", { name: /^Close on/ })
+    ).toBeNull()
+  })
+})
+
+describe("HoursEditor day sheet labels and split periods", () => {
+  it("labels each time field in words", async () => {
+    render(
+      <HoursEditor
+        value={withDay(1, [
+          { opensAt: "09:00", closesAt: "17:00", closeDayOfWeek: 1 },
+        ])}
+        onChange={() => {}}
+        disabled={false}
+      />
+    )
+    const sheet = await openDayRow("Monday")
+    expect(within(sheet).getByText("Opens")).toBeVisible()
+    expect(within(sheet).getByText("Closes")).toBeVisible()
+    expect(within(sheet).getByText("Closing day")).toBeVisible()
+    // The names still contain the visible words (WCAG 2.5.3).
+    expect(within(sheet).getByLabelText("Monday period 1 opens")).toBeVisible()
+  })
+
+  it("says it splits a long period, and focuses the new one", async () => {
+    render(
+      <Live
+        initial={withDay(1, [
+          { opensAt: "09:00", closesAt: "17:00", closeDayOfWeek: 1 },
+        ])}
+      />
+    )
+    const sheet = await openDayRow("Monday")
+    fireEvent.click(
+      within(sheet).getByRole("button", { name: "Split into two periods" })
+    )
+    const second = await within(sheet).findByLabelText("Monday period 2 opens")
+    await waitFor(() => expect(second).toHaveFocus())
+    expect(within(sheet).getByText("Period 2")).toBeVisible()
+  })
+
+  it("focuses the period before one that is removed", async () => {
+    render(
+      <Live
+        initial={withDay(1, [
+          { opensAt: "09:00", closesAt: "12:00", closeDayOfWeek: 1 },
+          { opensAt: "17:00", closesAt: "22:00", closeDayOfWeek: 1 },
+        ])}
+      />
+    )
+    const sheet = await openDayRow("Monday")
+    fireEvent.click(
+      within(sheet).getByRole("button", { name: "Remove Monday period 2" })
+    )
+    await waitFor(() =>
+      expect(
+        within(sheet).getByLabelText("Monday period 1 opens")
+      ).toHaveFocus()
+    )
+    expect(within(sheet).queryByLabelText("Monday period 2 opens")).toBeNull()
+  })
+
+  it("says why no more periods can be added", async () => {
+    render(
+      <HoursEditor
+        value={withDay(1, [
+          { opensAt: "08:00", closesAt: "10:00", closeDayOfWeek: 1 },
+          { opensAt: "12:00", closesAt: "14:00", closeDayOfWeek: 1 },
+          { opensAt: "18:00", closesAt: "21:00", closeDayOfWeek: 1 },
+        ])}
+        onChange={() => {}}
+        disabled={false}
+      />
+    )
+    const sheet = await openDayRow("Monday")
+    expect(
+      within(sheet).getByText("A day can have up to 3 opening periods.")
+    ).toBeInTheDocument()
+    expect(
+      within(sheet).queryByRole("button", { name: /period$|periods$/ })
+    ).toBeNull()
+  })
+})
+
+describe("HoursEditor special-day labels", () => {
+  it("labels the special-day fields in words", async () => {
+    const value = emptyHours()
+    value.special = [
+      {
+        effectiveDate: "2099-12-24",
+        endDate: "2099-12-24",
+        isClosed: false,
+        opensAt: "10:00",
+        closesAt: "16:00",
+      },
+    ]
+    render(<HoursEditor value={value} onChange={() => {}} disabled={false} />)
+    const dialog = await openSpecialDay(/24 Dec 2099/)
+    for (const words of ["Date", "Opens", "Closes", "Closing date"])
+      expect(within(dialog).getByText(words)).toBeVisible()
+    expect(
+      within(dialog).getByLabelText("Special date 1 closing date")
+    ).toHaveAccessibleDescription(
+      "Change the closing date only if you close after midnight."
+    )
+  })
+})
+
+describe("HoursEditor copy days", () => {
+  it("says which days the hours were copied to, and that Google is untouched", async () => {
+    const user = userEvent.setup()
+    render(
+      <Live
+        initial={withDay(1, [
+          { opensAt: "10:00", closesAt: "22:00", closeDayOfWeek: 1 },
+        ])}
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "Copy Monday to…" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.click(within(dialog).getByRole("button", { name: "Weekdays" }))
+    await user.click(
+      within(dialog).getByRole("button", { name: "Copy to 4 days" })
+    )
+    expect(
+      await screen.findByText("Monday’s hours copied to 4 days")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Tuesday, Wednesday, Thursday and Friday. Nothing reaches Google until you publish."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("returns focus to the header action after a copy from a day's sheet", async () => {
+    const user = userEvent.setup()
+    render(
+      <Live
+        initial={withDay(3, [
+          { opensAt: "10:00", closesAt: "22:00", closeDayOfWeek: 3 },
+        ])}
+      />
+    )
+    // A copy from Wednesday's own sheet returns to Wednesday's row…
+    const wednesday = await openDayRow("Wednesday")
+    await user.click(
+      within(wednesday).getByRole("button", {
+        name: "Copy to… (Wednesday’s hours)",
+      })
+    )
+    await screen.findByRole("dialog", { name: "Copy Wednesday’s hours" })
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    // …but a later copy from the header goes back to the header.
+    const header = screen.getByRole("button", { name: "Copy Monday to…" })
+    await user.click(header)
+    await screen.findByRole("dialog", { name: "Copy Monday’s hours" })
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() => expect(header).toHaveFocus())
   })
 })

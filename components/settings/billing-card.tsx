@@ -1,16 +1,25 @@
 "use client"
 
+import { XIcon } from "lucide-react"
+import { useRouter } from "next/navigation"
 import * as React from "react"
 
 import {
   PlanPicker,
   billingActionError,
+  showPlanChangeToast,
 } from "@/components/settings/plan-picker"
 import {
   SettingsFacts,
   SettingsSection,
 } from "@/components/settings/settings-section"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Alert,
+  AlertAction,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -20,12 +29,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { SettingsDestructiveAction } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
+import { toast } from "@/components/ui/toast"
 import type { BillingOverview } from "@/lib/api/billing"
 import {
   billingStatus,
@@ -87,17 +97,108 @@ export function BillingCard() {
   )
 }
 
+/**
+ * Stripe's back link from Checkout (`?checkout=canceled`). The query string
+ * is the only state, so Dismiss just drops it from the URL; nothing is sent
+ * to the server. The notice unmounts with the pressed button, so focus first
+ * moves to the Subscription block below it, or to the page heading while
+ * billing is still loading or failed, never to the page body.
+ */
+export function CheckoutCanceledNotice() {
+  const router = useRouter()
+  const dismiss = () => {
+    const target =
+      document.querySelector<HTMLElement>(
+        "[data-slot='billing-subscription-focus']"
+      ) ?? document.querySelector<HTMLElement>("h1[tabindex='-1']")
+    target?.focus({ preventScroll: true })
+    router.replace("/settings/billing", { scroll: false })
+  }
+  return (
+    <Alert variant="info" data-slot="checkout-canceled">
+      <AlertTitle>Checkout was not completed</AlertTitle>
+      <AlertDescription>
+        Nothing was charged and nothing changed. You can subscribe again below.
+      </AlertDescription>
+      <AlertAction>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Dismiss"
+          onClick={dismiss}
+        >
+          <XIcon strokeWidth={1.75} aria-hidden />
+        </Button>
+      </AlertAction>
+    </Alert>
+  )
+}
+
+/** Reasons only support can resolve: no action is offered for them. */
+const SUPPORT_REASONS = new Set<BillingOverview["access"]["reason"]>([
+  "plan_missing",
+  "record_incomplete",
+  "billing_missing",
+])
+
 export function BillingDetails({ overview }: { overview: BillingOverview }) {
   const portal = useOpenBillingPortal()
   const cancel = useCancelSubscription()
   const keep = useChangePlan()
   const [confirmCancel, setConfirmCancel] = React.useState(false)
   const cancelBlockedId = React.useId()
+  // Where focus goes once the cancel dialog closes. Only a confirmed
+  // cancellation takes the trigger away, so only then does focus move to
+  // the Subscription block; "Keep subscription" or Escape leaves it on the
+  // trigger (Base UI's default).
+  const subscriptionRef = React.useRef<HTMLDivElement>(null)
+  const cancelledRef = React.useRef(false)
+  const cancelFinalFocus = () =>
+    cancelledRef.current ? (subscriptionRef.current ?? true) : true
   const status = billingStatus(overview)
   const subscribed = isSubscribed(overview.state)
   const manageBlocked = overview.canManage
     ? undefined
     : "Only the workspace owner can change billing, and not from a support session."
+  const portalBlocked =
+    manageBlocked ??
+    (overview.checkout.reason === "billing_disabled" ||
+    overview.checkout.reason === "billing_paused"
+      ? "Billing is not available right now."
+      : undefined)
+  // A failed payment or a read-only workspace leads the page with what
+  // happened and the one thing that fixes it (the same Portal or plans).
+  const attention =
+    overview.access.mode === "grace" || overview.access.mode === "read_only"
+  const supportOnly = SUPPORT_REASONS.has(overview.access.reason)
+  const recovery: "portal" | "plans" | null =
+    !attention || supportOnly
+      ? null
+      : subscribed
+        ? overview.hasCustomer
+          ? "portal"
+          : null
+        : overview.catalog.length > 0
+          ? "plans"
+          : null
+  // The title names the same cause as describeBilling below it: a payment
+  // only when the reason is a failed or missing payment.
+  const reason = overview.access.reason
+  const attentionTitle =
+    overview.access.mode === "grace"
+      ? "Your last payment didn’t go through"
+      : supportOnly
+        ? "This workspace is read-only"
+        : reason === "subscription_ended"
+          ? "Your subscription has ended"
+          : reason === "renewal_unconfirmed"
+            ? "Waiting for the renewal payment to be confirmed"
+            : subscribed
+              ? "Payment needed to restore full access"
+              : "Choose a plan to restore full access"
+  // An ended subscription is not fixed by a payment method.
+  const recoveryAction =
+    recovery === "portal" && reason === "subscription_ended" ? null : recovery
   const linkNote = pendingLinkLimitNote(overview)
   const actionError = portal.error ?? cancel.error ?? keep.error
   // When full access ends if the subscription is cancelled now: the trial
@@ -123,122 +224,171 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
         </Alert>
       ) : null}
 
-      <SettingsSection
-        id="billing-subscription"
-        title="Subscription"
-        description={describeBilling(overview)}
-        variant="group"
-      >
-        <SettingsFacts
-          columns={2}
-          facts={[
-            [
-              "Status",
-              <StatusPill
-                key="status"
-                tone={status.tone}
-                data-slot="billing-status"
+      {attention ? (
+        <Alert
+          variant={overview.access.mode === "grace" ? "warning" : "destructive"}
+          // Present on load: page content, not an interruption.
+          live={false}
+          data-slot="billing-attention"
+        >
+          <AlertTitle>{attentionTitle}</AlertTitle>
+          <AlertDescription>{describeBilling(overview)}</AlertDescription>
+          {recoveryAction === "portal" ? (
+            <AlertActions>
+              <Button
+                disabledReason={portalBlocked}
+                pending={portal.isPending}
+                onClick={() => portal.mutate()}
               >
-                {status.label}
-              </StatusPill>,
-            ],
-            [
-              "Plan",
-              overview.plan ? (
-                <span
-                  key="plan"
-                  className="inline-flex flex-wrap items-center gap-2"
-                >
-                  {overview.plan.name}
-                  {overview.plan.isTestOffer ? (
-                    <Badge variant="warning">Test offer</Badge>
-                  ) : null}
-                </span>
-              ) : overview.state === "pilot" ? (
-                "Pilot"
-              ) : (
-                "No plan"
-              ),
-            ],
-            overview.state === "trialing" && overview.trialEndsAt
-              ? [
-                  overview.cancelAtPeriodEnd ? "Access ends" : "Trial ends",
-                  formatBillingDate(overview.trialEndsAt),
-                ]
-              : null,
-            overview.state === "active" && overview.currentPeriodEnd
-              ? [
-                  overview.cancelAtPeriodEnd ? "Access ends" : "Renews on",
-                  formatBillingDate(overview.currentPeriodEnd),
-                ]
-              : null,
-            overview.access.mode === "grace" && overview.access.endsAt
-              ? ["Grace ends", formatBillingDate(overview.access.endsAt)]
-              : null,
-            ["Locations", describeLocationUsage(overview)],
-          ]}
-        />
+                {reason === "renewal_unconfirmed"
+                  ? "Check payment details"
+                  : "Update payment method"}
+              </Button>
+            </AlertActions>
+          ) : recoveryAction === "plans" ? (
+            <AlertActions>
+              <a href="#billing-plans" className={buttonVariants()}>
+                See plans
+              </a>
+            </AlertActions>
+          ) : null}
+        </Alert>
+      ) : null}
 
-        {overview.pendingPlan && overview.pendingEffectiveAt ? (
-          <div
-            data-slot="pending-change"
-            className="flex flex-col gap-2 rounded-md bg-fill px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <p className="m-0 text-ui text-ink">
-              Changes to <strong>{overview.pendingPlan.name}</strong> on{" "}
-              {formatBillingDate(overview.pendingEffectiveAt)}.
-            </p>
-            {overview.plan ? (
+      <div
+        ref={subscriptionRef}
+        tabIndex={-1}
+        data-slot="billing-subscription-focus"
+        className="rounded-(--np-radius-card) focus-halo outline-none"
+      >
+        <SettingsSection
+          id="billing-subscription"
+          title="Subscription"
+          // The attention alert above already says it in full.
+          description={attention ? undefined : describeBilling(overview)}
+          variant="group"
+        >
+          <SettingsFacts
+            columns={2}
+            facts={[
+              [
+                "Status",
+                <StatusPill
+                  key="status"
+                  tone={status.tone}
+                  data-slot="billing-status"
+                >
+                  {status.label}
+                </StatusPill>,
+              ],
+              [
+                "Plan",
+                overview.plan ? (
+                  <span
+                    key="plan"
+                    className="inline-flex flex-wrap items-center gap-2"
+                  >
+                    {overview.plan.name}
+                    {overview.plan.isTestOffer ? (
+                      <Badge variant="warning">Test offer</Badge>
+                    ) : null}
+                  </span>
+                ) : overview.state === "pilot" ? (
+                  "Pilot"
+                ) : (
+                  "No plan"
+                ),
+              ],
+              overview.state === "trialing" && overview.trialEndsAt
+                ? [
+                    overview.cancelAtPeriodEnd ? "Access ends" : "Trial ends",
+                    formatBillingDate(overview.trialEndsAt),
+                  ]
+                : null,
+              overview.state === "active" && overview.currentPeriodEnd
+                ? [
+                    overview.cancelAtPeriodEnd ? "Access ends" : "Renews on",
+                    formatBillingDate(overview.currentPeriodEnd),
+                  ]
+                : null,
+              overview.access.mode === "grace" && overview.access.endsAt
+                ? ["Grace ends", formatBillingDate(overview.access.endsAt)]
+                : null,
+              ["Locations", describeLocationUsage(overview)],
+            ]}
+          />
+
+          {overview.pendingPlan && overview.pendingEffectiveAt ? (
+            <div
+              data-slot="pending-change"
+              className="flex flex-col gap-2 rounded-md bg-fill px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <p className="m-0 text-ui text-ink">
+                Changes to <strong>{overview.pendingPlan.name}</strong> on{" "}
+                {formatBillingDate(overview.pendingEffectiveAt)}.
+              </p>
+              {overview.plan ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabledReason={manageBlocked}
+                  pending={keep.isPending}
+                  onClick={() =>
+                    keep.mutate(overview.plan!.id, {
+                      onSuccess: (result) =>
+                        showPlanChangeToast(result, overview),
+                    })
+                  }
+                >
+                  Keep {overview.plan.name}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {linkNote ? (
+            <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            {overview.hasCustomer ? (
               <Button
                 variant="outline"
-                size="sm"
-                disabledReason={manageBlocked}
-                pending={keep.isPending}
-                onClick={() => keep.mutate(overview.plan!.id)}
+                disabledReason={portalBlocked}
+                pending={portal.isPending}
+                onClick={() => portal.mutate()}
               >
-                Keep {overview.plan.name}
+                Payment details and invoices
+              </Button>
+            ) : null}
+            {subscribed && overview.cancelAtPeriodEnd ? (
+              <Button
+                variant="outline"
+                disabledReason={manageBlocked}
+                pending={cancel.isPending}
+                onClick={() =>
+                  cancel.mutate(false, {
+                    onSuccess: (result) => {
+                      if (!result.cancelAtPeriodEnd) {
+                        toast.add({
+                          type: "success",
+                          title: "Subscription resumed",
+                        })
+                      }
+                    },
+                  })
+                }
+              >
+                Resume subscription
               </Button>
             ) : null}
           </div>
-        ) : null}
-        {linkNote ? (
-          <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
-        ) : null}
-
-        <div className="flex flex-wrap gap-2">
-          {overview.hasCustomer ? (
-            <Button
-              variant="outline"
-              disabledReason={
-                manageBlocked ??
-                (overview.checkout.reason === "billing_disabled" ||
-                overview.checkout.reason === "billing_paused"
-                  ? "Billing is not available right now."
-                  : undefined)
-              }
-              pending={portal.isPending}
-              onClick={() => portal.mutate()}
-            >
-              Payment details and invoices
-            </Button>
+          {actionError && !confirmCancel ? (
+            <p role="alert" className="m-0 text-ui text-danger-ink">
+              {billingActionError(actionError)}
+            </p>
           ) : null}
-          {subscribed && overview.cancelAtPeriodEnd ? (
-            <Button
-              variant="outline"
-              disabledReason={manageBlocked}
-              pending={cancel.isPending}
-              onClick={() => cancel.mutate(false)}
-            >
-              Resume subscription
-            </Button>
-          ) : null}
-        </div>
-        {actionError && !confirmCancel ? (
-          <p role="alert" className="m-0 text-ui text-danger-ink">
-            {billingActionError(actionError)}
-          </p>
-        ) : null}
-      </SettingsSection>
+        </SettingsSection>
+      </div>
 
       <SettingsSection
         id="billing-plans"
@@ -261,6 +411,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
           onClick={() => {
             if (manageBlocked) return
             cancel.reset()
+            cancelledRef.current = false
             setConfirmCancel(true)
           }}
         >
@@ -274,7 +425,10 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
       ) : null}
 
       <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
-        <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
+        <AlertDialogContent
+          className="grid-cols-[minmax(0,1fr)]"
+          finalFocus={cancelFinalFocus}
+        >
           <AlertDialogTitle>Cancel the subscription?</AlertDialogTitle>
           <AlertDialogDescription>
             {periodEnd
@@ -299,7 +453,27 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
               pending={cancel.isPending}
               onClick={() =>
                 cancel.mutate(true, {
-                  onSuccess: () => setConfirmCancel(false),
+                  onSuccess: (result) => {
+                    cancelledRef.current = result.cancelAtPeriodEnd
+                    setConfirmCancel(false)
+                    if (result.cancelAtPeriodEnd) {
+                      toast.add({
+                        type: "success",
+                        title: "Subscription cancelled",
+                        description:
+                          [
+                            periodEnd
+                              ? `Full access continues until ${formatBillingDate(periodEnd)}.`
+                              : null,
+                            result.clearedPendingPlan
+                              ? "The scheduled plan change was dropped."
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") || undefined,
+                      })
+                    }
+                  },
                 })
               }
             >

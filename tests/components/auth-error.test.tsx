@@ -34,6 +34,24 @@ describe("auth error boundary", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(reset).toHaveBeenCalled()
   })
+
+  it("re-fetches with retry, not a bare re-render, when Next passes it", async () => {
+    const reset = vi.fn()
+    const retry = vi.fn()
+    const unstable_retry = vi.fn()
+    render(
+      <AuthError
+        error={new Error("x")}
+        reset={reset}
+        retry={retry}
+        unstable_retry={unstable_retry}
+      />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(unstable_retry).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+  })
 })
 
 describe("team loading state", () => {

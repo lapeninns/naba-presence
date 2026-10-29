@@ -19,7 +19,13 @@ export default async function BillingConfirmingPage() {
   if (!billingRoutesEnabled()) return <BillingRouteDisabled />
   const session = await getSession()
   if (!session || session.role !== "owner") {
-    return <AccessDenied area="Billing" />
+    return (
+      <AccessDenied
+        area="Billing"
+        whoCanHelp="the owner"
+        whoCanGrant="Owners"
+      />
+    )
   }
   return (
     <>

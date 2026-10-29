@@ -141,8 +141,15 @@ function SignInForm({
     statusMessage ?? null
   )
   const [stage, setStage] = useState<"form" | "confirm-sent">("form")
+  // The address the server was sent, not the live field: the field stays
+  // editable while the request runs, and "Check your email" must name the
+  // address the link went to.
+  const [sentTo, setSentTo] = useState("")
   const [pending, startTransition] = useTransition()
   const alertRef = useRef<HTMLDivElement>(null)
+  const sentHeadingRef = useRef<HTMLHeadingElement>(null)
+  // Set by "Back to sign in", so the form it returns to starts at the email.
+  const returnToForm = useRef(false)
 
   // role="alert" is already an assertive live region, so this is a belt and
   // braces enhancement: move keyboard/screen-reader focus to the banner
@@ -153,6 +160,18 @@ function SignInForm({
       alertRef.current?.focus()
     }
   }, [message, fieldErrors])
+
+  // The confirm-sent panel replaces the form, so focus would fall to the
+  // page: move it to the panel's heading, which also announces the change.
+  // Back on the form, focus returns to the email it was sent to.
+  useEffect(() => {
+    if (stage === "confirm-sent") {
+      sentHeadingRef.current?.focus()
+    } else if (returnToForm.current) {
+      returnToForm.current = false
+      focusField("email")
+    }
+  }, [stage])
 
   function switchMode(next: SignInMode) {
     if (controlledMode === undefined) setUncontrolledMode(next)
@@ -169,6 +188,10 @@ function SignInForm({
     event.preventDefault()
     if (pending || validating.current) return
     validating.current = true
+    // Each attempt gets a fresh answer: the last banner goes now, so the
+    // reply (even the same words again) mounts and is announced as new,
+    // and a resubmit never moves focus back to the old one.
+    setMessage(null)
     void loadAuthSchemas()
       .then((schemas) => submitWith(schemas))
       .finally(() => {
@@ -244,6 +267,7 @@ function SignInForm({
           window.location.assign(nextPath ?? "/inbox")
           await new Promise<void>(() => {})
         } else {
+          setSentTo(parsed.data.email)
           setStage("confirm-sent")
         }
       } catch (error) {
@@ -266,7 +290,11 @@ function SignInForm({
           >
             <Mail className="size-5" strokeWidth={1.75} />
           </span>
-          <h2 className="text-section font-semibold text-ink">
+          <h2
+            ref={sentHeadingRef}
+            tabIndex={-1}
+            className="text-section font-semibold text-ink outline-none"
+          >
             Check your email
           </h2>
           {/* Neutral on purpose, like the reset screen: the server answers
@@ -276,10 +304,10 @@ function SignInForm({
           <p className="text-body text-ink-muted">
             If{" "}
             <span className="font-semibold [overflow-wrap:anywhere] text-ink">
-              {email}
+              {sentTo}
             </span>{" "}
             can be used for a new account, a confirmation link is on its way.
-            Open it, then sign in.
+            Open it to confirm your address and sign in.
           </p>
         </div>
         <div className="flex flex-col gap-3 rounded-lg bg-surface-alt p-4">
@@ -288,8 +316,9 @@ function SignInForm({
             fresh link. Already have an account? Sign in instead.
           </p>
           <ResendConfirmationButton
-            email={email}
+            email={sentTo}
             inviteToken={inviteToken}
+            surface={inviteToken ? "invitation" : "create-account"}
             variant="button"
           />
         </div>
@@ -299,6 +328,7 @@ function SignInForm({
           size="lg"
           block
           onClick={() => {
+            returnToForm.current = true
             setStage("form")
             switchMode("sign-in")
           }}
@@ -318,7 +348,11 @@ function SignInForm({
     >
       {message ? (
         <div ref={alertRef} tabIndex={-1} className="outline-none">
-          <AuthErrorAlert message={message} email={email} />
+          <AuthErrorAlert
+            message={message}
+            email={email}
+            inviteToken={inviteToken}
+          />
         </div>
       ) : null}
 
@@ -454,19 +488,15 @@ function SignInForm({
         type="submit"
         size="lg"
         block
-        disabled={pending}
-        aria-busy={pending || undefined}
+        pending={pending}
+        pendingLabel={mode === "sign-in" ? "Signing in…" : "Creating account…"}
       >
-        {mode === "sign-in"
-          ? pending
-            ? "Signing in…"
-            : "Sign in"
-          : pending
-            ? "Creating account…"
-            : "Create account"}
+        {mode === "sign-in" ? "Sign in" : "Create account"}
       </Button>
 
-      {nextPath && nextPath !== "/inbox" ? (
+      {/* Sign-in only: a new account confirms by email, and the emailed
+          link lands on the inbox, so the promise would not hold there. */}
+      {mode === "sign-in" && nextPath && nextPath !== "/inbox" ? (
         <p className="-mt-2 text-caption text-ink-muted">
           After signing in you’ll go back to{" "}
           <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-caption [overflow-wrap:anywhere] text-ink">
@@ -495,7 +525,20 @@ function SignInForm({
             Didn&apos;t receive a confirmation email?
           </summary>
           <div className="flex flex-col items-start gap-1 pt-2">
-            <ResendConfirmationButton email={email} inviteToken={inviteToken} />
+            <ResendConfirmationButton
+              email={email}
+              inviteToken={inviteToken}
+              // The address is the form's own field: an empty or malformed
+              // one is shown there, in the words the form already uses.
+              onInvalidEmail={(empty) => {
+                setFieldErrors({
+                  email: empty
+                    ? "Enter your email address."
+                    : "Enter an email address like name@example.co.uk.",
+                })
+                focusField("email")
+              }}
+            />
           </div>
         </details>
       ) : null}

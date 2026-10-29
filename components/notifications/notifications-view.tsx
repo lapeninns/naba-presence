@@ -41,6 +41,7 @@ import {
 } from "@/lib/api/operational-notifications"
 import type { NotificationItem } from "@/lib/contracts/operational-notifications"
 import {
+  CONDITION_KINDS,
   NOTIFICATION_EVENT_LABELS,
   type NotificationEventKind,
 } from "@/lib/domain/notification-preferences"
@@ -67,7 +68,7 @@ const DEFAULT_FILTER: NotificationFilter = "all"
 /** What each filter holds, said under the tabs: "Open" is not "Unread". */
 const FILTER_HINTS: Record<NotificationFilter, string> = {
   all: "Everything sent to you, newest first.",
-  unread: "Notifications you have not marked read.",
+  unread: "Notifications you have not marked read, resolved ones included.",
   open: "Problems nobody has resolved yet, whether read or not.",
 }
 
@@ -102,6 +103,38 @@ const KIND_ICONS: Partial<Record<NotificationEventKind, LucideIcon>> = {
   resource_stale: RefreshCw,
 }
 
+/**
+ * Where an account-level notification is fixed, as its email says: it has
+ * no listing to open. Only owners and admins receive these kinds, and both
+ * pages are theirs.
+ */
+const ACCOUNT_LINKS: Partial<
+  Record<NotificationEventKind, { to: "connections" | "usage"; label: string }>
+> = {
+  connection_reconnect: { to: "connections", label: "Open Google connections" },
+  connection_owner_left: {
+    to: "connections",
+    label: "Open Google connections",
+  },
+  ai_credits_low: { to: "usage", label: "See AI credits" },
+  ai_credits_exhausted: { to: "usage", label: "See AI credits" },
+}
+
+/** The kinds about one Google login, which a row names by its address. */
+const LOGIN_KINDS: readonly NotificationEventKind[] = [
+  "connection_reconnect",
+  "connection_owner_left",
+]
+
+function accountLink(kind: NotificationEventKind, usageHref: string) {
+  const link = ACCOUNT_LINKS[kind]
+  if (!link) return null
+  return {
+    href: link.to === "connections" ? "/settings/connections" : usageHref,
+    label: link.label,
+  }
+}
+
 function isFilter(value: string | null): value is NotificationFilter {
   return FILTERS.some((option) => option.value === value)
 }
@@ -121,8 +154,15 @@ function isFilter(value: string | null): value is NotificationFilter {
  *
  * The filter lives in the address (`?filter=`, "all" by default), so Back
  * from a listing returns to the same list.
+ *
+ * `usageHref` is where AI credits are shown on this deployment (Usage with
+ * billing on, Reply policy without), passed from the server page.
  */
-export function NotificationsView() {
+export function NotificationsView({
+  usageHref = "/settings/policy",
+}: {
+  usageHref?: string
+} = {}) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -142,8 +182,24 @@ export function NotificationsView() {
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
   const client = useQueryClient()
-  const changes = useNotificationChanges()
+  // Said politely once the server confirms a resolve: in the Open filter
+  // the row has already gone, and nothing else on the page changes.
+  const [announcement, setAnnouncement] = useState("")
+  const changes = useNotificationChanges({
+    onResolved: (label) => setAnnouncement(`${label} resolved for everyone.`),
+  })
   const pending = usePendingNotificationChanges()
+  // Rows with a resolve still out: they say "Resolving…" until the server
+  // answers, never "Resolved" before it has.
+  const resolving = useMemo(
+    () =>
+      new Set(
+        pending.flatMap((change) =>
+          change.kind === "resolve" ? change.ids : []
+        )
+      ),
+    [pending]
+  )
   // The total the bell shows while changes are pending: one number for both.
   const total = usePendingUnreadTotal()
   // The cached rows with every pending change laid over them. Where a row is
@@ -168,9 +224,10 @@ export function NotificationsView() {
   const unreadShown = items
     .filter((item) => !item.readAt)
     .map((item) => item.id)
-  // "Mark all read" goes once nothing shown is unread, and takes keyboard
-  // focus with it: the change starts, then focus moves to the current filter
-  // tab, so the person keeps their place even if the change is then refused.
+  // "Mark all read" (or "Mark N read") goes once nothing shown is unread,
+  // and takes keyboard focus with it: the change starts, then focus moves to
+  // the current filter tab, so the person keeps their place even if the
+  // change is then refused.
   const tabs = useRef<HTMLDivElement>(null)
   function focusFilterTab() {
     tabs.current
@@ -187,6 +244,35 @@ export function NotificationsView() {
   const leavesFilter = (action: "read" | "resolve") =>
     (filter === "unread" && action === "read") ||
     (filter === "open" && action === "resolve")
+
+  // Load more and Try again stay focusable while they work (`pending`), but
+  // either can leave the page when its fetch settles: Load more after the
+  // last page, a Try again once it succeeds. Focus then goes to the first
+  // row that arrived (or, failing that, the bottom Try again), or to the
+  // filter tab after a refresh; only if it would otherwise fall to the page.
+  const rowsArea = useRef<HTMLDivElement>(null)
+  const moreRetry = useRef<HTMLButtonElement>(null)
+  const settleFocus = useRef<{ to: "rows"; from: number } | { to: "tabs" }>(
+    null
+  )
+  function loadMore() {
+    settleFocus.current = { to: "rows", from: items.length }
+    void query.fetchNextPage()
+  }
+  useEffect(() => {
+    const target = settleFocus.current
+    if (!target || query.isFetching) return
+    settleFocus.current = null
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    if (target.to === "tabs") return focusFilterTab()
+    if (query.isFetchNextPageError) return moreRetry.current?.focus()
+    const rows = rowsArea.current?.querySelectorAll('[data-slot="list-row"]')
+    const row = rows?.[Math.min(target.from, rows.length - 1)]
+    const action = row?.querySelector<HTMLElement>("a, button")
+    if (action) action.focus()
+    else focusFilterTab()
+  }, [query.isFetching, query.isFetchNextPageError, items.length])
 
   function setFilter(value: string) {
     const next = new URLSearchParams(searchParams.toString())
@@ -274,34 +360,39 @@ export function NotificationsView() {
               {unread} open and unread
             </p>
             {unreadShown.length ? (
+              // "All" only when every unread notification is in the list:
+              // with more to load, or under Open (which leaves resolved
+              // unread ones out), the number says what it covers.
               <Button variant="secondary" onClick={markShownRead}>
                 {query.hasNextPage || filter === "open"
-                  ? `Mark ${unreadShown.length} shown as read`
+                  ? `Mark ${unreadShown.length} read`
                   : "Mark all read"}
               </Button>
             ) : null}
           </div>
         ) : null}
       </div>
-      {query.isError && query.data ? (
+      <span aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </span>
+      {query.isError && query.data && !query.isFetchNextPageError ? (
         // Above the list and the empty state alike: an empty list that could
-        // not be refreshed is not known to be empty.
+        // not be refreshed is not known to be empty. A failed Load more is
+        // said at the bottom, where it was pressed.
         <div
           role="alert"
           className="flex flex-wrap items-center justify-between gap-3 text-body text-ink-secondary"
         >
           <p>
-            {query.isFetchNextPageError
-              ? "More notifications could not be loaded."
-              : "Notifications could not be refreshed. This list may be out of date."}
+            Notifications could not be refreshed. This list may be out of date.
           </p>
           <Button
             variant="secondary"
-            onClick={() =>
-              void (query.isFetchNextPageError
-                ? query.fetchNextPage()
-                : query.refetch())
-            }
+            pending={query.isFetching && !query.isFetchingNextPage}
+            onClick={() => {
+              settleFocus.current = { to: "tabs" }
+              void query.refetch()
+            }}
           >
             Try again
           </Button>
@@ -329,7 +420,7 @@ export function NotificationsView() {
               placement="page"
               icon={<BellOffIcon />}
               title="No notifications yet"
-              description="Problems with Google connections, publishing and syncs appear here."
+              description="Approval requests, low-rated reviews and problems with Google connections, publishing or syncs show up here."
               action={
                 <Link
                   href="/settings/notifications"
@@ -362,39 +453,66 @@ export function NotificationsView() {
             inbox), a bordered card from md. ListRow draws the inset divider
             from the text column. */}
         {items.length ? (
-          <ListRows
-            bleed
-            aria-label="Notifications"
-            className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
-          >
-            {items.map((item) => (
-              <NotificationRow
-                key={item.id}
-                item={item}
-                confirming={confirming === item.id}
-                onRead={(value) => {
-                  changes.markRead([item.id], value)
-                  if (value && leavesFilter("read")) focusFilterTab()
-                }}
-                onAskResolve={() => setConfirming(item.id)}
-                onCancelResolve={() => setConfirming(null)}
-                onResolve={() => {
-                  setConfirming(null)
-                  changes.resolve(item.id)
-                  if (leavesFilter("resolve")) focusFilterTab()
-                }}
-              />
-            ))}
-          </ListRows>
+          // A box-less wrapper, so the rows that a Load more brought can be
+          // found for focus: ListRows keeps its own ref.
+          <div ref={rowsArea} className="contents">
+            <ListRows
+              bleed
+              aria-label="Notifications"
+              className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
+            >
+              {items.map((item) => (
+                <NotificationRow
+                  key={item.id}
+                  item={item}
+                  accountLink={accountLink(item.kind, usageHref)}
+                  resolving={resolving.has(item.id)}
+                  confirming={confirming === item.id}
+                  onRead={(value) => {
+                    changes.markRead([item.id], value)
+                    if (value && leavesFilter("read")) focusFilterTab()
+                  }}
+                  onAskResolve={() => setConfirming(item.id)}
+                  onCancelResolve={() => setConfirming(null)}
+                  onResolve={() => {
+                    setConfirming(null)
+                    changes.resolve(
+                      item.id,
+                      NOTIFICATION_EVENT_LABELS[item.kind].label
+                    )
+                    if (leavesFilter("resolve")) focusFilterTab()
+                  }}
+                />
+              ))}
+            </ListRows>
+          </div>
         ) : null}
-        {query.hasNextPage ? (
+        {query.isFetchNextPageError ? (
+          // Where Load more was pressed, in its place: one retry, not two.
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 text-body text-ink-secondary"
+          >
+            <p>More notifications could not be loaded.</p>
+            <Button
+              ref={moreRetry}
+              variant="secondary"
+              pending={query.isFetchingNextPage}
+              pendingLabel="Loading…"
+              onClick={loadMore}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : query.hasNextPage ? (
           <Button
             variant="secondary"
             className="self-start"
-            disabled={query.isFetchingNextPage}
-            onClick={() => void query.fetchNextPage()}
+            pending={query.isFetchingNextPage}
+            pendingLabel="Loading…"
+            onClick={loadMore}
           >
-            {query.isFetchingNextPage ? "Loading…" : "Load more notifications"}
+            Load more notifications
           </Button>
         ) : null}
       </QueryStates>
@@ -414,6 +532,8 @@ export function NotificationsView() {
  */
 function NotificationRow({
   item,
+  accountLink,
+  resolving,
   confirming,
   onRead,
   onAskResolve,
@@ -421,6 +541,10 @@ function NotificationRow({
   onResolve,
 }: {
   item: NotificationItem
+  /** Where an account-level kind is fixed, when there is no other target. */
+  accountLink: { href: string; label: string } | null
+  /** A resolve is out: not resolved until the server says so. */
+  resolving: boolean
   confirming: boolean
   onRead: (read: boolean) => void
   onAskResolve: () => void
@@ -431,10 +555,21 @@ function NotificationRow({
   const Icon = KIND_ICONS[item.kind] ?? Bell
   const reviewHref = reviewNotificationPath(item.kind, item.summary)
   const unread = !item.readAt
+  // A login's notification has no listing: its address says which login.
+  const login =
+    LOGIN_KINDS.includes(item.kind) &&
+    typeof item.summary.googleEmail === "string" &&
+    item.summary.googleEmail
+      ? item.summary.googleEmail
+      : null
   const title =
     typeof item.summary.title === "string"
       ? item.summary.title
-      : item.locationName
+      : (item.locationName ?? login)
+  // While a resolve is out the row says so, with no resolved time: the
+  // pending change already reads "resolved", the server has not.
+  const resolvedAt = resolving ? null : item.resolvedAt
+  const captionId = useId()
   // The Resolve button goes when the question appears: focus follows it. And
   // when the question goes (answered or cancelled) its buttons go with it, so
   // focus returns to one of the row's own actions rather than the page: back
@@ -471,38 +606,55 @@ function NotificationRow({
       title={copy.label}
       meta={<RelativeTime iso={item.openedAt} />}
       subtitle={
-        title || item.resolvedAt ? (
+        title || resolvedAt ? (
           <>
             {title}
-            {title && item.resolvedAt ? " · " : null}
-            {item.resolvedAt ? (
+            {title && resolvedAt ? " · " : null}
+            {resolvedAt ? (
               <>
-                resolved <RelativeTime iso={item.resolvedAt} />
+                resolved <RelativeTime iso={resolvedAt} />
               </>
             ) : null}
           </>
         ) : null
       }
       trailing={
-        <StatusPill
-          tone={item.status === "open" ? "attention" : "outline"}
-          plain
-        >
-          {item.status === "open" ? "Open" : "Resolved"}
-        </StatusPill>
+        resolving ? (
+          <StatusPill tone="outline" dashed>
+            Resolving…
+          </StatusPill>
+        ) : (
+          <StatusPill
+            tone={item.status === "open" ? "attention" : "outline"}
+            plain
+          >
+            {item.status === "open" ? "Open" : "Resolved"}
+          </StatusPill>
+        )
       }
       preview={copy.description}
       footer={
         // Keyed apart: reusing the question's DOM for the actions turned the
         // green "Yes, resolve" into "Mark unread" mid colour transition.
         confirming ? (
+          // Escape is Cancel. The consequence describes both buttons, so it
+          // is read with whichever has focus.
           <div
             key="confirm"
             role="group"
             aria-label={`Resolve ${copy.label}?`}
             className="flex min-w-0 flex-wrap items-center gap-2"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return
+              event.preventDefault()
+              returnTo.current = "resolve"
+              onCancelResolve()
+            }}
           >
-            <p className="w-full text-caption text-ink-secondary">
+            <p
+              id={captionId}
+              className="w-full text-caption text-ink-secondary"
+            >
               Resolve for everyone? It can’t be reopened.
             </p>
             <Button
@@ -514,6 +666,7 @@ function NotificationRow({
               }}
               // The name starts with the words on the button (WCAG 2.5.3).
               aria-label={`Yes, resolve: ${copy.label}`}
+              aria-describedby={captionId}
             >
               Yes, resolve
             </Button>
@@ -523,6 +676,7 @@ function NotificationRow({
                 returnTo.current = "resolve"
                 onCancelResolve()
               }}
+              aria-describedby={captionId}
             >
               Cancel
             </Button>
@@ -547,6 +701,14 @@ function NotificationRow({
               >
                 Open listing
               </Link>
+            ) : accountLink ? (
+              <Link
+                href={accountLink.href}
+                className={cn(buttonVariants({ variant: "ghost" }))}
+                aria-label={`${accountLink.label} for ${copy.label}`}
+              >
+                {accountLink.label}
+              </Link>
             ) : null}
             <Button
               ref={readRef}
@@ -565,6 +727,15 @@ function NotificationRow({
               >
                 Resolve
               </Button>
+            ) : null}
+            {item.status === "open" && !item.canResolve ? (
+              // Who closes it, for a row with no Resolve: a condition clears
+              // itself; otherwise the server withholds it only by role.
+              <p className="basis-full ps-2.5 text-caption text-ink-muted">
+                {CONDITION_KINDS.includes(item.kind)
+                  ? "Clears on its own once the problem is fixed."
+                  : "An owner or admin can resolve this."}
+              </p>
             ) : null}
           </div>
         )

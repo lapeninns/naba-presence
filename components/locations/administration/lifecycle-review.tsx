@@ -45,11 +45,14 @@ export function LifecycleReview({
   workflow,
   locationName,
   disabled,
+  disabledReason,
   focusKey,
 }: {
   readonly workflow: ReturnType<typeof useLifecycle>
   readonly locationName: string
   readonly disabled: boolean
+  /** Why sending is paused while `disabled`, in words that name the cause. */
+  readonly disabledReason?: string | null
   /** Moves focus to the panel when a review opens (see ReviewedWritePanel). */
   readonly focusKey?: string | null
 }) {
@@ -127,7 +130,8 @@ export function LifecycleReview({
     : workflow.stale || expired
       ? "This request can no longer be sent."
       : disabled
-        ? "Sending is paused until the other Google change is resolved."
+        ? (disabledReason ??
+          "Sending is paused until the other Google change is resolved.")
         : !locationName
           ? "The listing name is unavailable, so this can’t be confirmed."
           : !nameMatches

@@ -17,8 +17,12 @@ export type HoursNote = {
   tone: "info" | "warning"
   title?: string
   description: string
-  /** The note carries the "Match Google closing boundaries" action. */
-  action?: "reconcile"
+  /**
+   * The action the note carries: "Match Google closing boundaries"
+   * (`reconcile`) or "Keep Google’s hours" (`keep-google`). Both only change
+   * the draft; nothing is saved until the operator saves.
+   */
+  action?: "reconcile" | "keep-google"
 }
 
 /**
@@ -45,7 +49,20 @@ export function serviceNote(warnings: readonly string[]): string | null {
 
 export function hoursNotes(
   hours: Pick<HoursState, "status" | "warnings" | "reconciliationRequired">,
-  { gated, googleEmpty }: { gated: boolean; googleEmpty: boolean }
+  {
+    gated,
+    googleEmpty,
+    draftEmpty,
+  }: {
+    gated: boolean
+    googleEmpty: boolean
+    /**
+     * The schedule being edited has no open day, special day or service.
+     * With hours already waiting here, "switch on your open days" is the
+     * wrong advice: they only need publishing.
+     */
+    draftEmpty: boolean
+  }
 ): HoursNote[] {
   const notes: HoursNote[] = []
   if (!gated && hours.status === "conflict") {
@@ -57,13 +74,35 @@ export function hoursNotes(
         "The saved schedule and Google differ. Review both versions before deciding which hours to publish.",
     })
   }
-  if (!gated && googleEmpty && hours.status !== "conflict") {
+  // Someone changed (or removed) the hours on Google since they were last
+  // published from here. Keeping Google's version only fills the draft; it
+  // is saved, like any edit, with Save here. With nothing on Google there is
+  // nothing to keep, so only the review-and-publish way back is offered.
+  if (!gated && hours.status === "google_dirty") {
+    notes.push({
+      key: "google-changed",
+      tone: "warning",
+      title: "Hours changed on Google",
+      description: googleEmpty
+        ? "Someone removed these hours on Google since they were last published from here. Review and publish to put the saved schedule back."
+        : "Someone changed these hours on Google since they were last published from here. Keep Google’s hours and save them here, or review and publish to put the saved schedule back.",
+      ...(googleEmpty ? {} : { action: "keep-google" as const }),
+    })
+  }
+  // The Google-changed note already says Google's hours were removed.
+  if (
+    !gated &&
+    googleEmpty &&
+    hours.status !== "conflict" &&
+    hours.status !== "google_dirty"
+  ) {
     notes.push({
       key: "google-empty",
       tone: "info",
       title: "No hours on Google",
-      description:
-        "Google shows no hours yet, so customers see “Hours not available”. Switch on your open days.",
+      description: draftEmpty
+        ? "Google shows no hours yet, so customers see “Hours not available”. Switch on your open days."
+        : "Google shows no hours yet, so customers see “Hours not available”. Review and publish these hours to put them on Google.",
     })
   }
   if (hours.reconciliationRequired) {

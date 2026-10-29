@@ -8,6 +8,7 @@ import {
   firstName,
   type AccessScopeItem,
 } from "@/components/settings/access-scope-form"
+import { describeMemberError } from "@/components/settings/member-dialogs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DialogBody, DialogFooter } from "@/components/ui/dialog"
@@ -18,7 +19,6 @@ import type {
   ClientAccessResponse,
   ClientAccessUpdateInput,
 } from "@/lib/contracts/client-access"
-import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 
@@ -189,7 +189,7 @@ export function LocationAccessForm({
           <Alert variant="destructive">
             <AlertTitle>Access wasn’t changed</AlertTitle>
             <AlertDescription>
-              {describeActionError(save.error)}
+              {describeMemberError(save.error)}
             </AlertDescription>
           </Alert>
         ) : null}

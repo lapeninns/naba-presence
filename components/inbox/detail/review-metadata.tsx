@@ -29,8 +29,8 @@ const DRAFT_SOURCE: Record<string, string> = {
  *
  *  · The assignee is real product state (there is an assignee filter and a bulk
  *    "assign" action) but it is not projected onto the review response, so
- *    there is nothing honest to print. The note at the foot says so instead of
- *    borrowing a name from somewhere else.
+ *    there is nothing honest to print, and the dialog simply does not list
+ *    it rather than borrowing a name from somewhere else.
  *  · Authorship comes from the audit trail — who actually saved the draft —
  *    not from `draft.source` and never from the assignee. Assignment and
  *    authorship are different claims, and an unassigned review can still have
@@ -49,9 +49,11 @@ function ReviewMetadata({
   finalFocus?: RefObject<HTMLElement | null>
 }) {
   const latestDraft = review.drafts[0]
+  // The actions the drafts route writes (lib/server/review-drafts.ts): a typed
+  // save is `edited`, a Generate is `generated`.
   const savedBy = actorFor(review, [
-    "review.draft.saved",
-    "review.draft.created",
+    "review.draft.edited",
+    "review.draft.generated",
   ])
   const publishedBy = actorFor(review, ["review.reply.published"])
   const approvedBy = actorFor(review, ["review.approval.approved"])
@@ -62,12 +64,14 @@ function ReviewMetadata({
       value: formatDateTime(review.createTime, review.timezone),
     },
     {
-      term: "Google profile",
+      // The listing's own verification on Google, not the review's: the same
+      // thing the ⋯ menu's "Open listing" opens.
+      term: "Listing",
       value:
         review.verified === true
-          ? `${review.locationName} · verified`
+          ? `${review.locationName} · verified on Google`
           : review.verified === false
-            ? `${review.locationName} · not verified`
+            ? `${review.locationName} · not verified on Google`
             : review.locationName,
     },
   ]
@@ -91,8 +95,7 @@ function ReviewMetadata({
         <DialogHeader>
           <DialogTitle>Review details</DialogTitle>
           <DialogDescription>
-            When the review arrived, its Google profile and who worked on the
-            reply.
+            When the review arrived, its listing and who worked on the reply.
           </DialogDescription>
         </DialogHeader>
         <dl className="flex flex-col gap-3">
@@ -105,11 +108,6 @@ function ReviewMetadata({
             </div>
           ))}
         </dl>
-        <p className="border-t border-line-subtle pt-2 text-caption text-ink-muted">
-          Who a review is assigned to is not part of this review&rsquo;s data
-          yet, so it is not shown here. You can still filter the list by
-          assignee.
-        </p>
       </DialogContent>
     </Dialog>
   )

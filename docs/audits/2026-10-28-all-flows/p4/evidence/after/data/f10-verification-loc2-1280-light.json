@@ -1,0 +1,15 @@
+{
+  "state": "f10-verification-loc2",
+  "variant": "1280-light",
+  "url": "/listings/2d0e592d-1c25-48ac-b4cf-06b9c8666e0f/verification",
+  "h1": "Verification",
+  "activeElement": "body \"((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"ligh\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Current Google state could not be readNo current observation is available. This does not mean the listing is unverified or has no requests. Changes stay paused ",
+    "Google’s PIN requests can’t be read right now. Check Google again before entering a PIN."
+  ],
+  "disabledButtons": [],
+  "violations": []
+}

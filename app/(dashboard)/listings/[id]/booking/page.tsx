@@ -27,7 +27,7 @@ export default async function ListingBookingPage({
     <StreamedTab
       session={session}
       entries={bookingTabPrefetch(id)}
-      loadingLabel="action links"
+      loadingLabel="booking links"
     >
       <AreaEditor area="booking" locationId={id} />
     </StreamedTab>

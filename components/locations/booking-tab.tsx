@@ -26,10 +26,18 @@ import { EditorFrame } from "@/components/editors/editor-frame"
 import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { LocationTab } from "@/components/locations/location-tab"
 import { usePlaceActionReview } from "@/components/locations/place-actions/use-place-action-review"
-import { SavedPlaceActionWork } from "@/components/locations/place-actions/saved-place-action-work"
+import {
+  SAVED_BOOKING_LINK_WORK_ID,
+  SavedPlaceActionWork,
+} from "@/components/locations/place-actions/saved-place-action-work"
 import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { ActionBar } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cardClassName } from "@/components/ui/card"
@@ -51,7 +59,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { ListRow, ListRowTag } from "@/components/ui/list-row"
 import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
@@ -108,25 +121,54 @@ export function BookingTab({ locationId }: { locationId: string }) {
         useResource={usePlaceActions}
         resource="booking"
       >
-        {({ data: state, caps, publishReason }) => (
-          <EditorFrame title="Booking links" titleHidden>
-            <PlaceActionsFreshness
-              locationId={locationId}
-              observedAt={state.observedAt}
-            />
-            <BookingLinks
-              locationId={locationId}
-              state={state}
-              caps={caps}
-              writeReason={publishReason}
-              workflow={workflow}
-            />
-          </EditorFrame>
-        )}
+        {({ data: state, caps, publishReason }) => {
+          const viewOnly = bookingViewOnly(caps, publishReason)
+          return (
+            <EditorFrame title="Booking links" titleHidden readView={viewOnly}>
+              <PlaceActionsFreshness
+                locationId={locationId}
+                observedAt={state.observedAt}
+              />
+              <BookingLinks
+                locationId={locationId}
+                state={state}
+                caps={caps}
+                writeReason={publishReason}
+                viewOnly={viewOnly}
+                workflow={workflow}
+              />
+            </EditorFrame>
+          )
+        }}
       </LocationTab>
       <SavedPlaceActionWork locationId={locationId} workflow={workflow} />
     </div>
   )
+}
+
+/**
+ * Someone who can look but not change the links: a role that can't edit the
+ * location and is also kept from writing to Google (a viewer, or a member
+ * without publish rights). They get the links as a read view, with no add
+ * form and no row actions. A member who can publish keeps the full editor,
+ * as the capabilities say; an owner or admin held back only by a pause keeps
+ * the (disabled) form beside the banner that says why.
+ */
+function bookingViewOnly(
+  caps: LocationCapabilities | undefined,
+  writeReason: string | null
+): boolean {
+  return Boolean(caps && !caps.canEditCanonical && writeReason)
+}
+
+/** The stored operation in the operator's words: "adding a link". */
+const OPERATION_WORDS: Record<string, string> = {
+  create: "adding a link",
+  update: "changing a link",
+  delete: "removing a link",
+}
+function operationWords(operation: string): string {
+  return OPERATION_WORDS[operation.toLowerCase()] ?? "a booking link change"
 }
 
 /** "Checked with Google N min ago · Check Google now" for the links. */
@@ -170,6 +212,7 @@ function BookingLinks({
   state,
   caps,
   writeReason,
+  viewOnly,
   workflow,
 }: {
   locationId: string
@@ -177,6 +220,8 @@ function BookingLinks({
   caps: LocationCapabilities | undefined
   /** Why Google writes are blocked for this resource, or null. Booking links are Google-direct, so this is the only gate. */
   writeReason: string | null
+  /** A read view: no add form, no row actions (see `bookingViewOnly`). */
+  viewOnly: boolean
   workflow: ReturnType<typeof usePlaceActionReview>
 }) {
   const [deleteTarget, setDeleteTarget] = useState<PlaceActionLink | null>(null)
@@ -190,7 +235,7 @@ function BookingLinks({
     // Every booking change is a Google write, so for someone who can't edit
     // the location at all (a viewer) the gate is "look, don't change", not a
     // publishing limit an owner could work around.
-    editReason: caps && !caps.canEditCanonical ? writeReason : null,
+    editReason: viewOnly ? writeReason : null,
     publishReason: writeReason,
     noun: "these links",
     savesHere: false,
@@ -291,9 +336,20 @@ function BookingLinks({
         <Alert variant="info">
           <AlertTitle>Booking link changes are paused</AlertTitle>
           <AlertDescription>
-            Read the saved outcome and refresh its observation before another
-            booking link change.
+            Open the saved outcome and check it on Google before another booking
+            link change.
           </AlertDescription>
+          {workflow.review ? (
+            <AlertActions>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => workflow.setOpen(true)}
+              >
+                Open saved outcome
+              </Button>
+            </AlertActions>
+          ) : null}
         </Alert>
       ) : null}
       {gate ? (
@@ -310,7 +366,7 @@ function BookingLinks({
           <Alert variant="destructive" role="status">
             <AlertTitle>Google rejected the last change</AlertTitle>
             <AlertDescription>
-              The last change ({latest.operation.toLowerCase()}) failed. The
+              The last change ({operationWords(latest.operation)}) failed. The
               links below are what Google holds now.
             </AlertDescription>
           </Alert>
@@ -318,10 +374,27 @@ function BookingLinks({
           <Alert variant="info">
             <AlertTitle>The last booking link outcome needs a check</AlertTitle>
             <AlertDescription>
-              The last change ({latest.operation.toLowerCase()}) has no
-              confirmed outcome. Read its saved request before another change.
+              The last change ({operationWords(latest.operation)}) has no
+              confirmed outcome.
+              {caps?.canEditCanonical
+                ? " Read its saved request before another change."
+                : null}{" "}
               The links below are what Google held when we last checked.
             </AlertDescription>
+            {/* Saved work is listed for owners and admins only. */}
+            {caps?.canEditCanonical ? (
+              <AlertActions>
+                <a
+                  href={`#${SAVED_BOOKING_LINK_WORK_ID}`}
+                  className={buttonVariants({
+                    variant: "secondary",
+                    size: "sm",
+                  })}
+                >
+                  Go to saved booking link work
+                </a>
+              </AlertActions>
+            ) : null}
           </Alert>
         )
       ) : null}
@@ -334,7 +407,11 @@ function BookingLinks({
               icon={<Link2 />}
               titleAs="h2"
               title="No booking links yet"
-              description="Add a booking link below. Google decides how it appears publicly."
+              description={
+                viewOnly
+                  ? "Google shows no booking links on this listing."
+                  : "Add a booking link below. Google decides how it appears publicly."
+              }
             />
           ) : (
             groupTypes.map((type) => {
@@ -406,7 +483,7 @@ function BookingLinks({
                           ) : undefined
                         }
                         footer={
-                          link.isEditable ? (
+                          link.isEditable && !viewOnly ? (
                             <LinkActions
                               typeLabel={actionTypeLabel(type)}
                               canPrefer={!link.isPreferred && links.length > 1}
@@ -434,12 +511,14 @@ function BookingLinks({
 
           <GoogleManagedLinks links={state.unsupportedLinks ?? []} />
 
-          <AddLinkForm
-            locationId={locationId}
-            state={state}
-            disabled={disabled}
-            workflow={workflow}
-          />
+          {viewOnly ? null : (
+            <AddLinkForm
+              locationId={locationId}
+              state={state}
+              disabled={disabled}
+              workflow={workflow}
+            />
+          )}
         </div>
 
         <BookingPreview links={state.links} />
@@ -452,13 +531,17 @@ function BookingLinks({
           setDeleteTarget(null)
           setConfirmFailure(null)
         }}
-        title="Review removing this booking link?"
+        title={
+          deleteTarget
+            ? `Remove this ${actionTypeLabel(deleteTarget.placeActionType)} link?`
+            : "Remove this booking link?"
+        }
         description={
           deleteTarget
-            ? `Customers stop seeing it on the ${actionTypeLabel(deleteTarget.placeActionType)} button once Google accepts the change.`
-            : "This removes the link from your Google Business Profile."
+            ? `Customers stop seeing it on the ${actionTypeLabel(deleteTarget.placeActionType)} button once Google accepts the change. You review and approve the removal before it’s sent.`
+            : "This removes the link from your Google Business Profile. You review and approve the removal before it’s sent."
         }
-        confirmLabel="Prepare removal review"
+        confirmLabel="Review removal"
         confirmVariant="danger"
         requireAcknowledgement={false}
         pending={workflow.busy}
@@ -485,7 +568,7 @@ function BookingLinks({
             : "Make this the preferred link?"
         }
         description="Google shows the preferred link first on the button. The other links stay on the listing."
-        confirmLabel="Prepare preferred link review"
+        confirmLabel="Review preferred link"
         requireAcknowledgement={false}
         pending={workflow.busy}
         pendingLabel="Preparing review…"
@@ -722,6 +805,9 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
   )
 }
 
+/** Said before a mistake, not only in the error after it: the placeholder goes once typing starts. */
+const URL_HINT = "The full address of your booking page, starting with https://"
+
 type NewLink = { type: PlaceActionType; uri: string; preferred: boolean }
 
 /** A new link's untouched form: the type picker alone is not an edit. */
@@ -868,6 +954,7 @@ function AddLinkForm({
               autoComplete="off"
               disabled={disabled}
             />
+            <FieldDescription>{URL_HINT}</FieldDescription>
             <FieldError />
           </Field>
           {failure ? <FailureNote message={failure} /> : null}
@@ -1051,6 +1138,7 @@ function EditLinkDialog({
                     setError(checkBookingUrl(event.target.value, sameType))
                 }}
               />
+              <FieldDescription>{URL_HINT}</FieldDescription>
               <FieldError />
             </Field>
             {failure ? <FailureNote message={failure} /> : null}

@@ -139,13 +139,13 @@ function describeException(
       return {
         title: "Waiting for another approver",
         description:
-          "You wrote this reply, so another person with publishing rights must approve it. You can still reject it and send it back for changes.",
+          "You wrote this reply, so another person with publishing rights must approve it. You can still send it back for changes.",
         tone: "caution",
       }
     }
     if (serverScope === "me") {
       return {
-        title: "Approval required",
+        title: "Waiting for your approval",
         description:
           "This reply is waiting for your approval. Approve it to send it to Google, or send it back for changes.",
         tone: "caution",
@@ -164,7 +164,7 @@ function describeException(
     }
     return review.capabilities.canPublish
       ? {
-          title: "Approval required",
+          title: "Waiting for approval",
           // Deliberately not "YOUR approval is required". `canPublish` is a
           // location grant, and it stays true for the very person who
           // submitted the reply — only the server knows whether an
@@ -191,17 +191,23 @@ function describeException(
     const who = review.lastRejection.decidedByName ?? "An approver"
     const note = review.lastRejection.note?.trim()
     return {
-      title: "Sent back by the approver",
+      title: review.lastRejection.decidedByName
+        ? `Sent back by ${review.lastRejection.decidedByName}`
+        : "Sent back by an approver",
       description: note
-        ? `${who} rejected this reply: “${note}” Edit it, then submit it again.`
-        : `${who} rejected this reply without a note. Edit it, then submit it again.`,
+        ? `${who} sent this reply back: “${note}” Edit it, then submit it again.`
+        : `${who} sent this reply back without a note. Edit it, then submit it again.`,
       tone: "caution",
     }
   }
 
   if (action.kind === "submit") {
+    // Who approves it, as the title; the status line says it is ready to
+    // submit. "Waiting for your approval" is the approver's alone.
     return {
-      title: "Approval required",
+      title: review.capabilities.canPublish
+        ? "A second person approves this reply"
+        : "Someone with publishing rights approves this reply",
       description: review.capabilities.canPublish
         ? // A publisher submits only under the two-person rule.
           "Your organisation needs a second person to approve each reply. Submit it, and another person with publishing rights approves it before it goes to Google."
@@ -215,12 +221,10 @@ function describeException(
     !review.capabilities.canPublish &&
     !review.capabilities.canRequestApproval
   ) {
-    return {
-      title: "View-only access",
-      description:
-        "You can read this review and its reply, but not edit or publish it for this location. Ask an owner or admin for reply access.",
-      tone: "caution",
-    }
+    // A permanent role state, not a problem with this reply: said once, in
+    // the quiet line under the reply heading (review-detail.tsx). Kept as a
+    // branch so a viewer never falls through to "Publisher needed".
+    return null
   }
 
   if (

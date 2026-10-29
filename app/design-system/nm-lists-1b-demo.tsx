@@ -156,6 +156,7 @@ function NmLists1bDemo() {
         <SettingsGroup
           id="demo-notifications"
           label="Notifications per event"
+          headingAs="h3"
           caption="Saved for every venue you manage."
           card
           action={

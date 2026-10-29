@@ -4,10 +4,12 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
+  ImageOffIcon,
   ImagesIcon,
   StarIcon,
   Trash2Icon,
 } from "lucide-react"
+import { useState } from "react"
 
 import { StatusPill } from "@/components/ui/status-pill"
 import { Button } from "@/components/ui/button"
@@ -20,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import type { MediaItem } from "@/lib/api/location-media"
+import { formatNumber } from "@/lib/format/number"
 import { formatMediaDate, humaniseCategory } from "@/lib/locations/media-labels"
 
 function pixelSize(dimensions: unknown): string | null {
@@ -36,12 +39,14 @@ function pixelSize(dimensions: unknown): string | null {
  * business photo — the actions that change Google, each saying so.
  *
  * `items` is the page being browsed, so the position reads "3 of 12" for
- * what the operator can see; the library's other pages are one Next away
- * in the grid.
+ * what the operator can see. With `total` above that it says so ("12 of 12
+ * loaded · 40 in all"), so a disabled Next never reads as the end of the
+ * library: the other pages are one Load more away in the grid.
  */
 export function PhotoPreview({
   item,
   items,
+  total,
   open,
   onOpenChange,
   onNavigate,
@@ -53,6 +58,8 @@ export function PhotoPreview({
   item: MediaItem | null
   /** The items the lightbox steps through; defaults to the one item. */
   items?: readonly MediaItem[]
+  /** Every item matching the filters, loaded or not. */
+  total?: number
   open: boolean
   onOpenChange: (open: boolean) => void
   onNavigate?: (item: MediaItem) => void
@@ -62,6 +69,9 @@ export function PhotoPreview({
   writeReason?: string | null
   updating?: boolean
 }) {
+  // The thumbnail link that failed (Google's expire); keyed by URL, so the
+  // next photo, or a refreshed link, gets its own try.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   if (!item) return null
 
   const list = items && items.length > 0 ? items : [item]
@@ -79,6 +89,9 @@ export function PhotoPreview({
   const size = pixelSize(item.dimensions)
   const locked = Boolean(writeReason)
   const showActions = !customer && (onDelete || onUseAsLogo)
+  const unavailable =
+    Boolean(item.thumbnailUrl) && failedUrl === item.thumbnailUrl
+  const markFailed = () => setFailedUrl(item.thumbnailUrl)
 
   const note = customer
     ? "Customer photos can’t be moved, deleted or used as your logo. If one breaks Google’s rules, report it on Google Maps."
@@ -117,14 +130,36 @@ export function PhotoPreview({
 
         <figure className="m-0 flex min-w-0 flex-col gap-3">
           <div className="grid min-h-48 place-items-center rounded-lg bg-surface-alt p-2">
-            {item.thumbnailUrl ? (
+            {item.thumbnailUrl && !unavailable ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
+                // A new element per photo, so a failed one never lingers.
+                key={item.thumbnailUrl}
                 src={item.thumbnailUrl}
                 alt={item.description || `${categoryLabel} ${mediaKind}`}
                 referrerPolicy="no-referrer"
+                ref={(image) => {
+                  if (
+                    image?.complete &&
+                    image.naturalWidth === 0 &&
+                    image.currentSrc
+                  )
+                    markFailed()
+                }}
+                onError={markFailed}
                 className="h-auto max-h-[min(58dvh,40rem)] w-auto max-w-full rounded-md object-contain"
               />
+            ) : unavailable ? (
+              <p className="flex flex-col items-center gap-2 py-10 text-center text-body text-ink-muted">
+                <ImageOffIcon
+                  aria-hidden
+                  className="size-8"
+                  strokeWidth={1.5}
+                />
+                {item.googleUrl
+                  ? "This photo can’t be shown here. Open the original on Google to see it."
+                  : "This photo can’t be shown here."}
+              </p>
             ) : (
               <ImagesIcon
                 aria-hidden
@@ -150,6 +185,9 @@ export function PhotoPreview({
                 aria-live="polite"
               >
                 {index + 1} of {list.length}
+                {total !== undefined && total > list.length
+                  ? ` loaded · ${formatNumber(total)} in all`
+                  : ""}
               </span>
               <Button
                 variant="secondary"

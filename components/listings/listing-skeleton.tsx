@@ -5,14 +5,18 @@ import { Skeleton } from "@/components/ui/skeleton"
  * (L03) so the page doesn't jump: the listing's name, the title with its
  * pill, the one-line description, the tab row from 64rem, then a white card
  * the height of a short section. Rendered inside the dashboard layout's
- * <main>, so no landmark or h1 of its own.
+ * <main>, so no landmark or h1 of its own. One polite status names what is
+ * loading, since the grey shapes say nothing to a screen reader. Also the
+ * listing gate's shape, so the overview and every area wait the same way.
  */
 function ListingSkeleton() {
   return (
     <div
       className="flex flex-col gap-2 px-5 pt-6 md:gap-3 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)"
+      role="status"
       aria-busy="true"
     >
+      <span className="sr-only">Loading this listing…</span>
       <div className="flex flex-col gap-2">
         <div className="flex h-(--np-control-h) items-center md:h-auto">
           <Skeleton className="h-4 w-40 max-w-full" />

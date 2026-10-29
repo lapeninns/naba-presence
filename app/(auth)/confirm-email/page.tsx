@@ -1,7 +1,6 @@
 import { AuthCard } from "@/components/auth/auth-card"
 import { AuthLink } from "@/components/auth/auth-link"
-import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
-import { Button } from "@/components/ui/button"
+import { ConfirmEmailForm } from "@/components/auth/confirm-email-form"
 
 export const metadata = { title: "Confirm your email · NabaPresence" }
 
@@ -9,7 +8,7 @@ export const metadata = { title: "Confirm your email · NabaPresence" }
  * The interstitial behind the emailed confirmation link (W6-05). Opening the
  * link signs nobody in: only this button's same-origin POST to
  * `/auth/confirm` consumes the one-time token. A plain form, so it works
- * before (or without) JavaScript.
+ * before (or without) JavaScript (components/auth/confirm-email-form.tsx).
  */
 export default async function ConfirmEmailPage({
   searchParams,
@@ -18,6 +17,27 @@ export default async function ConfirmEmailPage({
 }) {
   const params = await searchParams
   const invited = Boolean(params.inviteToken)
+  // A link that lost its token can confirm nothing, so the heading says
+  // what happened instead of asking for an action the page cannot offer.
+  if (!params.token_hash) {
+    return (
+      <AuthCard
+        aside={invited ? "invite" : "product"}
+        eyebrow="Email confirmation"
+        title="This confirmation link is incomplete"
+        description="Part of the link is missing, so it can’t confirm your email."
+        footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
+      >
+        {/* An invitee's new link has to come from the invitation, which
+            carries the token; the sign-in resend has none to send. */}
+        <p className="text-body text-pretty text-ink-muted">
+          {invited
+            ? "Open the link from your email again. If that doesn’t work, open the invitation email and follow its link."
+            : "Open the link from your email again. If that doesn’t work, go to sign in and choose “Didn’t receive a confirmation email?” to get a new one."}
+        </p>
+      </AuthCard>
+    )
+  }
   return (
     <AuthCard
       aside={invited ? "invite" : "product"}
@@ -30,32 +50,13 @@ export default async function ConfirmEmailPage({
       }
       footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
     >
-      {params.token_hash ? (
-        <form method="post" action="/auth/confirm">
-          <input type="hidden" name="token_hash" value={params.token_hash} />
-          <input type="hidden" name="type" value="email" />
-          {params.inviteToken ? (
-            <input
-              type="hidden"
-              name="inviteToken"
-              value={params.inviteToken}
-            />
-          ) : null}
-          <Button
-            type="submit"
-            size="lg"
-            block
-            className={WRAPPING_BLOCK_BUTTON}
-          >
-            {invited ? "Confirm and accept invitation" : "Confirm and sign in"}
-          </Button>
-        </form>
-      ) : (
-        <p className="text-body text-pretty text-ink-muted">
-          This confirmation link is incomplete. Open the link from your email
-          again, or sign in to request a new one.
-        </p>
-      )}
+      <ConfirmEmailForm
+        tokenHash={params.token_hash}
+        inviteToken={params.inviteToken}
+        label={
+          invited ? "Confirm and accept invitation" : "Confirm and sign in"
+        }
+      />
     </AuthCard>
   )
 }

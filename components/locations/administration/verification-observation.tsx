@@ -2,6 +2,7 @@
 
 import { formatInstant } from "@/components/editors/change-diff"
 import { Instant, TechnicalDetails } from "@/components/reviewed-write"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -62,30 +63,69 @@ export function verificationHeadline(confirmed: boolean | null): string {
 }
 
 /**
+ * The status mark beside the headline, in the overview's words. It is drawn
+ * only from Google's own fields: "Not verified" needs Google to say `false`,
+ * so a missing or unreported answer is "Unknown", never "Not verified".
+ */
+export function verificationStandingPill(
+  merchant: ObservedMerchantState | null
+): { readonly label: string; readonly tone: StatusTone } {
+  if (merchant?.hasVoiceOfMerchant === true)
+    return { label: "Verified", tone: "healthy" }
+  if (merchant?.hasVoiceOfMerchant === false)
+    return merchant.hasPendingVerification === true ||
+      merchant.action === "wait"
+      ? { label: "In progress", tone: "pending" }
+      : { label: "Not verified", tone: "attention" }
+  return { label: "Unknown", tone: "neutral" }
+}
+
+/**
  * Google's standing for this listing: the human status and what Google asks
- * for first, then when it was read; the separate signals and caveats sit in
- * a collapsed disclosure.
+ * for first, then when it was read (with a re-check beside it); the separate
+ * signals and caveats sit in a collapsed disclosure.
  */
 export function VerificationMerchantObservation({
   state,
+  onCheck,
+  checking = false,
 }: {
   readonly state: VerificationStateResponse
+  /** Re-reads Google's current state (a read only; nothing is sent). */
+  readonly onCheck?: () => void
+  readonly checking?: boolean
 }) {
   const merchant = state.merchant
+  const pill = verificationStandingPill(merchant)
   return (
     <Card size="sm">
       <CardContent className="flex min-w-0 flex-col gap-2">
-        <p className="text-body font-semibold text-ink">
-          {verificationHeadline(merchant?.hasVoiceOfMerchant ?? null)}
-        </p>
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1">
+          <p className="min-w-0 text-body font-semibold text-ink">
+            {verificationHeadline(merchant?.hasVoiceOfMerchant ?? null)}
+          </p>
+          <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
+        </div>
         <p className="text-ui text-ink-secondary">
           {merchant
             ? actionCopy[merchant.action]
             : "Google’s verification status could not be read. The request history below is a separate check."}
         </p>
-        <p className="text-caption text-ink-muted">
-          Last checked <Instant value={state.checkedAt} />.
-        </p>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-caption text-ink-muted">
+            Last checked <Instant value={state.checkedAt} />.
+          </p>
+          {onCheck && (
+            <Button
+              variant="ghost"
+              pending={checking}
+              pendingLabel="Checking…"
+              onClick={onCheck}
+            >
+              Check again
+            </Button>
+          )}
+        </div>
         <TechnicalDetails summary="More about this">
           {merchant && (
             <>
@@ -111,9 +151,9 @@ export function VerificationMerchantObservation({
             <dt className="text-caption text-ink-muted">What this means</dt>
             <dd className="text-ui text-ink-secondary">
               This is Google’s overall confirmation that you can manage the
-              listing. Business authority is a separate signal. It does not
-              show that a particular edit is live on Search or Maps; each
-              change is confirmed on its own.
+              listing. Business authority is a separate signal. It does not show
+              that a particular edit is live on Search or Maps; each change is
+              confirmed on its own.
             </dd>
           </div>
         </TechnicalDetails>

@@ -4,6 +4,7 @@ import { Link2OffIcon, SearchIcon } from "lucide-react"
 import { useMemo } from "react"
 
 import { SectionHeader } from "@/components/ui/section-header"
+import { ReportExportScope } from "@/components/reporting/csv-download-button"
 import { PresenceProvenance } from "@/components/reporting/presence-provenance"
 import {
   ReplyFigures,
@@ -185,7 +186,7 @@ export function LocationPerformance({
             titleAs="h3"
             variant="empty"
             title="No visibility data yet"
-            description="Google has not reported visibility data for this window."
+            description="Google has not reported visibility data for this period."
           />
         ) : (
           <>
@@ -194,7 +195,11 @@ export function LocationPerformance({
               codes={presence.data.unavailableReasons}
               title="Some figures could not be refreshed"
             />
-            <PresenceFigures data={presence.data} />
+            <ReportExportScope
+              value={{ period: `${presence.data.from} ${presence.data.to}` }}
+            >
+              <PresenceFigures data={presence.data} />
+            </ReportExportScope>
           </>
         )}
       </section>

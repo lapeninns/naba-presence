@@ -118,7 +118,7 @@ export function MenuSectionEditor({
               id={ids.name}
               onFocus={onActivate}
               onBlur={onDeactivate}
-              aria-label={`Section ${sectionIndex + 1} name`}
+              aria-label={`Section name — section ${sectionIndex + 1}`}
               aria-invalid={nameError ? true : undefined}
               aria-describedby={nameError ? `${ids.name}-error` : undefined}
               placeholder="Section name, e.g. Starters"
@@ -145,7 +145,7 @@ export function MenuSectionEditor({
             control={
               <Textarea
                 id={ids.description}
-                aria-label={`Section ${sectionIndex + 1} description`}
+                aria-label={`Section description (optional) — section ${sectionIndex + 1}`}
                 placeholder="A short introduction to this section"
                 value={label.description}
                 disabled={disabled}

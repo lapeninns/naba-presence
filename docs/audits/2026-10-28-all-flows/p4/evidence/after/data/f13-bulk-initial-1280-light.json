@@ -1,0 +1,17 @@
+{
+  "state": "f13-bulk-initial",
+  "variant": "1280-light",
+  "url": "/listings/bulk?ids=ddcf815c-44fa-4752-a1eb-1409445ee747,dcd69758-9379-44aa-9b24-c72337b0ce2a",
+  "h1": "Bulk change",
+  "activeElement": "body \"((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"ligh\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Choose a date."
+  ],
+  "disabledButtons": [
+    "Add to the batchChoose a date.",
+    "Preview this changeChoose a date."
+  ],
+  "violations": []
+}

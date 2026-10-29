@@ -194,9 +194,7 @@ export function PrivacyExportForm() {
             <AlertDescription className="flex flex-col items-start gap-2.5">
               {state.result.complete ? (
                 <span>
-                  {state.result.pages === 1
-                    ? "Fetched in one page."
-                    : `Joined from ${state.result.pages} pages.`}
+                  Download the file and send it to the person who asked.
                 </span>
               ) : (
                 <span>

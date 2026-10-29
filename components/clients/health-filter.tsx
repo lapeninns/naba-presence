@@ -39,6 +39,8 @@ const ALERT_BUCKETS: ReadonlySet<HealthBucket> = new Set([
  * is the one chosen (an old `?health=` link keeps its chip, so the filter
  * never vanishes from under the reader). A phone scrolls the strip sideways
  * with an edge fade; from `md` the chips wrap, so none is ever clipped.
+ * The chips keep `HEALTH_FILTERS`' severity order and are never re-sorted by
+ * count (why: the comment on `HEALTH_FILTERS`).
  */
 export function HealthFilterStrip({
   value,

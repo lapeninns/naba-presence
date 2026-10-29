@@ -3,7 +3,8 @@ import {
   resolveLocalTime,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
-import { formatShortDate } from "@/lib/format"
+import { formatShortDate, formatTimeZoneLabel } from "@/lib/format"
+import { timezoneLabel } from "@/lib/settings/timezones"
 
 /**
  * Wall-date helpers for the schedule sheet's presets and the schedule rows.
@@ -36,6 +37,24 @@ export function formatWallDay(date: string) {
     day: "numeric",
     timeZone: "UTC",
   })
+}
+
+/** `2026-10-15`, `09:00` → "Thu 15 Oct, 09:00": a list entry's day and time. */
+export function formatWallDateTime(date: string, time: string) {
+  return `${formatWallDay(date)}, ${time}`
+}
+
+/**
+ * A zone in words for sentences and lists: "UK time", "Eastern time",
+ * never "Europe/London". Always named, even when it is the viewer's own
+ * zone: a schedule runs on the venue's clock, so the reader is told which
+ * one. A zone Intl cannot name falls back to the spaced form the Timezone
+ * select uses ("Europe / London"). The select itself keeps that spaced
+ * form, where generic names would collide (Paris, Madrid and Berlin are all
+ * "Central European time").
+ */
+export function zoneName(zone: string) {
+  return formatTimeZoneLabel(zone) ?? timezoneLabel(zone)
 }
 
 /**

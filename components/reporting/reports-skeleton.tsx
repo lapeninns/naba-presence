@@ -154,7 +154,8 @@ export function ReportsSkeleton({
       <p className="sr-only">{label}</p>
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-36" />
-        <Skeleton className="h-4 w-96 max-w-full" />
+        {/* The description is a desk's only, as on the page. */}
+        <Skeleton className="hidden h-4 w-96 max-w-full md:block" />
       </div>
       <div className="flex items-end gap-3">
         <Skeleton className="h-(--np-touch) flex-1 rounded-(--np-radius-pill) md:hidden" />
@@ -166,6 +167,18 @@ export function ReportsSkeleton({
         ))}
       </div>
       <Skeleton className="h-11 w-full rounded-(--np-radius-control) sm:w-96" />
+      {/* A phone's period chips under the tabs; a desk's period is a field. */}
+      <div
+        data-skeleton="period-strip"
+        className="flex gap-2 overflow-hidden md:hidden"
+      >
+        {[0, 1, 2, 3].map((chip) => (
+          <Skeleton
+            key={chip}
+            className="h-(--np-chip-h) w-28 shrink-0 rounded-(--np-radius-pill)"
+          />
+        ))}
+      </div>
       {body}
     </div>
   )

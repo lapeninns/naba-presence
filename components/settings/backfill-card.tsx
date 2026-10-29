@@ -71,12 +71,18 @@ function describeBackfillError(code: string): string {
 }
 
 // A stopped (dead) import is never retried by the runner; only starting the
-// import again re-arms it (the checkpoint upsert in syncLinkedLocation).
+// import again (the header's button) re-arms it. The row names the button by
+// place, not label: it reads Start while another listing is still queued (the checkpoint upsert
+// in syncLinkedLocation).
 function describeStoppedImport(code: string | null): string {
   if (code === "location_not_verified")
-    return "This location is not yet verified on Google. Start the import again once it is."
-  return "The import stopped after repeated failures. Start the import again to retry."
+    return "This location is not yet verified on Google. Import again with the button above once it is."
+  return "The import stopped after repeated failures. Import again with the button above to try again."
 }
+
+const IN_FLIGHT = new Set(["running", "pending"])
+// Rows that ended without importing: starting again is then a retry.
+const UNSUCCESSFUL = new Set(["failed", "dead", "cancelled"])
 
 function attempts(count: number): string {
   return count === 1 ? "1 attempt" : `${count} attempts`
@@ -85,34 +91,59 @@ function attempts(count: number): string {
 /**
  * Review history import (reference `backfill-section`), one row per
  * location: the honest status the sync checkpoint reports, how many times it
- * has tried, why it failed in plain words, and Cancel while it is still in
- * flight. The checkpoint reports no review counts, so there is no progress
- * bar: a percentage would be invented. Record cards below 48rem of the table's width.
+ * has tried, why it failed in plain words, and Cancel while it is still
+ * queued (the server refuses to cancel a batch that is already running).
+ * The checkpoint reports no review counts, so there is no progress bar: a
+ * percentage would be invented. Record cards below 48rem of the table's width.
  *
  * `externalLocationIds` scopes the card to one client's linked listings: only
  * their rows show and Start imports only them. Without it the card covers
  * every linked listing in the organisation.
+ *
+ * While nothing is importing or imported, Start is the primary action (setup
+ * cannot continue without it) and carries `id="setup-backfill-start"` so a
+ * blocked Continue can send focus to it. It reads "Retry import" when
+ * nothing is in flight and a listing failed, stopped or was cancelled.
  */
 export function BackfillCard({
   externalLocationIds,
+  onStartSettled,
+  inFlightNote,
 }: {
   externalLocationIds?: readonly string[]
+  /**
+   * Called once Start has its server answer, success or not, so a caller
+   * whose own state depends on the import (setup's Continue) can re-read it.
+   */
+  onStartSettled?: () => void
+  /** Shown under the rows only while a listing is queued or importing. */
+  inFlightNote?: React.ReactNode
 } = {}) {
   const { query, start, cancel } = useBackfill()
   const headingId = useId()
   const scoped = externalLocationIds !== undefined
   const nothingInScope = scoped && externalLocationIds.length === 0
 
+  const inScope = scoped ? new Set(externalLocationIds) : null
+  const items = (query.data?.progress.items ?? []).filter(
+    (item) => !inScope || inScope.has(item.externalLocationId)
+  )
+  const inFlight = items.some((item) => IN_FLIGHT.has(item.status))
+  const needsStart =
+    !inFlight && !items.some((item) => item.status === "succeeded")
+  const retry = !inFlight && items.some((item) => UNSUCCESSFUL.has(item.status))
+
   const header = (
     <SectionHeader
       id={headingId}
       title="Import reviews"
-      description="Past reviews pulled from Google, per listing. Failed imports retry on their own."
+      description="Past reviews from Google, per listing. Some failures retry on their own; the reason shows on the listing."
       actions={
         query.data && !nothingInScope ? (
           <Button
-            variant="secondary"
-            size="sm"
+            id="setup-backfill-start"
+            variant={needsStart ? "default" : "secondary"}
+            size={needsStart ? "default" : "sm"}
             pending={start.isPending}
             pendingLabel="Starting…"
             onClick={() =>
@@ -122,11 +153,12 @@ export function BackfillCard({
                       externalLocationIds: [...externalLocationIds],
                       maxPagesPerLocation: 10,
                     }
-                  : { maxPagesPerLocation: 10 }
+                  : { maxPagesPerLocation: 10 },
+                { onSettled: onStartSettled }
               )
             }
           >
-            Start import
+            {retry ? "Retry import" : "Start import"}
           </Button>
         ) : undefined
       }
@@ -168,10 +200,6 @@ export function BackfillCard({
     )
   }
 
-  const inScope = scoped ? new Set(externalLocationIds) : null
-  const items = query.data.progress.items.filter(
-    (item) => !inScope || inScope.has(item.externalLocationId)
-  )
   const paused = isPausedError(start.error)
   const startFailed = start.error && !paused ? start.error : null
 
@@ -191,6 +219,14 @@ export function BackfillCard({
           <AlertTitle>The import didn’t start</AlertTitle>
           <AlertDescription>
             {describeActionError(startFailed)}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {cancel.error ? (
+        <Alert variant="destructive">
+          <AlertTitle>We couldn’t cancel the import</AlertTitle>
+          <AlertDescription>
+            {describeActionError(cancel.error)}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -220,8 +256,6 @@ export function BackfillCard({
           </TableHeader>
           <TableBody>
             {items.map((item: BackfillItem) => {
-              const inFlight =
-                item.status === "running" || item.status === "pending"
               const failure =
                 item.status === "failed" && item.lastErrorCode
                   ? describeBackfillError(item.lastErrorCode)
@@ -246,17 +280,30 @@ export function BackfillCard({
                       ) : null}
                     </span>
                   </TableCell>
-                  <TableCell label="Attempts" numeric>
-                    <span className="sr-only">
-                      {attempts(item.attemptCount)}
-                    </span>
-                    <span aria-hidden>{item.attemptCount}</span>
+                  {/* No attempt yet: nothing to count, so no "0" and no
+                      record-card label, only words for a screen reader. */}
+                  <TableCell
+                    label={item.attemptCount > 0 ? "Attempts" : undefined}
+                    numeric
+                  >
+                    {item.attemptCount > 0 ? (
+                      <>
+                        <span className="sr-only">
+                          {attempts(item.attemptCount)}
+                        </span>
+                        <span aria-hidden>{item.attemptCount}</span>
+                      </>
+                    ) : (
+                      <span className="sr-only">No attempts yet</span>
+                    )}
                   </TableCell>
                   <TableCell label="Status">
                     {statusPill(item.status)}
                   </TableCell>
                   <TableCell actions className="text-right">
-                    {inFlight ? (
+                    {/* Only a queued row: the server refuses to cancel a
+                        batch that is already running. */}
+                    {item.status === "pending" ? (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -274,6 +321,7 @@ export function BackfillCard({
           </TableBody>
         </Table>
       )}
+      {inFlight && inFlightNote ? inFlightNote : null}
     </section>
   )
 }

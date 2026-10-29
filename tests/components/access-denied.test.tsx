@@ -50,7 +50,10 @@ function setLocation(href: string) {
   Object.defineProperty(window, "location", { value: url, configurable: true })
 }
 
-function renderWithSession(area = "Google connections") {
+function renderWithSession(
+  area = "Google connections",
+  extra: Partial<ComponentProps<typeof AccessDenied>> = {}
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
@@ -65,7 +68,7 @@ function renderWithSession(area = "Google connections") {
   })
   return render(
     <QueryClientProvider client={client}>
-      <AccessDenied area={area} />
+      <AccessDenied area={area} {...extra} />
     </QueryClientProvider>
   )
 }
@@ -275,5 +278,26 @@ describe("AccessDenied", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).not.toContain(
       "/settings/connections"
     )
+  })
+
+  it("names who can grant access, defaulting to owners and admins", () => {
+    const { unmount } = renderWithSession()
+    expect(
+      screen.getByText(
+        "Owners and admins in Acme Agency. They change roles on the Team page."
+      )
+    ).toBeInTheDocument()
+    unmount()
+    // Billing is owner-only: only an owner can make someone an owner.
+    renderWithSession("Billing", {
+      whoCanHelp: "the owner",
+      whoCanGrant: "Owners",
+    })
+    expect(
+      screen.getByText(
+        "Owners in Acme Agency. They change roles on the Team page."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Owners and admins in/)).toBeNull()
   })
 })

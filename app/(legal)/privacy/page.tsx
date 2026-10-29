@@ -18,6 +18,23 @@ export const metadata: Metadata = {
 export const dynamic = "force-static"
 
 /**
+ * The sections in reading order: their headings and the "On this page" list
+ * both come from here. The ids are public URLs (`/privacy#retention`), so
+ * never rename one.
+ */
+const SECTIONS = {
+  googleAccess: { id: "google-access", title: "Google permissions we ask for" },
+  collect: { id: "collect", title: "What we collect" },
+  retention: { id: "retention", title: "How long we keep it" },
+  disconnect: { id: "disconnect", title: "Disconnecting Google and deletion" },
+  sharing: { id: "sharing", title: "Who we share it with" },
+  security: { id: "security", title: "Security" },
+  rights: { id: "rights", title: "Your rights and requests" },
+  children: { id: "children", title: "Children" },
+  changes: { id: "changes", title: "Changes to this policy" },
+} as const
+
+/**
  * Every statement here describes what the code does today. When retention,
  * scopes, processors or deletion behaviour change, change this page in the
  * same pull request.
@@ -28,6 +45,7 @@ export default function PrivacyPage() {
   return (
     <LegalDocument
       current="privacy"
+      contents={Object.values(SECTIONS)}
       title="Privacy policy"
       summary={
         <p>
@@ -41,7 +59,7 @@ export default function PrivacyPage() {
         </p>
       }
     >
-      <LegalSection id="google-access" title="Google permissions we ask for">
+      <LegalSection {...SECTIONS.googleAccess}>
         <p>When you connect a Google account we ask Google for:</p>
         <ul>
           <li>
@@ -73,7 +91,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="collect" title="What we collect">
+      <LegalSection {...SECTIONS.collect}>
         <ul>
           <li>
             <strong>Your account:</strong> name, email address, the
@@ -119,7 +137,7 @@ export default function PrivacyPage() {
         </ul>
       </LegalSection>
 
-      <LegalSection id="retention" title="How long we keep it">
+      <LegalSection {...SECTIONS.retention}>
         <ul>
           <li>
             <strong>Review and listing content from Google</strong> is kept for
@@ -156,7 +174,7 @@ export default function PrivacyPage() {
         </ul>
       </LegalSection>
 
-      <LegalSection id="disconnect" title="Disconnecting Google and deletion">
+      <LegalSection {...SECTIONS.disconnect}>
         <p>
           You can disconnect a Google account at any time in Settings. When you
           do, we immediately delete the stored access and refresh tokens, stop
@@ -181,7 +199,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="sharing" title="Who we share it with">
+      <LegalSection {...SECTIONS.sharing}>
         <p>
           We use these service providers to run NabaPresence, each only for that
           purpose:
@@ -225,7 +243,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="security" title="Security">
+      <LegalSection {...SECTIONS.security}>
         <p>
           Each organisation’s data is isolated in the database, Google tokens
           are encrypted, and all traffic uses HTTPS. No system is perfectly
@@ -234,7 +252,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="rights" title="Your rights and requests">
+      <LegalSection {...SECTIONS.rights}>
         <p>
           Depending on where you live, you may have the right to access,
           correct, delete, restrict or object to our use of your personal data,
@@ -249,19 +267,22 @@ export default function PrivacyPage() {
           through Google.
         </p>
         <p>
-          To make a request or ask a question, email {privacyEmail}. We respond
-          within one month.
+          To make a request or ask a question, email{" "}
+          <a className={INLINE_LINK_CLASS} href={`mailto:${privacyEmail}`}>
+            {privacyEmail}
+          </a>
+          . We respond within one month.
         </p>
       </LegalSection>
 
-      <LegalSection id="children" title="Children">
+      <LegalSection {...SECTIONS.children}>
         <p>
           NabaPresence is a business tool and is not intended for anyone under
           18.
         </p>
       </LegalSection>
 
-      <LegalSection id="changes" title="Changes to this policy">
+      <LegalSection {...SECTIONS.changes}>
         <p>
           If we change how we handle personal data we will update this page and
           its effective date, and tell organisation owners about significant

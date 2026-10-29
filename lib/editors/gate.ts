@@ -1,6 +1,14 @@
 import type { CapabilityTone } from "@/components/editors/capability-banner"
 import type { LocationCapabilities } from "@/lib/locations/gating"
 
+/**
+ * The way forward for someone whose role lets them look but not change:
+ * one sentence, shared by the editor banners and LocationTab's role gate so
+ * the wording can't drift.
+ */
+export const ASK_OWNER_OR_ADMIN =
+  "Ask an owner or admin if something here needs to change."
+
 export type EditorGate = {
   tone: CapabilityTone
   title: string
@@ -20,6 +28,9 @@ export type EditorGate = {
  * "disconnected") and not a role limit. The banner says so, and who can
  * turn it back on, because "paused" alone read as something the operator
  * had done or could undo.
+ *
+ * A role limit also says what to do instead (ask an owner or admin); a
+ * billing hold doesn't, since it holds owners and admins too.
  *
  * `noun` names the thing ("this profile", "these hours").
  */
@@ -41,10 +52,14 @@ export function editorGate({
 }): EditorGate | null {
   const code = caps?.resources?.[resource]?.reasonCode ?? null
   if (editReason) {
+    const roleLimit =
+      caps?.canWrite !== false && caps?.canEditCanonical === false
     return {
       tone: "read_only",
       title: `You can look, but not change ${noun}`,
-      description: editReason,
+      description: roleLimit
+        ? `${editReason} ${ASK_OWNER_OR_ADMIN}`
+        : editReason,
       code: code === "permission_denied" ? code : null,
     }
   }

@@ -181,7 +181,7 @@ describe("furthestReachable", () => {
 
   it("treats a failed import as blocking, with a way forward", () => {
     expect(stepBlocker("backfill", { ...facts, backfill: "failed" })).toMatch(
-      /Retry it/
+      /import again/
     )
     expect(
       stepBlocker("backfill", { ...facts, backfill: "running" })

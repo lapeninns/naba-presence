@@ -165,7 +165,7 @@ export function NotificationPreferences({ role }: { role: string | null }) {
   }
 
   const emailConfigured = query.data?.emailConfigured ?? true
-  const canSetUpEmail = role === "owner" || role === "admin"
+  const canOpenOperations = role === "owner" || role === "admin"
 
   return (
     <QueryStates
@@ -221,14 +221,21 @@ export function NotificationPreferences({ role }: { role: string | null }) {
         bodyAs={emailConfigured ? "ul" : "div"}
         listProps={{ "aria-label": "Email notification choices" }}
         caption={
-          emailConfigured ? undefined : (
+          emailConfigured ? (
+            // Beside the choice it explains, and only where it can be made.
+            // No time is given: the hour the summary is built from lives in
+            // server-only code (lib/server/notifications/evaluate.ts).
+            "Choose Immediately, Daily summary or Off for each update. The daily summary is one email a day with the updates you set to Daily summary."
+          ) : (
             <>
               Email notifications aren’t available for this workspace yet.
               You’ll still see them in the app.
-              {canSetUpEmail ? (
+              {canOpenOperations ? (
                 <>
                   {" "}
-                  Set up email in{" "}
+                  Email is switched on for the whole install by your
+                  NabaPresence administrator. Once it’s on, you can check its
+                  delivery in{" "}
                   <Link
                     href="/settings/operations"
                     className="text-accent-ink underline underline-offset-2"

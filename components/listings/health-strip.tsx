@@ -2,39 +2,40 @@
 
 import { Fragment } from "react"
 
-import { ShellLink } from "@/components/app-shell/shell-link"
-import { buttonVariants } from "@/components/ui/button"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
-import { cn } from "@/lib/utils"
+import { areaForSegment } from "@/lib/listings/areas"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
-const ACTION = cn(
-  buttonVariants({ variant: "secondary", size: "sm" }),
-  "h-auto min-h-8 max-w-full py-1.5 text-center whitespace-normal"
-)
+/**
+ * The area a publish went to, in the words its card uses ("opening hours",
+ * "food menu"), not the summary's own key. A key no area owns ("listing")
+ * stays as it is.
+ */
+function publishAreaName(area: string): string {
+  return areaForSegment(area)?.label.toLowerCase() ?? area
+}
 
 /**
  * The listing's two facts the area cards cannot carry: whether Google is
  * reachable, and when anything last went out. Verification and sync are
  * already each area card's own status (and the header pill), so they are
  * not repeated here, except for a reader who has no Verification card and
- * no alert (see `showVerification`). Each row's one fix, when it has one, sits under it.
+ * no alert (see `showVerification`). A broken or missing link to Google is
+ * the overview's first alert, with its fix, so it is only stated here.
  * Everything is read from the DB-only summary; nothing here asks Google.
  */
 function HealthStrip({
   linked,
-  clientId,
   summary,
   summaryFailed = false,
   disconnected = false,
   canManageConsoles,
 }: {
   linked: boolean
-  clientId: string | null
   summary: ListingSummary | undefined
   /** The summary request failed: say so instead of guessing. */
   summaryFailed?: boolean
@@ -157,16 +158,6 @@ function HealthStrip({
                   </Fragment>
                 ))
         }
-        footnote={
-          linked && connectionBroken && clientId && canManageConsoles ? (
-            <ShellLink
-              href={`/setup?client=${clientId}&step=connect`}
-              className={ACTION}
-            >
-              Reconnect Google
-            </ShellLink>
-          ) : undefined
-        }
       />
       <SettingsRow
         label="Last published"
@@ -195,12 +186,12 @@ function HealthStrip({
         description={
           last
             ? last.status === "failed"
-              ? `The last ${last.area} publish failed`
+              ? `The last ${publishAreaName(last.area)} publish failed`
               : last.status === "in_progress"
-                ? `A ${last.area} publish is in progress`
+                ? `A ${publishAreaName(last.area)} publish is in progress`
                 : last.status === "ambiguous"
-                  ? `Google didn’t confirm the last ${last.area} publish`
-                  : `Last change: ${last.area}`
+                  ? `Google didn’t confirm the last ${publishAreaName(last.area)} publish`
+                  : `Last change: ${publishAreaName(last.area)}`
             : "Nothing has been published from here yet"
         }
       />
@@ -215,4 +206,4 @@ function HealthStrip({
   )
 }
 
-export { HealthStrip }
+export { HealthStrip, publishAreaName }

@@ -94,9 +94,11 @@ export default async function ClientLayout({
     // A client the session cannot see reads exactly like one that does not
     // exist, so probing ids tells an outsider nothing.
     if (!client) notFound()
-    // An archived client the session can see is not "not found": the archive
-    // dialog promises it can be restored, so say where, instead of a 404.
-    // Restoring is an owner/admin action, as archiving is.
+    // An archived client the session can see is not "not found": archiving
+    // tells the user to restore it from Clients › Archived, so say where,
+    // instead of a 404. Restoring is an owner/admin action, as archiving is.
+    // Archiving unfiled its listings (the server refuses to archive a client
+    // that still holds any), and a restore does not file them back.
     if (client.archived) {
       const canRestore = session.role === "owner" || session.role === "admin"
       return (
@@ -107,8 +109,8 @@ export default async function ClientLayout({
             title={`${client.name} is archived`}
             description={
               canRestore
-                ? "Its listings, reviews and reports are kept but hidden. Restore it from the archived clients to work on it again."
-                : "Its listings, reviews and reports are kept but hidden. An owner or admin can restore it."
+                ? "It’s hidden from lists and filters. Any listings it had were unfiled, and are still under Listings with their reviews. Restore it from the archived clients to work on it again, then file its listings again from its settings."
+                : "It’s hidden from lists and filters. Any listings it had were unfiled, and are still under Listings with their reviews. An owner or admin can restore it."
             }
             action={
               <Link

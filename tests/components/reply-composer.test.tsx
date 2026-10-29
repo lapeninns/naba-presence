@@ -497,9 +497,29 @@ describe("ReplyComposer — the editor", () => {
     expect(
       screen.queryByRole("radiogroup", { name: "Reply tone" })
     ).not.toBeInTheDocument()
-    expect(
-      document.querySelector('[data-slot="parked-note"]')
-    ).toHaveTextContent("goes back to Needs reply")
+    const note = document.querySelector<HTMLElement>(
+      '[data-slot="parked-note"]'
+    )!
+    expect(note).toHaveTextContent("Read-only while it’s waiting for approval.")
+    // The way to edit is on screen, not a pointer at a hidden ⋯.
+    expect(note).not.toHaveTextContent("⋯")
+  })
+
+  it("opens the parked reply from its own Edit reply, the same event as ⋯", async () => {
+    const user = userEvent.setup()
+    mount(PARKED)
+    const heard: ReplyEditDetail[] = []
+    const listener = (event: Event) =>
+      heard.push((event as CustomEvent<ReplyEditDetail>).detail)
+    window.addEventListener(REPLY_EDIT_EVENT, listener)
+    try {
+      await user.click(screen.getByRole("button", { name: "Edit reply" }))
+    } finally {
+      window.removeEventListener(REPLY_EDIT_EVENT, listener)
+    }
+    expect(heard).toEqual([{ reviewId: "rev-1" }])
+    expect(textbox()).toHaveValue("The parked draft")
+    expect(textbox()).not.toHaveAttribute("readonly")
   })
 
   it("opens the parked reply for editing when Edit reply asks, and says what saving does", async () => {
@@ -515,7 +535,7 @@ describe("ReplyComposer — the editor", () => {
     expect(textbox()).not.toHaveAttribute("readonly")
     expect(
       document.querySelector('[data-slot="parked-editing-note"]')
-    ).toHaveTextContent("sends this reply back to Needs reply")
+    ).toHaveTextContent("Saving your edit takes this reply out of approval.")
   })
 
   it("parks the reply read-only again after it has left approval and come back", () => {
@@ -764,6 +784,8 @@ describe("ReplyComposer — the editor", () => {
         screen.queryByRole("button", { name: /Generate reply|Regenerate/ })
       ).not.toBeInTheDocument()
       expect(screen.queryByText(/credits left/)).not.toBeInTheDocument()
+      // The box no longer offers what is not on offer.
+      expect(textbox()).toHaveAttribute("placeholder", "Write your reply.")
       window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
       expect(mutateAsync).not.toHaveBeenCalled()
     })
@@ -906,6 +928,7 @@ describe("ReplyComposer — AI credits", () => {
     expect(
       screen.getByRole("button", { name: "Generate reply" })
     ).toBeDisabled()
+    expect(textbox()).toHaveAttribute("placeholder", "Write your reply.")
     await user.type(textbox(), "Thanks for visiting.")
     expect(textbox()).toHaveValue("Thanks for visiting.")
     expect(textbox()).not.toHaveAttribute("readonly")

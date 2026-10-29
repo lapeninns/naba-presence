@@ -1,0 +1,15 @@
+{
+  "state": "f02-add-photos-open",
+  "variant": "390-dark",
+  "url": "/listings/c9c8f560-dd92-4e07-af3b-f32eb938d7fd/photos",
+  "h1": "Photos",
+  "activeElement": "div \"Add photosPhotos go to Google when you tap Upload.Google pho\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [],
+  "disabledButtons": [
+    "Add from URL",
+    "Upload photos"
+  ],
+  "violations": []
+}

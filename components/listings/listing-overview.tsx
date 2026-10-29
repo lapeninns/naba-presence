@@ -1,13 +1,19 @@
 "use client"
 
-import { RefreshCwIcon } from "lucide-react"
+import { RefreshCwIcon, UnplugIcon } from "lucide-react"
 import Link from "next/link"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
-import { ListingAreaHeader } from "@/components/listings/area-frame"
+import {
+  ListingAreaHeader,
+  ReviewPublishLink,
+} from "@/components/listings/area-frame"
 import { AreaCards } from "@/components/listings/area-cards"
 import { FileUnderClient } from "@/components/listings/file-under-client"
-import { HealthStrip } from "@/components/listings/health-strip"
+import {
+  HealthStrip,
+  publishAreaName,
+} from "@/components/listings/health-strip"
 import { ListingGate } from "@/components/listings/listing-gate"
 import {
   Alert,
@@ -35,9 +41,10 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { useNow } from "@/lib/time/server-now"
 
 /**
- * The notes that decide what to do before anything else: a listing with no
- * client, one Google has not verified, a publish that failed, a summary that
- * did not load. Each names its fix.
+ * The notes that decide what to do before anything else: a listing Google
+ * can't be reached for or that isn't linked, one with no client, one Google
+ * has not verified, a publish that failed, a summary that did not load.
+ * Each names its fix, and who can make it when the reader can't.
  */
 function OverviewAlerts({
   entry,
@@ -71,6 +78,69 @@ function OverviewAlerts({
 
   const alerts: React.ReactNode[] = []
 
+  // First, because nothing below can be checked or published until it is
+  // fixed. Lost access to one listing needs none: the header already says
+  // what to do, and the fix is outside this app.
+  if (entry.linked && disconnected) {
+    alerts.push(
+      <Alert
+        key="disconnected"
+        variant="warning"
+        icon={<UnplugIcon aria-hidden />}
+        data-slot="connection-alert"
+      >
+        <AlertTitle>Google can’t be reached for this listing</AlertTitle>
+        <AlertDescription>
+          {business ? "Your" : "The client’s"} Google login needs reconnecting.
+          Until then nothing here is checked against or published to Google;
+          saved changes are kept.
+          {canManage ? null : " Ask an owner or admin to reconnect it."}
+        </AlertDescription>
+        {canManage && entry.clientId ? (
+          <AlertActions>
+            <Link
+              href={`/setup?client=${entry.clientId}&step=connect`}
+              className={cn(
+                buttonVariants({ variant: "secondary", size: "sm" })
+              )}
+            >
+              Reconnect Google
+            </Link>
+          </AlertActions>
+        ) : null}
+      </Alert>
+    )
+  }
+
+  if (!entry.linked) {
+    alerts.push(
+      <Alert key="not-linked" variant="info" data-slot="connection-alert">
+        <AlertTitle>This listing isn’t linked to Google</AlertTitle>
+        <AlertDescription>
+          Its areas stay unavailable until it’s linked to a Google Business
+          Profile listing.
+          {canManage
+            ? entry.clientId
+              ? null
+              : " File it under a client, then link it from Setup."
+            : " An owner or admin can link it from Setup."}
+        </AlertDescription>
+        {canManage && entry.clientId ? (
+          <AlertActions>
+            <Link
+              href={`/setup?client=${entry.clientId}&step=locations`}
+              className={cn(
+                buttonVariants({ variant: "secondary", size: "sm" })
+              )}
+            >
+              Link to Google
+            </Link>
+          </AlertActions>
+        ) : null}
+      </Alert>
+    )
+  }
+
   // A business files every listing under its home client, so this never shows.
   if (!entry.clientId && !business) {
     alerts.push(
@@ -98,6 +168,7 @@ function OverviewAlerts({
         <AlertTitle>Google hasn’t verified this listing</AlertTitle>
         <AlertDescription>
           Some changes won’t show to customers until Google verifies it.
+          {canManage ? null : " An owner or admin can start verification."}
         </AlertDescription>
         {canManage ? (
           <AlertActions>
@@ -117,19 +188,21 @@ function OverviewAlerts({
 
   if (failed) {
     alerts.push(
-      <Alert key="failed" variant="destructive">
+      // Page content present on load, not a failure that just happened:
+      // no assertive announcement (see `AlertLive`).
+      <Alert key="failed" variant="destructive" live={false}>
         <AlertTitle>
           {failed.status === "ambiguous"
             ? "Google hasn’t confirmed the last"
             : "The last"}{" "}
-          {failedArea ? failedArea.label.toLowerCase() : failed.area}{" "}
+          {publishAreaName(failed.area)}{" "}
           {failed.status === "ambiguous" ? "publish" : "publish failed"} ·{" "}
           <RelativeTime iso={failed.at} />
         </AlertTitle>
         <AlertDescription>
           Some changes may already be on Google. The saved copy here is kept.
           Open the area to compare the current Google listing before trying
-          again; Activity has the attempt details.
+          again. Activity, at the top of this page, has the attempt details.
         </AlertDescription>
         {failedArea ? (
           <AlertActions>
@@ -265,6 +338,15 @@ function ListingOverview({
               canManage={canManageConsoles}
             />
 
+            {/* Below md the header keeps Review & publish in its overflow
+                menu; the step the description names stays in sight. */}
+            <ReviewPublishLink
+              locationId={locationId}
+              summary={summary.data}
+              caps={caps.data}
+              className="w-full md:hidden"
+            />
+
             <section
               aria-labelledby="listing-areas"
               className="flex flex-col gap-2"
@@ -272,7 +354,11 @@ function ListingOverview({
               <SectionLabel
                 id="listing-areas"
                 title="Areas"
-                description="Check a problem, review changes or edit an area."
+                description={
+                  caps.data?.canEditCanonical === false
+                    ? "Open an area to see what it holds here and on Google."
+                    : "Check a problem, review changes or edit an area."
+                }
               />
               <AreaCards
                 locationId={locationId}
@@ -286,7 +372,6 @@ function ListingOverview({
 
             <HealthStrip
               linked={entry.linked}
-              clientId={entry.clientId ?? null}
               summary={summary.data}
               summaryFailed={summaryFailed}
               disconnected={disconnected}

@@ -101,8 +101,22 @@ function stub() {
   } as unknown as ReturnType<typeof membersHook.useMembers>)
 }
 
-/** Selects the given ids, then renders the bar over `rows`. */
-function Harness({ rows, select }: { rows: ReviewRow[]; select: string[] }) {
+type BarOptions = { bulkEngine?: boolean; hasMore?: boolean }
+
+/**
+ * Selects the given ids, then renders the bar over `rows`. The ticked ids
+ * are written out, and two plain buttons stand in for the list's own ways
+ * to tick and to cancel.
+ */
+function Harness({
+  rows,
+  select,
+  options,
+}: {
+  rows: ReviewRow[]
+  select: string[]
+  options: BarOptions
+}) {
   const selection = useSelection()
   const applied = React.useRef(false)
   React.useEffect(() => {
@@ -110,16 +124,37 @@ function Harness({ rows, select }: { rows: ReviewRow[]; select: string[] }) {
     applied.current = true
     selection.replace(select)
   }, [selection, select])
-  return <BulkActionBar rows={rows} />
+  return (
+    <>
+      <output data-testid="ticked">{[...selection.selected].join(",")}</output>
+      <button type="button" onClick={() => selection.setSelectMode(false)}>
+        test: cancel
+      </button>
+      <button type="button" onClick={() => selection.replace(select)}>
+        test: tick again
+      </button>
+      {/* Stands in for a row's checkbox, which stays live while a run is out. */}
+      {["a", "b", "c"].map((id) => (
+        <button key={id} type="button" onClick={() => selection.toggle(id)}>
+          {`test: toggle ${id}`}
+        </button>
+      ))}
+      <BulkActionBar rows={rows} {...options} />
+    </>
+  )
 }
 
-function renderBar(rows: ReviewRow[], select: string[]) {
+function renderBar(
+  rows: ReviewRow[],
+  select: string[],
+  options: BarOptions = {}
+) {
   stub()
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <Toaster>
         <SelectionProvider>
-          <Harness rows={rows} select={select} />
+          <Harness rows={rows} select={select} options={options} />
         </SelectionProvider>
       </Toaster>
     </QueryClientProvider>
@@ -222,6 +257,210 @@ describe("BulkActionBar", () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(/2 of these are not ready for your approval/)
+    ).toBeInTheDocument()
+  })
+
+  it("names why Approve skips each row it leaves out", async () => {
+    renderBar(
+      [
+        row("a"),
+        row("b", { workflowStatus: "new" }),
+        row("own", { canApprove: false }),
+      ],
+      ["a", "b", "own"]
+    )
+    expect(
+      await screen.findByText(
+        "2 of these are not ready for your approval, so Approve will skip them: 1 isn’t waiting for approval; 1 is a reply you asked for or drafted, so another approver must approve it."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("says while it runs what it is doing", async () => {
+    const user = userEvent.setup()
+    let answer: (result: BulkReviewResult) => void = () => {}
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise<BulkReviewResult>((resolve) => {
+          answer = resolve
+        })
+    )
+    renderBar([row("a"), row("b")], ["a", "b"])
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    expect(
+      await screen.findByRole("button", { name: "Approving…" })
+    ).toBeInTheDocument()
+    const words =
+      "Approving and publishing 2 replies to Google, one after another. This can take a minute or two."
+    // Spoken by an always-present status region, and shown in the bar.
+    const status = document.querySelector("[data-slot=bulk-action-status]")
+    expect(status).toHaveAttribute("role", "status")
+    expect(status).toHaveTextContent(words)
+    expect(
+      within(
+        screen.getByRole("region", { name: "Selected reviews" })
+      ).getByText(words)
+    ).toBeInTheDocument()
+    answer({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "ok" },
+      ],
+    })
+    // Done: the words go, and so does the selection with the bar.
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-slot=bulk-action-status]")
+      ).toBeEmptyDOMElement()
+    )
+    expect(
+      screen.queryByRole("region", { name: "Selected reviews" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps only the rows that did not take effect ticked, and forgets the result with them", async () => {
+    mutateAsync.mockResolvedValueOnce({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "skipped", code: "approval_not_pending" },
+      ],
+    })
+    const user = userEvent.setup()
+    renderBar([row("a"), row("b")], ["a", "b"])
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    expect(await screen.findByText("Skipped")).toBeInTheDocument()
+    expect(screen.getByTestId("ticked")).toHaveTextContent(/^b$/)
+
+    // Cancelled, then a new selection: the old failures are not its notes.
+    await user.click(screen.getByRole("button", { name: "test: cancel" }))
+    await user.click(screen.getByRole("button", { name: "test: tick again" }))
+    expect(
+      await screen.findByRole("button", { name: "Approve 2" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Skipped")).not.toBeInTheDocument()
+  })
+
+  it("keeps the rows Approve skipped ticked after a partial result", async () => {
+    mutateAsync.mockResolvedValueOnce({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "skipped", code: "approval_not_pending" },
+      ],
+    })
+    const user = userEvent.setup()
+    // "c" is not waiting for approval: Approve leaves it out before asking.
+    renderBar(
+      [row("a"), row("b"), row("c", { workflowStatus: "drafted" })],
+      ["a", "b", "c"]
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Approve 2 of 3" })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    expect(await screen.findByText("Skipped")).toBeInTheDocument()
+    expect(screen.getByTestId("ticked")).toHaveTextContent(/^b,c$/)
+  })
+
+  it("leaves a selection cancelled while the run was out cancelled", async () => {
+    let answer: (value: BulkReviewResult) => void = () => {}
+    mutateAsync.mockReturnValueOnce(
+      new Promise<BulkReviewResult>((resolve) => {
+        answer = resolve
+      })
+    )
+    const user = userEvent.setup()
+    renderBar([row("a"), row("b")], ["a", "b"])
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    await user.click(screen.getByRole("button", { name: "test: cancel" }))
+    answer({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "skipped", code: "approval_not_pending" },
+      ],
+    })
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(screen.getByTestId("ticked")).toBeEmptyDOMElement()
+    )
+  })
+
+  it("keeps ticks changed while the run was out when trimming a partial result", async () => {
+    let answer: (value: BulkReviewResult) => void = () => {}
+    mutateAsync.mockReturnValueOnce(
+      new Promise<BulkReviewResult>((resolve) => {
+        answer = resolve
+      })
+    )
+    const user = userEvent.setup()
+    renderBar([row("a"), row("b"), row("c")], ["a", "b"])
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    // While the request is out: "b" is unticked and "c" is ticked.
+    await user.click(screen.getByRole("button", { name: "test: toggle b" }))
+    await user.click(screen.getByRole("button", { name: "test: toggle c" }))
+    expect(screen.getByTestId("ticked")).toHaveTextContent(/^a,c$/)
+    answer({
+      results: [
+        { reviewId: "a", status: "ok" },
+        { reviewId: "b", status: "skipped", code: "approval_not_pending" },
+      ],
+    })
+    expect(await screen.findByText("Skipped")).toBeInTheDocument()
+    // "a" took effect and leaves; "b" stays unticked and "c" stays ticked.
+    await waitFor(() =>
+      expect(screen.getByTestId("ticked")).toHaveTextContent(/^c$/)
+    )
+  })
+
+  it("leaves a receipt with the batch link when the engine queues everything", async () => {
+    mutateAsync.mockResolvedValueOnce({
+      operationId: "op-1",
+      results: [
+        { reviewId: "a", status: "queued" },
+        { reviewId: "b", status: "queued" },
+      ],
+    })
+    const user = userEvent.setup()
+    renderBar([row("a"), row("b")], ["a", "b"], { bulkEngine: true })
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    const receipt = await screen.findByRole("region", {
+      name: "Batch started",
+    })
+    expect(screen.getByTestId("ticked")).toBeEmptyDOMElement()
+    expect(
+      within(receipt).getByRole("link", { name: "Follow batch" })
+    ).toHaveAttribute("href", "/listings/bulk/op-1")
+    expect(receipt).toHaveTextContent(/2 replies are queued/)
+    // Inline, not docked: it does not hold the phone's tab bar aside.
+    expect(receipt).not.toHaveAttribute("data-docked")
+    await user.click(within(receipt).getByRole("button", { name: "Dismiss" }))
+    expect(
+      screen.queryByRole("region", { name: "Batch started" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("says when more reviews follow the ones selected", async () => {
+    renderBar([row("a"), row("b")], ["a", "b"], { hasMore: true })
+    expect(
+      await screen.findByText(
+        "Only the 2 reviews loaded so far are selected. Load more to add the rest."
+      )
     ).toBeInTheDocument()
   })
 

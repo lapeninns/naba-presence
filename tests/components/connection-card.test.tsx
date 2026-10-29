@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { mockWebkitShortSeptember } from "../helpers/webkit-short-month"
 import { ConnectionCard } from "@/components/settings/connection-card"
 import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import type { ConnectionSummary } from "@/lib/api/connections"
 
 const workspaceMock = vi.fn()
@@ -27,30 +28,75 @@ function connection(overrides: Partial<ConnectionSummary>): ConnectionSummary {
   }
 }
 
-function renderCard(
+const connectMutate = vi.fn()
+const refetch = vi.fn()
+
+function workspace(
   connections: ConnectionSummary[],
-  disconnectMutate = vi.fn()
+  disconnectMutate = vi.fn(),
+  disconnectError: unknown = null
 ) {
-  workspaceMock.mockReturnValue({
+  return {
     query: {
       data: { connections },
       isPending: false,
       isError: false,
-      refetch: vi.fn(),
+      refetch,
     },
-    connect: { mutate: vi.fn(), isPending: false },
-    disconnect: { mutate: disconnectMutate, isPending: false },
-  })
+    connect: { mutate: connectMutate, isPending: false },
+    disconnect: {
+      mutate: disconnectMutate,
+      isPending: false,
+      error: disconnectError,
+      reset: vi.fn(),
+    },
+  }
+}
+
+function card({ inSection = false }: { inSection?: boolean } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return render(
+  return (
     <QueryClientProvider client={client}>
       <Toaster>
-        <ConnectionCard />
+        {inSection ? (
+          // As Settings › Google connections places it.
+          <section aria-labelledby="connection-logins">
+            <h2 id="connection-logins">Google accounts</h2>
+            <ConnectionCard />
+          </section>
+        ) : (
+          <ConnectionCard />
+        )}
       </Toaster>
     </QueryClientProvider>
   )
+}
+
+function renderCard(
+  connections: ConnectionSummary[],
+  disconnectMutate = vi.fn(),
+  disconnectError: unknown = null
+) {
+  workspaceMock.mockReturnValue(
+    workspace(connections, disconnectMutate, disconnectError)
+  )
+  return render(card())
+}
+
+/** Types the login and presses Disconnect in the open dialog. */
+async function confirmDisconnect(
+  user: ReturnType<typeof userEvent.setup>,
+  email: string
+) {
+  const dialog = await screen.findByRole("alertdialog")
+  await user.type(
+    within(dialog).getByRole("textbox", { name: /to confirm/ }),
+    email
+  )
+  await user.click(within(dialog).getByRole("button", { name: "Disconnect" }))
+  return dialog
 }
 
 afterEach(() => {
@@ -80,10 +126,13 @@ describe("ConnectionCard", () => {
     [null, "Never"],
     ["", "Never"],
     ["invalid", "Unknown"],
-  ])("keeps the missing or invalid refresh sentinel for %s", (lastRefreshAt, expected) => {
-    renderCard([connection({ lastRefreshAt })])
-    expect(screen.getByText(expected)).toBeInTheDocument()
-  })
+  ])(
+    "keeps the missing or invalid refresh sentinel for %s",
+    (lastRefreshAt, expected) => {
+      renderCard([connection({ lastRefreshAt })])
+      expect(screen.getByText(expected)).toBeInTheDocument()
+    }
+  )
 
   it("lists a connected account with its status trailing and Disconnect behind a menu", async () => {
     const user = userEvent.setup()
@@ -126,6 +175,148 @@ describe("ConnectionCard", () => {
     expect(
       screen.getByRole("button", { name: "Connect Google Business Profile" })
     ).toBeInTheDocument()
+    // Before Google opens: the permission that, unticked, fails the connect.
+    expect(
+      screen.getByText(/leave the Business Profile permission ticked/)
+    ).toBeInTheDocument()
+  })
+
+  it("offers no Reconnect on a disconnected login", () => {
+    // Reconnecting relinks nothing (its listings were unlinked), so the row
+    // makes no promise; connecting the same login again is the way back.
+    renderCard([connection({ status: "disconnected" })])
+    expect(
+      screen.queryByRole("button", { name: /^Reconnect/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps the primary Reconnect for a broken login, sending the reconnect request", async () => {
+    const user = userEvent.setup()
+    renderCard([connection({ reconnectRequired: true, status: "expired" })])
+    const reconnect = screen.getByRole("button", {
+      name: "Reconnect owner@riverside.test",
+    })
+    expect(reconnect).not.toHaveAttribute("data-variant", "secondary")
+    await user.click(reconnect)
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText(/keeps its warning/)).toBeInTheDocument()
+    await user.click(
+      within(dialog).getByRole("button", { name: "Continue to Google" })
+    )
+    expect(connectMutate).toHaveBeenCalledWith({ reconnectConnectionId: "c1" })
+  })
+
+  it("lets the address in a dialog title break before its @", async () => {
+    const user = userEvent.setup()
+    renderCard([connection({})])
+    await chooseDisconnect(user, "owner@riverside.test")
+    const dialog = await screen.findByRole("alertdialog")
+    const title = within(dialog).getByRole("heading", {
+      name: "Disconnect owner@riverside.test?",
+    })
+    expect(title.querySelector("wbr")).not.toBeNull()
+  })
+
+  it("says Google didn’t confirm the revoke when it didn’t, and the 7-day window either way", async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    renderCard([connection({})], mutate)
+    await chooseDisconnect(user, "owner@riverside.test")
+    await confirmDisconnect(user, "owner@riverside.test")
+    act(() =>
+      mutate.mock.calls[0][1].onSuccess({
+        status: "disconnected",
+        googleRevocation: "failed",
+      })
+    )
+    expect(
+      await screen.findByText(/Google didn’t confirm removing access/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Its reviews are kept for 7 days; connect the same Google login again before then to keep them\./
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("never claims a failed revoke when Google confirmed it", async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    renderCard([connection({})], mutate)
+    await chooseDisconnect(user, "owner@riverside.test")
+    await confirmDisconnect(user, "owner@riverside.test")
+    act(() =>
+      mutate.mock.calls[0][1].onSuccess({
+        status: "disconnected",
+        googleRevocation: "revoked",
+      })
+    )
+    expect(
+      await screen.findByText(
+        "Its reviews are kept for 7 days; connect the same Google login again before then to keep them."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/didn’t confirm/)).toBeNull()
+  })
+
+  it("says a failed disconnect inside the dialog, not in a toast", async () => {
+    const user = userEvent.setup()
+    renderCard(
+      [connection({})],
+      vi.fn(),
+      new ApiClientError(503, "service_unavailable", "Unavailable")
+    )
+    await chooseDisconnect(user, "owner@riverside.test")
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByRole("alert")).toBeInTheDocument()
+  })
+
+  it("leaves a step-up 403 to the two-step prompt, with no inline error", async () => {
+    const user = userEvent.setup()
+    renderCard(
+      [connection({})],
+      vi.fn(),
+      new ApiClientError(403, "mfa_step_up_required", "Step up")
+    )
+    await chooseDisconnect(user, "owner@riverside.test")
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).queryByRole("alert")).toBeNull()
+  })
+
+  it("refreshes the list when the login was already disconnected elsewhere", async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    renderCard([connection({})], mutate)
+    await chooseDisconnect(user, "owner@riverside.test")
+    await confirmDisconnect(user, "owner@riverside.test")
+    act(() =>
+      mutate.mock.calls[0][1].onError(
+        new ApiClientError(404, "connection_not_found", "Not found")
+      )
+    )
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("lands focus on the section heading after a disconnect removes the row's ⋯", async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    workspaceMock.mockReturnValue(workspace([connection({})], mutate))
+    render(card({ inSection: true }))
+    await chooseDisconnect(user, "owner@riverside.test")
+    await confirmDisconnect(user, "owner@riverside.test")
+    // The server confirmed and the refetched list says "Disconnected".
+    workspaceMock.mockReturnValue(
+      workspace([connection({ status: "disconnected" })], mutate)
+    )
+    act(() => mutate.mock.calls[0][1].onSuccess({ status: "disconnected" }))
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    const heading = screen.getByRole("heading", { name: "Google accounts" })
+    await vi.waitFor(() => expect(heading).toHaveFocus())
+    // A script-only target with the shared focus halo, never a tab stop.
+    expect(heading).toHaveAttribute("tabindex", "-1")
+    expect(heading).toHaveClass("focus-halo")
   })
 
   it("keeps Disconnect disarmed until the login's email is typed, then disconnects once", async () => {

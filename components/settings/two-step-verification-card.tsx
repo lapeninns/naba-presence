@@ -14,6 +14,7 @@ import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
 import { PasswordField } from "@/components/auth/password-field"
 import { SettingsSection } from "@/components/settings/settings-section"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Field,
@@ -22,6 +23,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { OtpField } from "@/components/ui/otp-field"
+import { StatusPill } from "@/components/ui/status-pill"
 import { ApiClientError } from "@/lib/api/client"
 import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
 import * as mfaApi from "@/lib/api/mfa"
@@ -31,17 +33,59 @@ import { cn } from "@/lib/utils"
 
 const MAX_FACTORS = 2
 
+/**
+ * The setup ticket's limits, as the copy states them. They mirror
+ * MFA_TICKET_TTL_SECONDS (300) and MFA_MAX_ATTEMPTS (5) in lib/server/mfa.ts,
+ * which stay the authority; a test keeps the two in step.
+ */
+export const SETUP_LIMITS = { minutes: 5, wrongCodes: 5 } as const
+
+/**
+ * Set in this tab only after the server confirmed a new app (verify
+ * resolved), read once after the reload it triggers, then removed. Holds
+ * the app's number (1 or 2), never a secret.
+ */
+export const ENROLLED_FLAG = "naba:mfa-enrolled"
+
 type Stage =
   | { kind: "idle" }
   | { kind: "confirm" }
   | { kind: "scan"; enrollment: MfaEnrollResponse }
 
-function statusLine(factorCount: number): string {
-  if (factorCount <= 0) return "Off. Signing in needs only your password."
+function statusSentence(factorCount: number): string {
+  if (factorCount <= 0) return "Signing in needs only your password."
   if (factorCount === 1) {
-    return "On, with one authenticator app. Add a backup in case you lose that device."
+    return "With one authenticator app. Add a backup in case you lose that device."
   }
-  return "On, with an authenticator app and a backup."
+  return "With an authenticator app and a backup."
+}
+
+/** Takes the one-shot success flag, if this tab has one. */
+function takeEnrolledFlag(): 1 | 2 | null {
+  try {
+    const value = window.sessionStorage.getItem(ENROLLED_FLAG)
+    if (value === null) return null
+    window.sessionStorage.removeItem(ENROLLED_FLAG)
+    return value === "2" ? 2 : value === "1" ? 1 : null
+  } catch {
+    return null
+  }
+}
+
+/** The server's count of codes left on this setup, when it sent one. */
+function attemptsRemaining(error: ApiClientError): number | null {
+  const details = error.details
+  if (
+    details &&
+    typeof details === "object" &&
+    "attemptsRemaining" in details
+  ) {
+    const left = (details as { attemptsRemaining: unknown }).attemptsRemaining
+    if (typeof left === "number" && Number.isInteger(left) && left >= 1) {
+      return left
+    }
+  }
+  return null
 }
 
 /** "JBSWY3DPEHPK3PXP" → "JBSW Y3DP EHPK 3PXP": easier to read and retype. */
@@ -175,11 +219,18 @@ export function TwoStepVerificationCard({
   factorCount,
   verifiedThisSession,
   email,
+  requiredForYou = false,
 }: {
   factorCount: number
   verifiedThisSession: boolean
   /** The signed-in address, only as a password-manager hint (see below). */
   email?: string
+  /**
+   * The person is an owner or admin, whom the server's step-up rule holds
+   * to two-step verification before sensitive actions (lib/server/mfa.ts,
+   * mfaStepUpRefusal). Display only: nothing here gates on it.
+   */
+  requiredForYou?: boolean
 }) {
   const [stage, setStage] = useState<Stage>({ kind: "idle" })
   const [password, setPassword] = useState("")
@@ -192,6 +243,15 @@ export function TwoStepVerificationCard({
   const newCodeRef = useRef<HTMLDivElement>(null)
   const needsCurrentCode = factorCount > 0
   const canAdd = factorCount < MAX_FACTORS
+  const [justEnabled, setJustEnabled] = useState<1 | 2 | null>(null)
+
+  // The server has no session storage, so the flag is read after hydration,
+  // once, and removed: a later reload of the page no longer shows it.
+  useEffect(() => {
+    const enrolled = takeEnrolledFlag()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a one-shot, browser-only flag read after hydration (see above)
+    if (enrolled) setJustEnabled(enrolled)
+  }, [])
 
   function reset() {
     setStage({ kind: "idle" })
@@ -224,6 +284,29 @@ export function TwoStepVerificationCard({
         setCurrentCode("")
         setStage({ kind: "scan", enrollment })
       } catch (error) {
+        // Said here, not by the shared auth messages: there the support
+        // refusal is worded for invitations, and the password-identity
+        // refusal is not mapped at all.
+        if (
+          error instanceof ApiClientError &&
+          error.code === "support_session_forbidden"
+        ) {
+          setMessage({
+            title: "A support session can’t change two-step verification.",
+          })
+          return
+        }
+        if (
+          error instanceof ApiClientError &&
+          error.code === "mfa_password_account_required"
+        ) {
+          setMessage({
+            title: "Two-step verification needs an email and password sign-in.",
+            description:
+              "This account signs in another way, so it can’t add an authenticator app.",
+          })
+          return
+        }
         if (
           error instanceof ApiClientError &&
           error.code === "mfa_code_invalid"
@@ -258,6 +341,15 @@ export function TwoStepVerificationCard({
     startTransition(async () => {
       try {
         await mfaApi.verifyMfaCode({ code: code.data })
+        // Confirmed by the server: the reloaded page says so, once.
+        try {
+          window.sessionStorage.setItem(
+            ENROLLED_FLAG,
+            String(stage.kind === "scan" ? stage.enrollment.factorNumber : 1)
+          )
+        } catch {
+          // Blocked storage: the page reloads without the confirmation.
+        }
         // The session was replaced by a stronger one: reload from scratch.
         hardNavigate("/settings/security")
         await new Promise<void>(() => {})
@@ -266,9 +358,13 @@ export function TwoStepVerificationCard({
           error instanceof ApiClientError &&
           error.code === "mfa_code_invalid"
         ) {
+          const left = attemptsRemaining(error)
           setErrors({
-            newCode:
-              "That code did not match. Try the code your app shows now.",
+            newCode: `That code did not match. Try the code your app shows now.${
+              left === null
+                ? ""
+                : ` ${left} ${left === 1 ? "try" : "tries"} left.`
+            }`,
           })
           setNewCode("")
           focusFirstCodeBox(newCodeRef.current)
@@ -279,9 +375,10 @@ export function TwoStepVerificationCard({
           error.code === "mfa_ticket_invalid"
         ) {
           setStage({ kind: "idle" })
+          // The ticket ends after its time or its last wrong code alike.
           setMessage({
-            title: "Setup timed out.",
-            description: "Start again; the new app was not added.",
+            title: "Setup stopped.",
+            description: `It closes after ${SETUP_LIMITS.minutes} minutes or ${SETUP_LIMITS.wrongCodes} wrong codes. The new app was not added. Start again.`,
           })
           return
         }
@@ -291,20 +388,46 @@ export function TwoStepVerificationCard({
   }
 
   return (
-    <SettingsSection
-      id={titleId}
-      title="Two-step verification"
-      description={statusLine(factorCount)}
-      variant="group"
-    >
+    <SettingsSection id={titleId} title="Two-step verification" variant="group">
       <div className="flex flex-col gap-4">
-        {factorCount > 0 ? (
-          <p className="text-ui text-ink-secondary">
-            {verifiedThisSession
-              ? "You entered a code when you signed in to this session."
-              : "This session was opened without a code. Sign in again to use one."}
-          </p>
+        {justEnabled ? (
+          <Alert variant="success">
+            <AlertTitle>
+              {justEnabled === 1
+                ? "Two-step verification is on."
+                : "Backup app added."}
+            </AlertTitle>
+            <AlertDescription>
+              {justEnabled === 1
+                ? "From now on, after your password you’ll enter the 6-digit code from your app."
+                : "When you sign in you can use a code from either app."}
+            </AlertDescription>
+          </Alert>
         ) : null}
+        <div className="flex flex-col gap-1.5" data-slot="mfa-status">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body text-ink">
+            {factorCount > 0 ? (
+              <StatusPill tone="healthy">On</StatusPill>
+            ) : (
+              <StatusPill tone="neutral" dashed>
+                Off
+              </StatusPill>
+            )}
+            <span>{statusSentence(factorCount)}</span>
+          </p>
+          {factorCount > 0 ? (
+            <p className="text-ui text-ink-secondary">
+              {verifiedThisSession
+                ? "This session is verified with a code."
+                : "You signed in to this session without a code. You’ll enter one the next time you sign in."}
+            </p>
+          ) : requiredForYou ? (
+            <p className="text-ui text-ink-secondary">
+              Owners and admins need this before they publish, approve, or
+              change the team, Google connections or settings.
+            </p>
+          ) : null}
+        </div>
         {message ? <AuthErrorAlert message={message} /> : null}
 
         {stage.kind === "idle" && canAdd ? (
@@ -350,6 +473,7 @@ export function TwoStepVerificationCard({
               onValueChange={setPassword}
               autoComplete="current-password"
               error={errors.password}
+              describedBy="We ask again because this changes how you sign in."
               autoFocus
             />
             {needsCurrentCode ? (
@@ -389,7 +513,8 @@ export function TwoStepVerificationCard({
             <p className="text-body text-ink">
               Add NabaPresence to your authenticator app (for example Google
               Authenticator, 1Password or Authy), then enter the 6-digit code it
-              shows.
+              shows. Setup closes after {SETUP_LIMITS.minutes} minutes or{" "}
+              {SETUP_LIMITS.wrongCodes} wrong codes.
             </p>
             <AuthenticatorSetup enrollment={stage.enrollment} />
             <Field error={errors.newCode}>
@@ -428,6 +553,13 @@ export function TwoStepVerificationCard({
               </Button>
             </div>
           </form>
+        ) : null}
+        {factorCount > 0 ? (
+          <p className="text-caption text-ink-muted">
+            You can’t remove an app here. If you lose every app you’ve set up,
+            you won’t be able to sign in until your identity is checked and
+            two-step verification is reset.
+          </p>
         ) : null}
       </div>
     </SettingsSection>

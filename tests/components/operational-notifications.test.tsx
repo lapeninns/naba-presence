@@ -405,8 +405,11 @@ describe("NotificationsView interactions", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
     )
-    // The question is gone and the row says Resolved while the request is out.
-    expect(await screen.findByText("Resolved")).toBeInTheDocument()
+    // The question is gone and the row says Resolving… while the request is
+    // out: never Resolved, nor a resolved time, before the server says so.
+    expect(await screen.findByText("Resolving…")).toBeInTheDocument()
+    expect(screen.queryByText("Resolved")).not.toBeInTheDocument()
+    expect(screen.queryByText(/· resolved/)).not.toBeInTheDocument()
     expect(
       screen.queryByRole("group", { name: "Resolve Publishing failed?" })
     ).not.toBeInTheDocument()
@@ -420,10 +423,11 @@ describe("NotificationsView interactions", () => {
       ).toHaveLength(1)
     )
     release()
-    await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("0 open and unread")
-    )
-    expect(screen.getByText("Resolved")).toBeInTheDocument()
+    // Only the server's answer makes it Resolved, with its resolved time.
+    expect(await screen.findByText("Resolved")).toBeInTheDocument()
+    expect(screen.queryByText("Resolving…")).not.toBeInTheDocument()
+    expect(screen.getByText(/· resolved/)).toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("0 open and unread")
   })
 
   it("puts a refused read back and says so in a toast, with no inline alert", async () => {
@@ -480,7 +484,7 @@ describe("NotificationsView interactions", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
     )
-    await screen.findByText("Resolved")
+    await screen.findByText("Resolving…")
     fireEvent.click(
       screen.getByRole("button", { name: "Mark read: Listing access lost" })
     )
@@ -491,7 +495,7 @@ describe("NotificationsView interactions", () => {
     ).toBeInTheDocument()
     // Time for a refetch from the read to land, were it to run too early.
     await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(screen.getByText("Resolved")).toBeInTheDocument()
+    expect(screen.getByText("Resolving…")).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Resolve: Publishing failed" })
     ).not.toBeInTheDocument()
@@ -500,7 +504,7 @@ describe("NotificationsView interactions", () => {
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent("0 open and unread")
     )
-    expect(screen.getByText("Resolved")).toBeInTheDocument()
+    expect(await screen.findByText("Resolved")).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Mark unread: Listing access lost" })
     ).toBeInTheDocument()
@@ -552,11 +556,11 @@ describe("NotificationsView interactions", () => {
 })
 
 describe("NotificationsView Mark all read", () => {
-  it("says how many Mark N shown as read covers while more notifications are still to load", async () => {
+  it("says how many Mark N read covers while more notifications are still to load", async () => {
     notificationServer({ items: [item({})], nextCursor: "next" })
     renderView()
     expect(
-      await screen.findByRole("button", { name: "Mark 1 shown as read" })
+      await screen.findByRole("button", { name: "Mark 1 read" })
     ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Mark all read" })
@@ -621,7 +625,7 @@ describe("NotificationsView Mark all read", () => {
     release()
   })
 
-  it("says how many Mark N shown as read covers under Open, which leaves resolved unread rows out", async () => {
+  it("says how many Mark N read covers under Open, which leaves resolved unread rows out", async () => {
     const resolvedUnread = item({
       id: "55555555-5555-4555-8555-555555555555",
       kind: "listing_access_lost",
@@ -637,14 +641,12 @@ describe("NotificationsView Mark all read", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Open" }))
     // Under Open the resolved one is not shown, so "all" would be untrue.
     expect(
-      await screen.findByRole("button", { name: "Mark 1 shown as read" })
+      await screen.findByRole("button", { name: "Mark 1 read" })
     ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Mark all read" })
     ).not.toBeInTheDocument()
-    fireEvent.click(
-      screen.getByRole("button", { name: "Mark 1 shown as read" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Mark 1 read" }))
     await waitFor(() => expect(readCalls(calls)).toHaveLength(1))
     expect(readCalls(calls)[0]?.body).toEqual({
       incidentIds: [item({}).id],
@@ -770,7 +772,9 @@ describe("NotificationsView rows and empty states", () => {
       await screen.findByRole("heading", { name: "No notifications yet" })
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/Problems with Google connections, publishing and syncs/)
+      screen.getByText(
+        /Approval requests, low-rated reviews and problems with Google connections, publishing or syncs/
+      )
     ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Show all notifications" })
@@ -1013,7 +1017,7 @@ describe("NotificationsView pending changes", () => {
       fireEvent.click(
         screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
       )
-      expect(await screen.findByText("Resolved")).toBeInTheDocument()
+      expect(await screen.findByText("Resolving…")).toBeInTheDocument()
       const write = await server.write(0)
       // The person's role changes: the member's scope sees no incident, and
       // the reconciliation GET for it is held.
@@ -2055,9 +2059,7 @@ describe("NotificationsView review findings", () => {
       hold: "read",
     })
     renderView()
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Mark 1 shown as read" })
-    )
+    fireEvent.click(await screen.findByRole("button", { name: "Mark 1 read" }))
     expect(
       await screen.findByRole("button", { name: "Load more notifications" })
     ).toBeInTheDocument()
@@ -2283,6 +2285,29 @@ describe("NotificationPreferences", () => {
     expect(
       await screen.findByRole("link", { name: "Operations" })
     ).toHaveAttribute("href", "/settings/operations")
+  })
+
+  it("tells an owner the administrator switches email on, not that Operations sets it up", async () => {
+    preferenceServer({ emailConfigured: false, preferences: publishing })
+    renderPreferences("owner")
+    await screen.findByRole("link", { name: "Operations" })
+    const group = document.getElementById("notification-email")!
+    expect(group).toHaveTextContent(
+      "Email is switched on for the whole install by your NabaPresence administrator. Once it’s on, you can check its delivery in Operations."
+    )
+    expect(group).not.toHaveTextContent(/Set up email/)
+    // No daily-summary explanation where email can't be chosen.
+    expect(group).not.toHaveTextContent(/daily summary is one email/i)
+  })
+
+  it("explains the daily summary beside the email rows once email is available", async () => {
+    preferenceServer({ emailConfigured: true, preferences: publishing })
+    renderPreferences("member")
+    await screen.findByRole("combobox", { name: "Email: Publishing failed" })
+    const group = document.getElementById("notification-email")!
+    expect(group).toHaveAccessibleDescription(
+      "Choose Immediately, Daily summary or Off for each update. The daily summary is one email a day with the updates you set to Daily summary."
+    )
   })
 
   it("shows a switch change at once and disables only the row being saved", async () => {
@@ -2712,6 +2737,21 @@ describe("NotificationsView follow-ups to the Release & QA review", () => {
         screen.queryByText(/could not be refreshed/)
       ).not.toBeInTheDocument()
       expect(screen.getByText("Publishing failed")).toBeInTheDocument()
+      // Said where Load more was pressed, in its place: below the list, with
+      // the one retry.
+      const alert = screen.getByRole("alert")
+      expect(alert).toHaveTextContent("More notifications could not be loaded.")
+      expect(
+        screen
+          .getByRole("list", { name: "Notifications" })
+          .compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(screen.getAllByRole("button", { name: "Try again" })).toHaveLength(
+        1
+      )
+      expect(
+        screen.queryByRole("button", { name: "Load more notifications" })
+      ).not.toBeInTheDocument()
       failMore = false
       fireEvent.click(screen.getByRole("button", { name: "Try again" }))
       expect(await screen.findByText("Listing access lost")).toBeInTheDocument()
@@ -2778,7 +2818,9 @@ describe("NotificationsView follow-ups to the Release & QA review", () => {
       )
       fireEvent.click(screen.getByRole("tab", { name: "Unread" }))
       expect(
-        await screen.findByText("Notifications you have not marked read.")
+        await screen.findByText(
+          "Notifications you have not marked read, resolved ones included."
+        )
       ).toBeInTheDocument()
       fireEvent.click(screen.getByRole("tab", { name: "Open" }))
       expect(
@@ -2786,6 +2828,233 @@ describe("NotificationsView follow-ups to the Release & QA review", () => {
           "Problems nobody has resolved yet, whether read or not."
         )
       ).toBeInTheDocument()
+    })
+  })
+})
+
+describe("NotificationsView resolve and load-more feedback", () => {
+  const first = item({})
+  const other = item({
+    id: "33333333-3333-4333-8333-333333333333",
+    kind: "listing_access_lost",
+  })
+  /** Lists `rows`; every resolve is refused with this status and code. */
+  function refusingServer(
+    rows: (Record<string, unknown> & { id: string })[],
+    status: number,
+    code: string
+  ) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit = {}) =>
+        (init.method ?? "GET") === "GET"
+          ? new Response(
+              JSON.stringify({ items: rows, nextCursor: null, unreadCount: 1 }),
+              { headers: { "content-type": "application/json" } }
+            )
+          : new Response(JSON.stringify({ error: code, message: "No." }), {
+              status,
+              headers: { "content-type": "application/json" },
+            })
+      )
+    )
+  }
+  async function confirmResolve(label: string) {
+    fireEvent.click(
+      await screen.findByRole("button", { name: `Resolve: ${label}` })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: `Yes, resolve: ${label}` })
+    )
+  }
+  const live = () => document.querySelector('[aria-live="polite"]')
+
+  describe("the inline question", () => {
+    it("ties the consequence to both buttons and keeps focus on Yes", async () => {
+      steppedServer([first])
+      mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Resolve: Publishing failed",
+        })
+      )
+      const yes = screen.getByRole("button", {
+        name: "Yes, resolve: Publishing failed",
+      })
+      expect(yes).toHaveFocus()
+      expect(yes).toHaveAccessibleDescription(
+        "Resolve for everyone? It can’t be reopened."
+      )
+      expect(
+        screen.getByRole("button", { name: "Cancel" })
+      ).toHaveAccessibleDescription(
+        "Resolve for everyone? It can’t be reopened."
+      )
+    })
+
+    it("cancels on Escape, sends nothing and returns focus to Resolve", async () => {
+      const server = steppedServer([first])
+      mountScoped(OWNER)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Resolve: Publishing failed",
+        })
+      )
+      fireEvent.keyDown(
+        screen.getByRole("button", { name: "Yes, resolve: Publishing failed" }),
+        { key: "Escape" }
+      )
+      expect(
+        screen.queryByRole("group", { name: "Resolve Publishing failed?" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Resolve: Publishing failed" })
+      ).toHaveFocus()
+      await tick()
+      expect(server.writes).toHaveLength(0)
+    })
+  })
+
+  describe("when a resolve is confirmed", () => {
+    it("says so politely once the server accepts, not before", async () => {
+      nav.set("filter=open")
+      const server = steppedServer([first, other])
+      mountScoped(OWNER)
+      await confirmResolve("Publishing failed")
+      expect(live()).toHaveTextContent("")
+      ;(await server.write(0)).accept()
+      await waitFor(() =>
+        expect(live()).toHaveTextContent(
+          "Publishing failed resolved for everyone."
+        )
+      )
+      // The count stays the page's one status region.
+      expect(screen.getAllByRole("status")).toHaveLength(1)
+    })
+
+    it("says nothing when the server refuses", async () => {
+      const server = steppedServer([first])
+      mountScoped(OWNER)
+      await confirmResolve("Publishing failed")
+      ;(await server.write(0)).refuse()
+      await screen.findByText("The notification wasn’t resolved")
+      expect(live()).toHaveTextContent("")
+    })
+  })
+
+  describe("a refused resolve", () => {
+    it.each([
+      {
+        status: 403,
+        code: "permission_denied",
+        says: "Publishing failed: Only an owner or admin can resolve notifications. If your role just changed, reload the page.",
+      },
+      {
+        status: 404,
+        code: "notification_not_found",
+        says: "Publishing failed: This notification no longer exists. The list is being refreshed.",
+      },
+      {
+        status: 409,
+        code: "notification_condition_active",
+        says: "Publishing failed: This one can’t be resolved by hand. It clears on its own once the problem is fixed.",
+      },
+    ])(
+      "names the notification and says why for $code",
+      async ({ status, code, says }) => {
+        refusingServer([first], status, code)
+        mountScoped(OWNER)
+        await confirmResolve("Publishing failed")
+        expect(
+          await screen.findByText("The notification wasn’t resolved")
+        ).toBeInTheDocument()
+        expect(screen.getByText(says)).toBeInTheDocument()
+      }
+    )
+  })
+
+  describe("an open row this person cannot resolve", () => {
+    it("says a condition clears on its own", async () => {
+      steppedServer([item({ kind: "listing_access_lost", canResolve: false })])
+      mountScoped(OWNER)
+      expect(
+        await screen.findByText("Clears on its own once the problem is fixed.")
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText("An owner or admin can resolve this.")
+      ).not.toBeInTheDocument()
+    })
+
+    it("says who can resolve any other kind", async () => {
+      steppedServer([item({ canResolve: false })])
+      mountScoped(MEMBER)
+      expect(
+        await screen.findByText("An owner or admin can resolve this.")
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: /^Resolve/ })
+      ).not.toBeInTheDocument()
+    })
+
+    it("says nothing on a row that can be resolved, or one already resolved", async () => {
+      steppedServer([
+        first,
+        item({
+          id: "44444444-4444-4444-8444-444444444444",
+          kind: "schedule_missed",
+          status: "resolved",
+          resolvedAt: "2026-09-30T12:00:00.000Z",
+          canResolve: false,
+        }),
+      ])
+      mountScoped(OWNER)
+      await screen.findByText("Scheduled post missed")
+      expect(screen.queryByText(/can resolve this/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Clears on its own/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe("Load more", () => {
+    it("keeps focus while loading, then moves it to the first new row when the button goes", async () => {
+      let releaseMore = () => {}
+      const more = new Promise<void>((resolve) => (releaseMore = resolve))
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          const next = new URL(String(url), "http://x").searchParams.has(
+            "cursor"
+          )
+          if (next) await more
+          return new Response(
+            JSON.stringify({
+              items: next ? [other] : [first],
+              nextCursor: next ? null : "next",
+              unreadCount: 2,
+            }),
+            { headers: { "content-type": "application/json" } }
+          )
+        })
+      )
+      mountScoped(OWNER)
+      const button = await screen.findByRole("button", {
+        name: "Load more notifications",
+      })
+      button.focus()
+      fireEvent.click(button)
+      // Busy, not disabled: focus stays on it while the page loads.
+      await waitFor(() => expect(button).toHaveAttribute("aria-busy", "true"))
+      expect(button).toHaveFocus()
+      releaseMore()
+      // The last page: the button goes, and focus lands on the first row that
+      // arrived rather than the page.
+      expect(
+        await screen.findByRole("link", {
+          name: "Open listing for Listing access lost",
+        })
+      ).toHaveFocus()
+      expect(
+        screen.queryByRole("button", { name: /Load more|Loading/ })
+      ).not.toBeInTheDocument()
     })
   })
 })

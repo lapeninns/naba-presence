@@ -62,7 +62,7 @@ export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
     label: "Account",
     title: "Choose the Business Profile accounts",
     description:
-      "One Google login can manage several Business Profile accounts. Pick the ones that belong to this client.",
+      "One Google login can manage several Business Profile accounts. Tick the ones that belong to this client; the rest stay available for other clients.",
   },
   {
     id: "locations",
@@ -75,12 +75,14 @@ export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
     label: "Import reviews",
     title: "Import review history",
     description:
-      "Bringing in past reviews so your reports and reply history are complete. You can carry on while this runs.",
+      "Bring in the reviews Google already holds, so reports and reply history are complete. You can carry on once it has started.",
   },
   {
     id: "notifications",
     label: "Notifications",
-    title: "Real-time notifications",
+    // Not the settings card's own heading ("Real-time notifications"), which
+    // sits right under it on this step.
+    title: "Get new reviews as they arrive",
     description:
       "Google can tell us the moment a review arrives, instead of waiting for the next scheduled check.",
     optional: true,
@@ -123,7 +125,7 @@ const BUSINESS_OVERRIDES: Partial<
   },
   account: {
     description:
-      "One Google login can manage several Business Profile accounts. Pick the ones that belong to your business.",
+      "One Google login can manage several Business Profile accounts. Tick the ones that belong to your business; any you leave unticked stay available for later.",
   },
   locations: {
     title: "Link your listings",
@@ -286,9 +288,9 @@ export function stepBlocker(step: SetupStep, facts: SetupFacts): string | null {
         : "Link at least one listing to continue."
     case "backfill":
       if (facts.backfill === "failed")
-        return "The review import stopped. Retry it to continue, or finish later."
+        return "The review import hasn’t worked yet. Check the reason on each listing and import again, or finish later."
       return facts.backfill === "not_started"
-        ? "Start the review import to continue. It keeps running while you carry on."
+        ? "Run the review import to continue."
         : null
     default:
       return null

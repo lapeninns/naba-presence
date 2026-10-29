@@ -3,9 +3,11 @@
 import {
   Check,
   CircleSlash,
+  ListChecks,
   MessageSquareText,
   Ellipsis,
   UserPlus,
+  X,
 } from "lucide-react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
@@ -54,7 +56,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useMenuSheet } from "@/components/ui/menu-surface"
-import { SelectionBar, SelectionBarTile } from "@/components/ui/selection-bar"
+import {
+  SelectionBar,
+  SelectionBarLinkTile,
+  SelectionBarTile,
+} from "@/components/ui/selection-bar"
 import type {
   BulkReviewActionInput,
   BulkReviewResult,
@@ -192,6 +198,56 @@ function focusSurvivor(leaving: HTMLElement | null) {
   requestAnimationFrame(() => requestAnimationFrame(settle))
 }
 
+type BulkAction = "approve" | "assign" | "mark_reviewed"
+
+/** A request on its way: what it does, and to how many rows. */
+type PendingRun = { action: BulkAction; count: number; unassign: boolean }
+
+const reviews = (count: number) =>
+  `${count} ${count === 1 ? "review" : "reviews"}`
+const replies = (count: number) =>
+  `${count} ${count === 1 ? "reply" : "replies"}`
+
+/**
+ * What the bar says while a request runs. A direct approve publishes one
+ * row after another inside the route's two-minute budget, so it says that
+ * it can take a while; the bulk engine only queues, which is quick.
+ */
+function pendingStatus(run: PendingRun, bulkEngine: boolean) {
+  switch (run.action) {
+    case "approve":
+      if (bulkEngine) return `Approving ${replies(run.count)}…`
+      return run.count === 1
+        ? "Approving and publishing 1 reply to Google…"
+        : `Approving and publishing ${replies(run.count)} to Google, one after another. This can take a minute or two.`
+    case "assign":
+      return `${run.unassign ? "Unassigning" : "Assigning"} ${reviews(run.count)}…`
+    case "mark_reviewed":
+      return `Marking ${reviews(run.count)} as no reply needed…`
+  }
+}
+
+/**
+ * Why Approve leaves a row out, by the first of its checks the row fails:
+ * the same checks, in the same order, as `approvable` in the bar.
+ */
+type SkipReason = "not_waiting" | "cannot_publish" | "own_request" | "no_draft"
+
+const SKIP_REASON_COPY: Record<SkipReason, (count: number) => string> = {
+  not_waiting: (count) =>
+    `${count} ${count === 1 ? "isn’t" : "aren’t"} waiting for approval`,
+  cannot_publish: (count) =>
+    count === 1
+      ? "1 is at a venue you can’t publish for"
+      : `${count} are at venues you can’t publish for`,
+  own_request: (count) =>
+    count === 1
+      ? "1 is a reply you asked for or drafted, so another approver must approve it"
+      : `${count} are replies you asked for or drafted, so another approver must approve them`,
+  no_draft: (count) =>
+    `${count} ${count === 1 ? "has" : "have"} no draft to approve`,
+}
+
 /**
  * Actions over a selection: the shared SelectionBar, docked to the bottom
  * of a phone while anything is ticked, where it takes the tab bar's slot
@@ -212,19 +268,41 @@ function BulkActionBar({
   rows,
   bulkEngine = false,
   scopeKey = "",
+  hasMore = false,
 }: {
   rows: ReviewRow[]
   /** Approve and template replies run as a bulk batch (the job runner sends them). */
   bulkEngine?: boolean
   /** The client the list is scoped to; a change of it is a change of scope. */
   scopeKey?: string
+  /** More reviews follow the loaded `rows` (a selection covers only these). */
+  hasMore?: boolean
 }) {
   const { selected, replace, setSelectMode } = useSelection()
+  // What is ticked when a run comes back: the checkboxes stay live while it
+  // runs, so ticks added or removed meanwhile (or a selection cancelled) are
+  // the person's answer, and the result does not undo them.
+  const selectedRef = React.useRef(selected)
+  React.useEffect(() => {
+    selectedRef.current = selected
+  }, [selected])
   const bulk = useReviewTriage()
   // On a phone the overflow is a bottom action sheet, where a flyout
   // submenu has nowhere to fly to; the assignees are listed in the sheet.
   const menuIsSheet = useMenuSheet()
+  // The per-row result of the last run, for the rows it left ticked. It
+  // belongs to that selection: a new run, or an emptied selection, clears it.
   const [outcome, setOutcome] = React.useState<BulkReviewResult | null>(null)
+  // The request on its way, for the words the bar shows while it runs.
+  const [pending, setPending] = React.useState<PendingRun | null>(null)
+  // A batch the bulk engine took in full: nothing is left ticked, so the bar
+  // stays as a short receipt with the link to follow it (until dismissed, a
+  // new selection, or a change of scope).
+  const [receipt, setReceipt] = React.useState<{
+    operationId: string
+    queued: number
+    scope: string
+  } | null>(null)
   const [confirmApprove, setConfirmApprove] = React.useState(false)
   // The selection as it was when the template batch opened. Replies that
   // publish leave the list (and so the selection's visible rows) while the
@@ -324,14 +402,67 @@ function BulkActionBar({
             }}
             onFinished={(sentIds) => {
               const sent = new Set(sentIds)
-              replace([...selected].filter((id) => !sent.has(id)))
+              replace([...selectedRef.current].filter((id) => !sent.has(id)))
             }}
           />
         </LazyDialogBoundary>
       </TemplateShellContext.Provider>
     ) : null
 
-  if (chosen.length === 0) return <>{templateDialog}</>
+  // A result is about the rows it was reported on: once none are ticked
+  // (Cancel, or they left the list), the next selection starts clean. A
+  // receipt goes with a new selection or a change of scope.
+  if (outcome && chosen.length === 0) setOutcome(null)
+  if (receipt && (chosen.length > 0 || receipt.scope !== scope))
+    setReceipt(null)
+
+  const pendingWords = pending ? pendingStatus(pending, bulkEngine) : null
+  // Always on the page, so the words are announced as they arrive (a live
+  // region that mounts with its words already in it may not be).
+  const liveStatus = (
+    <p role="status" data-slot="bulk-action-status" className="sr-only">
+      {pendingWords ?? ""}
+    </p>
+  )
+
+  if (chosen.length === 0) {
+    return (
+      <>
+        {liveStatus}
+        {receipt ? (
+          // Inline at the list's foot rather than docked on a phone: it can
+          // stay until dismissed, and a docked bar would keep the tab bar
+          // stepped aside all that while. The toast has already said it.
+          <SelectionBar
+            data-slot="bulk-batch-receipt"
+            label="Batch started"
+            dock={false}
+            className="shrink-0"
+            notes={
+              <p className="text-ink">
+                {receipt.queued}{" "}
+                {receipt.queued === 1 ? "reply is" : "replies are"} queued: each
+                is approved and sent to Google in the background. You can close
+                this tab.
+              </p>
+            }
+          >
+            <SelectionBarTile
+              icon={<X aria-hidden />}
+              label="Dismiss"
+              onClick={() => setReceipt(null)}
+            />
+            <SelectionBarLinkTile
+              href={`/listings/bulk/${receipt.operationId}`}
+              icon={<ListChecks aria-hidden />}
+              label="Follow batch"
+            />
+          </SelectionBar>
+        ) : null}
+        {templateDialog}
+      </>
+    )
+  }
 
   // Approval is bound to the draft the list showed: the parked one (what the
   // server approves and single approve names), not the newest. A row with no
@@ -340,21 +471,21 @@ function BulkActionBar({
   // newest draft as before.
   const approvalDraftId = (row: (typeof chosen)[number]) =>
     row.pendingDraftId ?? row.draftId
-  const approvable = chosen.filter(
-    (row) =>
-      row.workflowStatus === "awaiting_approval" &&
-      row.capabilities.canPublish &&
-      // Under two-person approval the approval route refuses a reply this
-      // person asked for or drafted (`second_approver_required`). An older
-      // server sends no `canApprove`; it is then approvable as before.
-      row.canApprove !== false &&
-      approvalDraftId(row) !== null
-  )
+  // Why a row cannot be approved here, or null when it can. The order is
+  // the order the reasons are worth hearing in.
+  const skipReason = (row: (typeof chosen)[number]): SkipReason | null => {
+    if (row.workflowStatus !== "awaiting_approval") return "not_waiting"
+    if (!row.capabilities.canPublish) return "cannot_publish"
+    // Under two-person approval the approval route refuses a reply this
+    // person asked for or drafted (`second_approver_required`). An older
+    // server sends no `canApprove`; it is then approvable as before.
+    if (row.canApprove === false) return "own_request"
+    if (approvalDraftId(row) === null) return "no_draft"
+    return null
+  }
+  const approvable = chosen.filter((row) => skipReason(row) === null)
 
-  const run = async (
-    action: "approve" | "assign" | "mark_reviewed",
-    assigneeId?: string | null
-  ) => {
+  const run = async (action: BulkAction, assigneeId?: string | null) => {
     // Never send an empty batch (a stale tick, a list that moved on).
     if (chosen.length === 0) return
     const ids = chosen.map((row) => row.id)
@@ -377,12 +508,54 @@ function BulkActionBar({
           ? assignReviews(ids, assigneeId ?? null)
           : markNoReplyNeeded(ids)
     if (!input) return
-    const result = await bulk.run(input)
+    // The last run's notes are not about this one, whatever it brings back
+    // (a batch refused outright brings back nothing).
+    setOutcome(null)
+    setReceipt(null)
+    setPending({
+      action,
+      count: action === "approve" ? approvable.length : ids.length,
+      unassign: action === "assign" && !assigneeId,
+    })
+    let result: BulkReviewResult | null = null
+    try {
+      result = await bulk.run(input)
+    } finally {
+      setPending(null)
+    }
     if (!result) return
+    if (summariseBulkOutcome(result).allOk) {
+      // Every row done: the batch is over, so select mode ends with it
+      // (which also clears). A batch the engine queued keeps its link.
+      if (result.operationId) {
+        setReceipt({
+          operationId: result.operationId,
+          queued: result.results.filter((row) => row.status === "queued")
+            .length,
+          scope,
+        })
+      }
+      setSelectMode(false)
+      return
+    }
     setOutcome(result)
-    // Every row done: the batch is over, so select mode ends with it
-    // (which also clears). Anything left over stays ticked to retry.
-    if (summariseBulkOutcome(result).allOk) setSelectMode(false)
+    // Only the rows that did not take effect stay ticked, to retry or look
+    // at: those the server did, or queued, leave the selection (as after a
+    // template batch), so the bar's notes are about what is left. That
+    // includes the rows Approve skipped before asking (never sent, so not in
+    // the results). The selection as it is now is trimmed, not the one the
+    // run started with: a selection cancelled while the request ran stays
+    // cancelled, and rows ticked or unticked meanwhile stay as they are. The
+    // toast still says what happened.
+    const current = selectedRef.current
+    if (current.size === 0) return
+    const settled = new Set(
+      result.results
+        .filter((row) => row.status === "ok" || row.status === "queued")
+        .map((row) => row.reviewId)
+    )
+    setSelectMode(true)
+    replace([...current].filter((id) => !settled.has(id)))
   }
 
   // Per-row results come back as ids; the operator knows reviews by who
@@ -424,9 +597,11 @@ function BulkActionBar({
         tone="charcoal"
         icon={<Check aria-hidden />}
         label={
-          approvable.length === chosen.length
-            ? `Approve ${approvable.length}`
-            : `Approve ${approvable.length} of ${chosen.length}`
+          pending?.action === "approve"
+            ? "Approving…"
+            : approvable.length === chosen.length
+              ? `Approve ${approvable.length}`
+              : `Approve ${approvable.length} of ${chosen.length}`
         }
         disabled={bulk.isPending}
         onClick={() => setConfirmApprove(true)}
@@ -443,21 +618,56 @@ function BulkActionBar({
     ) : (
       <SelectionBarTile
         icon={<CircleSlash aria-hidden />}
-        label="No reply needed"
+        label={
+          pending?.action === "mark_reviewed" ? "Marking…" : "No reply needed"
+        }
         disabled={bulk.isPending}
         onClick={() => void run("mark_reviewed")}
       />
     )
 
+  // Each reason Approve leaves rows out, counted: "…skip them: 1 isn't
+  // waiting for approval; 1 has no draft to approve."
+  const skipCounts = new Map<SkipReason, number>()
+  for (const row of chosen) {
+    const reason = skipReason(row)
+    if (reason) skipCounts.set(reason, (skipCounts.get(reason) ?? 0) + 1)
+  }
+  const skipReasons = [...skipCounts]
+    .map(([reason, count]) => SKIP_REASON_COPY[reason](count))
+    .join("; ")
+  // Select all ticks the loaded rows only; more may follow them.
+  const onlyLoaded = hasMore && chosen.length === rows.length
+
   // Results and notes sit above the header and the tiles, so the tiles
   // never move under a thumb.
   const notes =
-    partial || outcome?.operationId || failures.length > 0 ? (
+    pendingWords ||
+    partial ||
+    onlyLoaded ||
+    outcome?.operationId ||
+    failures.length > 0 ? (
       <div className="flex flex-col gap-1">
+        {/* Spoken by the status region above; shown here too, because the
+            tiles alone only go grey. */}
+        {pendingWords ? (
+          <p className="text-ink" aria-hidden>
+            {pendingWords}
+          </p>
+        ) : null}
+
         {partial ? (
           <p>
             {chosen.length - approvable.length} of these are not ready for your
-            approval, so Approve will skip them.
+            approval, so Approve will skip them: {skipReasons}.
+          </p>
+        ) : null}
+
+        {onlyLoaded ? (
+          <p>
+            Only the {reviews(chosen.length)} loaded so far{" "}
+            {chosen.length === 1 ? "is" : "are"} selected. Load more to add the
+            rest.
           </p>
         ) : null}
 
@@ -501,6 +711,7 @@ function BulkActionBar({
 
   return (
     <>
+      {liveStatus}
       {/* The one bar that owns the bottom edge while rows are ticked: on a
           phone it is fixed to the bottom of the screen (the chrome contract
           in globals.css steps the tab bar aside for it, and it rides the

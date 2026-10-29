@@ -4,6 +4,8 @@ import type NextLink from "next/link"
 import type { ComponentProps, ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { NOT_FOUND_TITLE } from "@/components/app-shell/boundary"
+
 const stubs = vi.hoisted(() => ({
   billingEnabled: false,
   getSession: vi.fn(),
@@ -130,12 +132,21 @@ describe("settings billing routes with billing off", () => {
   ] as const)(
     "%s metadata is the 404's and keeps it out of indexes",
     (_n, meta) => {
+      // The tab says what the page's own heading says.
       expect(meta()).toEqual({
-        title: "Page not found · NabaPresence",
+        title: `${NOT_FOUND_TITLE} · NabaPresence`,
         robots: { index: false, follow: false },
       })
     }
   )
+
+  it("titles the tab with the 404 heading's own words", async () => {
+    render(await pages[0][1]())
+    const heading = screen.getByRole("heading", { level: 1 })
+    expect(billingMetadata().title).toBe(
+      `${heading.textContent} · NabaPresence`
+    )
+  })
 })
 
 describe("settings billing routes with billing on", () => {
@@ -183,7 +194,12 @@ describe("settings billing routes with billing on", () => {
             name: "You don’t have access to this page",
           })
         ).toBeInTheDocument()
-        expect(screen.getByText(/^Billing is limited to /)).toBeInTheDocument()
+        // Billing is the owner's alone, so that is who it names.
+        expect(
+          screen.getByText(
+            /^Billing is limited to the owner\. Ask the owner in your \w+ if you need it\.$/
+          )
+        ).toBeInTheDocument()
         expect(
           screen.getByRole("button", { name: /Ask for access/ })
         ).toBeInTheDocument()

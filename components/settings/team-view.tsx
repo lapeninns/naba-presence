@@ -1,7 +1,8 @@
 "use client"
 
 import { Check, UserPlus } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useRef, useState } from "react"
 
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { PageHeader } from "@/components/app-shell/page-frame"
@@ -77,6 +78,10 @@ export function TeamView({
 }) {
   const [inviteOpen, setInviteOpen] = useState(false)
   const terms = workspaceTerms(useWorkspaceMode())
+  const router = useRouter()
+  // Focus lands here after a member is removed: their row, and so the
+  // confirm's opener, is gone.
+  const membersHeading = useRef<HTMLSpanElement>(null)
 
   useEffect(() => {
     const openFromHash = () => {
@@ -123,10 +128,26 @@ export function TeamView({
       <section aria-labelledby="team-members" className="flex flex-col gap-3">
         <SectionHeader
           id="team-members"
-          title="Members"
+          title={
+            <span
+              ref={membersHeading}
+              tabIndex={-1}
+              data-slot="members-heading"
+              className="focus-visible:outline-none"
+            >
+              Members
+            </span>
+          }
           description={<MembersCount />}
         />
-        <MembersTable actorRole={actorRole} actorUserId={actorUserId} />
+        <MembersTable
+          actorRole={actorRole}
+          actorUserId={actorUserId}
+          // Your own role changed: the server decides what Team shows you
+          // now (fewer controls, or Access denied).
+          onSelfRoleChanged={() => router.refresh()}
+          removedFocus={membersHeading}
+        />
       </section>
 
       <section

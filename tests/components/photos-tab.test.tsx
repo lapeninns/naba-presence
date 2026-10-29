@@ -270,7 +270,9 @@ describe("PhotosTab", () => {
 
     renderTab()
     await user.click(
-      screen.getByRole("button", { name: "Preview Interior photo" })
+      screen.getByRole("button", {
+        name: /^Preview Interior photo, added 1 Jul 2026$/,
+      })
     )
 
     expect(
@@ -360,7 +362,8 @@ describe("PhotosTab", () => {
       screen.getByText(/Google needs photos of at least 10 KB/)
     ).toBeInTheDocument()
     expect(
-      screen.getByText("0 sent, 1 ready, 1 can’t upload.")
+      // Only the parts that are not zero.
+      screen.getByText("1 ready, 1 can’t upload.")
     ).toBeInTheDocument()
 
     // One primary in the same sheet: no second review step, no stacked dialog.
@@ -415,7 +418,9 @@ describe("PhotosTab", () => {
     )
     renderTab()
     expect(
-      screen.getAllByRole("button", { name: /^Preview Additional photo$/ })
+      screen.getAllByRole("button", {
+        name: /^Preview Additional photo, added /,
+      })
     ).toHaveLength(12)
     expect(screen.getByText("Showing 12 of 15 items")).toHaveAttribute(
       "role",
@@ -435,7 +440,9 @@ describe("PhotosTab", () => {
     )
     renderTab()
     expect(
-      screen.getAllByRole("button", { name: /^Preview Additional photo$/ })
+      screen.getAllByRole("button", {
+        name: /^Preview Additional photo, added /,
+      })
     ).toHaveLength(12)
     expect(screen.getByRole("alert")).toHaveTextContent(
       "We couldn’t load more items. Try again."
@@ -499,20 +506,32 @@ describe("PhotosTab", () => {
     renderTab()
 
     expect(
-      screen.getByLabelText("Change category for Interior photo")
+      screen.getByLabelText(
+        "Change category for Interior photo, added 1 Jul 2026"
+      )
+    ).toBeInTheDocument()
+    // The customer tile is named as one, and has no controls to name.
+    expect(
+      screen.getByRole("button", {
+        name: "Preview Additional photo from a customer",
+      })
     ).toBeInTheDocument()
     expect(
-      screen.queryByLabelText("Change category for Additional photo")
+      screen.queryByLabelText(/^Change category for Additional photo/)
     ).not.toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Delete Interior photo" })
+      screen.getByRole("button", {
+        name: "Delete Interior photo, added 1 Jul 2026",
+      })
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Delete Additional photo" })
+      screen.queryByRole("button", { name: /^Delete Additional photo/ })
     ).not.toBeInTheDocument()
 
     await user.click(
-      screen.getByLabelText("Change category for Interior photo")
+      screen.getByLabelText(
+        "Change category for Interior photo, added 1 Jul 2026"
+      )
     )
     const listbox = await screen.findByRole("listbox")
     expect(within(listbox).queryByText("Cover")).not.toBeInTheDocument()
@@ -555,11 +574,20 @@ describe("PhotosTab", () => {
     searchParams = new URLSearchParams(
       "ownership=customer&category=INTERIOR&page=3"
     )
-    loaded(makeMedia({ items: [], total: 0 }))
+    // The server echoes the filters it answered for.
+    loaded(
+      makeMedia({
+        items: [],
+        total: 0,
+        ownership: "customer",
+        category: "INTERIOR",
+      })
+    )
     renderTab()
     expect(screen.getByRole("radio", { name: "Customer photos" })).toBeChecked()
     expect(screen.getByRole("radio", { name: "All" })).not.toBeChecked()
     expect(screen.getByText("No matching photos")).toBeInTheDocument()
+    expect(screen.queryByText("Loading matching photos…")).toBeNull()
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }))
     expect(replace).toHaveBeenCalledWith("/locations/loc-1/photos", {

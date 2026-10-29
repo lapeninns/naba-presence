@@ -59,6 +59,9 @@ function ExpiryNearby({ expiresAt }: { readonly expiresAt: string }) {
   )
 }
 
+/** The saved work's anchor, for a page alert that sends the operator to it. */
+export const SAVED_BOOKING_LINK_WORK_ID = "saved-booking-link-work"
+
 export function SavedPlaceActionWork({
   locationId,
   workflow,
@@ -89,6 +92,8 @@ export function SavedPlaceActionWork({
         // `aria-label`); the heading says the same words.
         aria-label="Saved booking link work"
         aria-labelledby={undefined}
+        // The booking page's "needs a check" alert links here.
+        id={SAVED_BOOKING_LINK_WORK_ID}
         label="Saved booking link work"
         caption="Outcomes stay here even when Google can’t be read."
         bodyAs="div"

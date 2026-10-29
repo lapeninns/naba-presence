@@ -1,0 +1,14 @@
+{
+  "state": "f10-verification",
+  "variant": "1280-light",
+  "url": "/listings/c9c8f560-dd92-4e07-af3b-f32eb938d7fd/verification",
+  "h1": "Verification",
+  "activeElement": "body \"((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"ligh\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Google already confirms you manage this listing, so it would refuse a new verification request."
+  ],
+  "disabledButtons": [],
+  "violations": []
+}

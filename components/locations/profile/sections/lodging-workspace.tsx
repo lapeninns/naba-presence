@@ -1,6 +1,14 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import dynamic from "next/dynamic"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { SavedWorkList } from "@/components/reviewed-write/saved-work-list"
@@ -30,67 +38,154 @@ type Workspace = ReturnType<typeof useLodgingReview> & {
   discardDraft: () => void
 }
 const Context = createContext<Workspace | null>(null)
-export function LodgingWorkspaceProvider({ locationId, children }: { readonly locationId: string; readonly children: ReactNode }) {
+export function LodgingWorkspaceProvider({
+  locationId,
+  children,
+}: {
+  readonly locationId: string
+  readonly children: ReactNode
+}) {
   const workflow = useLodgingReview(locationId)
-  const [draftStatus, setDraftStatus] = useState<DraftStatus>({ dirty: false, blocked: null })
+  const [draftStatus, setDraftStatus] = useState<DraftStatus>({
+    dirty: false,
+    blocked: null,
+  })
   const actions = useRef<DraftActions | null>(null)
-  const reportDraft = useCallback((status: DraftStatus, next: DraftActions | null) => {
-    actions.current = next
-    setDraftStatus((previous) => previous.dirty === status.dirty && previous.blocked === status.blocked ? previous : status)
-  }, [])
-  return <Context.Provider value={{ ...workflow, draftStatus, reportDraft,
-    reviewDraft: () => actions.current?.review(), discardDraft: () => actions.current?.discard(),
-  }}>{children}</Context.Provider>
+  const reportDraft = useCallback(
+    (status: DraftStatus, next: DraftActions | null) => {
+      actions.current = next
+      setDraftStatus((previous) =>
+        previous.dirty === status.dirty && previous.blocked === status.blocked
+          ? previous
+          : status
+      )
+    },
+    []
+  )
+  return (
+    <Context.Provider
+      value={{
+        ...workflow,
+        draftStatus,
+        reportDraft,
+        reviewDraft: () => actions.current?.review(),
+        discardDraft: () => actions.current?.discard(),
+      }}
+    >
+      {children}
+    </Context.Provider>
+  )
 }
 export const useLodgingWorkspace = () => useContext(Context)
 
 /** The jump target for saved lodging work on the profile page. */
 export const SAVED_LODGING_ID = "section-saved-lodging"
 
-export function SavedLodgingWorkspace({ locationId }: { readonly locationId: string }) {
+export function SavedLodgingWorkspace({
+  locationId,
+  hideWhenEmpty,
+}: {
+  readonly locationId: string
+  readonly hideWhenEmpty?: boolean
+}) {
   const caps = useLocationCapabilities(locationId).data
-  return <SavedLodgingWork locationId={locationId} enabled={Boolean(caps?.canEditCanonical)} disabled={!caps?.canPublish || Boolean(resourceDisabledReason(caps, "industry", true))} />
+  return (
+    <SavedLodgingWork
+      locationId={locationId}
+      enabled={Boolean(caps?.canEditCanonical)}
+      disabled={
+        !caps?.canPublish ||
+        Boolean(resourceDisabledReason(caps, "industry", true))
+      }
+      hideWhenEmpty={hideWhenEmpty}
+    />
+  )
 }
 
-export function SavedLodgingWork({ locationId, enabled, disabled }: { readonly locationId: string; readonly enabled: boolean; readonly disabled: boolean }) {
+/**
+ * `hideWhenEmpty`: draw nothing while the list loads or when it is empty, so
+ * a listing with no lodging work doesn't end with an empty section. A
+ * failed read still shows, and so does the review sheet the lodging section
+ * opens through this workspace.
+ */
+export function SavedLodgingWork({
+  locationId,
+  enabled,
+  disabled,
+  hideWhenEmpty = false,
+}: {
+  readonly locationId: string
+  readonly enabled: boolean
+  readonly disabled: boolean
+  readonly hideWhenEmpty?: boolean
+}) {
   const workflow = useLodgingWorkspace()
   const query = useInfiniteQuery({
-    queryKey: [...queryKeys.locationIndustry(locationId), "workflows"], initialPageParam: "",
-    queryFn: ({ pageParam }) => fetchLodgingWorkflows(locationId, pageParam || undefined),
-    getNextPageParam: (page) => page.nextCursor ?? undefined, enabled,
+    queryKey: [...queryKeys.locationIndustry(locationId), "workflows"],
+    initialPageParam: "",
+    queryFn: ({ pageParam }) =>
+      fetchLodgingWorkflows(locationId, pageParam || undefined),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled,
   })
-  const hasSavedWork = Boolean(query.data?.pages.some((page) => page.items.length > 0))
+  const hasSavedWork = Boolean(
+    query.data?.pages.some((page) => page.items.length > 0)
+  )
   useEffect(() => {
     if (hasSavedWork) void loadLodgingApprovalSheet()
   }, [hasSavedWork])
   if (!enabled || !workflow) return null
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
-  return <div id={SAVED_LODGING_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
-    <SavedWorkList
-      id={`${SAVED_LODGING_ID}-heading`}
-      headingLevel="h3"
-      title="Saved lodging work"
-      description="Saved requests remain available when Google cannot be read. Expired approvals cannot be sent again; recorded outcomes can still be checked."
-      items={items.map((item) => savedChangeItem({
-        change: item.changeSet, recorded: Boolean(item.attemptId),
-        operation: `Lodging details for ${item.changeSet.locationName}`,
-        actionLabel: item.attemptId ? "Open lodging outcome" : "Open lodging review",
-        onOpen: () => workflow.restore(item.changeSet),
-        disabled: workflow.busy || workflow.unresolved && workflow.review?.id !== item.changeSet.id,
-      }))}
-      pending={query.isPending}
-      failed={query.isError}
-      loadingText="Loading saved lodging work…"
-      errorText="Saved lodging work could not be loaded."
-      emptyText="No saved lodging requests."
-      reloadLabel="Reload saved lodging work"
-      reloading={query.isFetching}
-      onReload={() => void query.refetch()}
-      loadMoreLabel="Load more lodging work"
-      hasMore={query.hasNextPage}
-      loadingMore={query.isFetchingNextPage}
-      onLoadMore={() => void query.fetchNextPage()}
-    />
-    {workflow.review ? <LodgingApprovalSheet workflow={workflow} disabled={disabled} /> : null}
-  </div>
+  const sheet = workflow.review ? (
+    <LodgingApprovalSheet workflow={workflow} disabled={disabled} />
+  ) : null
+  // The sheet keeps its place in the tree whether the list shows or not, so
+  // a review opened while the list was hidden isn't remounted when it lands.
+  const hidden =
+    hideWhenEmpty && (query.isPending || (!query.isError && items.length === 0))
+  return (
+    <>
+      {hidden ? null : (
+        <div
+          id={SAVED_LODGING_ID}
+          className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4"
+        >
+          <SavedWorkList
+            id={`${SAVED_LODGING_ID}-heading`}
+            headingLevel="h3"
+            title="Saved lodging work"
+            description="Saved requests remain available when Google cannot be read. Expired approvals cannot be sent again; recorded outcomes can still be checked."
+            items={items.map((item) =>
+              savedChangeItem({
+                change: item.changeSet,
+                recorded: Boolean(item.attemptId),
+                operation: `Lodging details for ${item.changeSet.locationName}`,
+                actionLabel: item.attemptId
+                  ? "Open lodging outcome"
+                  : "Open lodging review",
+                onOpen: () => workflow.restore(item.changeSet),
+                disabled:
+                  workflow.busy ||
+                  (workflow.unresolved &&
+                    workflow.review?.id !== item.changeSet.id),
+              })
+            )}
+            pending={query.isPending}
+            failed={query.isError}
+            loadingText="Loading saved lodging work…"
+            errorText="Saved lodging work could not be loaded."
+            emptyText="No saved lodging requests."
+            reloadLabel="Reload saved lodging work"
+            reloading={query.isFetching}
+            onReload={() => void query.refetch()}
+            loadMoreLabel="Load more lodging work"
+            hasMore={query.hasNextPage}
+            loadingMore={query.isFetchingNextPage}
+            onLoadMore={() => void query.fetchNextPage()}
+          />
+        </div>
+      )}
+      {sheet}
+    </>
+  )
 }

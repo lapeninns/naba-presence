@@ -111,6 +111,7 @@ import {
   type TabGateReasons,
 } from "@/lib/locations/gating"
 import type { ListingChangeEditor } from "@/lib/contracts/listing-changes"
+import { ASK_OWNER_OR_ADMIN } from "@/lib/editors/gate"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 
 /**
@@ -206,7 +207,7 @@ export function LocationTab<T>({
             // Only the canonical-edit gate is purely a role; a publish gate
             // can also fail on a read-only or disconnected location.
             requires === "canEditCanonical"
-              ? "Your role can’t open this section. Ask an owner or admin if something here needs to change."
+              ? `Your role can’t open this section. ${ASK_OWNER_OR_ADMIN}`
               : undefined
           }
         />

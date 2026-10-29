@@ -55,7 +55,7 @@ function notification(
   }
 }
 
-function renderNotification(item: NotificationItem) {
+function renderNotification(item: NotificationItem, usageHref?: string) {
   const fetchMock = vi.fn(
     async () =>
       new Response(
@@ -73,7 +73,7 @@ function renderNotification(item: NotificationItem) {
   })
   render(
     <QueryClientProvider client={client}>
-      <NotificationsView />
+      <NotificationsView usageHref={usageHref} />
     </QueryClientProvider>
   )
   return fetchMock
@@ -202,5 +202,82 @@ describe("notification review links", () => {
     expect(
       screen.queryByRole("link", { name: /Open review/ })
     ).not.toBeInTheDocument()
+  })
+
+  describe("account-level notifications", () => {
+    const account = (kind: NotificationItem["kind"], summary = {}) =>
+      notification({
+        kind,
+        subjectType: "google_connection",
+        subjectId: "55555555-5555-4555-8555-555555555555",
+        locationId: null,
+        locationName: null,
+        summary,
+        canResolve: false,
+      })
+
+    it.each([
+      {
+        kind: "connection_reconnect",
+        label: "Google login needs reconnecting",
+        link: "Open Google connections",
+        href: "/settings/connections",
+      },
+      {
+        kind: "connection_owner_left",
+        label: "Connection owner left",
+        link: "Open Google connections",
+        href: "/settings/connections",
+      },
+      {
+        kind: "ai_credits_low",
+        label: "AI reply credits running low",
+        link: "See AI credits",
+        href: "/settings/usage",
+      },
+      {
+        kind: "ai_credits_exhausted",
+        label: "AI reply credits used up",
+        link: "See AI credits",
+        href: "/settings/usage",
+      },
+    ] as const)(
+      "links $kind to where it is fixed",
+      async ({ kind, label, link, href }) => {
+        renderNotification(account(kind), "/settings/usage")
+        const target = await screen.findByRole("link", {
+          name: `${link} for ${label}`,
+        })
+        expect(target).toHaveTextContent(link)
+        expect(target).toHaveAttribute("href", href)
+        expect(
+          screen.queryByRole("link", { name: /Open (review|listing)/ })
+        ).not.toBeInTheDocument()
+      }
+    )
+
+    it("sends AI credits to Reply policy when no Usage page is given", async () => {
+      renderNotification(account("ai_credits_low"))
+      expect(
+        await screen.findByRole("link", {
+          name: "See AI credits for AI reply credits running low",
+        })
+      ).toHaveAttribute("href", "/settings/policy")
+    })
+
+    it("names the Google login a connection notification is about", async () => {
+      renderNotification(
+        account("connection_reconnect", { googleEmail: "ops@venue.co.uk" })
+      )
+      expect(await screen.findByText("ops@venue.co.uk")).toBeInTheDocument()
+    })
+
+    it("names no login for the credit kinds", async () => {
+      renderNotification(
+        account("ai_credits_low", { googleEmail: "ops@venue.co.uk" })
+      )
+      await screen.findByText("AI reply credits running low")
+      expect(screen.queryByText("ops@venue.co.uk")).not.toBeInTheDocument()
+    })
   })
 })

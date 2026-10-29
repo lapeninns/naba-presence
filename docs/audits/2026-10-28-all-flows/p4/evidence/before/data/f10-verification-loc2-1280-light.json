@@ -1,0 +1,16 @@
+{
+  "state": "f10-verification-loc2",
+  "variant": "1280-light",
+  "url": "/listings/befa07a6-1d87-43cd-9917-afe7d8cecb6a/verification",
+  "h1": "Verification",
+  "activeElement": "body \"((a,b,c,d,e,f,g,h)=>{let i=document.documentElement,j=[\"ligh\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Verification changes are pausedCheck current Google verification state before reviewing or sending a request. Saved reviews and outcomes remain available to aut",
+    "Current Google state could not be readNo current observation is available. This does not mean the listing is unverified or has no requests. Inspect saved outcom",
+    "Current Google state could not be refreshed. Any request details still shown are earlier observations."
+  ],
+  "disabledButtons": [],
+  "violations": []
+}

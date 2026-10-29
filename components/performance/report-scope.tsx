@@ -1,12 +1,16 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 
 import { buttonVariants } from "@/components/ui/button"
 import { Empty, EmptyIllustration } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
-import { LISTING_TERMS, workspaceTerms } from "@/lib/workspace/terms"
+import { LISTING_TERMS } from "@/lib/workspace/terms"
+
+/** What the way back keeps: the tab and each tab's period, never the bad id. */
+const KEPT_PARAMS = ["tab", "range", "range_kw"] as const
 
 /*
  * The scope bar that used to live here (ReportScope) is now the one
@@ -21,12 +25,18 @@ import { LISTING_TERMS, workspaceTerms } from "@/lib/workspace/terms"
  *
  * It is all the page shows under its title, so it is a page-placed empty
  * state (no card, sitting at about a third of the height) with the
- * lookup-found-nothing drawing.
+ * lookup-found-nothing drawing. The way back keeps the tab and period, so
+ * the reader lands on the report they asked for, for everything they can see.
  */
 export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
-  const mode = useWorkspaceMode()
-  const business = mode === "business"
-  const terms = workspaceTerms(mode)
+  const business = useWorkspaceMode() === "business"
+  const searchParams = useSearchParams()
+  const back = new URLSearchParams()
+  for (const name of KEPT_PARAMS) {
+    const value = searchParams.get(name)
+    if (value) back.set(name, value)
+  }
+  const query = back.toString()
   return (
     <div data-slot="not-in-directory" className="flex flex-1 flex-col">
       <Empty
@@ -35,20 +45,22 @@ export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
         illustration={<EmptyIllustration name="search" />}
         title={
           kind === "client"
-            ? "This client isn’t in your directory"
-            : `This ${LISTING_TERMS.place} isn’t in your directory`
+            ? "We can’t find this client"
+            : `We can’t find this ${LISTING_TERMS.place}`
         }
         description={
-          business
-            ? "It may have been removed, or you may not have access to it. Nothing is reported for it."
-            : "It may have been removed, or it belongs to a client you can’t see. Nothing is reported for it."
+          business || kind === "client"
+            ? "It may have been removed, or you may not have access to it. No figures are shown for it."
+            : "It may have been removed, or it belongs to a client you can’t see. No figures are shown for it."
         }
         action={
           <Link
-            href="/reports"
+            href={query ? `/reports?${query}` : "/reports"}
             className={cn(buttonVariants({ variant: "secondary" }))}
           >
-            {`All ${terms.scopePlural}`}
+            {business
+              ? `Show all ${LISTING_TERMS.placePlural}`
+              : "Show all clients"}
           </Link>
         }
       />

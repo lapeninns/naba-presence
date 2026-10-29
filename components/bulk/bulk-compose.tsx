@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/app-shell/page-frame"
 import { ActionBar } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Empty } from "@/components/ui/empty"
 import {
   Field,
   FieldDescription,
@@ -347,6 +348,7 @@ export function BulkCompose() {
         .map((type) => [type.hoursTypeId, type])
     ).values(),
   ].sort((a, b) => a.displayName.localeCompare(b.displayName))
+  const pickingHoursType = hoursTypes.length > 0 && !typedHoursType
   const [serviceDays, setServiceDays] = useState<Array<DayRow>>(
     DAYS.map(() => ({ isClosed: true, opensAt: "12:00", closesAt: "15:00" }))
   )
@@ -443,7 +445,20 @@ export function BulkCompose() {
   }
   /** The batch's ordered change list; each change applies to every selected listing. */
   const [changes, setChanges] = useState<BulkOperationInput[]>([])
-  const [failure, setFailure] = useState<string | null>(null)
+  /**
+   * Why the last preview failed, for the exact batch it was asked for
+   * (`key`): editing the selection or the batch retires it, so a stale
+   * failure never sits beside a batch that was not sent.
+   */
+  const [failure, setFailure] = useState<{
+    text: string
+    key: string
+    chooseAgain?: boolean
+  } | null>(null)
+  // Set once the preview exists and the page is on its way to it: the
+  // button stays busy until the route changes, so a second press in that
+  // gap cannot prepare a second preview of the same batch.
+  const [leaving, setLeaving] = useState(false)
 
   const weekly = operation === "regular_hours" ? days : serviceDays
   const weeklyProblems = weekly.map((day) =>
@@ -623,6 +638,21 @@ export function BulkCompose() {
                           }
                         : { operation, ...link }
   const parsed = bulkOperationInputSchema.safeParse(raw)
+  // The fields a new change starts without, said as the next step rather
+  // than as the contract's own wording (an ISO date, a pattern, a length).
+  const firstRunProblem =
+    operation === "special_hours" && special.some((row) => !row.date)
+      ? special.length === 1
+        ? "Choose a date."
+        : "Choose a date for each row."
+      : operation === "attributes" &&
+          attributes.some((row) => !ATTRIBUTE_ID.test(row.name.trim()))
+        ? "Type each Google attribute ID, such as attributes/has_wifi."
+        : operation === "more_hours" && !hoursTypeId.trim()
+          ? pickingHoursType
+            ? "Choose a service."
+            : "Type the service’s Google ID, such as DELIVERY."
+          : null
   /** What is wrong with the change being edited, before it can join the list. */
   const problem =
     ids.length === 0
@@ -643,9 +673,11 @@ export function BulkCompose() {
                     : "Reading that listing’s menus…"
                   : operation === "post_draft" && !post.summary.trim()
                     ? "Write the post."
-                    : parsed.success
-                      ? null
-                      : (parsed.error.issues[0]?.message ?? "Check the change.")
+                    : (firstRunProblem ??
+                      (parsed.success
+                        ? null
+                        : (parsed.error.issues[0]?.message ??
+                          "Check the change.")))
   // With nothing added yet, the change being edited is the batch; once
   // changes are added, the batch is exactly the list shown.
   const batch = changes.length
@@ -679,6 +711,20 @@ export function BulkCompose() {
     parsed.success &&
     changes.length < BULK_MAX_CHANGES &&
     ids.length <= BULK_MAX_TARGETS
+  /** Why "Add to the batch" can't be used now, said on the button too. */
+  const addBlocked = canAdd
+    ? undefined
+    : (problem ??
+      (ids.length > BULK_MAX_TARGETS ? batchProblem : null) ??
+      (changes.length >= BULK_MAX_CHANGES
+        ? `A batch holds at most ${BULK_MAX_CHANGES} changes.`
+        : "Check the change."))
+  /** Why the preview can't be asked for now: the batch's limit first, then the change. */
+  const previewBlocked =
+    batchProblem ??
+    (batch.length ? undefined : (problem ?? "Nothing to preview yet"))
+  const batchKey = JSON.stringify({ ids, batch })
+  const shownFailure = failure?.key === batchKey ? failure : null
   const move = (from: number, to: number) =>
     setChanges((list) => {
       const next = [...list]
@@ -686,16 +732,21 @@ export function BulkCompose() {
       next.splice(to, 0, item)
       return next
     })
-  const preview = useMutation({
+  // The variable is the batch's key, so a failure is filed against the
+  // batch it was asked for; the request is only the selection and the batch.
+  const preview = useMutation<
+    Awaited<ReturnType<typeof previewBulkChange>>,
+    Error,
+    string
+  >({
     mutationFn: () => previewBulkChange({ locationIds: ids, items: batch }),
-    onSuccess: (op) => router.push(`/listings/bulk/${op.id}`),
-    onError: (error) =>
-      setFailure(
-        error instanceof ApiClientError
-          ? error.message
-          : "The preview could not be prepared. Try again."
-      ),
+    onSuccess: (op) => {
+      setLeaving(true)
+      router.push(`/listings/bulk/${op.id}`)
+    },
+    onError: (error, key) => setFailure({ ...previewFailure(error), key }),
   })
+  const busy = preview.isPending || leaving
 
   const operationInfo = OPERATIONS.find((option) => option.value === operation)
   const updateDay = (index: number, patch: Partial<DayRow>) =>
@@ -706,7 +757,28 @@ export function BulkCompose() {
     setSpecial((rows) =>
       rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
     )
-  const pickingHoursType = hoursTypes.length > 0 && !typedHoursType
+
+  // Nothing selected (or a link with no listing ids): one next step, not
+  // eleven kinds of change for no listings.
+  if (ids.length === 0)
+    return (
+      <>
+        <PageHeader
+          title="Bulk change"
+          description="One reviewed change for several listings. Nothing is sent until the preview is approved and started."
+        />
+        <Empty
+          framed
+          title="Choose listings first"
+          description="Tick the listings to change on the Listings board, then choose Prepare bulk change."
+          action={
+            <Link href="/listings" className={buttonVariants()}>
+              Choose listings
+            </Link>
+          }
+        />
+      </>
+    )
 
   return (
     <>
@@ -1688,7 +1760,7 @@ export function BulkCompose() {
             <Button
               variant="secondary"
               className="self-start"
-              disabled={!canAdd}
+              disabledReason={addBlocked}
               onClick={() => {
                 if (!parsed.success) return
                 setChanges([...changes, parsed.data])
@@ -1756,8 +1828,8 @@ export function BulkCompose() {
             </ol>
           ) : (
             <p className="text-ui text-ink-secondary">
-              Nothing added yet: the preview covers the change above on its own.
-              Add changes to send several to each listing, in list order.
+              Preview sends the change above on its own. To send more than one
+              change to each listing, add each one to the batch.
             </p>
           )}
           <p className="text-caption text-ink-muted tabular-nums">
@@ -1765,8 +1837,8 @@ export function BulkCompose() {
           </p>
           {unadded ? (
             <p role="status" className="text-ui text-ink-secondary">
-              The change being edited above is not in this batch, so it is not
-              previewed. Add it to the batch to include it.
+              The change above isn’t in the batch yet. Add it, or it won’t be
+              previewed.
             </p>
           ) : null}
           {batchProblem ? (
@@ -1774,7 +1846,18 @@ export function BulkCompose() {
               {batchProblem}
             </p>
           ) : null}
-          <FormError>{failure}</FormError>
+          <FormError>{shownFailure?.text}</FormError>
+          {shownFailure?.chooseAgain ? (
+            <Link
+              href="/listings"
+              className={buttonVariants({
+                variant: "secondary",
+                className: "self-start",
+              })}
+            >
+              Choose listings
+            </Link>
+          ) : null}
         </div>
       </section>
       {/* Preparing a preview reads Google but writes nothing, so this is
@@ -1787,36 +1870,82 @@ export function BulkCompose() {
         offset="bottom-3"
         label="Preview the bulk change"
         status={
-          <span className="min-w-0 tabular-nums">
-            {preview.isPending
-              ? "Preparing the preview…"
-              : batchProblem
+          busy ? (
+            <span className="min-w-0 tabular-nums">Preparing the preview…</span>
+          ) : shownFailure ? (
+            // The alert in the batch card already announces the failure;
+            // this is where the eye is on a phone, so it is not read twice.
+            <span aria-hidden className="min-w-0 text-danger-ink">
+              The preview couldn’t be prepared; see the batch above
+            </span>
+          ) : (
+            <span className="min-w-0 tabular-nums">
+              {batchProblem
                 ? "Fix the batch above to preview it"
                 : batch.length
                   ? `${ids.length * batch.length} listing ${ids.length * batch.length === 1 ? "change" : "changes"} to preview`
-                  : "Nothing to preview yet"}
-          </span>
+                  : (problem ?? "Nothing to preview yet")}
+            </span>
+          )
         }
         primary={
           <Button
-            disabled={!batch.length || Boolean(batchProblem)}
-            pending={preview.isPending}
+            disabledReason={previewBlocked}
+            pending={busy}
             pendingLabel="Reading each listing…"
             onClick={() => {
               setFailure(null)
-              preview.mutate()
+              preview.mutate(batchKey)
             }}
           >
             {changes.length > 1
               ? `Preview these ${changes.length} changes`
               : changes.length === 1
-                ? "Preview the 1 change in the list"
+                ? "Preview the batch (1 change)"
                 : "Preview this change"}
           </Button>
         }
       />
     </>
   )
+}
+
+/** The shape of a Google attribute ID the contract accepts (`attributes/has_wifi`). */
+const ATTRIBUTE_ID = /^attributes\/[A-Za-z0-9_.:-]+$/
+
+/**
+ * A failed preview, said as what to do next. A listing that is no longer
+ * available means choosing the listings again (this page can't drop one
+ * from a frozen selection); a rate limit says when to try again, from the
+ * server's own wait.
+ */
+function previewFailure(error: Error): {
+  text: string
+  chooseAgain?: boolean
+} {
+  if (!(error instanceof ApiClientError))
+    return { text: "The preview could not be prepared. Try again." }
+  if (error.code === "bulk_targets_unavailable")
+    return {
+      text: "One or more selected listings are no longer available to you. Choose the listings again.",
+      chooseAgain: true,
+    }
+  if (error.code === "bulk_rate_limited") {
+    const wait =
+      error.details &&
+      typeof error.details === "object" &&
+      "retryAfter" in error.details &&
+      typeof error.details.retryAfter === "number"
+        ? error.details.retryAfter
+        : null
+    if (wait !== null && wait > 0) {
+      const minutes = Math.ceil(wait / 60)
+      return {
+        text: `Too many previews in the last few minutes. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+      }
+    }
+  }
+  return { text: error.message }
 }
 
 /**

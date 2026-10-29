@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { AccountPickerCard } from "@/components/settings/account-picker-card"
 import { Toaster } from "@/components/ui/toast"
+import { ApiClientError } from "@/lib/api/client"
 import type { GoogleAccount } from "@/lib/api/google-accounts"
 
 const workspaceMock = vi.fn()
@@ -28,7 +29,11 @@ function account(overrides: Partial<GoogleAccount>): GoogleAccount {
   }
 }
 
-function renderCard(accounts: GoogleAccount[], save = vi.fn()) {
+function renderCard(
+  accounts: GoogleAccount[],
+  save = vi.fn(),
+  props: React.ComponentProps<typeof AccountPickerCard> = {}
+) {
   workspaceMock.mockReturnValue({
     query: {
       data: { connections: [{ id: "c1", status: "active" }] },
@@ -51,6 +56,37 @@ function renderCard(accounts: GoogleAccount[], save = vi.fn()) {
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
+        <AccountPickerCard {...props} />
+      </Toaster>
+    </QueryClientProvider>
+  )
+}
+
+function renderLoadError(isFetching: boolean, refetch = vi.fn()) {
+  workspaceMock.mockReturnValue({
+    query: {
+      data: { connections: [{ id: "c1", status: "active" }] },
+      isPending: false,
+      isError: false,
+    },
+  })
+  accountsMock.mockReturnValue({
+    query: {
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching,
+      error: new ApiClientError(502, "upstream_unavailable", "Bad gateway"),
+      refetch,
+    },
+    save: { mutate: vi.fn(), isPending: false },
+  })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={client}>
+      <Toaster>
         <AccountPickerCard />
       </Toaster>
     </QueryClientProvider>
@@ -64,9 +100,7 @@ describe("AccountPickerCard", () => {
     const save = vi.fn()
     renderCard([account({ id: "a1", accountName: "Riverside Group" })], save)
     expect(screen.getByText("Riverside Group")).toBeInTheDocument()
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "Riverside Group" })
-    )
+    fireEvent.click(screen.getByRole("checkbox", { name: "Riverside Group" }))
     fireEvent.click(screen.getByRole("button", { name: "Save accounts" }))
     expect(save).toHaveBeenCalledWith(["a1"])
   })
@@ -110,9 +144,7 @@ describe("AccountPickerCard", () => {
     await expect(ref.current?.()).resolves.toBe(true)
     expect(mutateAsync).not.toHaveBeenCalled()
 
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "Riverside Group" })
-    )
+    fireEvent.click(screen.getByRole("checkbox", { name: "Riverside Group" }))
     expect(screen.getByText("Continue saves your choice.")).toBeInTheDocument()
     await expect(ref.current?.()).resolves.toBe(true)
     expect(mutateAsync).toHaveBeenCalledWith(["a1"])
@@ -153,9 +185,7 @@ describe("AccountPickerCard", () => {
         </Toaster>
       </QueryClientProvider>
     )
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "Riverside Group" })
-    )
+    fireEvent.click(screen.getByRole("checkbox", { name: "Riverside Group" }))
     await expect(ref.current?.()).resolves.toBe(false)
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Your account choice wasn’t saved."
@@ -164,6 +194,57 @@ describe("AccountPickerCard", () => {
 
   it("shows an empty state when no accounts are discovered", () => {
     renderCard([])
-    expect(screen.getByText("No Google accounts found")).toBeInTheDocument()
+    expect(
+      screen.getByText("This Google login has no Business Profile accounts")
+    ).toBeInTheDocument()
+    // No way out to offer without the setup callback.
+    expect(
+      screen.queryByRole("button", { name: "Use another Google login" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("offers another Google login from the empty state in setup", () => {
+    const onChooseAnotherLogin = vi.fn()
+    renderCard([], vi.fn(), { onChooseAnotherLogin })
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use another Google login" })
+    )
+    expect(onChooseAnotherLogin).toHaveBeenCalledTimes(1)
+  })
+
+  it("announces a failed load as an error, with Try again outside the alert", () => {
+    const refetch = vi.fn()
+    renderLoadError(false, refetch)
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent("We couldn’t load your Google accounts")
+    expect(alert).toHaveTextContent("Nothing was changed.")
+    const retry = screen.getByRole("button", { name: "Try again" })
+    expect(alert).not.toContainElement(retry)
+    fireEvent.click(retry)
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("shows the retry running", () => {
+    renderLoadError(true)
+    const retry = screen.getByRole("button", { name: "Trying again…" })
+    expect(retry).toHaveAttribute("aria-busy", "true")
+  })
+
+  it("names Google roles in words, and shows nothing for a missing role", () => {
+    renderCard([
+      account({
+        id: "a1",
+        accountName: "Riverside Group",
+        role: "PRIMARY_OWNER",
+      }),
+      account({ id: "a2", accountName: "Harbour Inn", role: "SITE_MANAGER" }),
+      account({ id: "a3", accountName: "Mill House", role: "NEW_ROLE" }),
+      account({ id: "a4", accountName: "Old Forge", role: null }),
+    ])
+    expect(screen.getByText("Primary owner")).toBeInTheDocument()
+    expect(screen.getByText("Site manager")).toBeInTheDocument()
+    expect(screen.getByText("New role")).toBeInTheDocument()
+    expect(screen.queryByText("PRIMARY_OWNER")).not.toBeInTheDocument()
+    expect(screen.queryByText("—")).not.toBeInTheDocument()
   })
 })

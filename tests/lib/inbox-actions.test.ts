@@ -191,4 +191,18 @@ describe("describeOutcomeToast", () => {
     expect(toast.title).not.toMatch(/published/i)
     expect(toast.type).not.toBe("success")
   })
+  it("calls a resolved pending reply sent, never submitted or published", () => {
+    expect(describeOutcomeToast("pending")).toEqual({
+      kind: "google",
+      title: "Reply sent",
+      description:
+        "Google hasn’t confirmed it yet. This review updates when it does.",
+      type: "info",
+    })
+  })
+  it("never claims 'published' for an unknown status", () => {
+    const toast = describeOutcomeToast("something_new")
+    expect(toast.title).not.toMatch(/published/i)
+    expect(toast.type).not.toBe("success")
+  })
 })

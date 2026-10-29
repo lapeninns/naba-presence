@@ -1,0 +1,14 @@
+{
+  "state": "f06-publish-confirm",
+  "variant": "390-light",
+  "url": "/listings/d3d95cd8-a0df-4498-a1b0-a954f7293c07/posts",
+  "h1": "Posts",
+  "activeElement": "button \"Not yet\"",
+  "horizontalOverflow": false,
+  "alerts": [],
+  "statuses": [
+    "Showing all 1 post"
+  ],
+  "disabledButtons": [],
+  "violations": []
+}

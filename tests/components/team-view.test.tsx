@@ -14,10 +14,23 @@ vi.mock("@/lib/queries/use-members", () => ({
 vi.mock("@/lib/workspace/mode", () => ({
   useWorkspaceMode: () => "agency",
 }))
+const refresh = vi.fn()
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }))
 // The page's own sections are not under test here, only the chrome it
-// registers and the dialog both triggers open.
+// registers, the dialog both triggers open and what it hands the members
+// table.
+type MembersTableProps = {
+  onSelfRoleChanged?: () => void
+  removedFocus?: { current: HTMLElement | null }
+}
+const membersTableProps: { current: MembersTableProps | null } = {
+  current: null,
+}
 vi.mock("@/components/settings/members-table", () => ({
-  MembersTable: () => null,
+  MembersTable: (props: MembersTableProps) => {
+    membersTableProps.current = props
+    return null
+  },
 }))
 vi.mock("@/components/settings/invitations-panel", () => ({
   InvitationsList: () => null,
@@ -90,5 +103,27 @@ describe("TeamView chrome (SET-25)", () => {
       </PageChromeProvider>
     )
     expect(screen.getByTestId("action")).toHaveTextContent("none")
+  })
+})
+
+describe("TeamView members section", () => {
+  it("re-renders the page from the server after your own role changed", () => {
+    renderPage()
+    expect(refresh).not.toHaveBeenCalled()
+    membersTableProps.current?.onSelfRoleChanged?.()
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it("hands the table the Members heading to focus after a removal", () => {
+    renderPage()
+    const target = membersTableProps.current?.removedFocus?.current
+    expect(target).toBeInstanceOf(HTMLElement)
+    expect(target).toHaveTextContent("Members")
+    expect(target).toHaveAttribute("tabindex", "-1")
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Members" })
+    ).toContainElement(target!)
+    target!.focus()
+    expect(target).toHaveFocus()
   })
 })

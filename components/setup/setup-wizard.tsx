@@ -29,6 +29,7 @@ import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { GOOGLE_RETURN_PARAMS } from "@/lib/setup/oauth-status"
 import {
   CONNECT_FIRST_LOGIN_ID,
+  isPreambleStep,
   resolveStep,
   setupStepsFor,
   stepBlocker,
@@ -39,6 +40,8 @@ import {
 } from "@/lib/setup/steps"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+
+import type { AgencyUnsaved } from "./step-agency"
 
 // Each step is its own chunk: an operator sees one at a time, and the
 // locations step (the onboarding drafts) alone is most of the wizard's code.
@@ -74,8 +77,18 @@ const StepNotifications = dynamic(() =>
 const StepTeam = dynamic(() => import("./step-team").then((m) => m.StepTeam))
 const StepDone = dynamic(() => import("./step-done").then((m) => m.StepDone))
 
-const AGENCY_UNSAVED =
-  "Save the new timezone, or change it back, before continuing."
+const AGENCY_SAVED: AgencyUnsaved = { name: false, timezone: false }
+
+/** Why Continue waits on the Agency step: which of its saves is missing. */
+function agencyUnsavedReason(unsaved: AgencyUnsaved): string | null {
+  if (unsaved.name && unsaved.timezone)
+    return "Save the name and timezone, or change them back, before continuing."
+  if (unsaved.name)
+    return "Save the new name, or change it back, before continuing."
+  if (unsaved.timezone)
+    return "Save the new timezone, or change it back, before continuing."
+  return null
+}
 
 /**
  * Below md the step is a focused screen rather than a card (Notion Mail's
@@ -85,10 +98,19 @@ const AGENCY_UNSAVED =
 const PHONE_UNCARDED =
   "max-md:rounded-none max-md:border-0 max-md:bg-transparent"
 
-/** The control a step's validation message moves focus to. */
-function focusTargetFor(step: SetupStep): string {
+/**
+ * The control a step's validation message moves focus to. Import reviews
+ * points at its Start button while one is on screen.
+ */
+function focusTargetFor(step: SetupStep, unsaved: AgencyUnsaved): string {
   if (step === "connect") return "setup-connect-google"
-  if (step === "agency") return "setup-agency-save"
+  if (step === "agency" && unsaved.timezone) return "setup-agency-save"
+  if (
+    step === "backfill" &&
+    typeof document !== "undefined" &&
+    document.getElementById("setup-backfill-start")
+  )
+    return "setup-backfill-start"
   return "setup-step-content"
 }
 
@@ -122,7 +144,8 @@ function SetupWizard({ clientId }: { clientId: string }) {
   const clientQuery = useClient(clientId)
   const { query: connectionsQuery } = useConnectionWorkspace()
 
-  const [agencyDirty, setAgencyDirty] = React.useState(false)
+  const [agencyUnsaved, setAgencyUnsaved] =
+    React.useState<AgencyUnsaved>(AGENCY_SAVED)
   const [onboardingDirty, setOnboardingDirty] = React.useState(false)
   const saveBeforeContinue = React.useRef<(() => Promise<boolean>) | null>(null)
   const [checking, setChecking] = React.useState(false)
@@ -134,6 +157,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
   // Counts blocked Continues on Connect that have a login to point at.
   const [connectBlocks, setConnectBlocks] = React.useState(0)
   const [stepsOpen, setStepsOpen] = React.useState(false)
+  // A refused `?step=`, kept once the address is rewritten to the step that
+  // opened, so the note still says why.
+  const [refused, setRefused] = React.useState<{
+    requested: SetupStep
+    landed: SetupStep
+  } | null>(null)
   const titleRef = React.useRef<HTMLHeadingElement>(null)
   // Keyboard safety for the docked step bar, as the editors have it: a
   // focused field (or one under a just-opened phone keyboard) is scrolled
@@ -170,6 +199,29 @@ function SetupWizard({ clientId }: { clientId: string }) {
     shownStep.current = current
   }, [current, resolved])
 
+  // A refused `?step=` is rewritten to the step that opened, so a later
+  // refetch (window focus, a started import) cannot jump the flow ahead to
+  // it unasked, and the address matches the screen. The callback's own
+  // `?google=` result stays: the step reads it.
+  const refusedStep = resolved?.redirected ?? null
+  if (
+    refusedStep &&
+    (refused?.requested !== refusedStep || refused.landed !== current)
+  ) {
+    setRefused({ requested: refusedStep, landed: current })
+  }
+  // Leaving the step it explained (a rail link, not only goTo) ends the
+  // note, so coming back later does not show a stale refusal.
+  if (refused && !refusedStep && refused.landed !== current) {
+    setRefused(null)
+  }
+  React.useEffect(() => {
+    if (!refusedStep) return
+    const next = new URLSearchParams(params.toString())
+    next.set("step", current)
+    router.replace(`/setup?${next}`, { scroll: false })
+  }, [refusedStep, current, params, router])
+
   // A blocked Continue on Connect, with a working login on file, brings the
   // "Use this account" options into view: the reason says to pick one above.
   React.useEffect(() => {
@@ -201,6 +253,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
       return
     }
     setAttempt(null)
+    setRefused(null)
     setStepsOpen(false)
     router.replace(hrefFor(step), { scroll: false })
   }
@@ -261,31 +314,41 @@ function SetupWizard({ clientId }: { clientId: string }) {
   const index = flow.indexOf(current)
   const numbered = stepNumber(current, mode)
   const isDone = current === "done"
-  const blocker =
-    current === "agency" && agencyDirty
-      ? AGENCY_UNSAVED
-      : stepBlocker(current, facts)
+  const agencyReason =
+    current === "agency" ? agencyUnsavedReason(agencyUnsaved) : null
+  const blocker = agencyReason ?? stepBlocker(current, facts)
   const showSummary = attempt?.step === current
   // With a working login on file the quick path is the first option, and it
   // sits above the sign-in button, so that is where the reason points.
   const summaryFieldId =
     current === "connect" && facts.usableLogin
       ? CONNECT_FIRST_LOGIN_ID
-      : focusTargetFor(current)
+      : focusTargetFor(current, agencyUnsaved)
   const steps = stepperState(current, facts, mode).map((step) => ({
     id: step.id,
     label: step.label,
     state: step.state,
     note: step.optional ? "Optional" : undefined,
     href: step.reachable && step.id !== current ? hrefFor(step.id) : undefined,
-    // Done closes the flow and is left out of "Step N of M", so it is drawn
-    // without a number too.
-    unnumbered: step.id === "done",
+    // Done closes the flow and the preamble steps come before it; both are
+    // left out of "Step N of M", so they are drawn without a number too and
+    // a step keeps its number on every screen.
+    unnumbered: step.id === "done" || isPreambleStep(step.id, mode),
   }))
   const name = business
     ? (clientName ?? "your business")
     : (clientName ?? "this client")
   const importing = current === "backfill" && facts.backfill === "running"
+  // Why a requested step did not open. Not after Google's callback came back
+  // with an error: the error alert already says why this is Connect.
+  const notice =
+    params.get("google") === "error"
+      ? null
+      : resolved.redirected
+        ? { requested: resolved.redirected, landed: current }
+        : refused?.landed === current
+          ? refused
+          : null
 
   const advance = async () => {
     if (current === "locations" && onboardingDirty) {
@@ -321,10 +384,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
     const freshFacts: SetupFacts = fresh.data
       ? { ...fresh.data.setup, usableLogin: freshUsable }
       : facts
-    const reason =
-      current === "agency" && agencyDirty
-        ? AGENCY_UNSAVED
-        : stepBlocker(current, freshFacts)
+    const reason = agencyReason ?? stepBlocker(current, freshFacts)
     if (reason) {
       setAttempt({ step: current, message: reason, key: Date.now() })
       if (current === "connect" && freshUsable) {
@@ -347,6 +407,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
         clientId={clientId}
         clientName={clientName}
         business={business}
+        done={isDone}
       />
 
       <div className="@container/setup">
@@ -444,12 +505,14 @@ function SetupWizard({ clientId }: { clientId: string }) {
             </div>
 
             <div className="flex min-w-0 flex-col gap-4 p-(--np-card-pad) max-md:px-0">
-              {resolved.redirected ? (
+              {notice ? (
+                // The step that opened is always the first one still in the
+                // way (`resolveStep`), so it is the one to finish.
                 <Alert variant="info" icon={<InfoIcon aria-hidden />}>
                   <AlertDescription>
-                    {business ? "Setup" : name} hasn’t reached “
-                    {stepDefinition(resolved.redirected, mode).label}” yet, so
-                    setup opens at “{definition.label}”.
+                    “{stepDefinition(notice.requested, mode).label}” opens once
+                    “{stepDefinition(notice.landed, mode).label}” is done, so
+                    setup continues here.
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -477,10 +540,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
                   business={business}
                   facts={facts}
                   connectionId={setup?.connection?.id ?? null}
-                  onAgencyDirtyChange={setAgencyDirty}
+                  onAgencyDirtyChange={setAgencyUnsaved}
                   onOnboardingDirtyChange={setOnboardingDirty}
                   saveBeforeContinueRef={saveBeforeContinue}
                   onConnected={() => goTo("account")}
+                  onChooseAnotherLogin={() => goTo("connect")}
+                  onChooseAccounts={() => goTo("account")}
                 />
               </div>
             </div>
@@ -535,12 +600,25 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 <span className="max-md:short:sr-only">Back</span>
               </Button>
               <div className="ml-auto flex items-center gap-2 max-md:short:gap-1.5">
+                {/* Skip re-reads setup like Continue (an optional step never
+                    blocks), so Done shows what the server has, including a
+                    setting just saved or an invitation just sent. */}
                 {definition.optional ? (
-                  <Button variant="ghost" onClick={() => goTo(flow[index + 1])}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => void advance()}
+                    disabled={checking}
+                  >
                     Skip for now
                   </Button>
                 ) : null}
                 <Button
+                  // A blocked Connect does not compete with "Sign in with
+                  // Google": it stays a live button (the summary still
+                  // explains), just not the primary one.
+                  variant={
+                    current === "connect" && blocker ? "secondary" : "default"
+                  }
                   onClick={() => void advance()}
                   pending={checking}
                   pendingLabel="Checking…"
@@ -562,29 +640,38 @@ function WizardHeader({
   clientId,
   clientName,
   business,
+  done = false,
 }: {
   clientId: string
   clientName: string | undefined
   business: boolean
+  /** On Done there is nothing left to finish later. */
+  done?: boolean
 }) {
   return (
     <PageHeader
       title={business ? "Setup" : "Client setup"}
       eyebrow={clientName ? `Setting up ${clientName}` : "Setting up"}
-      description="Each step is worked out from what already exists, so you can leave and pick this up later."
+      description={
+        done
+          ? "Here’s what’s set up. You can change any step from the list."
+          : "Each step is worked out from what already exists, so you can leave and pick this up later."
+      }
       // "Finish later" sits on the title row, compact, rather than in
       // `actions`, which a phone stretches to a full-width row of its own
       // above the step.
       meta={
-        <Link
-          href={business ? "/listings" : `/clients/${clientId}`}
-          className={cn(
-            buttonVariants({ variant: "ghost", size: "sm" }),
-            "-mr-2 ml-auto"
-          )}
-        >
-          Finish later
-        </Link>
+        done ? undefined : (
+          <Link
+            href={business ? "/listings" : `/clients/${clientId}`}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "-mr-2 ml-auto"
+            )}
+          >
+            Finish later
+          </Link>
+        )
       }
     />
   )
@@ -637,6 +724,8 @@ function StepBody({
   onOnboardingDirtyChange,
   saveBeforeContinueRef,
   onConnected,
+  onChooseAnotherLogin,
+  onChooseAccounts,
 }: {
   step: SetupStep
   clientId: string
@@ -644,10 +733,12 @@ function StepBody({
   business: boolean
   facts: SetupFacts
   connectionId: string | null
-  onAgencyDirtyChange: (dirty: boolean) => void
+  onAgencyDirtyChange: (unsaved: AgencyUnsaved) => void
   onOnboardingDirtyChange: (dirty: boolean) => void
   saveBeforeContinueRef: React.RefObject<(() => Promise<boolean>) | null>
   onConnected: () => void
+  onChooseAnotherLogin: () => void
+  onChooseAccounts: () => void
 }) {
   switch (step) {
     case "agency":
@@ -660,17 +751,20 @@ function StepBody({
           clientId={clientId}
           clientName={clientName}
           business={business}
+          // The login this client already uses, so a revisit says so.
+          attachedConnectionId={
+            facts.connection?.status === "active" ? facts.connection.id : null
+          }
           onConnected={onConnected}
         />
       )
     case "account":
       return (
         <StepAccount
-          clientName={clientName}
-          business={business}
           clientId={clientId}
           connectionId={connectionId}
           saveBeforeContinueRef={saveBeforeContinueRef}
+          onChooseAnotherLogin={onChooseAnotherLogin}
         />
       )
     case "locations":
@@ -681,6 +775,7 @@ function StepBody({
           business={business}
           connectionId={connectionId}
           onDirtyChange={onOnboardingDirtyChange}
+          onChooseAccounts={onChooseAccounts}
         />
       )
     case "backfill":

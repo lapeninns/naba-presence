@@ -73,11 +73,16 @@ function json(body: unknown) {
   })
 }
 
-function stub(setup: ClientSetup, connections: unknown[] = []) {
+function stub(
+  setup: ClientSetup,
+  connections: unknown[] = [],
+  session: unknown = undefined
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn<typeof fetch>(async (input) => {
       const url = String(input)
+      if (session && url.includes("/api/session")) return json({ session })
       if (url.includes("/setup")) return json({ setup })
       if (url.includes("/api/google/connections")) return json({ connections })
       if (url.includes("/api/clients/c1"))
@@ -171,15 +176,65 @@ describe("SetupWizard", () => {
     expect(section?.querySelector(".h-6.md\\:hidden")).toBeNull()
   })
 
-  it("says why a deep-linked step is not available yet", async () => {
+  it("says why a deep-linked step is not available yet, and rewrites the address", async () => {
     search = new URLSearchParams("client=c1&step=team")
     stub(fresh)
     renderWizard()
     expect(
       await screen.findByText(
-        /hasn’t reached “Team” yet, so setup opens at “Connect”/
+        /“Team” opens once “Connect” is done, so setup continues here/
       )
     ).toBeInTheDocument()
+    // The refused step leaves the address, so a later refetch can't jump to
+    // it unasked.
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith("/setup?client=c1&step=connect", {
+        scroll: false,
+      })
+    )
+  })
+
+  it("leaves the redirect note out when Google's callback came back with an error", async () => {
+    search = new URLSearchParams(
+      "client=c1&step=account&google=error&status=400&rid=r1"
+    )
+    stub(fresh)
+    renderWizard()
+    expect(await screen.findByTestId("setup-connect-error")).toBeVisible()
+    expect(screen.queryByText(/opens once/)).toBeNull()
+    // The address keeps the callback's result for the step to read.
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith(
+        "/setup?client=c1&step=connect&google=error&status=400&rid=r1",
+        { scroll: false }
+      )
+    )
+  })
+
+  it("leaves the preamble steps unnumbered, so every step keeps its number", async () => {
+    search = new URLSearchParams("client=c1&step=agency")
+    stub(fresh)
+    renderWizard()
+    await screen.findByRole("heading", {
+      name: "Confirm your agency",
+      level: 2,
+    })
+    const rail = screen.getByRole("list", { name: "Setup steps" })
+    const numbers = Array.from(rail.querySelectorAll("li")).map(
+      (item) => item.textContent?.match(/\d+/)?.[0]
+    )
+    // Agency, Client, then Connect 1 … Team 6, then Done.
+    expect(numbers).toEqual([
+      undefined,
+      undefined,
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      undefined,
+    ])
   })
 
   it("keeps the operator on the step and focuses a summary when Continue is blocked", async () => {
@@ -291,6 +346,127 @@ describe("SetupWizard", () => {
         scroll: false,
       })
     )
+  })
+
+  it("lists the client's own login first as the one it keeps using", async () => {
+    const login = {
+      status: "active",
+      notificationsEnabled: false,
+      lastRefreshAt: null,
+      lastErrorCode: null,
+      reconnectRequired: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }
+    stub({ ...fresh, connection: { id: "g2", status: "active" } }, [
+      { ...login, id: "g1", googleEmail: "other@example.test" },
+      { ...login, id: "g2", googleEmail: "ops@example.test" },
+    ])
+    renderWizard()
+    const keep = await screen.findByRole("button", {
+      name: "Keep using this account ops@example.test",
+    })
+    expect(keep).toHaveAttribute("id", "setup-connect-use-first")
+    expect(keep).toHaveTextContent("Connected to Old Crown Group")
+    expect(
+      screen.getByRole("button", {
+        name: "Use this account other@example.test",
+      })
+    ).toBeInTheDocument()
+  })
+
+  it("quiets a blocked Continue on Connect so it doesn't compete with signing in", async () => {
+    stub(fresh)
+    renderWizard()
+    await screen.findByRole("heading", { name: "Connect Google", level: 2 })
+    expect(
+      screen.getByRole("button", { name: "Sign in with Google" })
+    ).toHaveAttribute("data-variant", "default")
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveAttribute(
+      "data-variant",
+      "secondary"
+    )
+  })
+
+  it("says which Agency edit is unsaved and stays put on Continue", async () => {
+    search = new URLSearchParams("client=c1&step=agency")
+    stub(fresh, [], {
+      userId: "u1",
+      organisationId: "o1",
+      organisationName: "Aman's organisation",
+      workspaceMode: "agency",
+      displayName: "Aman",
+      email: "aman@example.test",
+      role: "owner",
+      canPublish: true,
+    })
+    renderWizard()
+    await screen.findByRole("heading", {
+      name: "Confirm your agency",
+      level: 2,
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Agency name" })
+      ).not.toHaveAttribute("readonly")
+    )
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "Agency name" }),
+      { target: { value: "Lapen Inns" } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    const summary = await screen.findByRole("alert", {
+      name: "Not ready to continue",
+    })
+    expect(summary).toHaveTextContent(
+      "Save the new name, or change it back, before continuing."
+    )
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("re-reads setup when an optional step is skipped", async () => {
+    search = new URLSearchParams("client=c1&step=team")
+    const ready: ClientSetup = {
+      ...fresh,
+      connection: { id: "g1", status: "active" },
+      accountsActive: 1,
+      locationsLinked: 1,
+      backfill: "running",
+      nextStep: "notifications",
+    }
+    stub(ready)
+    renderWizard()
+    await screen.findByRole("heading", { name: "Invite your team", level: 2 })
+    const fetches = () =>
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).includes("/setup")).length
+    const before = fetches()
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }))
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith("/setup?client=c1&step=done", {
+        scroll: false,
+      })
+    )
+    expect(fetches()).toBeGreaterThan(before)
+  })
+
+  it("offers no way to finish later once setup is done", async () => {
+    search = new URLSearchParams("client=c1&step=done")
+    stub({
+      ...fresh,
+      connection: { id: "g1", status: "active" },
+      accountsActive: 1,
+      locationsLinked: 1,
+      backfill: "done",
+      nextStep: "done",
+    })
+    renderWizard()
+    await screen.findByRole("heading", {
+      name: "This client is set up",
+      level: 2,
+    })
+    expect(screen.queryByRole("link", { name: "Finish later" })).toBeNull()
+    expect(screen.queryByText(/pick this up later/)).toBeNull()
   })
 
   it("shows the callback's real error on the connect step", async () => {

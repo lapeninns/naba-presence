@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { FilterIcon, Megaphone } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { SupportDetails } from "@/components/editors/support-details"
@@ -12,6 +12,7 @@ import { PostCard } from "@/components/locations/posts/post-card"
 import { LegacyPostSchedules } from "@/components/locations/posts/legacy-post-schedules"
 import { PostComposerSheet } from "@/components/locations/posts/post-composer-sheet"
 import { PostSchedules } from "@/components/locations/posts/post-schedules"
+import { scheduleWhen } from "@/components/locations/posts/schedule-dates"
 import { PostsActionBar } from "@/components/locations/posts-action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -26,7 +27,6 @@ import {
 } from "@/lib/errors/action-errors"
 import { fetchPostSchedules } from "@/lib/api/publication-schedules"
 import type { PublicationSchedule } from "@/lib/contracts/publication-schedules"
-import { describeScheduleRule } from "@/lib/domain/publication-schedule"
 import type { PostCounts } from "@/lib/contracts/location-posts"
 import { localPostOutcome } from "@/lib/domain/post-outcome"
 import { describeOutcome } from "@/lib/editors/outcome"
@@ -174,13 +174,48 @@ function schedulable(post: Post) {
   )
 }
 
-/** "Scheduled publication awaiting approval: 2026-10-20 at 09:00 (Europe/London, UTC+01:00)". */
-function scheduleSummary(schedule: PublicationSchedule) {
-  return `Scheduled publication ${scheduleBadge(schedule).label.toLowerCase()}: ${describeScheduleRule(
+/**
+ * When a one-time schedule runs, in the schedules list's own words ("Tue 20
+ * Oct, 09:00 BST", schedule-dates.ts), so one schedule has one description.
+ * Only one-time schedules reach a post's row, so the "Once" is dropped.
+ */
+function scheduleWhenOnce(schedule: PublicationSchedule) {
+  return scheduleWhen(
     schedule.rule,
     schedule.timezone,
     schedule.offsetMinutes
-  ).replace(/^Once on /, "")}`
+  ).replace(/ · Once$/, "")
+}
+
+/**
+ * "Scheduled for Tue 20 Oct, 09:00 BST", then the schedule's state unless it
+ * is simply on its way ("· Awaiting approval", "· Paused").
+ */
+function scheduleSummary(schedule: PublicationSchedule) {
+  const badge = scheduleBadge(schedule)
+  return `Scheduled for ${scheduleWhenOnce(schedule)}${
+    badge.label === "Active" ? "" : ` · ${badge.label}`
+  }`
+}
+
+/**
+ * The views' names on this list. The `published` view also holds posts still
+ * being sent, waiting for Google, or rejected by it (lib/server/posts.ts
+ * postFilterCondition), so "On Google" would claim more than is true; every
+ * post in it has been sent.
+ */
+function filterLabel(filter: PostFilter) {
+  if (filter === "published") return "Sent to Google"
+  return POST_FILTERS.find((option) => option.value === filter)?.label ?? ""
+}
+
+/** The line shown while a view loads, so the wait is seen and heard. */
+const VIEW_LOADING: Record<PostFilter, string> = {
+  all: "Loading all posts…",
+  draft: "Loading drafts…",
+  awaiting: "Loading posts awaiting approval…",
+  published: "Loading posts sent to Google…",
+  attention: "Loading posts that need attention…",
 }
 
 export function PostsTab({ locationId }: { locationId: string }) {
@@ -270,6 +305,7 @@ function PostsList({
   }, [schedules.data])
   const composeReason = composeDisabledReason(writesEnabled)
   const switching = loadedFilter !== filter
+  const chips = useRef<HTMLDivElement>(null)
   // The server already filtered and ordered the view; the filter here only
   // hides the previous view's rows while a switch loads.
   const shown = posts
@@ -284,6 +320,55 @@ function PostsList({
     })
 
   const editReason = contentEditDisabledReason(caps)
+
+  // Once a post is deleted its row goes: focus moves to the next post's
+  // heading (or the one before, at the end), else to the chosen view's chip,
+  // else (the last post gone, chips and all) to the frame.
+  const removed = useRef<{
+    id: string
+    neighbourId: string | undefined
+    frame: HTMLElement | null
+  } | null>(null)
+  const removedTarget = (): HTMLElement | null => {
+    const pending = removed.current
+    if (!pending) return null
+    return (
+      (pending.neighbourId
+        ? document.getElementById(`post-${pending.neighbourId}-title`)
+        : null) ??
+      chips.current?.querySelector<HTMLElement>('[aria-pressed="true"]') ??
+      (pending.frame?.isConnected ? pending.frame : null)
+    )
+  }
+  // The row's delete dialog moves focus there as it closes. A re-read that
+  // lands first takes the row and its open dialog with it, and focus falls
+  // to the page: once the row has gone, the list puts focus back, unless the
+  // person has already moved it somewhere real.
+  const settleRemoved = () => {
+    const pending = removed.current
+    // Asked of the page, not of `shown`: a row's callbacks can outlive it.
+    if (!pending || document.getElementById(`post-${pending.id}-title`)) return
+    const target = removedTarget()
+    removed.current = null
+    const active = document.activeElement
+    if (active && active !== document.body && active.isConnected) return
+    target?.focus()
+  }
+  const onDeleted = (id: string): HTMLElement | null => {
+    const index = shown.findIndex((row) => row.id === id)
+    removed.current = {
+      id,
+      neighbourId: (shown[index + 1] ?? shown[index - 1])?.id,
+      frame:
+        document
+          .getElementById(`post-${id}-title`)
+          ?.closest<HTMLElement>('[data-slot="editor-frame"]') ?? null,
+    }
+    settleRemoved()
+    return removedTarget()
+  }
+  // Every render: the rows are derived, and a stale entry is harmless.
+  useLayoutEffect(settleRemoved)
 
   const composer = (
     <PostComposerSheet
@@ -354,7 +439,11 @@ function PostsList({
         />
       ) : (
         <div className="flex flex-col gap-3">
-          <FilterChipStrip role="group" aria-label="Filter posts by status">
+          <FilterChipStrip
+            ref={chips}
+            role="group"
+            aria-label="Filter posts by status"
+          >
             {POST_FILTERS.map((option) => {
               const count = counts[option.value]
               return (
@@ -371,19 +460,19 @@ function PostsList({
                   }
                   onClick={() => setFilter(option.value)}
                 >
-                  {option.label}
+                  {filterLabel(option.value)}
                 </FilterChip>
               )
             })}
           </FilterChipStrip>
 
-          {shown.length === 0 && !switching ? (
+          {shown.length === 0 && switching ? null : shown.length === 0 ? (
             <Empty
               placement="inline"
               icon={<FilterIcon aria-hidden />}
               titleAs="h3"
               title="No posts in this view"
-              description={`Nothing matches “${POST_FILTERS.find((f) => f.value === filter)?.label}”.`}
+              description={`Nothing matches “${filterLabel(filter)}”.`}
               action={
                 <Button
                   variant="secondary"
@@ -432,6 +521,9 @@ function PostsList({
                       lang={post.languageCode}
                       thumbnailUrl={postImageUrl(post)}
                       problem={problem(post)}
+                      // Not confirmed is unknown, not failed: the note
+                      // takes the pill's warning tone.
+                      problemTone={post.status === "ambiguous" ? "warn" : "bad"}
                       lifecycle={lifecycle(post)}
                       actions={
                         <PostsActionBar
@@ -442,15 +534,12 @@ function PostsList({
                           caps={caps}
                           writesEnabled={writesEnabled}
                           timezone={timezone}
+                          onDeleted={() => onDeleted(post.id)}
                           scheduling={
                             scheduling
                               ? {
                                   scheduledFor: scheduled
-                                    ? describeScheduleRule(
-                                        scheduled.rule,
-                                        scheduled.timezone,
-                                        scheduled.offsetMinutes
-                                      )
+                                    ? scheduleWhenOnce(scheduled)
                                     : null,
                                   canSchedule:
                                     caps?.canEditCanonical === true &&
@@ -469,7 +558,13 @@ function PostsList({
               })}
             </ul>
           )}
-          {switching ? null : (
+          {switching ? (
+            // The previous view's rows stay until this one lands; the line
+            // says the list is changing, where the count usually sits.
+            <p role="status" className="text-caption text-ink-muted">
+              {VIEW_LOADING[filter]}
+            </p>
+          ) : (
             <LoadMore
               shown={posts.length}
               total={counts[filter]}

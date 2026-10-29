@@ -52,7 +52,11 @@ describe("StreamedTab's pending state (L16, /profile and /people)", () => {
   // paints first is the boundary's fallback: the same pending state the
   // editor's own LocationTab draws (TabLoading, the shared skeleton rows
   // and the "Reading the … from Google…" line), not the editor.
-  for (const loadingLabel of ["business profile", "people with access"]) {
+  for (const loadingLabel of [
+    "business profile",
+    "people with access",
+    "booking links",
+  ]) {
     it(`draws the shared pending state for the ${loadingLabel} before the read settles`, () => {
       requestHeaders.value = new Headers()
       prefetch.mockClear()

@@ -339,6 +339,18 @@ function TemplateReplyDialog({
               } a template reply, greeting each reviewer by name in the review’s language where it’s known.`}
             </p>
 
+            {/* The engine path has no review step, unlike the two-step
+                path the description above is shared with: say so before
+                the one press. */}
+            {bulkEngine ? (
+              <p className="text-body">
+                One press sends them all: each reply is drafted, checked and
+                then published to Google, or submitted for approval where that’s
+                needed, in the background. There’s no second step. The batch
+                page shows each result.
+              </p>
+            ) : null}
+
             {bands.length > 0 ? (
               <div className="flex flex-col gap-2">
                 <h3 className="text-caption font-medium text-ink-muted">
@@ -406,6 +418,12 @@ function TemplateReplyDialog({
           <QueuedSummary result={queued} rows={batch} />
         ) : null}
 
+        {phase === "starting" ? (
+          <p role="status" className="text-body">
+            Queuing {batch.length} {batch.length === 1 ? "reply" : "replies"}…
+          </p>
+        ) : null}
+
         {running && phase !== "starting" ? (
           <div className="flex flex-col gap-2" aria-live="polite">
             <p className="text-body">
@@ -453,9 +471,15 @@ function TemplateReplyDialog({
           </p>
         ) : null}
 
+        {/* Back in setup, the batch never started (the start was refused or
+            its answer lost), so it is not "stopped". Pressing Send again is
+            safe: a lost answer resends the same start, which the server
+            answers from the first. */}
         {halted ? (
           <p className="text-body text-danger-ink" role="alert">
-            Stopped: {halted}
+            {phase === "setup"
+              ? `${halted} Press Send again when you’re ready: a batch that already started is never started twice.`
+              : `Stopped: ${halted}`}
           </p>
         ) : null}
 
@@ -473,8 +497,13 @@ function TemplateReplyDialog({
         ) : null}
 
         <DialogFooter>
-          {phase === "setup" ? (
+          {/* While the one request is out (the engine's "starting") the
+              same button shows it under way, and keeps focus: there is
+              nothing to stop, and the footer is not left empty. */}
+          {phase === "setup" || phase === "starting" ? (
             <Button
+              pending={phase === "starting"}
+              pendingLabel="Queuing…"
               disabled={eligible.length === 0}
               disabledReason={
                 eligible.length === 0
@@ -484,7 +513,7 @@ function TemplateReplyDialog({
               onClick={() => void (bulkEngine ? queueBatch() : createDrafts())}
             >
               {bulkEngine
-                ? `Reply to ${eligible.length}`
+                ? `Send ${eligible.length} ${eligible.length === 1 ? "reply" : "replies"}`
                 : `Create ${eligible.length} ${eligible.length === 1 ? "draft" : "drafts"}`}
             </Button>
           ) : null}

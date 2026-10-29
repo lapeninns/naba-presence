@@ -9,6 +9,7 @@ import {
   firstName,
   type AccessScopeItem,
 } from "@/components/settings/access-scope-form"
+import { describeMemberError } from "@/components/settings/member-dialogs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -389,7 +390,7 @@ export function ClientAccessForm({
           <Alert variant="destructive">
             <AlertTitle>Access wasn’t changed</AlertTitle>
             <AlertDescription>
-              {describeActionError(save.error)}
+              {describeMemberError(save.error)}
             </AlertDescription>
           </Alert>
         ) : null}

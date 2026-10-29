@@ -27,6 +27,7 @@ import { NmListDemo } from "@/app/design-system/nm-list-demo"
 import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
+import { SettingsPatternsDemo } from "@/app/design-system/settings-patterns-demo"
 import { UxP02Demo } from "@/app/design-system/ux-p02-demo"
 import { UxP03Demo } from "@/app/design-system/ux-p03-demo"
 import { SystemStatesDemo } from "@/app/design-system/system-states-demo"
@@ -186,6 +187,7 @@ const TOC: Array<[string, string]> = [
   ["Overlays", "ds-overlays"],
   ["Forms", "ds-forms"],
   ["Mail patterns", "section-notion-mail"],
+  ["Settings", "ds-settings"],
   ["Compositions", "section-compositions"],
 ]
 
@@ -512,10 +514,11 @@ export default function Page() {
               NabaPresence design system
             </h1>
             <p className="max-w-[70ch] text-body text-ink-muted">
-              Every token and component below is rendered live from the shipping
-              primitives, so this page is proof rather than a description.
-              Switch the theme to check both; contrast ratios are measured from
-              app/globals.css.
+              Tokens and components below are rendered live from the shipping
+              primitives in components/ui, so this page is proof rather than a
+              description. Switch the theme to check both; contrast ratios are
+              measured from app/globals.css. A new pattern gets its own demo
+              here before any screen uses it.
             </p>
           </div>
           <ThemeToggleDemo />
@@ -1568,6 +1571,7 @@ export default function Page() {
           <UxP03Demo />
           <NmDrop3Demo />
           <UxP18Demo />
+          <SettingsPatternsDemo />
         </Section>
 
         <Section

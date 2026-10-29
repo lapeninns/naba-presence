@@ -25,7 +25,7 @@ import {
   useAdministrationAccess,
 } from "./access-workspace"
 
-// --- Pending invitations ---------------------------------------------------
+// --- Invitations to the connected login ------------------------------------
 export function InvitationsList({ data }: { data: unknown }) {
   const invitations = asArray(asRecord(data).invitations)
   const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
@@ -36,14 +36,14 @@ export function InvitationsList({ data }: { data: unknown }) {
       <Empty
         size="sm"
         framed
-        title="No pending invitations."
-        description="Invitations for this Google account appear here until they’re accepted or declined."
+        title="No invitations to answer."
+        description="Invitations Google sends to the connected login appear here. People you invite are listed above, marked Invitation pending."
       />
     )
   }
   return (
     <div className="rounded-(--np-radius-card) border border-line bg-surface">
-      <ListRows aria-label="Pending invitations">
+      <ListRows aria-label="Invitations to answer">
         {invitations.map((invitation, index) => (
           <InvitationRow
             key={asString(invitation.name) || index}
@@ -102,7 +102,7 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
       trailing={<StatusPill tone="pending">Invited</StatusPill>}
       subtitle={
         <span className="block whitespace-normal">
-          {`${place ? `To manage ${place}` : "For the connected Google account"} · waiting for a reply on Google`}
+          {`${place ? `To manage ${place}` : "For the connected Google account"} · waiting for your answer`}
         </span>
       }
       tags={

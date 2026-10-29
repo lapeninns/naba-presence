@@ -18,6 +18,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 import { PerformanceView } from "@/components/performance/performance-view"
+import { ReportActionsMenu } from "@/components/reporting/report-actions-menu"
 import { ToastProvider } from "@/components/ui/toast"
 
 afterEach(() => {
@@ -244,7 +245,15 @@ describe("PerformanceView", () => {
 
 function stubAgency(
   role: "owner" | "member",
-  { onlyOneClient = false, locationCount = 2 } = {}
+  {
+    onlyOneClient = false,
+    locationCount = 2,
+    mode = "agency",
+  }: {
+    onlyOneClient?: boolean
+    locationCount?: number
+    mode?: "agency" | "business"
+  } = {}
 ) {
   const client = (id: string, name: string) => ({
     id,
@@ -274,7 +283,7 @@ function stubAgency(
               userId: "u1",
               organisationId: "o1",
               organisationName: "Agency",
-              workspaceMode: "agency",
+              workspaceMode: mode,
               displayName: "Someone",
               email: "someone@example.test",
               role,
@@ -395,7 +404,16 @@ describe("PerformanceView share beside the no-location panel", () => {
     stubAgency("owner", { onlyOneClient: true, locationCount: 0 })
     search = "clientId=00000000-0000-4000-8000-000000000001"
     renderAgencyView()
-    expect(await screen.findByText("No linked listing")).toBeInTheDocument()
+    expect(
+      await screen.findByText("No linked listings yet")
+    ).toBeInTheDocument()
+    // An owner can link one, from where the hub links them.
+    expect(
+      screen.getByRole("link", { name: "Add listings from Google" })
+    ).toHaveAttribute(
+      "href",
+      "/setup?client=00000000-0000-4000-8000-000000000001&step=locations"
+    )
     await userEvent.click(
       await screen.findByRole("button", { name: "More actions" })
     )
@@ -408,7 +426,19 @@ describe("PerformanceView share beside the no-location panel", () => {
     stubAgency("member", { onlyOneClient: true, locationCount: 0 })
     search = "clientId=00000000-0000-4000-8000-000000000001"
     renderAgencyView()
-    expect(await screen.findByText("No linked listing")).toBeInTheDocument()
+    expect(
+      await screen.findByText("No linked listings yet")
+    ).toBeInTheDocument()
+    // Not offered a step they cannot take: told who can.
+    expect(
+      screen.getByText(/An owner or admin can link one\.$/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Add listings from Google" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Open Old Crown" })
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "More actions" })
     ).not.toBeInTheDocument()
@@ -484,5 +514,111 @@ describe("PerformanceView period note", () => {
       "/reports?tab=google&range=28d",
       { scroll: false }
     )
+  })
+})
+
+describe("PerformanceView words and ways back (CLR-06)", () => {
+  it("counts listings in a business workspace, never locations", async () => {
+    stubAgency("owner", { onlyOneClient: true, mode: "business" })
+    renderAgencyView()
+    const toolbar = screen.getByRole("region", { name: "Report scope" })
+    await waitFor(() => expect(toolbar).toHaveTextContent(/2 listings/))
+    expect(toolbar.textContent).not.toMatch(/\blocations?\b/i)
+  })
+
+  it("says it can't find a client, and the way back keeps the tab and period", async () => {
+    stubAgency("owner")
+    search =
+      "clientId=00000000-0000-4000-8000-000000000099&tab=google&range=90d"
+    renderAgencyView()
+    expect(
+      await screen.findByRole("heading", { name: "We can’t find this client" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Show all clients" })
+    ).toHaveAttribute("href", "/reports?tab=google&range=90d")
+  })
+})
+
+describe("PerformanceView share picker", () => {
+  async function openPicker() {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" })
+    )
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Share a client’s report" })
+    )
+    return screen.findByRole("dialog", { name: "Share a client’s report" })
+  }
+
+  it("says how many listings each client's report covers, and warns for none", async () => {
+    stubAgency("owner", { locationCount: 0 })
+    renderAgencyView()
+    const sheet = await openPicker()
+    expect(
+      within(sheet).getByRole("option", { name: /^Old Crown/ })
+    ).toHaveAccessibleDescription("No listings yet: their report is empty")
+    cleanup()
+    stubAgency("owner", { locationCount: 1 })
+    renderAgencyView()
+    const again = await openPicker()
+    expect(
+      within(again).getByRole("option", { name: /^Old Crown/ })
+    ).toHaveAccessibleDescription("1 listing")
+  })
+})
+
+describe("Share picker recovery", () => {
+  it("announces the load, and offers Try again when the clients could not be loaded", async () => {
+    let fail = true
+    let answer: () => void = () => {}
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (!String(input).includes("/api/clients")) return new Response("{}")
+        if (fail)
+          return new Response(
+            JSON.stringify({ error: "internal_error", message: "down" }),
+            { status: 503, headers: { "content-type": "application/json" } }
+          )
+        await new Promise<void>((resolve) => (answer = resolve))
+        return new Response(
+          JSON.stringify({ items: [], unassignedLocationCount: 0 }),
+          { headers: { "content-type": "application/json" } }
+        )
+      })
+    )
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <ReportActionsMenu share={{ kind: "pick" }} />
+        </ToastProvider>
+      </QueryClientProvider>
+    )
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }))
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Share a client’s report" })
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Share a client’s report",
+    })
+    expect(
+      await within(sheet).findByText("We couldn’t load your clients")
+    ).toBeInTheDocument()
+    fail = false
+    await userEvent.click(
+      within(sheet).getByRole("button", { name: "Try again" })
+    )
+    expect(await within(sheet).findByText("Loading clients…")).toHaveAttribute(
+      "role",
+      "status"
+    )
+    answer()
+    expect(
+      await within(sheet).findByText("There are no clients yet.")
+    ).toBeInTheDocument()
   })
 })

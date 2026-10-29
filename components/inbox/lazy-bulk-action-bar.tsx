@@ -112,7 +112,7 @@ function useIdlePreload() {
  *   to fetch it ahead, which only warms the cache and never mounts the bar.)
  *   Once the bar has been shown it stays mounted: it owns the template
  *   batch's dialog, which outlives the selection (sent replies leave the list
- *   under it).
+ *   under it), and the receipt of a batch the bulk engine queued.
  * - If its code cannot be fetched the Inbox carries on: the list, the open
  *   review and the selection are untouched. A toast says so and the bar's
  *   place holds a short notice with "Try again", which asks for the code
@@ -126,11 +126,14 @@ function LazyBulkActionBar({
   rows,
   bulkEngine,
   scopeKey,
+  hasMore,
 }: {
   rows: ReviewRow[]
   bulkEngine?: boolean
   /** The client the list is scoped to (see BulkActionBar). */
   scopeKey?: string
+  /** More reviews follow the loaded `rows` (see BulkActionBar). */
+  hasMore?: boolean
 }) {
   useIdlePreload()
   const { selected } = useSelection()
@@ -170,7 +173,12 @@ function LazyBulkActionBar({
         setFailed(true)
       }}
     >
-      <lazyBar.Bar rows={rows} bulkEngine={bulkEngine} scopeKey={scopeKey} />
+      <lazyBar.Bar
+        rows={rows}
+        bulkEngine={bulkEngine}
+        scopeKey={scopeKey}
+        hasMore={hasMore}
+      />
     </LazyDialogBoundary>
   )
 }

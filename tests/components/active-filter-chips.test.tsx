@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useState } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
@@ -58,11 +59,37 @@ describe("ActiveFilterChips", () => {
     expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
     // Rating is a pressed chip above the list, so it is not drawn twice.
     expect(screen.queryByText(/^Rating:/)).not.toBeInTheDocument()
-    expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
+    expect(screen.getByText("Search: “slow”")).toBeInTheDocument()
     await user.click(
       screen.getByRole("button", { name: "Remove filter: Venue: Riverside" })
     )
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
+  })
+
+  // The strip goes with its last chip; `onEmpty` is where focus goes then
+  // (the inbox sends it to the Filters button).
+  it("hands focus to onEmpty when Clear all filters empties the strip", async () => {
+    const user = userEvent.setup()
+    const onEmpty = vi.fn()
+    function Harness() {
+      const [current, setCurrent] = useState<InboxState>({
+        ...state,
+        locationIds: [],
+        ratings: [],
+      })
+      return (
+        <ActiveFilterChips
+          state={current}
+          locations={[]}
+          onChange={(partial) => setCurrent({ ...current, ...partial })}
+          onClear={() => setCurrent({ ...current, search: "" })}
+          onEmpty={onEmpty}
+        />
+      )
+    }
+    render(<Harness />)
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
+    await waitFor(() => expect(onEmpty).toHaveBeenCalledTimes(1))
   })
 
   it("draws no chip and no Clear all for the client scope alone", () => {

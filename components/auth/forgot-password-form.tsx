@@ -1,5 +1,6 @@
 "use client"
 
+import { Mail } from "lucide-react"
 import {
   useEffect,
   useRef,
@@ -34,6 +35,12 @@ function focusField(name: string) {
   document.querySelector<HTMLElement>(`[name="${name}"]`)?.focus()
 }
 
+// The outcome of "Send another link". A failure is an error and says what
+// to do next; a success stays polite.
+// `to` is the address the note is about: a resend still in flight when the
+// person goes back to change the address must not speak for the new one.
+type ResendNote = { to: string; tone: "sent" | "failed"; text: string }
+
 // zod is ~20 KB gz the page would otherwise download before it can render
 // (same as sign-in-form.tsx). It loads on the first focus inside the form
 // and a submit awaits it.
@@ -62,8 +69,12 @@ function ForgotPasswordForm() {
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [sentTo, setSentTo] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
-  const [resendNote, setResendNote] = useState("")
+  const [resendNote, setResendNote] = useState<ResendNote | null>(null)
   const alertRef = useRef<HTMLDivElement>(null)
+  const sentHeadingRef = useRef<HTMLHeadingElement>(null)
+  // Set by "Use a different email", so the form that comes back puts the
+  // visitor in the field, ready to correct the address.
+  const returnToForm = useRef(false)
 
   // role="alert" is already an assertive live region, so this is a belt and
   // braces enhancement: move keyboard/screen-reader focus to the banner
@@ -75,6 +86,20 @@ function ForgotPasswordForm() {
       alertRef.current?.focus()
     }
   }, [message, fieldErrors])
+
+  // Either stage change unmounts the focused button, which would drop focus
+  // to the body. Land it on the new stage's heading, or back in the field
+  // with the address selected.
+  useEffect(() => {
+    if (sentTo) {
+      sentHeadingRef.current?.focus()
+    } else if (returnToForm.current) {
+      returnToForm.current = false
+      const field = document.querySelector<HTMLInputElement>('[name="email"]')
+      field?.focus()
+      field?.select()
+    }
+  }, [sentTo])
 
   const validating = useRef(false)
 
@@ -103,9 +128,14 @@ function ForgotPasswordForm() {
       return
     }
     setFieldErrors({})
+    // A banner from an earlier attempt must not sit above this one.
+    setMessage(null)
     startTransition(async () => {
       try {
         await authApi.requestPasswordReset(parsed.data.email)
+        // Kept as typed, so "Use a different email" brings it back for a
+        // one-letter fix even though the handed-over copy is cleared below.
+        setEmail(email)
         setSentTo(parsed.data.email)
         clearResetEmail()
       } catch (error) {
@@ -117,15 +147,68 @@ function ForgotPasswordForm() {
     })
   }
 
+  function resend(address: string) {
+    // Cleared first, so a second identical result is still a change a
+    // screen reader announces.
+    setResendNote(null)
+    startTransition(async () => {
+      try {
+        await authApi.requestPasswordReset(address)
+        // Neutral on purpose: never confirms whether the address has an
+        // account.
+        setResendNote({
+          to: address,
+          tone: "sent",
+          text: `Another link is on its way to ${address} if it has an account.`,
+        })
+      } catch (error) {
+        const { title, description } = authErrorMessage(
+          error,
+          "forgot-password"
+        )
+        setResendNote({
+          to: address,
+          tone: "failed",
+          text: description ? `${title} ${description}` : title,
+        })
+      }
+    })
+  }
+
+  const note = resendNote?.to === sentTo ? resendNote : null
+
   if (sentTo) {
     return (
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 rounded-lg bg-surface-alt p-4">
-          <p
-            role="status"
-            className="text-ui [overflow-wrap:anywhere] text-ink"
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <span
+            aria-hidden
+            className="mb-1 grid size-11 place-items-center rounded-lg bg-accent-tint text-accent-ink"
           >
-            If an account exists for {sentTo}, a reset link is on its way.
+            <Mail className="size-5" strokeWidth={1.75} />
+          </span>
+          <h2
+            ref={sentHeadingRef}
+            tabIndex={-1}
+            className="text-section font-semibold text-ink outline-none"
+          >
+            Check your email
+          </h2>
+          {/* Neutral on purpose: the server answers every address the same
+              way, so "we sent" would confirm the account exists. */}
+          <p role="status" className="text-body text-ink-muted">
+            If{" "}
+            <span className="font-semibold [overflow-wrap:anywhere] text-ink">
+              {sentTo}
+            </span>{" "}
+            has an account, a reset link is on its way. Open it to choose a new
+            password.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 rounded-lg bg-surface-alt p-4">
+          <p className="text-ui text-ink">
+            Not there after a few minutes? Check spam or promotions, then send
+            another link. Only the newest link works.
           </p>
           <div className="flex flex-col gap-2">
             <Button
@@ -134,30 +217,20 @@ function ForgotPasswordForm() {
               size="lg"
               block
               className={WRAPPING_BLOCK_BUTTON}
-              disabled={pending}
-              aria-busy={pending || undefined}
-              onClick={() =>
-                startTransition(async () => {
-                  try {
-                    await authApi.requestPasswordReset(sentTo)
-                    // Neutral on purpose: never confirms whether the address
-                    // has an account.
-                    setResendNote(
-                      `Another link is on its way to ${sentTo} if it has an account.`
-                    )
-                  } catch (error) {
-                    setResendNote(
-                      authErrorMessage(error, "forgot-password").title
-                    )
-                  }
-                })
-              }
+              pending={pending}
+              pendingLabel="Sending…"
+              onClick={() => resend(sentTo)}
             >
-              {pending ? "Sending…" : "Send another link"}
+              Send another link
             </Button>
             <span aria-live="polite" className="text-caption text-ink-muted">
-              {resendNote}
+              {note?.tone === "sent" ? note.text : null}
             </span>
+            {note?.tone === "failed" ? (
+              <span role="alert" className="text-caption text-danger-ink">
+                {note.text}
+              </span>
+            ) : null}
           </div>
         </div>
         <Button
@@ -167,8 +240,9 @@ function ForgotPasswordForm() {
           block
           className={WRAPPING_BLOCK_BUTTON}
           onClick={() => {
+            returnToForm.current = true
             setSentTo(null)
-            setResendNote("")
+            setResendNote(null)
             setMessage(null)
           }}
         >
@@ -211,10 +285,10 @@ function ForgotPasswordForm() {
         type="submit"
         size="lg"
         block
-        disabled={pending}
-        aria-busy={pending || undefined}
+        pending={pending}
+        pendingLabel="Sending…"
       >
-        {pending ? "Sending…" : "Send reset link"}
+        Send reset link
       </Button>
     </form>
   )

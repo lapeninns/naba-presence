@@ -22,6 +22,48 @@ import { useSession } from "@/lib/queries/use-session"
  * where the reviews come from; what happens to them is said here once.
  */
 
+function plural(count: number, one: string, many: string) {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+// Refusals whose shared copy ("Something went wrong") would send someone to
+// retry what cannot work: said here, for the triage surfaces only.
+const TRIAGE_REASON: Record<string, string> = {
+  assignee_not_eligible:
+    "That person can’t work on reviews at this location, so it wasn’t assigned to them.",
+}
+
+function triageReason(code: string): string {
+  return TRIAGE_REASON[code] ?? describeErrorCode(code)
+}
+
+/**
+ * The toast title for a batch where every row took effect, when it can say
+ * more than "N reviews updated": who it was assigned to, or that approved
+ * replies went to Google. `ok` on an approve means the decision is recorded
+ * and Google took the reply (app/api/reviews/bulk/route.ts); "sent", not
+ * "published", because Google may still be checking it.
+ */
+function allOkTitle(
+  input: BulkReviewActionInput,
+  count: number,
+  assigneeLabel: string | undefined
+): string | null {
+  if (input.action === "approve") {
+    return `${plural(count, "reply", "replies")} approved and sent to Google`
+  }
+  if (input.action !== "assign") return null
+  if (input.assigneeId === null) {
+    return count === 1 ? "Unassigned" : `${count} reviews unassigned`
+  }
+  if (!assigneeLabel) return `${plural(count, "review", "reviews")} assigned`
+  // "Me" is how the menu offers a member themself.
+  const who = assigneeLabel === "Me" ? "you" : assigneeLabel
+  return count === 1
+    ? `Assigned to ${who}`
+    : `${count} reviews assigned to ${who}`
+}
+
 const reviewCount = (input: BulkReviewActionInput) =>
   input.action === "approve"
     ? input.approvals.length
@@ -39,7 +81,9 @@ const reviewCount = (input: BulkReviewActionInput) =>
 export function useReviewTriage() {
   const bulk = useBulkReviewAction()
   const run = async (
-    input: BulkReviewActionInput
+    input: BulkReviewActionInput,
+    /** The assignee's name as the menu showed it, for the toast. */
+    context: { assigneeLabel?: string } = {}
   ): Promise<BulkReviewResult | null> => {
     try {
       const result = await bulk.mutateAsync(input)
@@ -79,13 +123,30 @@ export function useReviewTriage() {
         return result
       }
       const only = result.results.length === 1 ? result.results[0] : null
-      if (only?.status === "skipped" && only.code) {
-        // One review that was left as it was: say why, in its own words.
+      if (
+        only &&
+        (only.status === "skipped" || only.status === "failed") &&
+        only.code
+      ) {
+        // One review that was left as it was, or that failed: say why, in
+        // its own words. Not "the bar lists which": on a single review's
+        // menu there is no bar.
+        const skipped = only.status === "skipped"
         toast.add({
-          title: "Nothing changed",
-          description: describeErrorCode(only.code),
-          type: "warning",
+          title: skipped ? "Nothing changed" : "That review was not updated",
+          description: triageReason(only.code),
+          type: skipped ? "warning" : "error",
         })
+        return result
+      }
+      const everyOk =
+        result.results.length > 0 &&
+        result.results.every((row) => row.status === "ok")
+      const okTitle = everyOk
+        ? allOkTitle(input, result.results.length, context.assigneeLabel)
+        : null
+      if (okTitle) {
+        toast.add({ title: okTitle, type: "success" })
         return result
       }
       toast.add({
@@ -188,14 +249,15 @@ export function AssigneeItems({
   status,
   onAssign,
 }: AssigneeState & {
-  onAssign: (assigneeId: string | null) => void
+  /** The person's label goes with them, so the toast can name who. */
+  onAssign: (assigneeId: string | null, label?: string) => void
 }) {
   return (
     <>
       {assignees.map((member) => (
         <DropdownMenuItem
           key={member.userId}
-          onClick={() => onAssign(member.userId)}
+          onClick={() => onAssign(member.userId, member.label)}
         >
           {member.label}
         </DropdownMenuItem>

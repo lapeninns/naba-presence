@@ -40,7 +40,8 @@ import {
   SettingsGroupAction,
 } from "@/components/ui/settings-row"
 import { Switch } from "@/components/ui/switch"
-import { TimeField } from "@/components/ui/time-field"
+import { isValidTime, TimeField } from "@/components/ui/time-field"
+import { showToast } from "@/components/ui/toast"
 import type { NormalizedHours } from "@/lib/api/location-hours"
 import {
   WEEK_ORDER,
@@ -291,6 +292,7 @@ export function HoursEditor({
   serviceId,
   weeklyOnly = false,
   timeZone,
+  timeZoneLabel,
   serviceNote,
 }: {
   ref?: Ref<HoursEditorHandle>
@@ -309,6 +311,11 @@ export function HoursEditor({
   weeklyOnly?: boolean
   /** The listing's IANA zone, for which special days have passed. */
   timeZone?: string
+  /**
+   * The zone in words ("New Zealand time") when it is not the viewer's own:
+   * the Regular hours caption, on the times it qualifies.
+   */
+  timeZoneLabel?: string | null
   /** A plain-words note about the service options, shown with the services. */
   serviceNote?: string | null
 }) {
@@ -503,12 +510,28 @@ export function HoursEditor({
           disabled ? undefined : (
             <SettingsGroupAction
               aria-haspopup="dialog"
-              onClick={() => setCopyFrom(WEEK_ORDER[0])}
+              onClick={() => {
+                // Opened from here, focus comes back here, not to the row
+                // of a day copied from its own sheet earlier.
+                setLastCopyDay(null)
+                setCopyFrom(WEEK_ORDER[0])
+              }}
             >
               Copy {serviceId ? `${scheduleName} ` : ""}
               {DAY_LABELS[WEEK_ORDER[0]]} to…
             </SettingsGroupAction>
           )
+        }
+        caption={
+          timeZoneLabel && !serviceId ? (
+            <>
+              Times are in{" "}
+              <strong className="font-semibold text-ink">
+                {timeZoneLabel}
+              </strong>
+              .
+            </>
+          ) : undefined
         }
         card
         className="mt-0"
@@ -576,14 +599,23 @@ export function HoursEditor({
       </SettingsGroup>
 
       {!weeklyOnly ? (
-        <SettingsGroup label="Service hours" bodyAs="div" className="mt-0">
+        <SettingsGroup
+          label="Service hours"
+          caption="Separate hours for services such as a kitchen, delivery or takeaway."
+          bodyAs="div"
+          className="mt-0"
+        >
           <div className="flex flex-col gap-4">
             {serviceNote ? (
               <p className="text-ui text-ink-secondary">{serviceNote}</p>
             ) : null}
             {value.moreHours.length === 0 ? (
               <p className="text-ui text-ink-muted">
-                No service schedules are saved.
+                {/* With the options read and none offered, say why nothing
+                    can be added; a failed read has its own note above. */}
+                {supportedHoursTypes.length === 0 && !serviceNote
+                  ? "Google doesn’t offer service hours for this business’s category."
+                  : "No service schedules yet."}
               </p>
             ) : null}
             {value.moreHours.map((entry) => {
@@ -639,14 +671,16 @@ export function HoursEditor({
                     serviceId={entry.hoursTypeId}
                     scheduleName={metadata?.displayName ?? entry.hoursTypeId}
                   />
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <p className="min-w-0 grow basis-48 text-caption text-ink-muted">
-                      {entry.hoursTypeId}
-                      {metadata
-                        ? ""
-                        : " · Google has not confirmed this service type. Its saved schedule is preserved and shown read-only."}
+                  {/* Google's raw type id is shown only when it has no name
+                      for it: the schedule is then titled by that id. */}
+                  {!metadata ? (
+                    <p className="text-caption text-ink-muted">
+                      {entry.hoursTypeId} · Google has not confirmed this
+                      service type. Its saved schedule is preserved and shown
+                      read-only.
                     </p>
-                    {!disabled && metadata ? (
+                  ) : !disabled ? (
+                    <div className="-ml-2.5 flex">
                       <Button
                         type="button"
                         variant="ghost"
@@ -657,8 +691,8 @@ export function HoursEditor({
                         <Trash2 aria-hidden />
                         Remove {metadata.displayName} schedule
                       </Button>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
@@ -963,6 +997,14 @@ export function HoursEditor({
                 : day
             ),
           })
+          // A local edit, said in words: the days that now match, and that
+          // nothing has gone to Google.
+          const copied = WEEK_ORDER.filter((day) => targets.includes(day))
+          showToast({
+            kind: "local",
+            title: `${serviceId ? `${scheduleName} ` : ""}${DAY_LABELS[copyFrom]}’s hours copied to ${copied.length} ${copied.length === 1 ? "day" : "days"}`,
+            description: `${new Intl.ListFormat("en-GB", { type: "conjunction" }).format(copied.map((day) => DAY_LABELS[day]))}. Nothing reaches Google until you publish.`,
+          })
           setCopyFrom(null)
         }}
       />
@@ -997,8 +1039,58 @@ function DaySheet({
   onDone: () => void
 }) {
   const dayOfWeek = day.dayOfWeek
+  const nextDay = (dayOfWeek + 1) % 7
   const switchId = `${ids.dayOpen(dayOfWeek)}-sheet`
   const dayError = errors[ids.dayOpen(dayOfWeek)]
+  const multiple = day.periods.length > 1
+
+  function setPeriod(index: number, patch: Partial<Day["periods"][number]>) {
+    onChange({
+      ...day,
+      periods: day.periods.map((p, pi) =>
+        pi === index ? { ...p, ...patch } : p
+      ),
+    })
+  }
+  /** Focus a period's opening time once it is in the page. */
+  function focusOpens(index: number) {
+    const target = ids.opens(dayOfWeek, index)
+    void untilMounted(target).then(() =>
+      document.getElementById(target)?.focus()
+    )
+  }
+
+  // What "add a period" would do: a long single period is split around its
+  // middle (shortening it), otherwise a period is added after the last. The
+  // button says which, and when nothing can be added it says why.
+  const open = !disabled && !day.isClosed
+  const splittable = open && canSplit(day.periods, dayOfWeek)
+  const split = splittable ? withSplitPeriod(day.periods, dayOfWeek) : null
+  const changedAt = split
+    ? day.periods.findIndex(
+        (p, i) =>
+          p.opensAt !== split[i]?.opensAt || p.closesAt !== split[i]?.closesAt
+      )
+    : -1
+  const splitLabel =
+    day.periods.length === 0
+      ? "Add opening times"
+      : changedAt === -1
+        ? "Add another period"
+        : multiple
+          ? "Split the longest period"
+          : "Split into two periods"
+  const noSplitReason =
+    !open || splittable
+      ? null
+      : day.periods.length >= 3
+        ? "A day can have up to 3 opening periods."
+        : day.periods.some(
+              (p) => !isValidTime(p.opensAt) || !isValidTime(p.closesAt)
+            )
+          ? "Enter both times to add another period."
+          : "No room for another period. Shorten one to add more."
+
   return (
     <>
       <SheetHeader>
@@ -1009,107 +1101,169 @@ function DaySheet({
         </SheetDescription>
       </SheetHeader>
       <SheetBody className="gap-4">
-        <span className="flex min-h-(--np-control-h) items-center gap-2">
-          <Switch
-            id={switchId}
-            checked={!day.isClosed}
-            disabled={disabled}
-            aria-label={`${label} open in this sheet`}
-            aria-invalid={dayError ? true : undefined}
-            aria-describedby={
-              dayError ? `${ids.dayOpen(dayOfWeek)}-error-sheet` : undefined
-            }
-            onCheckedChange={onToggle}
-          />
-          <span aria-hidden className="text-ui text-ink-muted">
-            {day.isClosed ? "Closed all day" : "Open"}
-          </span>
-        </span>
+        {/* The visible words are the switch's name, so "Open on Monday"
+            works for voice control as well as a screen reader. */}
+        <Switch
+          id={switchId}
+          checked={!day.isClosed}
+          disabled={disabled}
+          label={`Open on ${label}`}
+          description={day.isClosed ? "Closed all day." : undefined}
+          aria-invalid={dayError ? true : undefined}
+          aria-describedby={
+            dayError ? `${ids.dayOpen(dayOfWeek)}-error-sheet` : undefined
+          }
+          onCheckedChange={onToggle}
+        />
         {day.isClosed
           ? null
           : day.periods.map((period, index) => {
               const opensId = ids.opens(dayOfWeek, index)
+              const endsId = ids.ends(dayOfWeek, index)
               const message =
                 errors[opensId] ??
                 errors[ids.closes(dayOfWeek, index)] ??
-                errors[ids.ends(dayOfWeek, index)]
+                errors[endsId]
               const errorId = `${opensId}-error`
+              // Closing before it opens on the same day: the period runs
+              // past midnight. Said here, as it is typed, with the next day
+              // offered as an explicit choice; never chosen for the operator.
+              const overnight =
+                (period.closeDayOfWeek ?? dayOfWeek) === dayOfWeek &&
+                isValidTime(period.opensAt) &&
+                isValidTime(period.closesAt) &&
+                period.closesAt !== "24:00" &&
+                period.closesAt < period.opensAt
+              const hintId = `${opensId}-overnight`
+              const showHint = overnight && !disabled && !message
+              const describedBy =
+                [message ? errorId : null, showHint ? hintId : null]
+                  .filter(Boolean)
+                  .join(" ") || undefined
               return (
-                <div key={index} className="flex flex-wrap items-center gap-2">
-                  <TimeField
-                    id={opensId}
-                    aria-label={`${label} period ${index + 1} opens`}
-                    aria-invalid={message ? true : undefined}
-                    aria-describedby={message ? errorId : undefined}
-                    value={period.opensAt}
-                    disabled={disabled}
-                    onValueChange={(opensAt) =>
-                      onChange({
-                        ...day,
-                        periods: day.periods.map((p, pi) =>
-                          pi === index ? { ...p, opensAt } : p
-                        ),
-                      })
-                    }
-                  />
-                  <span aria-hidden className="text-ink-muted">
-                    –
-                  </span>
-                  <TimeField
-                    id={ids.closes(dayOfWeek, index)}
-                    aria-label={`${label} period ${index + 1} closes`}
-                    aria-invalid={message ? true : undefined}
-                    aria-describedby={message ? errorId : undefined}
-                    value={period.closesAt}
-                    disabled={disabled}
-                    onValueChange={(closesAt) =>
-                      onChange({
-                        ...day,
-                        periods: day.periods.map((p, pi) =>
-                          pi === index ? { ...p, closesAt } : p
-                        ),
-                      })
-                    }
-                  />
-                  <ClosingDaySelect
-                    id={ids.ends(dayOfWeek, index)}
-                    label={`${label} period ${index + 1} closing day`}
-                    dayOfWeek={dayOfWeek}
-                    invalid={Boolean(message)}
-                    describedBy={message ? errorId : undefined}
-                    disabled={disabled}
-                    value={
-                      period.closeDayOfWeek === undefined &&
-                      period.closesAt <= period.opensAt
-                        ? null
-                        : String(period.closeDayOfWeek ?? dayOfWeek)
-                    }
-                    onValueChange={(closeDayOfWeek) =>
-                      onChange({
-                        ...day,
-                        periods: day.periods.map((p, pi) =>
-                          pi === index ? { ...p, closeDayOfWeek } : p
-                        ),
-                      })
-                    }
-                  />
-                  {!disabled && day.periods.length > 1 ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Remove ${label} period ${index + 1}`}
-                      onClick={() =>
-                        onChange({
-                          ...day,
-                          periods: day.periods.filter((_, pi) => pi !== index),
-                        })
-                      }
-                    >
-                      <X aria-hidden />
-                    </Button>
+                <div key={index} className="flex flex-col">
+                  {multiple ? (
+                    <p className="mb-1 text-caption font-medium text-ink-secondary">
+                      Period {index + 1}
+                    </p>
                   ) : null}
-                  <FieldProblem id={errorId} message={message} />
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-caption text-ink-muted">Opens</span>
+                      <TimeField
+                        id={opensId}
+                        aria-label={`${label} period ${index + 1} opens`}
+                        aria-invalid={message ? true : undefined}
+                        aria-describedby={message ? errorId : undefined}
+                        value={period.opensAt}
+                        disabled={disabled}
+                        onValueChange={(opensAt) =>
+                          setPeriod(index, { opensAt })
+                        }
+                      />
+                    </label>
+                    <span
+                      aria-hidden
+                      className="flex h-(--np-field-h) items-center text-ink-muted"
+                    >
+                      –
+                    </span>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-caption text-ink-muted">
+                        Closes
+                      </span>
+                      <TimeField
+                        id={ids.closes(dayOfWeek, index)}
+                        aria-label={`${label} period ${index + 1} closes`}
+                        aria-invalid={message ? true : undefined}
+                        aria-describedby={message ? errorId : undefined}
+                        value={period.closesAt}
+                        disabled={disabled}
+                        onValueChange={(closesAt) =>
+                          setPeriod(index, { closesAt })
+                        }
+                      />
+                    </label>
+                    {/* The trigger is a button with its own name; the words
+                        above it are what that name contains. */}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-caption text-ink-muted">
+                        Closing day
+                      </span>
+                      <ClosingDaySelect
+                        id={endsId}
+                        label={`${label} period ${index + 1} closing day`}
+                        dayOfWeek={dayOfWeek}
+                        invalid={Boolean(message)}
+                        describedBy={describedBy}
+                        disabled={disabled}
+                        value={
+                          period.closeDayOfWeek === undefined &&
+                          period.closesAt <= period.opensAt
+                            ? null
+                            : String(period.closeDayOfWeek ?? dayOfWeek)
+                        }
+                        onValueChange={(closeDayOfWeek) =>
+                          setPeriod(index, { closeDayOfWeek })
+                        }
+                      />
+                    </div>
+                    {!disabled && multiple ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove ${label} period ${index + 1}`}
+                        onClick={() => {
+                          onChange({
+                            ...day,
+                            periods: day.periods.filter(
+                              (_, pi) => pi !== index
+                            ),
+                          })
+                          // The ✕ goes with its period: focus the one before.
+                          focusOpens(Math.max(0, index - 1))
+                        }}
+                      >
+                        <X aria-hidden />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div aria-live="polite">
+                    {overnight && !disabled ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-2">
+                        {showHint ? (
+                          <p
+                            id={hintId}
+                            className="text-caption text-ink-secondary"
+                          >
+                            {period.closesAt === "00:00"
+                              ? "Closing at midnight? Close on the next day, or enter 24:00."
+                              : "Open past midnight? Close on the next day."}
+                          </p>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-accent-ink"
+                          onClick={() => {
+                            setPeriod(index, { closeDayOfWeek: nextDay })
+                            // This button goes once the day is chosen: the
+                            // closing-day choice it set takes focus.
+                            document.getElementById(endsId)?.focus()
+                          }}
+                        >
+                          Close on {DAY_LABELS[nextDay]}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {message ? (
+                    <div className="mt-2 flex">
+                      <FieldProblem id={errorId} message={message} />
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
@@ -1117,24 +1271,28 @@ function DaySheet({
           id={`${ids.dayOpen(dayOfWeek)}-error-sheet`}
           message={dayError}
         />
-        {!disabled && !day.isClosed && canSplit(day.periods, dayOfWeek) ? (
+        {split ? (
           <div className="-ml-2.5 flex">
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="text-ink-secondary"
-              onClick={() =>
-                onChange({
-                  ...day,
-                  periods: withSplitPeriod(day.periods, dayOfWeek),
-                })
-              }
+              onClick={() => {
+                onChange({ ...day, periods: split })
+                // The new period's opening time: after the split one, or
+                // the one added at the end.
+                focusOpens(
+                  changedAt === -1 ? day.periods.length : changedAt + 1
+                )
+              }}
             >
               <Plus aria-hidden />
-              Add split period
+              {splitLabel}
             </Button>
           </div>
+        ) : noSplitReason ? (
+          <p className="text-caption text-ink-muted">{noSplitReason}</p>
         ) : null}
       </SheetBody>
       <SheetFooter>
@@ -1225,6 +1383,7 @@ function SpecialDaySheet({
   const endId = ids.specialEnd(index)
   const message = specialMessage(errors, ids, index)
   const errorId = `special-${index}-error`
+  const endHintId = `special-${index}-end-hint`
   const hint = specialHint(entry, past)
   return (
     <>
@@ -1239,26 +1398,31 @@ function SpecialDaySheet({
         </SheetDescription>
       </SheetHeader>
       <SheetBody className="gap-4">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Input
-            id={dateId}
-            type="date"
-            aria-label={`Special date ${index + 1}`}
-            aria-invalid={errors[dateId] ? true : undefined}
-            aria-describedby={message ? errorId : undefined}
-            value={entry.effectiveDate}
-            disabled={disabled}
-            onChange={(event) =>
-              onChange({
-                ...entry,
-                effectiveDate: event.target.value,
-                ...(entry.endDate === entry.effectiveDate
-                  ? { endDate: event.target.value }
-                  : {}),
-              })
-            }
-            className="w-42 tabular-nums"
-          />
+        {/* Each field has its words above it; its accessible name (kept for
+            the summary links and tests) contains those words. */}
+        <div className="flex flex-wrap items-end gap-2.5">
+          <label className="flex flex-col gap-1">
+            <span className="text-caption text-ink-muted">Date</span>
+            <Input
+              id={dateId}
+              type="date"
+              aria-label={`Special date ${index + 1}`}
+              aria-invalid={errors[dateId] ? true : undefined}
+              aria-describedby={message ? errorId : undefined}
+              value={entry.effectiveDate}
+              disabled={disabled}
+              onChange={(event) =>
+                onChange({
+                  ...entry,
+                  effectiveDate: event.target.value,
+                  ...(entry.endDate === entry.effectiveDate
+                    ? { endDate: event.target.value }
+                    : {}),
+                })
+              }
+              className="w-42 tabular-nums"
+            />
+          </label>
           <SegmentedControl
             semantics="radio"
             fill={false}
@@ -1287,43 +1451,68 @@ function SpecialDaySheet({
         </div>
 
         {!entry.isClosed ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <TimeField
-              id={opensId}
-              aria-label={`Special date ${index + 1} opens`}
-              aria-invalid={errors[opensId] ? true : undefined}
-              aria-describedby={message ? errorId : undefined}
-              value={entry.opensAt ?? ""}
-              disabled={disabled}
-              onValueChange={(opensAt) => onChange({ ...entry, opensAt })}
-            />
-            <span aria-hidden className="text-ink-muted">
-              –
-            </span>
-            <TimeField
-              id={closesId}
-              aria-label={`Special date ${index + 1} closes`}
-              aria-invalid={
-                errors[closesId] || errors[opensId] ? true : undefined
-              }
-              aria-describedby={message ? errorId : undefined}
-              value={entry.closesAt ?? ""}
-              disabled={disabled}
-              onValueChange={(closesAt) => onChange({ ...entry, closesAt })}
-            />
-            <Input
-              id={endId}
-              type="date"
-              aria-label={`Special date ${index + 1} closing date`}
-              aria-invalid={errors[endId] ? true : undefined}
-              aria-describedby={message ? errorId : undefined}
-              value={entry.endDate ?? entry.effectiveDate}
-              disabled={disabled}
-              className="w-42 tabular-nums"
-              onChange={(event) =>
-                onChange({ ...entry, endDate: event.target.value })
-              }
-            />
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-caption text-ink-muted">Opens</span>
+                <TimeField
+                  id={opensId}
+                  aria-label={`Special date ${index + 1} opens`}
+                  aria-invalid={errors[opensId] ? true : undefined}
+                  aria-describedby={message ? errorId : undefined}
+                  value={entry.opensAt ?? ""}
+                  disabled={disabled}
+                  onValueChange={(opensAt) => onChange({ ...entry, opensAt })}
+                />
+              </label>
+              <span
+                aria-hidden
+                className="flex h-(--np-field-h) items-center text-ink-muted"
+              >
+                –
+              </span>
+              <label className="flex flex-col gap-1">
+                <span className="text-caption text-ink-muted">Closes</span>
+                <TimeField
+                  id={closesId}
+                  aria-label={`Special date ${index + 1} closes`}
+                  aria-invalid={
+                    errors[closesId] || errors[opensId] ? true : undefined
+                  }
+                  aria-describedby={message ? errorId : undefined}
+                  value={entry.closesAt ?? ""}
+                  disabled={disabled}
+                  onValueChange={(closesAt) => onChange({ ...entry, closesAt })}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-caption text-ink-muted">
+                  Closing date
+                </span>
+                <Input
+                  id={endId}
+                  type="date"
+                  aria-label={`Special date ${index + 1} closing date`}
+                  aria-invalid={errors[endId] ? true : undefined}
+                  aria-describedby={
+                    [message ? errorId : null, disabled ? null : endHintId]
+                      .filter(Boolean)
+                      .join(" ") || undefined
+                  }
+                  value={entry.endDate ?? entry.effectiveDate}
+                  disabled={disabled}
+                  className="w-42 tabular-nums"
+                  onChange={(event) =>
+                    onChange({ ...entry, endDate: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+            {!disabled ? (
+              <p id={endHintId} className="text-caption text-ink-muted">
+                Change the closing date only if you close after midnight.
+              </p>
+            ) : null}
           </div>
         ) : null}
 

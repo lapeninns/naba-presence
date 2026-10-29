@@ -18,7 +18,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Empty } from "@/components/ui/empty"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import {
@@ -443,6 +448,13 @@ function ResolveDialog({
             ) : null}
             <Field error={noteError ?? undefined}>
               <FieldLabel>Resolution note</FieldLabel>
+              {fulfil ? (
+                <FieldDescription>
+                  {request?.requestType === "access"
+                    ? "Kept in the audit log. Say what you did, for example when you sent their records."
+                    : "Kept in the audit log. Say what you did."}
+                </FieldDescription>
+              ) : null}
               <Textarea
                 autoSize
                 value={note}

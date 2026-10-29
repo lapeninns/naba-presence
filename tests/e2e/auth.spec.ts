@@ -189,6 +189,74 @@ test.describe("auth surfaces", () => {
   }
 })
 
+// The states this pass changed (docs/audits/2026-10-28-all-flows/p1): the
+// legal contents, the confirmation interstitial and its incomplete link, the
+// email-link failure on sign-in, and the two "Check your email" stages,
+// in both themes. Every request is stubbed; nothing reaches a provider.
+test.describe("changed auth states stay axe clean", () => {
+  for (const theme of ["light", "dark"] as const) {
+    test(`axe clean on the changed states (${theme})`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme })
+      const scan = async (label: string) => {
+        await pageSettled(page)
+        const wcag = await new AxeBuilder({ page })
+          .withTags(WCAG_TAGS)
+          .analyze()
+        expect(wcag.violations, `${label} ${theme}`).toEqual([])
+      }
+      for (const target of [
+        "/privacy",
+        "/terms",
+        "/confirm-email?token_hash=fixture-token-hash-000000000000",
+        "/confirm-email",
+        "/sign-in?status=invalid_email_link&email=error",
+      ]) {
+        await page.goto(target)
+        await scan(target)
+      }
+
+      await page.route("**/api/auth/password/reset/request", (route) =>
+        route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify({ accepted: true }),
+        })
+      )
+      await page.goto("/forgot-password")
+      await page.getByLabel("Email address").fill("sam@example.test")
+      await page.getByRole("button", { name: "Send reset link" }).click()
+      await expect(
+        page.getByRole("heading", { name: "Check your email" })
+      ).toBeFocused()
+      await scan("forgot-password sent")
+
+      await page.route("**/api/auth/password/register", (route) =>
+        route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify({
+            authenticated: false,
+            confirmationRequired: true,
+          }),
+        })
+      )
+      await page.goto("/sign-in?mode=create-account")
+      await page.getByLabel("Your name").fill("Sam Fixture")
+      await page.getByLabel("Email address").fill("sam@example.test")
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill("correct horse battery staple")
+      await page
+        .getByRole("button", { name: "Create account", exact: true })
+        .click()
+      await expect(
+        page.getByRole("heading", { name: "Check your email" })
+      ).toBeFocused()
+      await scan("create-account sent")
+    })
+  }
+})
+
 test.describe("auth surfaces raise no console or page errors", () => {
   const SWEEP = [
     "/sign-in",

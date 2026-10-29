@@ -28,14 +28,31 @@ import { cn } from "@/lib/utils"
 const FIELD_ORDER = ["password"] as const
 
 // A dead token can never succeed no matter how many times the user
-// resubmits, so these two codes tear down the form in favour of a route
-// out instead of leaving a doomed form on screen. Every other error
-// (rate limiting, transient server trouble, ...) leaves the token's
-// validity an open question, so the form stays.
+// resubmits, so these codes tear down the form in favour of a route out
+// instead of leaving a doomed form on screen. That includes an unknown
+// outcome: the server spent the link before it lost track of the password.
+// Every other error (rate limiting, transient server trouble, ...) leaves
+// the token's validity an open question, so the form stays.
 const DEAD_TOKEN_CODES = new Set([
   "invalid_email_link",
   "password_reset_failed",
+  "password_reset_outcome_unknown",
 ])
+
+// After a dropped connection the earlier request may have reached the
+// server and saved the password, spending the link. A dead link on the
+// next attempt is then no reason to start over.
+const MAY_ALREADY_BE_SAVED =
+  "If you pressed Update password before, your new password may already be saved. Try signing in with it, or request another link."
+
+// Same test as authErrorMessage: a write that got no answer comes back as
+// `network_error`, a bare fetch failure as a TypeError.
+function isNetworkFailure(error: unknown) {
+  return (
+    (error instanceof ApiClientError && error.code === "network_error") ||
+    error instanceof TypeError
+  )
+}
 
 // Same name-based focus lookup as sign-in-form.tsx / forgot-password-form.tsx.
 function focusField(name: string) {
@@ -62,6 +79,22 @@ function isUsableToken(value: string | undefined): value is string {
 // and a submit awaits it.
 const loadAuthSchemas = () => import("@/lib/domain/auth")
 
+// The one way on from a link that can't be used, whether it never arrived
+// whole or the server refused it.
+function RequestAnotherLink() {
+  return (
+    <Link
+      href="/forgot-password"
+      className={cn(
+        buttonVariants({ size: "lg", block: true }),
+        WRAPPING_BLOCK_BUTTON
+      )}
+    >
+      Request another link
+    </Link>
+  )
+}
+
 function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   const [password, setPassword] = useState("")
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -69,6 +102,8 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   const [deadToken, setDeadToken] = useState(false)
   const [pending, startTransition] = useTransition()
   const alertRef = useRef<HTMLDivElement>(null)
+  // Set once an attempt gets no answer: see MAY_ALREADY_BE_SAVED.
+  const mayHaveLanded = useRef(false)
 
   // role="alert" is already an assertive live region, so this is a belt and
   // braces enhancement: move keyboard/screen-reader focus to the banner
@@ -86,6 +121,8 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
     event.preventDefault()
     if (pending || validating.current || !isUsableToken(tokenHash)) return
     const token = tokenHash
+    // A banner from an earlier attempt must not sit above this one.
+    setMessage(null)
     validating.current = true
     void loadAuthSchemas()
       .then((schemas) => submitWith(schemas, token))
@@ -126,15 +163,29 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
           error instanceof ApiClientError &&
           DEAD_TOKEN_CODES.has(error.code)
         ) {
-          setMessage(authErrorMessage(error, "reset-password"))
+          const dead = authErrorMessage(error, "reset-password")
+          // An unknown outcome already says to try the new password.
+          setMessage(
+            mayHaveLanded.current &&
+              error.code !== "password_reset_outcome_unknown"
+              ? { ...dead, description: MAY_ALREADY_BE_SAVED }
+              : dead
+          )
           setDeadToken(true)
           return
         }
+        if (isNetworkFailure(error)) mayHaveLanded.current = true
         const errors = fieldErrorsFrom(error)
         setFieldErrors(errors)
-        setMessage(authErrorMessage(error, "reset-password"))
         const target = FIELD_ORDER.find((key) => errors[key])
-        if (target) focusField(target)
+        if (target) {
+          // The field error says it all; a "Check the highlighted fields."
+          // banner on top would only be announced a second time.
+          setMessage(null)
+          focusField(target)
+        } else {
+          setMessage(authErrorMessage(error, "reset-password"))
+        }
       }
     })
   }
@@ -151,23 +202,19 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
             to continue.
           </p>
         </div>
-        <Link
-          href="/forgot-password"
-          className={cn(
-            buttonVariants({ size: "lg", block: true }),
-            WRAPPING_BLOCK_BUTTON
-          )}
-        >
-          Request another link
-        </Link>
+        <RequestAnotherLink />
       </div>
     )
   }
 
   if (deadToken && message) {
     return (
-      <div ref={alertRef} tabIndex={-1} className="outline-none">
-        <AuthErrorAlert message={message} />
+      <div className="flex flex-col gap-5">
+        {/* The alert's own inline link would repeat the button below. */}
+        <div ref={alertRef} tabIndex={-1} className="outline-none">
+          <AuthErrorAlert message={{ ...message, action: undefined }} />
+        </div>
+        <RequestAnotherLink />
       </div>
     )
   }
@@ -205,7 +252,15 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         label="New password"
         name="password"
         value={password}
-        onValueChange={setPassword}
+        onValueChange={(next) => {
+          setPassword(next)
+          // Cleared together: dropping only the field error would leave a
+          // banner the focus effect above then jumps to mid-typing.
+          if (fieldErrors.password) {
+            setFieldErrors({})
+            setMessage(null)
+          }
+        }}
         autoComplete="new-password"
         error={fieldErrors.password}
         describedBy={<PasswordRequirements value={password} />}
@@ -215,10 +270,10 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         type="submit"
         size="lg"
         block
-        disabled={pending}
-        aria-busy={pending || undefined}
+        pending={pending}
+        pendingLabel="Updating…"
       >
-        {pending ? "Updating…" : "Update password"}
+        Update password
       </Button>
     </form>
   )

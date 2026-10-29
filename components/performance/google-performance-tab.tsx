@@ -14,7 +14,11 @@ import {
   type ReportShareTarget,
 } from "@/components/reporting/report-actions-menu"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
-import { ReportingPanel } from "@/components/reporting/reporting-states"
+import {
+  ReportingPanel,
+  StaleFiguresAlert,
+} from "@/components/reporting/reporting-states"
+import { ReportExportScope } from "@/components/reporting/csv-download-button"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
 import { PresenceFigures } from "@/components/performance/presence-figures"
 import {
@@ -84,7 +88,11 @@ export function GooglePerformanceTab({
     "UTC"
   )
 
-  const canRefresh = canTriggerSync(role)
+  // With Google performance switched off for this deployment the server
+  // refuses a refresh (503), so it is not offered, as Keywords does when
+  // paused.
+  const canRefresh =
+    canTriggerSync(role) && presence.data?.ingestionEnabled !== false
   const header = (
     <ReportTabHead
       caption={
@@ -92,14 +100,18 @@ export function GooglePerformanceTab({
           // One caption line once it arrives: keep its room so the tiles do
           // not drop when it appears.
           <Skeleton aria-hidden className="h-4 w-56 max-w-full" />
-        ) : !presence.data?.freshThrough && !refresh.refreshing ? null : (
+        ) : !presence.data?.freshThrough &&
+          !refresh.refreshing &&
+          !refresh.stillWaiting ? null : (
           // Only a real "as at" date: with nothing collected the panel below
           // already says so, and the caption would repeat it word for word.
           <>
             {presence.data?.freshThrough ? (
               <PresenceCaption data={presence.data} />
             ) : null}
-            {refresh.refreshing ? <RefreshStatus /> : null}
+            {refresh.refreshing || refresh.stillWaiting ? (
+              <RefreshStatus stillWaiting={refresh.stillWaiting} />
+            ) : null}
           </>
         )
       }
@@ -116,6 +128,7 @@ export function GooglePerformanceTab({
                     scopedToClient: Boolean(clientId),
                     onStart: refresh.onStart,
                     onFailed: refresh.onFailed,
+                    onSettled: refresh.onSettled,
                   }
                 : null
             }
@@ -126,19 +139,37 @@ export function GooglePerformanceTab({
   )
 
   const frame = (body: React.ReactNode) => (
-    <div className="@container/report flex flex-col gap-(--np-gap-section)">
-      {/* Leading h2 keeps heading order valid before the chart h3s (REV-2). */}
-      <h2 className="sr-only">Google performance</h2>
-      {header}
-      {body}
-    </div>
+    // The CSV files carry the server's dates, after the page's scope.
+    <ReportExportScope
+      value={{
+        period: presence.data
+          ? `${presence.data.from} ${presence.data.to}`
+          : undefined,
+      }}
+    >
+      <div className="@container/report flex flex-col gap-(--np-gap-section)">
+        {/* Leading h2 keeps heading order valid before the chart h3s (REV-2). */}
+        <h2 className="sr-only">Google performance</h2>
+        {header}
+        {/* A failed re-read keeps the figures, said to be the last load. */}
+        {presence.isError && presence.data ? (
+          <StaleFiguresAlert
+            cause={presence.error}
+            retrying={presence.isFetching}
+            onRetry={() => void presence.refetch()}
+          />
+        ) : null}
+        {body}
+      </div>
+    </ReportExportScope>
   )
 
   if (presence.isPending)
     return frame(
       <ReportsSkeleton variant="google" label="Loading visibility figures…" />
     )
-  if (presence.isError)
+  // Not pending and nothing to show: the first load failed.
+  if (!presence.data)
     return frame(
       <ReportingPanel
         variant="error"
@@ -149,7 +180,8 @@ export function GooglePerformanceTab({
 
   const data = presence.data
 
-  // Off flag wins over state: ingestion is switched off for this account.
+  // Off flag wins over state: ingestion is switched off for this
+  // deployment (an environment switch), not by anyone in the organisation.
   if (!data.ingestionEnabled)
     return frame(
       <ReportingPanel
@@ -157,7 +189,7 @@ export function GooglePerformanceTab({
         titleAs="h3"
         variant="off"
         title="Google performance is not switched on"
-        description="Ask an admin to turn this on for your organisation."
+        description="Google performance reporting is off in NabaPresence for now. It isn’t a setting in your organisation, so there is nothing to change here."
       />
     )
   if (data.state === "no_link")
@@ -200,7 +232,8 @@ export function GooglePerformanceTab({
               ? data.unavailableReasons
               : ["performance_sync_failed"]
           }
-          title="Some figures could not be refreshed"
+          // Nothing came back at all here: "some" would contradict the panel.
+          title="Google figures could not be refreshed"
         >
           <RefreshFailedNote completeness={data.completeness} />
         </UnavailableAlert>

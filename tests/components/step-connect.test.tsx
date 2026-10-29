@@ -25,25 +25,31 @@ vi.mock("@/lib/queries/use-clients", () => ({
   }),
 }))
 
-function renderStep(onConnected = vi.fn()) {
+const LOGINS = [
+  {
+    id: "c-live",
+    googleEmail: "shared@lapen.test",
+    status: "active",
+    reconnectRequired: false,
+  },
+  {
+    id: "c-old",
+    googleEmail: "old@lapen.test",
+    status: "expired",
+    reconnectRequired: true,
+  },
+]
+
+function renderStep(
+  onConnected = vi.fn(),
+  {
+    connections = LOGINS,
+    attachedConnectionId,
+  }: { connections?: unknown[]; attachedConnectionId?: string | null } = {}
+) {
   workspaceMock.mockReturnValue({
     query: {
-      data: {
-        connections: [
-          {
-            id: "c-live",
-            googleEmail: "shared@lapen.test",
-            status: "active",
-            reconnectRequired: false,
-          },
-          {
-            id: "c-old",
-            googleEmail: "old@lapen.test",
-            status: "expired",
-            reconnectRequired: true,
-          },
-        ],
-      },
+      data: { connections },
       isPending: false,
       isError: false,
       refetch: vi.fn(),
@@ -59,6 +65,7 @@ function renderStep(onConnected = vi.fn()) {
           clientId="client-1"
           clientName="Lapen Inns"
           business={false}
+          attachedConnectionId={attachedConnectionId}
           onConnected={onConnected}
         />
       </Toaster>
@@ -156,5 +163,54 @@ describe("StepConnect", () => {
     expect(screen.getByTestId("setup-attach-error")).toHaveTextContent(
       "Couldn’t use that account"
     )
+  })
+
+  it("lists the client's own login first, as the one it keeps using", () => {
+    const onConnected = renderStep(vi.fn(), {
+      connections: [
+        {
+          id: "c-other",
+          googleEmail: "other@lapen.test",
+          status: "active",
+          reconnectRequired: false,
+        },
+        ...LOGINS,
+      ],
+      attachedConnectionId: "c-live",
+    })
+    const keep = screen.getByRole("button", {
+      name: "Keep using this account shared@lapen.test",
+    })
+    expect(keep).toHaveAttribute("id", "setup-connect-use-first")
+    expect(keep).toHaveTextContent("Connected to Lapen Inns")
+    // The same attach as any other row.
+    attachMock.mockImplementation((_input, options) => options.onSuccess())
+    fireEvent.click(keep)
+    expect(attachMock).toHaveBeenCalledWith(
+      { clientId: "client-1", connectionId: "c-live" },
+      expect.anything()
+    )
+    expect(onConnected).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole("button", { name: "Use this account other@lapen.test" })
+    ).not.toHaveTextContent("Connected to")
+  })
+
+  it("draws the sign-in tile only when there is no login to reuse", () => {
+    renderStep()
+    expect(document.querySelector(".lucide-link-2")).toBeNull()
+  })
+
+  it("offers no list of logins when none was ever connected", () => {
+    renderStep(vi.fn(), { connections: [] })
+    expect(document.querySelector(".lucide-link-2")).not.toBeNull()
+    expect(
+      screen.getByRole("heading", { name: "Connect a Google account" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", {
+        name: "Use an account already connected",
+      })
+    ).toBeNull()
   })
 })

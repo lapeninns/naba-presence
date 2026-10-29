@@ -6,7 +6,7 @@ import { useId, useImperativeHandle, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   OptionRow,
@@ -34,6 +34,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { showToast } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import {
   createPostSchedule,
@@ -46,6 +47,7 @@ import {
   eventOffsetsSchema,
   expandSchedule,
   formatUtcOffset,
+  MAX_SCHEDULE_OCCURRENCES,
   planOnceSlot,
   resolveLocalSlot,
   scheduleRuleSchema,
@@ -54,8 +56,9 @@ import {
 } from "@/lib/domain/publication-schedule"
 import {
   PRESET_TIME,
-  formatWallDay,
+  formatWallDateTime,
   presetDates,
+  zoneName,
   type SchedulePreset,
 } from "@/components/locations/posts/schedule-dates"
 import { usableSuggestion } from "@/lib/locations/schedule-display"
@@ -70,6 +73,81 @@ type When = SchedulePreset | "custom"
 type Page = "presets" | "custom"
 const TITLE = "Schedule publication"
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+/** The form fields a validation problem can belong to. */
+export type ScheduleField =
+  | "startDate"
+  | "localTime"
+  | "count"
+  | "endDate"
+  | "dayOfMonth"
+  | "weekdays"
+  | "startDays"
+  | "endDays"
+
+/** The part of a zod issue read here (zod's own type varies by code). */
+type RuleIssue = {
+  code: string
+  path: readonly PropertyKey[]
+  message: string
+}
+
+/**
+ * A validation problem in plain words, and the field it belongs to.
+ *
+ * The shared schedule schemas (also used by the server) carry their own
+ * messages for the rules they add ("Enter a real date.", "The end date is
+ * before the start date."), and those are kept. A bare type or range check
+ * has only zod's default text ("Too small: expected number to be >=1"), so
+ * it is said here per field instead. Presentation only: what is valid is
+ * still decided by the schemas.
+ */
+export function scheduleProblem(issue: RuleIssue | undefined): {
+  message: string
+  field: ScheduleField | null
+} {
+  if (!issue) return { message: "Check the schedule.", field: null }
+  const [head, next] = issue.path
+  const field: ScheduleField | null =
+    head === "end"
+      ? next === "count"
+        ? "count"
+        : next === "date"
+          ? "endDate"
+          : null
+      : head === "startDate" ||
+          head === "localTime" ||
+          head === "dayOfMonth" ||
+          head === "weekdays" ||
+          head === "startDays" ||
+          head === "endDays"
+        ? head
+        : null
+  // A rule the schema adds says what is wrong in its own words.
+  if (issue.code === "custom") return { message: issue.message, field }
+  switch (field) {
+    case "startDate":
+      return { message: "Enter a date.", field }
+    case "localTime":
+      return { message: "Use a 24-hour time such as 09:30.", field }
+    case "count":
+      return {
+        message: `Enter how many times, from 1 to ${MAX_SCHEDULE_OCCURRENCES}.`,
+        field,
+      }
+    case "endDate":
+      return { message: "Enter a last date.", field }
+    case "dayOfMonth":
+      return { message: "Enter a day from 1 to 31.", field }
+    case "weekdays":
+      return { message: "Choose at least one day.", field }
+    case "startDays":
+    case "endDays":
+      return { message: "Enter days from 0 to 365.", field }
+    default:
+      return { message: "Check the schedule.", field: null }
+  }
+}
 
 /** Read only from the open handler, never during render. */
 function currentTime() {
@@ -254,15 +332,24 @@ export function SchedulePostSheet({
     expansion?.occurrences.filter(
       (occurrence) => Date.parse(occurrence.intendedAt) > openedAt
     ) ?? []
-  const problem = !parsed.success
-    ? (parsed.error.issues[0]?.message ?? "Check the schedule.")
+  // A form problem is said in plain words, at its field and in the preview.
+  const formProblem = !parsed.success
+    ? scheduleProblem(parsed.error.issues[0])
     : offsets && !offsets.success
-      ? (offsets.error.issues[0]?.message ?? "Check the event dates.")
-      : once && !once.ok
-        ? slotProblemMessage(once.problem)
-        : future.length === 0
-          ? "Every time in this schedule has already passed."
-          : null
+      ? offsets.error.issues[0]
+        ? scheduleProblem(offsets.error.issues[0])
+        : { message: "Check the event dates.", field: null }
+      : null
+  const problem = formProblem
+    ? formProblem.message
+    : once && !once.ok
+      ? slotProblemMessage(once.problem)
+      : future.length === 0
+        ? "Every time in this schedule has already passed."
+        : null
+  /** The problem's text for the field it belongs to, if any. */
+  const fieldProblem = (field: ScheduleField) =>
+    formProblem?.field === field ? formProblem.message : undefined
 
   const save = useMutation({
     mutationFn: () => {
@@ -286,6 +373,12 @@ export function SchedulePostSheet({
     onSuccess: () => {
       setFailure(null)
       setOpen(false)
+      // Said once the server has saved it: nothing is published yet.
+      showToast({
+        title: existing
+          ? "Changed schedule sent for approval"
+          : "Schedule sent for approval",
+      })
       void client.invalidateQueries({
         queryKey: queryKeys.postSchedules(locationId),
       })
@@ -340,7 +433,7 @@ export function SchedulePostSheet({
       offsetMinutes: null,
     }))
   }
-  /** "Thu 15 Oct, 09:00 · venue time (Europe/London)", or why it can't be. */
+  /** "Thu 15 Oct, 09:00 UK time" (the venue's zone), or why it can't be. */
   function presetLine(date: string) {
     const plan = planOnceSlot(
       { startDate: date, localTime: PRESET_TIME },
@@ -348,13 +441,13 @@ export function SchedulePostSheet({
       null,
       new Date(openedAt)
     )
-    const line = `${formatWallDay(date)}, ${PRESET_TIME} · venue time (${timezone})`
+    const line = `${formatWallDateTime(date, PRESET_TIME)} ${zoneName(timezone)}`
     return plan.ok ? line : `${line}. ${slotProblemMessage(plan.problem)}`
   }
   /** The custom row's sub-label: the date and time chosen, once there is one. */
   const customLine =
     when === "custom" && parsed.success
-      ? `${formatWallDay(parsed.data.startDate)}, ${parsed.data.localTime} · ${timezoneLabel(zone)}`
+      ? `${formatWallDateTime(parsed.data.startDate, parsed.data.localTime)} ${zoneName(zone)}`
       : "Choose the day, the time and the timezone."
   const onPresets = offerPresets && page === "presets"
   const showForm = !offerPresets || page === "custom"
@@ -475,7 +568,7 @@ export function SchedulePostSheet({
             {showForm ? (
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
+                  <Field error={fieldProblem("startDate")}>
                     <FieldLabel>
                       {form.frequency === "once" ? "Date" : "Starting"}
                     </FieldLabel>
@@ -484,14 +577,18 @@ export function SchedulePostSheet({
                       value={form.startDate}
                       onChange={(event) => set("startDate", event.target.value)}
                     />
+                    {/* The preview's alert announces it; this one is read
+                        on the field. */}
+                    <FieldError announce="off" />
                   </Field>
-                  <Field>
+                  <Field error={fieldProblem("localTime")}>
                     <FieldLabel>Local time</FieldLabel>
                     <Input
                       type="time"
                       value={form.localTime}
                       onChange={(event) => set("localTime", event.target.value)}
                     />
+                    <FieldError announce="off" />
                   </Field>
                 </div>
                 <Field>
@@ -567,10 +664,13 @@ export function SchedulePostSheet({
                     />
                   ))}
                 </div>
+                <FieldError announce="off">
+                  {fieldProblem("weekdays")}
+                </FieldError>
               </fieldset>
             ) : null}
             {form.frequency === "monthly" ? (
-              <Field className="max-w-40">
+              <Field className="max-w-40" error={fieldProblem("dayOfMonth")}>
                 <FieldLabel>Day of the month</FieldLabel>
                 <Input
                   type="number"
@@ -582,6 +682,7 @@ export function SchedulePostSheet({
                     set("dayOfMonth", Number(event.target.value))
                   }
                 />
+                <FieldError announce="off" />
               </Field>
             ) : null}
             {form.frequency !== "once" ? (
@@ -603,7 +704,7 @@ export function SchedulePostSheet({
                   </SegmentedControlItem>
                 </SegmentedControl>
                 {form.endType === "count" ? (
-                  <Field className="max-w-40">
+                  <Field className="max-w-40" error={fieldProblem("count")}>
                     <FieldLabel>Times</FieldLabel>
                     <Input
                       type="number"
@@ -615,15 +716,17 @@ export function SchedulePostSheet({
                         set("count", Number(event.target.value))
                       }
                     />
+                    <FieldError announce="off" />
                   </Field>
                 ) : (
-                  <Field className="max-w-56">
+                  <Field className="max-w-56" error={fieldProblem("endDate")}>
                     <FieldLabel>Last date</FieldLabel>
                     <Input
                       type="date"
                       value={form.endDate}
                       onChange={(event) => set("endDate", event.target.value)}
                     />
+                    <FieldError announce="off" />
                   </Field>
                 )}
               </fieldset>
@@ -638,7 +741,7 @@ export function SchedulePostSheet({
                   approver and frozen with the schedule.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
+                  <Field error={fieldProblem("startDays")}>
                     <FieldLabel>Starts after (days)</FieldLabel>
                     <Input
                       type="number"
@@ -650,8 +753,9 @@ export function SchedulePostSheet({
                         set("startDays", Number(event.target.value))
                       }
                     />
+                    <FieldError announce="off" />
                   </Field>
-                  <Field>
+                  <Field error={fieldProblem("endDays")}>
                     <FieldLabel>Ends after (days)</FieldLabel>
                     <Input
                       type="number"
@@ -663,6 +767,7 @@ export function SchedulePostSheet({
                         set("endDays", Number(event.target.value))
                       }
                     />
+                    <FieldError announce="off" />
                   </Field>
                 </div>
               </fieldset>
@@ -688,9 +793,10 @@ export function SchedulePostSheet({
               ) : parsed.success && expansion ? (
                 <>
                   <p className="text-ui text-ink">
+                    {/* The shared sentence, with the zone in words. */}
                     {describeScheduleRule(
                       parsed.data,
-                      zone,
+                      zoneName(zone),
                       once?.ok ? once.offsetMinutes : null
                     )}
                   </p>
@@ -707,7 +813,10 @@ export function SchedulePostSheet({
                   <ol className="flex flex-col gap-1 text-ui text-ink-secondary">
                     {future.slice(0, 8).map((occurrence) => (
                       <li key={occurrence.intendedAt} className="tabular-nums">
-                        {occurrence.localDate} {occurrence.localTime}
+                        {formatWallDateTime(
+                          occurrence.localDate,
+                          occurrence.localTime
+                        )}
                         {occurrence.adjustment !== "none" ? (
                           <span className="text-caption text-warning-ink">
                             {" "}

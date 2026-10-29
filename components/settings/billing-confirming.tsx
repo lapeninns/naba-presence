@@ -23,7 +23,8 @@ const systemNow = () => Date.now()
  * app only once the webhook processor (or the hourly reconciliation) has
  * fetched it from Stripe and advanced the record's provider sync. Until then
  * this polls GET /api/billing and says it is waiting; after a few minutes
- * it says the confirmation is late rather than spinning forever.
+ * it says the confirmation is late (and that it is still checking) rather
+ * than spinning silently. A failed read is said as that, never as a delay.
  */
 export function BillingConfirming({
   now = systemNow,
@@ -70,6 +71,12 @@ export function BillingConfirming({
 
   const confirmed = phase === "confirmed"
   const attention = phase === "attention"
+  // A record we could not read says nothing about Stripe: it is not called
+  // a Stripe delay, only that loading failed and is being retried.
+  const loadFailed = hydrated && billing.isError && !data
+  const delayed = phase === "delayed" && !loadFailed
+  // The plan is named only from a record the server says is confirmed.
+  const confirmedPlan = confirmed ? (data?.plan?.name ?? null) : null
 
   return (
     // A centred state block (title, one line, the live status, one action),
@@ -89,27 +96,59 @@ export function BillingConfirming({
             ? "Subscription confirmed"
             : attention
               ? "Subscription needs attention"
-              : "Confirming subscription"}
+              : delayed
+                ? "Still waiting for Stripe"
+                : "Confirming subscription"}
         </h2>
         <p className="m-0 text-ui text-ink-muted">
           {confirmed
-            ? "Stripe has confirmed the subscription."
+            ? confirmedPlan
+              ? `Stripe has confirmed the ${confirmedPlan} plan.`
+              : "Stripe has confirmed the subscription."
             : attention
               ? "Stripe has the subscription, but its payment did not go through. Billing shows what to do next."
-              : "We are waiting for Stripe to confirm the subscription. Nothing changes in this workspace until it does."}
+              : delayed
+                ? "This is taking longer than usual. Nothing changes in this workspace until Stripe confirms the subscription."
+                : "We are waiting for Stripe to confirm the subscription. Nothing changes in this workspace until it does."}
         </p>
       </div>
       <div className="flex max-w-prose flex-col items-center gap-3">
         <div role="status" aria-live="polite" className="text-body text-ink">
           {(confirmed || attention) && data ? (
-            <p className="m-0">{describeBilling(data)}</p>
-          ) : phase === "delayed" ? (
             <p className="m-0">
-              Stripe has not confirmed the subscription yet. This can take a few
-              minutes. You can leave this page: Billing shows the subscription
-              as soon as Stripe confirms it. If you closed the Stripe page
-              before paying, nothing was charged.
+              {/* The heading's change is not announced; this lead says the
+                  outcome in the same polite update as the details. */}
+              <span className="sr-only">
+                {confirmed
+                  ? "Subscription confirmed. "
+                  : "Subscription needs attention. "}
+              </span>
+              {describeBilling(data)}
             </p>
+          ) : delayed ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="m-0">
+                Stripe has not confirmed the subscription yet. You can leave
+                this page: Billing shows the subscription as soon as Stripe
+                confirms it.
+              </p>
+              <p className="m-0 inline-flex items-center gap-2 text-ui text-ink-muted">
+                <Spinner decorative size="sm" />
+                Still checking…
+              </p>
+            </div>
+          ) : loadFailed ? (
+            // Said once, in this polite status: what failed, then that it
+            // keeps trying. No separate alert repeats it.
+            <div className="flex flex-col items-center gap-1">
+              <p className="m-0 text-ui text-danger-ink">
+                Billing could not be loaded.
+              </p>
+              <p className="m-0 inline-flex items-center gap-2">
+                <Spinner decorative size="sm" />
+                Trying again…
+              </p>
+            </div>
           ) : (
             <p className="m-0 inline-flex items-center gap-2">
               <Spinner decorative size="sm" />
@@ -117,11 +156,6 @@ export function BillingConfirming({
             </p>
           )}
         </div>
-        {hydrated && billing.isError && !data ? (
-          <p role="alert" className="m-0 text-caption text-danger-ink">
-            Billing could not be loaded. We will keep trying.
-          </p>
-        ) : null}
         <div>
           <Link
             href={BILLING_PATH}

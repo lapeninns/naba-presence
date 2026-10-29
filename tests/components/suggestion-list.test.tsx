@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useState } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
@@ -183,13 +184,13 @@ describe("SuggestionList", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("keeps a failed decision on its row with the reason and a Retry", async () => {
+  it("keeps a failed decision on its row with the reason and a Retry, and does not toast it as well", async () => {
     const user = userEvent.setup()
     vi.spyOn(importReviewApi, "decideImportProposal").mockRejectedValue(
       new ApiClientError(
         409,
-        "stale_revision",
-        "The profile changed. Reload and try again."
+        "canonical_resource_stale",
+        "The profile changed after it was loaded. Refresh and try again."
       )
     )
     renderList([proposal()])
@@ -199,10 +200,99 @@ describe("SuggestionList", () => {
     const row = screen.getByRole("listitem")
     const failure = await within(row).findByRole("alert")
     expect(failure).toHaveTextContent("Not applied")
+    expect(failure).toHaveTextContent(
+      "This changed since you loaded it. Refresh and try again."
+    )
     expect(
       within(failure).getByRole("button", { name: "Retry" })
     ).toBeInTheDocument()
     expect(within(row).getByRole("button", { name: "Accept" })).toBeEnabled()
+    // The claim was released, so the row's alert stays: one announcement.
+    expect(
+      screen.getAllByText(
+        "This changed since you loaded it. Refresh and try again."
+      )
+    ).toHaveLength(1)
+  })
+
+  it("names the suggestion in the toast when the server marks it failed", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(importReviewApi, "decideImportProposal").mockRejectedValue(
+      new ApiClientError(
+        409,
+        "proposal_target_missing",
+        "The menu item no longer exists."
+      )
+    )
+    renderList(
+      [
+        proposal({
+          resourceType: "food_menus",
+          kind: "item_changed",
+          fieldKey: null,
+          sectionLabel: "Starters",
+          itemLabel: "Soup",
+        }),
+      ],
+      { resourceType: "food_menus", editorHref: `/listings/${LOCATION}/menu` }
+    )
+
+    await user.click(screen.getByRole("button", { name: "Accept" }))
+
+    // The refetch drops a failed row, so the toast must say which one.
+    expect(
+      await screen.findByText(
+        "Starters · Soup: The menu item this suggestion applies to no longer exists here."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Check Google now to load the latest suggestions.")
+    ).toBeInTheDocument()
+  })
+
+  it("holds a decided row's buttons until the refetch takes the row away", async () => {
+    const user = userEvent.setup()
+    const p = proposal()
+    const decide = vi
+      .spyOn(importReviewApi, "decideImportProposal")
+      .mockResolvedValue(decided(p))
+    // The page's query: the list it was given until the refetch answers.
+    function Harness() {
+      const [proposals, setProposals] = useState([p])
+      return (
+        <>
+          <SuggestionList
+            locationId={LOCATION}
+            resourceType="profile"
+            proposals={proposals}
+            canonicalRevision={REVISION}
+            editDisabledReason={null}
+            editorHref={`/listings/${LOCATION}/profile`}
+          />
+          <button type="button" onClick={() => setProposals([])}>
+            Refetch answers
+          </button>
+        </>
+      )
+    }
+    renderWithProviders(<Harness />)
+
+    await user.click(screen.getByRole("button", { name: "Accept" }))
+    expect(await screen.findByText("Suggestion accepted")).toBeInTheDocument()
+
+    for (const name of ["Accept", "Ignore"]) {
+      const button = screen.getByRole("button", { name })
+      expect(button).toHaveAttribute("aria-disabled", "true")
+      expect(button).toHaveAccessibleDescription(
+        "Already decided. The list is updating."
+      )
+      await user.click(button)
+    }
+    expect(decide).toHaveBeenCalledTimes(1)
+
+    // The refetch answers without the decided row.
+    await user.click(screen.getByRole("button", { name: "Refetch answers" }))
+    expect(screen.queryByRole("listitem")).not.toBeInTheDocument()
   })
 
   it("explains on every decision button why a viewer cannot decide", async () => {
@@ -221,6 +311,38 @@ describe("SuggestionList", () => {
       await user.click(button)
     }
     expect(decide).not.toHaveBeenCalled()
+  })
+
+  it("gives the billing reason, not the role one, when the workspace is read-only", () => {
+    renderList([proposal()], {
+      editDisabledReason:
+        "This workspace's subscription is read-only, so changes are unavailable.",
+    })
+
+    for (const name of ["Accept", "Ignore"]) {
+      const button = screen.getByRole("button", { name })
+      expect(button).toHaveAttribute("aria-disabled", "true")
+      expect(button).toHaveAccessibleDescription(
+        "This workspace's subscription is read-only, so changes are unavailable."
+      )
+    }
+  })
+
+  it("explains Accept and Ignore once for the group, not on every row", () => {
+    renderList([
+      proposal(),
+      proposal({
+        id: "22222222-2222-4222-8222-222222222222",
+        identityKey: "website",
+        fieldKey: "website",
+      }),
+    ])
+
+    const group = screen.getByRole("region", { name: /Business profile/ })
+    expect(group).toHaveAccessibleDescription(
+      "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."
+    )
+    expect(screen.getAllByText(/Accept takes Google’s value/)).toHaveLength(1)
   })
 
   it("says nothing is waiting when the group is empty", () => {
