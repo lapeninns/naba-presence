@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
-// The nine type roles are font sizes, not colours. Without this, tailwind-merge
+// The ten type roles are font sizes, not colours. Without this, tailwind-merge
 // files `text-caption` under text-colour and drops a `text-primary-foreground`
 // that sits beside it, so a small button silently loses its label colour.
 //
@@ -23,6 +23,7 @@ const twMerge = extendTailwindMerge({
             "section",
             "page-title",
             "display",
+            "figure",
             "reading",
           ],
         },

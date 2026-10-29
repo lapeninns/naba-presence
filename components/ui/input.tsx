@@ -6,6 +6,7 @@ import * as React from "react"
 import {
   fieldChromeClassName,
   fieldControlProps,
+  fieldWrapperChromeClassName,
   useFieldContext,
 } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
@@ -119,7 +120,9 @@ function Input({
 
 /**
  * The search field. The wrapper is the control — `className` sizes
- * it — and the native `<input>` inside is transparent. The whole wrapper is
+ * it, and it wears the wrapper cut of the field chrome (focus on
+ * `:focus-within`, the error read from the input inside) — and the native
+ * `<input>` inside is transparent. The whole wrapper is
  * the tap target: a press on its border, padding or icon focuses the input
  * (the input alone is 2px short of the 44px field). Clearing goes through
  * the native value setter plus an `input` event so a controlled `onChange`
@@ -181,11 +184,8 @@ function SearchInput({
         inputRef.current?.focus()
       }}
       className={cn(
-        "group/search relative flex h-(--np-field-h) w-full min-w-0 items-center gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-1 pl-[11px] text-body text-ink",
-        "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-ink-muted",
-        "focus-within:border-primary focus-within:shadow-(--np-field-ring)",
-        "has-[[aria-invalid=true]]:border-danger-ink has-[[aria-invalid=true]]:shadow-(--np-field-ring-invalid)",
-        "data-disabled:cursor-not-allowed data-disabled:bg-surface-alt data-disabled:text-ink-muted",
+        fieldWrapperChromeClassName,
+        "group/search relative flex h-(--np-field-h) w-full items-center gap-2 pr-1 pl-[11px]",
         className
       )}
     >
@@ -209,7 +209,7 @@ function SearchInput({
         className={cn(
           "h-full min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-muted forced-colors:focus-ring-inset",
           "[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none",
-          "disabled:cursor-not-allowed",
+          "disabled:cursor-not-allowed disabled:text-disabled-ink",
           inputClassName
         )}
         {...props}
@@ -220,7 +220,7 @@ function SearchInput({
           aria-label="Clear search"
           data-slot="input-search-clear"
           onClick={clear}
-          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,transform] duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-2 after:content-[''] hover:text-ink active:scale-[0.98] desk:after:-inset-1"
+          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,scale] duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-2 after:content-[''] hover:text-ink active:scale-[0.98] motion-reduce:active:scale-100 desk:after:-inset-1"
         >
           <XCircleIcon className="size-4" strokeWidth={1.75} aria-hidden />
         </button>

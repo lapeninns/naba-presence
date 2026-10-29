@@ -27,9 +27,11 @@ describe("FilterChip", () => {
     )
     const pressed = screen.getByRole("button", { name: "Needs reply" })
     expect(pressed).toHaveAttribute("aria-pressed", "true")
-    expect(pressed.className).toContain("bg-accent-tint")
-    expect(pressed.className).toContain("text-accent-ink")
-    expect(pressed.className).toContain("font-semibold")
+    // Pressed is ink (chrome is ink; the accent is for the action).
+    expect(pressed.className).toContain("bg-ink")
+    expect(pressed.className).toContain("text-ink-inverse")
+    expect(pressed.className).toContain("font-medium")
+    expect(pressed.className).not.toContain("bg-accent-tint")
   })
 
   it("is 28px drawn with a 44px touch hit", () => {
@@ -42,13 +44,30 @@ describe("FilterChip", () => {
     expect(chip.className).toContain("rounded-(--np-radius-pill)")
   })
 
+  it("keeps a rating star visible on the pressed ink fill in dark", () => {
+    render(
+      <>
+        <FilterChip pressed>5</FilterChip>
+        <FilterChip>4</FilterChip>
+      </>
+    )
+    // The dark ink fill is near-white, where the rating amber is ~1.4:1;
+    // only a pressed chip remaps the role, to its own label ink.
+    expect(screen.getByRole("button", { name: "5" })).toHaveClass(
+      "dark:[--np-rating:var(--np-ink-inverse)]"
+    )
+    expect(screen.getByRole("button", { name: "4" }).className).not.toContain(
+      "--np-rating"
+    )
+  })
+
   it("names the remove control after the filter", async () => {
     const user = userEvent.setup()
     const onRemove = vi.fn()
     render(<FilterChip onRemove={onRemove}>5★</FilterChip>)
     const chip = screen.getByRole("button", { name: "Remove filter: 5★" })
     expect(chip).not.toHaveAttribute("aria-pressed")
-    expect(chip.className).toContain("bg-accent-tint")
+    expect(chip).toHaveClass("bg-ink", "text-ink-inverse")
     await user.click(chip)
     expect(onRemove).toHaveBeenCalledTimes(1)
     chip.focus()
@@ -109,6 +128,46 @@ describe("FilterChip counts", () => {
     expect(
       screen.getByRole("button", { name: "Needs attention 2" })
     ).toBeInTheDocument()
+  })
+
+  it("draws a pressed chip's count, alert or not, in the chip's inverse ink", () => {
+    render(
+      <FilterChip pressed count={1} countTone="alert">
+        Failed
+      </FilterChip>
+    )
+    const chip = screen.getByRole("button", { name: "Failed 1" })
+    expect(chip).toHaveAttribute("data-active")
+    expect(chip).toHaveClass("group/chip")
+    // Danger ink when unpressed; the inverse ink at 400 on the ink fill.
+    expect(screen.getByText("1")).toHaveClass(
+      "text-danger-ink",
+      "group-data-active/chip:text-ink-inverse",
+      "group-data-active/chip:font-normal"
+    )
+  })
+})
+
+describe("FilterChip states", () => {
+  it("draws disabled with the disabled roles, never faded", () => {
+    render(<FilterChip disabled>Drafts</FilterChip>)
+    const chip = screen.getByRole("button", { name: "Drafts" })
+    expect(chip).toHaveClass(
+      "disabled:bg-disabled",
+      "disabled:text-disabled-ink"
+    )
+    expect(chip.className).not.toMatch(/opacity-/)
+  })
+
+  it("sinks on press on scale and colour only, with a reduced-motion fallback", () => {
+    render(<FilterChip>Drafts</FilterChip>)
+    const chip = screen.getByRole("button", { name: "Drafts" })
+    expect(chip).toHaveClass(
+      "motion-safe:active:scale-[0.97]",
+      "duration-(--np-duration-fast)",
+      "transition-[background-color,color,scale]"
+    )
+    expect(chip.className).not.toMatch(/transition-all/)
   })
 })
 

@@ -28,14 +28,15 @@ control.
 - Read a semantic role through its utility (`bg-surface`, `text-ink-muted`,
   `border-line`), never a ramp step and never a literal colour.
 - One green accent: the primary action, focus, the current item and the
-  selected row. Pressed chips and the tab underline are ink, not accent.
-- Serif (`font-display`, `font-reading`) only for page titles and the
-  customer's words. Everything else is the system sans; figures, counts, IDs
-  and timestamps are `font-mono tabular-nums`.
+  selected row (`--np-selection-bg`). Pressed chips, navigation count badges
+  and the tab underline are ink, not accent.
+- One sans for everything, page titles and the customer's words included
+  (decision D1). Figures, counts and timestamps are sans `tabular-nums`; IDs
+  and codes are `font-mono`. A KPI's value is the `text-figure` role,
+  grouped in a `KpiStrip`, not a card per figure.
 - Put the dark action bar (`ActionBar`, `bg-charcoal`, `on-charcoal`) on at
   most one region per screen, and only for the action that reaches Google.
-  Toasts are charcoal too. In dark the charcoal role is near-white; never
-  assume dark means black.
+  Toasts are charcoal too.
 - There is no caption bar. Do not use the `caption-bar` utility or the
   `--np-caption-bar*` roles; they remain only until nothing references them.
 - Show status as a word plus a tone (`StatusPill`, `lib/ui/status-tone.ts`),
@@ -46,9 +47,17 @@ control.
   fills only for fine pointers (`hover-fine:`).
 - Take its shape from a radius token: `rounded-sm` tag, `rounded-md` control,
   `rounded-lg` card, `rounded-2xl` modal, `rounded-full` pill.
+- Draw every state with a role, never opacity. Disabled is the
+  `drawn-disabled:` variant with `bg-disabled`, `text-disabled-ink` and
+  `border-disabled-line` (4.5:1, gated); a pending control keeps its colours.
+  Focus is the 2px `focus-halo` on every control, fields included; an
+  invalid field keeps its red edge and rings in `shadow-np-focus-danger`.
 - Carry a visible reason whenever a control is disabled.
+- Loading is the final layout in flat `Skeleton` bars (no shimmer), and an
+  empty or error state is a bare 20px glyph, a title and one sentence, with
+  no tinted icon square. See `docs/specs/2026-10-29-taste-pilot-direction.md`.
 - Name itself for a screen reader: an icon-only control needs an accessible
   name, a toggle needs `aria-labelledby` on its role element, and a table or
   chart needs a caption or a data table.
-- Work from 320px up: controls 36px, 44px on coarse pointers, no target
+- Work from 320px up: controls 44px on touch, 36px on a desk, no target
   smaller than 24px, and no hover-only actions.

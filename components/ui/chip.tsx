@@ -13,8 +13,22 @@ import { cn } from "@/lib/utils"
  */
 const CHIP_COUNT_CLASS = "text-count leading-none tabular-nums"
 
-/** The danger ink for a count that needs attention; paired with its label. */
-const ALERT_COUNT_CLASS = "font-semibold text-danger-ink"
+/**
+ * The danger ink for a count that needs attention; paired with its label.
+ * Only while the chip is unpressed: on a pressed or applied chip's ink fill
+ * (`data-active` on the `group/chip`) the danger ink does not read, so the
+ * count takes the chip's own `ink-inverse` and the label still says what it
+ * counts.
+ */
+const ALERT_COUNT_CLASS =
+  "font-semibold text-danger-ink group-data-active/chip:text-ink-inverse"
+
+/**
+ * In a pressed or applied chip the count drops to 400 under the 500 label,
+ * so the figure stays one step quieter without fading (no opacity on text).
+ * Its colour is inherited from the chip.
+ */
+const PRESSED_COUNT_CLASS = "group-data-active/chip:font-normal"
 
 /**
  * A count inside a chip, segment or tab (sans, tabular figures), in the
@@ -34,6 +48,7 @@ function ChipCount({
       className={cn(
         CHIP_COUNT_CLASS,
         tone === "alert" && ALERT_COUNT_CLASS,
+        PRESSED_COUNT_CLASS,
         className
       )}
       {...props}
@@ -64,8 +79,9 @@ function RemovableChip({
       className={cn(
         filterChipClassName(),
         // The remove button carries its own 44px target, so the chip's
-        // extension would only cover it. The capsule itself is inert.
-        "pe-1 after:hidden hover-fine:hover:bg-fill-secondary",
+        // extension would only cover it. The capsule itself is inert: no
+        // hover fill and no press scale (its button gives the feedback).
+        "pe-1 after:hidden motion-safe:active:scale-100 hover-fine:hover:bg-fill-secondary",
         className
       )}
       {...props}
@@ -221,10 +237,19 @@ function labelText(node: React.ReactNode): string {
  *   overrides). A 20px × inside a 28px chip is too small to hit on a phone,
  *   and an applied chip has nothing else to do when pressed.
  *
- * Pressed and applied chips are `accent-tint` / `accent-ink` / 600: the
- * weight and the × (or the pressed state) are the non-colour cues. The
- * accent marks the current choice; there is no second, ink-filled pressed
- * style.
+ * Pressed and applied chips are INK (`ink` fill, `ink-inverse` label, 500):
+ * chrome is ink, and the accent is kept for the action, focus and the
+ * current place. The fill is a lightness jump in both themes (near-black
+ * on light, near-white on dark), so it does not lean on hue, and the
+ * weight and the × (or `aria-pressed`) are the cues that do not depend on
+ * colour at all. There is no second, accent-tinted pressed style.
+ *
+ * Unpressed chips rest on `fill-secondary`, go one step to `fill` under a
+ * fine pointer, and every chip sinks slightly (`scale-[0.97]`) while it is
+ * pressed, in 140ms on scale and colour only (Tailwind 4's `scale-*` sets
+ * the `scale` property, not `transform`); reduced motion keeps the colour
+ * change and drops the scale. Disabled is drawn with the disabled
+ * roles, never faded.
  *
  * A count follows the zero rule (`isZeroCount`): zero draws no figure. A
  * strip of buckets can also pass `hideWhenZero` to drop an empty bucket
@@ -239,17 +264,21 @@ function filterChipClassName({
   className,
 }: { active?: boolean; className?: string } = {}) {
   return cn(
-    "group/chip relative inline-flex h-(--np-chip-h) shrink-0 items-center gap-1 rounded-(--np-radius-pill) bg-fill-secondary px-3 text-ui whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none",
+    "group/chip relative inline-flex h-(--np-chip-h) shrink-0 items-center gap-1 rounded-(--np-radius-pill) bg-fill-secondary px-3 text-ui whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,color,scale] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none motion-safe:active:scale-[0.97]",
     // 28px drawn, 44px pressable on touch.
     "after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
     "hover-fine:hover:bg-fill",
-    "disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
-    // Pressed or applied: tint, 600 weight and a 1px accent-ink edge. The
-    // weight and the edge are the cues that do not depend on the tint (in
-    // the dark theme it is close to the unpressed grey in lightness). The
-    // edge is an inset ring, so it never shifts the layout.
+    // Drawn, not faded: the sunken fill with the muted label (4.5:1, gated).
+    "disabled:pointer-events-none disabled:bg-disabled disabled:text-disabled-ink [&_svg]:size-3.5 [&_svg]:shrink-0",
+    // Pressed or applied: the ink fill with the inverse label at 500. A
+    // hover does not lighten it (the unpressed hover fill would otherwise
+    // win): the press scale is its feedback. In dark the ink fill is
+    // near-white, where the rating amber falls to about 1.4:1, so a pressed
+    // chip remaps the rating role to its own label ink: a rating star
+    // (`fill-(--np-rating)`) stays visible without the caller changing, and
+    // icons drawn in any other colour are left alone.
     active &&
-      "bg-accent-tint font-semibold text-accent-ink ring-1 ring-accent-ink ring-inset hover-fine:hover:bg-(--np-accent-tint-strong)",
+      "bg-ink font-medium text-ink-inverse dark:[--np-rating:var(--np-ink-inverse)] hover-fine:hover:bg-ink",
     className
   )
 }

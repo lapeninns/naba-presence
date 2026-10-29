@@ -67,8 +67,8 @@ export const fieldMeasureClassName: Record<FieldMeasure, string | undefined> = {
  * A labelled form control (reference `.field`): label above in the UI role at
  * semibold, the control, then a caption-sized hint or error beneath, 6px
  * apart. The Field
- * carries `data-invalid` when it has an error so a control inside it can swap
- * its edge to the danger line without knowing about the context.
+ * carries `data-invalid` when it has an error, and its control carries
+ * `aria-invalid`, which is what the field chrome draws the danger edge from.
  */
 function Field({
   error,
@@ -497,23 +497,88 @@ export function useFieldTriggerProps({
 }
 
 /**
- * The field chrome every text-like control shares (reference `.input`): the
- * field radius, a 1px `line-strong` edge (the control boundary at 3:1) that
- * darkens on hover, an accent edge plus a 3px accent-tint halo on focus, the
- * danger edge plus danger-tint halo when invalid, and the sunken surface
- * when disabled or read-only. `text-body` is 16px everywhere but the desk
- * (fine pointer and a wide window), which is what stops iOS zooming into a
- * focused field — no separate coarse-pointer patch is needed.
- * Exported so a control outside this file (a date input, a number field)
- * can look like an Input without copying the recipe.
+ * Field chrome: one drawing for every control that holds a value (reference
+ * `.input`), in three cuts that differ only in WHICH element shows focus.
+ *
+ *   rest      the field radius, the field fill and a 1px `line-strong` edge
+ *             (the control boundary at 3:1).
+ *   hover     the edge one step darker, on a fine pointer only, and only
+ *             while no other state is drawn (not focused, invalid or
+ *             disabled), so a hover never repaints a focus or an error.
+ *   focus     a 1px accent edge plus the shared 2px halo
+ *             (`--np-focus-halo`, the same ring as `focus-halo` on a
+ *             button): one focus language across the product.
+ *   invalid   the danger edge, always. Focused while invalid it keeps that
+ *             edge and the halo turns danger, so focus and error never hide
+ *             each other (WCAG 2.4.7). These are compound variants
+ *             (`aria-invalid:focus:`), which outrank the plain focus rules
+ *             by specificity, not by stylesheet order.
+ *   disabled  drawn, never faded: the `--np-disabled-*` trio (sunken fill,
+ *             muted ink at 4.5:1 or better, quiet edge). The placeholder
+ *             keeps its own readable ink.
+ *
+ * Only the hover edge eases (140ms); every other change, the focus halo and
+ * the switch between disabled and enabled included, is at once, so a field
+ * never shows a half-disabled frame and no reduced-motion fallback is needed.
+ * `text-body` is 16px everywhere but the desk (fine pointer and a wide
+ * window), which is what stops iOS zooming into a focused field.
+ *
+ * The danger halo is `shadow-np-focus-danger` (`--np-focus-halo-danger`):
+ * the focus halo's shape in the danger line. Its compound variants
+ * (`aria-invalid:focus:`) outrank the plain focus ones, so an invalid field
+ * that takes focus always shows the red ring over its red edge.
+ */
+const fieldFrameClassName = cn(
+  "min-w-0 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) text-body text-ink outline-none",
+  "transition-none duration-(--np-duration-fast) ease-out-strong hover-fine:hover:transition-[border-color]"
+)
+
+/**
+ * Text entry (Input, Textarea, the Combobox input, a time or number field):
+ * focus shows on `:focus`, not only `:focus-visible`, because a field
+ * clicked into is where the typing goes and must say so. Read-only draws
+ * like disabled (it cannot be changed) but still takes the focus halo, since
+ * it can be focused to select and copy. Exported so a control outside this
+ * file (a date input, a number field) can look like an Input without copying
+ * the recipe.
  */
 export const fieldChromeClassName = cn(
-  "min-w-0 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) text-body text-ink outline-none",
-  "transition-[border-color,box-shadow,background-color] duration-(--np-duration-fast) ease-spring-snappy",
-  "placeholder:text-ink-muted hover:border-ink-muted",
-  "focus:border-primary focus:shadow-(--np-field-ring) focus-visible:border-primary focus-visible:shadow-(--np-field-ring) forced-colors:focus-halo",
-  "aria-invalid:border-danger-ink aria-invalid:shadow-(--np-field-ring-invalid)",
-  "read-only:bg-surface-alt read-only:text-ink-muted disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted"
+  fieldFrameClassName,
+  "placeholder:text-ink-muted",
+  "hover-fine:hover:not-focus:not-disabled:not-read-only:not-aria-invalid:border-ink-muted",
+  "focus:border-accent-solid focus:shadow-(--np-focus-halo) forced-colors:focus-halo",
+  "aria-invalid:border-danger-ink aria-invalid:focus:border-danger-ink aria-invalid:focus:shadow-np-focus-danger",
+  "read-only:border-disabled-line read-only:bg-disabled read-only:text-disabled-ink",
+  "disabled:cursor-not-allowed disabled:border-disabled-line disabled:bg-disabled disabled:text-disabled-ink"
+)
+
+/**
+ * A pop-up button drawn as a field (the Select trigger): focus shows on
+ * `:focus-visible` like every other button, and the open popup keeps the
+ * focus drawing on the trigger while focus is inside the list. Base UI marks
+ * a disabled trigger with both `disabled` and `data-disabled`.
+ */
+export const fieldTriggerChromeClassName = cn(
+  fieldFrameClassName,
+  "hover-fine:hover:not-focus-visible:not-data-popup-open:not-disabled:not-data-disabled:not-aria-invalid:border-ink-muted",
+  "focus-visible:border-accent-solid focus-visible:shadow-(--np-focus-halo) data-popup-open:border-accent-solid data-popup-open:shadow-(--np-focus-halo) forced-colors:focus-halo",
+  "aria-invalid:border-danger-ink aria-invalid:focus-visible:border-danger-ink aria-invalid:focus-visible:shadow-np-focus-danger aria-invalid:data-popup-open:border-danger-ink aria-invalid:data-popup-open:shadow-np-focus-danger",
+  "disabled:cursor-not-allowed disabled:border-disabled-line disabled:bg-disabled disabled:text-disabled-ink data-disabled:cursor-not-allowed data-disabled:border-disabled-line data-disabled:bg-disabled data-disabled:text-disabled-ink"
+)
+
+/**
+ * A wrapper that IS the field around a transparent `<input>` (the search
+ * field, TagInput's chips plus input): focus shows on `:focus-within`, the
+ * error is read from the input inside (`:has([aria-invalid=true])`), and
+ * disabled from the wrapper's `data-disabled`. The inner input draws no
+ * focus of its own except the inset forced-colours outline.
+ */
+export const fieldWrapperChromeClassName = cn(
+  fieldFrameClassName,
+  "hover-fine:hover:not-focus-within:not-data-disabled:not-has-aria-invalid:border-ink-muted",
+  "focus-within:border-accent-solid focus-within:shadow-(--np-focus-halo)",
+  "has-aria-invalid:border-danger-ink has-aria-invalid:focus-within:border-danger-ink has-aria-invalid:focus-within:shadow-np-focus-danger",
+  "data-disabled:cursor-not-allowed data-disabled:border-disabled-line data-disabled:bg-disabled data-disabled:text-disabled-ink"
 )
 
 /**

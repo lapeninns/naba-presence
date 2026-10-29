@@ -40,7 +40,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
-import { KpiTile } from "@/components/ui/kpi-tile"
+import { KpiStrip, KpiTile } from "@/components/ui/kpi-tile"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -237,7 +237,7 @@ function ClientHub({
             Each opens the inbox or listings filtered to {client.name}.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
+        <KpiStrip>
           <WorkTile
             label="Needs reply"
             value={formatNumber(client.openWork.needsReply)}
@@ -271,7 +271,7 @@ function ClientHub({
             hint={`${formatNumber(client.verifiedCount)} verified on Google`}
             href={`/listings?clientId=${client.id}`}
           />
-        </div>
+        </KpiStrip>
       </section>
 
       {/* The listings table takes the full content width, so it stays a table
@@ -507,7 +507,8 @@ function LoginLine({
 
 /**
  * One work count as a deep link into the filtered inbox (or listings): the
- * shared `KpiTile` with an `href`, so the whole tile is one tab stop whose
+ * shared `KpiTile` with an `href`, one cell of the work `KpiStrip`, so the
+ * whole cell is one tab stop whose
  * accessible name starts with the visible label ("Needs reply 5 Across this
  * client's listings"). KpiTile has no tone of its own, so a failed-publish
  * count says so in the danger ink in its hint.

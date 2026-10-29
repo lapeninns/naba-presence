@@ -8,7 +8,7 @@ const root = (container: HTMLElement) =>
   container.querySelector('[data-slot="empty"]') as HTMLElement
 
 describe("Empty (NM restyle)", () => {
-  it("sets the title in text-title 500 and the reason in muted caption text", () => {
+  it("sets the title in text-title 600 ink and the reason in muted ui text", () => {
     render(
       <Empty
         title="All caught up"
@@ -17,11 +17,13 @@ describe("Empty (NM restyle)", () => {
     )
     const title = screen.getByText("All caught up")
     expect(title.className).toContain("text-title")
-    expect(title.className).toContain("font-medium")
+    expect(title.className).toContain("font-semibold")
+    expect(title.className).toContain("text-ink")
     const description = screen.getByText(
       "No reviews need a reply. New ones sync every 15 min."
     )
-    expect(description.className).toContain("text-caption")
+    expect(description.className).toContain("text-ui")
+    expect(description.className).toContain("max-w-sm")
     expect(description.className).toContain("text-ink-muted")
   })
 
@@ -68,6 +70,37 @@ describe("Empty (NM restyle)", () => {
     expect(
       container.querySelector('[data-slot="empty-illustration"]')
     ).toBeNull()
+  })
+
+  it.each([
+    ["neutral", "text-ink-muted"],
+    ["ok", "text-success-ink"],
+    ["bad", "text-danger-ink"],
+    ["warn", "text-warning-ink"],
+  ] as const)(
+    "draws the glyph bare at 20px in the %s tone's ink, on no tinted square",
+    (tone, ink) => {
+      const { container } = render(
+        <Empty variant="forbidden" tone={tone} title="Hidden" />
+      )
+      const icon = container.querySelector(
+        '[data-slot="empty-icon"]'
+      ) as HTMLElement
+      expect(icon).toHaveAttribute("aria-hidden")
+      expect(icon.className).toContain(ink)
+      expect(icon.className).toContain("[&_svg]:size-5")
+      expect(icon.className).toContain("[&_svg]:[stroke-width:1.75]")
+      // Principle 5: no 44px tinted mark behind the glyph.
+      expect(icon.className).not.toMatch(/(^|\s)(bg-|size-11|rounded)/)
+    }
+  )
+
+  it("reads as a sentence in a frame: modest padding, not a hero", () => {
+    const { container, rerender } = render(<Empty title="Nothing yet" />)
+    expect(root(container).className).toContain("py-8")
+    expect(root(container).className).not.toMatch(/lg:py-16|sm:py-12/)
+    rerender(<Empty size="sm" title="Nothing yet" />)
+    expect(root(container).className).toContain("py-5")
   })
 
   it("sits at about 35% of the page height in the page placement", () => {

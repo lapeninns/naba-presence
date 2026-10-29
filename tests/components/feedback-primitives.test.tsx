@@ -45,6 +45,145 @@ describe("buttonVariants", () => {
       expect(buttonVariants({ size })).not.toMatch(/pointer-coarse:/)
     }
   })
+
+  // Taste pilot P1: disabled is drawn with the disabled roles, never faded,
+  // and a pending button (disabled but aria-busy) is excluded from it.
+  const DISABLED = "drawn-disabled:"
+  const variants = [
+    "default",
+    "tinted",
+    "secondary",
+    "outline",
+    "ghost",
+    "danger",
+    "danger-outline",
+    "destructive",
+    "on-dark",
+    "ghost-dark",
+    "link",
+  ] as const
+
+  it("draws disabled with the disabled roles, never with opacity", () => {
+    for (const variant of variants) {
+      const classes = buttonVariants({ variant }).split(" ")
+      expect(classes.some((c) => c.includes("opacity"))).toBe(false)
+      if (variant === "ghost-dark") {
+        expect(classes).toContain(`${DISABLED}text-ink-muted-on-charcoal`)
+      } else {
+        expect(classes).toContain(`${DISABLED}text-disabled-ink`)
+      }
+    }
+    // Filled and outlined alike keep the quiet edge, so a disabled button
+    // still reads as a control on surface-alt (the dialog footer), which is
+    // the same step as bg-disabled in light mode.
+    for (const drawn of [
+      "default",
+      "tinted",
+      "danger",
+      "on-dark",
+      "secondary",
+      "outline",
+      "danger-outline",
+      "destructive",
+    ] as const) {
+      const classes = buttonVariants({ variant: drawn }).split(" ")
+      expect(classes).toContain(`${DISABLED}bg-disabled`)
+      expect(classes).toContain(`${DISABLED}border-disabled-line`)
+    }
+    for (const bare of ["ghost", "link"] as const) {
+      expect(buttonVariants({ variant: bare })).not.toContain(
+        `${DISABLED}bg-disabled`
+      )
+    }
+  })
+
+  it("hovers only under a fine pointer, and never while disabled or pressed", () => {
+    for (const variant of variants) {
+      const classes = buttonVariants({ variant }).split(" ")
+      // The hover-scoped transition is not a fill; disabled turns it off
+      // through `drawn-disabled:transition-none` (tested below).
+      const hovers = classes.filter(
+        (c) => c.includes("hover:") && !c.includes(":transition-")
+      )
+      expect(hovers.length).toBeGreaterThan(0)
+      for (const hover of hovers) {
+        expect(hover).toMatch(
+          /^hover-fine:hover:(not-active:)?not-data-disabled:not-aria-disabled:/
+        )
+      }
+    }
+  })
+
+  it("presses one step stronger than hover, and moves only when motion is allowed", () => {
+    const secondary = buttonVariants({ variant: "secondary" }).split(" ")
+    expect(secondary).toContain(
+      "hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary"
+    )
+    expect(secondary).toContain(
+      "active:not-data-disabled:not-aria-disabled:bg-fill"
+    )
+    // Ghost has no fill at rest, so it draws relative to the surface under
+    // it: a ladder step would match the surface-alt dialog footer.
+    const ghost = buttonVariants({ variant: "ghost" }).split(" ")
+    expect(ghost).toContain(
+      "hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink/6"
+    )
+    expect(ghost).toContain(
+      "active:not-data-disabled:not-aria-disabled:bg-ink/10"
+    )
+    expect(ghost.some((c) => /bg-fill(-secondary)?$/.test(c))).toBe(false)
+    const base = buttonVariants().split(" ")
+    expect(base).toContain(
+      "motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px"
+    )
+    expect(base.some((c) => c.startsWith("active:translate"))).toBe(false)
+    // The link's cancel merges the base offset away instead of fighting it.
+    const link = buttonVariants({ variant: "link" }).split(" ")
+    expect(link.filter((c) => c.endsWith("translate-y-px"))).toHaveLength(0)
+  })
+
+  it("eases colour only as pointer feedback, so enabling or disabling switches at once", () => {
+    // A Send button enabled by a ticked consent must never be read (by a
+    // person or an axe sample) half-way between disabled grey and green.
+    const base = buttonVariants().split(" ")
+    const eased =
+      "transition-[background-color,border-color,color,box-shadow,transform]"
+    expect(base).toContain("transition-none")
+    expect(base).toContain(`hover-fine:hover:${eased}`)
+    expect(base).toContain(`active:${eased}`)
+    expect(base).toContain("drawn-disabled:transition-none")
+    expect(base).not.toContain(eased)
+  })
+})
+
+describe("Button disabled and pending", () => {
+  it("marks a disabled button for the drawn disabled state", () => {
+    render(<Button disabledReason="Connect Google first">Publish</Button>)
+    const button = screen.getByRole("button", { name: "Publish" })
+    expect(button).toHaveAttribute("data-disabled")
+    expect(button).not.toHaveAttribute("aria-busy")
+    expect(
+      button.matches(
+        ":is(:disabled,[data-disabled],[aria-disabled=true]):not([aria-busy=true])"
+      )
+    ).toBe(true)
+  })
+
+  it("keeps a pending button out of the disabled drawing", () => {
+    render(
+      <Button pending pendingLabel="Publishing…">
+        Publish
+      </Button>
+    )
+    const button = screen.getByRole("button", { name: "Publishing…" })
+    expect(button).toHaveAttribute("aria-busy", "true")
+    expect(
+      button.matches(
+        ":is(:disabled,[data-disabled],[aria-disabled=true]):not([aria-busy=true])"
+      )
+    ).toBe(false)
+    expect(button.className).toContain("aria-busy:cursor-progress")
+  })
 })
 
 describe("Button iconOnlyBelow", () => {

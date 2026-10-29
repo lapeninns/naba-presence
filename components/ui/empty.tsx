@@ -28,11 +28,14 @@ import { cn } from "@/lib/utils"
  * state that sits inside a card or panel already. `size="sm"` is the
  * compact drawing for a panel or a list section.
  *
- * Drawing (reference `.empty`, NM "All caught up!"): a 44px rounded mark
- * holding the glyph, or, in its place, an `illustration` (a 112px line
- * drawing in the ink at a 1.5 stroke, `EmptyIllustration`); a title in
- * `text-title` 500; one `text-caption` muted sentence that says why it is
- * empty and what happens next; at most one action; centred.
+ * Drawing (taste pilot P4, "a sentence in a frame, not a hero"): the glyph
+ * drawn bare at 20px with a 1.75 stroke in the tone's ink (no tinted square
+ * behind it), about 10px above the title, or, in its place, an
+ * `illustration` (a 112px line drawing in the ink at a 1.5 stroke,
+ * `EmptyIllustration`); a title in `text-title` 600 ink; one `text-ui`
+ * muted sentence (at most about 44 characters wide) that says why it is
+ * empty and what happens next; actions 16px below; centred. The vertical
+ * padding is modest so the block reads as a sentence inside its frame.
  * `placement="page"` is for a state that IS the page (inbox zero, a search
  * with no results): it fills the space and sits at about 35% of its height,
  * not dead centre. The title is a `p`
@@ -67,11 +70,12 @@ const VARIANT_DEFAULTS: Record<
   "not-enabled": { tone: "neutral", icon: <PowerOffIcon /> },
 }
 
-const MARK_TONE: Record<EmptyTone, string> = {
-  neutral: "bg-fill text-ink-secondary",
-  ok: "bg-success-tint text-success-ink",
-  bad: "bg-danger-tint text-danger-ink",
-  warn: "bg-warning-tint text-warning-ink",
+/** The glyph's ink per tone. Colour only: the glyph sits on no fill. */
+const ICON_TONE: Record<EmptyTone, string> = {
+  neutral: "text-ink-muted",
+  ok: "text-success-ink",
+  bad: "text-danger-ink",
+  warn: "text-warning-ink",
 }
 
 function Empty({
@@ -105,7 +109,7 @@ function Empty({
    * announces only what happened. With `action` too, `action` leads.
    */
   actions?: React.ReactNode
-  /** A lucide glyph, drawn at 20px inside the mark. `null` for none. */
+  /** A lucide glyph, drawn bare at 20px in the tone's ink. `null` for none. */
   icon?: React.ReactNode
   variant?: EmptyVariant
   /** Overrides the variant's colour. `ok` is the all-clear. */
@@ -141,27 +145,28 @@ function Empty({
       ) : glyph ? (
         <span
           aria-hidden
+          data-slot="empty-icon"
           className={cn(
-            "grid size-11 place-items-center rounded-(--np-radius-card) [&_svg]:size-5 [&_svg]:[stroke-width:1.75]",
-            MARK_TONE[resolvedTone]
+            "mb-1 flex [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75]",
+            ICON_TONE[resolvedTone]
           )}
         >
           {glyph}
         </span>
       ) : null}
       {children}
-      <Title className="text-title font-medium text-balance text-ink">
+      <Title className="text-title font-semibold text-balance text-ink">
         {title}
       </Title>
       {description ? (
-        <div className="max-w-sm text-caption text-pretty text-ink-muted">
+        <div className="max-w-sm text-ui text-pretty text-ink-muted">
           {description}
         </div>
       ) : null}
     </>
   )
   const actionRow = action ? (
-    <div className="mt-1.5 flex flex-wrap justify-center gap-2">{action}</div>
+    <div className="mt-2.5 flex flex-wrap justify-center gap-2">{action}</div>
   ) : null
   return (
     <div
@@ -170,8 +175,10 @@ function Empty({
       data-tone={resolvedTone}
       data-placement={placement}
       className={cn(
-        "flex flex-col items-center justify-center gap-2.5 px-5 text-center",
-        size === "sm" ? "py-6" : "py-8 sm:py-12 lg:py-16",
+        // gap-1.5 (6px) between title and sentence; the glyph adds mb-1 for
+        // 10px above the title, the action row mt-2.5 for 16px below.
+        "flex flex-col items-center justify-center gap-1.5 px-5 text-center",
+        size === "sm" ? "py-5" : "py-8 sm:py-10",
         // Two weighted spacers (35 : 65) put the content's centre at about
         // 35% of the page's height rather than its middle.
         placement === "page" &&
@@ -197,13 +204,13 @@ function Empty({
             aria-live={ariaLive}
             aria-atomic={ariaAtomic}
             aria-relevant={ariaRelevant}
-            className="flex flex-col items-center gap-2.5"
+            className="flex flex-col items-center gap-1.5"
           >
             {message}
           </div>
           <div
             data-slot="empty-actions"
-            className="mt-1.5 flex flex-wrap justify-center gap-2"
+            className="mt-2.5 flex flex-wrap justify-center gap-2"
           >
             {action}
             {actions}

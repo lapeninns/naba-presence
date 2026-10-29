@@ -302,9 +302,9 @@ describe("ActiveFilterChips", () => {
       expect(chip.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
       expect(chip).toHaveClass(
         "h-(--np-chip-h)",
-        "bg-accent-tint",
-        "text-accent-ink",
-        "font-semibold"
+        "bg-ink",
+        "text-ink-inverse",
+        "font-medium"
       )
       // Drawn small; the touch extension, not the drawing, reaches 44px.
       expect(chip.className).not.toMatch(/pointer-coarse:h-/)

@@ -13,7 +13,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { ChipCount, ChipRow, FilterChip } from "@/components/ui/chip"
 import { DataTable } from "@/components/ui/data-table"
-import { KpiTile } from "@/components/ui/kpi-tile"
+import { KpiStrip, KpiTile } from "@/components/ui/kpi-tile"
 import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
@@ -410,6 +410,137 @@ describe("KpiTile modes", () => {
     const tile = container.querySelector('[data-slot="kpi-tile"]')!
     expect(tile).toHaveAttribute("data-size", "compact")
     expect(screen.getByText("1,204")).toHaveClass("text-section")
+  })
+
+  it("sets the figure in the figure role, one step under the h1", () => {
+    render(<KpiTile label="Reviews" value="42" />)
+    const figure = screen.getByText("42")
+    expect(figure).toHaveClass("text-figure", "font-semibold", "tabular-nums")
+    expect(figure).not.toHaveClass("text-page-title")
+    expect(screen.getByText("Reviews")).toHaveClass("text-ui", "text-ink-muted")
+  })
+
+  it("draws a missing figure as a small grey dash, not zero", () => {
+    const { container } = render(
+      <KpiTile label="Response rate" value="—" hint="No reviews yet" />
+    )
+    const dash = screen.getByText("—")
+    expect(dash).toHaveAttribute("data-missing")
+    expect(dash).toHaveClass("text-title", "text-ink-muted")
+    expect(dash).not.toHaveClass("text-figure")
+    expect(screen.getByText("No reviews yet")).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/\b0\b/)
+  })
+
+  it("colours a delta only when the caller says which way is good", () => {
+    const { rerender } = render(
+      <KpiTile
+        label="Views"
+        value="90"
+        delta={{ value: "−10", direction: "down" }}
+      />
+    )
+    // A fall with no declared reading is neutral ink, still spoken.
+    const delta = screen.getByText("−10").closest("span")!
+    expect(delta).toHaveClass("text-ink-muted")
+    expect(delta).toHaveTextContent("Down")
+    rerender(
+      <KpiTile
+        label="Views"
+        value="90"
+        delta={{ value: "−10", direction: "down", tone: "danger" }}
+      />
+    )
+    expect(screen.getByText("−10").closest("span")).toHaveClass(
+      toneClasses("danger").text
+    )
+    rerender(
+      <KpiTile
+        label="Views"
+        value="90"
+        delta={{ value: "0", direction: "flat", tone: "success" }}
+      />
+    )
+    const flat = screen.getByText("0").closest("span")!
+    expect(flat).toHaveClass("text-ink-muted")
+    expect(flat).toHaveTextContent("No change")
+  })
+
+  it("has an edge or a fill on hover, never a shadow on top of the edge", () => {
+    render(<KpiTile label="Needs reply" value="5" href="/inbox" />)
+    const link = screen.getByRole("link")
+    expect(link.className).not.toMatch(/shadow-np-raised/)
+    expect(link).toHaveClass("hover-fine:hover:bg-fill-tertiary")
+  })
+})
+
+describe("KpiStrip", () => {
+  it("groups the figures in one container split by hairlines", () => {
+    const { container } = render(
+      <KpiStrip>
+        <KpiTile label="Reviews" value="42" />
+        <KpiTile label="Rating" value="4.6" />
+        <KpiTile label="Replies" value="40" />
+        <KpiTile label="Rate" value="95%" />
+      </KpiStrip>
+    )
+    const strip = container.querySelector('[data-slot="kpi-strip"]')!
+    expect(strip).toHaveAttribute("data-kpi-strip")
+    expect(strip).toHaveClass("border", "border-line", "bg-surface")
+    const grid = strip.querySelector('[data-slot="kpi-strip-grid"]')!
+    expect(grid).toHaveClass("grid-cols-2", "@[48rem]/kpi:grid-cols-4")
+    // Four go 2 then 4, so no cell is left alone on a row.
+    expect(grid.className).not.toMatch(/col-span-2/)
+    // Each tile drops its own card in the strip and draws the hairline.
+    const tile = grid.querySelector('[data-slot="kpi-tile"]')!
+    expect(tile).toHaveClass(
+      "in-data-kpi-strip:border-line-subtle",
+      "in-data-kpi-strip:rounded-none"
+    )
+  })
+
+  it("lets the last of an odd count span both phone columns", () => {
+    const { container } = render(
+      <KpiStrip>
+        <KpiTile label="Views" value="1" />
+        <KpiTile label="Calls" value="2" />
+        <KpiTile label="Directions" value="3" />
+        <KpiTile label="Website" value="4" />
+        <KpiTile label="Bookings" value="5" />
+      </KpiStrip>
+    )
+    const grid = container.querySelector('[data-slot="kpi-strip-grid"]')!
+    expect(grid).toHaveClass(
+      "grid-cols-2",
+      "@[40rem]/kpi:grid-cols-3",
+      "@[60rem]/kpi:grid-cols-5",
+      "@max-[40rem]/kpi:[&>:last-child]:col-span-2"
+    )
+  })
+
+  it("keeps a caller's own slot hook and each linked cell one tab stop", async () => {
+    const user = userEvent.setup()
+    const onPress = vi.fn()
+    const { container } = render(
+      <KpiStrip data-slot="work-tiles">
+        <KpiTile label="Needs reply" value="5" href="/inbox?q=1" />
+        <KpiTile label="Paused" value="2" onPress={onPress} />
+      </KpiStrip>
+    )
+    expect(container.querySelector('[data-slot="work-tiles"]')).toHaveAttribute(
+      "data-kpi-strip"
+    )
+    await user.tab()
+    const link = screen.getByRole("link", { name: /^Needs reply/ })
+    expect(link).toHaveFocus()
+    // The strip clips its cells, so the ring is drawn inside the cell.
+    expect(link).toHaveClass("in-data-kpi-strip:focus-ring-inset")
+    await user.tab()
+    const toggle = screen.getByRole("button", { name: /^Paused/ })
+    expect(toggle).toHaveFocus()
+    await user.keyboard("{Enter}")
+    expect(onPress).toHaveBeenCalledTimes(1)
+    expect(toggle).toHaveAttribute("aria-pressed", "false")
   })
 })
 

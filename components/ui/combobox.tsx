@@ -86,12 +86,13 @@ function Combobox<Value>({
 }
 
 /**
- * The combo box's text field: field chrome (field height, hairline edge,
- * focus halo) with the up-down chevron as a trailing button that opens the
- * list without typing. `className` reaches the `<input>`; `wrapperClassName`
- * sizes the whole control. For a short list on a touch screen the field
- * asks for no keyboard (`inputmode="none"`): a tap opens the list, and a
- * hardware keyboard can still type.
+ * The combo box's text field: the text-entry field chrome (field height,
+ * the 3:1 edge, the shared focus halo, the danger edge and danger halo while
+ * invalid, the drawn disabled state) with the up-down chevron as a trailing
+ * button that opens the list without typing. `className` reaches the
+ * `<input>`; `wrapperClassName` sizes the whole control. For a short list on
+ * a touch screen the field asks for no keyboard (`inputmode="none"`): a tap
+ * opens the list, and a hardware keyboard can still type.
  */
 function ComboboxInput({
   className,
@@ -127,11 +128,12 @@ function ComboboxInput({
       {/* The chevron button. On touch it is a full 44px square
           (`--np-touch`) filling the field's trailing edge, so it meets the
           project's touch floor; at the desk it shrinks back to the compact
-          24px chevron inset 4px from the edge. */}
+          24px chevron inset 4px from the edge. Disabled, it keeps its
+          shape in the disabled ink rather than fading. */}
       <ComboboxPrimitive.Trigger
         data-slot="combobox-trigger"
         aria-label="Show options"
-        className="absolute top-1/2 right-0 inline-flex size-(--np-touch) -translate-y-1/2 items-center justify-center rounded-(--np-radius-field) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink data-disabled:pointer-events-none data-disabled:opacity-50 desk:right-1 desk:size-6 desk:rounded-(--np-radius-tag)"
+        className="absolute top-1/2 right-0 inline-flex size-(--np-touch) -translate-y-1/2 items-center justify-center rounded-(--np-radius-field) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink data-disabled:pointer-events-none data-disabled:text-disabled-ink desk:right-1 desk:size-6 desk:rounded-(--np-radius-tag)"
       >
         <ChevronsUpDownIcon className="size-4" strokeWidth={1.75} aria-hidden />
       </ComboboxPrimitive.Trigger>

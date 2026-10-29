@@ -34,13 +34,17 @@ import { cn } from "@/lib/utils"
  *   it and a matching sr-only word (`unreadLabel`, "Unread"): the dot only
  *   reinforces words. `"read"`: title 400 ink-secondary. `"neutral"`: for
  *   lists without a read state, title 500 ink.
- * - Selected: `bg-fill`, `aria-current` (or `aria-selected` with
- *   `selectedAs="selected"` inside a listbox/grid), and no divider.
+ * - Selected: the selection tint (`--np-selection-bg`, the accent tint:
+ *   "you are here"), `aria-current` (or `aria-selected` with
+ *   `selectedAs="selected"` inside a listbox/grid), and no divider. Ink,
+ *   muted and status inks are gated on it. A hover does not change it.
  * - Divider: 1px `line-subtle`, inset from `--np-row-inset-start` (the text
  *   column) to `--np-page-pad-x`; never under the last row.
  * - Focus: an inset 2px ring (a box-shadow, so a scrolling list never clips
- *   it; `outline-hidden` keeps an outline in forced colours). Hover
- *   `surface-alt`, fine pointers only.
+ *   it; `outline-hidden` keeps an outline in forced colours). The ring is
+ *   a 2px line at the focus step, darker than the tint in light and
+ *   lighter in dark, so a focused selected row shows both. Hover
+ *   `surface-alt`, fine pointers only, on rows that are not selected.
  * - `bleed`: on a phone the row (or the `ListRows` list) cancels the page
  *   frame's padding and runs edge to edge; its own padding is the page's.
  * - `flush`: for rows inside a padded section or drawer: no page-pad inset
@@ -516,8 +520,9 @@ function ListRow({
     // The "⋯" button takes the row's end padding.
     hasSwipe && "pe-1",
     interactive &&
-      "cursor-pointer transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid hover-fine:hover:bg-surface-alt",
-    selected && "bg-fill hover-fine:hover:bg-fill",
+      "cursor-pointer transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid",
+    interactive && !selected && "hover-fine:hover:bg-surface-alt",
+    selected && "bg-(--np-selection-bg)",
     className
   )
 

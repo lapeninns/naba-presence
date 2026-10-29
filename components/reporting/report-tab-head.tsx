@@ -48,6 +48,8 @@ export function ReportTabHead({
 /**
  * Tiles in rows: two to a row from the narrowest phone, then four (or three
  * and five) as the report's container widens.
+ *
+ * @deprecated Rows of figures use KpiStrip (components/ui/kpi-tile).
  */
 export function reportTileGridClassName(count: 4 | 5 = 4) {
   return cn(

@@ -4,7 +4,14 @@ import { cn } from "@/lib/utils"
  * The count that rides on a chrome icon: the tab bar's tabs, the rail's
  * tiles and the notifications bell. Set in the count role (13px on touch,
  * 12px on a desk, the smallest the type scale allows), in the mono figure
- * face, so the pill is 20px tall to hold it. Above 99 it reads "99+".
+ * face (tabular figures), so the pill is 20px tall to hold it. Above 99
+ * it reads "99+".
+ *
+ * Drawn in ink (`ink` fill, `ink-inverse` figures, gated at 4.5:1 in both
+ * themes): a count is chrome, and chrome is ink. The accent stays for the
+ * primary action and "you are here", so a count on the current (tinted)
+ * rail tile no longer disappears into it, and the bell's badge does not
+ * read as a call to act.
  *
  * Decorative (`aria-hidden`): every caller carries the count in the link's
  * accessible name or description instead. The caller places the badge
@@ -25,7 +32,7 @@ export function CountBadge({
       aria-hidden
       data-slot={slot}
       className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 font-mono text-count leading-none font-semibold text-primary-foreground tabular-nums",
+        "inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 font-mono text-count leading-none font-semibold text-ink-inverse tabular-nums",
         className
       )}
     >
