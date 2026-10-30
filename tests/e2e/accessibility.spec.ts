@@ -738,6 +738,15 @@ for (const theme of themes) {
             },
           })
         })
+        // The inbox asks whether review topics are on before offering the
+        // Topic filter. Unstubbed it answers 401 and the page navigates to
+        // /sign-in.
+        await page.route(
+          /\/api\/analytics\/review-topics\/status(?:\?.*)?$/,
+          async (route) => {
+            await route.fulfill({ json: { enabled: false } })
+          }
+        )
         // The review's triage menu lists who it can be assigned to. Unstubbed
         // it answers 401 and the page navigates to /sign-in.
         await page.route(/\/api\/members(?:\?.*)?$/, async (route) => {
