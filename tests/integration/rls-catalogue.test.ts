@@ -137,9 +137,9 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "google_onboarding_match_link",
     "google_onboarding_match_link_review",
     "google_onboarding_review",
-    "notification_incident_recipient",
-    // S1: listing completeness
+    // S1: listing completeness (kept in sorted order)
     "listing_completeness_skip",
+    "notification_incident_recipient",
   ],
   "DELETE,INSERT,SELECT,UPDATE": [
     "ai_usage",

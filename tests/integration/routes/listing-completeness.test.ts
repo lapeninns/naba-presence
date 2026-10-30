@@ -196,7 +196,17 @@ describeDatabase("listing completeness", () => {
     expect(one.locationId).toBe(observed.locationId)
     for (const id of ["primary_category", "phone", "website", "verification"])
       expect(check(one, id).status, id).toBe("pass")
-    expect(one.score).not.toBeNull()
+    // Only the profile read and verification are known: under half the
+    // weighted checks, so no score is shown yet, and what wasn't read is
+    // unknown, never a fail.
+    expect(one.score).toBeNull()
+    for (const id of [
+      "regular_hours",
+      "recent_post",
+      "cover_photo",
+      "attributes",
+    ])
+      expect(check(one, id).status, id).toBe("unknown")
 
     const [none] = await completeness(owner.cookie, unseen.locationId)
     for (const id of ["primary_category", "phone", "website"])
