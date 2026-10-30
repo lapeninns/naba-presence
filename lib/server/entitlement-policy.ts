@@ -138,6 +138,11 @@ export const READ_ONLY_BACKGROUND_WORK = {
   scheduleSweep: "runs",
   privacy: "runs",
   invitations: "runs",
+  // S3: review topic classification. It reaches no Google write, so the
+  // runner runs; each batch is refused under the organisation's ledger lock
+  // when its access cannot use AI, so a read-only organisation sends nothing
+  // to the model (lib/server/review-topics-job.ts claimBatch).
+  reviewTopics: "runs",
   // Cron ticks.
   "jobs/run": "runs",
   "sync/reconcile": "runs",
@@ -258,9 +263,14 @@ export const MEMBER_LIMIT_REACHED_MESSAGE =
   "This workspace has reached its plan's member limit. Remove a member, revoke an invitation or change plan to add someone."
 
 export function memberLimitReachedError(limit: number): ApiError {
-  return new ApiError(402, "member_limit_reached", MEMBER_LIMIT_REACHED_MESSAGE, {
-    details: { limit },
-  })
+  return new ApiError(
+    402,
+    "member_limit_reached",
+    MEMBER_LIMIT_REACHED_MESSAGE,
+    {
+      details: { limit },
+    }
+  )
 }
 
 /**

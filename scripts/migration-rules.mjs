@@ -17,7 +17,12 @@ export const LEGACY_MIGRATION_FILES = [
 ]
 
 /** Versions that were never used. Git history has no `0021` file. */
-export const KNOWN_VERSION_GAPS = ["0021"]
+export const KNOWN_VERSION_GAPS = [
+  "0021",
+  // S3 (OpenGMB fan-out): the stream numbers its migrations from 0320; the
+  // integrator renumbers them to follow main and removes this entry.
+  ...Array.from({ length: 170 }, (_, i) => String(150 + i).padStart(4, "0")),
+]
 
 /** @param {string} file */
 export const versionNumber = (file) => Number(file.slice(0, 4))

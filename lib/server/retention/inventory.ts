@@ -341,6 +341,35 @@ export const RETENTION_INVENTORY = [
     hold: "kept",
     approval: { status: "published" },
   },
+  // S3: review topics. The labels hold no review text and outlive it, like
+  // the star rating; whether a derived label may be kept past the text's
+  // window is D-28's question, so the feature ships dark (org feature
+  // review_topics) until it is answered.
+  {
+    table: "review_topic",
+    provenance: "derived",
+    action: "keep",
+    window: "for the life of its review; deleted with it",
+    cascadeFrom: ["review"],
+    deletes: "gated",
+    hold: "kept",
+    approval: {
+      status: "pending",
+      decision: "D-28",
+      interim:
+        "keep each review's topic labels for the life of the review, with the feature off until decided",
+    },
+  },
+  {
+    table: "review_topic_classification",
+    provenance: "operational",
+    action: "keep",
+    window: "for the life of its review; deleted with it",
+    cascadeFrom: ["review"],
+    deletes: "gated",
+    hold: "kept",
+    approval: { status: "lifecycle" },
+  },
 
   // ---- Customer content ---------------------------------------------------
   {

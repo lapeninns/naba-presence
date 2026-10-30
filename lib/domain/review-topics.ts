@@ -160,17 +160,19 @@ function itemLabels(topics: unknown): TopicLabel[] | null {
     if (!entry || typeof entry !== "object") return null
     const { topic, sentiment } = entry as Record<string, unknown>
     if (!isReviewTopic(topic) || !isTopicSentiment(sentiment)) return null
-    if (!labels.some((label) => label.topic === topic)) {
-      labels.push({ topic, sentiment })
-    }
+    const earlier = labels.find((label) => label.topic === topic)
+    // The same topic twice is harmless; with two sentiments it is no answer.
+    if (earlier && earlier.sentiment !== sentiment) return null
+    if (!earlier) labels.push({ topic, sentiment })
   }
   return labels
 }
 
 /**
  * The usable answers, by 1-based review number. Never throws. An item that
- * is malformed in any part (an unknown topic or sentiment, a number out of
- * range, a number given twice) is left out whole, so nothing half-read is
+ * is malformed in any part (an unknown topic or sentiment, one topic with
+ * two sentiments, a number out of range, a number given twice) is left out
+ * whole, so nothing half-read is
  * stored: the caller counts the review as not classified and tries again
  * later. An empty topic list is a real answer.
  */

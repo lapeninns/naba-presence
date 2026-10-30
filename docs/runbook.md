@@ -1565,6 +1565,8 @@ listed in `failures` with `retention_dry_run_budget`.
 | `review` | google | redact | review text, reviewer name, photo link and raw payload at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at) | `reviews`, `disconnectedReviews`, cascade from `external_location` | gated | yes | published |
 | `review_media_item` | google | delete | with its review's raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt | `media`, cascade from `review` | gated | yes | published |
 | `review_reply` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect; scrubbed by privacy erasure | cascade from `review` | gated | yes | published |
+| `review_topic` | derived | keep | for the life of its review; deleted with it | cascade from `review` | gated | yes | pending D-28: keep each review's topic labels for the life of the review, with the feature off until decided |
+| `review_topic_classification` | operational | keep | for the life of its review; deleted with it | cascade from `review` | gated | yes | lifecycle |
 | `risc_event` | operational | keep | kept as the Cross-Account Protection record | none | none | no | pending D-47: keep received security events as their record |
 | `schema_migration` | operational | keep | one row per applied migration | none | none | no | internal |
 | `sync_checkpoint` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |

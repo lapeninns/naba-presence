@@ -289,7 +289,7 @@ describe("parseTopicAnswer", () => {
     expect(parsed.get(8)).toEqual([good])
   })
 
-  it("keeps only the first occurrence of a repeated topic", () => {
+  it("rejects an item that gives one topic two sentiments", () => {
     const parsed = parseTopicAnswer(
       {
         results: [
@@ -299,6 +299,25 @@ describe("parseTopicAnswer", () => {
               { topic: "service", sentiment: "negative" },
               { topic: "drinks", sentiment: "positive" },
               { topic: "service", sentiment: "positive" },
+            ],
+          },
+        ],
+      },
+      1
+    )
+    expect(parsed.has(1)).toBe(false)
+  })
+
+  it("keeps only the first occurrence of a repeated topic", () => {
+    const parsed = parseTopicAnswer(
+      {
+        results: [
+          {
+            id: 1,
+            topics: [
+              { topic: "service", sentiment: "negative" },
+              { topic: "drinks", sentiment: "positive" },
+              { topic: "service", sentiment: "negative" },
             ],
           },
         ],
