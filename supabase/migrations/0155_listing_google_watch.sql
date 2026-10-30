@@ -27,7 +27,7 @@ begin;
 --   notification kind        'listing_google_changed', addressed to the
 --                            watch's recipients (notification_incident_
 --                            recipient, 0149). The check is rewritten with
---                            every kind 0149 allows, plus this one.
+--                            every kind 0154 allows, plus this one.
 --
 -- Expand only. New tables, and a check that only gains a value: every
 -- existing row already satisfies it. Added NOT VALID, then validated.
@@ -175,6 +175,7 @@ alter table notification_incident
       'mutation_unconfirmed',
       'approval_requested',
       'reply_sent_back',
+      'review_topic_negative',
       'listing_google_changed'
     )
   ) not valid;
@@ -182,6 +183,6 @@ alter table notification_incident
   validate constraint notification_incident_kind_check;
 
 insert into schema_migration (version)
-values ('0340_listing_google_watch') on conflict (version) do nothing;
+values ('0155_listing_google_watch') on conflict (version) do nothing;
 
 commit;

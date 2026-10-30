@@ -41,5 +41,5 @@ alter table notification_incident
   validate constraint notification_incident_kind_check;
 
 insert into schema_migration (version)
-values ('0321_review_topic_notification_kind') on conflict (version) do nothing;
+values ('0154_review_topic_notification_kind') on conflict (version) do nothing;
 commit;

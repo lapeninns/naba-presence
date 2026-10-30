@@ -198,7 +198,7 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "review",
     "review_media_item",
     "review_reply",
-    // S3: review topics (0320).
+    // S3: review topics (0153).
     "review_topic",
     "review_topic_classification",
     "sync_checkpoint",

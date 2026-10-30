@@ -120,7 +120,7 @@ $$;
 revoke all on function lookup_review_link(text) from public;
 grant execute on function lookup_review_link(text) to naba_app_runtime;
 
-insert into schema_migration (version) values ('0310_review_link')
+insert into schema_migration (version) values ('0152_review_link')
 on conflict (version) do nothing;
 
 commit;

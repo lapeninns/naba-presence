@@ -46,7 +46,7 @@ import { readObservedGooglePayload } from "@/lib/server/resource-observations"
 import type { Session } from "@/lib/server/session"
 
 /**
- * Review links (migration 0310): one short link per location to Google's
+ * Review links (migration 0152): one short link per location to Google's
  * review form, its public resolution and its click counts. The pure rules
  * (codes, targets, captions, days) are in lib/domain/review-link*.ts.
  *

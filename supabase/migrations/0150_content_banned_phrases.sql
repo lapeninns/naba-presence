@@ -8,5 +8,5 @@ alter table organisation add constraint organisation_banned_phrases_count
 -- Acknowledgement is bound to post content and policy by the server.
 alter table gbp_local_post add column content_warning_acknowledgement text;
 
-insert into schema_migration(version) values ('0330_content_banned_phrases') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0150_content_banned_phrases') on conflict (version) do nothing;
 commit;

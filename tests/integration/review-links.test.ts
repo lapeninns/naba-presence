@@ -16,7 +16,7 @@ const BASE = "https://app.example.test"
 type Tenant = Awaited<ReturnType<typeof createTestTenant>>
 
 /**
- * Review links against a real schema (migration 0310): the runtime role,
+ * Review links against a real schema (migration 0152): the runtime role,
  * RLS, the SECURITY DEFINER lookup and the click counter, with two
  * organisations so nothing of one is reachable from the other.
  */

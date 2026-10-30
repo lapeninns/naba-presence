@@ -30,7 +30,7 @@ import { isOrgFeatureEnabled } from "@/lib/server/org-features"
  * runDueJobs) calls runReviewTopicClassification once per tick, held by the
  * runner's switch and the operator's AI switch (`drafts`, DRAFTS_ENABLED).
  *
- * For each organisation with reviews waiting (0320
+ * For each organisation with reviews waiting (0153
  * review_topic_due_organisations), up to REVIEW_TOPIC_MAX_PER_RUN reviews
  * are classified per run, REVIEW_TOPIC_BATCH_SIZE to a model call; the
  * backfill of older reviews drains over successive ticks the same way.

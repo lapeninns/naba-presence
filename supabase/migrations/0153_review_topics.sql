@@ -155,5 +155,5 @@ alter table ai_usage
 alter table ai_usage validate constraint ai_usage_kind_check;
 
 insert into schema_migration (version)
-values ('0320_review_topics') on conflict (version) do nothing;
+values ('0153_review_topics') on conflict (version) do nothing;
 commit;

@@ -158,16 +158,11 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0147_editor_observed_payload",
   "0148_business_information_observation",
   "0149_approval_notification_kinds",
-  // S2 (review links): fan-out numbering, renumbered at integration.
-  "0310_review_link",
-  // S3 (review topics)
-  "0320_review_topics",
-  "0321_review_topic_notification_kind",
+  "0150_content_banned_phrases",
+  "0151_listing_completeness_skip",
+  "0152_review_link",
+  "0153_review_topics",
+  "0154_review_topic_notification_kind",
+  "0155_listing_google_watch",
   "20260729000400_remove_local_demo_data",
-  // S4: Organisation-wide content policy.
-  "0330_content_banned_phrases",
-  // S1: listing completeness
-  "0300_listing_completeness_skip",
-  // S5 (Google change watch)
-  "0340_listing_google_watch",
 ]

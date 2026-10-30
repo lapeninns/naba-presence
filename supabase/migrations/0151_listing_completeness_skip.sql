@@ -41,5 +41,5 @@ create policy tenant_isolation on listing_completeness_skip
   with check (organisation_id = nullif(current_setting('app.organisation_id', true), '')::uuid);
 grant select, insert, delete on listing_completeness_skip to naba_app_runtime;
 
-insert into schema_migration(version) values ('0300_listing_completeness_skip') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0151_listing_completeness_skip') on conflict (version) do nothing;
 commit;
