@@ -18,6 +18,7 @@ import {
   WIRE,
   isRatingSort,
 } from "@/lib/contracts/review-values"
+import { REVIEW_TOPICS } from "@/lib/domain/review-topics"
 import type { VerificationReason as DomainVerificationReason } from "@/lib/domain/verification"
 
 // The runtime vocabulary lives in `review-values` (zod-free, so client code
@@ -179,6 +180,8 @@ export const reviewsQuerySchema = z.object({
    * template batch works through.
    */
   written: reviewWrittenSchema.optional(),
+  /** S3: reviews the classifier found talking about this topic. */
+  topic: z.enum(REVIEW_TOPICS).optional(),
   statuses: z.array(reviewWorkflowStateSchema).optional(),
   replyState: z
     .array(reviewReplyStateSchema)
@@ -209,6 +212,7 @@ export type ReviewsFilters = Partial<
     | "assignee"
     | "ratings"
     | "written"
+    | "topic"
     | "statuses"
     | "replyState"
     | "dateFrom"
@@ -288,6 +292,7 @@ export function decodeReviewsQuery(params: URLSearchParams): ReviewsQuery {
     assignee: params.get(WIRE.assignee) ?? undefined,
     ratings: commaNumbers(params.get(WIRE.ratings)),
     written: params.get(WIRE.written) ?? undefined,
+    topic: params.get(WIRE.topic) ?? undefined,
     statuses: commaStrings(params.get(WIRE.statuses)),
     replyState: commaStrings(params.get(WIRE.replyState)),
     dateFrom: params.get(WIRE.dateFrom) ?? undefined,

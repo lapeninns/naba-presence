@@ -12,6 +12,12 @@ import {
 import { InboxToolbar } from "@/components/inbox/inbox-toolbar"
 import type { InboxState } from "@/lib/inbox/url-state"
 
+// S3: the Filters sheet asks whether review topics are on; off here, as for
+// an organisation without the feature.
+vi.mock("@/components/reports/review-topics-enabled", () => ({
+  useReviewTopicsEnabled: () => false,
+}))
+
 const globalsCss = readFileSync(join(process.cwd(), "app/globals.css"), "utf8")
 
 const state: InboxState = {

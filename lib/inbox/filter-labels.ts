@@ -16,6 +16,7 @@ import { formatDayMonth } from "@/lib/format"
 export const FILTER_NAMES = {
   rating: "Rating",
   written: "Written review",
+  topic: "Topic",
   venue: "Venue",
   client: "Client",
   assignee: "Assigned to",

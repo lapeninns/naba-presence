@@ -12,6 +12,7 @@ import {
   formatSortChip,
   removeFilterLabel,
 } from "@/lib/inbox/filter-labels"
+import { REVIEW_TOPIC_LABELS } from "@/lib/domain/review-topics"
 import { REVIEW_AGE_LABELS } from "@/lib/inbox/review-age"
 import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
 
@@ -55,6 +56,13 @@ function buildChips(state: InboxState, locations: LocationOption[]): Chip[] {
       key: "written",
       label: `${FILTER_NAMES.written}: ${WRITTEN_LABELS[state.written]}`,
       clear: { written: undefined },
+    })
+  }
+  if (state.topic) {
+    chips.push({
+      key: "topic",
+      label: `${FILTER_NAMES.topic}: ${REVIEW_TOPIC_LABELS[state.topic]}`,
+      clear: { topic: undefined },
     })
   }
   if (state.search) {

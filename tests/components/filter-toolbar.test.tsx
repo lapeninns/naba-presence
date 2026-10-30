@@ -2,8 +2,18 @@ import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { FilterToolbar } from "@/components/inbox/filter-toolbar"
+import {
+  activeFilterCount,
+  FilterToolbar,
+} from "@/components/inbox/filter-toolbar"
 import type { InboxState } from "@/lib/inbox/url-state"
+
+// S3: whether the organisation has review topics on; off unless a test
+// turns it on.
+const topics = vi.hoisted(() => ({ enabled: false }))
+vi.mock("@/components/reports/review-topics-enabled", () => ({
+  useReviewTopicsEnabled: () => topics.enabled,
+}))
 
 const baseState: InboxState = {
   queue: "needs_reply",
@@ -41,7 +51,10 @@ function renderToolbar(
   )
 }
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  topics.enabled = false
+})
 
 async function openSheet(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /^Filters/ }))
@@ -539,5 +552,40 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     expect(within(group).getByRole("radio", { name: "Any" })).toBeChecked()
     await user.click(within(group).getByRole("radio", { name: "Rating only" }))
     expect(onChange).toHaveBeenCalledWith({ written: "rating_only" })
+  })
+
+  it("offers no Topic filter while review topics are off", async () => {
+    await openPanel()
+    expect(
+      screen.queryByRole("combobox", { name: "Filter by topic" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("narrows to one review topic when review topics are on", async () => {
+    topics.enabled = true
+    const onChange = vi.fn()
+    const user = await openPanel({}, { onChange })
+    const select = screen.getByRole("combobox", { name: "Filter by topic" })
+    expect(select).toHaveTextContent("Any topic")
+    await user.click(select)
+    await user.click(
+      await screen.findByRole("option", { name: "Sunday roast" })
+    )
+    expect(onChange).toHaveBeenCalledWith({ topic: "sunday_roast" })
+  })
+
+  it("shows the chosen topic and clears it with Any topic", async () => {
+    topics.enabled = true
+    const onChange = vi.fn()
+    const user = await openPanel({ topic: "service" }, { onChange })
+    const select = screen.getByRole("combobox", { name: "Filter by topic" })
+    expect(select).toHaveTextContent("Service")
+    await user.click(select)
+    await user.click(await screen.findByRole("option", { name: "Any topic" }))
+    expect(onChange).toHaveBeenCalledWith({ topic: undefined })
+  })
+
+  it("counts an active topic on the Filters button", () => {
+    expect(activeFilterCount({ ...baseState, topic: "parking" })).toBe(1)
   })
 })
