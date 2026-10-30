@@ -330,11 +330,9 @@ export function GoogleChangesPanel({
           : "Not checked with Google yet. An owner or admin can check now."
 
   return (
-    <section
-      aria-labelledby="google-changes-heading"
-      data-slot="google-changes"
-      className="flex flex-col gap-3"
-    >
+    // The settings group below is the labelled section; this only groups it
+    // with its summary, settings and history.
+    <div data-slot="google-changes" className="flex flex-col gap-3">
       <SettingsGroup
         headingId="google-changes-heading"
         headingAs="h2"
@@ -661,6 +659,6 @@ export function GoogleChangesPanel({
           if (confirming) runDecision(confirming.change, confirming.action)
         }}
       />
-    </section>
+    </div>
   )
 }
