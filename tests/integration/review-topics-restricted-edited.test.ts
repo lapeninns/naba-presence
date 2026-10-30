@@ -350,4 +350,32 @@ describeDatabase("review topics: restricted and edited reviews", () => {
     expect(fake.prompts).toHaveLength(0)
     expect(service((await report(fixture)).group)).toBe(3)
   })
+
+  it("drops a redacted review's labels when the reviewer removes the comment on Google", async () => {
+    const fixture = await createFixture()
+    const { payloads, ids } = await classifiedSpike(fixture)
+
+    // Retention redacted our copy first (lib/server/retention/purge.ts).
+    await admin`
+      update review
+      set review_text = null, reviewer_display_name = null,
+        reviewer_profile_photo_url = null, raw_payload = null
+      where id = ${ids[0]}
+    `
+    expect(await statusOf(ids[0])).toBe("classified")
+
+    // Then Google serves the review with no comment at all.
+    await ingest(fixture, {
+      ...payloads[0],
+      comment: undefined,
+      updateTime: new Date().toISOString(),
+    })
+
+    expect(await statusOf(ids[0])).toBeUndefined()
+    const after = await report(fixture)
+    expect(after.group.classifiedReviews).toBe(2)
+    expect(service(after.group)).toBe(2)
+    expect(after.pendingReviews).toBe(0)
+    expect(await findings(fixture)).toEqual([])
+  })
 })

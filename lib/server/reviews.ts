@@ -321,22 +321,19 @@ export async function upsertGoogleReview(
   let mediaUnchanged = false
   let replyUnchanged = false
   let previousRating: number | null = null
-  let hadText = false
   if (stored) {
     const [locked] = await sql<
       {
         mediaUnchanged: boolean
         replyUnchanged: boolean
         previousRating: number | null
-        hadText: boolean
       }[]
     >`
       select
         (raw_payload -> 'reviewMediaItems') is not distinct from
           (${rawPayload}::jsonb -> 'reviewMediaItems') as "mediaUnchanged",
         content_hash = ${contentHash} as "replyUnchanged",
-        star_rating as "previousRating",
-        coalesce(btrim(review_text), '') <> '' as "hadText"
+        star_rating as "previousRating"
       from review
       where id = ${stored.id}
       for update
@@ -344,7 +341,6 @@ export async function upsertGoogleReview(
     mediaUnchanged = locked?.mediaUnchanged ?? false
     replyUnchanged = locked?.replyUnchanged ?? false
     previousRating = locked?.previousRating ?? null
-    hadText = locked?.hadText ?? false
   }
   const fetchedAfter = options.fetchedAfter ?? null
   const held = sql`exists (
@@ -470,9 +466,10 @@ export async function upsertGoogleReview(
       rating: ratingValue(payload.starRating),
       updateTime,
     })
-    // A reviewer who removes their words leaves no topics behind. (Text that
-    // retention redacts keeps them: that review's words were real.)
-    if (hadText && !text && !review.erasedAt) {
+    // A reviewer who removes their words on Google leaves no topics behind,
+    // whether or not retention had already redacted our copy of the text
+    // (retention alone keeps them: that review's words were real).
+    if (!text && !review.erasedAt) {
       await clearReviewTopics(sql, review.id)
     } else if (text && !review.erasedAt) {
       // An edited text: its old topics stop counting until it is classified

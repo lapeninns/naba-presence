@@ -59,6 +59,7 @@ const STEP_UP: readonly string[] = [
   "PATCH app/api/locations/[id]/media/[mediaId]/route.ts",
   "DELETE app/api/locations/[id]/media/[mediaId]/route.ts",
   "POST app/api/locations/[id]/change-requests/[changeId]/route.ts",
+  "POST app/api/locations/[id]/google-changes/[changeId]/route.ts",
   "PATCH app/api/locations/[id]/administration/route.ts",
   "POST app/api/locations/[id]/administration-access-reviews/[reviewId]/route.ts",
   "POST app/api/locations/[id]/administration-access-reviews/[reviewId]/execute/route.ts",
