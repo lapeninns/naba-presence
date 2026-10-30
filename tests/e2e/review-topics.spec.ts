@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 import postgres from "postgres"
 
@@ -7,6 +8,7 @@ import {
   seedGoogleConnection,
   seedLinkedReview,
 } from "../integration/helpers/tenant"
+import { pageSettled } from "./helpers/settled"
 
 // S3: review topics. Its own tenant with the review_topics feature on and
 // three classified reviews, each at its own listing, destroyed afterwards.
@@ -140,7 +142,7 @@ topicsTest.describe("review topics", () => {
       await page.goto("/reports")
       const panel = page.getByRole("region", { name: "What guests talk about" })
       await expect(panel).toBeVisible()
-      await expect(panel.getByText("From 3 reviews.")).toBeVisible()
+      await expect(panel.getByText(/^From 3 reviews with text\./)).toBeVisible()
       // Service is mentioned most, so it leads, and it opens its reviews.
       const service = panel.getByRole("link", { name: /^Service/ }).first()
       await expect(service).toBeVisible()
@@ -151,8 +153,46 @@ topicsTest.describe("review topics", () => {
       )
       expect(overflow).toBe(false)
       await service.click()
-      await expect(page).toHaveURL(/\/inbox\?topic=service/)
+      // Every queue, the topic and the trend window: the reviews the figure counts.
+      await expect(page).toHaveURL(/\/inbox\?queue=all&topic=service&dateFrom=/)
       await expect(page.locator('[data-slot="review-row"]')).toHaveCount(2)
     }
   )
+
+  for (const theme of ["light", "dark"] as const) {
+    topicsTest(
+      `Reports with the topics panel is axe-clean (${theme})`,
+      async ({ page }) => {
+        await page.emulateMedia({ colorScheme: theme })
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.goto("/reports")
+        await expect(
+          page.getByRole("region", { name: "What guests talk about" })
+        ).toBeVisible()
+        await expect(
+          page.getByRole("heading", { name: "Topic by listing", level: 3 })
+        ).toBeVisible()
+        await pageSettled(page)
+        const wcag = await new AxeBuilder({ page })
+          .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+          .analyze()
+        expect(wcag.violations, `${theme} wcag`).toEqual([])
+        const best = await new AxeBuilder({ page })
+          .withTags(["best-practice"])
+          .analyze()
+        expect(
+          best.violations.filter((v) =>
+            [
+              "landmark-no-duplicate-main",
+              "landmark-main-is-top-level",
+              "heading-order",
+              "page-has-heading-one",
+              "region",
+            ].includes(v.id)
+          ),
+          `${theme} structure`
+        ).toEqual([])
+      }
+    )
+  }
 })
