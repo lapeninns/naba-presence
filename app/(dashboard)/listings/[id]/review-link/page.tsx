@@ -40,7 +40,11 @@ export default async function ListingReviewLinkPage({
       )}
       loadingLabel="review link"
     >
-      <AreaEditor area="reviewLink" locationId={id} />
+      <AreaEditor
+        area="reviewLink"
+        locationId={id}
+        role={session?.role ?? null}
+      />
     </StreamedTab>
   )
 }

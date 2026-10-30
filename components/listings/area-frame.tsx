@@ -972,7 +972,10 @@ function AreaEditor({
 }: {
   area: FramePageKey
   locationId: string
-  /** Only Review & publish reads it (who may publish, who reconnects). */
+  /**
+   * Read by Review & publish (who may publish, who reconnects) and Review
+   * link (who may retire a link).
+   */
   role?: string | null
 }) {
   const Editor = AREA_EDITORS[area]
