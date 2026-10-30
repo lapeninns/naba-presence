@@ -552,7 +552,7 @@ export function evaluateCompleteness(
       "recent_photo",
       "fail",
       photoAge === null
-        ? "No photos from the venue on Google, only customers’."
+        ? "No photos from the venue on Google."
         : `Newest photo added ${plural(Math.floor(photoAge), "day")} ago.`,
       photoFix("Add a photo")
     )
@@ -826,7 +826,7 @@ export function compareMostToFix(
 
 /** The score as the board shows it. */
 export function completenessLabel(score: number | null): string {
-  return score === null ? "Not checked yet" : `${score}%`
+  return score === null ? "No score yet" : `${score}%`
 }
 
 export function completenessTone(score: number | null): StatusTone {
@@ -836,7 +836,7 @@ export function completenessTone(score: number | null): StatusTone {
   return "at-risk"
 }
 
-/** One line for a listing: how much is left to fix. */
+/** One sentence for a listing: how much is left to fix. */
 export function completenessSummary(
   completeness: Pick<ListingCompleteness, "counts" | "score">
 ): string {
@@ -849,6 +849,13 @@ export function completenessSummary(
     parts.push(
       unknown > 0 ? "Nothing to fix in what’s checked" : "Nothing to fix"
     )
-  if (unknown > 0) parts.push(`${formatNumber(unknown)} not checked yet`)
-  return parts.join(" · ")
+  if (unknown > 0)
+    parts.push(
+      `${formatNumber(unknown)} not checked yet, which don’t count for or against the score`
+    )
+  const sentence = parts.join(", ")
+  const text = sentence.charAt(0).toUpperCase() + sentence.slice(1)
+  return completeness.score === null && unknown > 0
+    ? `${text}. A score shows once about half the checks have been read from Google.`
+    : `${text}.`
 }

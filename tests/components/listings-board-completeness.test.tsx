@@ -289,13 +289,13 @@ describe("ListingsBoard completeness", () => {
     expect(names()).toEqual(["Old Crown Girton", "Pier Cafe", "Harbour View"])
   })
 
-  it("says a listing without a score is not checked yet", () => {
+  it("says a listing without a score has no score yet", () => {
     expect(UNSCORED.score).toBeNull()
     stub([CROWN, UNSCORED, PIER])
     render(<ListingsBoard role="owner" />)
     const harbour = screen.getByRole("row", { name: /Harbour View/ })
     expect(
-      within(harbour).getAllByText("Not checked yet").length
+      within(harbour).getAllByText(/^no score yet$/i).length
     ).toBeGreaterThan(0)
   })
 })

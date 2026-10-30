@@ -42,7 +42,7 @@ const OTHER_GROUPS: readonly {
     status: "unknown",
     label: "Not checked yet",
     caption:
-      "Nothing recent enough was read from Google to judge these. They never count as a fail.",
+      "Nothing recent enough was read from Google to judge these, so they don’t count for or against the score.",
   },
   {
     status: "skipped",
@@ -56,10 +56,27 @@ const OTHER_GROUPS: readonly {
   },
   {
     status: "not_applicable",
-    label: "Doesn’t apply now",
-    caption: "Nothing to check for these at the moment.",
+    label: "Doesn’t apply right now",
+    caption: "Nothing to check for these right now.",
   },
 ]
+
+const HEADING_ID = "listing-completeness-heading"
+
+/**
+ * The card's heading, made focusable: where focus goes when the control it
+ * was on leaves the page (a skipped check's row, a counted-again one).
+ */
+function headingForFocus(): HTMLElement | null {
+  const heading = document.getElementById(HEADING_ID)
+  if (heading && !heading.hasAttribute("tabindex"))
+    heading.setAttribute("tabindex", "-1")
+  return heading
+}
+
+function focusHeading() {
+  headingForFocus()?.focus()
+}
 
 function FixLink({
   check,
@@ -72,11 +89,13 @@ function FixLink({
 }) {
   const fix = visibleFix(check, canManageConsoles)
   if (!fix) return null
+  // "Add website" already names its check; "Open profile" needs the check.
+  const named = fix.label.toLowerCase().includes(check.title.toLowerCase())
   return (
     <Link
       href={fix.href}
       className={cn(buttonVariants({ variant, size: "sm" }))}
-      aria-label={`${fix.label}: ${check.title}`}
+      aria-label={named ? undefined : `${fix.label}: ${check.title}`}
     >
       {fix.label}
     </Link>
@@ -86,7 +105,7 @@ function FixLink({
 /**
  * How complete the listing looks on Google, from what NabaPresence already
  * holds: the checks that fail, most important first, each with the area that
- * fixes it. Checks with nothing recent to judge from are "not known yet",
+ * fixes it. Checks with nothing recent to judge from are "not checked yet",
  * never a fail. Owners and admins can skip a check that doesn't apply, with
  * a reason everyone sees. DB-only: nothing here asks Google.
  */
@@ -135,7 +154,7 @@ function CompletenessCard({
         description="Link this listing to check how complete it is on Google."
         value={
           <StatusPill tone="neutral" plain>
-            Not known yet
+            Not linked
           </StatusPill>
         }
       />
@@ -185,6 +204,8 @@ function CompletenessCard({
 
   const failing = failingChecks(data)
   const others = data.checks.length - failing.length
+  // The last other check counted again leaves nothing to show or hide.
+  if (others === 0 && showAll) setShowAll(false)
   const caption = (
     <>
       <StatusPill tone={completenessTone(data.score)} className="me-2">
@@ -194,21 +215,24 @@ function CompletenessCard({
       </StatusPill>
       {completenessSummary(data)}
       {!canManage && failing.length > 0
-        ? ". Only an owner or admin can skip a check."
+        ? " An owner or admin can skip a check that doesn’t apply."
         : null}
     </>
   )
 
   const unskipCheck = (check: CompletenessCheck) =>
     unskip.mutate(check.id, {
-      onSuccess: () =>
+      onSuccess: () => {
+        // Its row moves back to the list above: keep focus in the card.
+        focusHeading()
         toast.add({
-          title: `“${check.title}” counts again`,
+          title: `“${check.title}” counts towards the score again`,
           type: "success",
-        }),
+        })
+      },
       onError: (error) =>
         toast.add({
-          title: "The check still doesn’t count",
+          title: `Couldn’t count “${check.title}” again`,
           description: describeActionError(error),
           type: "error",
         }),
@@ -225,7 +249,11 @@ function CompletenessCard({
                 ? "Everything checked so far is in place. Some checks aren’t done yet."
                 : "This listing has everything we check for."
             }
-            value={<StatusPill tone="healthy">Done</StatusPill>}
+            value={
+              data.counts.unknown > 0 ? undefined : (
+                <StatusPill tone="healthy">Done</StatusPill>
+              )
+            }
           />
         ) : (
           failing.map((check) => (
@@ -234,7 +262,8 @@ function CompletenessCard({
               label={check.title}
               description={`${importanceLabel(check.importance)} · ${check.detail}`}
               action={
-                <span className="flex flex-wrap items-center justify-end gap-1.5">
+                // Stacked on a phone, so the check's words keep the width.
+                <span className="flex flex-col items-end gap-2 desk:flex-row desk:items-center desk:gap-1.5">
                   <FixLink check={check} canManageConsoles={canManage} />
                   {canManage ? (
                     <Button
@@ -267,22 +296,28 @@ function CompletenessCard({
             ) : undefined,
         }
       )}
-      {showAll ? (
-        <div id="listing-completeness-others" className="flex flex-col gap-4">
+      <div
+        id="listing-completeness-others"
+        hidden={!showAll}
+        className="flex flex-col gap-4"
+      >
+        {showAll ? (
           <OtherChecks
             data={data}
             canManage={canManage}
             onUnskip={unskipCheck}
             unskipping={unskip.isPending ? unskip.variables : undefined}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       <CompletenessSkipDialog
         locationId={locationId}
         check={skipping}
         onOpenChange={(open) => {
           if (!open) setSkipping(null)
         }}
+        // A skipped check leaves the list, and its Skip button with it.
+        finalFocus={() => headingForFocus() ?? true}
       />
     </>
   )

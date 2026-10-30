@@ -446,7 +446,7 @@ function ListingQuickLook({
           </QuickLookFacts>
         </QuickLookSection>
       ) : null}
-      {row.completeness && row.completeness.score !== null ? (
+      {entry.linked && row.completeness ? (
         <QuickLookSection title="Completeness">
           <CompletenessFacts
             completeness={row.completeness}
@@ -510,20 +510,30 @@ function CompletenessCell({
   linked: boolean
   pending: boolean
 }) {
-  if (!linked) return <span className="text-ink-muted">—</span>
+  if (!linked)
+    return (
+      <span className="text-ink-muted">
+        <span aria-hidden>—</span>
+        <span className="sr-only">Not linked</span>
+      </span>
+    )
   if (!completeness)
     return pending ? (
       <Skeleton className="h-3.5 w-12 @3xl/table:h-5.5 @3xl/table:w-16" />
     ) : (
       <span className="text-ink-muted">
-        —<span className="sr-only">Couldn’t check</span>
+        <span aria-hidden>—</span>
+        <span className="sr-only">Couldn’t check</span>
       </span>
     )
   const first = failingChecks(completeness)[0]
   const label = completenessLabel(completeness.score)
   return (
     <>
-      <span className={PHONE.onlyInline}>{label}</span>
+      {/* Mid-line on the phone's caption, so lower case there. */}
+      <span className={PHONE.onlyInline}>
+        {completeness.score === null ? "no score yet" : label}
+      </span>
       <span className={cn("flex flex-col items-start gap-1", PHONE.wide)}>
         <StatusPill tone={completenessTone(completeness.score)}>
           {label}
@@ -658,8 +668,7 @@ function BoardTable({
   return (
     <Table surface responsive aria-busy={busy || undefined}>
       <caption className="sr-only">
-        Listings, with their Google health, completeness and what is waiting on
-        each
+        Listings, with their Google health and what is waiting on each
       </caption>
       <TableHeader>
         <TableRow>
@@ -1228,7 +1237,11 @@ function ListingsBoard({
             </span>
           </span>
         </TableCell>
-        <TableCell priority="meta" label="Completeness">
+        {/* An unlinked listing has nothing to check: off the phone line. */}
+        <TableCell
+          priority={row.entry.linked ? "meta" : "desk-only"}
+          label="Completeness"
+        >
           <CompletenessCell
             completeness={row.completeness}
             linked={row.entry.linked}

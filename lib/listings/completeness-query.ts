@@ -13,13 +13,14 @@ import {
 import { requestOptions } from "@/lib/queries/request-options"
 
 /**
- * Rooted under "listing-summary" so every invalidation of the listing
- * summaries (after a publish, an edit, a sync) refreshes completeness too.
+ * Under the listing summary keys (`["listing-summary", id]` and
+ * `["listing-summary", "all"]`), so every invalidation of a listing's
+ * summary (after a publish, an edit, a sync) refreshes its completeness too,
+ * and the scope reset that drops a listing's keys drops these with them.
  */
 export const completenessQueryKeys = {
-  all: ["listing-summary", "completeness"] as const,
-  board: ["listing-summary", "completeness", "all"] as const,
-  listing: (id: string) => ["listing-summary", "completeness", id] as const,
+  board: ["listing-summary", "all", "completeness"] as const,
+  listing: (id: string) => ["listing-summary", id, "completeness"] as const,
 }
 
 // INTEGRATION(S1): these fetchers can move to lib/api/location-summary.ts and
@@ -80,7 +81,12 @@ export function unskipCompletenessCheck(locationId: string, checkId: string) {
 export function useCompletenessSkipMutations(locationId: string) {
   const client = useQueryClient()
   const refresh = () =>
-    client.invalidateQueries({ queryKey: completenessQueryKeys.all })
+    Promise.all([
+      client.invalidateQueries({
+        queryKey: completenessQueryKeys.listing(locationId),
+      }),
+      client.invalidateQueries({ queryKey: completenessQueryKeys.board }),
+    ])
   const skip = useMutation({
     mutationFn: (input: CompletenessSkipInput) =>
       skipCompletenessCheck(locationId, input),

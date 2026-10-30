@@ -199,7 +199,7 @@ describe("CompletenessCard", () => {
     expect(within(group()).getByText(/76% complete/)).toBeInTheDocument()
 
     expect(
-      screen.getByRole("link", { name: "Add phone number: Phone number" })
+      screen.getByRole("link", { name: "Add phone number" })
     ).toHaveAttribute("href", "/listings/l1/profile")
     expect(
       screen.getByRole("link", {
@@ -222,7 +222,9 @@ describe("CompletenessCard", () => {
         screen.getByRole("button", { name: `Skip: ${title}` })
       ).toBeInTheDocument()
     expect(
-      screen.queryByText(/Only an owner or admin can skip a check/)
+      screen.queryByText(
+        /An owner or admin can skip a check that doesn’t apply/
+      )
     ).not.toBeInTheDocument()
   })
 
@@ -241,10 +243,12 @@ describe("CompletenessCard", () => {
       })
     ).not.toBeInTheDocument()
     expect(
-      screen.getByRole("link", { name: "Add phone number: Phone number" })
+      screen.getByRole("link", { name: "Add phone number" })
     ).toHaveAttribute("href", "/listings/l1/profile")
     expect(
-      within(group()).getByText(/Only an owner or admin can skip a check\./)
+      within(group()).getByText(
+        /An owner or admin can skip a check that doesn’t apply\./
+      )
     ).toBeInTheDocument()
   })
 

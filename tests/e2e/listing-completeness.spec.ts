@@ -179,7 +179,7 @@ completenessTest.describe("listing completeness", () => {
         card.getByRole("heading", { name: "Completeness" })
       ).toBeVisible()
       await expect(
-        card.getByRole("link", { name: "Add website: Website" })
+        card.getByRole("link", { name: "Add website", exact: true })
       ).toHaveAttribute("href", `/listings/${tenant.crownId}/profile`)
 
       await card.getByRole("button", { name: "Skip: Website" }).click()
@@ -219,10 +219,10 @@ completenessTest.describe("listing completeness", () => {
       await page.goto(`/listings/${tenant.crownId}`)
       const card = page.locator("#listing-completeness")
       await expect(
-        card.getByRole("link", { name: "Add website: Website" })
+        card.getByRole("link", { name: "Add website", exact: true })
       ).toBeVisible()
       await expect(card).toContainText(
-        "Only an owner or admin can skip a check."
+        "An owner or admin can skip a check that doesn’t apply."
       )
       await expect(card.getByRole("button", { name: /^Skip:/ })).toHaveCount(0)
     }

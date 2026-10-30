@@ -71,7 +71,7 @@ export function descriptionProblems(
   const problems: string[] = []
   const length = [...text.trim()].length
   if (length < minChars)
-    problems.push(`is only ${length} characters; aim for at least ${minChars}`)
+    problems.push(`is only ${length} characters (aim for ${minChars} or more)`)
   const letters = text.replace(/[^\p{L}]/gu, "")
   const upper = letters.replace(/[^\p{Lu}]/gu, "")
   if (letters.length >= 20 && upper.length / letters.length > maxUppercaseShare)

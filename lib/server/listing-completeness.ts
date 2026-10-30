@@ -135,7 +135,17 @@ function currentPayload(
 }
 
 /** When a list (posts, photos, booking links) was last read from Google. */
-function listReadAt(row: ObservationRow | null | undefined): string | null {
+function listReadAt(
+  row: ObservationRow | null | undefined,
+  googleLocationName: string | null
+): string | null {
+  // A read of the Google location linked before says nothing about this one.
+  if (
+    row?.payloadLocationName &&
+    googleLocationName &&
+    locationKey(row.payloadLocationName) !== locationKey(googleLocationName)
+  )
+    return null
   return latest([iso(row?.observedAt), iso(row?.lastSucceededAt)])
 }
 
@@ -196,12 +206,14 @@ export async function readListingCompleteness(
   if (targets.length === 0) return []
   const allIds = sql.array(visible.map((row) => row.locationId))
   const ids = sql.array(targets.map((row) => row.locationId))
-  // Synced items of the Google location linked now, not of one linked before.
-  const externalIds = sql.array(
-    targets.flatMap((row) =>
-      row.externalLocationId ? [row.externalLocationId] : []
-    )
-  )
+  // Synced items of the Google location each listing is linked to now: a
+  // (listing, Google location) pair, so neither a location linked before nor
+  // one now linked to a sibling listing is counted.
+  const linkedTargets = targets.filter((row) => row.externalLocationId)
+  const pairs = sql`(select * from unnest(
+    ${sql.array(linkedTargets.map((row) => row.locationId))}::uuid[],
+    ${sql.array(linkedTargets.map((row) => row.externalLocationId as string))}::uuid[]
+  ))`
   const cfg = COMPLETENESS_CONFIG
   const ownedPhoto = sql`deleted_at is null and ownership = 'merchant' and media_format = 'PHOTO'`
 
@@ -241,14 +253,14 @@ export async function readListingCompleteness(
           google_payload as "googlePayload", observed_at as "observedAt"
         from food_menus_state
         where location_id = any(${ids}::uuid[])
-          and external_location_id = any(${externalIds}::uuid[])
+          and (location_id, external_location_id) in ${pairs}
       `,
       sql<{ locationId: string; lastPublishedAt: Date | null }[]>`
         select location_id::text as "locationId",
           max(provider_create_time) as "lastPublishedAt"
         from gbp_local_post
         where location_id = any(${ids}::uuid[]) and status = 'published'
-          and external_location_id = any(${externalIds}::uuid[])
+          and (location_id, external_location_id) in ${pairs}
         group by location_id
       `,
       sql<
@@ -269,7 +281,7 @@ export async function readListingCompleteness(
           max(greatest(observed_at, deleted_at)) as "observedAt"
         from gbp_media_item
         where location_id = any(${ids}::uuid[])
-          and external_location_id = any(${externalIds}::uuid[])
+          and (location_id, external_location_id) in ${pairs}
         group by location_id
       `,
       sql<
@@ -286,7 +298,7 @@ export async function readListingCompleteness(
           max(observed_at) as "observedAt"
         from place_action_link
         where location_id = any(${ids}::uuid[]) and deleted_at is null
-          and external_location_id = any(${externalIds}::uuid[])
+          and (location_id, external_location_id) in ${pairs}
         group by location_id
       `,
       sql<
@@ -321,7 +333,7 @@ export async function readListingCompleteness(
           )::text as "previousAverage"
         from review r
         where r.location_id = any(${ids}::uuid[])
-          and r.external_location_id = any(${externalIds}::uuid[])
+          and (r.location_id, r.external_location_id) in ${pairs}
           and r.provider_deleted_at is null
         group by r.location_id
       `,
@@ -469,7 +481,7 @@ export async function readListingCompleteness(
           : null,
       posts: {
         lastPublishedAt: iso(postsBy.get(target.locationId)?.lastPublishedAt),
-        observedAt: listReadAt(byResource("posts")),
+        observedAt: listReadAt(byResource("posts"), target.googleLocationName),
       },
       photos: {
         newestAt: iso(photo?.newestAt),
@@ -477,14 +489,14 @@ export async function readListingCompleteness(
         logo: photo?.logo ?? false,
         observedAt: latest([
           iso(photo?.observedAt),
-          listReadAt(byResource("media")),
+          listReadAt(byResource("media"), target.googleLocationName),
         ]),
       },
       booking: {
         booking: links?.booking ?? 0,
         other: links?.other ?? 0,
         observedAt: latest([
-          listReadAt(byResource("placeActions")),
+          listReadAt(byResource("placeActions"), target.googleLocationName),
           iso(links?.observedAt),
         ]),
       },

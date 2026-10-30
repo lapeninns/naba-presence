@@ -127,6 +127,8 @@ export const DELETE = route({
   handler: async ({ session, params, query, requestId, tenant }) => {
     const removed = await tenant(async (sql) => {
       await requireListing(sql, session, params.id)
+      // The same lock as POST, so a removal never races a replacement.
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${params.id}:completeness_skip:${query.checkId}`}, 0))`
       const [row] = await sql<{ id: string; reason: string }[]>`
         delete from listing_completeness_skip
         where location_id = ${params.id} and check_id = ${query.checkId}

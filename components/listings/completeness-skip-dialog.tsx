@@ -23,10 +23,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import { describeActionError } from "@/lib/errors/action-errors"
 import type { CompletenessCheck } from "@/lib/listings/completeness"
-import {
-  COMPLETENESS_SKIP_REASON_MAX,
-  completenessSkipInputSchema,
-} from "@/lib/listings/completeness-contract"
+import { completenessSkipInputSchema } from "@/lib/listings/completeness-contract"
 import { useCompletenessSkipMutations } from "@/lib/listings/completeness-query"
 
 /**
@@ -38,11 +35,14 @@ function CompletenessSkipDialog({
   locationId,
   check,
   onOpenChange,
+  finalFocus,
 }: {
   locationId: string
   /** The check to skip; the dialog is open while one is set. */
   check: CompletenessCheck | null
   onOpenChange: (open: boolean) => void
+  /** Where focus goes when the dialog closes, if not its trigger. */
+  finalFocus?: React.ComponentProps<typeof DialogContent>["finalFocus"]
 }) {
   const toast = useToastManager()
   const { skip } = useCompletenessSkipMutations(locationId)
@@ -104,13 +104,16 @@ function CompletenessSkipDialog({
         onOpenChange(next)
       }}
     >
-      <DialogContent className="grid-cols-[minmax(0,1fr)]">
+      <DialogContent
+        className="grid-cols-[minmax(0,1fr)]"
+        finalFocus={finalFocus}
+      >
         <DialogHeader>
           <DialogTitle>Skip “{shown?.title}”?</DialogTitle>
           <DialogDescription>
             It won’t count towards this listing’s score. Everyone who can see
-            the listing sees your reason, and an owner or admin can bring it
-            back at any time.
+            the listing sees your reason, and an owner or admin can count it
+            again at any time.
           </DialogDescription>
         </DialogHeader>
         <form noValidate onSubmit={onSubmit} className="contents">
@@ -120,7 +123,6 @@ function CompletenessSkipDialog({
               <Textarea
                 autoSize
                 value={reason}
-                maxLength={COMPLETENESS_SKIP_REASON_MAX}
                 onChange={(event) => {
                   setReason(event.target.value)
                   if (error) setError(undefined)
