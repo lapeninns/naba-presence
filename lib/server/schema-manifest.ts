@@ -168,4 +168,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0330_content_banned_phrases",
   // S1: listing completeness
   "0300_listing_completeness_skip",
+  // S5 (Google change watch)
+  "0340_listing_google_watch",
 ]

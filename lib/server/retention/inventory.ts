@@ -689,7 +689,7 @@ export const RETENTION_INVENTORY = [
         "keep expired and revoked share rows (token hash only) for the life of the client",
     },
   },
-  // S2 (review links, migration 0310).
+  // S2 (review links, migration 0152).
   {
     table: "review_link",
     provenance: "customer",
@@ -1185,6 +1185,37 @@ export const RETENTION_INVENTORY = [
     provenance: "customer",
     action: "keep",
     window: "until an owner or admin removes the skip, or with its listing",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  // S5 (Google change watch, 0155): listing settings and the detected
+  // listing-field changes. Listing data, never personal data; they go with
+  // the listing (location cascade).
+  {
+    table: "listing_google_watch",
+    provenance: "operational",
+    action: "keep",
+    window: "while its listing exists",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "listing_google_watch_recipient",
+    provenance: "operational",
+    action: "keep",
+    window:
+      "with its listing's watch, or until the person's account is deleted",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "listing_google_change",
+    provenance: "operational",
+    action: "keep",
+    window: "while its listing exists",
     deletes: "none",
     hold: "none",
     approval: { status: "lifecycle" },

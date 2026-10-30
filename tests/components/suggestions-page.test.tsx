@@ -33,6 +33,43 @@ vi.mock("@/lib/queries/use-location-profile", async (importOriginal) => ({
   }),
 }))
 
+// The Google change watch panel and its settings have their own tests
+// (tests/components/google-changes-panel.test.tsx); here they are quiet.
+const watchChanges = vi.hoisted(() => ({ live: [] as unknown[] }))
+vi.mock("@/lib/queries/use-google-change-watch", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/queries/use-google-change-watch")
+  >()),
+  useGoogleChanges: () => ({
+    data: {
+      changes: watchChanges.live,
+      canDecide: true,
+      lastCheckedAt: null,
+    },
+    isPending: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+  useGoogleWatchSettings: () => ({
+    data: {
+      settings: {
+        protectedFields: ["name"],
+        alertMode: "managers",
+        recipientIds: [],
+        updatedAt: null,
+        updatedBy: null,
+      },
+      canManage: false,
+      people: [],
+    },
+    isPending: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}))
+
 function caps(overrides: Record<string, unknown> = {}) {
   return {
     data: { canEditCanonical: true, canPublish: true, ...overrides },
@@ -93,6 +130,46 @@ function outcome(raised: number) {
 }
 
 describe("SuggestionsTab", () => {
+  afterEach(() => {
+    watchChanges.live = []
+  })
+
+  it("leaves a protected field Google changed to the panel above, once", async () => {
+    watchChanges.live = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        field: "phone",
+        status: "open",
+        resolution: null,
+        ours: { field: "phone", value: "01234 567890" },
+        google: { field: "phone", value: "01234 000000" },
+        googleHash: "a".repeat(64),
+        localEdits: false,
+        regularDays: [],
+        specialDates: [],
+        detectedAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        decidedAt: null,
+        decidedBy: null,
+        revert: null,
+      },
+    ]
+    serve([proposal()])
+    renderWithProviders(<SuggestionsTab locationId={LOCATION} />)
+
+    expect(
+      await screen.findByText(
+        /1 suggestion for protected fields is decided above/
+      )
+    ).toBeInTheDocument()
+    // Decided in the panel ("Put ours back" / "Accept Google’s"), not
+    // again as a suggestion (Accept / Ignore).
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Put ours back" })
+    ).toBeInTheDocument()
+  })
+
   beforeEach(() => useCapsMock.mockReturnValue(caps()))
   afterEach(() => vi.restoreAllMocks())
 
