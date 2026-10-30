@@ -9,8 +9,12 @@ validation, `store: false`, and a `max_output_tokens` cap taken from
 
 - `OPENAI_API_KEY`: required for AI generation and semantic verification.
 - `OPENAI_ORG_ID`: optional organisation header.
-- `OPENAI_MODEL_DRAFT` and `OPENAI_MODEL_VERIFY`: default to `gpt-4.1-nano`,
-  matching the previous local setup; may be configured separately.
+- `OPENAI_MODEL_DRAFT` and `OPENAI_MODEL_VERIFY`: default to `gpt-5.6-luna`
+  and may be configured separately. OpenAI shut down `gpt-4.1-nano` and
+  `gpt-4.1-nano-2025-04-14` on 23 October 2026. Existing configuration using
+  either identifier resolves to the recommended replacement `gpt-5.6-luna`;
+  other explicit model overrides are preserved. The resolved identifier is
+  used for provider requests, reservations and stored usage.
 - `OPENAI_BASE_URL`: defaults to `https://api.openai.com`; overrides are for
   local provider stubs. Keep the default in production.
 - `OPENAI_TIMEOUT_MS`: defaults to 30000; maximum 55000.
@@ -37,4 +41,5 @@ The Workers AI migration documents record the previous implementation. OpenAI
 is now the active provider; `WORKERS_AI_*` variables are not read.
 
 References: [Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create),
-[structured output](https://developers.openai.com/api/docs/guides/structured-outputs).
+[structured output](https://developers.openai.com/api/docs/guides/structured-outputs),
+[model deprecations](https://developers.openai.com/api/docs/deprecations).
