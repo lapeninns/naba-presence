@@ -74,7 +74,7 @@ export const completenessSkipInputSchema = z.object({
     .min(1, "Say why this check doesn’t apply.")
     .max(
       COMPLETENESS_SKIP_REASON_MAX,
-      `Keep the reason under ${COMPLETENESS_SKIP_REASON_MAX} characters.`
+      `Keep the reason to ${COMPLETENESS_SKIP_REASON_MAX} characters or fewer.`
     ),
 })
 export type CompletenessSkipInput = z.infer<typeof completenessSkipInputSchema>

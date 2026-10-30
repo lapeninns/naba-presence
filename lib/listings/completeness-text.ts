@@ -71,11 +71,11 @@ export function descriptionProblems(
   const problems: string[] = []
   const length = [...text.trim()].length
   if (length < minChars)
-    problems.push(`only ${length} characters, aim for at least ${minChars}`)
+    problems.push(`is only ${length} characters; aim for at least ${minChars}`)
   const letters = text.replace(/[^\p{L}]/gu, "")
   const upper = letters.replace(/[^\p{Lu}]/gu, "")
   if (letters.length >= 20 && upper.length / letters.length > maxUppercaseShare)
-    problems.push("mostly capital letters")
+    problems.push("is mostly capital letters")
   const counts = new Map<string, number>()
   for (const word of words(text))
     if (word.length >= 4 && !STOP.has(word))
@@ -83,9 +83,10 @@ export function descriptionProblems(
   const stuffed = [...counts].find(([, count]) => count > maxWordRepeats)
   if (stuffed)
     problems.push(
-      `repeats “${stuffed[0]}” ${stuffed[1]} times, which reads as keyword stuffing`
+      `repeats “${stuffed[0]}” ${stuffed[1]} times, which can look like spam`
     )
-  if (containsLink(text)) problems.push("contains a link, which Google removes")
+  if (containsLink(text))
+    problems.push("contains a link, which Google doesn’t allow")
   return problems
 }
 

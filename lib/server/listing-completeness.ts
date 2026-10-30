@@ -36,6 +36,8 @@ type LocationRow = {
   name: string
   linked: boolean
   verified: boolean | null
+  externalLocationId: string | null
+  googleLocationName: string | null
   checkedAt: Date | null
 }
 
@@ -43,7 +45,9 @@ type ObservationRow = {
   locationId: string
   resource: string
   observedAt: Date | null
+  lastSucceededAt: Date | null
   payloadObservedAt: string | null
+  payloadLocationName: string | null
   location: GoogleLocationFacts | null
   attributes: { attributes?: unknown[] } | null
 }
@@ -52,6 +56,8 @@ type GoogleDate = { year?: number; month?: number; day?: number }
 
 /** The parts of a stored Google location the checks read. */
 type GoogleLocationFacts = {
+  name?: string
+  metadata?: { canHaveFoodMenus?: boolean }
   phoneNumbers?: { primaryPhone?: string }
   websiteUri?: string
   profile?: { description?: string }
@@ -90,6 +96,58 @@ function menuItems(menus: unknown): number {
   return items
 }
 
+/** "accounts/1/locations/2" and "locations/2" name the same listing. */
+function locationKey(name: string): string {
+  const at = name.lastIndexOf("locations/")
+  return at === -1 ? name : name.slice(at)
+}
+
+/** A later observation recorded without a payload (an hours publish) supersedes it. */
+const SUPERSEDED_AFTER_MS = 60_000
+
+/**
+ * The stored Google location is usable: it is the latest observation of
+ * the Google location linked now. A payload kept from before a later read
+ * (an hours publish records its readback without one), or read from a
+ * listing linked earlier, is no evidence of what Google shows today.
+ */
+function currentPayload(
+  row: ObservationRow | null | undefined,
+  googleLocationName: string | null
+): ObservationRow | null {
+  if (!row?.location) return null
+  const name = row.payloadLocationName ?? row.location.name ?? null
+  if (
+    name &&
+    googleLocationName &&
+    locationKey(name) !== locationKey(googleLocationName)
+  )
+    return null
+  const payloadAt = Date.parse(observedAt(row) ?? "")
+  const rowAt = row.observedAt?.getTime()
+  if (
+    Number.isFinite(payloadAt) &&
+    rowAt !== undefined &&
+    rowAt - payloadAt > SUPERSEDED_AFTER_MS
+  )
+    return null
+  return row
+}
+
+/** When a list (posts, photos, booking links) was last read from Google. */
+function listReadAt(row: ObservationRow | null | undefined): string | null {
+  return latest([iso(row?.observedAt), iso(row?.lastSucceededAt)])
+}
+
+function latest(values: readonly (string | null | undefined)[]): string | null {
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null
+  )
+}
+
 function newest(rows: readonly ObservationRow[]): ObservationRow | null {
   return rows.reduce<ObservationRow | null>((best, row) => {
     if (!row.location) return best
@@ -115,6 +173,8 @@ export async function readListingCompleteness(
       l.name,
       (ll.id is not null) as linked,
       e.verified,
+      e.id::text as "externalLocationId",
+      e.google_location_name as "googleLocationName",
       (
         -- Successful review syncs only: a failed one never makes reviews look current.
         select max(sc.last_succeeded_at)
@@ -136,7 +196,14 @@ export async function readListingCompleteness(
   if (targets.length === 0) return []
   const allIds = sql.array(visible.map((row) => row.locationId))
   const ids = sql.array(targets.map((row) => row.locationId))
+  // Synced items of the Google location linked now, not of one linked before.
+  const externalIds = sql.array(
+    targets.flatMap((row) =>
+      row.externalLocationId ? [row.externalLocationId] : []
+    )
+  )
   const cfg = COMPLETENESS_CONFIG
+  const ownedPhoto = sql`deleted_at is null and ownership = 'merchant' and media_format = 'PHOTO'`
 
   const [observations, menus, posts, photos, booking, reviews, skips] =
     await Promise.all([
@@ -147,7 +214,9 @@ export async function readListingCompleteness(
           location_id::text as "locationId",
           resource,
           observed_at as "observedAt",
+          last_succeeded_at as "lastSucceededAt",
           observed_google_payload ->> 'observedAt' as "payloadObservedAt",
+          observed_google_payload ->> 'googleLocationName' as "payloadLocationName",
           observed_google_payload -> 'location' as location,
           case when resource = 'businessInformation'
             then observed_google_payload -> 'attributes' end as attributes
@@ -157,7 +226,7 @@ export async function readListingCompleteness(
             and resource in ('profile', 'businessInformation')
           ) or (
             location_id = any(${ids}::uuid[])
-            and resource in ('hours', 'posts', 'placeActions')
+            and resource in ('hours', 'posts', 'placeActions', 'media')
           )
       `,
       sql<
@@ -172,12 +241,14 @@ export async function readListingCompleteness(
           google_payload as "googlePayload", observed_at as "observedAt"
         from food_menus_state
         where location_id = any(${ids}::uuid[])
+          and external_location_id = any(${externalIds}::uuid[])
       `,
       sql<{ locationId: string; lastPublishedAt: Date | null }[]>`
         select location_id::text as "locationId",
           max(provider_create_time) as "lastPublishedAt"
         from gbp_local_post
         where location_id = any(${ids}::uuid[]) and status = 'published'
+          and external_location_id = any(${externalIds}::uuid[])
         group by location_id
       `,
       sql<
@@ -190,13 +261,15 @@ export async function readListingCompleteness(
         }[]
       >`
         select location_id::text as "locationId",
-          max(google_create_time) filter (where media_format = 'PHOTO') as "newestAt",
-          coalesce(bool_or(upper(category) = 'COVER'), false) as cover,
-          coalesce(bool_or(upper(category) in ('LOGO', 'PROFILE')), false) as logo,
-          max(observed_at) as "observedAt"
+          max(google_create_time) filter (where ${ownedPhoto}) as "newestAt",
+          coalesce(bool_or(upper(category) = 'COVER') filter (where ${ownedPhoto}), false) as cover,
+          coalesce(bool_or(upper(category) in ('LOGO', 'PROFILE')) filter (where ${ownedPhoto}), false) as logo,
+          -- Every row a read touched, kept or marked gone: a read that found
+          -- no owner photos still says when Google was last asked.
+          max(greatest(observed_at, deleted_at)) as "observedAt"
         from gbp_media_item
         where location_id = any(${ids}::uuid[])
-          and deleted_at is null and ownership = 'merchant'
+          and external_location_id = any(${externalIds}::uuid[])
         group by location_id
       `,
       sql<
@@ -213,6 +286,7 @@ export async function readListingCompleteness(
           max(observed_at) as "observedAt"
         from place_action_link
         where location_id = any(${ids}::uuid[]) and deleted_at is null
+          and external_location_id = any(${externalIds}::uuid[])
         group by location_id
       `,
       sql<
@@ -231,13 +305,13 @@ export async function readListingCompleteness(
               and r.triaged_at is null
               and r.create_time < ${now}::timestamptz - make_interval(days => ${cfg.unrepliedReviewDays})
           )::int as overdue,
-          count(*) filter (
+          count(r.star_rating) filter (
             where r.create_time >= ${now}::timestamptz - make_interval(days => ${cfg.ratingTrendWindowDays})
           )::int as "recentCount",
           avg(r.star_rating) filter (
             where r.create_time >= ${now}::timestamptz - make_interval(days => ${cfg.ratingTrendWindowDays})
           )::text as "recentAverage",
-          count(*) filter (
+          count(r.star_rating) filter (
             where r.create_time < ${now}::timestamptz - make_interval(days => ${cfg.ratingTrendWindowDays})
               and r.create_time >= ${now}::timestamptz - make_interval(days => ${2 * cfg.ratingTrendWindowDays})
           )::int as "previousCount",
@@ -247,6 +321,7 @@ export async function readListingCompleteness(
           )::text as "previousAverage"
         from review r
         where r.location_id = any(${ids}::uuid[])
+          and r.external_location_id = any(${externalIds}::uuid[])
           and r.provider_deleted_at is null
         group by r.location_id
       `,
@@ -278,16 +353,31 @@ export async function readListingCompleteness(
     skipsBy.set(skip.locationId, list)
   }
 
+  const googleNameBy = new Map(
+    visible.map((row) => [row.locationId, row.googleLocationName])
+  )
+  const current = (locationId: string, resource: string) =>
+    currentPayload(
+      (observationsBy.get(locationId) ?? []).find(
+        (row) => row.resource === resource
+      ),
+      googleNameBy.get(locationId) ?? null
+    )
   const profileRead = (locationId: string) =>
     newest(
-      (observationsBy.get(locationId) ?? []).filter((row) =>
-        (PROFILE_RESOURCES as readonly string[]).includes(row.resource)
-      )
+      PROFILE_RESOURCES.flatMap((resource) => {
+        const row = current(locationId, resource)
+        return row ? [row] : []
+      })
     )
+  const maxAgeMs = cfg.snapshotMaxAgeDays * 86_400_000
   const siblings = visible.flatMap((row) => {
-    const description = profileRead(row.locationId)?.location?.profile
-      ?.description
-    return description?.trim()
+    const read = profileRead(row.locationId)
+    const description = read?.location?.profile?.description
+    if (!read || !description?.trim()) return []
+    // A description read long ago may have changed since: not compared.
+    const age = now.getTime() - Date.parse(observedAt(read) ?? "")
+    return age <= maxAgeMs
       ? [{ locationId: row.locationId, name: row.name, description }]
       : []
   })
@@ -297,14 +387,19 @@ export async function readListingCompleteness(
     const byResource = (resource: string) =>
       rows.find((row) => row.resource === resource) ?? null
     const profile = profileRead(target.locationId)
-    const businessInformation = byResource("businessInformation")
-    const hours = byResource("hours")
+    const businessInformation = current(
+      target.locationId,
+      "businessInformation"
+    )
+    const hours = current(target.locationId, "hours")
     const menu = menusBy.get(target.locationId)
     const photo = photosBy.get(target.locationId)
     const links = bookingBy.get(target.locationId)
     const review = reviewsBy.get(target.locationId)
-    const placeActionsRead = byResource("placeActions")
     const location = profile?.location
+    // Google's own word on whether the listing can have a food menu, for a
+    // listing whose menu state was never read.
+    const canHaveFoodMenus = location?.metadata?.canHaveFoodMenus
     const average = (value: string | null | undefined) =>
       value === null || value === undefined ? null : Number(value)
 
@@ -366,25 +461,32 @@ export async function readListingCompleteness(
               items: menuItems(menu.googlePayload),
             },
           }
-        : null,
+        : profile && canHaveFoodMenus === false
+          ? {
+              observedAt: observedAt(profile) ?? "",
+              value: { eligible: false, items: 0 },
+            }
+          : null,
       posts: {
         lastPublishedAt: iso(postsBy.get(target.locationId)?.lastPublishedAt),
-        observedAt: iso(byResource("posts")?.observedAt),
+        observedAt: listReadAt(byResource("posts")),
       },
       photos: {
         newestAt: iso(photo?.newestAt),
         cover: photo?.cover ?? false,
         logo: photo?.logo ?? false,
-        observedAt: iso(photo?.observedAt),
+        observedAt: latest([
+          iso(photo?.observedAt),
+          listReadAt(byResource("media")),
+        ]),
       },
       booking: {
         booking: links?.booking ?? 0,
         other: links?.other ?? 0,
-        observedAt:
-          [iso(placeActionsRead?.observedAt), iso(links?.observedAt)]
-            .filter((at): at is string => at !== null)
-            .sort()
-            .at(-1) ?? null,
+        observedAt: latest([
+          listReadAt(byResource("placeActions")),
+          iso(links?.observedAt),
+        ]),
       },
       reviews: {
         checkedAt: iso(target.checkedAt),

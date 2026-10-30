@@ -1358,3 +1358,81 @@ describe("compareMostToFix", () => {
     ])
   })
 })
+
+describe("score coverage", () => {
+  it("gives no score while less than half the weighted checks are known", () => {
+    const result = listingCompleteness(
+      fullInput({
+        profile: null,
+        hours: null,
+        details: null,
+        menu: null,
+        posts: { lastPublishedAt: null, observedAt: null },
+        photos: { newestAt: null, cover: false, logo: false, observedAt: null },
+        booking: { booking: 0, other: 0, observedAt: null },
+      }),
+      [],
+      NOW
+    )
+    // Only verification and the review checks are known.
+    expect(result.counts.pass).toBeGreaterThan(0)
+    expect(result.score).toBeNull()
+    expect(result.fixPoints).toBe(0)
+  })
+
+  it("scores once at least half the weighted checks are known", () => {
+    const result = listingCompleteness(
+      fullInput({ details: null, menu: null }),
+      [],
+      NOW
+    )
+    expect(result.counts.unknown).toBeGreaterThan(0)
+    expect(result.score).toBe(100)
+  })
+
+  it("still counts failing weight towards most-to-fix without a score", () => {
+    const result = listingCompleteness(
+      fullInput({
+        verified: false,
+        profile: null,
+        hours: null,
+        details: null,
+        menu: null,
+        booking: { booking: 0, other: 0, observedAt: null },
+      }),
+      [],
+      NOW
+    )
+    expect(result.score).toBeNull()
+    expect(result.fixPoints).toBe(IMPORTANCE_WEIGHT.necessary)
+  })
+})
+
+describe("unknown checks open their area", () => {
+  it("labels an unknown check's link as opening the area, not fixing it", () => {
+    const input = fullInput({ profile: null, hours: null })
+    expect(check(input, "phone").fix).toEqual({
+      label: "Open profile",
+      href: PROFILE_HREF,
+    })
+    expect(check(input, "regular_hours").fix).toEqual({
+      label: "Open hours",
+      href: HOURS_HREF,
+    })
+    const reviews = check(
+      fullInput({
+        reviews: { ...fullInput().reviews, checkedAt: null },
+      }),
+      "unreplied_reviews"
+    )
+    expect(reviews.fix?.label).toBe("Open reviews")
+  })
+
+  it("keeps the fixing label on a failing check", () => {
+    const input = fullInput({ profile: profile({ phone: null }) })
+    expect(check(input, "phone").fix).toEqual({
+      label: "Add phone number",
+      href: PROFILE_HREF,
+    })
+  })
+})

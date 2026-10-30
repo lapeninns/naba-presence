@@ -74,9 +74,13 @@ export const POST = route({
   handler: async ({ session, params, body, requestId, tenant }) => {
     const skip = await tenant(async (sql) => {
       await requireListing(sql, session, params.id)
-      await sql`
+      // One writer per listing and check at a time: two people replacing the
+      // same skip at once queue here instead of racing the unique key.
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${params.id}:completeness_skip:${body.checkId}`}, 0))`
+      const [previous] = await sql<{ reason: string }[]>`
         delete from listing_completeness_skip
         where location_id = ${params.id} and check_id = ${body.checkId}
+        returning reason
       `
       const [row] = await sql<{ id: string; skippedAt: Date }[]>`
         insert into listing_completeness_skip (
@@ -98,6 +102,7 @@ export const POST = route({
           locationId: params.id,
           checkId: body.checkId,
           reason: body.reason,
+          previousReason: previous?.reason ?? null,
         },
       })
       return {

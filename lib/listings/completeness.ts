@@ -17,6 +17,7 @@ import {
   descriptionProblems,
   similarity,
 } from "@/lib/listings/completeness-text"
+import { formatNumber } from "@/lib/format"
 import type { StatusTone } from "@/lib/ui/status-tone"
 
 export const COMPLETENESS_IMPORTANCE = [
@@ -90,6 +91,11 @@ export const COMPLETENESS_CONFIG = {
   ratingTrendMinReviews: 5,
   /** Stars the average may fall by before the trend fails. */
   ratingTrendMaxDrop: 0.3,
+  /**
+   * No score until at least this share of the weighted checks is known: a
+   * score from two known checks out of nineteen would overstate the listing.
+   */
+  minKnownShare: 0.5,
 } as const
 
 /** A stored Google read and when it was made; null when never stored. */
@@ -207,10 +213,10 @@ const DEFINITIONS: Record<
   },
   attributes: { title: "Attributes", importance: "nice" },
   website_utm: {
-    title: "Website link tagged for analytics",
+    title: "Website link tracks Google visits",
     importance: "nice",
   },
-  rating_trend: { title: "Rating holding steady", importance: "nice" },
+  rating_trend: { title: "Rating holding up", importance: "nice" },
 }
 
 export function completenessCheckTitle(id: CompletenessCheckId): string {
@@ -249,15 +255,34 @@ function fresh<T>(observed: Observed<T>, now: Date): T | null {
     : null
 }
 
+/** Why a check can't be judged: nothing read, or nothing read lately. */
 function unknownDetail(
-  subject: string,
   observedAt: string | null | undefined,
-  now: Date
+  now: Date,
+  hint?: string
 ): string {
-  const many = !subject.startsWith("The ")
-  return staleness(observedAt, now) === "stale"
-    ? `${subject} ${many ? "were" : "was"} last read from Google over ${COMPLETENESS_CONFIG.snapshotMaxAgeDays} days ago. Open ${many ? "them" : "it"} to check again.`
-    : `${subject} ${many ? "haven’t" : "hasn’t"} been read from Google yet. Open ${many ? "them" : "it"} to check.`
+  const why =
+    staleness(observedAt, now) === "stale"
+      ? `Not checked on Google in the last ${COMPLETENESS_CONFIG.snapshotMaxAgeDays} days.`
+      : "Not checked on Google yet."
+  return hint ? `${why} ${hint}` : why
+}
+
+/** An unknown check's link opens the area rather than promising a fix. */
+const OPEN_LABELS: Record<string, string> = {
+  profile: "Open profile",
+  hours: "Open hours",
+  photos: "Open photos",
+  posts: "Open posts",
+  booking: "Open booking links",
+  menu: "Open menu",
+  verification: "Open verification",
+}
+
+function openLabel(fix: CompletenessFix): string {
+  if (fix.href.startsWith("/inbox")) return "Open reviews"
+  const segment = fix.href.split("/")[3]?.split(/[?#]/)[0] ?? ""
+  return OPEN_LABELS[segment] ?? fix.label
 }
 
 const SHORT_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -303,11 +328,7 @@ export function evaluateCompleteness(
   // Profile fields: one stored read feeds seven checks.
   const profile = fresh(input.profile, now)
   const profileFix = (label: string) => ({ label, href: area("profile") })
-  const profileUnknown = unknownDetail(
-    "The profile",
-    input.profile?.observedAt,
-    now
-  )
+  const profileUnknown = unknownDetail(input.profile?.observedAt, now)
   const fromProfile = (
     id: CompletenessCheckId,
     label: string,
@@ -321,12 +342,12 @@ export function evaluateCompleteness(
     set(id, result.status, result.detail, profileFix(label))
   }
 
-  fromProfile("primary_category", "Set category", (value) =>
+  fromProfile("primary_category", "Choose category", (value) =>
     value.primaryCategory?.trim()
       ? { status: "pass", detail: value.primaryCategory.trim() }
       : { status: "fail", detail: "No primary category on Google." }
   )
-  fromProfile("phone", "Add phone", (value) =>
+  fromProfile("phone", "Add phone number", (value) =>
     value.phone?.trim()
       ? { status: "pass", detail: value.phone.trim() }
       : { status: "fail", detail: "No phone number on Google." }
@@ -342,7 +363,7 @@ export function evaluateCompleteness(
       ? { status: "pass", detail: plural([...text].length, "character") }
       : { status: "fail", detail: "No business description on Google." }
   })
-  fromProfile("description_quality", "Edit description", (value) => {
+  fromProfile("description_quality", "Improve description", (value) => {
     const text = value.description?.trim() ?? ""
     if (!text)
       return {
@@ -368,7 +389,7 @@ export function evaluateCompleteness(
         }
       : {
           status: "pass",
-          detail: "Long enough, written for people, and its own.",
+          detail: "Reads well and isn’t copied from another venue.",
         }
   })
   fromProfile("additional_categories", "Add categories", (value) =>
@@ -383,13 +404,13 @@ export function evaluateCompleteness(
         }
       : {
           status: "fail",
-          detail: "Only the primary category. Add the others that fit.",
+          detail: "Only one category. Add others that fit, such as Restaurant.",
         }
   )
-  fromProfile("website_utm", "Tag website link", (value) => {
+  fromProfile("website_utm", "Add tracking", (value) => {
     const website = value.website?.trim()
     if (!website)
-      return { status: "not_applicable", detail: "No website to tag." }
+      return { status: "not_applicable", detail: "Add a website first." }
     let tagged = false
     try {
       tagged = [...new URL(website).searchParams.keys()].some((key) =>
@@ -399,11 +420,14 @@ export function evaluateCompleteness(
       // An unparseable link can't carry tags.
     }
     return tagged
-      ? { status: "pass", detail: "The website link carries utm_ tags." }
+      ? {
+          status: "pass",
+          detail: "Visits from Google can be counted in your website stats.",
+        }
       : {
           status: "fail",
           detail:
-            "The website link has no utm_ tags, so visits from Google can’t be told apart in analytics.",
+            "Visits from your Google listing look like any other visit in your website stats. Add tracking to the link, such as ?utm_source=google.",
         }
   })
 
@@ -414,16 +438,11 @@ export function evaluateCompleteness(
     set(
       "regular_hours",
       "unknown",
-      unknownDetail("Opening hours", input.hours?.observedAt, now),
+      unknownDetail(input.hours?.observedAt, now),
       hoursFix("Add hours")
     )
   else if (hours.regularPeriods > 0)
-    set(
-      "regular_hours",
-      "pass",
-      plural(hours.regularPeriods, "opening period"),
-      hoursFix("Add hours")
-    )
+    set("regular_hours", "pass", "Opening hours set.", hoursFix("Add hours"))
   else
     set(
       "regular_hours",
@@ -444,8 +463,8 @@ export function evaluateCompleteness(
     set(
       "special_hours",
       "unknown",
-      unknownDetail("Opening hours", input.hours?.observedAt, now),
-      hoursFix("Add special hours")
+      unknownDetail(input.hours?.observedAt, now),
+      hoursFix("Add holiday hours")
     )
   else if (
     hours.specialPeriods.some(
@@ -456,38 +475,32 @@ export function evaluateCompleteness(
       "special_hours",
       "pass",
       `Special hours set for ${holiday.name} (${shortDate(holiday.date)}).`,
-      hoursFix("Add special hours")
+      hoursFix("Add holiday hours")
     )
   else
     set(
       "special_hours",
       "fail",
-      `No special hours for ${holiday.name} (${shortDate(holiday.date)}).`,
-      hoursFix("Add special hours")
+      `No hours set for ${holiday.name} (${shortDate(holiday.date)}), so customers can’t tell if you’re open.`,
+      hoursFix("Add holiday hours")
     )
 
   // Verification.
-  const verifyFix = { label: "Verify listing", href: area("verification") }
+  const verifyFix = { label: "Start verification", href: area("verification") }
   if (input.verified === true)
     set("verification", "pass", "Google has verified this listing.", verifyFix)
   else if (input.verified === false)
     set(
       "verification",
       "fail",
-      "Google hasn’t verified this listing, so some changes won’t show.",
+      "Some changes won’t show to customers until Google verifies this listing.",
       verifyFix
     )
-  else
-    set(
-      "verification",
-      "unknown",
-      "Verification hasn’t been read from Google yet.",
-      verifyFix
-    )
+  else set("verification", "unknown", "Not checked on Google yet.", verifyFix)
 
   // Posts and photos: what we hold that is recent passes even when the
   // list itself was read long ago.
-  const postFix = { label: "Write a post", href: area("posts") }
+  const postFix = { label: "Add a post", href: area("posts") }
   const postAge = ageDays(input.posts.lastPublishedAt, now)
   if (postAge !== null && postAge <= cfg.recentPostDays)
     set(
@@ -502,7 +515,7 @@ export function evaluateCompleteness(
     set(
       "recent_post",
       "unknown",
-      unknownDetail("Posts", input.posts.observedAt, now),
+      unknownDetail(input.posts.observedAt, now),
       postFix
     )
   else
@@ -531,7 +544,7 @@ export function evaluateCompleteness(
     set(
       "recent_photo",
       "unknown",
-      unknownDetail("Photos", input.photos.observedAt, now),
+      unknownDetail(input.photos.observedAt, now),
       photoFix("Add a photo")
     )
   else
@@ -539,7 +552,7 @@ export function evaluateCompleteness(
       "recent_photo",
       "fail",
       photoAge === null
-        ? "No owner photos on Google."
+        ? "No photos from the venue on Google, only customers’."
         : `Newest photo added ${plural(Math.floor(photoAge), "day")} ago.`,
       photoFix("Add a photo")
     )
@@ -554,25 +567,20 @@ export function evaluateCompleteness(
       set(
         id,
         "unknown",
-        unknownDetail("Photos", input.photos.observedAt, now),
+        unknownDetail(input.photos.observedAt, now),
         photoFix(label)
       )
     else set(id, "fail", `No ${noun.toLowerCase()} on Google.`, photoFix(label))
   }
-  photoKind(
-    "cover_photo",
-    input.photos.cover,
-    "Cover photo",
-    "Add a cover photo"
-  )
-  photoKind("logo_photo", input.photos.logo, "Logo", "Add a logo")
+  photoKind("cover_photo", input.photos.cover, "Cover photo", "Add cover photo")
+  photoKind("logo_photo", input.photos.logo, "Logo", "Add logo")
 
   // Reviews.
   const reviewsUnknown = staleness(input.reviews.checkedAt, now)
   const reviewsUnknownDetail =
     reviewsUnknown === "stale"
-      ? `Reviews haven’t synced from Google in over ${cfg.snapshotMaxAgeDays} days.`
-      : "Reviews haven’t synced from Google yet."
+      ? `Reviews not checked on Google in the last ${cfg.snapshotMaxAgeDays} days.`
+      : "Reviews not checked on Google yet."
   const replyFix = { label: "Reply to reviews", href: inbox }
   if (reviewsUnknown)
     set("unreplied_reviews", "unknown", reviewsUnknownDetail, replyFix)
@@ -580,14 +588,14 @@ export function evaluateCompleteness(
     set(
       "unreplied_reviews",
       "pass",
-      `No review has waited more than ${cfg.unrepliedReviewDays} days for a reply.`,
+      "No review has waited over a week for a reply.",
       replyFix
     )
   else
     set(
       "unreplied_reviews",
       "fail",
-      `${plural(input.reviews.overdueUnreplied, "review")} older than ${cfg.unrepliedReviewDays} days ${input.reviews.overdueUnreplied === 1 ? "has" : "have"} no reply.`,
+      `${plural(input.reviews.overdueUnreplied, "review")} ${input.reviews.overdueUnreplied === 1 ? "has" : "have"} waited over a week for a reply.`,
       replyFix
     )
 
@@ -604,11 +612,11 @@ export function evaluateCompleteness(
     set(
       "rating_trend",
       "not_applicable",
-      `Too few rated reviews to compare: at least ${cfg.ratingTrendMinReviews} are needed in each ${cfg.ratingTrendWindowDays}-day window.`,
+      "Not enough recent rated reviews to compare yet.",
       null
     )
   else {
-    const change = `${previous.average.toFixed(1)} to ${recent.average.toFixed(1)} stars over the last ${cfg.ratingTrendWindowDays} days`
+    const change = `${previous.average.toFixed(1)} stars (the ${cfg.ratingTrendWindowDays} days before) to ${recent.average.toFixed(1)} (the last ${cfg.ratingTrendWindowDays} days)`
     if (recent.average < previous.average - cfg.ratingTrendMaxDrop)
       set("rating_trend", "fail", `The average fell from ${change}.`, trendFix)
     else
@@ -616,7 +624,7 @@ export function evaluateCompleteness(
   }
 
   // Booking.
-  const bookingFix = { label: "Add a booking link", href: area("booking") }
+  const bookingFix = { label: "Add booking link", href: area("booking") }
   if (input.booking.booking > 0)
     set(
       "booking_link",
@@ -628,7 +636,7 @@ export function evaluateCompleteness(
     set(
       "booking_link",
       "unknown",
-      unknownDetail("Booking links", input.booking.observedAt, now),
+      unknownDetail(input.booking.observedAt, now),
       bookingFix
     )
   else
@@ -637,7 +645,7 @@ export function evaluateCompleteness(
       "fail",
       input.booking.other > 0
         ? "Only ordering links on Google, no way to book a table."
-        : "No booking link on Google.",
+        : "No way to book a table from Google.",
       bookingFix
     )
 
@@ -673,20 +681,24 @@ export function evaluateCompleteness(
       "services_or_menu",
       "unknown",
       menu
-        ? unknownDetail("The profile", input.details?.observedAt, now)
-        : unknownDetail("The menu", input.menu?.observedAt, now),
+        ? unknownDetail(
+            input.details?.observedAt,
+            now,
+            "Open the profile to check services."
+          )
+        : unknownDetail(input.menu?.observedAt, now),
       menu
         ? { label: "Open profile", href: area("profile") }
         : { label: "Open menu", href: area("menu") }
     )
 
   // Attributes come only from the business-information read.
-  const attributesFix = profileFix("Fill in attributes")
+  const attributesFix = profileFix("Add attributes")
   if (!details)
     set(
       "attributes",
       "unknown",
-      unknownDetail("Attributes", input.details?.observedAt, now),
+      unknownDetail(input.details?.observedAt, now),
       attributesFix
     )
   else if (details.attributes > 0)
@@ -700,7 +712,7 @@ export function evaluateCompleteness(
     set(
       "attributes",
       "fail",
-      "No attributes set, such as dogs welcome, outdoor seating or step-free access.",
+      "None set yet, such as dogs welcome, outdoor seating or step-free access.",
       attributesFix
     )
 
@@ -708,12 +720,16 @@ export function evaluateCompleteness(
     const result = results.get(id)
     if (!result) throw new Error(`Completeness check not evaluated: ${id}`)
     const keepsFix = result.status === "fail" || result.status === "unknown"
+    const fix =
+      keepsFix && result.fix && result.status === "unknown"
+        ? { ...result.fix, label: openLabel(result.fix) }
+        : result.fix
     return {
       id,
       ...DEFINITIONS[id],
       status: result.status,
       detail: result.detail,
-      fix: keepsFix ? result.fix : null,
+      fix: keepsFix ? fix : null,
     }
   })
 }
@@ -748,15 +764,19 @@ export function scoreCompleteness(checks: readonly CompletenessCheck[]): {
   ) as CompletenessCounts
   let passed = 0
   let failed = 0
+  let unknown = 0
   for (const check of checks) {
     counts[check.status] += 1
     const weight = IMPORTANCE_WEIGHT[check.importance]
     if (check.status === "pass") passed += weight
     if (check.status === "fail") failed += weight
+    if (check.status === "unknown") unknown += weight
   }
   const known = passed + failed
+  const enough =
+    known > 0 && known >= COMPLETENESS_CONFIG.minKnownShare * (known + unknown)
   return {
-    score: known === 0 ? null : Math.round((100 * passed) / known),
+    score: enough ? Math.round((100 * passed) / known) : null,
     fixPoints: failed,
     counts,
   }
@@ -806,7 +826,7 @@ export function compareMostToFix(
 
 /** The score as the board shows it. */
 export function completenessLabel(score: number | null): string {
-  return score === null ? "Not known yet" : `${score}%`
+  return score === null ? "Not checked yet" : `${score}%`
 }
 
 export function completenessTone(score: number | null): StatusTone {
@@ -821,13 +841,14 @@ export function completenessSummary(
   completeness: Pick<ListingCompleteness, "counts" | "score">
 ): string {
   const { fail, unknown } = completeness.counts
-  if (completeness.score === null)
-    return unknown > 0
-      ? "Nothing has been read from Google recently enough to judge."
-      : "No checks apply."
-  const parts = [
-    fail === 0 ? "Nothing to fix" : `${plural(fail, "thing")} to fix`,
-  ]
-  if (unknown > 0) parts.push(`${unknown} not known yet`)
+  if (fail === 0 && unknown === 0 && completeness.score === null)
+    return "Every check is skipped or doesn’t apply."
+  const parts: string[] = []
+  if (fail > 0) parts.push(`${formatNumber(fail)} to fix`)
+  else if (completeness.score !== null)
+    parts.push(
+      unknown > 0 ? "Nothing to fix in what’s checked" : "Nothing to fix"
+    )
+  if (unknown > 0) parts.push(`${formatNumber(unknown)} not checked yet`)
   return parts.join(" · ")
 }
