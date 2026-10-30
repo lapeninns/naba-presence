@@ -265,6 +265,16 @@ export function areaState(
             : null,
       }
     }
+    // S2: the summary holds nothing about the review link yet; its page
+    // says whether it is live. INTEGRATION(S2): add a DB-only reviewLink
+    // status to the listing summary (Live / Switched off / Not set up / No
+    // review form yet) and say it here.
+    case "reviewLink":
+      return {
+        tone: "neutral",
+        label: "Link & QR code",
+        line: "For tables, receipts and till screens",
+      }
   }
 }
 

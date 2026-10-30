@@ -69,6 +69,20 @@ export function reviewLinkBaseUrl(request?: Request): string {
   )
 }
 
+/**
+ * The same for a server component, from its request headers, so the first
+ * paint and the API agree when NEXTAUTH_URL is unset (local development).
+ */
+export function reviewLinkBaseUrlFromHeaders(
+  headers: Pick<Headers, "get">
+): string {
+  const configured = getServerEnv().NEXTAUTH_URL
+  if (configured) return configured
+  const host = headers.get("x-forwarded-host") ?? headers.get("host")
+  const proto = headers.get("x-forwarded-proto") ?? "http"
+  return host ? `${proto}://${host}` : reviewLinkBaseUrl()
+}
+
 type ReviewLinkRow = {
   id: string
   code: string
@@ -212,12 +226,13 @@ export async function loadReviewLinkState(
 
 /** /listings/{id}/review-link: the state the page reads first. */
 export function reviewLinkTabPrefetch(
-  locationId: string
+  locationId: string,
+  baseUrl?: string
 ): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
       queryKey: reviewLinkQueryKeys.state(locationId),
-      load: () => loadReviewLinkState(session, locationId),
+      load: () => loadReviewLinkState(session, locationId, baseUrl),
     },
   ]
 }

@@ -14,6 +14,7 @@ import {
   UsersIcon,
   UtensilsIcon,
   type LucideIcon,
+  QrCodeIcon, // S2
 } from "lucide-react"
 
 import { ShellLink } from "@/components/app-shell/shell-link"
@@ -57,6 +58,7 @@ const AREA_ICON: Record<ListingAreaKey, LucideIcon> = {
   people: UsersIcon,
   verification: BadgeCheckIcon,
   suggestions: SparklesIcon,
+  reviewLink: QrCodeIcon, // S2
 }
 
 function AreaIcon({ area }: { area: ListingAreaKey }) {
@@ -285,9 +287,13 @@ function AreaCards({
                 ? "View"
                 : !summary ||
                     (synced && comparisonCheck(synced, now) !== "checked") ||
-                    ["photos", "posts", "people", "verification"].includes(
-                      area.key
-                    )
+                    [
+                      "photos",
+                      "posts",
+                      "people",
+                      "verification",
+                      "reviewLink",
+                    ].includes(area.key)
                   ? // "Check" belongs to the action that asks Google (DSK-15).
                     "Open"
                   : "Edit"
