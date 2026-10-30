@@ -101,14 +101,21 @@ export function postOfferEndDate(input: {
 /** Re-read comparison evidence in the caller's tenant transaction. */
 export async function storedReplyContentChecks(
   sql: TransactionSql,
-  input: { draftId: string; body: string; reviewText: string | null }
+  input: {
+    draftId?: string | null
+    reviewId?: string
+    body: string
+    reviewText: string | null
+  }
 ) {
   const [context] = await sql<
-    { reviewId: string; clientId: string | null; source: string }[]
+    { reviewId: string; clientId: string | null; source: string | null }[]
   >`
     select r.id::text as "reviewId", l.client_id::text as "clientId", d.source
-    from draft d join review r on r.id = d.review_id
-    join location l on l.id = r.location_id where d.id = ${input.draftId}
+    from review r join location l on l.id = r.location_id
+    left join draft d on d.id = ${input.draftId ?? null} and d.review_id = r.id
+    where r.id = coalesce(${input.reviewId ?? null}::uuid,
+      (select review_id from draft where id = ${input.draftId ?? null}))
   `
   const recent = context?.clientId
     ? await sql<{ body: string }[]>`

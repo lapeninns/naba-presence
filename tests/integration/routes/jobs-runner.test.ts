@@ -399,6 +399,27 @@ describeDatabase("durable background jobs", () => {
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
   })
 
+  it("blocks a legacy retry when current policy bans its text", async () => {
+    const subject = await fixture()
+    const attemptId = await seedPublishAttempt(
+      subject,
+      "retryable",
+      "A durable background retry."
+    )
+    await admin`update organisation set banned_phrases = array['durable background'] where id = ${subject.owner.organisationId}`
+    stub.reset()
+    const response = await runJobs()
+    expect(response.status, await response.clone().text()).toBe(200)
+    const [attempt] = await admin<
+      { status: string; provider_error_code: string }[]
+    >`
+      select status, provider_error_code from publish_attempt where id = ${attemptId}
+    `
+    expect(attempt.status).toBe("failed")
+    expect(attempt.provider_error_code).toBe("verification_required")
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+  })
+
   it("reclaims a webhook stranded in processing by a crashed worker", async () => {
     const subject = await fixture()
     healthyReviews()

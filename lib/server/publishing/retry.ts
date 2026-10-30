@@ -272,7 +272,7 @@ async function claimRetry(
   }
 
   if (precheck.operation === "publish") {
-    if (!precheck.draftId || precheck.intendedBody === null) {
+    if (precheck.intendedBody === null) {
       return failBeforeDispatch(
         sql,
         organisationId,
@@ -282,6 +282,7 @@ async function claimRetry(
     }
     const reasons = await storedReplyContentChecks(sql, {
       draftId: precheck.draftId,
+      reviewId: precheck.reviewId,
       body: precheck.intendedBody,
       reviewText: precheck.reviewText,
     })
