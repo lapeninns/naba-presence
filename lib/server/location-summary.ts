@@ -6,11 +6,13 @@ import {
   emptyListingSummary,
   type LastPublish,
   type ListingSummary,
+  type ReviewLinkSummary,
   type SyncStatus,
   type SyncedArea,
 } from "@/lib/contracts/location-summary"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { hashFoodMenus } from "@/lib/domain/food-menus"
+import { normaliseReviewTarget } from "@/lib/domain/review-link"
 import {
   hashHours,
   hoursPartHashes,
@@ -294,6 +296,42 @@ function toLastPublish(row: AttemptRow | undefined): LastPublish | null {
   return { at: new Date(row.at).toISOString(), status, area: row.area }
 }
 
+export type ReviewLinkRow = {
+  locationId: string
+  hasLink: boolean
+  switchedOff: boolean
+  targetUri: string | null
+  /** `metadata.newReviewUri` of the stored profile read, as stored. */
+  profileTarget: string | null
+  /** The same from the stored Business Information read. */
+  infoTarget: string | null
+}
+
+/**
+ * The review link's status, by the review link area's own rules
+ * (lib/server/review-links.ts `readReviewLinkState`): Google's review form
+ * is the profile read's, else Business Information's, each checked as a
+ * Google review address; the link's target has changed when both exist and
+ * differ.
+ */
+export function reviewLinkSummary(
+  row: ReviewLinkRow | undefined
+): ReviewLinkSummary {
+  const googleTarget =
+    normaliseReviewTarget(row?.profileTarget) ??
+    normaliseReviewTarget(row?.infoTarget)
+  if (!row?.hasLink) {
+    return {
+      status: googleTarget ? "not_set_up" : "no_review_form",
+      targetChanged: false,
+    }
+  }
+  return {
+    status: row.switchedOff ? "off" : "live",
+    targetChanged: Boolean(googleTarget && row.targetUri !== googleTarget),
+  }
+}
+
 /** Reconcile runs every 15 minutes; an hour is three missed runs. */
 const FRESHNESS_WINDOW_MS = 60 * 60 * 1000
 
@@ -409,6 +447,7 @@ export async function readListingSummaries(
     posts,
     suggestions,
     attempts,
+    reviewLinks,
   ] = await Promise.all([
     sql<CanonicalRow[]>`
         select
@@ -523,6 +562,26 @@ export async function readListingSummaries(
         where location_id = any(${idList}::uuid[])
         order by location_id, at desc
       `,
+    // The review link and Google's review form from the stored reads (the
+    // review link area's rules); one row per listing.
+    sql<ReviewLinkRow[]>`
+        select
+          l.id::text as "locationId",
+          (rl.id is not null) as "hasLink",
+          (rl.disabled_at is not null) as "switchedOff",
+          rl.target_uri as "targetUri",
+          p.observed_google_payload -> 'location' -> 'metadata' ->> 'newReviewUri'
+            as "profileTarget",
+          b.observed_google_payload -> 'location' -> 'metadata' ->> 'newReviewUri'
+            as "infoTarget"
+        from location l
+        left join review_link rl on rl.location_id = l.id
+        left join presence_resource_reconcile_state p
+          on p.location_id = l.id and p.resource = 'profile'
+        left join presence_resource_reconcile_state b
+          on b.location_id = l.id and b.resource = 'businessInformation'
+        where l.id = any(${idList}::uuid[])
+      `,
   ])
 
   const canonicalBy = new Map<string, CanonicalRow>()
@@ -544,6 +603,7 @@ export async function readListingSummaries(
   const bookingBy = new Map(booking.map((row) => [row.locationId, row.count]))
   const photosBy = new Map(photos.map((row) => [row.locationId, row.count]))
   const attemptBy = new Map(attempts.map((row) => [row.locationId, row]))
+  const reviewLinkBy = new Map(reviewLinks.map((row) => [row.locationId, row]))
   const postsBy = new Map<string, Record<string, number>>()
   for (const row of posts) {
     const counts = postsBy.get(row.locationId) ?? {}
@@ -593,7 +653,11 @@ export async function readListingSummaries(
     return {
       ...base,
       freshness: link.linked ? listingFreshness(link) : undefined,
-      lifecycleEnded: link.lifecycleEnded === "delete_location" || link.lifecycleEnded === "transfer_location" ? link.lifecycleEnded : null,
+      lifecycleEnded:
+        link.lifecycleEnded === "delete_location" ||
+        link.lifecycleEnded === "transfer_location"
+          ? link.lifecycleEnded
+          : null,
       connection: link.connectionStatus
         ? {
             status: link.connectionStatus,
@@ -631,6 +695,7 @@ export async function readListingSummaries(
           (row) => row.fieldKey === "mapsUrl"
         )?.mapsUrl
       ),
+      reviewLink: reviewLinkSummary(reviewLinkBy.get(link.locationId)),
     }
   })
 }

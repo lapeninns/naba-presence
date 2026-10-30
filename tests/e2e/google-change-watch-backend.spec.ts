@@ -7,10 +7,8 @@ import { startGoogleWatchBackend } from "./helpers/google-watch-backend"
 // on Google is shown as ours against Google's, put back through the reviewed
 // business-information change (approve, then publish) or the hours publish,
 // or kept as Google's, and settled by reading Google again. Nothing reaches
-// a real Google.
-//
-// INTEGRATION(S5): add `google-change-watch-backend` to the ISOLATED pattern
-// in playwright.config.ts so the shared suite skips this self-contained spec.
+// a real Google. Self-contained, so it is in playwright.config.ts's ISOLATED
+// pattern: the isolated suite runs it and the shared suite skips it.
 
 let backend: Awaited<ReturnType<typeof startGoogleWatchBackend>>
 test.beforeAll(async () => {

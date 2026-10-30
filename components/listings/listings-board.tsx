@@ -72,7 +72,7 @@ import {
   failingChecks,
   type ListingCompleteness,
 } from "@/lib/listings/completeness"
-import { useBoardCompleteness } from "@/lib/listings/completeness-query"
+import { useBoardCompleteness } from "@/lib/queries/use-listing-completeness"
 import { visibleFix } from "@/lib/listings/completeness-view"
 import { listingHref } from "@/lib/listings/areas"
 import { formatAddressLine } from "@/lib/locations/address"

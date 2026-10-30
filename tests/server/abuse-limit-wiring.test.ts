@@ -25,7 +25,12 @@ import { GET as discoverAccounts } from "@/app/api/google/accounts/route"
 import { GET as discoverLocations } from "@/app/api/google/locations/route"
 import { POST as impersonate } from "@/app/api/support/impersonation/route"
 import { POST as confirmEmail } from "@/app/auth/confirm/route"
-import { abuseLimitedError, takeAbuseBudget } from "@/lib/server/abuse-limits"
+import { GET as openReviewLink } from "@/app/r/[code]/route"
+import {
+  abuseLimitedError,
+  checkAbuseBudget,
+  takeAbuseBudget,
+} from "@/lib/server/abuse-limits"
 import { getDatabase } from "@/lib/server/db"
 import { verifyEmailToken } from "@/lib/server/password-auth"
 import type { RawParams, RouteHandler } from "@/lib/server/route"
@@ -47,6 +52,7 @@ vi.mock("@/lib/server/db", () => ({
 vi.mock("@/lib/server/abuse-limits", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/server/abuse-limits")>()),
   clientIpFromRequest: () => IP,
+  checkAbuseBudget: vi.fn(),
   takeAbuseBudget: vi.fn(),
 }))
 vi.mock("@/lib/server/password-auth", async (importOriginal) => ({
@@ -340,7 +346,10 @@ describe("POST /auth/confirm", () => {
     const response = await confirmEmail(
       new Request("http://localhost/auth/confirm", {
         method: "POST",
-        body: new URLSearchParams({ token_hash: "h".repeat(40), type: "email" }),
+        body: new URLSearchParams({
+          token_hash: "h".repeat(40),
+          type: "email",
+        }),
       })
     )
     expect(takeAbuseBudget).toHaveBeenCalledWith("confirm_email", { ip: IP })
@@ -348,5 +357,23 @@ describe("POST /auth/confirm", () => {
     const location = new URL(response.headers.get("location")!)
     expect(location.pathname).toBe("/sign-in")
     expect(location.searchParams.get("status")).toBe("auth_rate_limited")
+  })
+})
+
+describe("GET /r/[code] (public review link)", () => {
+  it("counts each open against review_link per IP, and answers 429 for an unknown code over it", async () => {
+    vi.mocked(checkAbuseBudget).mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 42,
+    })
+    // Not a code at all, so it resolves to nothing without a database read.
+    const response = await openReviewLink(
+      new Request("http://localhost/r/not-a-code"),
+      { params: Promise.resolve({ code: "not-a-code" }) }
+    )
+    expect(checkAbuseBudget).toHaveBeenCalledTimes(1)
+    expect(checkAbuseBudget).toHaveBeenCalledWith("review_link", { ip: IP })
+    expect(response.status).toBe(429)
+    expect(response.headers.get("retry-after")).toBe("42")
   })
 })

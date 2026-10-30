@@ -9,6 +9,7 @@ import {
   seedGoogleConnection,
   seedLinkedLocation,
   seedLinkedReview,
+  seedMemberUser,
 } from "../helpers/tenant"
 
 const describeDatabase =
@@ -159,6 +160,95 @@ describeDatabase("Content checks at save and publish", () => {
     const [stored] =
       await admin`select status from gbp_local_post where id = ${post.id}`
     expect(stored.status).toBe("draft")
+  })
+
+  it("lets an approver acknowledge refreshed warnings after a policy change, and records it (S4)", async () => {
+    const f = await fixture()
+    const name = `${f.linked.googleLocationName}/localPosts/approved`
+    let live: Record<string, unknown> | null = null
+    google.respond({ method: "POST", pathIncludes: "/localPosts" }, (call) => {
+      live = { name, state: "LIVE", ...(call.body as object) }
+      return { status: 200, json: live }
+    })
+    google.respond({ method: "GET", pathIncludes: "/localPosts/" }, () => ({
+      status: 200,
+      json: live ?? {},
+    }))
+    const author = await seedMemberUser(admin, {
+      organisationId: f.owner.organisationId,
+      canPublish: false,
+    })
+    const as = (cookie: string, path: string, body: unknown) =>
+      fetch(`${f.root}${path}`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    const draft = {
+      topicType: "STANDARD",
+      languageCode: "en-GB",
+      summary: "Quiz night tonight!!!",
+      media: [],
+    }
+    const warned = await as(author.cookie, "/posts", draft)
+    expect(warned.status, await warned.clone().text()).toBe(409)
+    const authorConsent = (await warned.json()).details
+      .contentWarningAcknowledgement as string
+    const saved = await as(author.cookie, "/posts", {
+      ...draft,
+      contentWarningAcknowledgement: authorConsent,
+    })
+    expect(saved.status, await saved.clone().text()).toBe(201)
+    const { post } = (await saved.json()) as { post: { id: string } }
+    const requested = await as(author.cookie, `/posts/${post.id}/publish`, {})
+    expect(requested.status, await requested.clone().text()).toBe(202)
+    expect(await requested.json()).toMatchObject({
+      status: "awaiting_approval",
+    })
+    const [{ revision }] = await admin<{ revision: number }[]>`
+      select content_revision::integer as revision from gbp_local_post where id = ${post.id}`
+
+    // The policy changes while the post waits: the author's consent no
+    // longer names it, so approving asks the approver for their own.
+    await admin`update organisation set banned_phrases = ARRAY['valued customer'] where id = ${f.owner.organisationId}`
+    const approve = (contentWarningAcknowledgement?: string) =>
+      as(f.owner.cookie, `/posts/${post.id}/approval`, {
+        decision: "approve",
+        expectedRevision: revision,
+        contentWarningAcknowledgement,
+      })
+    const refused = await approve()
+    expect(refused.status, await refused.clone().text()).toBe(409)
+    const { details } = (await refused.json()) as {
+      details: {
+        contentWarningAcknowledgement: string
+        reasons: { code: string; severity: string }[]
+      }
+    }
+    expect(details.reasons).toEqual([
+      expect.objectContaining({
+        code: "content_punctuation",
+        severity: "warn",
+      }),
+    ])
+    expect(details.contentWarningAcknowledgement).not.toBe(authorConsent)
+    // The author's stale consent is no approval's consent either.
+    expect((await approve(authorConsent)).status).toBe(409)
+    expect(google.calls.filter((call) => call.method === "POST")).toEqual([])
+    const [stillWaiting] =
+      await admin`select status from gbp_local_post where id = ${post.id}`
+    expect(stillWaiting.status).toBe("awaiting_approval")
+
+    const approved = await approve(details.contentWarningAcknowledgement)
+    expect(approved.status, await approved.clone().text()).toBe(200)
+    expect(await approved.json()).toMatchObject({ status: "published" })
+    expect(google.calls.filter((call) => call.method === "POST")).toHaveLength(
+      1
+    )
+    const [audit] = await admin<{ metadata: Record<string, unknown> }[]>`
+      select metadata from audit_log
+      where organisation_id = ${f.owner.organisationId} and action = 'post.approval.approved'`
+    expect(audit.metadata).toMatchObject({ contentWarningsAcknowledged: true })
   })
 
   it("checks a description at save and rechecks a saved description before publishing", async () => {

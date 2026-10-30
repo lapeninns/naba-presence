@@ -41,12 +41,7 @@ import { log } from "@/lib/server/logger"
  */
 
 export type AbuseKeyKind =
-  | "ip"
-  | "email"
-  | "user"
-  | "token"
-  | "organisation"
-  | "account"
+  "ip" | "email" | "user" | "token" | "organisation" | "account"
 
 type Window = { limit: number; windowSeconds: number }
 
@@ -151,6 +146,13 @@ export const ABUSE_POLICIES = {
   },
   // Viewers of a shared report reload it; probers walk tokens.
   report_share: {
+    code: "auth_rate_limited",
+    ip: { limit: 120, windowSeconds: MINUTES_15 },
+  },
+  // Public review links (/r/<code>), counted per open. Over budget a live
+  // code still redirects, uncounted (a pub's guests share one Wi-Fi
+  // address); an unknown code gets a "try again" page (lib/server/review-links.ts).
+  review_link: {
     code: "auth_rate_limited",
     ip: { limit: 120, windowSeconds: MINUTES_15 },
   },

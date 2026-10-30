@@ -24,7 +24,7 @@ import { useToastManager } from "@/components/ui/toast"
 import { describeActionError } from "@/lib/errors/action-errors"
 import type { CompletenessCheck } from "@/lib/listings/completeness"
 import { completenessSkipInputSchema } from "@/lib/listings/completeness-contract"
-import { useCompletenessSkipMutations } from "@/lib/listings/completeness-query"
+import { useCompletenessSkipMutations } from "@/lib/queries/use-listing-completeness"
 
 /**
  * Stop one completeness check counting for a listing, with the reason an

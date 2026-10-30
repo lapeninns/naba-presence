@@ -19,7 +19,7 @@ import {
   useCreateReviewLink,
   useReviewLink,
   useUpdateReviewLink,
-} from "@/components/listings/review-link-queries"
+} from "@/lib/queries/use-review-link"
 import { ReviewLinkStats } from "@/components/listings/review-link-stats"
 import { TabError, TabLoading } from "@/components/locations/tab-states"
 import {

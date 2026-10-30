@@ -27,7 +27,7 @@ import {
 import {
   useCompletenessSkipMutations,
   useListingCompleteness,
-} from "@/lib/listings/completeness-query"
+} from "@/lib/queries/use-listing-completeness"
 import { importanceLabel, visibleFix } from "@/lib/listings/completeness-view"
 import { formatDay } from "@/lib/settings/roles"
 import { cn } from "@/lib/utils"

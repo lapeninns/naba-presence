@@ -14,6 +14,7 @@ import {
   CONDITION_KINDS,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENT_KINDS,
+  type NotificationEventKind,
 } from "@/lib/domain/notification-preferences"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
@@ -63,12 +64,30 @@ function decodeCursor(value: string | undefined) {
 }
 
 /**
- * Whether the answer may name the addressed kinds (0149). A browser still on
- * a build from before them rejects any answer that does, so they go only to
- * a client that says it reads them (lib/contracts/client-capabilities.ts);
- * everyone else gets the shape they already know, without those rows.
+ * Whether the answer may name the addressed kinds (0149), and the kinds
+ * added after them: the topic alert (S3) and the Google change watch (0155).
+ * A browser still on a build from before them rejects any answer that does,
+ * so they go only to a client that says it reads them
+ * (lib/contracts/client-capabilities.ts: `notification-kinds-2`,
+ * `notification-kinds-3`); everyone else gets the shape they already know,
+ * without those rows.
  */
-export type NotificationReadOptions = { addressedKinds?: boolean }
+export type NotificationReadOptions = {
+  addressedKinds?: boolean
+  kinds3?: boolean
+}
+
+/** Sent only to a client that declares `notification-kinds-3`. */
+const KINDS_3: readonly NotificationEventKind[] = [
+  "review_topic_negative",
+  "listing_google_changed",
+]
+
+/** Every kind: for checks that only narrow what the viewer may touch. */
+const ALL_NOTIFICATION_KINDS: NotificationReadOptions = {
+  addressedKinds: true,
+  kinds3: true,
+}
 
 /**
  * What this viewer may see: account incidents for owners/admins, location
@@ -79,13 +98,14 @@ export type NotificationReadOptions = { addressedKinds?: boolean }
 function scopePredicate(
   sql: Parameters<Parameters<typeof withTenant>[1]>[0],
   session: Session,
-  { addressedKinds = false }: NotificationReadOptions = {}
+  { addressedKinds = false, kinds3 = false }: NotificationReadOptions = {}
 ) {
+  const later = kinds3 ? sql`` : sql` and i.kind not in ${sql([...KINDS_3])}`
   const addressed = addressedKinds
-    ? sql`(i.kind not in ${sql([...ADDRESSED_KINDS])} or exists (
+    ? sql`((i.kind not in ${sql([...ADDRESSED_KINDS])} or exists (
     select 1 from notification_incident_recipient nr
-    where nr.incident_id = i.id and nr.user_id = ${session.userId}))`
-    : sql`i.kind not in ${sql([...ADDRESSED_KINDS])}`
+    where nr.incident_id = i.id and nr.user_id = ${session.userId}))${later})`
+    : sql`(i.kind not in ${sql([...ADDRESSED_KINDS])}${later})`
   if (isManagerialRole(session.role)) return addressed
   return sql`(i.location_id is not null and i.kind not in ${sql([...ACCOUNT_SCOPED_KINDS])}
     and ${addressed}
@@ -122,27 +142,31 @@ export async function listNotifications(
       ? await sql<{ openedAt: string }[]>`
       select to_char(opened_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "openedAt" from notification_incident where id = ${last.id}`
       : []
-    return parseStored(notificationListResponseSchema, {
-      items: visible.map((row) => ({
-        ...row,
-        kind: row.kind,
-        openedAt: row.openedAt.toISOString(),
-        lastSeenAt: row.lastSeenAt.toISOString(),
-        resolvedAt: row.resolvedAt?.toISOString() ?? null,
-        readAt: row.readAt?.toISOString() ?? null,
-        canResolve:
-          isManagerialRole(session.role) &&
-          row.status === "open" &&
-          !(CONDITION_KINDS as readonly string[]).includes(row.kind),
-      })),
-      nextCursor:
-        rows.length > query.limit && last && precise
-          ? Buffer.from(
-              JSON.stringify({ openedAt: precise.openedAt, id: last.id })
-            ).toString("base64url")
-          : null,
-      unreadCount: unread?.count ?? 0,
-    }, "notification.list")
+    return parseStored(
+      notificationListResponseSchema,
+      {
+        items: visible.map((row) => ({
+          ...row,
+          kind: row.kind,
+          openedAt: row.openedAt.toISOString(),
+          lastSeenAt: row.lastSeenAt.toISOString(),
+          resolvedAt: row.resolvedAt?.toISOString() ?? null,
+          readAt: row.readAt?.toISOString() ?? null,
+          canResolve:
+            isManagerialRole(session.role) &&
+            row.status === "open" &&
+            !(CONDITION_KINDS as readonly string[]).includes(row.kind),
+        })),
+        nextCursor:
+          rows.length > query.limit && last && precise
+            ? Buffer.from(
+                JSON.stringify({ openedAt: precise.openedAt, id: last.id })
+              ).toString("base64url")
+            : null,
+        unreadCount: unread?.count ?? 0,
+      },
+      "notification.list"
+    )
   })
 }
 
@@ -154,7 +178,7 @@ export async function markNotificationsRead(
 ) {
   return withTenant(session.organisationId, async (sql) => {
     const visible = await sql<{ id: string }[]>`
-      select i.id::text as id from notification_incident i where i.id in ${sql(incidentIds)} and ${scopePredicate(sql, session, { addressedKinds: true })}`
+      select i.id::text as id from notification_incident i where i.id in ${sql(incidentIds)} and ${scopePredicate(sql, session, ALL_NOTIFICATION_KINDS)}`
     const ids = visible.map((row) => row.id)
     if (!ids.length) return { updated: 0 }
     if (read) {
@@ -217,7 +241,7 @@ export async function resolveNotification(
 
 export async function readNotificationPreferences(
   session: Session,
-  { addressedKinds = false }: NotificationReadOptions = {}
+  { addressedKinds = false, kinds3 = false }: NotificationReadOptions = {}
 ) {
   return withTenant(session.organisationId, async (sql) => {
     const member = (await loadNotificationMembers(sql)).get(session.userId)
@@ -229,24 +253,30 @@ export async function readNotificationPreferences(
       )
     const preferences = await loadPreferences(sql, [session.userId])
     const explicit = new Set(preferences.keys())
-    return parseStored(notificationPreferencesResponseSchema, {
-      emailConfigured: emailConfigured(),
-      // Account incidents are for owners and admins, and a viewer neither
-      // asks for approval nor gives it; others get no choice to make.
-      preferences: NOTIFICATION_EVENT_KINDS.filter(
-        (kind) =>
-          (isManagerialRole(member.role) || !ACCOUNT_SCOPED_KINDS.includes(kind)) &&
-          ((addressedKinds && member.role !== "viewer") ||
-            !ADDRESSED_KINDS.includes(kind))
-      ).flatMap((kind) =>
-        NOTIFICATION_CHANNELS.map((channel) => ({
-          kind,
-          channel,
-          mode: effectiveMode(preferences, member, kind, channel),
-          explicit: explicit.has(`${session.userId}:${kind}:${channel}`),
-        }))
-      ),
-    }, "notification.preferences")
+    return parseStored(
+      notificationPreferencesResponseSchema,
+      {
+        emailConfigured: emailConfigured(),
+        // Account incidents are for owners and admins, and a viewer neither
+        // asks for approval nor gives it; others get no choice to make.
+        preferences: NOTIFICATION_EVENT_KINDS.filter(
+          (kind) =>
+            (isManagerialRole(member.role) ||
+              !ACCOUNT_SCOPED_KINDS.includes(kind)) &&
+            ((addressedKinds && member.role !== "viewer") ||
+              !ADDRESSED_KINDS.includes(kind)) &&
+            (kinds3 || !KINDS_3.includes(kind))
+        ).flatMap((kind) =>
+          NOTIFICATION_CHANNELS.map((channel) => ({
+            kind,
+            channel,
+            mode: effectiveMode(preferences, member, kind, channel),
+            explicit: explicit.has(`${session.userId}:${kind}:${channel}`),
+          }))
+        ),
+      },
+      "notification.preferences"
+    )
   })
 }
 

@@ -265,15 +265,52 @@ export function areaState(
             : null,
       }
     }
-    // S2: the summary holds nothing about the review link yet; its page
-    // says whether it is live. INTEGRATION(S2): add a DB-only reviewLink
-    // status to the listing summary (Live / Switched off / Not set up / No
-    // review form yet) and say it here.
     case "reviewLink":
+      return reviewLinkState(summary.reviewLink)
+  }
+}
+
+/**
+ * The review link's status from the summary (DB-only). An older cached
+ * summary without it keeps the plain label.
+ */
+function reviewLinkState(link: ListingSummary["reviewLink"]): AreaState {
+  if (!link)
+    return {
+      tone: "neutral",
+      label: "Link & QR code",
+      line: "For tables, receipts and till screens",
+    }
+  switch (link.status) {
+    case "live":
+      return link.targetChanged
+        ? {
+            tone: "attention",
+            label: "Check the address",
+            line: "Google changed its review form address",
+          }
+        : {
+            tone: "healthy",
+            label: "Live",
+            line: "For tables, receipts and till screens",
+          }
+    case "off":
       return {
         tone: "neutral",
-        label: "Link & QR code",
-        line: "For tables, receipts and till screens",
+        label: "Switched off",
+        line: "Scans and taps show a “not working” page",
+      }
+    case "not_set_up":
+      return {
+        tone: "neutral",
+        label: "Not set up",
+        line: "Make a link and QR code for tables, receipts and till screens",
+      }
+    case "no_review_form":
+      return {
+        tone: "neutral",
+        label: "No review form yet",
+        line: "Google hasn’t given a review link yet",
       }
   }
 }

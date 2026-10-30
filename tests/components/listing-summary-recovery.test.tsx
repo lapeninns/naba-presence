@@ -12,6 +12,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/listings/completeness-card", () => ({
   CompletenessCard: () => null,
 }))
+// So is the Google changes badge (S5).
+vi.mock("@/components/listings/google-changes-badge", () => ({
+  GoogleChangesBadge: () => null,
+}))
 vi.mock("next/link", () => ({
   default: ({
     href,

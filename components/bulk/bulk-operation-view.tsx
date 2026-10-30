@@ -136,6 +136,11 @@ const REASON: Record<string, string> = {
   media_needs_resolution:
     "Google didn’t confirm the photo; check the listing’s photos and resolve it there",
   media_create_in_progress: "This photo is still being added to Google",
+  // Post drafts: content checks run again as each listing's draft is made.
+  content_checks_failed:
+    "Not drafted: the post no longer passes the content checks; edit it and prepare a new preview",
+  content_warning_acknowledgement_required:
+    "Not drafted: its content warnings changed after the preview; prepare a new preview and acknowledge them",
   // Review replies (P09-R8).
   submitted_for_approval: "Submitted for approval; nothing sent to Google yet",
   approval_withdrawn:

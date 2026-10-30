@@ -130,6 +130,20 @@ describe("notification answers and older clients", () => {
         "notification-kinds-2"
       )
     ).toBe(true)
+    // S5: the Google change watch kind (0155) has its own capability; a
+    // build that only reads the approval kinds does not get it.
+    expect(
+      requestHasCapability(
+        request("notification-kinds-2"),
+        "notification-kinds-3"
+      )
+    ).toBe(false)
+    expect(
+      requestHasCapability(
+        { headers: new Headers(clientCapabilityHeaders()) },
+        "notification-kinds-3"
+      )
+    ).toBe(true)
   })
 
   it("declares the capability on every read whose answer can name the new kinds", async () => {
@@ -163,6 +177,10 @@ describe("notification answers and older clients", () => {
     for (const [path, headers] of seen) {
       expect(
         requestHasCapability({ headers }, "notification-kinds-2"),
+        path
+      ).toBe(true)
+      expect(
+        requestHasCapability({ headers }, "notification-kinds-3"),
         path
       ).toBe(true)
     }

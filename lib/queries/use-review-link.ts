@@ -7,21 +7,19 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 
-import { apiFetch, type RequestOptions } from "@/lib/api/client"
 import { fetchBusinessInformation } from "@/lib/api/location-business-information"
-import type { ReviewLinkPeriod } from "@/lib/domain/review-link"
 import {
-  reviewLinkQueryKeys,
-  reviewLinkResponseSchema,
-  reviewLinkStatsResponseSchema,
-  type ReviewLinkAction,
-  type ReviewLinkState,
-  type ReviewLinkStats,
+  createReviewLink,
+  fetchReviewLink,
+  fetchReviewLinkStats,
+  updateReviewLink,
+} from "@/lib/api/review-links"
+import type { ReviewLinkPeriod } from "@/lib/domain/review-link"
+import type {
+  ReviewLinkAction,
+  ReviewLinkState,
 } from "@/lib/domain/review-link-contract"
-import { queryKeys } from "@/lib/queries/keys"
-
-// INTEGRATION(S2): these fetchers and hooks belong in lib/api/review-links.ts
-// and lib/queries/use-review-link.ts, outside this stream's files.
+import { queryKeys } from "./keys"
 
 /**
  * The review link area's data: the link's state (DB-only), its stats, and
@@ -29,63 +27,52 @@ import { queryKeys } from "@/lib/queries/keys"
  * cached one.
  */
 
-const path = (locationId: string) => `/api/locations/${locationId}/review-link`
-
-export function fetchReviewLink(
-  locationId: string,
-  options?: RequestOptions
-): Promise<ReviewLinkState> {
-  return apiFetch(path(locationId), {
-    schema: reviewLinkResponseSchema,
-    ...options,
-  }).then((response) => response.reviewLink)
-}
-
 export function useReviewLink(locationId: string) {
   return useQuery({
-    queryKey: reviewLinkQueryKeys.state(locationId),
+    queryKey: queryKeys.reviewLink(locationId),
     queryFn: ({ signal }) => fetchReviewLink(locationId, { signal }),
   })
 }
 
 export function useReviewLinkStats(locationId: string, days: ReviewLinkPeriod) {
-  return useQuery<ReviewLinkStats>({
-    queryKey: reviewLinkQueryKeys.stats(locationId, days),
-    queryFn: ({ signal }) =>
-      apiFetch(`${path(locationId)}/stats?days=${days}`, {
-        schema: reviewLinkStatsResponseSchema,
-        signal,
-      }).then((response) => response.stats),
+  return useQuery({
+    queryKey: queryKeys.reviewLinkStats(locationId, days),
+    queryFn: ({ signal }) => fetchReviewLinkStats(locationId, days, { signal }),
     // Switching period keeps the last figures on screen until the new ones land.
     placeholderData: keepPreviousData,
   })
 }
 
-export function useCreateReviewLink(locationId: string) {
+/**
+ * The listing summary carries the link's status (the overview's area card),
+ * so a write refreshes it as well as replacing the link's own state.
+ */
+function useApplyReviewLinkState(locationId: string) {
   const client = useQueryClient()
+  return (state: ReviewLinkState) => {
+    client.setQueryData(queryKeys.reviewLink(locationId), state)
+    void client.invalidateQueries({
+      queryKey: queryKeys.listingSummary(locationId),
+    })
+    void client.invalidateQueries({ queryKey: queryKeys.listingSummaries })
+  }
+}
+
+export function useCreateReviewLink(locationId: string) {
+  const apply = useApplyReviewLinkState(locationId)
   return useMutation({
     mutationFn: (input: { caption?: string | null }) =>
-      apiFetch(path(locationId), {
-        method: "POST",
-        body: input,
-        schema: reviewLinkResponseSchema,
-      }).then((response) => response.reviewLink),
-    onSuccess: (state) =>
-      client.setQueryData(reviewLinkQueryKeys.state(locationId), state),
+      createReviewLink(locationId, input),
+    onSuccess: apply,
   })
 }
 
 export function useUpdateReviewLink(locationId: string) {
-  const client = useQueryClient()
+  const apply = useApplyReviewLinkState(locationId)
   return useMutation({
     mutationFn: (action: ReviewLinkAction) =>
-      apiFetch(path(locationId), {
-        method: "PATCH",
-        body: action,
-        schema: reviewLinkResponseSchema,
-      }).then((response) => response.reviewLink),
-    onSuccess: (state) =>
-      client.setQueryData(reviewLinkQueryKeys.state(locationId), state),
+      updateReviewLink(locationId, action),
+    onSuccess: apply,
   })
 }
 
@@ -113,7 +100,7 @@ export function useCheckGoogleForReviewForm(locationId: string) {
       void client.invalidateQueries({ queryKey: queryKeys.listingSummaries })
       void client.invalidateQueries({ queryKey: queryKeys.clientsAll })
       // A fetch already in flight may predate the read: cancel it and read again.
-      const key = reviewLinkQueryKeys.state(locationId)
+      const key = queryKeys.reviewLink(locationId)
       await client.refetchQueries({ queryKey: key, exact: true })
       return (
         client.getQueryData<ReviewLinkState>(key) ??

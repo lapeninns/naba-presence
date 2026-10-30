@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { useReviewLinkStats } from "@/components/listings/review-link-queries"
+import { useReviewLinkStats } from "@/lib/queries/use-review-link"
 import { ReportBarChart } from "@/components/reporting/report-bar-chart"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import {

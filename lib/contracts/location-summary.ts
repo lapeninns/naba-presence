@@ -44,12 +44,28 @@ export const lastPublishSchema = z.object({
 })
 export type LastPublish = z.infer<typeof lastPublishSchema>
 
+export const REVIEW_LINK_SUMMARY_STATUSES = [
+  "live",
+  "off",
+  "not_set_up",
+  "no_review_form",
+] as const
+
+export const reviewLinkSummarySchema = z.object({
+  status: z.enum(REVIEW_LINK_SUMMARY_STATUSES),
+  targetChanged: z.boolean(),
+})
+export type ReviewLinkSummary = z.infer<typeof reviewLinkSummarySchema>
+
 export const listingSummarySchema = z.object({
   locationId: z.string(),
   linked: z.boolean(),
   verified: z.boolean(),
   /** A confirmed deletion, or a transfer not relinked here: no longer managed by this account. */
-  lifecycleEnded: z.enum(["delete_location", "transfer_location"]).nullable().optional(),
+  lifecycleEnded: z
+    .enum(["delete_location", "transfer_location"])
+    .nullable()
+    .optional(),
   connection: z
     .object({
       status: z.enum(["active", "expired", "revoked", "error", "disconnected"]),
@@ -106,6 +122,14 @@ export const listingSummarySchema = z.object({
    * an older cached response still parses.
    */
   mapsUrl: z.string().nullable().optional(),
+  /**
+   * The listing's review link (/r/<code>), from the database: `live`,
+   * switched `off`, `not_set_up` (Google has given a review form, so one can
+   * be made) or `no_review_form` (no stored Google read has one yet).
+   * `targetChanged`: Google's review form has moved since the link was
+   * pointed at it. Optional so an older cached response still parses.
+   */
+  reviewLink: reviewLinkSummarySchema.optional(),
 })
 export type ListingSummary = z.infer<typeof listingSummarySchema>
 

@@ -13,10 +13,17 @@
  *                          (`approval_requested`, `reply_sent_back`, 0149)
  *                          in the notification list, the shell's poll and
  *                          notification preferences.
+ *   notification-kinds-3   the topic alert (`review_topic_negative`, S3)
+ *                          and the Google change watch kind
+ *                          (`listing_google_changed`, 0155) in the same
+ *                          three answers.
  */
 export const CLIENT_CAPABILITIES_HEADER = "x-naba-capabilities"
 
-export const CLIENT_CAPABILITIES = ["notification-kinds-2"] as const
+export const CLIENT_CAPABILITIES = [
+  "notification-kinds-2",
+  "notification-kinds-3",
+] as const
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[number]
 
 /** The header this build sends: every capability it has. */

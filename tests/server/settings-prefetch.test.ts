@@ -254,7 +254,10 @@ describe("readers", () => {
     const out = await readNotificationPreferences(owner)
     // Rendered for this build's own client, which reads the approval kinds
     // (lib/contracts/client-capabilities.ts).
-    expect(load).toHaveBeenLastCalledWith(owner, { addressedKinds: true })
+    expect(load).toHaveBeenLastCalledWith(owner, {
+      addressedKinds: true,
+      kinds3: true,
+    })
     expect(notificationPreferencesResponseSchema.safeParse(out).success).toBe(
       true
     )

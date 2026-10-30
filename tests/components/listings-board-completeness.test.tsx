@@ -21,7 +21,7 @@ vi.mock("@/lib/navigation/shallow-url", () => ({
   replaceUrl: (href: string) => replace(href),
   pushUrl: (href: string) => push(href),
 }))
-vi.mock("@/lib/listings/completeness-query", () => ({
+vi.mock("@/lib/queries/use-listing-completeness", () => ({
   useBoardCompleteness: () => ({ data: boardCompleteness, isPending: false }),
 }))
 vi.mock("next/link", () => ({

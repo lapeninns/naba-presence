@@ -2,6 +2,7 @@
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowLeftRight,
   BadgeCheck,
   Bell,
   BellOffIcon,
@@ -104,11 +105,18 @@ const KIND_ICONS: Partial<Record<NotificationEventKind, LucideIcon>> = {
   resource_stale: RefreshCw,
   // S3
   review_topic_negative: MessageSquareWarning,
+  // S5
+  listing_google_changed: ArrowLeftRight,
 }
 
-/** S3: a topic alert opens a filtered list of reviews, not one review. */
+/**
+ * S3: a topic alert opens a filtered list of reviews, not one review. S5: a
+ * listing changed on Google opens its Suggested updates tab.
+ */
 function reviewsLabel(kind: NotificationEventKind): string {
-  return kind === "review_topic_negative" ? "Open reviews" : "Open review"
+  if (kind === "review_topic_negative") return "Open reviews"
+  if (kind === "listing_google_changed") return "Open suggested updates"
+  return "Open review"
 }
 
 /**

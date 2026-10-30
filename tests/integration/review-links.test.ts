@@ -379,15 +379,69 @@ describeDatabase("review links", () => {
     expect(ninety.totals.clicks).toBe(4)
   })
 
+  it("puts the link's status in the listing summary, from the database alone", async () => {
+    const t = await tenant()
+    const { withTenant } = await modules()
+    const { readListingSummaries } =
+      await import("@/lib/server/location-summary")
+    const statusOf = async (locationId: string) => {
+      const [summary] = await withTenant(t.organisationId, (sql) =>
+        readListingSummaries(sql, sessionOf(t), [locationId])
+      )
+      return summary?.reviewLink
+    }
+    const noForm = await locationWithTarget(t, null)
+    expect(await statusOf(noForm)).toEqual({
+      status: "no_review_form",
+      targetChanged: false,
+    })
+    const locationId = await locationWithTarget(t)
+    expect(await statusOf(locationId)).toEqual({
+      status: "not_set_up",
+      targetChanged: false,
+    })
+    await create(t, locationId)
+    expect(await statusOf(locationId)).toEqual({
+      status: "live",
+      targetChanged: false,
+    })
+    // Google moves its review form: the stored read changes, the link doesn't.
+    await admin`
+      update presence_resource_reconcile_state
+      set observed_google_payload = ${admin.json({
+        observedAt: new Date().toISOString(),
+        location: { metadata: { newReviewUri: `${TARGET}-moved` } },
+      })}
+      where location_id = ${locationId} and resource = 'profile'
+    `
+    expect(await statusOf(locationId)).toEqual({
+      status: "live",
+      targetChanged: true,
+    })
+    await update(t, locationId, { action: "disable" })
+    expect(await statusOf(locationId)).toEqual({
+      status: "off",
+      targetChanged: true,
+    })
+    // The board's read (no ids) carries it too.
+    const all = await withTenant(t.organisationId, (sql) =>
+      readListingSummaries(sql, sessionOf(t))
+    )
+    expect(
+      all.find((summary) => summary.locationId === noForm)?.reviewLink?.status
+    ).toBe("no_review_form")
+  })
+
   it("takes the public budget per client IP and refuses past the limit", async () => {
-    const { takeReviewLinkBudget, REVIEW_LINK_IP_LIMIT } = await modules()
+    const { takeReviewLinkBudget } = await modules()
+    const { ABUSE_POLICIES } = await import("@/lib/server/abuse-limits")
     const ip = `198.51.100.${Math.floor(Math.random() * 200) + 1}`
     const request = () =>
       new Request(`${BASE}/r/abcdefghjk`, {
         headers: { "x-test-client-ip": ip },
       })
     try {
-      for (let hit = 0; hit < REVIEW_LINK_IP_LIMIT.limit; hit += 1) {
+      for (let hit = 0; hit < ABUSE_POLICIES.review_link.ip.limit; hit += 1) {
         expect((await takeReviewLinkBudget(request())).allowed).toBe(true)
       }
       const refused = await takeReviewLinkBudget(request())

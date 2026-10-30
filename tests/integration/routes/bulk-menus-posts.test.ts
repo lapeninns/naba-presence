@@ -725,6 +725,98 @@ describeDatabase("bulk menus and post drafts", { timeout: 60_000 }, () => {
     ).toHaveLength(0)
   })
 
+  it("asks for a post draft's content-warning consent at preview, carries it into each draft, and rechecks it per child (S4)", async () => {
+    const t = await tenant(2)
+    const summary = "Quiz night on Thursday!!!"
+    const draft = (contentWarningAcknowledgement?: string) => ({
+      operation: "post_draft",
+      post: {
+        topicType: "STANDARD",
+        summary,
+        ...(contentWarningAcknowledgement
+          ? { contentWarningAcknowledgement }
+          : {}),
+      },
+    })
+    const ask = (items: unknown[]) =>
+      t.api("/preview", {
+        locationIds: t.linked.map((entry) => entry.locationId),
+        items,
+      })
+    // A fail refuses the whole preview; no consent can pass it.
+    const failed = await ask([
+      {
+        operation: "post_draft",
+        post: { topicType: "STANDARD", summary: "See www.example.com" },
+      },
+    ])
+    expect(failed.status, await failed.clone().text()).toBe(422)
+    expect(await failed.json()).toMatchObject({
+      error: "content_checks_failed",
+      details: { item: 0 },
+    })
+    // A warning names the change and the consent token to acknowledge.
+    const warned = await ask([draft()])
+    expect(warned.status, await warned.clone().text()).toBe(409)
+    const body = (await warned.json()) as {
+      error: string
+      details: {
+        item: number
+        contentWarningAcknowledgement: string
+        reasons: { code: string; severity: string }[]
+      }
+    }
+    expect(body.error).toBe("content_warning_acknowledgement_required")
+    expect(body.details.item).toBe(0)
+    expect(body.details.reasons).toEqual([
+      expect.objectContaining({
+        code: "content_punctuation",
+        severity: "warn",
+      }),
+    ])
+    const token = body.details.contentWarningAcknowledgement
+    // A consent for other text is not this post's consent.
+    const other = await ask([
+      { ...draft(token), post: { ...draft(token).post, summary: "Bingo!!!" } },
+    ])
+    expect(other.status).toBe(409)
+    expect(
+      await admin`select 1 from bulk_listing_operation where organisation_id = ${t.owner.organisationId}`
+    ).toHaveLength(0)
+
+    const op = await t.preview([draft(token)])
+    await t.run(op)
+    await tick()
+    expect((await t.status(op)).status).toBe("completed")
+    const posts = await admin<{ consent: string | null }[]>`
+      select content_warning_acknowledgement as consent from gbp_local_post
+      where organisation_id = ${t.owner.organisationId}`
+    expect(posts).toHaveLength(2)
+    for (const post of posts) expect(post.consent).toBe(token)
+
+    // The policy changes between preview and execution: each child's draft
+    // insert rechecks the consent and refuses, with nothing drafted.
+    const stale = await t.preview([draft(token)])
+    await admin`update organisation set banned_phrases = ARRAY['valued customer'] where id = ${t.owner.organisationId}`
+    await t.run(stale)
+    await tick()
+    const after = await t.status(stale)
+    expect(after.children.map((child) => child.status)).toEqual([
+      "failed",
+      "failed",
+    ])
+    expect(after.children.map((child) => child.resultCode)).toEqual([
+      "content_warning_acknowledgement_required",
+      "content_warning_acknowledgement_required",
+    ])
+    const [{ count }] = await admin<{ count: number }[]>`
+      select count(*)::int as count from gbp_local_post where organisation_id = ${t.owner.organisationId}`
+    expect(count).toBe(2)
+    expect(
+      google.calls.filter((call) => call.path.includes("localPosts"))
+    ).toHaveLength(0)
+  })
+
   it("holds the new families to the table's checks", async () => {
     const t = await tenant(1)
     const op = await t.preview([

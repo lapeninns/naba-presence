@@ -11,6 +11,7 @@ import {
 import { AreaCards } from "@/components/listings/area-cards"
 import { CompletenessCard } from "@/components/listings/completeness-card"
 import { FileUnderClient } from "@/components/listings/file-under-client"
+import { GoogleChangesBadge } from "@/components/listings/google-changes-badge"
 import {
   HealthStrip,
   publishAreaName,
@@ -306,12 +307,22 @@ function ListingOverview({
               current="overview"
               summary={summary.data}
               caps={caps.data}
+              // Beside the health pill: "2 changed on Google", linking to
+              // the suggestions tab where they are decided. DB only; it
+              // renders nothing while loading or when nothing is open.
               status={
                 summary.data || !entry.linked ? (
-                  <StatusPill tone={listingHealthTone(health)}>
-                    {listingHealthLabel(health)}
-                  </StatusPill>
-                ) : summaryFailed ? null : undefined
+                  <>
+                    <StatusPill tone={listingHealthTone(health)}>
+                      {listingHealthLabel(health)}
+                    </StatusPill>
+                    {entry.linked ? (
+                      <GoogleChangesBadge locationId={locationId} />
+                    ) : null}
+                  </>
+                ) : summaryFailed ? (
+                  <GoogleChangesBadge locationId={locationId} />
+                ) : undefined
               }
               description={
                 <>

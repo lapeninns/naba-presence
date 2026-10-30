@@ -18,7 +18,7 @@ const useReviewLinkStatsMock = vi.hoisted(() => vi.fn())
 const create = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }))
 const update = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }))
 const check = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }))
-vi.mock("@/components/listings/review-link-queries", () => ({
+vi.mock("@/lib/queries/use-review-link", () => ({
   useReviewLink: (...args: unknown[]) => useReviewLinkMock(...args),
   useReviewLinkStats: (...args: unknown[]) => useReviewLinkStatsMock(...args),
   useCreateReviewLink: () => create,

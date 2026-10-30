@@ -232,6 +232,8 @@ function renderOperationalEmail(
     reply_sent_back: `An approver sent back your reply to a review of ${title}. It was not sent to Google. Revise it and submit it again.`,
     // S3: lib/server/review-topics-alerts.ts
     review_topic_negative: topicAlertDetail(summary, title),
+    // S5: lib/server/google-change-watch.ts
+    listing_google_changed: googleChangeDetail(summary, title),
   }
   const why = scheduleReason(kind, summary)
   return {
@@ -255,6 +257,12 @@ function topicAlertDetail(summary: Record<string, unknown>, title: string) {
       ? `${negative} of the ${mentions} mentions in reviews from the last 14 days were negative, much more than usual.`
       : "Reviews from the last 14 days have been much more negative than usual."
   return `${title}: ${counted} Nothing was changed; open the reviews to see what guests said.`
+}
+
+/** S5: which protected field Google changed, when the incident names it. */
+function googleChangeDetail(summary: Record<string, unknown>, title: string) {
+  const field = text(summary.fieldLabel, "A protected field")
+  return `${field} for ${title} was changed on Google and no longer matches yours. Guests see Google's version now. Nothing is sent to Google until an owner or admin puts yours back or keeps Google's.`
 }
 
 /**

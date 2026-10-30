@@ -7,7 +7,6 @@ import {
   normaliseReviewLinkCaption,
 } from "@/lib/domain/review-link-caption"
 import {
-  reviewLinkQueryKeys,
   type ReviewLink,
   type ReviewLinkAction,
   type ReviewLinkState,
@@ -26,10 +25,11 @@ import {
   type ReviewLinkSource,
 } from "@/lib/domain/review-link"
 import {
-  abuseKeyHash,
+  checkAbuseBudget,
   clientIpFromRequest,
   type AbuseDecision,
 } from "@/lib/server/abuse-limits"
+import { queryKeys } from "@/lib/queries/keys"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -231,7 +231,7 @@ export function reviewLinkTabPrefetch(
 ): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
-      queryKey: reviewLinkQueryKeys.state(locationId),
+      queryKey: queryKeys.reviewLink(locationId),
       load: () => loadReviewLinkState(session, locationId, baseUrl),
     },
   ]
@@ -563,47 +563,14 @@ export async function recordReviewLinkClick(
 }
 
 /**
- * Counted opens per client IP. Over it, a live code still redirects but
- * isn't counted (lots of guests share a pub's Wi-Fi address), and an
- * unknown code gets a "try again" page, so walking codes stays slow.
+ * Counts one open against the client IP's budget (`review_link` in
+ * ABUSE_POLICIES: bucket `review_link_ip`). Over it, a live code still
+ * redirects but isn't counted (lots of guests share a pub's Wi-Fi address),
+ * and an unknown code gets a "try again" page, so walking codes stays slow.
+ * checkAbuseBudget's rules apply: off when ABUSE_LIMITS_ENABLED is false,
+ * nothing to count without a trusted client IP, and fails closed on a
+ * database error.
  */
-export const REVIEW_LINK_IP_LIMIT = { limit: 120, windowSeconds: 15 * 60 }
-
-// INTEGRATION(S2): this is ABUSE_POLICIES' report_share shape for a new
-// scope. Add `review_link: { code: "auth_rate_limited", ip: REVIEW_LINK_IP_LIMIT }`
-// to ABUSE_POLICIES in lib/server/abuse-limits.ts and replace this body with
-// `checkAbuseBudget("review_link", { ip: clientIpFromRequest(request) })`.
-// The bucket name (`review_link_ip`) is the same either way.
-/**
- * Counts one open against the client IP's budget (abuse_rate_bucket via
- * take_abuse_budget, migration 0085), with the same rules as
- * checkAbuseBudget: off when ABUSE_LIMITS_ENABLED is false, nothing to
- * count without a trusted client IP, and fails closed on a database error.
- */
-export async function takeReviewLinkBudget(
-  request: Request
-): Promise<AbuseDecision> {
-  const env = getServerEnv()
-  if (!env.ABUSE_LIMITS_ENABLED) return { allowed: true, retryAfterSeconds: 0 }
-  const ip = clientIpFromRequest(request)
-  if (!ip) return { allowed: true, retryAfterSeconds: 0 }
-  const [row] = await getDatabase()<
-    { allowed: boolean; retryAfterSeconds: number }[]
-  >`
-    select allowed, retry_after_seconds as "retryAfterSeconds"
-    from take_abuse_budget(
-      ${"review_link_ip"},
-      ${abuseKeyHash("ip", ip, env.NEXTAUTH_SECRET)},
-      ${REVIEW_LINK_IP_LIMIT.limit},
-      ${REVIEW_LINK_IP_LIMIT.windowSeconds}
-    )
-  `
-  if (row && !row.allowed) {
-    log.warn("abuse.limit_exceeded", {
-      scope: "review_link",
-      retryAfterSeconds: row.retryAfterSeconds,
-    })
-    return { allowed: false, retryAfterSeconds: row.retryAfterSeconds }
-  }
-  return { allowed: true, retryAfterSeconds: 0 }
+export function takeReviewLinkBudget(request: Request): Promise<AbuseDecision> {
+  return checkAbuseBudget("review_link", { ip: clientIpFromRequest(request) })
 }

@@ -14,7 +14,7 @@ vi.mock("@/lib/navigation/shallow-url", () => ({
   replaceUrl: (href: string) => replace(href),
 }))
 // Completeness has its own query and tests; here it is simply not known.
-vi.mock("@/lib/listings/completeness-query", () => ({
+vi.mock("@/lib/queries/use-listing-completeness", () => ({
   useBoardCompleteness: () => ({ data: [], isPending: false }),
 }))
 vi.mock("next/link", () => ({

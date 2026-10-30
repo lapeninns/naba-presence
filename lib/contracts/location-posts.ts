@@ -210,9 +210,14 @@ export const postPublishBodySchema = z.object({
  * approval always names the exact content it covers. It is optional in the
  * schema only so that a viewer or non-publisher is refused for who they are
  * (403) before what they sent is looked at.
+ *
+ * `contentWarningAcknowledgement` is the approver's own consent to the post's
+ * content warnings, needed when the author's stored consent no longer
+ * matches (the organisation's policy changed since it was given): the
+ * server answers 409 `content_warning_acknowledgement_required` with the
+ * current warnings and the token, and the approval dialog asks the approver
+ * to acknowledge them before approving again.
  */
-// INTEGRATION(S4): Approval dialog/API client must expose refreshed content
-// warning reasons and forward explicit acknowledgement after policy drift.
 export const postApprovalDecisionSchema = z.object({
   contentWarningAcknowledgement: z
     .string()

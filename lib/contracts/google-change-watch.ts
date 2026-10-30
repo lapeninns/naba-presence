@@ -8,12 +8,9 @@
  *   POST /api/locations/{id}/google-changes/{changeId}  "Put ours back" or
  *                                                     "Accept Google's"
  *
- * Client-safe: zod and the client-safe vocabulary only.
- *
- * INTEGRATION(S5): lib/notifications/links.ts `reviewNotificationPath`
- * should send a `listing_google_changed` notification (summary.locationId,
- * summary.changeId) to `/listings/{locationId}/suggestions`, in the inbox
- * and the email, instead of the listing overview.
+ * Client-safe: zod and the client-safe vocabulary only. A
+ * `listing_google_changed` notification links to
+ * `/listings/{locationId}/suggestions` (lib/notifications/links.ts).
  */
 import { z } from "zod"
 

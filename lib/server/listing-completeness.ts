@@ -553,8 +553,3 @@ export async function readCompletenessSkipRows(
   `
   return rows.map((row) => ({ ...row, skippedAt: row.skippedAt.toISOString() }))
 }
-
-// INTEGRATION(S1): lib/server/prefetch.ts may seed the completeness queries
-// (`completenessQueryKeys` in lib/listings/completeness-query.ts) from
-// readListingCompleteness in listingsBoardPrefetch / listingPagePrefetch, so
-// the column and card paint on first load instead of after one fetch.

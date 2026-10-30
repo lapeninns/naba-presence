@@ -16,9 +16,11 @@ import {
   hoursArea,
   menuArea,
   profileArea,
+  reviewLinkSummary,
   type CanonicalRow,
   type MenuStateRow,
   type ProfileFieldRow,
+  type ReviewLinkRow,
 } from "@/lib/server/location-summary"
 
 const hours: NormalizedHours = {
@@ -408,5 +410,73 @@ describe("menu summary outbound consistency", () => {
         }
       )
     ).toMatchObject({ status: "in_sync", dirtyCount: 0 })
+  })
+})
+
+describe("reviewLinkSummary", () => {
+  const FORM = "https://search.google.com/local/writereview?placeid=ChIJ1"
+  const MOVED = "https://search.google.com/local/writereview?placeid=ChIJ2"
+  const row = (overrides: Partial<ReviewLinkRow> = {}): ReviewLinkRow => ({
+    locationId: "l1",
+    hasLink: true,
+    switchedOff: false,
+    targetUri: FORM,
+    profileTarget: FORM,
+    infoTarget: null,
+    ...overrides,
+  })
+
+  it("is live or switched off when a link exists", () => {
+    expect(reviewLinkSummary(row())).toEqual({
+      status: "live",
+      targetChanged: false,
+    })
+    expect(reviewLinkSummary(row({ switchedOff: true }))).toEqual({
+      status: "off",
+      targetChanged: false,
+    })
+  })
+
+  it("flags a target Google has moved, preferring the profile read", () => {
+    expect(reviewLinkSummary(row({ profileTarget: MOVED }))).toEqual({
+      status: "live",
+      targetChanged: true,
+    })
+    expect(
+      reviewLinkSummary(row({ profileTarget: null, infoTarget: MOVED }))
+        .targetChanged
+    ).toBe(true)
+    // No stored review form: nothing to compare with.
+    expect(reviewLinkSummary(row({ profileTarget: null })).targetChanged).toBe(
+      false
+    )
+  })
+
+  it("is not set up while Google has given a review form, and says when it hasn't", () => {
+    const none = { hasLink: false, switchedOff: false, targetUri: null }
+    expect(reviewLinkSummary(row(none)).status).toBe("not_set_up")
+    expect(
+      reviewLinkSummary(row({ ...none, profileTarget: null, infoTarget: FORM }))
+        .status
+    ).toBe("not_set_up")
+    expect(
+      reviewLinkSummary(row({ ...none, profileTarget: null })).status
+    ).toBe("no_review_form")
+    expect(reviewLinkSummary(undefined)).toEqual({
+      status: "no_review_form",
+      targetChanged: false,
+    })
+  })
+
+  it("ignores a stored review form that isn't a Google review address", () => {
+    expect(
+      reviewLinkSummary(
+        row({
+          hasLink: false,
+          profileTarget: "https://evil.example/review",
+          infoTarget: null,
+        })
+      ).status
+    ).toBe("no_review_form")
   })
 })

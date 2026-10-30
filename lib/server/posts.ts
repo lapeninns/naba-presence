@@ -984,10 +984,12 @@ export async function listLocalPosts(
  * its `post.draft.created` audit row, in the caller's transaction. The
  * author is who wrote the content: under two-person approval, a different
  * person must approve its publication.
+ *
+ * Content checks run here for every draft, bulk ones included: a bulk
+ * batch's preview checks its posts first and freezes the person's warning
+ * consent into each child's input (bulk-families/posts.ts), which this
+ * checks again.
  */
-// INTEGRATION(S4): Bulk post preview must collect and carry content warning
-// acknowledgement into each child payload; the bulk runner currently drops
-// the warning details/token and cannot recover warning-only draft failures.
 export async function insertLocalPostDraft(
   sql: TransactionSql,
   draft: {
@@ -1716,7 +1718,7 @@ export async function requestOrPublishLocalPost(input: {
         lock: true,
       })
       const publishWith = async (approval: ApprovalRef | null) => {
-        await assertContentChecks(sql, {
+        const consent = await assertContentChecks(sql, {
           kind: "post",
           locationId: input.locationId,
           body: post.summary,
@@ -1736,7 +1738,16 @@ export async function requestOrPublishLocalPost(input: {
           input.locationId,
           POSTS_NOT_LINKED
         )
-        return { kind: "publish" as const, post, linked, approval }
+        return {
+          kind: "publish" as const,
+          post,
+          linked,
+          approval,
+          // This request's own consent to the warnings, when it gave one
+          // that the checks accepted (an approver's, after a policy change).
+          acknowledgedWarnings:
+            consent !== null && consent === input.contentWarningAcknowledgement,
+        }
       }
 
       if (input.approval) {
@@ -1771,6 +1782,9 @@ export async function requestOrPublishLocalPost(input: {
             locationId: input.locationId,
             contentRevision: post.contentRevision,
             decisionId: id,
+            ...(linkedPublish.acknowledgedWarnings
+              ? { contentWarningsAcknowledged: true }
+              : {}),
           },
         })
         return {
@@ -1942,10 +1956,13 @@ export async function rejectLocalPost(input: {
  * `intentId` (deterministic per occurrence) records the publish as a
  * mutation_operation receipt, so `mutation_recover` covers an uncertain
  * create and the occurrence settles from the receipt.
+ *
+ * Content checks run again here (publishLocalPost) against the post's own
+ * stored consent. A repeating schedule's occurrence post carries the consent
+ * its source draft had when the template was frozen (sourceSnapshot); it
+ * names the text, policy and warnings, so an occurrence whose warnings or
+ * policy changed since is refused with nothing sent.
  */
-// INTEGRATION(S4): recurring schedules must preserve an explicit content-warning
-// acknowledgement in their frozen template and occurrence row. Until wired,
-// warning-bearing generated occurrences stop safely at the shared content gate.
 export async function publishScheduledLocalPost(input: {
   organisationId: string
   session: Session

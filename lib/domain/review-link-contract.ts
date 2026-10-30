@@ -93,15 +93,3 @@ export const reviewLinkStatsResponseSchema = z.object({
 export type ReviewLinkStatsResponse = z.infer<
   typeof reviewLinkStatsResponseSchema
 >
-
-/**
- * Query keys, rooted at the location like every per-location key
- * (lib/queries/keys.ts), so invalidating a location refreshes them too.
- */
-// INTEGRATION(S2): move these into queryKeys in lib/queries/keys.ts.
-export const reviewLinkQueryKeys = {
-  state: (locationId: string) =>
-    ["locations", locationId, "review-link"] as const,
-  stats: (locationId: string, days: 30 | 90) =>
-    ["locations", locationId, "review-link", "stats", days] as const,
-}

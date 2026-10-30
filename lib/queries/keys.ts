@@ -37,17 +37,24 @@ export const queryKeys = {
   // Operational notifications: the per-viewer list and unread count, and the
   // viewer's own preferences. Rooted together so a read or resolve refreshes both.
   notificationsAll: ["operational-notifications"] as const,
-  notifications: (filter: string) => ["operational-notifications", "list", filter] as const,
-  notificationPreferences: ["operational-notifications", "preferences"] as const,
+  notifications: (filter: string) =>
+    ["operational-notifications", "list", filter] as const,
+  notificationPreferences: [
+    "operational-notifications",
+    "preferences",
+  ] as const,
   operationsHealth: ["operations", "health"] as const,
-  postSchedules: (locationId: string) => ["locations", locationId, "post-schedules"] as const,
-  legacyPostSchedules: (locationId: string) => ["locations", locationId, "legacy-post-schedules"] as const,
+  postSchedules: (locationId: string) =>
+    ["locations", locationId, "post-schedules"] as const,
+  legacyPostSchedules: (locationId: string) =>
+    ["locations", locationId, "legacy-post-schedules"] as const,
   bulkChanges: ["bulk-changes"] as const,
   bulkChange: (id: string) => ["bulk-changes", id] as const,
   // The organisation's finished photo uploads, for the bulk photos editor.
   readyAssets: ["assets", "ready"] as const,
   scheduleOccurrencesAll: ["schedule-occurrences"] as const,
-  scheduleOccurrences: (params: Record<string, string | undefined>) => ["schedule-occurrences", params] as const,
+  scheduleOccurrences: (params: Record<string, string | undefined>) =>
+    ["schedule-occurrences", params] as const,
   webhookFailures: ["operations", "webhook-failures"] as const,
   settings: ["settings"] as const,
   // Billing (GET /api/billing), keyed by organisation so a cached overview
@@ -75,6 +82,13 @@ export const queryKeys = {
   // editor's invalidation of ["locations", id, …] refreshes it explicitly.
   listingSummary: (id: string) => ["listing-summary", id] as const,
   listingSummaries: ["listing-summary", "all"] as const,
+  // Completeness checks (`/api/listings/summary?view=completeness`), under
+  // the summary keys: every invalidation of a listing's summary (a publish,
+  // an edit, a sync) refreshes its completeness too, and the scope reset
+  // that drops a listing's keys drops these with them.
+  listingCompleteness: (id: string) =>
+    ["listing-summary", id, "completeness"] as const,
+  listingCompletenessBoard: ["listing-summary", "all", "completeness"] as const,
   locationProfile: (id: string) => ["locations", id, "profile"] as const,
   locationHours: (id: string) => ["locations", id, "hours"] as const,
   // Prefix of every `locationMedia(id, …)` key: the photos tab invalidates all
@@ -104,6 +118,10 @@ export const queryKeys = {
     ["locations", id, "activity", "recent", pageSize] as const,
   locationBooking: (id: string) => ["locations", id, "booking"] as const,
   locationMenu: (id: string) => ["locations", id, "menu"] as const,
+  // The review link area: the link's state, and its opens over a period.
+  reviewLink: (id: string) => ["locations", id, "review-link"] as const,
+  reviewLinkStats: (id: string, days: 30 | 90) =>
+    ["locations", id, "review-link", "stats", days] as const,
   locationImportReview: (id: string) =>
     ["locations", id, "import-review"] as const,
   importReviewCounts: ["import-review-counts"] as const,

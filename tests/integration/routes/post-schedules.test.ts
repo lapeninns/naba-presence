@@ -1192,6 +1192,68 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     ).toMatchObject({ status: "awaiting_approval", revision: 2 })
   })
 
+  it("carries a draft's content-warning consent into each repeating occurrence and refuses it once the policy changes (S4)", async () => {
+    const t = await tenant()
+    const body = {
+      topicType: "STANDARD",
+      languageCode: "en-GB",
+      summary: "Quiz night every Thursday!!!",
+      media: [],
+    }
+    const warned = await t.api("/posts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    })
+    expect(warned.status, await warned.clone().text()).toBe(409)
+    const token = (await warned.json()).details
+      .contentWarningAcknowledgement as string
+    const post = await t.draft({
+      ...body,
+      contentWarningAcknowledgement: token,
+    })
+    const s = await t.schedule(post, {
+      frequency: "daily",
+      startDate: tomorrow(),
+      localTime: "09:00",
+      end: { type: "count", count: 2 },
+    })
+    expect((await t.approve(s)).status).toBe(200)
+    const [first, second] = await t.occurrences(s.id)
+    await t.age(first.id, 2)
+    await tick()
+    const [published] = await t.occurrences(s.id)
+    expect(published.status).toBe("published")
+    expect(creates()).toHaveLength(1)
+    // The occurrence's own post carries the template's consent.
+    const [copy] = await admin<{ consent: string | null; summary: string }[]>`
+      select content_warning_acknowledgement as consent, summary from gbp_local_post where id = ${published.post_id}`
+    expect(copy).toEqual({ consent: token, summary: body.summary })
+
+    // The consent names the policy it was given under: after a change, the
+    // next occurrence is refused at the content gate with nothing sent. It
+    // waits inside its window like any publish that sent nothing, and is
+    // missed once the window closes; it never goes out late.
+    await admin`update organisation set banned_phrases = ARRAY['valued customer'] where id = ${t.owner.organisationId}`
+    await t.age(second.id, 2)
+    await tick()
+    const refused = (await t.occurrences(s.id)).find(
+      (row) => row.id === second.id
+    )!
+    expect(refused.status).toBe("scheduled")
+    const [stale] = await admin<{ consent: string | null; status: string }[]>`
+      select content_warning_acknowledgement as consent, status from gbp_local_post where id = ${refused.post_id}`
+    expect(stale).toEqual({ consent: token, status: "draft" })
+    await t.age(second.id, 6)
+    await tick()
+    expect(
+      (await t.occurrences(s.id)).find((row) => row.id === second.id)
+    ).toMatchObject({
+      status: "missed",
+      status_reason: "outside_dispatch_window",
+    })
+    expect(creates()).toHaveLength(1)
+  })
+
   /** The next last Sunday of `month` (0-based) strictly after today, in UTC. */
   const nextLastSunday = (month: number) => {
     const now = new Date()

@@ -653,13 +653,9 @@ export type WatchOutcome = {
 /**
  * Runs the watch for one listing from what is already stored. Call it after
  * a Google read has recorded its observation: the presence sweep, "Check
- * Google now". Never reads or writes Google.
- *
- * INTEGRATION(S5): app/api/sync/presence-resources/route.ts should call
- * `watchGoogleChanges({ organisationId, locationId })` once a location's
- * `hours` and `profile` resources have been reconciled (after the per-
- * location resource loop), isolated in its own try/catch like the proposal
- * raise, so a watch failure never fails the observation.
+ * Google now". Never reads or writes Google. The presence sweep
+ * (app/api/sync/presence-resources/route.ts) calls it after a location's
+ * resources reconcile, in its own try/catch.
  */
 export async function watchGoogleChanges(input: {
   organisationId: string
@@ -1206,12 +1202,10 @@ export async function readChange(
 }
 
 /**
- * The live count for a listing badge, DB only. Visible changes only.
- *
- * INTEGRATION(S5): the listing summary / overview (S1 owns
- * components/listings/listing-overview.tsx) can render
- * `<GoogleChangesBadge locationId>` (components/listings/google-changes-badge.tsx),
- * which reads `GET /api/locations/{id}/google-changes`.
+ * The live count for a listing badge, DB only. Visible changes only. The
+ * listing overview's `<GoogleChangesBadge>` reads
+ * `GET /api/locations/{id}/google-changes` instead; this count is for a
+ * board-wide summary, where one GET per listing would be too many.
  */
 export async function countOpenGoogleChanges(
   session: Session,

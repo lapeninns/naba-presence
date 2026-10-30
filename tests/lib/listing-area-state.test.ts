@@ -148,6 +148,51 @@ describe("areaState", () => {
   })
 })
 
+describe("areaState reviewLink", () => {
+  const withLink = (reviewLink: ListingSummary["reviewLink"]) =>
+    areaState("reviewLink", summary({ reviewLink }))
+
+  it("says whether the link is live, from the summary", () => {
+    expect(withLink({ status: "live", targetChanged: false })).toEqual({
+      tone: "healthy",
+      label: "Live",
+      line: "For tables, receipts and till screens",
+    })
+    expect(withLink({ status: "off", targetChanged: false })).toMatchObject({
+      tone: "neutral",
+      label: "Switched off",
+    })
+  })
+
+  it("asks for attention when Google moved the review form under a live link", () => {
+    expect(withLink({ status: "live", targetChanged: true })).toMatchObject({
+      tone: "attention",
+      label: "Check the address",
+    })
+  })
+
+  it("says whether one can be made yet", () => {
+    expect(withLink({ status: "not_set_up", targetChanged: false }).label).toBe(
+      "Not set up"
+    )
+    expect(
+      withLink({ status: "no_review_form", targetChanged: false })
+    ).toEqual({
+      tone: "neutral",
+      label: "No review form yet",
+      line: "Google hasn’t given a review link yet",
+    })
+  })
+
+  it("keeps the plain label for a cached summary without the status", () => {
+    expect(withLink(undefined)).toEqual({
+      tone: "neutral",
+      label: "Link & QR code",
+      line: "For tables, receipts and till screens",
+    })
+  })
+})
+
 describe("uncheckedAreas", () => {
   it("names canonical areas never compared with Google", () => {
     const checked = {

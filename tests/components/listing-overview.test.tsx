@@ -35,6 +35,7 @@ import {
   type ListingSummary,
 } from "@/lib/contracts/location-summary"
 import * as capsHook from "@/lib/queries/use-location-capabilities"
+import * as googleChangesHook from "@/lib/queries/use-google-change-watch"
 import * as summaryHook from "@/lib/queries/use-listing-summary"
 import * as locationsHook from "@/lib/queries/use-locations"
 
@@ -42,11 +43,18 @@ function stub({
   summary,
   caps,
   entry,
+  googleChanges = [],
 }: {
   summary: ListingSummary | undefined
   caps?: LocationCapabilities
   entry?: { linked?: boolean; clientId?: string | null }
+  /** The statuses of the listing's changes made on Google (S5). */
+  googleChanges?: string[]
 }) {
+  vi.spyOn(googleChangesHook, "useGoogleChanges").mockReturnValue({
+    data: { changes: googleChanges.map((status) => ({ status })) },
+    isPending: false,
+  } as unknown as ReturnType<typeof googleChangesHook.useGoogleChanges>)
   vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
     data: [
       {
@@ -527,5 +535,64 @@ describe("ListingOverview", () => {
       <ListingOverview locationId="l1" role="owner" />
     )
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+  })
+
+  it("shows what changed on Google beside the health pill, linking to Suggested updates (S5)", () => {
+    stub({
+      summary: summary(),
+      googleChanges: ["open", "open", "accepted", "reverting"],
+    })
+    const { container } = render(
+      <ListingOverview locationId="l1" role="member" />
+    )
+    const header = container.querySelector(
+      '[data-slot="listing-area-header"]'
+    ) as HTMLElement
+    const badge = within(header).getByRole("link", {
+      name: "2 fields changed on Google. Review them.",
+    })
+    expect(badge).toHaveAttribute("href", "/listings/l1/suggestions")
+    expect(badge).toHaveTextContent("2 changed on Google")
+    // The health pill stays; the badge sits beside it.
+    expect(within(header).getByText("Not checked")).toBeInTheDocument()
+  })
+
+  it("shows no Google badge when nothing is open, or for a listing that isn't linked (S5)", () => {
+    stub({ summary: summary(), googleChanges: ["accepted"] })
+    const { unmount } = render(<ListingOverview locationId="l1" role="owner" />)
+    expect(screen.queryByText(/changed on Google/)).toBeNull()
+    unmount()
+
+    stub({
+      summary: emptyListingSummary({
+        locationId: "l1",
+        linked: false,
+        verified: false,
+      }),
+      entry: { linked: false },
+      googleChanges: ["open"],
+    })
+    const watched = vi.mocked(googleChangesHook.useGoogleChanges)
+    watched.mockClear()
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(screen.queryByText(/changed on Google/)).toBeNull()
+    // Not even asked: an unlinked listing has nothing on Google to compare.
+    expect(watched).not.toHaveBeenCalled()
+  })
+
+  it("keeps the Google badge when the summary could not be read (S5)", () => {
+    stub({ summary: undefined, googleChanges: ["open"] })
+    vi.spyOn(summaryHook, "useListingSummary").mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      refetch: vi.fn(),
+    } as unknown as UseQueryResult<ListingSummary>)
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.getByRole("link", {
+        name: "1 field changed on Google. Review it.",
+      })
+    ).toHaveAttribute("href", "/listings/l1/suggestions")
   })
 })

@@ -7,6 +7,7 @@ import {
   replyRepetitionChecks,
   contentChecks,
 } from "@/lib/domain/content-checks"
+import type { VerificationReason } from "@/lib/domain/verification"
 import { sha256 } from "@/lib/server/crypto"
 import { ApiError } from "@/lib/server/http"
 
@@ -20,7 +21,37 @@ export async function loadBannedPhrases(
   return row?.bannedPhrases ?? []
 }
 
-/** A warning consent names the exact text, policy and findings the person saw. */
+/** The token a content-warning consent carries (see assertContentChecks). */
+export function contentWarningConsent(input: {
+  kind: "post" | "description"
+  allowEmpty: boolean
+  body: string
+  bannedPhrases: readonly string[]
+  warnings: readonly VerificationReason[]
+}): string {
+  return sha256(
+    JSON.stringify({
+      version: "content-v2",
+      kind: input.kind,
+      allowEmpty: input.allowEmpty,
+      body: input.body,
+      bannedPhrases: input.bannedPhrases,
+      warnings: input.warnings,
+    })
+  )
+}
+
+/**
+ * A warning consent names the exact text, policy and warnings the person saw.
+ *
+ * It binds what the warnings are about, not the dates around them: an
+ * offer's end date only ever produces a fail (`offer_expired`), which no
+ * consent can pass, so it is left out. That lets one consent cover every
+ * occurrence a repeating schedule generates from its template (each moves
+ * the event dates by its offsets but keeps the text) and every listing of a
+ * bulk post batch, while any change to the text, the organisation's policy
+ * or the warning set still makes the consent stale.
+ */
 export async function assertContentChecks(
   sql: TransactionSql,
   input: {
@@ -47,17 +78,13 @@ export async function assertContentChecks(
     day: "2-digit",
   }).format(new Date())
   const reasons = contentChecks({ ...input, bannedPhrases, today })
-  const acknowledgement = sha256(
-    JSON.stringify({
-      version: "content-v1",
-      kind: input.kind,
-      allowEmpty: input.allowEmpty ?? false,
-      body: input.body,
-      offerEndDate: input.offerEndDate ?? null,
-      bannedPhrases,
-      reasons,
-    })
-  )
+  const acknowledgement = contentWarningConsent({
+    kind: input.kind,
+    allowEmpty: input.allowEmpty ?? false,
+    body: input.body,
+    bannedPhrases,
+    warnings: reasons.filter((reason) => reason.severity === "warn"),
+  })
   if (reasons.some((reason) => reason.severity === "fail")) {
     throw new ApiError(
       422,

@@ -13,6 +13,10 @@ import {
 } from "@/lib/contracts/google-change-watch"
 import { gbpChangeSetResponseSchema } from "@/lib/contracts/gbp-change-set"
 import {
+  CLIENT_CAPABILITIES_HEADER,
+  clientCapabilityHeaders,
+} from "@/lib/contracts/client-capabilities"
+import {
   normalizeGoogleHours,
   type GoogleLocationHours,
 } from "@/lib/domain/hours"
@@ -905,6 +909,106 @@ describeDatabase("google change watch", () => {
       (await incidentFor(target.linked.locationId, change.id))[0]?.status
     ).toBe("resolved")
     expect((await check(target)).found).toBe(0)
+  }, 60_000)
+
+  it("raises the alert from the presence sweep, without anyone pressing Check", async () => {
+    const target = await listing()
+    // Baselines from a first check, as an operator's first look sets them.
+    expect((await check(target)).found).toBe(0)
+    const { organisationId } = target.owner
+    // Only the watched listing is due, so the page walks just that one.
+    await admin`
+      insert into presence_resource_reconcile_state (
+        organisation_id, location_id, resource, status, next_attempt_at
+      )
+      select ${organisationId}, l.id, r.resource, 'succeeded', now() + interval '1 hour'
+      from location l
+      cross join unnest(array['hours', 'profile', 'posts', 'media', 'foodMenus', 'placeActions']) as r(resource)
+      where l.organisation_id = ${organisationId} and l.id <> ${target.linked.locationId}
+    `
+    target.location.title = "Old Crown Inn"
+    const [before] = await admin<{ id: string }[]>`
+      select organisation_id::text as id from organisation_job_route
+      where organisation_id < ${organisationId}
+      order by organisation_id desc limit 1`
+    const response = await fetch(
+      `${server.baseUrl}/api/sync/presence-resources`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer route-harness-cron-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          maxOrganisations: 1,
+          maxLocations: 5,
+          ...(before ? { organisationCursor: before.id } : {}),
+        }),
+      }
+    )
+    expect(response.status, await response.clone().text()).toBe(200)
+    const swept = (await response.json()) as {
+      outcomes: { locationId: string; resource: string; status: string }[]
+    }
+    expect(
+      swept.outcomes
+        .filter(
+          (outcome) =>
+            outcome.locationId === target.linked.locationId &&
+            (outcome.resource === "profile" || outcome.resource === "hours")
+        )
+        .map((outcome) => outcome.status)
+    ).toEqual(["succeeded", "succeeded"])
+    const rows = await changeRows(target.linked.locationId)
+    expect(rows).toMatchObject([{ field: "name", status: "open" }])
+    const [incident] = await incidentFor(target.linked.locationId, rows[0]!.id)
+    expect(incident).toMatchObject({
+      status: "open",
+      recipients: [target.owner.userId],
+    })
+  }, 60_000)
+
+  it("names the alert only to a client that reads the Google change kind", async () => {
+    const target = await listing()
+    await detected(
+      target,
+      (location) => {
+        location.title = "Old Crown Inn"
+      },
+      "name"
+    )
+    const kinds = async (path: string, capabilities: string) => {
+      const response = await fetch(`${server.baseUrl}${path}`, {
+        headers: {
+          cookie: target.owner.cookie,
+          ...(capabilities
+            ? { [CLIENT_CAPABILITIES_HEADER]: capabilities }
+            : {}),
+        },
+      })
+      expect(response.status, await response.clone().text()).toBe(200)
+      const body = (await response.json()) as {
+        items?: { kind: string }[]
+        preferences?: { kind: string }[]
+        notifications?: { items: { kind: string }[] }
+      }
+      const rows =
+        body.items ?? body.preferences ?? body.notifications?.items ?? []
+      return rows.some((row) => row.kind === "listing_google_changed")
+    }
+    const current = clientCapabilityHeaders()[CLIENT_CAPABILITIES_HEADER]!
+    for (const path of [
+      "/api/notifications",
+      "/api/notifications/preferences",
+      "/api/shell-status",
+    ]) {
+      // This build: it reads the kind.
+      expect(await kinds(path, current), path).toBe(true)
+      // A build that reads the approval kinds (0149) but not this one.
+      expect(await kinds(path, "notification-kinds-2"), path).toBe(false)
+      // A build from before both.
+      expect(await kinds(path, ""), path).toBe(false)
+    }
   }, 60_000)
 })
 

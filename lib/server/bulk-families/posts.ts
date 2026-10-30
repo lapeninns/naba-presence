@@ -1,9 +1,59 @@
 import "server-only"
 
+import type { TransactionSql } from "postgres"
+
 import type { BulkPostDraftInput } from "@/lib/domain/bulk-menus"
+import type { BulkOperationInput } from "@/lib/domain/bulk-merge"
 import type { BulkFamily } from "@/lib/server/bulk-families/types"
+import {
+  assertContentChecks,
+  postOfferEndDate,
+} from "@/lib/server/content-checks"
 import { withTenant } from "@/lib/server/db"
+import { ApiError } from "@/lib/server/http"
 import { insertLocalPostDraft } from "@/lib/server/posts"
+
+/**
+ * The content checks of a batch's post drafts, at preview, in the caller's
+ * tenant transaction: the same checks (and the same consent) as a single
+ * post's save (`insertLocalPostDraft`). A fail refuses the whole preview
+ * (422 `content_checks_failed`); a warning without the person's consent
+ * refuses it with the reasons and the consent token to acknowledge (409
+ * `content_warning_acknowledgement_required`). Both name the change
+ * (`details.item`, its index in the batch) so the composer can show them
+ * beside it. The consent covers every listing: it binds the text, the
+ * organisation's policy and the warnings, none of which differ between
+ * listings.
+ *
+ * The acknowledged token is part of the change itself
+ * (`post.contentWarningAcknowledgement`), so it is frozen into the preview,
+ * covered by its approval, and carried into each child, whose draft insert
+ * checks it again: a policy change between preview and execution fails the
+ * child with nothing drafted, and a new preview asks again.
+ */
+export async function assertBulkPostContent(
+  sql: TransactionSql,
+  items: readonly BulkOperationInput[]
+) {
+  for (const [item, change] of items.entries()) {
+    if (change.operation !== "post_draft") continue
+    const { post } = change
+    try {
+      await assertContentChecks(sql, {
+        kind: "post",
+        body: post.summary,
+        allowEmpty: post.media.length > 0,
+        offerEndDate: postOfferEndDate(post),
+        contentWarningAcknowledgement: post.contentWarningAcknowledgement,
+      })
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error
+      throw new ApiError(error.status, error.code, error.message, {
+        details: { ...(error.details as Record<string, unknown>), item },
+      })
+    }
+  }
+}
 
 /**
  * Posts: each listing gets its own, independent local draft
