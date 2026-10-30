@@ -1,6 +1,8 @@
 // reviewLinkQrSvg adapted from OpenGMB packages/core/src/review-links/qr.ts (qrSvg).
 // Adapted from OpenGMB (MIT, © 2026 Synectus Private Limited).
 
+import { encode } from "uqr"
+
 /**
  * The QR code for a review link, as a module matrix and a print-safe SVG.
  * Pure and client-safe: the area page draws the preview and builds the
@@ -16,20 +18,19 @@ export type QrMatrix = {
 /** White modules around the code: the QR standard's minimum. */
 export const QR_QUIET_ZONE = 4
 
-// INTEGRATION(S2): encoding needs a QR library, pending the user's approval
-// (reports/S2.md, "Blocked"; proposed `uqr`). Once it is a dependency:
-//   import { encode } from "uqr"
-//   const { size, data } = encode(text, { ecc: "M", border: 0 })
-//   return { size, dark: (row, col) => data[row]?.[col] === true }
-// and flip qrEncoderAvailable() and the two stub assertions in
-// tests/review-link-qr.test.ts.
+/**
+ * The code's modules for `text` at error correction level M (15% of the
+ * code may be damaged and it still scans: table talkers get wet), with no
+ * border of its own (QR_QUIET_ZONE is added when drawing). Null when the
+ * text doesn't fit a QR code, which a review link never comes close to.
+ */
 export function encodeQr(text: string): QrMatrix | null {
-  void text
-  return null
-}
-
-export function qrEncoderAvailable(): boolean {
-  return false
+  try {
+    const { size, data } = encode(text, { ecc: "M", border: 0 })
+    return { size, dark: (row, col) => data[row]?.[col] === true }
+  } catch {
+    return null
+  }
 }
 
 const escapeXml = (value: string) =>

@@ -26,12 +26,18 @@ vi.mock("@/components/listings/review-link-queries", () => ({
   useCheckGoogleForReviewForm: () => check,
 }))
 
-// No QR encoder is approved yet (lib/domain/review-link-qr.ts). Pinned here so
-// the placeholder case keeps testing the "not switched on" path once one is.
-vi.mock("@/lib/domain/review-link-qr", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/domain/review-link-qr")>()),
-  encodeQr: vi.fn(() => null),
-}))
+// The real encoder by default; one case makes it refuse, to test the
+// placeholder a code that can't be drawn gets.
+const encoderRefuses = vi.hoisted(() => ({ value: false }))
+vi.mock("@/lib/domain/review-link-qr", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/domain/review-link-qr")>()
+  return {
+    ...actual,
+    encodeQr: (text: string) =>
+      encoderRefuses.value ? null : actual.encodeQr(text),
+  }
+})
 
 const LOCATION = "loc-1"
 const TARGET = "https://g.page/r/abc/review"
@@ -401,23 +407,55 @@ describe("ReviewLinkTab: caption", () => {
 })
 
 describe("ReviewLinkTab: QR code", () => {
-  it("says QR codes aren’t on yet and keeps the downloads off", () => {
+  it("draws the code from the QR link, with both downloads on", () => {
     loaded(makeState())
     statsLoaded()
     renderTab()
-    const placeholder = document.querySelector<HTMLElement>(
-      '[data-slot="review-link-qr-placeholder"]'
+    const image = document.querySelector<HTMLImageElement>(
+      '[data-slot="review-link-qr"]'
     )
-    expect(placeholder).not.toBeNull()
-    expect(
-      within(placeholder!).getByText("The QR code isn’t ready yet.")
-    ).toBeVisible()
-    expect(document.querySelector('[data-slot="review-link-qr"]')).toBeNull()
-    // Each download says why it is off, as its description.
+    expect(image).not.toBeNull()
+    expect(image!.src).toMatch(/^data:image\/svg\+xml/)
+    const svg = decodeURIComponent(image!.src.split(",")[1] ?? "")
+    expect(svg).toContain("<rect")
+    const caption = [...svg.matchAll(/<text\b[^>]*>([^<]*)<\/text>/g)]
+      .map((line) => line[1])
+      .join(" ")
+    expect(caption).toBe("Leave us a review on Google")
     for (const name of ["Download PNG", "Download SVG"]) {
-      const button = screen.getByRole("button", { name })
-      expectBlocked(button)
-      expect(button).toHaveAccessibleDescription("The QR code isn’t ready yet.")
+      expect(screen.getByRole("button", { name })).not.toBeDisabled()
+    }
+  })
+
+  it("says why there is no code when the link is off", () => {
+    loaded(makeState({ link: makeLink({ status: "off" }) }))
+    statsLoaded()
+    renderTab()
+    expect(screen.getByText("The link is switched off")).toBeVisible()
+    expect(document.querySelector('[data-slot="review-link-qr"]')).toBeNull()
+    expectBlocked(screen.getByRole("button", { name: "Download SVG" }))
+  })
+
+  it("says so and keeps the downloads off when the code can't be drawn", () => {
+    encoderRefuses.value = true
+    try {
+      loaded(makeState())
+      statsLoaded()
+      renderTab()
+      const placeholder = document.querySelector<HTMLElement>(
+        '[data-slot="review-link-qr-placeholder"]'
+      )
+      expect(placeholder).not.toBeNull()
+      expect(
+        within(placeholder!).getByText("Couldn’t draw the QR code.")
+      ).toBeVisible()
+      for (const name of ["Download PNG", "Download SVG"]) {
+        const button = screen.getByRole("button", { name })
+        expectBlocked(button)
+        expect(button).toHaveAccessibleDescription("Couldn’t draw the QR code.")
+      }
+    } finally {
+      encoderRefuses.value = false
     }
   })
 })

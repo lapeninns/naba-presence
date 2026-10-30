@@ -5,7 +5,6 @@ import {
   QR_QUIET_ZONE,
   type QrMatrix,
   captionLines,
-  qrEncoderAvailable,
   reviewLinkQrSvg,
 } from "@/lib/domain/review-link-qr"
 
@@ -59,14 +58,39 @@ describe("QR encoder", () => {
     expect(QR_QUIET_ZONE).toBe(4)
   })
 
-  // Stubbed until a QR library is approved. These two assertions flip when
-  // the encoder lands: encodeQr returns a matrix and availability is true.
-  it("returns null while the encoder is stubbed", () => {
-    expect(encodeQr("https://app.example.test/r/abcdefghjk?s=qr")).toBeNull()
+  it("encodes a review link as a square code with its finder patterns", () => {
+    const qr = encodeQr("https://app.example.test/r/abcdefghjk?s=qr")
+    expect(qr).not.toBeNull()
+    const { size, dark } = qr!
+    // Versions are 21 + 4n modules wide, with no border of their own.
+    expect(size).toBeGreaterThanOrEqual(21)
+    expect((size - 21) % 4).toBe(0)
+    // Each finder pattern: a dark ring, a light ring, a dark 3x3 centre.
+    for (const [top, left] of [
+      [0, 0],
+      [0, size - 7],
+      [size - 7, 0],
+    ] as const) {
+      expect(dark(top, left)).toBe(true)
+      expect(dark(top + 1, left + 1)).toBe(false)
+      expect(dark(top + 3, left + 3)).toBe(true)
+      expect(dark(top + 6, left + 6)).toBe(true)
+    }
   })
 
-  it("reports the encoder as unavailable while stubbed", () => {
-    expect(qrEncoderAvailable()).toBe(false)
+  it("is deterministic for the same text", () => {
+    const text = "https://app.example.test/r/abcdefghjk?s=qr"
+    const a = encodeQr(text)!
+    const b = encodeQr(text)!
+    const cells = (qr: NonNullable<ReturnType<typeof encodeQr>>) =>
+      Array.from({ length: qr.size * qr.size }, (_, i) =>
+        qr.dark(Math.floor(i / qr.size), i % qr.size)
+      )
+    expect(cells(a)).toEqual(cells(b))
+  })
+
+  it("returns null for text no QR code can hold", () => {
+    expect(encodeQr("x".repeat(10_000))).toBeNull()
   })
 })
 

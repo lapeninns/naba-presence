@@ -336,6 +336,35 @@ test.describe.serial("review link", () => {
     ).toHaveCount(0)
   })
 
+  test("the QR code is drawn, and both downloads save a file", async ({
+    baseURL,
+    page,
+  }) => {
+    const state = await readJourneyState()
+    await applyCookie(page, baseURL, state.cookie)
+    const code = await ensureLiveLink(page, state.primaryLocationId)
+    const image = page.locator('[data-slot="review-link-qr"]')
+    await expect(image).toBeVisible()
+    // The image is a real, loaded picture, not a broken data URI.
+    expect(
+      await image.evaluate((node) => (node as HTMLImageElement).naturalWidth)
+    ).toBeGreaterThan(0)
+    for (const [name, extension] of [
+      ["Download SVG", "svg"],
+      ["Download PNG", "png"],
+    ] as const) {
+      const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        page.getByRole("button", { name }).click(),
+      ])
+      expect(download.suggestedFilename()).toBe(
+        `review-qr-${code}.${extension}`
+      )
+      const path = await download.path()
+      expect(path, `${name} saved`).toBeTruthy()
+    }
+  })
+
   test("a viewer sees the link but cannot change it", async ({
     baseURL,
     browser,

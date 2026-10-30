@@ -13,15 +13,14 @@ import { encodeQr, reviewLinkQrSvg } from "@/lib/domain/review-link-qr"
  * what is previewed is what prints. Black on white whatever the theme: a
  * printed code needs the contrast.
  *
- * Until a QR encoder is approved `encodeQr` returns null; the preview then
- * says so and the downloads are off with the reason. Everything else on the
- * page works without it.
+ * With no code to draw (the link is switched off, or the encoder refused
+ * the text) the preview says why and the downloads are off with the reason.
  */
 
 /** Pixels per module in the PNG: a 41-module code is 656 px, crisp at A6. */
 const PNG_SCALE = 16
 
-export const QR_NOT_READY = "The QR code isn’t ready yet."
+export const QR_NOT_DRAWN = "Couldn’t draw the QR code."
 
 /** The code as an SVG document, or null while no encoder is available. */
 export function useReviewLinkQrSvg(
@@ -48,10 +47,10 @@ export function QrImage({
   unavailable?: { title: string; body: string } | null
 }) {
   if (!svg) {
-    const title = unavailable?.title ?? QR_NOT_READY
+    const title = unavailable?.title ?? QR_NOT_DRAWN
     const body =
       unavailable?.body ??
-      "The link works now. The code and its downloads will appear here soon."
+      "The link still works: copy it above. Reload the page to try again."
     return (
       <div
         data-slot="review-link-qr-placeholder"
@@ -132,7 +131,7 @@ export function QrDownloads({
 }) {
   const toast = useToastManager()
   const [saving, setSaving] = React.useState(false)
-  const reason = disabledReason ?? (svg ? null : QR_NOT_READY)
+  const reason = disabledReason ?? (svg ? null : QR_NOT_DRAWN)
 
   async function savePng() {
     if (!svg) return
