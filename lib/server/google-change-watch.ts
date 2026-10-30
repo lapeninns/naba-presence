@@ -15,6 +15,7 @@ import {
   DEFAULT_PROTECTED_FIELDS,
   WATCHED_FIELDS,
   WATCHED_FIELD_LABELS,
+  bulkWrittenValues,
   categoryMovement,
   detectGoogleChanges,
   googleChangeSubjectId,
@@ -359,10 +360,13 @@ const MASK_FIELD = {
 
 /**
  * What this app last sent to Google for each business-information field, and
- * when: the newest successful reviewed business-information write per field
- * (the business-information editor, bulk changes, "Put ours back"). Those
- * writes do not move the profile baselines, so without this our own publish
- * would read as Google changing the field.
+ * when: the newest successful write per field, whichever path sent it. The
+ * business-information editor and "Put ours back" record theirs on
+ * gbp_management_mutation; bulk business-information and category changes
+ * (runBulkWrite) record theirs on bulk_listing_write_attempt, `succeeded`
+ * once Google answered or a readback confirmed it. Those writes do not move
+ * the profile baselines, so without this our own publish would read as
+ * Google changing the field.
  */
 async function publishedBusinessInfo(
   sql: TransactionSql,
@@ -415,6 +419,22 @@ async function publishedBusinessInfo(
                   }
                 : null
     if (value) published.set(field, { value, at: new Date(row.at) })
+  }
+  const bulk = await sql<{ family: string; intended: unknown; at: Date }[]>`
+    select a.family, a.intended, coalesce(a.finished_at, a.started_at) as at
+    from bulk_listing_write_attempt a
+    where a.organisation_id = ${organisationId}
+      and a.location_id = ${locationId}
+      and a.family in ('business_info', 'categories')
+      and a.status = 'succeeded'
+    order by at desc
+  `
+  for (const row of bulk) {
+    const at = new Date(row.at)
+    for (const value of bulkWrittenValues(row.family, row.intended)) {
+      const known = published.get(value.field)
+      if (!known || at > known.at) published.set(value.field, { value, at })
+    }
   }
   return published
 }
@@ -736,11 +756,13 @@ async function watchInTransaction(
       id: string
       field: WatchedField
       googleHash: string
+      oursHash: string
       status: GoogleChangeStatus
       reverted: boolean
     }[]
   >`
-    select id::text as id, field, google_hash as "googleHash", status,
+    select id::text as id, field, google_hash as "googleHash",
+      ours_hash as "oursHash", status,
       (revert_change_set_id is not null or revert_operation_id is not null) as reverted
     from listing_google_change
     where organisation_id = ${organisationId} and location_id = ${locationId}
@@ -779,6 +801,20 @@ async function watchInTransaction(
     await sql`
       update listing_google_change set last_seen_at = now()
       where id in ${sql(plan.keep)}
+    `
+  }
+  // Someone saved a new value of the field while its change waited: the
+  // change now compares Google's against what is saved, so both decisions
+  // (which refuse a stale ours) work again after a check.
+  for (const { id, change } of plan.refresh) {
+    await sql`
+      update listing_google_change set
+        ours_value = ${jsonColumn(sql, change.ours)},
+        ours_hash = ${change.oursHash},
+        local_edits = ${change.localEdits},
+        regular_days = ${change.regularDays}::smallint[],
+        special_dates = ${change.specialDates}::text[]
+      where id = ${id} and status = 'open'
     `
   }
   await resolveIncidents(sql, {

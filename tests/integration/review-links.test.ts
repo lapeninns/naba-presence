@@ -162,6 +162,82 @@ describeDatabase("review links", () => {
     expect((await create(t, locationId)).link.targetUri).toBe(TARGET)
   })
 
+  it("takes the newest stored read's review form, in the state and the summary", async () => {
+    const t = await tenant()
+    const { withTenant, readReviewLinkState } = await modules()
+    const { readListingSummaries } =
+      await import("@/lib/server/location-summary")
+    const MOVED = `${TARGET}-moved`
+    const observe = (
+      locationId: string,
+      resource: "profile" | "businessInformation",
+      target: string,
+      observedAt: Date
+    ) => admin`
+      insert into presence_resource_reconcile_state (
+        organisation_id, location_id, resource, status, observed_at,
+        observed_google_payload
+      ) values (
+        ${t.organisationId}, ${locationId}, ${resource}, 'succeeded',
+        ${observedAt},
+        ${admin.json({
+          observedAt: observedAt.toISOString(),
+          location: { metadata: { newReviewUri: target } },
+        })}
+      )
+      on conflict (organisation_id, location_id, resource) do update set
+        observed_at = excluded.observed_at,
+        observed_google_payload = excluded.observed_google_payload
+    `
+    const stateOf = (locationId: string) =>
+      withTenant(t.organisationId, (sql) =>
+        readReviewLinkState(sql, sessionOf(t), locationId, BASE)
+      )
+    const summaryOf = async (locationId: string) => {
+      const [summary] = await withTenant(t.organisationId, (sql) =>
+        readListingSummaries(sql, sessionOf(t), [locationId])
+      )
+      return summary?.reviewLink
+    }
+    const { locationId } = await seedReview(admin, {
+      organisationId: t.organisationId,
+    })
+    const earlier = new Date(Date.now() - 60 * 60 * 1000)
+    const later = new Date()
+    await observe(locationId, "profile", TARGET, earlier)
+    await observe(locationId, "businessInformation", TARGET, earlier)
+    await create(t, locationId)
+
+    // "Check for a new review form" refreshes Business Information only:
+    // its newer read wins over the older profile read.
+    await observe(locationId, "businessInformation", MOVED, later)
+    expect(await stateOf(locationId)).toMatchObject({
+      googleTarget: MOVED,
+      targetChanged: true,
+    })
+    expect(await summaryOf(locationId)).toEqual({
+      status: "live",
+      targetChanged: true,
+    })
+    const synced = await update(t, locationId, { action: "sync_target" })
+    expect(synced.targetUri).toBe(MOVED)
+    expect(await summaryOf(locationId)).toEqual({
+      status: "live",
+      targetChanged: false,
+    })
+
+    // The reverse: a profile read newer still wins over Business Information.
+    await observe(locationId, "profile", TARGET, new Date(Date.now() + 1000))
+    expect(await stateOf(locationId)).toMatchObject({
+      googleTarget: TARGET,
+      targetChanged: true,
+    })
+    expect(await summaryOf(locationId)).toEqual({
+      status: "live",
+      targetChanged: true,
+    })
+  })
+
   it("refuses to create a link when Google hasn't given a review form", async () => {
     const t = await tenant()
     const locationId = await locationWithTarget(t, null)

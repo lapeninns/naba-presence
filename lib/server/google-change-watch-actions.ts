@@ -611,22 +611,43 @@ async function acceptGoogleProfileField(input: Decision, row: ChangeRow) {
  * hours editor's own rules apply and pending hours publishes are withdrawn).
  * The next observation then finds those parts in line and moves their
  * baselines.
+ *
+ * The saved schedule must still be the one the change was spotted against:
+ * hours saved since (for a day Google changed, or any other) would otherwise
+ * be overwritten by a decision made on older ones. The save is pinned to the
+ * revision checked here, so an edit between this read and the save is
+ * refused too.
  */
 async function acceptGoogleHours(input: Decision, row: ChangeRow) {
   const { session, locationId } = input
-  const resource = await withTenant(session.organisationId, (sql) =>
-    readCanonicalResource<NormalizedHours>({
-      sql,
-      organisationId: session.organisationId,
-      locationId,
-      resourceType: "hours",
-    })
+  const field = row.field as "regularHours" | "specialHours"
+  const { resource, timezone } = await withTenant(
+    session.organisationId,
+    async (sql) => {
+      const [location] = await sql<{ timezone: string | null }[]>`
+        select timezone from location
+        where id = ${locationId} and organisation_id = ${session.organisationId}
+      `
+      return {
+        timezone: location?.timezone ?? null,
+        resource: await readCanonicalResource<NormalizedHours>({
+          sql,
+          organisationId: session.organisationId,
+          locationId,
+          resourceType: "hours",
+        }),
+      }
+    }
   )
   if (!resource) throw NOTHING_SAVED()
   const saved: NormalizedHours = {
     regular: resource.payload.regular,
     special: resource.payload.special,
     moreHours: resource.payload.moreHours ?? [],
+  }
+  const today = listingToday(timezone, new Date())
+  if (watchedValueHash(fieldValue(field, saved, today)) !== row.oursHash) {
+    throw OURS_CHANGED()
   }
   const google = row.googleValue
   const theirs: NormalizedHours = {

@@ -149,6 +149,54 @@ export function reviewUriFromObservedPayload(payload: unknown): string | null {
   )
 }
 
+/**
+ * One stored Google read's review form (the profile or the Business
+ * Information observation), as the database holds it.
+ */
+export type ReviewTargetObservation = {
+  /** `metadata.newReviewUri` as stored; checked here, not by the caller. */
+  target: unknown
+  /** The payload's own `observedAt`: when Google returned this payload. */
+  payloadObservedAt?: unknown
+  /** The row's `observed_at`, used when the payload carries no time. */
+  observedAt?: Date | string | null
+}
+
+function observationTime(observation: ReviewTargetObservation): number | null {
+  for (const value of [observation.payloadObservedAt, observation.observedAt]) {
+    if (value instanceof Date) {
+      if (!Number.isNaN(value.getTime())) return value.getTime()
+    } else if (typeof value === "string" && value) {
+      const parsed = Date.parse(value)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+  }
+  return null
+}
+
+/**
+ * Google's current review form for a listing: of the stored reads that carry
+ * a Google review address, the one Google returned most recently. A read
+ * with a known time beats one without; with equal or no times the earlier
+ * entry wins, so callers list the profile read first. The review link area
+ * and the listing summary both decide by this.
+ */
+export function newestReviewTarget(
+  observations: readonly (ReviewTargetObservation | null | undefined)[]
+): string | null {
+  let best: { target: string; time: number | null } | null = null
+  for (const observation of observations) {
+    if (!observation) continue
+    const target = normaliseReviewTarget(observation.target)
+    if (!target) continue
+    const time = observationTime(observation)
+    if (!best || (time !== null && (best.time === null || time > best.time))) {
+      best = { target, time }
+    }
+  }
+  return best?.target ?? null
+}
+
 /** The chart's periods, in days. */
 export const REVIEW_LINK_PERIODS = [30, 90] as const
 export type ReviewLinkPeriod = (typeof REVIEW_LINK_PERIODS)[number]

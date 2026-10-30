@@ -422,7 +422,11 @@ describe("reviewLinkSummary", () => {
     switchedOff: false,
     targetUri: FORM,
     profileTarget: FORM,
+    profilePayloadObservedAt: null,
+    profileObservedAt: null,
     infoTarget: null,
+    infoPayloadObservedAt: null,
+    infoObservedAt: null,
     ...overrides,
   })
 
@@ -466,6 +470,31 @@ describe("reviewLinkSummary", () => {
       status: "no_review_form",
       targetChanged: false,
     })
+  })
+
+  it("takes the newer read's review form, whichever read it is", () => {
+    const older = new Date("2026-10-01T09:00:00Z")
+    const newer = new Date("2026-10-30T09:00:00Z")
+    // A Business Information refresh newer than the profile read wins.
+    expect(
+      reviewLinkSummary(
+        row({
+          profileObservedAt: older,
+          infoTarget: MOVED,
+          infoObservedAt: newer,
+        })
+      ).targetChanged
+    ).toBe(true)
+    // And the reverse: a newer profile read keeps the link's target.
+    expect(
+      reviewLinkSummary(
+        row({
+          profileObservedAt: newer,
+          infoTarget: MOVED,
+          infoPayloadObservedAt: older.toISOString(),
+        })
+      ).targetChanged
+    ).toBe(false)
   })
 
   it("ignores a stored review form that isn't a Google review address", () => {

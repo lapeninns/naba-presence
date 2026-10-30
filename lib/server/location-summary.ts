@@ -12,7 +12,7 @@ import {
 } from "@/lib/contracts/location-summary"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { hashFoodMenus } from "@/lib/domain/food-menus"
-import { normaliseReviewTarget } from "@/lib/domain/review-link"
+import { newestReviewTarget } from "@/lib/domain/review-link"
 import {
   hashHours,
   hoursPartHashes,
@@ -29,6 +29,7 @@ import {
 } from "@/lib/domain/profile"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import type { HoursObservation } from "@/lib/server/hours-observations"
+import { reviewTargetObservationColumns } from "@/lib/server/review-link-target"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -303,23 +304,40 @@ export type ReviewLinkRow = {
   targetUri: string | null
   /** `metadata.newReviewUri` of the stored profile read, as stored. */
   profileTarget: string | null
-  /** The same from the stored Business Information read. */
+  /** The profile payload's own `observedAt`, as stored. */
+  profilePayloadObservedAt: string | null
+  /** The profile row's `observed_at`. */
+  profileObservedAt: Date | null
+  /** The same three from the stored Business Information read. */
   infoTarget: string | null
+  infoPayloadObservedAt: string | null
+  infoObservedAt: Date | null
 }
 
 /**
  * The review link's status, by the review link area's own rules
  * (lib/server/review-links.ts `readReviewLinkState`): Google's review form
- * is the profile read's, else Business Information's, each checked as a
- * Google review address; the link's target has changed when both exist and
- * differ.
+ * is the newest stored read's that carries a Google review address
+ * (`newestReviewTarget`, profile first on a tie); the link's target has
+ * changed when both exist and differ.
  */
 export function reviewLinkSummary(
   row: ReviewLinkRow | undefined
 ): ReviewLinkSummary {
-  const googleTarget =
-    normaliseReviewTarget(row?.profileTarget) ??
-    normaliseReviewTarget(row?.infoTarget)
+  const googleTarget = row
+    ? newestReviewTarget([
+        {
+          target: row.profileTarget,
+          payloadObservedAt: row.profilePayloadObservedAt,
+          observedAt: row.profileObservedAt,
+        },
+        {
+          target: row.infoTarget,
+          payloadObservedAt: row.infoPayloadObservedAt,
+          observedAt: row.infoObservedAt,
+        },
+      ])
+    : null
   if (!row?.hasLink) {
     return {
       status: googleTarget ? "not_set_up" : "no_review_form",
@@ -589,10 +607,8 @@ export async function readListingSummaries(
           (rl.id is not null) as "hasLink",
           (rl.disabled_at is not null) as "switchedOff",
           rl.target_uri as "targetUri",
-          p.observed_google_payload -> 'location' -> 'metadata' ->> 'newReviewUri'
-            as "profileTarget",
-          b.observed_google_payload -> 'location' -> 'metadata' ->> 'newReviewUri'
-            as "infoTarget"
+          ${reviewTargetObservationColumns(sql, "p", "profile")},
+          ${reviewTargetObservationColumns(sql, "b", "info")}
         from location l
         left join review_link rl on rl.location_id = l.id
         left join presence_resource_reconcile_state p

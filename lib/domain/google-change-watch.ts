@@ -203,6 +203,8 @@ export type LedgerRow = {
   id: string
   field: WatchedField
   googleHash: string
+  /** Our value as the row recorded it (the side a decision checks). */
+  oursHash: string
   status: GoogleChangeStatus
 }
 
@@ -211,6 +213,13 @@ export type LedgerPlan = {
   insert: DetectedGoogleChange[]
   /** Rows still describing Google as it is: nothing to do. */
   keep: string[]
+  /**
+   * Open rows kept for the same Google value whose own side moved (someone
+   * saved a new value of the field since): the row takes this run's ours,
+   * so a decision compares against what is saved now. Each is also in
+   * `keep`.
+   */
+  refresh: Array<{ id: string; change: DetectedGoogleChange }>
   /** Google changed the field again: the row is replaced by a new one. */
   supersede: string[]
   /** Google holds ours again, or the field is no longer protected. */
@@ -230,7 +239,13 @@ export function planLedger(input: {
   observedFields: readonly WatchedField[]
   protectedFields: readonly WatchedField[]
 }): LedgerPlan {
-  const plan: LedgerPlan = { insert: [], keep: [], supersede: [], resolve: [] }
+  const plan: LedgerPlan = {
+    insert: [],
+    keep: [],
+    refresh: [],
+    supersede: [],
+    resolve: [],
+  }
   const byField = new Map(
     input.detected.map((change) => [change.field, change])
   )
@@ -250,10 +265,17 @@ export function planLedger(input: {
     }
     const change = byField.get(row.field)
     if (!change) {
+      // Includes ours now matching Google's: a saved value that caught up
+      // with Google leaves nothing to decide.
       plan.resolve.push({ id: row.id, reason: "google_restored" })
     } else if (change.googleHash === row.googleHash) {
       plan.keep.push(row.id)
       covered.add(row.field)
+      // A "reverting" row is bound to the value its put-back sends; only a
+      // row still waiting for a decision follows our saved value.
+      if (row.status === "open" && change.oursHash !== row.oursHash) {
+        plan.refresh.push({ id: row.id, change })
+      }
     } else {
       plan.supersede.push(row.id)
     }
@@ -262,6 +284,54 @@ export function planLedger(input: {
     if (!covered.has(change.field)) plan.insert.push(change)
   }
   return plan
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+/**
+ * The watched values a successful bulk business-information or category
+ * write sent (its `bulk_listing_write_attempt.intended`, see
+ * lib/server/bulk-families/write-attempts.ts): a set website or description,
+ * a clear of either (no value), and a category write's primary category.
+ * Labels and the open status are not watched; anything unreadable is
+ * skipped, never guessed.
+ */
+export function bulkWrittenValues(
+  family: string,
+  intended: unknown
+): WatchedValue[] {
+  if (!isRecord(intended)) return []
+  if (family === "categories") {
+    const categories = intended.categories
+    const primary = isRecord(categories) ? categories.primary : null
+    return typeof primary === "string" && primary
+      ? [
+          {
+            field: "primaryCategory",
+            value: { name: primary, displayName: null },
+          },
+        ]
+      : []
+  }
+  if (family !== "business_info" || !Array.isArray(intended.changes)) return []
+  const values: WatchedValue[] = []
+  for (const change of intended.changes) {
+    if (!isRecord(change)) continue
+    const field =
+      change.field === "websiteUri"
+        ? "website"
+        : change.field === "profile.description"
+          ? "description"
+          : null
+    if (!field) continue
+    if (change.action === "clear") {
+      values.push({ field, value: null })
+    } else if (change.action === "set" && typeof change.value === "string") {
+      values.push({ field, value: change.value })
+    }
+  }
+  return values
 }
 
 /**

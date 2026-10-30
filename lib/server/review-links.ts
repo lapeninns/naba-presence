@@ -20,7 +20,6 @@ import {
   reviewLinkTotals,
   reviewLinkUrl,
   reviewLinkWindow,
-  reviewUriFromObservedPayload,
   type ReviewLinkPeriod,
   type ReviewLinkSource,
 } from "@/lib/domain/review-link"
@@ -43,7 +42,7 @@ import {
   type LocationNotFound,
 } from "@/lib/server/permissions"
 import type { PrefetchEntry } from "@/lib/server/prefetch"
-import { readObservedGooglePayload } from "@/lib/server/resource-observations"
+import { storedGoogleReviewTarget } from "@/lib/server/review-link-target"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -52,8 +51,8 @@ import type { Session } from "@/lib/server/session"
  * (codes, targets, captions, days) are in lib/domain/review-link*.ts.
  *
  * Everything here that a signed-in person reaches is DB-only: the target is
- * Google's `metadata.newReviewUri` from the listing's last stored read
- * (profile or Business Information). Reading Google again is the existing
+ * Google's `metadata.newReviewUri` from the listing's newest stored read
+ * that carries one (profile or Business Information; review-link-target.ts). Reading Google again is the existing
  * Business Information refresh, which the area page offers.
  */
 
@@ -141,28 +140,6 @@ async function requireLocationRow(
     )
   }
   return row
-}
-
-/**
- * Google's review form from the listing's last stored read, or null. The
- * profile read is tried first, then Business Information; both ask Google
- * for `metadata`.
- */
-export async function storedGoogleReviewTarget(
-  sql: TransactionSql,
-  organisationId: string,
-  locationId: string
-): Promise<string | null> {
-  for (const resource of ["profile", "businessInformation"] as const) {
-    const observed = await readObservedGooglePayload(sql, {
-      organisationId,
-      locationId,
-      resource,
-    })
-    const target = reviewUriFromObservedPayload(observed?.payload)
-    if (target) return target
-  }
-  return null
 }
 
 async function selectLink(

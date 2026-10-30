@@ -4,6 +4,7 @@ import {
   DEFAULT_PROTECTED_FIELDS,
   WATCHED_FIELDS,
   WATCHED_FIELD_LABELS,
+  bulkWrittenValues,
   categoryMovement,
   changedHoursKeys,
   detectGoogleChanges,
@@ -806,6 +807,7 @@ describe("planLedger", () => {
     expect(planLedger({ live: [], detected: [name], ...everything })).toEqual({
       insert: [name],
       keep: [],
+      refresh: [],
       supersede: [],
       resolve: [],
     })
@@ -820,13 +822,20 @@ describe("planLedger", () => {
             id: "row-1",
             field: "name",
             googleHash: name.googleHash,
+            oursHash: name.oursHash,
             status: "open",
           },
         ],
         detected: [name],
         ...everything,
       })
-    ).toEqual({ insert: [], keep: ["row-1"], supersede: [], resolve: [] })
+    ).toEqual({
+      insert: [],
+      keep: ["row-1"],
+      refresh: [],
+      supersede: [],
+      resolve: [],
+    })
   })
 
   it("supersedes a live row when Google changed the field to another value", () => {
@@ -839,13 +848,20 @@ describe("planLedger", () => {
             id: "row-1",
             field: "name",
             googleHash: older.googleHash,
+            oursHash: older.oursHash,
             status: "reverting",
           },
         ],
         detected: [name],
         ...everything,
       })
-    ).toEqual({ insert: [name], keep: [], supersede: ["row-1"], resolve: [] })
+    ).toEqual({
+      insert: [name],
+      keep: [],
+      refresh: [],
+      supersede: ["row-1"],
+      resolve: [],
+    })
   })
 
   it("resolves live rows whose field is no longer detected", () => {
@@ -857,12 +873,14 @@ describe("planLedger", () => {
             id: "row-1",
             field: "name",
             googleHash: "a".repeat(64),
+            oursHash: "e".repeat(64),
             status: "open",
           },
           {
             id: "row-2",
             field: "website",
             googleHash: "b".repeat(64),
+            oursHash: "e".repeat(64),
             status: "reverting",
           },
         ],
@@ -872,6 +890,7 @@ describe("planLedger", () => {
     ).toEqual({
       insert: [phone],
       keep: [],
+      refresh: [],
       supersede: [],
       resolve: [
         { id: "row-1", reason: "google_restored" },
@@ -889,25 +908,157 @@ describe("planLedger", () => {
             id: "row-1",
             field: "name",
             googleHash: name.googleHash,
+            oursHash: name.oursHash,
             status: "accepted",
           },
           {
             id: "row-2",
             field: "phone",
             googleHash: "c".repeat(64),
+            oursHash: "e".repeat(64),
             status: "resolved",
           },
           {
             id: "row-3",
             field: "website",
             googleHash: "d".repeat(64),
+            oursHash: "e".repeat(64),
             status: "superseded",
           },
         ],
         detected: [name],
         ...everything,
       })
-    ).toEqual({ insert: [name], keep: [], supersede: [], resolve: [] })
+    ).toEqual({
+      insert: [name],
+      keep: [],
+      refresh: [],
+      supersede: [],
+      resolve: [],
+    })
+  })
+})
+
+describe("planLedger when our saved value moves under an open change", () => {
+  const everything = {
+    observedFields: WATCHED_FIELDS,
+    protectedFields: WATCHED_FIELDS,
+  }
+  const observe = (ours: string | null, google: string) =>
+    detectGoogleChanges({
+      protectedFields: WATCHED_FIELDS,
+      observations: [
+        {
+          ours: { field: "name", value: ours },
+          google: { field: "name", value: google },
+          movement: BOTH_MOVED,
+        },
+      ],
+    })
+  const [spotted] = observe("Bell", "Bell Pub")
+  const row = (status: "open" | "reverting") => ({
+    id: "row-1",
+    field: "name" as const,
+    googleHash: spotted!.googleHash,
+    oursHash: spotted!.oursHash,
+    status,
+  })
+
+  it("keeps the open change and takes our newly saved value", () => {
+    const detected = observe("The Bell", "Bell Pub")
+    expect(
+      planLedger({ live: [row("open")], detected, ...everything })
+    ).toEqual({
+      insert: [],
+      keep: ["row-1"],
+      refresh: [{ id: "row-1", change: detected[0] }],
+      supersede: [],
+      resolve: [],
+    })
+    expect(detected[0]!.oursHash).not.toBe(spotted!.oursHash)
+    expect(detected[0]!.ours).toEqual({ field: "name", value: "The Bell" })
+  })
+
+  it("does not refresh a change that is unchanged on our side", () => {
+    expect(
+      planLedger({
+        live: [row("open")],
+        detected: observe("Bell", "Bell Pub"),
+        ...everything,
+      }).refresh
+    ).toEqual([])
+  })
+
+  it("leaves a put-back that is on its way bound to the value it sends", () => {
+    expect(
+      planLedger({
+        live: [row("reverting")],
+        detected: observe("The Bell", "Bell Pub"),
+        ...everything,
+      })
+    ).toMatchObject({ keep: ["row-1"], refresh: [] })
+  })
+
+  it("resolves the change once our saved value matches Google's", () => {
+    const detected = observe("Bell Pub", "Bell Pub")
+    expect(detected).toEqual([])
+    expect(
+      planLedger({ live: [row("open")], detected, ...everything })
+    ).toEqual({
+      insert: [],
+      keep: [],
+      refresh: [],
+      supersede: [],
+      resolve: [{ id: "row-1", reason: "google_restored" }],
+    })
+  })
+})
+
+describe("bulkWrittenValues", () => {
+  it("reads a bulk website and description set or clear", () => {
+    expect(
+      bulkWrittenValues("business_info", {
+        changes: [
+          { field: "websiteUri", action: "set", value: "https://bell.example" },
+          { field: "profile.description", action: "clear" },
+          { field: "labels", action: "set", value: ["pub"] },
+          { field: "openInfo.status", action: "set", value: "OPEN" },
+        ],
+      })
+    ).toEqual([
+      { field: "website", value: "https://bell.example" },
+      { field: "description", value: null },
+    ])
+  })
+
+  it("reads a bulk category write's primary category", () => {
+    expect(
+      bulkWrittenValues("categories", {
+        categories: {
+          primary: "categories/gcid:pub",
+          additional: ["categories/gcid:bar"],
+        },
+      })
+    ).toEqual([
+      {
+        field: "primaryCategory",
+        value: { name: "categories/gcid:pub", displayName: null },
+      },
+    ])
+  })
+
+  it("skips other families and anything it cannot read", () => {
+    expect(bulkWrittenValues("attributes", { changes: [] })).toEqual([])
+    expect(bulkWrittenValues("business_info", null)).toEqual([])
+    expect(bulkWrittenValues("business_info", { changes: "x" })).toEqual([])
+    expect(
+      bulkWrittenValues("categories", { categories: { primary: null } })
+    ).toEqual([])
+    expect(
+      bulkWrittenValues("business_info", {
+        changes: [{ field: "websiteUri", action: "set", value: 3 }],
+      })
+    ).toEqual([])
   })
 })
 
@@ -916,6 +1067,7 @@ describe("planLedger without a full observation", () => {
     id: "row-1",
     field: "regularHours" as const,
     googleHash: "a".repeat(64),
+    oursHash: "e".repeat(64),
     status: "reverting" as const,
   }
 
@@ -927,7 +1079,13 @@ describe("planLedger without a full observation", () => {
         observedFields: ["name", "phone"],
         protectedFields: WATCHED_FIELDS,
       })
-    ).toEqual({ insert: [], keep: ["row-1"], supersede: [], resolve: [] })
+    ).toEqual({
+      insert: [],
+      keep: ["row-1"],
+      refresh: [],
+      supersede: [],
+      resolve: [],
+    })
   })
 
   it("resolves a field that is no longer protected as unwatched", () => {
@@ -941,6 +1099,7 @@ describe("planLedger without a full observation", () => {
     ).toEqual({
       insert: [],
       keep: [],
+      refresh: [],
       supersede: [],
       resolve: [{ id: "row-1", reason: "unwatched" }],
     })

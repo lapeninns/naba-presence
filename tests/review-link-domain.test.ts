@@ -7,6 +7,7 @@ import {
   isLikelyBot,
   isReviewLinkCode,
   localDateKey,
+  newestReviewTarget,
   parseReviewLinkPeriod,
   parseReviewLinkSource,
   REVIEW_LINK_CODE_ALPHABET,
@@ -313,6 +314,105 @@ describe("reviewUriFromObservedPayload", () => {
     ["a non-string URI", { location: { metadata: { newReviewUri: 12 } } }],
   ])("returns null for %s", (_label, payload) => {
     expect(reviewUriFromObservedPayload(payload)).toBeNull()
+  })
+})
+
+describe("newestReviewTarget", () => {
+  const OLD = "https://search.google.com/local/writereview?placeid=old"
+  const NEW = "https://search.google.com/local/writereview?placeid=new"
+  const earlier = "2026-10-01T09:00:00.000Z"
+  const later = "2026-10-30T09:00:00.000Z"
+
+  it("takes a newer Business Information read over an older profile read", () => {
+    expect(
+      newestReviewTarget([
+        { target: OLD, payloadObservedAt: earlier },
+        { target: NEW, payloadObservedAt: later },
+      ])
+    ).toBe(NEW)
+  })
+
+  it("takes a newer profile read over an older Business Information read", () => {
+    expect(
+      newestReviewTarget([
+        { target: NEW, payloadObservedAt: later },
+        { target: OLD, payloadObservedAt: earlier },
+      ])
+    ).toBe(NEW)
+  })
+
+  it("falls back to the row's observed_at when the payload has no time", () => {
+    expect(
+      newestReviewTarget([
+        { target: OLD, observedAt: new Date(earlier) },
+        {
+          target: NEW,
+          payloadObservedAt: "not a date",
+          observedAt: new Date(later),
+        },
+      ])
+    ).toBe(NEW)
+    // The payload's own time describes the payload, so it comes first.
+    expect(
+      newestReviewTarget([
+        {
+          target: OLD,
+          payloadObservedAt: earlier,
+          observedAt: new Date(later),
+        },
+        {
+          target: NEW,
+          payloadObservedAt: later,
+          observedAt: new Date(earlier),
+        },
+      ])
+    ).toBe(NEW)
+  })
+
+  it("prefers a read with a time over one without, whichever side lacks it", () => {
+    expect(
+      newestReviewTarget([
+        { target: OLD },
+        { target: NEW, payloadObservedAt: earlier },
+      ])
+    ).toBe(NEW)
+    expect(
+      newestReviewTarget([
+        { target: NEW, observedAt: new Date(earlier) },
+        { target: OLD, payloadObservedAt: null, observedAt: null },
+      ])
+    ).toBe(NEW)
+  })
+
+  it("keeps the first entry (the profile read) on a tie or with no times", () => {
+    expect(newestReviewTarget([{ target: OLD }, { target: NEW }])).toBe(OLD)
+    expect(
+      newestReviewTarget([
+        { target: OLD, payloadObservedAt: later },
+        { target: NEW, payloadObservedAt: later },
+      ])
+    ).toBe(OLD)
+  })
+
+  it("uses the read that has a review form when only one does", () => {
+    expect(
+      newestReviewTarget([null, { target: OLD, payloadObservedAt: earlier }])
+    ).toBe(OLD)
+    expect(
+      newestReviewTarget([
+        { target: null, payloadObservedAt: later },
+        { target: OLD, payloadObservedAt: earlier },
+      ])
+    ).toBe(OLD)
+    // A newer read whose address isn't Google's never wins.
+    expect(
+      newestReviewTarget([
+        { target: OLD, payloadObservedAt: earlier },
+        { target: "https://evil.example/review", payloadObservedAt: later },
+      ])
+    ).toBe(OLD)
+    expect(newestReviewTarget([undefined, null])).toBeNull()
+    expect(newestReviewTarget([])).toBeNull()
   })
 })
 
