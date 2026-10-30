@@ -11,8 +11,13 @@ import { z } from "zod"
 // Requests
 // ---------------------------------------------------------------------------
 
+export const bannedPhrasesSchema = z
+  .array(z.string().trim().min(1).max(200))
+  .max(100)
+
 /** PATCH `/api/settings` body. */
 export const settingsPatchSchema = z.object({
+  bannedPhrases: bannedPhrasesSchema.optional(),
   approvalRequired: z.boolean(),
   requireTwoPersonApproval: z.boolean().optional(),
   rawContentRetentionDays: z.number().int().min(1).max(30),
@@ -55,6 +60,7 @@ export function requiresDirectPublishConsent(
 // ---------------------------------------------------------------------------
 
 export const orgSettingsSchema = z.object({
+  bannedPhrases: bannedPhrasesSchema.default([]),
   approvalRequired: z.boolean(),
   requireTwoPersonApproval: z.boolean(),
   rawContentRetentionDays: z.number(),

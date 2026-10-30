@@ -32,13 +32,17 @@ export function fetchPosts(
   options?: RequestOptions
 ): Promise<PostsState> {
   const query = new URLSearchParams()
-  if (params.filter && params.filter !== "all") query.set("filter", params.filter)
+  if (params.filter && params.filter !== "all")
+    query.set("filter", params.filter)
   if (params.pageSize) query.set("pageSize", String(params.pageSize))
   if (params.cursor) query.set("cursor", params.cursor)
   if (params.post) query.set("post", params.post)
   if (params.refresh) query.set("refresh", params.refresh)
   const suffix = query.size ? `?${query}` : ""
-  return apiFetch(`/api/locations/${id}/posts${suffix}`, { schema: postsListResponseSchema, ...options })
+  return apiFetch(`/api/locations/${id}/posts${suffix}`, {
+    schema: postsListResponseSchema,
+    ...options,
+  })
 }
 
 export function createPost(id: string, input: LocalPostInputValues) {
@@ -49,7 +53,12 @@ export function createPost(id: string, input: LocalPostInputValues) {
   })
 }
 
-export function updatePost(id: string, postId: string, input: LocalPostInputValues, expectedUpdatedAt?: string): Promise<UpdatePostResult> {
+export function updatePost(
+  id: string,
+  postId: string,
+  input: LocalPostInputValues,
+  expectedUpdatedAt?: string
+): Promise<UpdatePostResult> {
   return apiFetch(`/api/locations/${id}/posts/${postId}`, {
     method: "PATCH",
     body: expectedUpdatedAt ? { ...input, expectedUpdatedAt } : input,
@@ -63,14 +72,15 @@ export function publishPost(
   options: MutationOptions & {
     /** The revision the person saved or saw: a changed post is refused. */
     expectedRevision?: number
+    contentWarningAcknowledgement?: string
   } = {}
 ): Promise<PublishPostResult> {
   return apiFetch(`/api/locations/${id}/posts/${postId}/publish`, {
     method: "POST",
-    body:
-      options.expectedRevision === undefined
-        ? undefined
-        : { expectedRevision: options.expectedRevision },
+    body: {
+      expectedRevision: options.expectedRevision,
+      contentWarningAcknowledgement: options.contentWarningAcknowledgement,
+    },
     schema: postPublishOutcomeSchema,
     intentId: options.intentId,
   })

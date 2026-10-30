@@ -60,6 +60,7 @@ export const PATCH = route({
       const [row] = await sql`
         update organisation
         set
+          banned_phrases = coalesce(${input.bannedPhrases ?? null}::text[], banned_phrases),
           approval_required = ${input.approvalRequired},
           require_two_person_approval = coalesce(
             ${input.requireTwoPersonApproval ?? null},
@@ -81,6 +82,7 @@ export const PATCH = route({
           end
         where id = ${session.organisationId}
         returning
+          banned_phrases as "bannedPhrases",
           approval_required as "approvalRequired",
           require_two_person_approval as "requireTwoPersonApproval",
           raw_content_retention_days as "rawContentRetentionDays",

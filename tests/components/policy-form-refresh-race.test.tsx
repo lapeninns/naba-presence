@@ -85,6 +85,7 @@ vi.mock("@/lib/queries/use-settings-capabilities", () => ({
 
 function makeSettings(overrides: Partial<OrgSettings> = {}): OrgSettings {
   return {
+    bannedPhrases: [],
     approvalRequired: true,
     requireTwoPersonApproval: false,
     rawContentRetentionDays: 14,
@@ -259,6 +260,7 @@ describe("Reply policy: a rename and a policy save together (#195)", () => {
       rawContentRetentionDays: 7,
       defaultLanguageCode: "en-GB",
       defaultTimezone: "Europe/London",
+      bannedPhrases: [],
       directPublishConsent: false,
     })
   })

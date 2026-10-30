@@ -48,6 +48,11 @@ const tenantTables = [
   "connection_task",
 ]
 
+// S4: fan-out allocation reserves 0150–0329; the integrator renumbers 0330.
+const S4_RESERVED_VERSION_GAPS = Array.from({ length: 180 }, (_, index) =>
+  String(index + 150).padStart(4, "0")
+)
+
 describe("database migration contract", () => {
   it("names every migration NNNN_snake_case.sql, apart from the legacy allowlist", async () => {
     const files = await migrationFiles()
@@ -73,7 +78,7 @@ describe("database migration contract", () => {
         gaps.push(String(version).padStart(4, "0"))
       }
     }
-    expect(gaps).toEqual(KNOWN_VERSION_GAPS)
+    expect(gaps).toEqual([...KNOWN_VERSION_GAPS, ...S4_RESERVED_VERSION_GAPS])
   })
 
   it("records every migration's own version in schema_migration", async () => {

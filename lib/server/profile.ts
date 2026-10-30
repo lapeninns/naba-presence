@@ -26,6 +26,7 @@ import {
   type CanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
+import { assertContentChecks } from "@/lib/server/content-checks"
 import { jsonColumn, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
@@ -588,6 +589,7 @@ export async function saveCanonicalProfile(input: {
   locationId: string
   expectedCanonicalRevision: string
   values: Partial<NormalizedProfile>
+  contentWarningAcknowledgement?: string
   requestId: string
 }) {
   // NabaPresence's own copy only: no Google read (a save works while Google
@@ -632,6 +634,13 @@ export async function saveCanonicalProfile(input: {
         if (allowed.has(key))
           canonical[key] =
             typeof value === "string" ? value.trim() || null : null
+      }
+      if (Object.hasOwn(input.values, "description")) {
+        await assertContentChecks(sql, {
+          kind: "description",
+          body: canonical.description ?? "",
+          contentWarningAcknowledgement: input.contentWarningAcknowledgement,
+        })
       }
       const resource = await updateCanonicalResource({
         sql,
@@ -765,6 +774,7 @@ async function markFieldsPublished(
 }
 
 type PublishProfileInput = {
+  contentWarningAcknowledgement?: string
   session: Session
   locationId: string
   selectedFields: ProfileFieldKey[]
@@ -809,10 +819,23 @@ async function prepareProfilePublish(input: PublishProfileInput) {
     },
   })
   if (selected.includes("phone") && !live.canonical.phone) {
-    throw new ApiError(422, "primary_phone_required", "Google requires a primary phone number. Set a primary number before publishing phone changes.")
+    throw new ApiError(
+      422,
+      "primary_phone_required",
+      "Google requires a primary phone number. Set a primary number before publishing phone changes."
+    )
   }
-  const patch = buildGoogleProfilePatch({ canonical: live.canonical, selectedFields: selected, googlePhoneNumbers: live.googleLocation.phoneNumbers })
-  if (!patch.updateMask.length) throw new ApiError(409, "profile_patch_empty", "The selected fields do not produce a Google patch.")
+  const patch = buildGoogleProfilePatch({
+    canonical: live.canonical,
+    selectedFields: selected,
+    googlePhoneNumbers: live.googleLocation.phoneNumbers,
+  })
+  if (!patch.updateMask.length)
+    throw new ApiError(
+      409,
+      "profile_patch_empty",
+      "The selected fields do not produce a Google patch."
+    )
   return { selected, live, patch }
 }
 
@@ -830,7 +853,9 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
   return withGoogleWriteSession(
     {
       surface: "profile",
-      keys: [`${input.session.organisationId}:${input.locationId}:business_info`],
+      keys: [
+        `${input.session.organisationId}:${input.locationId}:business_info`,
+      ],
       deadline: input.deadline,
     },
     () => publishProfileLocked(input)
@@ -839,6 +864,15 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
 
 async function publishProfileLocked(input: PublishProfileInput) {
   const { selected, live, patch } = await prepareProfilePublish(input)
+  if (selected.includes("description")) {
+    await withTenant(input.session.organisationId, (sql) =>
+      assertContentChecks(sql, {
+        kind: "description",
+        body: live.canonical.description ?? "",
+        contentWarningAcknowledgement: input.contentWarningAcknowledgement,
+      })
+    )
+  }
   // Whatever the write's outcome, the stored read predates it; a verified
   // success records its readback as the new one (onSuccess).
   await forgetObservedGooglePayload({
@@ -908,23 +942,51 @@ async function publishProfileLocked(input: PublishProfileInput) {
     validate: async () => {
       await patchGoogle(true)
     },
-    mutate: () => patchGoogle(false),
+    mutate: async () => {
+      if (selected.includes("description")) {
+        await withTenant(organisationId, (sql) =>
+          assertContentChecks(sql, {
+            kind: "description",
+            body: live.canonical.description ?? "",
+            contentWarningAcknowledgement: input.contentWarningAcknowledgement,
+          })
+        )
+      }
+      return patchGoogle(false)
+    },
     // An ambiguous PATCH is settled by the field-hash readback below, as hours
     // does: a match proves it landed, a mismatch that it did not.
     onAmbiguous: "readback",
     readback: {
       read: async () => {
-        const location = await fetchGoogleProfile(live.context, live.accessToken, { maxAttempts: 3 })
+        const location = await fetchGoogleProfile(
+          live.context,
+          live.accessToken,
+          { maxAttempts: 3 }
+        )
         return { location, profile: normalizeGoogleProfile(location) }
       },
       verify: ({ readback }) =>
-        selected.every((key) => hashProfileValue(live.canonical[key]) === hashProfileValue(readback.profile[key])) &&
-        (!selected.includes("phone") || additionalPhonesMatch(readback.location.phoneNumbers?.additionalPhones, live.googleLocation.phoneNumbers?.additionalPhones ?? [])),
-      hash: (readback) => hashGoogleProfile(readback.location, readback.profile),
-      mismatch: { code: "google_readback_mismatch", message: "Google accepted the patch but read-back did not match." },
+        selected.every(
+          (key) =>
+            hashProfileValue(live.canonical[key]) ===
+            hashProfileValue(readback.profile[key])
+        ) &&
+        (!selected.includes("phone") ||
+          additionalPhonesMatch(
+            readback.location.phoneNumbers?.additionalPhones,
+            live.googleLocation.phoneNumbers?.additionalPhones ?? []
+          )),
+      hash: (readback) =>
+        hashGoogleProfile(readback.location, readback.profile),
+      mismatch: {
+        code: "google_readback_mismatch",
+        message: "Google accepted the patch but read-back did not match.",
+      },
     },
     onSuccess: async (sql, ctx) => {
-      if (!ctx.readback) throw new Error("Profile publication requires independent readback.")
+      if (!ctx.readback)
+        throw new Error("Profile publication requires independent readback.")
       await markFieldsPublished(sql, {
         organisationId,
         locationId: input.locationId,

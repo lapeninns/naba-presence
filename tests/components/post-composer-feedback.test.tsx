@@ -117,6 +117,123 @@ afterEach(() => {
 })
 
 describe("PostComposerSheet feedback", () => {
+  it("retries a warning after saving a new post without creating another draft", async () => {
+    const user = userEvent.setup()
+    api.createPost.mockResolvedValue({
+      post: { id: "p-saved", contentRevision: 1 },
+    })
+    api.publishPost
+      .mockRejectedValueOnce(
+        new ApiClientError(
+          409,
+          "content_warning_acknowledgement_required",
+          "Review warnings.",
+          {
+            contentWarningAcknowledgement: "b".repeat(64),
+            reasons: [{ message: "Use sentence case." }],
+          }
+        )
+      )
+      .mockResolvedValueOnce({
+        status: "published",
+        postId: "p-saved",
+        googlePostName: "posts/1",
+      })
+    renderComposer()
+    const sheet = await openNewAndWrite(user)
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    await user.click(
+      await within(sheet).findByRole("checkbox", {
+        name: "I have reviewed these content warnings.",
+      })
+    )
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    await waitFor(() => expect(api.publishPost).toHaveBeenCalledTimes(2))
+    expect(api.createPost).toHaveBeenCalledOnce()
+    expect(api.publishPost.mock.calls[1][1]).toBe("p-saved")
+    expect(api.publishPost.mock.calls[1][2]).toMatchObject({
+      contentWarningAcknowledgement: "b".repeat(64),
+      expectedRevision: 1,
+    })
+  })
+
+  it("requires a checkbox before resubmitting the server content-warning token", async () => {
+    const user = userEvent.setup()
+    const token = "a".repeat(64)
+    api.createPost
+      .mockRejectedValueOnce(
+        new ApiClientError(
+          409,
+          "content_warning_acknowledgement_required",
+          "Review the content warnings.",
+          {
+            contentWarningAcknowledgement: token,
+            reasons: [{ message: "Use sentence case." }],
+          }
+        )
+      )
+      .mockResolvedValueOnce({ post: { id: "p-new", contentRevision: 1 } })
+    renderComposer()
+    const sheet = await openNewAndWrite(user)
+    await user.click(within(sheet).getByRole("button", { name: "Save draft" }))
+    const checkbox = await within(sheet).findByRole("checkbox", {
+      name: "I have reviewed these content warnings.",
+    })
+    expect(checkbox).not.toBeChecked()
+    expect(api.createPost).toHaveBeenCalledOnce()
+    expect(
+      api.createPost.mock.calls[0][1].contentWarningAcknowledgement
+    ).toBeUndefined()
+    expect(within(sheet).getByText("Use sentence case.")).toBeInTheDocument()
+    await user.click(checkbox)
+    await user.click(within(sheet).getByRole("button", { name: "Save draft" }))
+    await waitFor(() => expect(api.createPost).toHaveBeenCalledTimes(2))
+    expect(api.createPost.mock.calls[1][1].contentWarningAcknowledgement).toBe(
+      token
+    )
+  })
+
+  it("discards content-warning consent when the post text changes", async () => {
+    const user = userEvent.setup()
+    api.createPost.mockRejectedValue(
+      new ApiClientError(
+        409,
+        "content_warning_acknowledgement_required",
+        "Review the content warnings.",
+        {
+          contentWarningAcknowledgement: "a".repeat(64),
+          reasons: [{ message: "Use sentence case." }],
+        }
+      )
+    )
+    renderComposer()
+    const sheet = await openNewAndWrite(user)
+    await user.click(within(sheet).getByRole("button", { name: "Save draft" }))
+    await user.click(
+      await within(sheet).findByRole("checkbox", {
+        name: "I have reviewed these content warnings.",
+      })
+    )
+    await user.type(
+      within(sheet).getByRole("textbox", { name: "Post summary" }),
+      " today"
+    )
+    expect(
+      within(sheet).queryByRole("checkbox", {
+        name: "I have reviewed these content warnings.",
+      })
+    ).toBeNull()
+    await user.click(within(sheet).getByRole("button", { name: "Save draft" }))
+    await waitFor(() => expect(api.createPost).toHaveBeenCalledTimes(2))
+    expect(
+      api.createPost.mock.calls[1][1].contentWarningAcknowledgement
+    ).toBeUndefined()
+  })
+
   it("says nothing was sent, not that permission is missing, when publishing needs the person to confirm it’s them", async () => {
     const user = userEvent.setup()
     api.createPost.mockResolvedValue({

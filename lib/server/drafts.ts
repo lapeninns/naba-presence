@@ -16,6 +16,7 @@ import {
   type SemanticInput,
 } from "@/lib/server/ai"
 import { sha256 } from "@/lib/server/crypto"
+import { storedReplyContentChecks } from "@/lib/server/content-checks"
 import { ApiError } from "@/lib/server/http"
 
 export type EvidenceInput = {
@@ -154,6 +155,7 @@ export async function verifyStoredDraft(
     select name from location where name <> ${input.locationName}
   `
   const reasons = [
+    ...(await storedReplyContentChecks(sql, input)),
     ...deterministicVerification({
       body: input.body,
       reviewText: input.reviewText,

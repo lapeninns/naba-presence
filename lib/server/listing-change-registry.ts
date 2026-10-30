@@ -99,6 +99,7 @@ export const LISTING_CHANGE_ENTRIES = {
         session,
         locationId,
         selectedFields: body.selectedFields,
+        contentWarningAcknowledgement: body.contentWarningAcknowledgement,
         expectedCanonicalRevision: body.expectedCanonicalRevision,
         expectedCanonicalHash: body.expectedCanonicalHash,
         expectedGoogleHash: body.expectedGoogleHash,

@@ -140,12 +140,9 @@ describe("deterministic reply verification", () => {
   })
 
   it("accepts an ASCII German reply for a German review", () => {
-    const reasons = verify(
-      "Vielen Dank fuer Ihre freundliche Rueckmeldung.",
-      {
-        expectedLanguage: "de",
-      }
-    )
+    const reasons = verify("Vielen Dank fuer Ihre freundliche Rueckmeldung.", {
+      expectedLanguage: "de",
+    })
     expect(reasons.map((reason) => reason.code)).not.toContain(
       "language_mismatch"
     )
@@ -184,4 +181,48 @@ describe("deterministic reply verification", () => {
       )
     })
   }
+})
+
+describe("reply content policy and published repetition", () => {
+  const body =
+    "Thank you for visiting our team. We enjoyed welcoming you and hope to see you again soon."
+
+  it("applies the organisation's banned phrases to replies", () => {
+    expect(verify(body, { bannedPhrases: ["welcoming you"] })).toContainEqual(
+      expect.objectContaining({ code: "banned_phrase", severity: "fail" })
+    )
+  })
+
+  it("fails a duplicate against the server-supplied published reply set", () => {
+    expect(verify(body, { recentPublishedReplies: [body] })).toContainEqual(
+      expect.objectContaining({ code: "reply_duplicate", severity: "fail" })
+    )
+  })
+
+  it("warns on a repeated first sentence with a different response", () => {
+    expect(
+      verify(body, {
+        recentPublishedReplies: [
+          "Thank you for visiting our team. Your suggestions about the breakfast menu have been passed on to our chef, who is preparing new seasonal dishes for the winter.",
+        ],
+      })
+    ).toContainEqual(
+      expect.objectContaining({
+        code: "reply_repeated_opening",
+        severity: "warn",
+      })
+    )
+  })
+
+  it("exempts a rating-only template from repetition but retains banned phrase checks", () => {
+    const reasons = verify(body, {
+      recentPublishedReplies: [body],
+      ratingOnlyTemplate: true,
+      bannedPhrases: ["welcoming you"],
+    })
+    expect(reasons.map((entry) => entry.code)).not.toContain("reply_duplicate")
+    expect(reasons).toContainEqual(
+      expect.objectContaining({ code: "banned_phrase", severity: "fail" })
+    )
+  })
 })

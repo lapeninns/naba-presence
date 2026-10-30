@@ -16,6 +16,7 @@ export async function loadOrgSettings(
 ) {
   const [row] = await sql`
     select
+      banned_phrases as "bannedPhrases",
       approval_required as "approvalRequired",
       require_two_person_approval as "requireTwoPersonApproval",
       raw_content_retention_days as "rawContentRetentionDays",

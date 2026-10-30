@@ -37,6 +37,7 @@ import {
 } from "react"
 
 import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
@@ -468,7 +469,58 @@ function ProfileEditor({
     discard: discardValues,
     expectSave: expectValuesSave,
   } = valuesDraft
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
+  const [contentWarning, setContentWarning] = useState<{
+    token: string
+    messages: string[]
+    values: string
+  } | null>(null)
+  const [contentWarningsAccepted, setContentWarningsAccepted] = useState(false)
+  const contentWarningAcknowledgement =
+    contentWarningsAccepted && contentWarning?.values === JSON.stringify(values)
+      ? contentWarning.token
+      : undefined
+  const captureContentWarning = useCallback(
+    (error: unknown) => {
+      if (
+        error instanceof ApiClientError &&
+        error.code === "content_checks_failed"
+      ) {
+        const details = error.details as
+          { reasons?: { message: string }[] } | undefined
+        if (details?.reasons?.length)
+          setErrors((previous) => ({
+            ...previous,
+            description: details
+              .reasons!.map((reason) => reason.message)
+              .join(" "),
+          }))
+      }
+      if (
+        !(error instanceof ApiClientError) ||
+        error.code !== "content_warning_acknowledgement_required"
+      )
+        return false
+      const details = error.details as
+        | {
+            contentWarningAcknowledgement?: unknown
+            reasons?: { message: string }[]
+          }
+        | undefined
+      if (typeof details?.contentWarningAcknowledgement !== "string")
+        return false
+      setContentWarning({
+        token: details.contentWarningAcknowledgement,
+        messages: details.reasons?.map((reason) => reason.message) ?? [],
+        values: JSON.stringify(values),
+      })
+      setContentWarningsAccepted(false)
+      setReviewOpen(false)
+      return true
+    },
+    [values]
+  )
 
   const initialListing = useMemo(
     () => draftFromLocation(business?.location),
@@ -643,7 +695,6 @@ function ProfileEditor({
     attributes,
   ])
 
-  const [reviewOpen, setReviewOpen] = useState(false)
   const [listingReview, setListingReview] = useState<GbpChangeSet | null>(null)
   const [attributeReview, setAttributeReview] = useState<GbpChangeSet | null>(
     null
@@ -696,11 +747,13 @@ function ProfileEditor({
           let response: Awaited<ReturnType<typeof saveProfile>>
           try {
             response = await saveProfile(locationId, {
+              contentWarningAcknowledgement,
               expectedCanonicalRevision: revision,
               values: toProfileValues(parsed),
             })
             expectValuesSave()
           } catch (cause) {
+            captureContentWarning(cause)
             // A server validation error belongs on the field it names, not
             // only in the step's failure line.
             const fields = serverFieldErrors(cause)
@@ -729,6 +782,7 @@ function ProfileEditor({
         // Nothing drifted: the NabaPresence copy already matches Google.
         if (fields.length === 0) return NOTHING_TO_SEND
         const body = {
+          contentWarningAcknowledgement,
           direction: "to_google",
           confirmation: "publish_nabapresence_profile_to_google",
           selectedFields: fields,
@@ -739,6 +793,9 @@ function ProfileEditor({
         } as const
         return runProfileOperation(locationId, body, {
           intentId: intent.idFor(body),
+        }).catch((cause) => {
+          captureContentWarning(cause)
+          throw cause
         })
       },
     })
@@ -826,6 +883,8 @@ function ProfileEditor({
     expectValuesSave,
     expectListingSave,
     expectAttributesSave,
+    contentWarningAcknowledgement,
+    captureContentWarning,
   ])
 
   const flow = usePublishFlow({
@@ -880,6 +939,7 @@ function ProfileEditor({
   const save = useResourceMutation({
     mutationFn: () => {
       return saveProfile(locationId, {
+        contentWarningAcknowledgement,
         expectedCanonicalRevision: revision,
         values: toProfileValues(profileFormSchema.parse(values)),
       })
@@ -900,6 +960,7 @@ function ProfileEditor({
           : "Not on Google until you publish.",
     },
     onError: (cause) => {
+      captureContentWarning(cause)
       const fields = serverFieldErrors(cause)
       if (Object.keys(fields).length > 0) setErrors(fields)
     },
@@ -1695,6 +1756,22 @@ function ProfileEditor({
             />
           </div>
 
+          {contentWarning &&
+          contentWarning.values === JSON.stringify(values) ? (
+            <div
+              className="flex flex-col gap-2 text-ui text-warning-ink"
+              role="status"
+            >
+              <p>{contentWarning.messages.join(" ")}</p>
+              <Checkbox
+                checked={contentWarningsAccepted}
+                onCheckedChange={(checked) =>
+                  setContentWarningsAccepted(checked === true)
+                }
+                label="I have reviewed these content warnings."
+              />
+            </div>
+          ) : null}
           {blocks.map((block) =>
             block.show ? (
               <Fragment key={block.id}>{block.render()}</Fragment>

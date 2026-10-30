@@ -37,6 +37,7 @@ import {
   lockReviewForAttempt,
   setReviewWorkflow,
 } from "./settle"
+import { storedReplyContentChecks } from "@/lib/server/content-checks"
 import type { PublishAttemptOperation, RetryResult } from "./types"
 
 type RetryAttemptContext = {
@@ -58,6 +59,8 @@ type RetryClaim =
   | { kind: "settled"; result: RetryResult }
 
 type RetryPrecheck = Omit<RetryAttemptContext, "attemptNo"> & {
+  draftId: string | null
+  reviewText: string | null
   attemptGeneration: number | null
   replyGeneration: number
   restrictedAt: Date | null
@@ -88,6 +91,8 @@ async function precheckRetry(
     select
       pa.id::text as id,
       pa.operation,
+      pa.draft_id::text as "draftId",
+      r.review_text as "reviewText",
       pa.intended_body as "intendedBody",
       pa.publish_generation as "attemptGeneration",
       rr.review_id::text as "reviewId",
@@ -235,7 +240,12 @@ async function claimRetry(
   // the only gate it passes. A delete is remediation, not processing, and
   // stays allowed.
   if (precheck.restrictedAt && precheck.operation === "publish") {
-    return failBeforeDispatch(sql, organisationId, precheck, "review_restricted")
+    return failBeforeDispatch(
+      sql,
+      organisationId,
+      precheck,
+      "review_restricted"
+    )
   }
 
   const staleGeneration =
@@ -259,6 +269,46 @@ async function claimRetry(
     return failBeforeDispatch(sql, organisationId, precheck, refusal.code, {
       reason: refusal.reason,
     })
+  }
+
+  if (precheck.operation === "publish") {
+    if (precheck.intendedBody === null) {
+      return failBeforeDispatch(
+        sql,
+        organisationId,
+        precheck,
+        "verification_required"
+      )
+    }
+    const reasons = await storedReplyContentChecks(sql, {
+      draftId: precheck.draftId,
+      reviewId: precheck.reviewId,
+      body: precheck.intendedBody,
+      reviewText: precheck.reviewText,
+    })
+    const [verification] = reasons.some((reason) => reason.severity === "warn")
+      ? await sql<{ reasons: { code: string }[] }[]>`
+          select reasons from verification_result where draft_id = ${precheck.draftId}
+          order by created_at desc, id desc limit 1
+        `
+      : []
+    if (
+      reasons.some(
+        (reason) =>
+          reason.severity === "fail" ||
+          !verification?.reasons.some(
+            (previous) => previous.code === reason.code
+          )
+      )
+    ) {
+      return failBeforeDispatch(
+        sql,
+        organisationId,
+        precheck,
+        "verification_required",
+        { reasons }
+      )
+    }
   }
 
   const [claimed] = await sql<{ attemptNo: number }[]>`
