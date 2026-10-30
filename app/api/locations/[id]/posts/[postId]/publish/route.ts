@@ -20,7 +20,11 @@ export const POST = route({
   body: postPublishBodySchema,
   handler: async ({ session, params, body, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
-      throw new ApiError(503, "publishing_paused", "Google Posts publishing is paused.")
+      throw new ApiError(
+        503,
+        "publishing_paused",
+        "Google Posts publishing is paused."
+      )
     }
     const outcome = (await requestOrPublishLocalPost({
       organisationId: session.organisationId,
@@ -29,6 +33,7 @@ export const POST = route({
       postId: params.postId,
       requestId,
       expectedRevision: body.expectedRevision,
+      contentWarningAcknowledgement: body.contentWarningAcknowledgement,
     })) satisfies PostPublishOutcome
     return NextResponse.json(outcome, {
       status: outcome.status === "awaiting_approval" ? 202 : 200,

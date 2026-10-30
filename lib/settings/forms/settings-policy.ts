@@ -1,9 +1,14 @@
 import { z } from "zod"
+import { bannedPhrasesSchema } from "@/lib/contracts/settings"
 
 function supportedTimezones(): string[] {
-  const withValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+  const withValues = Intl as unknown as {
+    supportedValuesOf?: (key: string) => string[]
+  }
   try {
-    return withValues.supportedValuesOf ? withValues.supportedValuesOf("timeZone") : ["Europe/London", "UTC"]
+    return withValues.supportedValuesOf
+      ? withValues.supportedValuesOf("timeZone")
+      : ["Europe/London", "UTC"]
   } catch {
     return ["Europe/London", "UTC"]
   }
@@ -17,13 +22,17 @@ export function isValidTimezone(value: string): boolean {
 }
 
 export const settingsPolicyFormSchema = z.object({
+  bannedPhrases: bannedPhrasesSchema.optional(),
   approvalRequired: z.boolean(),
   requireTwoPersonApproval: z.boolean().optional(),
   rawContentRetentionDays: z.number().int().min(1).max(30),
   defaultLanguageCode: z
     .string()
     .trim()
-    .regex(/^[a-z]{2,3}(?:-[A-Z]{2})?$/, "Use a language code such as en or en-GB."),
+    .regex(
+      /^[a-z]{2,3}(?:-[A-Z]{2})?$/,
+      "Use a language code such as en or en-GB."
+    ),
   defaultTimezone: z
     .string()
     .trim()

@@ -1,7 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { PATCH } from "@/app/api/settings/route"
-import { requiresDirectPublishConsent } from "@/lib/contracts/settings"
+import {
+  bannedPhrasesSchema,
+  orgSettingsSchema,
+  requiresDirectPublishConsent,
+  settingsPatchSchema,
+} from "@/lib/contracts/settings"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import type { Session } from "@/lib/server/session"
 import { cookies } from "next/headers"
@@ -91,6 +96,30 @@ beforeEach(() => {
 })
 
 describe("requiresDirectPublishConsent", () => {
+  it("validates bounded phrases while preserving omission and explicit clearing", () => {
+    expect(
+      settingsPatchSchema.parse(directPublishing).bannedPhrases
+    ).toBeUndefined()
+    expect(
+      settingsPatchSchema.parse({ ...directPublishing, bannedPhrases: [] })
+        .bannedPhrases
+    ).toEqual([])
+    expect(bannedPhrasesSchema.parse(["  No refunds  "])).toEqual([
+      "No refunds",
+    ])
+    expect(bannedPhrasesSchema.safeParse([" "]).success).toBe(false)
+    expect(bannedPhrasesSchema.safeParse(["x".repeat(201)]).success).toBe(false)
+    expect(
+      bannedPhrasesSchema.safeParse(Array(101).fill("phrase")).success
+    ).toBe(false)
+    expect(
+      orgSettingsSchema.parse({
+        ...directPublishing,
+        requireTwoPersonApproval: false,
+        directPublishConsentAt: null,
+      }).bannedPhrases
+    ).toEqual([])
+  })
   it("is true only when approval goes from on to off", () => {
     expect(
       requiresDirectPublishConsent(true, { approvalRequired: false })

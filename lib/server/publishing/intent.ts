@@ -14,6 +14,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { buildEvidenceHash } from "@/lib/server/drafts"
+import { storedReplyContentChecks } from "@/lib/server/content-checks"
 import { ApiError } from "@/lib/server/http"
 import {
   canPublishLocation,
@@ -396,6 +397,39 @@ export async function preparePublish(
     const record = await loadPublishRecord(sql, input)
     await requireLocationAccess(sql, input.session, record.location_id)
     assertDraftPublishable(record, input.expectedReviewUpdateTime)
+    const contentReasons = await storedReplyContentChecks(sql, {
+      draftId: input.draftId,
+      body: record.body,
+      reviewText: record.review_text,
+    })
+    if (contentReasons.some((reason) => reason.severity === "fail")) {
+      throw new ApiError(
+        409,
+        "verification_failed",
+        "This draft failed the current content checks. Edit and verify it before publishing.",
+        { details: { reasons: contentReasons } }
+      )
+    }
+    if (contentReasons.some((reason) => reason.severity === "warn")) {
+      const [verification] = await sql<{ reasons: { code: string }[] }[]>`
+        select reasons from verification_result where draft_id = ${input.draftId}
+        order by created_at desc, id desc limit 1
+      `
+      if (
+        contentReasons.some(
+          (reason) =>
+            !verification?.reasons.some(
+              (previous) => previous.code === reason.code
+            )
+        )
+      ) {
+        throw new ApiError(
+          409,
+          "verification_required",
+          "Recent replies changed the content warnings. Verify this draft again before publishing."
+        )
+      }
+    }
     // An approver's rejection returns the review to `drafted`, and the
     // workflow trigger (0006) only lets `verified` move on to
     // `awaiting_approval` or `publish_requested`. The gates above have just

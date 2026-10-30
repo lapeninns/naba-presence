@@ -112,6 +112,10 @@ export type RecurrenceInfo = z.infer<typeof recurrenceInfoSchema>
 /** POST `/posts` and PATCH `/posts/[postId]` body. */
 export const localPostInputSchema = z
   .object({
+    contentWarningAcknowledgement: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     topicType: z.enum(LOCAL_POST_TOPIC_TYPES),
     languageCode: z.string().trim().min(2).max(16).default("en-GB"),
     summary: z.string().trim().max(1500).default(""),
@@ -190,6 +194,10 @@ export type LocalPostInputValues = z.input<typeof localPostInputSchema>
  * a post that has changed since is refused (409 `post_changed_since_saved`).
  */
 export const postPublishBodySchema = z.object({
+  contentWarningAcknowledgement: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   expectedRevision: z.number().int().positive().optional(),
 })
 
@@ -203,7 +211,13 @@ export const postPublishBodySchema = z.object({
  * schema only so that a viewer or non-publisher is refused for who they are
  * (403) before what they sent is looked at.
  */
+// INTEGRATION(S4): Approval dialog/API client must expose refreshed content
+// warning reasons and forward explicit acknowledgement after policy drift.
 export const postApprovalDecisionSchema = z.object({
+  contentWarningAcknowledgement: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   decision: z.enum(["approve", "reject"]),
   expectedRevision: z.number().int().positive().optional(),
 })

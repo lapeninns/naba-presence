@@ -27,6 +27,10 @@ import {
 } from "@/lib/domain/post-outcome"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
+import {
+  assertContentChecks,
+  postOfferEndDate,
+} from "@/lib/server/content-checks"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
@@ -195,12 +199,20 @@ async function fetchLiveLocalPosts(linked: LinkedLocation) {
     // A partial list must never reach reconciliation: any post missing from
     // it would be marked deleted here while it is still live on Google.
     if (seenTokens.has(response.nextPageToken)) {
-      throw new ApiError(502, "google_posts_incomplete", "Google repeated a posts page. The list was not refreshed.")
+      throw new ApiError(
+        502,
+        "google_posts_incomplete",
+        "Google repeated a posts page. The list was not refreshed."
+      )
     }
     seenTokens.add(response.nextPageToken)
     pageToken = response.nextPageToken
   }
-  throw new ApiError(502, "google_posts_incomplete", "Google returned more post pages than the safety limit. The list was not refreshed.")
+  throw new ApiError(
+    502,
+    "google_posts_incomplete",
+    "Google returned more post pages than the safety limit. The list was not refreshed."
+  )
 }
 
 /**
@@ -659,6 +671,7 @@ type PostListRow = Omit<
 }
 
 type LocalPost = {
+  contentWarningAcknowledgement: string | null
   id: string
   locationId: string
   externalLocationId: string
@@ -702,6 +715,7 @@ async function loadPost(
       p.topic_type as "topicType",
       p.language_code as "languageCode",
       p.summary,
+      p.content_warning_acknowledgement as "contentWarningAcknowledgement",
       p.call_to_action as "callToAction",
       p.event,
       p.offer,
@@ -862,7 +876,9 @@ export async function listLocalPosts(
   locationId: string,
   options: PostsListQuery = {}
 ) {
-  const filter: PostListFilter = options.post ? "all" : (options.filter ?? "all")
+  const filter: PostListFilter = options.post
+    ? "all"
+    : (options.filter ?? "all")
   const pageSize = Math.min(
     MAX_POSTS_PAGE_SIZE,
     Math.max(1, Math.floor(options.pageSize ?? DEFAULT_POSTS_PAGE_SIZE))
@@ -901,12 +917,14 @@ export async function listLocalPosts(
           : "google_posts_reconciliation_failed"
     }
   }
-  const { rows, counts, timezone } = await withTenant(organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId)
-    const [location] = await sql<{ timezone: string }[]>`
+  const { rows, counts, timezone } = await withTenant(
+    organisationId,
+    async (sql) => {
+      await requireLocationAccess(sql, session, locationId)
+      const [location] = await sql<{ timezone: string }[]>`
       select timezone from location where id = ${locationId}
     `
-    const [counts] = await sql<PostCounts[]>`
+      const [counts] = await sql<PostCounts[]>`
       select
         count(*)::integer as "all",
         (count(*) filter (where ${postFilterCondition(sql, "draft")}))::integer as draft,
@@ -918,16 +936,17 @@ export async function listLocalPosts(
       where location_id = ${locationId}
         and status <> 'deleted'
     `
-    const rows = await localPostsListQuery(sql, {
-      organisationId,
-      locationId,
-      filter,
-      postId: options.post,
-      cursor,
-      limit: pageSize + 1,
-    })
-    return { rows, counts, timezone: location?.timezone ?? "Europe/London" }
-  })
+      const rows = await localPostsListQuery(sql, {
+        organisationId,
+        locationId,
+        filter,
+        postId: options.post,
+        cursor,
+        limit: pageSize + 1,
+      })
+      return { rows, counts, timezone: location?.timezone ?? "Europe/London" }
+    }
+  )
   const page = rows.slice(0, pageSize)
   const last = page.at(-1)
   const nextCursor =
@@ -966,6 +985,9 @@ export async function listLocalPosts(
  * author is who wrote the content: under two-person approval, a different
  * person must approve its publication.
  */
+// INTEGRATION(S4): Bulk post preview must collect and carry content warning
+// acknowledgement into each child payload; the bulk runner currently drops
+// the warning details/token and cannot recover warning-only draft failures.
 export async function insertLocalPostDraft(
   sql: TransactionSql,
   draft: {
@@ -981,18 +1003,26 @@ export async function insertLocalPostDraft(
   }
 ) {
   const { input } = draft
+  const contentWarningAcknowledgement = await assertContentChecks(sql, {
+    kind: "post",
+    locationId: draft.locationId,
+    body: input.summary,
+    allowEmpty: input.media.length > 0,
+    offerEndDate: postOfferEndDate(input),
+    contentWarningAcknowledgement: input.contentWarningAcknowledgement,
+  })
   const [post] = await sql<{ id: string; contentRevision: number }[]>`
     insert into gbp_local_post (
       organisation_id, location_id, external_location_id,
       topic_type, language_code, summary, call_to_action, event, offer,
-      media, created_by
+      media, created_by, content_warning_acknowledgement
     ) values (
       ${draft.organisationId}, ${draft.locationId}, ${draft.externalLocationId},
       ${input.topicType}, ${input.languageCode}, ${input.summary},
       ${jsonColumnOrNull(sql, input.callToAction)},
       ${jsonColumnOrNull(sql, input.event)},
       ${jsonColumnOrNull(sql, input.offer)},
-      ${jsonColumn(sql, input.media)}, ${draft.authorUserId}
+      ${jsonColumn(sql, input.media)}, ${draft.authorUserId}, ${contentWarningAcknowledgement}
     )
     returning id::text as id, content_revision::integer as "contentRevision"
   `
@@ -1064,8 +1094,21 @@ export async function updateLocalPostDraft(
       const [current] = await sql<{ changed: boolean }[]>`
         select date_trunc('milliseconds', updated_at) <> ${expectedUpdatedAt}::timestamptz as changed
         from gbp_local_post where id = ${postId} and location_id = ${locationId}`
-      if (current?.changed) throw new ApiError(409, "post_changed", "Someone else changed this post after you opened it. Reload it before saving.")
+      if (current?.changed)
+        throw new ApiError(
+          409,
+          "post_changed",
+          "Someone else changed this post after you opened it. Reload it before saving."
+        )
     }
+    const contentWarningAcknowledgement = await assertContentChecks(sql, {
+      kind: "post",
+      locationId,
+      body: input.summary,
+      allowEmpty: input.media.length > 0,
+      offerEndDate: postOfferEndDate(input),
+      contentWarningAcknowledgement: input.contentWarningAcknowledgement,
+    })
     // Schedules made from this draft are locked before the draft, the order
     // the schedule runner takes them in (P08-R4).
     await lockSourceSchedules(sql, postId)
@@ -1074,6 +1117,7 @@ export async function updateLocalPostDraft(
     >`
       update gbp_local_post
       set
+        content_warning_acknowledgement = ${contentWarningAcknowledgement},
         topic_type = ${input.topicType},
         language_code = ${input.languageCode},
         summary = ${input.summary},
@@ -1626,6 +1670,7 @@ async function settledApproval(
 }
 
 export async function requestOrPublishLocalPost(input: {
+  contentWarningAcknowledgement?: string
   organisationId: string
   session: Session
   locationId: string
@@ -1671,6 +1716,16 @@ export async function requestOrPublishLocalPost(input: {
         lock: true,
       })
       const publishWith = async (approval: ApprovalRef | null) => {
+        await assertContentChecks(sql, {
+          kind: "post",
+          locationId: input.locationId,
+          body: post.summary,
+          allowEmpty: post.media.length > 0,
+          offerEndDate: postOfferEndDate(post),
+          contentWarningAcknowledgement:
+            input.contentWarningAcknowledgement ??
+            post.contentWarningAcknowledgement,
+        })
         // The dispatch gate itself (env and operator pause table), not just
         // the env flag: a table pause must refuse here, before a decision
         // row or its audit is written, as well as at runGbpWrite.
@@ -1888,6 +1943,9 @@ export async function rejectLocalPost(input: {
  * mutation_operation receipt, so `mutation_recover` covers an uncertain
  * create and the occurrence settles from the receipt.
  */
+// INTEGRATION(S4): recurring schedules must preserve an explicit content-warning
+// acknowledgement in their frozen template and occurrence row. Until wired,
+// warning-bearing generated occurrences stop safely at the shared content gate.
 export async function publishScheduledLocalPost(input: {
   organisationId: string
   session: Session
@@ -1908,10 +1966,18 @@ export async function publishScheduledLocalPost(input: {
 }) {
   requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
   requireBeforeDeadline(input.deadline)
-  const { linked, post } = await withTenant(input.organisationId, async (sql) => ({
-    linked: await loadLinkedLocation(sql, input.session, input.locationId, POSTS_NOT_LINKED),
-    post: await loadPost(sql, input.locationId, input.postId),
-  }))
+  const { linked, post } = await withTenant(
+    input.organisationId,
+    async (sql) => ({
+      linked: await loadLinkedLocation(
+        sql,
+        input.session,
+        input.locationId,
+        POSTS_NOT_LINKED
+      ),
+      post: await loadPost(sql, input.locationId, input.postId),
+    })
+  )
   if (
     linked.googleConnectionId.toLowerCase() !==
       input.target.googleConnectionId.toLowerCase() ||
@@ -1965,6 +2031,7 @@ function requireBeforeDeadline(deadline: Date | undefined) {
 }
 
 async function publishLocalPost(input: {
+  contentWarningAcknowledgement?: string
   organisationId: string
   session: Session
   postId: string
@@ -1986,6 +2053,18 @@ async function publishLocalPost(input: {
   securityVersion?: number | null
 }) {
   const { linked, post } = input
+  await withTenant(input.organisationId, (sql) =>
+    assertContentChecks(sql, {
+      kind: "post",
+      locationId: linked.locationId,
+      body: post.summary,
+      allowEmpty: post.media.length > 0,
+      offerEndDate: postOfferEndDate(post),
+      contentWarningAcknowledgement:
+        input.contentWarningAcknowledgement ??
+        post.contentWarningAcknowledgement,
+    })
+  )
   const operation = post.googlePostName ? "update" : "create"
   const payload = providerPayload(post)
   const options = { connectionKey: linked.googleConnectionId }
@@ -2050,6 +2129,18 @@ async function publishLocalPost(input: {
       securityVersion: input.securityVersion ?? null,
     },
     mutate: async () => {
+      await withTenant(input.organisationId, (sql) =>
+        assertContentChecks(sql, {
+          kind: "post",
+          locationId: linked.locationId,
+          body: post.summary,
+          allowEmpty: post.media.length > 0,
+          offerEndDate: postOfferEndDate(post),
+          contentWarningAcknowledgement:
+            input.contentWarningAcknowledgement ??
+            post.contentWarningAcknowledgement,
+        })
+      )
       const token = await linked.accessToken()
       // The last moment before the provider call: a scheduled publish whose
       // window closed while it was being prepared settles failed with

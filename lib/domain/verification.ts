@@ -1,3 +1,7 @@
+import {
+  bannedPhraseChecks,
+  replyRepetitionChecks,
+} from "@/lib/domain/content-checks"
 import { detectLanguage } from "@/lib/domain/language"
 
 const PROMOTION_ALLOWLIST =
@@ -37,6 +41,9 @@ export function deterministicVerification(input: {
   otherLocationNames: string[]
   rating: number | null
   expectedLanguage?: string | null
+  bannedPhrases?: readonly string[]
+  recentPublishedReplies?: readonly string[]
+  ratingOnlyTemplate?: boolean
 }): VerificationReason[] {
   const reasons: VerificationReason[] = []
   const body = input.body.trim()
@@ -156,8 +163,7 @@ export function deterministicVerification(input: {
       ? detectLanguage(body)
       : null
   if (
-    (nonLatinLanguage &&
-      /^[\p{ASCII}\s\p{Punctuation}]+$/u.test(body)) ||
+    (nonLatinLanguage && /^[\p{ASCII}\s\p{Punctuation}]+$/u.test(body)) ||
     (detectedLanguage &&
       (detectedLanguage.confidence ?? 0) >= 0.7 &&
       detectedLanguage.code !== expectedLanguage)
@@ -168,7 +174,15 @@ export function deterministicVerification(input: {
       "The reply may not match the expected review language."
     )
   }
-  return reasons
+  return [
+    ...reasons,
+    ...bannedPhraseChecks(body, input.bannedPhrases ?? []),
+    ...replyRepetitionChecks({
+      body,
+      recentPublishedReplies: input.recentPublishedReplies ?? [],
+      ratingOnlyTemplate: input.ratingOnlyTemplate,
+    }),
+  ]
 }
 
 export function verificationVerdict(

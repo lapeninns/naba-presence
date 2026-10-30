@@ -62,6 +62,7 @@ vi.mock("@/lib/queries/use-settings-capabilities", () => ({
 
 function makeSettings(overrides: Partial<OrgSettings> = {}): OrgSettings {
   return {
+    bannedPhrases: [],
     approvalRequired: true,
     requireTwoPersonApproval: false,
     rawContentRetentionDays: 14,
@@ -100,6 +101,52 @@ afterEach(() => {
 })
 
 describe("PolicyForm", () => {
+  it("lets an admin save phrases as trimmed lines and clear the list", async () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings({ bannedPhrases: ["Old phrase"] }),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({ data: { canEditSettings: true } })
+    saveSettingsMock.mockResolvedValue(
+      makeSettings({ bannedPhrases: ["No refunds", "Guaranteed"] })
+    )
+    renderForm("admin")
+    const phrases = screen.getByRole("textbox", { name: "Phrases to block" })
+    expect(phrases).toHaveValue("Old phrase")
+    fireEvent.change(phrases, {
+      target: { value: " No refunds \n\nGuaranteed " },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledTimes(1))
+    expect(saveSettingsMock.mock.calls[0][0]).toMatchObject({
+      bannedPhrases: ["No refunds", "Guaranteed"],
+    })
+    await waitFor(() => expect(phrases).toHaveValue("No refunds\nGuaranteed"))
+    saveSettingsMock.mockResolvedValue(makeSettings())
+    fireEvent.change(phrases, { target: { value: "" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledTimes(2))
+    expect(saveSettingsMock.mock.calls[1][0]).toMatchObject({
+      bannedPhrases: [],
+    })
+  })
+
+  it("keeps phrases read-only when the role cannot edit settings", () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings({ bannedPhrases: ["No refunds"] }),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({ data: { canEditSettings: false } })
+    renderForm("member")
+    expect(
+      screen.getByRole("textbox", { name: "Phrases to block" })
+    ).toBeDisabled()
+  })
+
   it("renders the current policy and enables save once an owner edits", async () => {
     useSettingsMock.mockReturnValue({
       data: makeSettings(),
@@ -795,6 +842,7 @@ describe("PolicyForm", () => {
         rawContentRetentionDays: 7,
         defaultLanguageCode: "en-GB",
         defaultTimezone: "Europe/London",
+        bannedPhrases: [],
         directPublishConsent: false,
       })
       expect(renameMock).toHaveBeenCalledWith("Acme Local")
