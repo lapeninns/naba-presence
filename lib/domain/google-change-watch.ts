@@ -68,6 +68,80 @@ export function profileFieldMovement(input: Hashes): FieldMovement {
   }
 }
 
+/** A value this app sent to Google, and when Google took it. */
+export type PublishedValue = { value: WatchedValue; at: Date }
+
+/**
+ * One profile field (name, description, phone, website) as the watch
+ * compares it: our side, Google's, and who moved.
+ *
+ * With no successful write since the field's baseline, the per-field
+ * baselines decide (profileFieldMovement) and ours is the saved value.
+ *
+ * A write since then (the business-information editor, "Put ours back", a
+ * bulk change) is what Google was last sent, so it is the Google baseline:
+ * Google moving off it is Google's change. Those writes never touch the
+ * saved value, so the write stands in for ours only while the saved value
+ * is older than it: unedited since its baseline, or last saved before the
+ * write. A saved value edited since its baseline and saved after the write
+ * is newer: it is ours, flagged as an edit Google has not seen. Decisions
+ * hash this same `ours`, so a save after a change was spotted refuses them
+ * until a check takes it.
+ */
+export function profileFieldObservation(input: {
+  saved: WatchedValue
+  google: WatchedValue
+  hashes: Hashes
+  lastReconciledAt: Date | null
+  /** When the saved profile was last written (its resource's updated_at). */
+  savedAt: Date | null
+  published: PublishedValue | null
+}): FieldObservation {
+  const { saved, google, published } = input
+  if (
+    !published ||
+    (input.lastReconciledAt !== null && published.at <= input.lastReconciledAt)
+  ) {
+    return { ours: saved, google, movement: profileFieldMovement(input.hashes) }
+  }
+  const sent = watchedValueHash(published.value)
+  const editedSinceBaseline =
+    input.hashes.baselineCanonicalHash === null ||
+    input.hashes.canonicalHash !== input.hashes.baselineCanonicalHash
+  const savedNewer =
+    editedSinceBaseline &&
+    input.savedAt !== null &&
+    input.savedAt > published.at &&
+    watchedValueHash(saved) !== sent
+  return {
+    ours: savedNewer ? saved : published.value,
+    google,
+    movement: {
+      googleMoved: watchedValueHash(google) !== sent,
+      oursMoved: savedNewer,
+    },
+  }
+}
+
+/**
+ * The primary category we stand by: the one we published since the watch's
+ * baseline, else the baseline (the category last published or accepted).
+ * Null before any baseline is known.
+ */
+export function categoryOurs(input: {
+  baseline: string | null
+  baselineAt: Date | null
+  published: PublishedValue | null
+}): { name: string; publishedAt: Date | null } | null {
+  const write = input.published
+  const written =
+    write?.value.field === "primaryCategory" ? write.value.value?.name : null
+  if (write && written && (!input.baselineAt || write.at > input.baselineAt)) {
+    return { name: written, publishedAt: write.at }
+  }
+  return input.baseline ? { name: input.baseline, publishedAt: null } : null
+}
+
 /**
  * One hours field from the per-part hashes and the part baseline
  * (`comparison_part_hashes`). A differing part the baseline has no history

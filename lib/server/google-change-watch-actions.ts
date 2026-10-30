@@ -45,6 +45,7 @@ import {
   type ChangeRow,
   changeColumns,
   changeJoins,
+  watchLockKey,
 } from "@/lib/server/google-change-watch"
 import { getHoursState, saveCanonicalHours } from "@/lib/server/hours"
 import { ApiError } from "@/lib/server/http"
@@ -128,16 +129,30 @@ type Decision = GoogleChangeDecisionInput & {
   requestId: string
 }
 
-/** Refuses when our value moved since the change was spotted. */
-async function requireOursUnchanged(input: Decision, row: ChangeRow) {
-  const oursNow = await withTenant(input.session.organisationId, (sql) =>
-    currentOursHash(sql, {
-      organisationId: input.session.organisationId,
-      locationId: input.locationId,
-      field: row.field,
-    })
-  )
+/**
+ * Refuses when our value of a business-information field moved since the
+ * change was spotted: a value saved since, or one published since (a
+ * category from the business-information editor or a bulk change). Inside
+ * the decision's own transaction, after it locked what it writes, so nothing
+ * saved between this check and the write goes unseen.
+ */
+async function requireOursUnchangedIn(
+  sql: TransactionSql,
+  input: Decision,
+  row: ChangeRow
+) {
+  const oursNow = await currentOursHash(sql, {
+    organisationId: input.session.organisationId,
+    locationId: input.locationId,
+    field: row.field,
+  })
   if (oursNow !== row.oursHash) throw OURS_CHANGED()
+}
+
+async function requireOursUnchanged(input: Decision, row: ChangeRow) {
+  await withTenant(input.session.organisationId, (sql) =>
+    requireOursUnchangedIn(sql, input, row)
+  )
 }
 
 /** Locks the row and checks it is still the open change the person saw. */
@@ -509,31 +524,11 @@ async function acceptGoogles(
   input: Decision,
   row: ChangeRow
 ): Promise<GoogleChangeDecisionResponse["outcome"]> {
-  const { session, locationId } = input
+  const { session } = input
   if (row.field === "regularHours" || row.field === "specialHours") {
     await acceptGoogleHours(input, row)
   } else if (row.field === "primaryCategory") {
-    const google = row.googleValue
-    if (google.field !== "primaryCategory" || !google.value) {
-      throw NOTHING_TO_ACCEPT()
-    }
-    await withTenant(
-      session.organisationId,
-      (sql) =>
-        sql`
-        insert into listing_google_watch (
-          organisation_id, location_id, category_baseline,
-          category_baseline_label, category_baseline_at
-        ) values (
-          ${session.organisationId}, ${locationId}, ${google.value!.name},
-          ${google.value!.displayName}, now()
-        )
-        on conflict (organisation_id, location_id) do update set
-          category_baseline = excluded.category_baseline,
-          category_baseline_label = excluded.category_baseline_label,
-          category_baseline_at = excluded.category_baseline_at
-      `
-    )
+    await acceptGoogleCategory(input, row)
   } else {
     await acceptGoogleProfileField(input, row)
   }
@@ -547,6 +542,41 @@ async function acceptGoogles(
 }
 
 /**
+ * Google's category becomes the watch's baseline. Our category must still be
+ * the one the change was spotted against: a category published since (from
+ * the business-information editor or a bulk change) is newer than this
+ * decision, and writing the old Google category over it with a fresh time
+ * would make the next check report our own publication as Google's change.
+ * Detection runs hold the same listing lock, so none moves the baseline
+ * between the check and the write.
+ */
+async function acceptGoogleCategory(input: Decision, row: ChangeRow) {
+  const { session, locationId } = input
+  const google = row.googleValue
+  if (google.field !== "primaryCategory" || !google.value) {
+    throw NOTHING_TO_ACCEPT()
+  }
+  const accepted = google.value
+  await withTenant(session.organisationId, async (sql) => {
+    await sql`select pg_advisory_xact_lock(hashtextextended(${watchLockKey(locationId)}, 0))`
+    await requireOursUnchangedIn(sql, input, row)
+    await sql`
+      insert into listing_google_watch (
+        organisation_id, location_id, category_baseline,
+        category_baseline_label, category_baseline_at
+      ) values (
+        ${session.organisationId}, ${locationId}, ${accepted.name},
+        ${accepted.displayName}, now()
+      )
+      on conflict (organisation_id, location_id) do update set
+        category_baseline = excluded.category_baseline,
+        category_baseline_label = excluded.category_baseline_label,
+        category_baseline_at = excluded.category_baseline_at
+    `
+  })
+}
+
+/**
  * Google's value becomes the saved profile field, with fresh per-field
  * baselines, exactly as accepting a Google suggestion does
  * (lib/server/import-review.ts). Pending profile publishes are withdrawn:
@@ -555,7 +585,6 @@ async function acceptGoogles(
 async function acceptGoogleProfileField(input: Decision, row: ChangeRow) {
   const { session, locationId } = input
   const field = row.field as "name" | "description" | "phone" | "website"
-  await requireOursUnchanged(input, row)
   await withTenant(session.organisationId, async (sql) => {
     const [state] = await sql<
       { googleValue: { value?: string | null } | null }[]
@@ -565,6 +594,16 @@ async function acceptGoogleProfileField(input: Decision, row: ChangeRow) {
         and location_id = ${locationId} and field_key = ${field}
       for update
     `
+    // The saved profile, locked (after the field's state, in the order a
+    // publish takes them): a save waits for this decision, then finds its
+    // revision gone. Ours is checked against it under the lock.
+    await sql`
+      select 1 from presence_canonical_resource
+      where organisation_id = ${session.organisationId}
+        and location_id = ${locationId} and resource_type = 'profile'
+      for update
+    `
+    await requireOursUnchangedIn(sql, input, row)
     const google = state?.googleValue?.value ?? null
     if (watchedValueHash({ field, value: google }) !== row.googleHash) {
       throw MOVED()

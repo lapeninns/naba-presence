@@ -504,6 +504,179 @@ describeDatabase("google change watch: saved values and bulk writes", () => {
     })
   }, 60_000)
 
+  /** Saves profile values in our own copy, as the listing editor does. */
+  async function saveProfile(
+    target: Listing,
+    values: Partial<
+      Record<"name" | "description" | "phone" | "website", string>
+    >
+  ) {
+    const { saveCanonicalProfile } = await import("@/lib/server/profile")
+    const { readCanonicalResource } =
+      await import("@/lib/server/canonical-resources")
+    const { withTenant } = await import("@/lib/server/db")
+    const resource = await withTenant(target.owner.organisationId, (sql) =>
+      readCanonicalResource({
+        sql,
+        organisationId: target.owner.organisationId,
+        locationId: target.linked.locationId,
+        resourceType: "profile",
+      })
+    )
+    await saveCanonicalProfile({
+      session: target.session,
+      locationId: target.linked.locationId,
+      expectedCanonicalRevision: resource!.revision,
+      values,
+      requestId: `google-watch-${randomUUID()}`,
+    })
+  }
+
+  async function savedWebsite(target: Listing) {
+    const [profile] = await admin<{ website: string | null }[]>`
+      select payload ->> 'website' as website from presence_canonical_resource
+      where location_id = ${target.linked.locationId} and resource_type = 'profile'
+    `
+    return profile?.website ?? null
+  }
+
+  async function changeStatus(id: string) {
+    const [row] = await admin<{ status: string }[]>`
+      select status from listing_google_change where id = ${id}
+    `
+    return row?.status
+  }
+
+  async function categoryBaseline(target: Listing) {
+    const [row] = await admin<{ baseline: string | null }[]>`
+      select category_baseline as baseline from listing_google_watch
+      where location_id = ${target.linked.locationId}
+    `
+    return row?.baseline ?? null
+  }
+
+  it("refuses both decisions on a bulk-published website once a newer value is saved, until a check takes the saved value", async () => {
+    const target = await listing()
+    expect((await check(target)).found).toBe(0)
+    await bulkWrite(target, {
+      family: "business_info",
+      status: "succeeded",
+      intended: {
+        changes: [
+          {
+            field: "websiteUri",
+            action: "set",
+            value: "https://oldcrown-girton.example",
+          },
+        ],
+      },
+    })
+    target.location.websiteUri = "https://oldcrown-girton.example"
+    expect((await check(target)).found).toBe(0)
+
+    // Google changes it: ours is what the bulk change published.
+    target.location.websiteUri = "https://crown-pub.example"
+    const change = await openChange(target, "website")
+    expect(change.ours).toEqual({
+      field: "website",
+      value: "https://oldcrown-girton.example",
+    })
+
+    // Someone then saves a newer website: it is ours now, so neither
+    // decision made on the published one may go ahead.
+    await saveProfile(target, { website: "https://the-old-crown.example" })
+    const keep = await refusal(decide(target, change, "accept_google"))
+    expect(keep.status).toBe(409)
+    expect(keep.code).toBe("google_change_ours_changed")
+    const putBack = await refusal(decide(target, change, "put_ours_back"))
+    expect(putBack.status).toBe(409)
+    expect(putBack.code).toBe("google_change_ours_changed")
+    expect(await savedWebsite(target)).toBe("https://the-old-crown.example")
+    expect(await changeStatus(change.id)).toBe("open")
+
+    // A check takes the saved value: the same change, compared against it.
+    const rechecked = await openChange(target, "website")
+    expect(rechecked.id).toBe(change.id)
+    expect(rechecked.googleHash).toBe(change.googleHash)
+    expect(rechecked.ours).toEqual({
+      field: "website",
+      value: "https://the-old-crown.example",
+    })
+    expect(rechecked.localEdits).toBe(true)
+    const accepted = await decide(target, rechecked, "accept_google")
+    expect(accepted.outcome).toBe("accepted")
+    expect(await savedWebsite(target)).toBe("https://crown-pub.example")
+    const settled = await check(target)
+    expect(settled.found).toBe(0)
+    expect(settled.changes.some((c) => c.status === "open")).toBe(false)
+    expect(google.calls.some((call) => call.method === "PATCH")).toBe(false)
+  }, 60_000)
+
+  it("refuses to keep Google's category over a category published while the change was open, and the check after it does not offer the old one back", async () => {
+    const target = await listing()
+    expect((await check(target)).found).toBe(0)
+    target.location.categories = {
+      primaryCategory: { name: "gcid:restaurant", displayName: "Restaurant" },
+    }
+    const change = await openChange(target, "primaryCategory")
+    expect(change.ours.value).toMatchObject({ name: "gcid:pub" })
+
+    // A bulk change publishes another category, and Google shows it.
+    await bulkWrite(target, {
+      family: "categories",
+      status: "succeeded",
+      intended: { categories: { primary: "gcid:bar", additional: [] } },
+    })
+    target.location.categories = {
+      primaryCategory: { name: "gcid:bar", displayName: "Bar" },
+    }
+    const stale = await refusal(decide(target, change, "accept_google"))
+    expect(stale.status).toBe(409)
+    expect(stale.code).toBe("google_change_ours_changed")
+    expect(await categoryBaseline(target)).toBe("gcid:pub")
+    expect(await changeStatus(change.id)).toBe("open")
+
+    // The next check sees our own publication, not a change on Google.
+    const after = await check(target)
+    expect(after.found).toBe(0)
+    expect(after.changes.find((c) => c.id === change.id)).toMatchObject({
+      status: "resolved",
+      resolution: "google_restored",
+    })
+    expect(after.changes.some((c) => c.status === "open")).toBe(false)
+    expect(await categoryBaseline(target)).toBe("gcid:bar")
+  }, 60_000)
+
+  it("keeps Google's category after a check took a category published while the change was open", async () => {
+    const target = await listing()
+    expect((await check(target)).found).toBe(0)
+    target.location.categories = {
+      primaryCategory: { name: "gcid:restaurant", displayName: "Restaurant" },
+    }
+    const change = await openChange(target, "primaryCategory")
+    // A category published meanwhile, which Google did not take.
+    await bulkWrite(target, {
+      family: "categories",
+      status: "succeeded",
+      intended: { categories: { primary: "gcid:bar", additional: [] } },
+    })
+    const stale = await refusal(decide(target, change, "accept_google"))
+    expect(stale.code).toBe("google_change_ours_changed")
+    const putBack = await refusal(decide(target, change, "put_ours_back"))
+    expect(putBack.code).toBe("google_change_ours_changed")
+
+    const rechecked = await openChange(target, "primaryCategory")
+    expect(rechecked.id).toBe(change.id)
+    expect(rechecked.ours.value).toMatchObject({ name: "gcid:bar" })
+    const accepted = await decide(target, rechecked, "accept_google")
+    expect(accepted.outcome).toBe("accepted")
+    expect(await categoryBaseline(target)).toBe("gcid:restaurant")
+    const settled = await check(target)
+    expect(settled.found).toBe(0)
+    expect(settled.changes.some((c) => c.status === "open")).toBe(false)
+    expect(google.calls.some((call) => call.method === "PATCH")).toBe(false)
+  }, 60_000)
+
   it("reads only this listing's bulk writes", async () => {
     const target = await listing()
     const other = await listing()

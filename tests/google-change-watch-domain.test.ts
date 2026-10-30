@@ -6,11 +6,13 @@ import {
   WATCHED_FIELD_LABELS,
   bulkWrittenValues,
   categoryMovement,
+  categoryOurs,
   changedHoursKeys,
   detectGoogleChanges,
   googleChangeSubjectId,
   hoursFieldMovement,
   profileFieldMovement,
+  profileFieldObservation,
   normalisePhone,
   normaliseText,
   normaliseWebsite,
@@ -675,6 +677,169 @@ describe("profileFieldMovement", () => {
       googleMoved: true,
       oursMoved: true,
     })
+  })
+})
+
+describe("profileFieldObservation", () => {
+  const website = (value: string | null): WatchedValue => ({
+    field: "website",
+    value,
+  })
+  const reconciled = new Date("2026-10-01T09:00:00Z")
+  const writtenAt = new Date("2026-10-10T09:00:00Z")
+  // The saved website is still the one reconciled at the baseline.
+  const unedited = {
+    canonicalHash: "c-old",
+    googleHash: "g-new",
+    baselineCanonicalHash: "c-old",
+    baselineGoogleHash: "g-old",
+  }
+  const base = {
+    saved: website("https://old.example"),
+    google: website("https://google.example"),
+    hashes: unedited,
+    lastReconciledAt: reconciled,
+    savedAt: new Date("2026-10-01T08:00:00Z"),
+    published: { value: website("https://bulk.example"), at: writtenAt },
+  }
+
+  it("uses the saved value and the field baselines without a newer write", () => {
+    const observation = profileFieldObservation({ ...base, published: null })
+    expect(observation.ours).toEqual(website("https://old.example"))
+    expect(observation.movement).toEqual(GOOGLE_MOVED)
+    // A write the baseline already took is history.
+    expect(
+      profileFieldObservation({
+        ...base,
+        published: { ...base.published, at: new Date("2026-09-30T00:00:00Z") },
+      }).ours
+    ).toEqual(website("https://old.example"))
+  })
+
+  it("takes what we last published as ours while the saved value is older", () => {
+    const observation = profileFieldObservation(base)
+    expect(observation.ours).toEqual(website("https://bulk.example"))
+    expect(observation.movement).toEqual(GOOGLE_MOVED)
+    // Google still shows what we sent: nothing moved.
+    expect(
+      profileFieldObservation({
+        ...base,
+        google: website("https://bulk.example"),
+      }).movement
+    ).toEqual(NONE_MOVED)
+  })
+
+  it("keeps the published value when the saved value was edited before the write", () => {
+    const observation = profileFieldObservation({
+      ...base,
+      saved: website("https://edited.example"),
+      hashes: { ...unedited, canonicalHash: "c-edited" },
+      savedAt: new Date("2026-10-05T09:00:00Z"),
+    })
+    expect(observation.ours).toEqual(website("https://bulk.example"))
+    expect(observation.movement).toEqual(GOOGLE_MOVED)
+  })
+
+  it("keeps the published value when only another field was saved after the write", () => {
+    const observation = profileFieldObservation({
+      ...base,
+      savedAt: new Date("2026-10-12T09:00:00Z"),
+    })
+    expect(observation.ours).toEqual(website("https://bulk.example"))
+  })
+
+  it("lets a value saved after the write win as ours, against what Google was sent", () => {
+    const edited = {
+      ...base,
+      saved: website("https://edited.example"),
+      hashes: { ...unedited, canonicalHash: "c-edited" },
+      savedAt: new Date("2026-10-12T09:00:00Z"),
+    }
+    const observation = profileFieldObservation(edited)
+    expect(observation.ours).toEqual(website("https://edited.example"))
+    // Google moved off what we sent; ours is an edit Google has not seen.
+    expect(observation.movement).toEqual(BOTH_MOVED)
+    // Google still shows what we sent: only ours moved.
+    expect(
+      profileFieldObservation({
+        ...edited,
+        google: website("https://bulk.example"),
+      }).movement
+    ).toEqual(OURS_MOVED)
+    // Its hash is the saved value's, so a decision on the published one
+    // sees ours changed.
+    expect(watchedValueHash(observation.ours)).not.toBe(
+      watchedValueHash(website("https://bulk.example"))
+    )
+  })
+
+  it("treats a value saved as what we published as the published value", () => {
+    const observation = profileFieldObservation({
+      ...base,
+      saved: website("https://bulk.example"),
+      hashes: { ...unedited, canonicalHash: "c-bulk" },
+      savedAt: new Date("2026-10-12T09:00:00Z"),
+    })
+    expect(observation.ours).toEqual(website("https://bulk.example"))
+    expect(observation.movement).toEqual(GOOGLE_MOVED)
+  })
+
+  it("lets a saved value with no baseline win once it is newer than the write", () => {
+    const observation = profileFieldObservation({
+      ...base,
+      hashes: {
+        ...unedited,
+        baselineCanonicalHash: null,
+        baselineGoogleHash: null,
+      },
+      lastReconciledAt: null,
+      savedAt: new Date("2026-10-12T09:00:00Z"),
+    })
+    expect(observation.ours).toEqual(website("https://old.example"))
+    expect(observation.movement).toEqual(BOTH_MOVED)
+  })
+})
+
+describe("categoryOurs", () => {
+  const baselineAt = new Date("2026-10-01T09:00:00Z")
+  const published = (name: string, at: string) => ({
+    value: {
+      field: "primaryCategory" as const,
+      value: { name, displayName: null },
+    },
+    at: new Date(at),
+  })
+
+  it("is the baseline without a newer publication", () => {
+    expect(
+      categoryOurs({ baseline: "gcid:pub", baselineAt, published: null })
+    ).toEqual({ name: "gcid:pub", publishedAt: null })
+    expect(
+      categoryOurs({
+        baseline: "gcid:pub",
+        baselineAt,
+        published: published("gcid:bar", "2026-09-30T09:00:00Z"),
+      })
+    ).toEqual({ name: "gcid:pub", publishedAt: null })
+  })
+
+  it("is a category published since the baseline", () => {
+    expect(
+      categoryOurs({
+        baseline: "gcid:pub",
+        baselineAt,
+        published: published("gcid:bar", "2026-10-02T09:00:00Z"),
+      })
+    ).toEqual({
+      name: "gcid:bar",
+      publishedAt: new Date("2026-10-02T09:00:00Z"),
+    })
+  })
+
+  it("is unknown before any baseline or publication", () => {
+    expect(
+      categoryOurs({ baseline: null, baselineAt: null, published: null })
+    ).toBeNull()
   })
 })
 

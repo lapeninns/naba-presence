@@ -17,15 +17,17 @@ import {
   WATCHED_FIELD_LABELS,
   bulkWrittenValues,
   categoryMovement,
+  categoryOurs,
   detectGoogleChanges,
   googleChangeSubjectId,
   hoursFieldMovement,
   planLedger,
-  profileFieldMovement,
+  profileFieldObservation,
   type DetectedGoogleChange,
   type FieldObservation,
   type GoogleChangeResolution,
   type GoogleChangeStatus,
+  type PublishedValue,
   type WatchedField,
   type WatchedValue,
   watchedValueHash,
@@ -348,8 +350,6 @@ type Observed = {
   seedCategory: { name: string; label: string | null; at: Date } | null
 }
 
-type PublishedValue = { value: WatchedValue; at: Date }
-
 const MASK_FIELD = {
   title: "name",
   profile: "description",
@@ -439,19 +439,25 @@ async function publishedBusinessInfo(
   return published
 }
 
-async function profileObservations(
+/**
+ * Each profile field's observation, from the saved profile, its
+ * profile_field_state row and what we last published. `observed` is false
+ * for a half-written row (its stored value is not what its hash was taken
+ * from): not an observation of Google, though our side still stands.
+ */
+async function profileFieldObservations(
   sql: TransactionSql,
   organisationId: string,
   locationId: string,
   published: Map<WatchedField, PublishedValue>
-): Promise<Pick<Observed, "observations" | "observedFields">> {
+): Promise<Array<FieldObservation & { observed: boolean }>> {
   const resource = await readCanonicalResource<NormalizedProfile>({
     sql,
     organisationId,
     locationId,
     resourceType: "profile",
   })
-  if (!resource) return { observations: [], observedFields: [] }
+  if (!resource) return []
   const rows = await sql<ProfileFieldRow[]>`
     select field_key as "fieldKey", google_value as "googleValue",
       google_hash as "googleHash",
@@ -462,44 +468,47 @@ async function profileObservations(
     where organisation_id = ${organisationId} and location_id = ${locationId}
       and field_key in ${sql([...PROFILE_FIELDS])}
   `
-  const observations: FieldObservation[] = []
-  const observedFields: WatchedField[] = []
-  for (const row of rows) {
+  return rows.map((row) => {
     const canonical = resource.payload[row.fieldKey] ?? null
     const googleText = row.googleValue?.value ?? null
-    // The stored value is what the stored hash was taken from; anything else
-    // is a half-written row and is not an observation.
-    if (hashProfileValue(googleText) !== row.googleHash) continue
-    observedFields.push(row.fieldKey)
-    const google: WatchedValue = { field: row.fieldKey, value: googleText }
-    const write = published.get(row.fieldKey)
-    if (
-      write &&
-      (!row.lastReconciledAt || write.at > new Date(row.lastReconciledAt))
-    ) {
-      // A business-information write since the profile's baseline is the
-      // value we last published.
-      observations.push({
-        ours: write.value,
-        google,
-        movement: {
-          googleMoved:
-            watchedValueHash(google) !== watchedValueHash(write.value),
-          oursMoved: false,
+    return {
+      observed: hashProfileValue(googleText) === row.googleHash,
+      ...profileFieldObservation({
+        saved: { field: row.fieldKey, value: canonical },
+        google: { field: row.fieldKey, value: googleText },
+        hashes: {
+          canonicalHash: hashProfileValue(canonical),
+          googleHash: row.googleHash,
+          baselineCanonicalHash: row.baselineCanonicalHash,
+          baselineGoogleHash: row.baselineGoogleHash,
         },
-      })
-      continue
-    }
-    observations.push({
-      ours: { field: row.fieldKey, value: canonical },
-      google,
-      movement: profileFieldMovement({
-        canonicalHash: hashProfileValue(canonical),
-        googleHash: row.googleHash,
-        baselineCanonicalHash: row.baselineCanonicalHash,
-        baselineGoogleHash: row.baselineGoogleHash,
+        lastReconciledAt: row.lastReconciledAt
+          ? new Date(row.lastReconciledAt)
+          : null,
+        savedAt: resource.updatedAt ? new Date(resource.updatedAt) : null,
+        published: published.get(row.fieldKey) ?? null,
       }),
-    })
+    }
+  })
+}
+
+async function profileObservations(
+  sql: TransactionSql,
+  organisationId: string,
+  locationId: string,
+  published: Map<WatchedField, PublishedValue>
+): Promise<Pick<Observed, "observations" | "observedFields">> {
+  const observations: FieldObservation[] = []
+  const observedFields: WatchedField[] = []
+  for (const { observed, ...observation } of await profileFieldObservations(
+    sql,
+    organisationId,
+    locationId,
+    published
+  )) {
+    if (!observed) continue
+    observedFields.push(observation.ours.field)
+    observations.push(observation)
   }
   return { observations, observedFields }
 }
@@ -524,22 +533,19 @@ async function categoryObservation(
   const google = primary?.name
     ? { name: primary.name, displayName: primary.displayName ?? null }
     : null
-  let baseline = watch.categoryBaseline
+  const ours = categoryOurs({
+    baseline: watch.categoryBaseline,
+    baselineAt: watch.categoryBaselineAt,
+    published: published.get("primaryCategory") ?? null,
+  })
+  let baseline = ours?.name ?? null
   let label = watch.categoryBaselineLabel
   let seedCategory: Observed["seedCategory"] = null
   let seededFromGoogle = false
-  const write = published.get("primaryCategory")
-  const written =
-    write?.value.field === "primaryCategory" ? write.value.value?.name : null
-  if (
-    written &&
-    write &&
-    (!watch.categoryBaselineAt || write.at > watch.categoryBaselineAt)
-  ) {
+  if (ours?.publishedAt) {
     // We published a category since the baseline: that is ours now.
-    baseline = written
-    label = written === google?.name ? (google?.displayName ?? null) : null
-    seedCategory = { name: baseline, label, at: write.at }
+    label = ours.name === google?.name ? (google?.displayName ?? null) : null
+    seedCategory = { name: ours.name, label, at: ours.publishedAt }
   } else if (baseline === null && google) {
     // First sight, nothing published from here: Google's becomes ours,
     // without an alert.
@@ -571,7 +577,9 @@ async function categoryObservation(
 /**
  * Our current value of one business-information field, as detection sees
  * it, hashed; null when the listing has none stored. "Put ours back" and
- * "Accept Google's" refuse when it moved since the change was spotted.
+ * "Keep Google's" refuse when it moved since the change was spotted: a value
+ * saved since (it is newer than what we last published), or a category we
+ * published since. It does not depend on Google's side having been observed.
  */
 export async function currentOursHash(
   sql: TransactionSql,
@@ -581,23 +589,25 @@ export async function currentOursHash(
   const published = await publishedBusinessInfo(sql, organisationId, locationId)
   if (field === "primaryCategory") {
     const watch = await loadWatch(sql, organisationId, locationId)
-    const category = await categoryObservation(
-      sql,
-      organisationId,
-      locationId,
-      watch,
-      published
-    )
-    const ours = category.observations[0]?.ours
-    return ours ? watchedValueHash(ours) : null
+    const ours = categoryOurs({
+      baseline: watch.categoryBaseline,
+      baselineAt: watch.categoryBaselineAt,
+      published: published.get("primaryCategory") ?? null,
+    })
+    return ours
+      ? watchedValueHash({
+          field: "primaryCategory",
+          value: { name: ours.name, displayName: null },
+        })
+      : null
   }
-  const profile = await profileObservations(
+  const profile = await profileFieldObservations(
     sql,
     organisationId,
     locationId,
     published
   )
-  const ours = profile.observations.find(
+  const ours = profile.find(
     (observation) => observation.ours.field === field
   )?.ours
   return ours ? watchedValueHash(ours) : null
