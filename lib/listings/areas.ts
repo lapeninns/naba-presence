@@ -19,6 +19,7 @@ export type ListingAreaKey =
   | "people"
   | "verification"
   | "suggestions"
+  | "reviewLink"
 
 export type ListingAreaModel =
   /** A NabaPresence copy, reviewed and then published to Google. */
@@ -31,6 +32,8 @@ export type ListingAreaModel =
   | "reviewed"
   /** Google's changes, accepted or ignored here. */
   | "inbound"
+  /** NabaPresence's own, never written to Google (the review link). */
+  | "local"
 
 export type ListingArea = {
   key: ListingAreaKey
@@ -122,6 +125,16 @@ export const LISTING_AREAS: readonly ListingArea[] = [
     model: "inbound",
     capability: "profile",
   },
+  {
+    key: "reviewLink",
+    label: "Review link",
+    description: "A short link and QR code to the listing’s Google review form",
+    segment: "review-link",
+    // Nothing is written to Google; the link only reads the review form's
+    // address from the listing. No capability gates it: it is
+    // NabaPresence's own link, managed by anyone who may edit here.
+    model: "local",
+  },
 ]
 
 export function listingArea(key: ListingAreaKey): ListingArea {
@@ -144,14 +157,22 @@ export function listingHref(locationId: string, segment?: string): string {
 }
 
 /** What the model means for the operator, said once. */
-export function modelNote(model: ListingAreaModel, area?: ListingAreaKey): string {
+export function modelNote(
+  model: ListingAreaModel,
+  area?: ListingAreaKey
+): string {
   // Booking links have no NabaPresence draft, but nothing goes out unreviewed:
   // each change is prepared, reviewed and approved, then sent separately.
-  if (area === "booking") return "No draft is kept here: review each link change, approve it, then send it to Google as a separate step."
-  if (area === "people") return "Administrator and invitation changes are reviewed and approved before sending. Google's acknowledgement and independent access confirmation are separate."
+  if (area === "reviewLink")
+    return "Nothing here changes the listing on Google: the link sends guests to Google’s own review form."
+  if (area === "booking")
+    return "No draft is kept here: review each link change, approve it, then send it to Google as a separate step."
+  if (area === "people")
+    return "Administrator and invitation changes are reviewed and approved before sending. Google's acknowledgement and independent access confirmation are separate."
   // One path for the profile: every edit goes through Review changes, which
   // lists both kinds together and says where each goes.
-  if (area === "profile") return "Review changes lists every edit before anything reaches Google. The name, description, phone and website can also be saved here first."
+  if (area === "profile")
+    return "Review changes lists every edit before anything reaches Google. The name, description, phone and website can also be saved here first."
   switch (model) {
     case "canonical":
       return "Saved here first; nothing reaches Google until you review and publish."
@@ -163,5 +184,7 @@ export function modelNote(model: ListingAreaModel, area?: ListingAreaKey): strin
       return "Review the exact request, approve it, then send. Google confirmation is checked separately."
     case "inbound":
       return "Google's changes wait here until you accept or ignore them. Accepting changes NabaPresence's copy only."
+    case "local":
+      return "Nothing here changes your Google listing. The link and QR code just send guests to Google’s own review form."
   }
 }

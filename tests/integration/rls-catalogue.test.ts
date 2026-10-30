@@ -109,6 +109,7 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "mutation_approval_decision",
     "notification_digest",
     "post_approval_decision",
+    "review_link_click", // S2
   ],
   // Kept for audit or recovery: no delete.
   "INSERT,SELECT,UPDATE": [
@@ -127,6 +128,7 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "post_publication_occurrence",
     "post_publication_schedule",
     "report_share",
+    "review_link", // S2
     "risc_event",
   ],
   // Updated column by column only (see RUNTIME_COLUMN_GRANTS).

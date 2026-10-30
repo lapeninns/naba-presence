@@ -33,6 +33,8 @@ const AREAS = [
   // loop already uses.
   { segment: "people", label: "People with access" },
   { segment: "verification", label: "Verification" },
+  // S2: review links (its own journey is tests/e2e/review-link.spec.ts).
+  { segment: "review-link", label: "Review link" },
 ] as const
 
 async function applyCookie(

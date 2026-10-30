@@ -659,6 +659,27 @@ export const RETENTION_INVENTORY = [
         "keep expired and revoked share rows (token hash only) for the life of the client",
     },
   },
+  // S2 (review links, migration 0310).
+  {
+    table: "review_link",
+    provenance: "customer",
+    action: "keep",
+    window:
+      "for the life of the location (a printed code keeps working through a Google disconnect); switching it off keeps the row",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "review_link_click",
+    provenance: "customer",
+    action: "keep",
+    window:
+      "kept with its review link (a time and a source per open; no IP address or user agent)",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
   {
     table: "notification_preference",
     provenance: "customer",
