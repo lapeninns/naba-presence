@@ -5,7 +5,11 @@
  * name or the text of their review.
  */
 
-import { NOTIFICATION_EVENT_LABELS, isNotificationEventKind, type NotificationEventKind } from "@/lib/domain/notification-preferences"
+import {
+  NOTIFICATION_EVENT_LABELS,
+  isNotificationEventKind,
+  type NotificationEventKind,
+} from "@/lib/domain/notification-preferences"
 import { SCHEDULE_REASON } from "@/lib/locations/schedule-display"
 import { reviewNotificationPath } from "@/lib/notifications/links"
 
@@ -105,6 +109,23 @@ export function renderIncidentEmail(
     case "low_rating_review": {
       const title = text(summary.title, "one of your listings")
       const rating = typeof summary.rating === "number" ? summary.rating : null
+      // S3: a stored review the reviewer edited down (review-rating-alerts.ts).
+      if (summary.edited === true) {
+        const stars = rating
+          ? `${rating} star${rating === 1 ? "" : "s"}`
+          : "a low rating"
+        return {
+          subject: `A review for ${title} was changed to ${stars}`,
+          text: [
+            typeof summary.previousRating === "number"
+              ? `A reviewer changed their Google review of ${title} from ${summary.previousRating} to ${stars}.`
+              : `A reviewer changed their Google review of ${title} to ${stars}.`,
+            `Read and reply: ${link("/inbox")}`,
+            "",
+            FOOTER,
+          ].join("\n"),
+        }
+      }
       return {
         subject: `New ${rating ? `${rating}-star ` : ""}review for ${title}`,
         text: [
@@ -184,29 +205,56 @@ export function renderIncidentEmail(
  * The operational events (WP8). Wording states what is known: a sent change
  * with no confirmed result is "unresolved", never "failed" or "done".
  */
-function renderOperationalEmail(kind: NotificationEventKind, summary: Record<string, unknown>, link: (path: string) => string) {
+function renderOperationalEmail(
+  kind: NotificationEventKind,
+  summary: Record<string, unknown>,
+  link: (path: string) => string
+) {
   const title = text(summary.title, "A listing")
   const review = reviewNotificationPath(kind, summary)
-  const where = review ? link(review)
-    : typeof summary.locationId === "string" ? link(`/listings/${summary.locationId}`) : link("/listings")
+  const where = review
+    ? link(review)
+    : typeof summary.locationId === "string"
+      ? link(`/listings/${summary.locationId}`)
+      : link("/listings")
   const label = NOTIFICATION_EVENT_LABELS[kind].label
   const detail: Partial<Record<NotificationEventKind, string>> = {
     publication_failed: `A change to ${title} was not published. Nothing further will be sent automatically.`,
     publication_unresolved: `A change to ${title} was sent, but Google's result is not confirmed yet. It will not be sent again automatically; check its saved outcome.`,
     schedule_missed: `A scheduled post for ${title} did not publish in time and will not publish late.`,
     schedule_blocked: `A scheduled post for ${title} cannot run until someone reviews it.`,
-    bulk_completed_with_failures: "A multi-location change finished with some locations failed. Successful locations keep their changes.",
+    bulk_completed_with_failures:
+      "A multi-location change finished with some locations failed. Successful locations keep their changes.",
     verification_changed: `The Google verification state of ${title} changed.`,
     suggestions_available: `Google suggested changes to ${title}. Nothing is applied until you review it.`,
     resource_stale: `Part of ${title} has not refreshed from Google recently.`,
     approval_requested: `A reply to a review of ${title} is waiting for your approval. It is not sent to Google until someone approves it.`,
     reply_sent_back: `An approver sent back your reply to a review of ${title}. It was not sent to Google. Revise it and submit it again.`,
+    // S3: lib/server/review-topics-alerts.ts
+    review_topic_negative: topicAlertDetail(summary, title),
   }
   const why = scheduleReason(kind, summary)
   return {
     subject: `${label}: ${title}`,
-    text: [detail[kind] ?? NOTIFICATION_EVENT_LABELS[kind].description, ...(why ? [why] : []), `Open: ${where}`, "", FOOTER].join("\n"),
+    text: [
+      detail[kind] ?? NOTIFICATION_EVENT_LABELS[kind].description,
+      ...(why ? [why] : []),
+      `Open: ${where}`,
+      "",
+      FOOTER,
+    ].join("\n"),
   }
+}
+
+/** S3: the topic alert in figures, when the incident carries them. */
+function topicAlertDetail(summary: Record<string, unknown>, title: string) {
+  const negative = summary.recentNegative
+  const mentions = summary.recentMentions
+  const counted =
+    typeof negative === "number" && typeof mentions === "number"
+      ? `${negative} of the ${mentions} mentions in reviews from the last 14 days were negative, much more than usual.`
+      : "Reviews from the last 14 days have been much more negative than usual."
+  return `${title}: ${counted} Nothing was changed; open the reviews to see what guests said.`
 }
 
 /**
@@ -215,7 +263,10 @@ function renderOperationalEmail(kind: NotificationEventKind, summary: Record<str
  * schedule_missed are digest by default). The reason is a stored code; an
  * unknown or inherited one adds nothing.
  */
-function scheduleReason(kind: string, summary: Record<string, unknown>): string | undefined {
+function scheduleReason(
+  kind: string,
+  summary: Record<string, unknown>
+): string | undefined {
   return (kind === "schedule_missed" || kind === "schedule_blocked") &&
     typeof summary.reason === "string" &&
     Object.hasOwn(SCHEDULE_REASON, summary.reason)
@@ -224,16 +275,28 @@ function scheduleReason(kind: string, summary: Record<string, unknown>): string 
 }
 
 /** A day's digest: one line per incident, no provider error bodies or personal data. */
-export function renderDigestEmail(incidents: ReadonlyArray<{ kind: string; summary: Record<string, unknown> }>, appUrl: string) {
+export function renderDigestEmail(
+  incidents: ReadonlyArray<{ kind: string; summary: Record<string, unknown> }>,
+  appUrl: string
+) {
   const lines = incidents.map((incident) => {
-    const label = isNotificationEventKind(incident.kind) ? NOTIFICATION_EVENT_LABELS[incident.kind].label : "Update"
+    const label = isNotificationEventKind(incident.kind)
+      ? NOTIFICATION_EVENT_LABELS[incident.kind].label
+      : "Update"
     const why = scheduleReason(incident.kind, incident.summary)
     const line = `- ${label}: ${text(incident.summary.title, "a listing")}`
     return why ? `${line}\n  ${why}` : line
   })
   return {
     subject: `NabaPresence daily summary: ${incidents.length} ${incidents.length === 1 ? "update" : "updates"}`,
-    text: ["Updates since your last summary:", ...lines, "", `Notifications: ${new URL("/notifications", appUrl).toString()}`, "", FOOTER].join("\n"),
+    text: [
+      "Updates since your last summary:",
+      ...lines,
+      "",
+      `Notifications: ${new URL("/notifications", appUrl).toString()}`,
+      "",
+      FOOTER,
+    ].join("\n"),
   }
 }
 
@@ -367,7 +430,8 @@ export function renderPlatformEmail(
   }
   if (kind === "billing_plan_unknown") {
     return {
-      subject: "NabaPresence: a subscribed price is missing from the billing catalog",
+      subject:
+        "NabaPresence: a subscribed price is missing from the billing catalog",
       text: [
         `Organisation ${subject} is subscribed to a Stripe price the plan catalog does not know (last failure ${text(details.lastFailedAt, "at an unknown time")}).`,
         "Every sync for it fails until the catalog has that price, and its access stays as it was: a pilot keeps full access.",
@@ -393,7 +457,10 @@ const INVITE_ROLE_LABELS = {
 
 /** One line of user-provided text, safe for a subject or a sentence. */
 function oneLine(value: string, fallback: string, max = 120): string {
-  const flat = value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim()
+  const flat = value
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
   if (!flat) return fallback
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
 }
@@ -411,7 +478,10 @@ export function renderInvitationEmail(input: {
   expiresAt: Date
   timeZone?: string
 }): { subject: string; text: string } {
-  const organisation = oneLine(input.organisationName, "a NabaPresence workspace")
+  const organisation = oneLine(
+    input.organisationName,
+    "a NabaPresence workspace"
+  )
   const format = (timeZone: string) =>
     new Intl.DateTimeFormat("en-GB", {
       day: "numeric",

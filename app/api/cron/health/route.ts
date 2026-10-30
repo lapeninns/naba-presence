@@ -7,6 +7,7 @@ import {
   evaluateOrganisation,
 } from "@/lib/server/notifications/evaluate"
 import { evaluatePlatform } from "@/lib/server/notifications/platform"
+import { evaluateReviewTopicAlerts } from "@/lib/server/review-topics-alerts"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { route } from "@/lib/server/route"
 
@@ -60,13 +61,27 @@ async function runHealthTick(requestId: string) {
       if (Date.now() >= deadline) break
       try {
         const evaluation = await evaluateOrganisation(organisation.id)
+        // S3: a venue's topic turning negative (review_topics feature). Its
+        // own failure is logged and never holds up the organisation's
+        // digests and deliveries below.
+        const topicAlerts = await evaluateReviewTopicAlerts(
+          organisation.id
+        ).catch((error: unknown) => {
+          log.error("notifications.review_topic_alerts_failed", {
+            requestId,
+            organisationId: organisation.id,
+            error,
+          })
+          return { opened: 0, resolved: 0, deliveriesQueued: 0 }
+        })
         // Once per recipient per local day; later ticks find it built.
         totals.digests += await buildDigests(organisation.id)
         const delivery = await deliverPending(organisation.id)
         totals.organisations += 1
-        totals.opened += evaluation.opened
-        totals.resolved += evaluation.resolved
-        totals.deliveriesQueued += evaluation.deliveriesQueued
+        totals.opened += evaluation.opened + topicAlerts.opened
+        totals.resolved += evaluation.resolved + topicAlerts.resolved
+        totals.deliveriesQueued +=
+          evaluation.deliveriesQueued + topicAlerts.deliveriesQueued
         totals.sent += delivery.sent
         totals.suppressed += delivery.suppressed
         totals.failed += delivery.failed
