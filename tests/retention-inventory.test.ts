@@ -277,6 +277,9 @@ describe("retention inventory", () => {
     // Stops new persistent derived aggregates while D-28 is open: a derived
     // dataset is either published in the privacy notice or one of the few
     // that predate the inventory, each with its interim keep decision.
+    // review_topic joined the grandfathered list (lib/server/retention/
+    // inventory.ts) by coordinator decision 2026-10-30, kept for the life of
+    // the review, deleted with it; no review text stored.
     for (const dataset of inventory) {
       if (dataset.provenance !== "derived") continue
       if (dataset.approval.status === "published") continue
@@ -288,6 +291,12 @@ describe("retention inventory", () => {
     for (const table of GRANDFATHERED_PENDING_DERIVED) {
       expect(retentionDataset(table)?.provenance, table).toBe("derived")
     }
+    // S3 (coordinator decision 2026-10-30): the topic labels go with their
+    // review and hold no text.
+    expect(retentionDataset("review_topic")).toMatchObject({
+      action: "keep",
+      cascadeFrom: ["review"],
+    })
   })
 
   it("is rendered into the runbook", () => {

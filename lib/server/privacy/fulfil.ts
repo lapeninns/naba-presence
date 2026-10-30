@@ -237,6 +237,8 @@ export function legalHoldViolation(error: unknown): string | null {
 export type ErasureScrub = {
   reviewsAffected: number
   mediaRemoved: number
+  /** review_topic labels removed (S3); their classification rows go too. */
+  topicsRemoved: number
   draftsRedacted: number
   /** verification_result rows whose reason messages were replaced. */
   verificationsRedacted: number
@@ -299,6 +301,22 @@ export async function eraseReviews(
     delete from review_media_item
     where review_id in ${sql(reviewIds)}
     returning id
+  `
+  // S3: topic labels hold no text, but they are what the classifier read in
+  // the erased words, so they go with them (coordinator decision
+  // 2026-10-30). The classification row goes too: with the text gone there
+  // is nothing to classify again. Scoped to the tenant as well as to the
+  // reviews, which the caller has already matched and locked.
+  const topics = await sql`
+    delete from review_topic
+    where organisation_id = ${organisationId}
+      and review_id in ${sql(reviewIds)}
+    returning review_id
+  `
+  await sql`
+    delete from review_topic_classification
+    where organisation_id = ${organisationId}
+      and review_id in ${sql(reviewIds)}
   `
   // `erased_at` is the marker `upsertGoogleReview` keys its re-ingestion
   // guard on (0030_review_erasure_and_checkpoints.sql); without it the next
@@ -365,6 +383,7 @@ export async function eraseReviews(
   const counts = {
     reviewsAffected: reviews.count,
     mediaRemoved: media.count,
+    topicsRemoved: topics.count,
     draftsRedacted: drafts.count,
     verificationsRedacted: verifications.count,
   }
