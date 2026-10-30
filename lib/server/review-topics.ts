@@ -62,6 +62,8 @@ export async function loadReviewTopicReport(
     and r.create_time >= (${from}::date)::timestamp at time zone 'UTC'
     and r.provider_deleted_at is null
     and r.erased_at is null
+    -- A restricted review's processing has stopped: its labels stop counting.
+    and r.restricted_at is null
   `
   const week = sql`to_char(date_trunc('week', r.create_time at time zone 'UTC'), 'YYYY-MM-DD')`
   const topicRows = await sql<TopicCountRow[]>`
@@ -74,7 +76,8 @@ export async function loadReviewTopicReport(
     from review_topic t
     join review r on r.id = t.review_id
     -- Labels of the reviews counted below only: an edited review keeps its
-    -- old labels until it is classified again, and must not count twice.
+    -- old labels, marked pending (markReviewTopicsStale), until it is
+    -- classified again, and they must not count.
     join review_topic_classification c
       on c.review_id = t.review_id and c.status = 'classified'
     where ${scope}
@@ -114,10 +117,39 @@ export function reviewTopicPredicate(
   topic: ReviewTopic | undefined
 ): Fragment {
   if (!topic) return sql``
-  return sql`and r.erased_at is null and exists (
+  // Same rule as the report: only a current answer counts, so an edited
+  // review waiting to be classified again, or a restricted one, drops out.
+  return sql`and r.erased_at is null and r.restricted_at is null and exists (
     select 1 from review_topic rt
+    join review_topic_classification rtc on rtc.review_id = rt.review_id
     where rt.review_id = r.id and rt.topic = ${topic}
+      and rtc.status = 'classified'
   )`
+}
+
+/**
+ * Marks a review's answer stale when Google supplied a different text
+ * (lib/server/reviews.ts upsertGoogleReview), keyed on the hash of the text
+ * the answer was for: the readers above count `classified` labels only, so
+ * the old labels stop counting and the review shows as pending until the job
+ * classifies the new text. Retention, which nulls the text, never comes
+ * through here, so a redacted review keeps counting. Runs in the caller's
+ * tenant transaction, after the review row is written.
+ */
+export async function markReviewTopicsStale(
+  sql: TransactionSql,
+  reviewId: string
+): Promise<void> {
+  await sql`
+    update review_topic_classification c
+    set status = 'pending', updated_at = now()
+    from review r
+    where c.review_id = ${reviewId}
+      and r.id = c.review_id
+      and c.status = 'classified'
+      and r.review_text is not null
+      and c.text_hash <> md5(r.review_text)
+  `
 }
 
 /**

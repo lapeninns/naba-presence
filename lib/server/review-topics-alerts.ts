@@ -80,6 +80,9 @@ export async function reviewTopicSpikeFindings(
       and r.create_time >= now() - make_interval(days => ${oldest})
       and r.provider_deleted_at is null
       and r.erased_at is null
+      -- A restricted review's processing has stopped: its labels stop
+      -- counting. An edited one's are 'pending' until classified again.
+      and r.restricted_at is null
     group by r.location_id, l.name, t.topic
     having (count(*) filter (
       where r.create_time >= now() - make_interval(days => ${recent})

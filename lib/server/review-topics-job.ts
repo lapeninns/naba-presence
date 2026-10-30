@@ -30,9 +30,10 @@ import { isOrgFeatureEnabled } from "@/lib/server/org-features"
  * runDueJobs) calls runReviewTopicClassification once per tick, held by the
  * runner's switch and the operator's AI switch (`drafts`, DRAFTS_ENABLED).
  *
- * For each organisation with reviews waiting (0153
- * review_topic_due_organisations), up to REVIEW_TOPIC_MAX_PER_RUN reviews
- * are classified per run, REVIEW_TOPIC_BATCH_SIZE to a model call; the
+ * For each organisation with reviews waiting (review_topic_due_organisations,
+ * 0153, redefined in 0156 to skip restricted reviews), up to
+ * REVIEW_TOPIC_MAX_PER_RUN reviews are classified per run,
+ * REVIEW_TOPIC_BATCH_SIZE to a model call; the
  * backfill of older reviews drains over successive ticks the same way.
  *
  * One batch is three steps, like a reply draft (lib/server/review-drafts.ts):
@@ -98,6 +99,9 @@ const pendingPredicate = (sql: TransactionSql, maxAttempts: number) => sql`
   and btrim(r.review_text) <> ''
   and r.provider_deleted_at is null
   and r.erased_at is null
+  -- A fulfilled restriction request (app/api/privacy/requests) keeps the
+  -- text but stops its processing: it is never sent to the provider.
+  and r.restricted_at is null
   and (c.lease_expires_at is null or c.lease_expires_at < now())
   and (
     c.review_id is null
@@ -110,7 +114,8 @@ const pendingPredicate = (sql: TransactionSql, maxAttempts: number) => sql`
  * Step one. Refuses without writing anything when the organisation has the
  * review_topics feature off, may not use AI (read-only billing) or one more
  * call could pass its token backstop; otherwise claims up to `limit` reviews, newest first, and
- * reserves the call.
+ * reserves the call. A restricted review is never claimed; one restricted
+ * between the claim and the read of its text is handed back unsent.
  */
 export async function claimBatch(
   sql: TransactionSql,
@@ -190,8 +195,19 @@ export async function claimBatch(
     from review r
     join review_topic_classification c on c.review_id = r.id
     where c.claim_id = ${claimId}
+      -- Restricted since the claim was taken: never sent.
+      and r.restricted_at is null
     order by r.create_time desc, r.id
   `
+  if (rows.length < claimed.length) {
+    await sql`
+      update review_topic_classification
+      set claim_id = null, lease_expires_at = null, updated_at = now()
+      where claim_id = ${claimId}
+        and review_id <> all(${rows.map((row) => row.reviewId)}::uuid[])
+    `
+    if (rows.length === 0) return { kind: "empty" }
+  }
   const [reservation] = await sql<{ id: string }[]>`
     insert into ai_usage (
       organisation_id, kind, status, credits, model,

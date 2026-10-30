@@ -17,7 +17,10 @@ import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { alertOnLoweredRating } from "@/lib/server/review-rating-alerts"
-import { clearReviewTopics } from "@/lib/server/review-topics"
+import {
+  clearReviewTopics,
+  markReviewTopicsStale,
+} from "@/lib/server/review-topics"
 
 const RATINGS: Record<string, number> = {
   ONE: 1,
@@ -471,6 +474,10 @@ export async function upsertGoogleReview(
     // retention redacts keeps them: that review's words were real.)
     if (hadText && !text && !review.erasedAt) {
       await clearReviewTopics(sql, review.id)
+    } else if (text && !review.erasedAt) {
+      // An edited text: its old topics stop counting until it is classified
+      // again. A no-op when the text is the one already classified.
+      await markReviewTopicsStale(sql, review.id)
     }
   }
 
