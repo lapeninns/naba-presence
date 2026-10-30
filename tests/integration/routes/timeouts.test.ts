@@ -54,6 +54,8 @@ describeDatabase("provider request timeouts", () => {
       OPENAI_API_KEY: "route-harness-dummy-workers-ai-token",
       OPENAI_BASE_URL: stub.baseUrl,
       OPENAI_TIMEOUT_MS: "1000",
+      OPENAI_MODEL_DRAFT: "gpt-4.1-nano",
+      OPENAI_MODEL_VERIFY: "gpt-4.1-nano-2025-04-14",
     })
   })
 
@@ -155,7 +157,7 @@ describeDatabase("provider request timeouts", () => {
     ).length
   }
 
-  it("generates and verifies through OpenAI and records the configured model", async () => {
+  it("generates and verifies with the replacement for retired configured models and records the effective model", async () => {
     const draft = {
       reply:
         "Thank you for your kind review. We hope to welcome you back soon.",
@@ -203,6 +205,21 @@ describeDatabase("provider request timeouts", () => {
     )
     expect(response.status, await response.clone().text()).toBe(201)
     expect(openAiCalls()).toBe(callsBefore + 2)
+    const providerCalls = stub.calls
+      .filter(
+        (call) => call.method === "POST" && call.path.includes("/v1/responses")
+      )
+      .slice(callsBefore)
+    expect(providerCalls.map((call) => call.body)).toMatchObject([
+      {
+        model: "gpt-5.6-luna",
+        text: { format: { name: "google_review_reply" } },
+      },
+      {
+        model: "gpt-5.6-luna",
+        text: { format: { name: "review_reply_verification" } },
+      },
+    ])
     const [stored] = await admin<
       { model_name: string; body: string; verification_status: string }[]
     >`
@@ -211,9 +228,19 @@ describeDatabase("provider request timeouts", () => {
       order by created_at desc limit 1
     `
     expect(stored).toMatchObject({
-      model_name: "gpt-4.1-nano",
+      model_name: "gpt-5.6-luna",
       body: draft.reply,
     })
     expect(stored?.verification_status).toMatch(/^(pass|warn)$/)
+    const usage = await admin<{ kind: string; model: string }[]>`
+      select kind, model from ai_usage
+      where organisation_id = ${owner.organisationId}
+        and review_id = ${review.reviewId} and status = 'settled'
+      order by kind
+    `
+    expect([...usage]).toEqual([
+      { kind: "draft", model: "gpt-5.6-luna" },
+      { kind: "verify", model: "gpt-5.6-luna" },
+    ])
   })
 })
