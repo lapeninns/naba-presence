@@ -326,8 +326,9 @@ script, so CI and Vercel installs never install hooks.
 and `.worktrees`, matching ESLint's ignores. TypeScript already skips
 dot-directories under `**` wildcards, but the gitignored `ds-bundle/` output
 (60 generated files) was being typechecked wherever it existed.
-The gitignored `docs/release/receipts/local/` tree is also excluded: retained QA
-copies and temporary harnesses are evidence, not application or test sources.
+Locally generated receipts (`<repo>/docs/release/receipts/local/`, absent from
+clean checkouts) are also excluded: retained QA copies and temporary harnesses
+are evidence, not application or test sources.
 This leaves all maintained source and test directories in the typecheck.
 
 `pnpm lint` runs `eslint --max-warnings 0`, so a warning fails the gate the
