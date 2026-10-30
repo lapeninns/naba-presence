@@ -56,6 +56,19 @@ const urlWithDefault = (fallback: string) =>
 const timeoutWithDefault = (fallback: number) =>
   z.coerce.number().int().positive().default(fallback)
 
+const openAiModel = z
+  .preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).default("gpt-5.6-luna")
+  )
+  .transform((model) =>
+    // OpenAI shut down both nano identifiers on 23 October 2026. Resolve
+    // legacy configuration here so requests and usage reservations agree.
+    model === "gpt-4.1-nano" || model === "gpt-4.1-nano-2025-04-14"
+      ? "gpt-5.6-luna"
+      : model
+  )
+
 /** A comma-separated list of secrets, each at least `minimumLength` long. */
 const secretList = (minimumLength: number) =>
   z
@@ -228,14 +241,8 @@ export const serverEnvSchema = z.object({
   REGISTRATION_WORKSPACE_CHOICE_ENABLED: featureFlag(false),
   OPENAI_API_KEY: optionalText,
   OPENAI_ORG_ID: optionalText,
-  OPENAI_MODEL_DRAFT: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().min(1).default("gpt-4.1-nano")
-  ),
-  OPENAI_MODEL_VERIFY: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().min(1).default("gpt-4.1-nano")
-  ),
+  OPENAI_MODEL_DRAFT: openAiModel,
+  OPENAI_MODEL_VERIFY: openAiModel,
   OPENAI_BASE_URL: urlWithDefault("https://api.openai.com"),
   // Stay below the database connection's 60-second idle transaction limit.
   OPENAI_TIMEOUT_MS: z.coerce

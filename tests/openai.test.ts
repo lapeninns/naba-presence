@@ -71,7 +71,7 @@ describe("OpenAI review integration", () => {
     expect(await generateReply(draftInput)).toEqual({
       ...draft,
       usage: { inputTokens: 120, outputTokens: 33 },
-      model: "gpt-4.1-nano",
+      model: "gpt-5.6-luna",
     })
     const call = fetchMock.mock.calls[0]
     expect(call).toBeDefined()
@@ -87,7 +87,7 @@ describe("OpenAI review integration", () => {
     expect(options?.signal).toBeInstanceOf(AbortSignal)
     const body = JSON.parse(String(options?.body))
     expect(body).toMatchObject({
-      model: "gpt-4.1-nano",
+      model: "gpt-5.6-luna",
       store: false,
       stream: false,
       max_output_tokens: 4096,
@@ -104,6 +104,29 @@ describe("OpenAI review integration", () => {
     expect(body.input).toContain("The pie was lovely.")
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it.each(["gpt-4.1-nano", "gpt-4.1-nano-2025-04-14"])(
+    "uses and reports the supported replacement for configured %s",
+    async (model) => {
+      settings.values = {
+        ...baseEnv,
+        OPENAI_MODEL_DRAFT: model,
+        OPENAI_MODEL_VERIFY: model,
+      }
+      fetchMock
+        .mockResolvedValueOnce(completion(draft))
+        .mockResolvedValueOnce(completion(verdict))
+
+      expect((await generateReply(draftInput)).model).toBe("gpt-5.6-luna")
+      expect((await semanticVerification(verificationInput)).model).toBe(
+        "gpt-5.6-luna"
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      for (const [, options] of fetchMock.mock.calls) {
+        expect(JSON.parse(String(options?.body)).model).toBe("gpt-5.6-luna")
+      }
+    }
+  )
 
   it("uses the same model for semantic verification and preserves verdict reasons", async () => {
     settings.values = { ...baseEnv, OPENAI_MODEL_VERIFY: "gpt-4.1-mini" }
@@ -133,7 +156,7 @@ describe("OpenAI review integration", () => {
       ran: true,
       reasons: [],
       usage: { inputTokens: 120, outputTokens: 33 },
-      model: "gpt-4.1-nano",
+      model: "gpt-5.6-luna",
     })
     settings.values = { ...baseEnv, SEMANTIC_VERIFY_ENABLED: "false" }
     expect(await semanticVerification(verificationInput)).toEqual({
@@ -230,7 +253,7 @@ describe("OpenAI review integration", () => {
     fetchMock.mockResolvedValue(completion(draft, "incomplete"))
     await expect(generateReply(draftInput)).rejects.toMatchObject({
       code: "ai_incomplete_response",
-      model: "gpt-4.1-nano",
+      model: "gpt-5.6-luna",
       usage: { inputTokens: 120, outputTokens: 33 },
     })
   })

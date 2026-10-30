@@ -187,26 +187,42 @@ describe("provider timeouts", () => {
 })
 
 describe("OpenAI configuration", () => {
-  it("uses the former local model and treats blank settings as absent", () => {
-    const env = serverEnvSchema.parse({
-      ...baseEnv,
-      OPENAI_API_KEY: "",
-      OPENAI_MODEL_DRAFT: "",
-      OPENAI_MODEL_VERIFY: "",
-    })
-    expect(env.OPENAI_MODEL_DRAFT).toBe("gpt-4.1-nano")
-    expect(env.OPENAI_MODEL_VERIFY).toBe("gpt-4.1-nano")
-    expect(env.OPENAI_BASE_URL).toBe("https://api.openai.com")
-    expect(env.OPENAI_API_KEY).toBeUndefined()
-  })
+  it.each([undefined, ""])(
+    "uses the supported model when model settings are %s",
+    (model) => {
+      const env = serverEnvSchema.parse({
+        ...baseEnv,
+        OPENAI_API_KEY: "",
+        OPENAI_MODEL_DRAFT: model,
+        OPENAI_MODEL_VERIFY: model,
+      })
+      expect(env.OPENAI_MODEL_DRAFT).toBe("gpt-5.6-luna")
+      expect(env.OPENAI_MODEL_VERIFY).toBe("gpt-5.6-luna")
+      expect(env.OPENAI_BASE_URL).toBe("https://api.openai.com")
+      expect(env.OPENAI_API_KEY).toBeUndefined()
+    }
+  )
+
+  it.each(["gpt-4.1-nano", "gpt-4.1-nano-2025-04-14"])(
+    "resolves retired %s configuration before reserving or calling a model",
+    (model) => {
+      const env = serverEnvSchema.parse({
+        ...baseEnv,
+        OPENAI_MODEL_DRAFT: model,
+        OPENAI_MODEL_VERIFY: model,
+      })
+      expect(env.OPENAI_MODEL_DRAFT).toBe("gpt-5.6-luna")
+      expect(env.OPENAI_MODEL_VERIFY).toBe("gpt-5.6-luna")
+    }
+  )
 
   it("accepts separate draft and verification models", () => {
     const env = serverEnvSchema.parse({
       ...baseEnv,
-      OPENAI_MODEL_DRAFT: "gpt-4.1-nano",
+      OPENAI_MODEL_DRAFT: "custom-draft-model",
       OPENAI_MODEL_VERIFY: "gpt-4.1-mini",
     })
-    expect(env.OPENAI_MODEL_DRAFT).toBe("gpt-4.1-nano")
+    expect(env.OPENAI_MODEL_DRAFT).toBe("custom-draft-model")
     expect(env.OPENAI_MODEL_VERIFY).toBe("gpt-4.1-mini")
   })
 })
