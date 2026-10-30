@@ -158,5 +158,7 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0147_editor_observed_payload",
   "0148_business_information_observation",
   "0149_approval_notification_kinds",
+  // S2 (review links): fan-out numbering, renumbered at integration.
+  "0310_review_link",
   "20260729000400_remove_local_demo_data",
 ]
