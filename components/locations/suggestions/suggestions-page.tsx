@@ -5,6 +5,7 @@ import { CircleAlertIcon, CircleCheckIcon, RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 
 import { LocationTab } from "@/components/locations/location-tab"
+import { GoogleChangesPanel } from "@/components/locations/suggestions/google-changes-panel"
 import {
   isBillingHold,
   SuggestionList,
@@ -21,9 +22,14 @@ import { formatNumber } from "@/lib/format"
 import { listingHref } from "@/lib/listings/areas"
 import { queryKeys } from "@/lib/queries/keys"
 import {
+  useCheckGoogleChanges,
+  useGoogleChanges,
+} from "@/lib/queries/use-google-change-watch"
+import {
   useImportReview,
   useRefreshImportReview,
 } from "@/lib/queries/use-import-review"
+import { WATCHED_FIELD_LABELS } from "@/lib/domain/google-change-watch-vocabulary"
 import { useProfile } from "@/lib/queries/use-location-profile"
 import { cn } from "@/lib/utils"
 
@@ -42,11 +48,18 @@ export function SuggestionsTab({ locationId }: { locationId: string }) {
       useResource={useProfile}
     >
       {({ data: profile, editReason }) => (
-        <SuggestionsView
-          locationId={locationId}
-          canonicalRevision={profile.canonicalResource.revision}
-          editReason={editReason}
-        />
+        <div className="flex flex-col gap-8">
+          {/* Protected fields Google changed, then Google's suggestions. */}
+          <GoogleChangesPanel
+            locationId={locationId}
+            editReason={isBillingHold(editReason) ? editReason : null}
+          />
+          <SuggestionsView
+            locationId={locationId}
+            canonicalRevision={profile.canonicalResource.revision}
+            editReason={editReason}
+          />
+        </div>
       )}
     </LocationTab>
   )
@@ -111,8 +124,39 @@ function SuggestionsView({
   const profileReview = useImportReview(locationId, "profile")
   const menuReview = useImportReview(locationId, "food_menus")
   const refresh = useRefreshImportReview(locationId)
+  const watchCheck = useCheckGoogleChanges(locationId)
+  const watched = useGoogleChanges(locationId)
 
-  const refreshFromGoogle = (resourceType: "profile" | "food_menus" | "all") =>
+  // The one "Check Google now" also runs the protected-field watch, which
+  // reports in its own toast only when it found something or could not read.
+  const checkWatch = () =>
+    watchCheck.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.found === 0 && data.unchecked.length === 0) return
+        const unchecked = data.unchecked.length
+          ? `We couldn’t read ${data.unchecked
+              .map((field) => WATCHED_FIELD_LABELS[field].toLowerCase())
+              .join(
+                ", "
+              )} from Google, so they weren’t checked. Try again in a few minutes.`
+          : null
+        toasts.add({
+          title:
+            data.found > 0
+              ? `${countNoun(data.found, "protected field")} changed on Google`
+              : "Some protected fields weren’t checked",
+          ...(unchecked ? { description: unchecked } : null),
+          type: data.unchecked.length ? "warning" : "info",
+        })
+      },
+      onError: (error) =>
+        toasts.add({ title: describeActionError(error), type: "error" }),
+    })
+
+  const refreshFromGoogle = (
+    resourceType: "profile" | "food_menus" | "all"
+  ) => {
+    checkWatch()
     refresh.mutate(resourceType, {
       onSuccess: (data) => {
         void queryClient.invalidateQueries({
@@ -130,6 +174,7 @@ function SuggestionsView({
       onError: (error) =>
         toasts.add({ title: describeActionError(error), type: "error" }),
     })
+  }
 
   if (profileReview.isPending || menuReview.isPending)
     return <SuggestionsSkeleton />
@@ -164,15 +209,28 @@ function SuggestionsView({
 
   const profile = profileReview.data!
   const menu = menuReview.data!
-  const pendingProfile = profile.importReviewEnabled
+  // A protected field Google changed is decided once, in the panel above,
+  // not again here as a suggestion.
+  const decidedAbove = new Set<string>(
+    (watched.data?.changes ?? [])
+      .filter(
+        (change) => change.status === "open" || change.status === "reverting"
+      )
+      .map((change) => change.field)
+  )
+  const allPendingProfile = profile.importReviewEnabled
     ? profile.proposals.filter((p) => p.status === "pending")
     : []
+  const pendingProfile = allPendingProfile.filter(
+    (p) => !p.fieldKey || !decidedAbove.has(p.fieldKey)
+  )
+  const hiddenAbove = allPendingProfile.length - pendingProfile.length
   const pendingMenu = menu.importReviewEnabled
     ? menu.proposals.filter((p) => p.status === "pending")
     : []
   const total = pendingProfile.length + pendingMenu.length
   const enabled = profile.importReviewEnabled || menu.importReviewEnabled
-  const refreshing = refresh.isPending
+  const refreshing = refresh.isPending || watchCheck.isPending
   const billingHold = isBillingHold(editReason)
   // A UI hint only: the route stays the authority on who may check.
   const checkReason = editReason
@@ -180,6 +238,15 @@ function SuggestionsView({
       ? editReason
       : CHECK_ROLE_REASON
     : undefined
+
+  const decidedAboveNote =
+    hiddenAbove > 0 ? (
+      <p className="text-caption text-ink-muted">
+        {countNoun(hiddenAbove, "suggestion")} for protected fields{" "}
+        {hiddenAbove === 1 ? "is" : "are"} decided above, under Protected fields
+        Google changed.
+      </p>
+    ) : null
 
   const gate = editReason ? (
     <Alert variant="info">
@@ -237,6 +304,17 @@ function SuggestionsView({
             >
               Open the food menu
             </Link>
+            {/* The protected-field watch runs even with suggestions off. */}
+            <Button
+              variant="ghost"
+              onClick={checkWatch}
+              disabledReason={checkReason}
+              pending={watchCheck.isPending}
+              pendingLabel="Checking…"
+            >
+              <RefreshCwIcon aria-hidden />
+              Check Google now
+            </Button>
           </>
         }
       />
@@ -247,6 +325,7 @@ function SuggestionsView({
     return (
       <div className="flex flex-col gap-4">
         {gate}
+        {decidedAboveNote}
         <Empty
           placement="page"
           tone="ok"
@@ -263,6 +342,7 @@ function SuggestionsView({
   return (
     <div className="flex flex-col gap-6">
       {gate}
+      {decidedAboveNote}
       <div
         data-slot="suggestions-summary"
         className="flex flex-wrap items-center gap-x-3 gap-y-1"

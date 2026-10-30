@@ -776,7 +776,7 @@ async function watchInTransaction(
   for (const change of plan.insert) {
     const id = await insertChange(sql, { organisationId, locationId, change })
     inserted.push(id)
-    await alert(sql, {
+    await openAlert(sql, {
       organisationId,
       locationId,
       locationName: location.name,
@@ -889,7 +889,7 @@ async function insertChange(
  * who can see it. Each person's own notification preferences still decide
  * in-app and email delivery.
  */
-async function alert(
+async function openAlert(
   sql: TransactionSql,
   input: {
     organisationId: string
