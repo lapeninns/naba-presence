@@ -8,7 +8,7 @@ import { timeoutWithin } from "@/lib/server/deadline"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 
-type JsonSchema = Record<string, unknown>
+export type JsonSchema = Record<string, unknown>
 
 const responseSchema = z.object({
   status: z.string(),
@@ -85,7 +85,7 @@ function timedOut(): ApiError {
   return new ApiError(502, "ai_timeout", "The AI provider timed out.")
 }
 
-async function openAiStructured<T>(
+export async function openAiStructured<T>(
   model: string,
   name: string,
   schema: JsonSchema,

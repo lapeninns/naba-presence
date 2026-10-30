@@ -17,6 +17,30 @@ const state: InboxState = {
 afterEach(() => vi.restoreAllMocks())
 
 describe("ActiveFilterChips", () => {
+  it("shows and clears a review topic (S3)", async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <ActiveFilterChips
+        state={{
+          ...state,
+          locationIds: [],
+          ratings: [],
+          search: "",
+          topic: "sunday_roast",
+        }}
+        locations={[]}
+        onChange={onChange}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Topic: Sunday roast")).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Remove filter: Topic: Sunday roast" })
+    )
+    expect(onChange).toHaveBeenCalledWith({ topic: undefined })
+  })
+
   it("shows and clears the rating-only filter", async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()

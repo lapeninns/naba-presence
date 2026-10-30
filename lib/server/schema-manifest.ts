@@ -160,6 +160,9 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0149_approval_notification_kinds",
   // S2 (review links): fan-out numbering, renumbered at integration.
   "0310_review_link",
+  // S3 (review topics)
+  "0320_review_topics",
+  "0321_review_topic_notification_kind",
   "20260729000400_remove_local_demo_data",
   // S4: Organisation-wide content policy.
   "0330_content_banned_phrases",

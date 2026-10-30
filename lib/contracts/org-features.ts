@@ -32,6 +32,10 @@ export const ORG_FEATURES = [
   // the link, each invitation shows whether it went out, and owners and
   // admins can resend. Off, an invitation is a link to copy, as before.
   "invitation_email",
+  // S3: review topics (lib/server/review-topics-job.ts). Off: no review of
+  // the organisation is sent for classification, the Reports panel and the
+  // Inbox Topic filter are not shown, and no topic alert is raised.
+  "review_topics",
 ] as const
 
 export type OrgFeature = (typeof ORG_FEATURES)[number]

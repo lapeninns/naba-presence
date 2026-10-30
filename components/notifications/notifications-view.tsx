@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   ClockAlert,
   KeyRound,
+  MessageSquareWarning,
   Layers,
   Lightbulb,
   RefreshCw,
@@ -101,6 +102,13 @@ const KIND_ICONS: Partial<Record<NotificationEventKind, LucideIcon>> = {
   verification_changed: BadgeCheck,
   suggestions_available: Lightbulb,
   resource_stale: RefreshCw,
+  // S3
+  review_topic_negative: MessageSquareWarning,
+}
+
+/** S3: a topic alert opens a filtered list of reviews, not one review. */
+function reviewsLabel(kind: NotificationEventKind): string {
+  return kind === "review_topic_negative" ? "Open reviews" : "Open review"
 }
 
 /**
@@ -689,9 +697,9 @@ function NotificationRow({
               <Link
                 href={reviewHref}
                 className={cn(buttonVariants({ variant: "ghost" }))}
-                aria-label={`Open review for ${copy.label}`}
+                aria-label={`${reviewsLabel(item.kind)} for ${copy.label}`}
               >
-                Open review
+                {reviewsLabel(item.kind)}
               </Link>
             ) : item.locationId ? (
               <Link

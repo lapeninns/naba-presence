@@ -341,6 +341,36 @@ export const RETENTION_INVENTORY = [
     hold: "kept",
     approval: { status: "published" },
   },
+  // S3: review topics. The labels hold no review text and outlive it, like
+  // the star rating. Kept for the life of the review and deleted with it,
+  // privacy erasure included (coordinator decision 2026-10-30; grandfathered
+  // below while D-28 stays open). The feature ships off (org feature
+  // review_topics) until the privacy notice covers classification.
+  {
+    table: "review_topic",
+    provenance: "derived",
+    action: "keep",
+    window: "for the life of its review; deleted with it",
+    cascadeFrom: ["review"],
+    deletes: "gated",
+    hold: "kept",
+    approval: {
+      status: "pending",
+      decision: "D-28",
+      interim:
+        "keep each review's topic labels for the life of the review and delete them with it, erasure included (coordinator decision 2026-10-30)",
+    },
+  },
+  {
+    table: "review_topic_classification",
+    provenance: "operational",
+    action: "keep",
+    window: "for the life of its review; deleted with it",
+    cascadeFrom: ["review"],
+    deletes: "gated",
+    hold: "kept",
+    approval: { status: "lifecycle" },
+  },
 
   // ---- Customer content ---------------------------------------------------
   {
@@ -1175,7 +1205,8 @@ export function retentionDataset(table: string): RetentionDataset | undefined {
 
 /**
  * Derived datasets that existed, unapproved, when the inventory was
- * introduced. A derived dataset outside this list needs a `published`
+ * introduced, plus those a recorded decision admitted since. A derived
+ * dataset outside this list needs a `published`
  * window before it lands: no new persistent aggregate is added while D-28 is
  * open (plan P04).
  */
@@ -1183,6 +1214,10 @@ export const GRANDFATHERED_PENDING_DERIVED: readonly string[] = [
   "performance_metric_daily",
   "performance_search_keyword_monthly",
   "food_menu_item_identity",
+  // S3: coordinator decision 2026-10-30 (DECISIONS.md, option (a)): kept for
+  // the life of the review, deleted with it (privacy erasure included); no
+  // review text stored. D-28 stays open for the datasets above.
+  "review_topic",
 ]
 
 const HOLD_LABEL: Record<RetentionHold, string> = {

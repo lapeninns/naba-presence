@@ -4,6 +4,7 @@ import { useId, useRef } from "react"
 
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import { WrittenFilter } from "@/components/inbox/filter-controls"
+import { useReviewTopicsEnabled } from "@/components/reports/review-topics-enabled"
 import { ReviewSortSelect } from "@/components/inbox/review-filters"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel, FormError } from "@/components/ui/field"
@@ -32,6 +33,7 @@ import {
   resultsAnnouncement,
   showResultsLabel,
 } from "@/lib/inbox/filter-labels"
+import { REVIEW_TOPIC_LABELS, isReviewTopic } from "@/lib/domain/review-topics"
 import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 
@@ -75,6 +77,11 @@ function Group({
 const ASSIGNEE_ITEMS: Record<string, string> = {
   "": "Anyone",
   ...ASSIGNEE_LABELS,
+}
+
+const TOPIC_ITEMS: Record<string, string> = {
+  "": "Any topic",
+  ...REVIEW_TOPIC_LABELS,
 }
 
 /**
@@ -124,6 +131,10 @@ function FiltersSheet({
   ownerControl?: (id: string) => React.ReactNode
 }) {
   const venueId = useId()
+  const topicId = useId()
+  // S3: offered only where reviews can carry topics; a `?topic=` link keeps
+  // its chip either way, so it can always be cleared.
+  const topicsEnabled = useReviewTopicsEnabled()
   const assigneeId = useId()
   const ageId = useId()
   const ownerId = useId()
@@ -207,6 +218,40 @@ function FiltersSheet({
                 <SelectContent title="Venue" alignItemWithTrigger={false}>
                   {Object.entries(venueItems).map(([value, label]) => (
                     <SelectItem key={value || "all"} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Group>
+          ) : null}
+
+          {topicsEnabled ? (
+            <Group title={FILTER_NAMES.topic}>
+              <Select
+                value={state.topic ?? ""}
+                items={TOPIC_ITEMS}
+                onValueChange={(value: string | null) =>
+                  onChange({
+                    topic: isReviewTopic(value) ? value : undefined,
+                    // Topics come from review text: "Rating only" would
+                    // leave nothing to show.
+                    ...(isReviewTopic(value) && state.written === "rating_only"
+                      ? { written: undefined }
+                      : {}),
+                  })
+                }
+              >
+                <SelectTrigger
+                  id={topicId}
+                  aria-label="Filter by topic"
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent title="Topic" alignItemWithTrigger={false}>
+                  {Object.entries(TOPIC_ITEMS).map(([value, label]) => (
+                    <SelectItem key={value || "any"} value={value}>
                       {label}
                     </SelectItem>
                   ))}

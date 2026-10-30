@@ -29,6 +29,8 @@ export const NOTIFICATION_EVENT_KINDS = [
   "resource_stale",
   "ai_credits_low",
   "ai_credits_exhausted",
+  // S3: a venue's topic turned sharply negative (review-topics-alerts.ts).
+  "review_topic_negative",
 ] as const
 export type NotificationEventKind = (typeof NOTIFICATION_EVENT_KINDS)[number]
 
@@ -74,6 +76,8 @@ export const CONDITION_KINDS: readonly NotificationEventKind[] = [
   "ai_credits_exhausted",
   "approval_requested",
   "reply_sent_back",
+  // S3
+  "review_topic_negative",
 ]
 
 const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
@@ -89,6 +93,8 @@ const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
   "schedule_missed",
   "ai_credits_low",
   "ai_credits_exhausted",
+  // S3: rare by design (one per venue and topic while it holds).
+  "review_topic_negative",
 ]
 
 export const NOTIFICATION_EVENT_LABELS: Record<
@@ -115,7 +121,8 @@ export const NOTIFICATION_EVENT_LABELS: Record<
   },
   low_rating_review: {
     label: "New low-rated review",
-    description: "A review of three stars or fewer arrived.",
+    description:
+      "A review of three stars or fewer arrived, or a review was changed to three stars or fewer.",
   },
   approval_requested: {
     label: "Approval requested",
@@ -171,6 +178,12 @@ export const NOTIFICATION_EVENT_LABELS: Record<
   ai_credits_exhausted: {
     label: "AI reply credits used up",
     description: "All of this month's AI reply credits have been used.",
+  },
+  // S3
+  review_topic_negative: {
+    label: "Topic turning negative",
+    description:
+      "Reviews of a listing have been much more negative than usual about one topic over the last 14 days.",
   },
 }
 

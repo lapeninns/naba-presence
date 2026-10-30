@@ -117,6 +117,8 @@ export const WIRE = {
   assignee: "assignee",
   ratings: "rating",
   written: "written",
+  // S3: one review topic (lib/domain/review-topics.ts).
+  topic: "topic",
   statuses: "status",
   replyState: "reply_state",
   dateFrom: "date_from",
@@ -148,6 +150,7 @@ export function encodeReviewsQuery(
   set(WIRE.assignee, filters.assignee)
   set(WIRE.ratings, csv(filters.ratings))
   set(WIRE.written, filters.written)
+  set(WIRE.topic, filters.topic)
   set(WIRE.statuses, csv(filters.statuses))
   set(WIRE.replyState, filters.replyState)
   set(WIRE.dateFrom, filters.dateFrom)
