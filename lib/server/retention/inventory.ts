@@ -1128,6 +1128,37 @@ export const RETENTION_INVENTORY = [
     hold: "none",
     approval: { status: "internal" },
   },
+  // S5 (Google change watch, 0340): listing settings and the detected
+  // listing-field changes. Listing data, never personal data; they go with
+  // the listing (location cascade).
+  {
+    table: "listing_google_watch",
+    provenance: "operational",
+    action: "keep",
+    window: "while its listing exists",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "listing_google_watch_recipient",
+    provenance: "operational",
+    action: "keep",
+    window:
+      "with its listing's watch, or until the person's account is deleted",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "listing_google_change",
+    provenance: "operational",
+    action: "keep",
+    window: "while its listing exists",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
 ] as const satisfies readonly RetentionDataset[]
 
 /** A table the inventory classifies. */

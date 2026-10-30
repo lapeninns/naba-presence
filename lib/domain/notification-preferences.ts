@@ -29,6 +29,8 @@ export const NOTIFICATION_EVENT_KINDS = [
   "resource_stale",
   "ai_credits_low",
   "ai_credits_exhausted",
+  // S5: a protected listing field changed on Google (0340).
+  "listing_google_changed",
 ] as const
 export type NotificationEventKind = (typeof NOTIFICATION_EVENT_KINDS)[number]
 
@@ -57,6 +59,9 @@ export const ACCOUNT_SCOPED_KINDS: readonly NotificationEventKind[] = [
 export const ADDRESSED_KINDS: readonly NotificationEventKind[] = [
   "approval_requested",
   "reply_sent_back",
+  // S5: addressed to the listing's watch recipients (its owners and admins,
+  // everyone who can see it, or the people chosen in its settings).
+  "listing_google_changed",
 ]
 
 /**
@@ -74,6 +79,9 @@ export const CONDITION_KINDS: readonly NotificationEventKind[] = [
   "ai_credits_exhausted",
   "approval_requested",
   "reply_sent_back",
+  // S5: cleared when someone puts ours back or keeps Google's, or Google
+  // shows ours again; never by a "Resolve" in the inbox.
+  "listing_google_changed",
 ]
 
 const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
@@ -89,6 +97,8 @@ const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
   "schedule_missed",
   "ai_credits_low",
   "ai_credits_exhausted",
+  // S5: a wrong phone number or opening hours on Google costs covers today.
+  "listing_google_changed",
 ]
 
 export const NOTIFICATION_EVENT_LABELS: Record<
@@ -171,6 +181,12 @@ export const NOTIFICATION_EVENT_LABELS: Record<
   ai_credits_exhausted: {
     label: "AI reply credits used up",
     description: "All of this month's AI reply credits have been used.",
+  },
+  // S5
+  listing_google_changed: {
+    label: "Listing changed on Google",
+    description:
+      "Google now shows a different value for a field you protect on a listing you can see, such as its hours or phone.",
   },
 }
 

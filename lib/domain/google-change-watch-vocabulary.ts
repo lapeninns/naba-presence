@@ -84,11 +84,11 @@ export type GoogleChangeResolution = (typeof GOOGLE_CHANGE_RESOLUTIONS)[number]
 
 /** What each status reads as on screen. */
 export const GOOGLE_CHANGE_STATUS_LABELS: Record<GoogleChangeStatus, string> = {
-  open: "Changed on Google",
+  open: "Needs a decision",
   reverting: "Putting ours back",
   accepted: "Kept Google’s",
   resolved: "Back to ours",
-  superseded: "Google changed it again",
+  superseded: "Replaced by a newer change",
 }
 
 export const GOOGLE_CHANGE_RESOLUTION_LABELS: Record<

@@ -159,4 +159,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0148_business_information_observation",
   "0149_approval_notification_kinds",
   "20260729000400_remove_local_demo_data",
+  // S5 (Google change watch)
+  "0340_listing_google_watch",
 ]
