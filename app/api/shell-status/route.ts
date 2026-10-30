@@ -24,8 +24,12 @@ export const GET = route({
     const notifications = await listNotifications(
       session,
       { filter: "unread", limit: 20 },
-      // The approval kinds (0149) only to a build that reads them.
-      { addressedKinds: requestHasCapability(request, "notification-kinds-2") }
+      // The approval kinds (0149), and the topic alert and Google change
+      // watch kinds after them, only to a build that reads them.
+      {
+        addressedKinds: requestHasCapability(request, "notification-kinds-2"),
+        kinds3: requestHasCapability(request, "notification-kinds-3"),
+      }
     )
     return { counts, connections, notifications }
   },

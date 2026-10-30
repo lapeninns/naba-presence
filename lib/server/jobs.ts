@@ -109,6 +109,10 @@ import {
 import { syncDuePerformance } from "@/lib/server/performance"
 import { recordJobsClaimed } from "@/lib/server/request-metrics"
 import { syncLinkedLocation } from "@/lib/server/reviews"
+import {
+  runReviewTopicClassification,
+  type ReviewTopicTickSummary,
+} from "@/lib/server/review-topics-job"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 import {
   runDueSchedules,
@@ -116,7 +120,10 @@ import {
   type ScheduleSweepSummary,
   type ScheduleTickSummary,
 } from "@/lib/server/publication-schedule-runner"
-import { runDueBulkChildren, type BulkTickSummary } from "@/lib/server/bulk-listing-runner"
+import {
+  runDueBulkChildren,
+  type BulkTickSummary,
+} from "@/lib/server/bulk-listing-runner"
 import {
   runDueInvitationDeliveries,
   type InvitationDeliveryTickSummary,
@@ -183,6 +190,8 @@ export type JobSummary = {
   invitations?: InvitationDeliveryTickSummary
   /** Stripe event receipts processed (P07-S4), when billing is on. */
   billing?: BillingTickSummary
+  /** S3: reviews classified into topics, when AI drafting is on. */
+  reviewTopics?: ReviewTopicTickSummary
 }
 
 /** What one tick shares with every item it runs. */
@@ -1289,6 +1298,23 @@ export async function runDueJobs(options: {
       requestId: options.requestId,
     }).catch((error: unknown) => {
       log.error("invitations.delivery_tick_failed", {
+        requestId: options.requestId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    })
+  }
+
+  // S3: review topics, on what is left of the tick. Held by the runner's
+  // switch and the operator's AI switch (`drafts`, DRAFTS_ENABLED); the
+  // organisation's AI access and token backstop are checked per batch
+  // (lib/server/review-topics-job.ts).
+  if (scopesEnabled(env, pauses, ["jobs", "drafts"])) {
+    summary.reviewTopics = await runReviewTopicClassification({
+      budgetMs: remaining(),
+      requestId: options.requestId,
+    }).catch((error: unknown) => {
+      log.error("review_topics.tick_failed", {
         requestId: options.requestId,
         error: error instanceof Error ? error.message : String(error),
       })

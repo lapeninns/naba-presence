@@ -97,6 +97,8 @@ import {
   useRefreshProfile,
 } from "@/lib/queries/use-location-profile"
 import { ApiClientError, isAwaitingApproval } from "@/lib/api/client"
+import { contentWarningFromError } from "@/lib/api/content-warnings"
+import { ContentWarnings } from "@/components/content/content-warnings"
 import {
   publishBusinessAttributes,
   publishBusinessInformation,
@@ -468,7 +470,58 @@ function ProfileEditor({
     discard: discardValues,
     expectSave: expectValuesSave,
   } = valuesDraft
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
+  // Content warnings the server asked to be acknowledged, for the values
+  // they were raised on and the action that raised them: "Save here" on the
+  // page, or Publish in the review sheet, which stays open with them.
+  const [contentWarning, setContentWarning] = useState<{
+    token: string
+    messages: string[]
+    values: string
+    action: "save" | "publish"
+  } | null>(null)
+  const [contentWarningsAccepted, setContentWarningsAccepted] = useState(false)
+  const contentWarningAcknowledgement =
+    contentWarningsAccepted && contentWarning?.values === JSON.stringify(values)
+      ? contentWarning.token
+      : undefined
+  // The page's warnings block: a refused "Save here" moves focus to it.
+  const contentWarningsRef = useRef<HTMLDivElement>(null)
+  const [focusWarnings, setFocusWarnings] = useState(0)
+  useEffect(() => {
+    if (focusWarnings > 0) contentWarningsRef.current?.focus()
+  }, [focusWarnings])
+  const captureContentWarning = useCallback(
+    (error: unknown, action: "save" | "publish") => {
+      if (
+        error instanceof ApiClientError &&
+        error.code === "content_checks_failed"
+      ) {
+        const details = error.details as
+          { reasons?: { message: string }[] } | undefined
+        if (details?.reasons?.length)
+          setErrors((previous) => ({
+            ...previous,
+            description: details
+              .reasons!.map((reason) => reason.message)
+              .join(" "),
+          }))
+      }
+      const warning = contentWarningFromError(error)
+      if (!warning) return false
+      setContentWarning({
+        token: warning.token,
+        messages: warning.messages,
+        values: JSON.stringify(values),
+        action,
+      })
+      setContentWarningsAccepted(false)
+      if (action === "save") setFocusWarnings((count) => count + 1)
+      return true
+    },
+    [values]
+  )
 
   const initialListing = useMemo(
     () => draftFromLocation(business?.location),
@@ -643,7 +696,6 @@ function ProfileEditor({
     attributes,
   ])
 
-  const [reviewOpen, setReviewOpen] = useState(false)
   const [listingReview, setListingReview] = useState<GbpChangeSet | null>(null)
   const [attributeReview, setAttributeReview] = useState<GbpChangeSet | null>(
     null
@@ -696,11 +748,13 @@ function ProfileEditor({
           let response: Awaited<ReturnType<typeof saveProfile>>
           try {
             response = await saveProfile(locationId, {
+              contentWarningAcknowledgement,
               expectedCanonicalRevision: revision,
               values: toProfileValues(parsed),
             })
             expectValuesSave()
           } catch (cause) {
+            captureContentWarning(cause, "publish")
             // A server validation error belongs on the field it names, not
             // only in the step's failure line.
             const fields = serverFieldErrors(cause)
@@ -729,6 +783,7 @@ function ProfileEditor({
         // Nothing drifted: the NabaPresence copy already matches Google.
         if (fields.length === 0) return NOTHING_TO_SEND
         const body = {
+          contentWarningAcknowledgement,
           direction: "to_google",
           confirmation: "publish_nabapresence_profile_to_google",
           selectedFields: fields,
@@ -739,6 +794,9 @@ function ProfileEditor({
         } as const
         return runProfileOperation(locationId, body, {
           intentId: intent.idFor(body),
+        }).catch((cause) => {
+          captureContentWarning(cause, "publish")
+          throw cause
         })
       },
     })
@@ -826,6 +884,8 @@ function ProfileEditor({
     expectValuesSave,
     expectListingSave,
     expectAttributesSave,
+    contentWarningAcknowledgement,
+    captureContentWarning,
   ])
 
   const flow = usePublishFlow({
@@ -880,6 +940,7 @@ function ProfileEditor({
   const save = useResourceMutation({
     mutationFn: () => {
       return saveProfile(locationId, {
+        contentWarningAcknowledgement,
         expectedCanonicalRevision: revision,
         values: toProfileValues(profileFormSchema.parse(values)),
       })
@@ -899,7 +960,10 @@ function ProfileEditor({
           ? "Other profile edits still need review and publication."
           : "Not on Google until you publish.",
     },
+    // Shown on the page with the acknowledgement, not as a failure.
+    quietError: (cause) => contentWarningFromError(cause) !== null,
     onError: (cause) => {
+      captureContentWarning(cause, "save")
       const fields = serverFieldErrors(cause)
       if (Object.keys(fields).length > 0) setErrors(fields)
     },
@@ -1695,6 +1759,19 @@ function ProfileEditor({
             />
           </div>
 
+          {/* While the review sheet is open, it shows the warnings beside
+              its Publish button instead. */}
+          {contentWarning &&
+          !reviewOpen &&
+          contentWarning.values === JSON.stringify(values) ? (
+            <ContentWarnings
+              ref={contentWarningsRef}
+              messages={contentWarning.messages}
+              checked={contentWarningsAccepted}
+              onCheckedChange={setContentWarningsAccepted}
+              action={contentWarning.action}
+            />
+          ) : null}
           {blocks.map((block) =>
             block.show ? (
               <Fragment key={block.id}>{block.render()}</Fragment>
@@ -1732,6 +1809,16 @@ function ProfileEditor({
         publishing={flow.isPublishing}
         results={flow.results}
         error={flow.error}
+        notice={
+          contentWarning && contentWarning.values === JSON.stringify(values) ? (
+            <ContentWarnings
+              messages={contentWarning.messages}
+              checked={contentWarningsAccepted}
+              onCheckedChange={setContentWarningsAccepted}
+              action="publish"
+            />
+          ) : null
+        }
         // Two-person gating is unchanged: any prepared request this person
         // can't approve keeps the whole publish off.
         publishDisabledReason={

@@ -75,9 +75,7 @@ describe("notification email links", () => {
       reviewId,
     }
     const request = renderIncidentEmail("approval_requested", summary, APP)
-    expect(request.subject).toBe(
-      "Approval requested: The White Horse"
-    )
+    expect(request.subject).toBe("Approval requested: The White Horse")
     expect(linkLine(request.text, "Open")).toBe(
       `${APP}/inbox?queue=approval&selected=${reviewId}`
     )
@@ -88,8 +86,9 @@ describe("notification email links", () => {
       `${APP}/inbox?selected=${reviewId}`
     )
     // No review text, reviewer or person's name: the summary holds none.
-    expect(renderDigestEmail([{ kind: "reply_sent_back", summary }], APP).text)
-      .toContain("- Reply sent back: The White Horse")
+    expect(
+      renderDigestEmail([{ kind: "reply_sent_back", summary }], APP).text
+    ).toContain("- Reply sent back: The White Horse")
   })
 
   it("links only the approval kinds to a review, and only by a well-formed id", () => {
@@ -118,5 +117,52 @@ describe("notification email links", () => {
         "Open"
       )
     ).toBe(`${APP}/listings/11111111-1111-4111-8111-111111111111`)
+  })
+
+  it("sends a listing changed on Google to its Suggested updates tab (S5)", () => {
+    const locationId = "11111111-1111-4111-8111-111111111111"
+    const summary = {
+      title: "The White Horse",
+      locationId,
+      changeId: "44444444-4444-4444-8444-444444444444",
+      field: "phone",
+      fieldLabel: "Phone number",
+    }
+    expect(reviewNotificationPath("listing_google_changed", summary)).toBe(
+      `/listings/${locationId}/suggestions`
+    )
+    const { subject, text } = renderIncidentEmail(
+      "listing_google_changed",
+      summary,
+      APP
+    )
+    expect(subject).toBe("Listing changed on Google: The White Horse")
+    expect(text).toContain(
+      "Phone number for The White Horse was changed on Google and no longer matches yours. Guests see Google's version now. Nothing is sent to Google until an owner or admin chooses Put ours back or Keep Google's."
+    )
+    expect(linkLine(text, "Open")).toBe(
+      `${APP}/listings/${locationId}/suggestions`
+    )
+    expect(
+      renderDigestEmail([{ kind: "listing_google_changed", summary }], APP).text
+    ).toContain("- Listing changed on Google: The White Horse")
+  })
+
+  it("names a protected field generically, and links no further than the listings, without a well-formed listing id", () => {
+    expect(
+      reviewNotificationPath("listing_google_changed", {
+        locationId: "../settings",
+      })
+    ).toBe(null)
+    expect(reviewNotificationPath("listing_google_changed", {})).toBe(null)
+    const { text } = renderIncidentEmail(
+      "listing_google_changed",
+      { title: "The White Horse" },
+      APP
+    )
+    expect(text).toContain(
+      "A protected field for The White Horse was changed on Google"
+    )
+    expect(linkLine(text, "Open")).toBe(`${APP}/listings`)
   })
 })

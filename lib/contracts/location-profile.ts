@@ -34,6 +34,10 @@ const hashSchema = z.string().length(64)
 // ---------------------------------------------------------------------------
 
 export const saveProfileBodySchema = z.object({
+  contentWarningAcknowledgement: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   expectedCanonicalRevision: revisionSchema,
   values: z.object({
     name: z.string().max(255).nullable().optional(),
@@ -44,8 +48,13 @@ export const saveProfileBodySchema = z.object({
 })
 export type SaveProfileInput = z.input<typeof saveProfileBodySchema>
 
-export const profileOperationDirectionSchema = z.enum(["to_google", "from_google"])
-export type ProfileOperationDirection = z.infer<typeof profileOperationDirectionSchema>
+export const profileOperationDirectionSchema = z.enum([
+  "to_google",
+  "from_google",
+])
+export type ProfileOperationDirection = z.infer<
+  typeof profileOperationDirectionSchema
+>
 
 /** The confirmation phrase each direction requires. */
 export const PROFILE_OPERATION_CONFIRMATIONS = {
@@ -54,6 +63,10 @@ export const PROFILE_OPERATION_CONFIRMATIONS = {
 } as const satisfies Record<ProfileOperationDirection, string>
 
 export const profileOperationBodySchema = z.object({
+  contentWarningAcknowledgement: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   direction: profileOperationDirectionSchema,
   confirmation: z.enum([
     PROFILE_OPERATION_CONFIRMATIONS.to_google,
@@ -85,22 +98,31 @@ export const profileFieldSchema = z.object({
 export type ProfileField = z.infer<typeof profileFieldSchema>
 
 export const profileStateSchema = z.object({
-  location: z.object({ id: z.string(), name: z.string(), googleLocationName: z.string() }),
+  location: z.object({
+    id: z.string(),
+    name: z.string(),
+    googleLocationName: z.string(),
+  }),
   canonicalResource: z.object({ revision: z.string(), updatedAt: z.string() }),
   canonicalHash: z.string(),
   googleHash: z.string(),
   canPublish: z.boolean(),
   googleWritesEnabled: z.boolean(),
   fields: z.array(profileFieldSchema),
-  googleDetails: z.object({ primaryCategory: z.string().nullable(), additionalCategories: z.array(z.string()) }),
-  latestAttempt: z.object({
-    id: z.string(),
-    direction: z.string(),
-    status: z.string(),
-    selectedFields: z.array(z.string()),
-    createdAt: z.string(),
-    finishedAt: z.string().nullable(),
-  }).nullable(),
+  googleDetails: z.object({
+    primaryCategory: z.string().nullable(),
+    additionalCategories: z.array(z.string()),
+  }),
+  latestAttempt: z
+    .object({
+      id: z.string(),
+      direction: z.string(),
+      status: z.string(),
+      selectedFields: z.array(z.string()),
+      createdAt: z.string(),
+      finishedAt: z.string().nullable(),
+    })
+    .nullable(),
   /**
    * When Google was last read for this state, and whether this response read
    * it ("live") or was served from that read within the editor's staleness
@@ -133,4 +155,6 @@ export const profileOperationResponseSchema = z.object({
   idempotent: z.boolean().optional(),
   ...operationSummaryField,
 })
-export type ProfileOperationResponse = z.infer<typeof profileOperationResponseSchema>
+export type ProfileOperationResponse = z.infer<
+  typeof profileOperationResponseSchema
+>

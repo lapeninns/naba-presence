@@ -109,6 +109,7 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "mutation_approval_decision",
     "notification_digest",
     "post_approval_decision",
+    "review_link_click",
   ],
   // Kept for audit or recovery: no delete.
   "INSERT,SELECT,UPDATE": [
@@ -117,6 +118,8 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "bulk_listing_write_attempt",
     "cron_cursor",
     "fleet_lease",
+    "listing_google_change",
+    "listing_google_watch",
     "media_asset",
     "media_asset_publication",
     "mutation_operation",
@@ -127,6 +130,7 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "post_publication_occurrence",
     "post_publication_schedule",
     "report_share",
+    "review_link",
     "risc_event",
   ],
   // Updated column by column only (see RUNTIME_COLUMN_GRANTS).
@@ -137,6 +141,8 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "google_onboarding_match_link",
     "google_onboarding_match_link_review",
     "google_onboarding_review",
+    "listing_completeness_skip",
+    "listing_google_watch_recipient",
     "notification_incident_recipient",
   ],
   "DELETE,INSERT,SELECT,UPDATE": [
@@ -194,6 +200,9 @@ const RUNTIME_TABLE_GRANTS: Record<string, string[]> = {
     "review",
     "review_media_item",
     "review_reply",
+    // S3: review topics (0153).
+    "review_topic",
+    "review_topic_classification",
     "sync_checkpoint",
     "verification_result",
     "webhook_route",

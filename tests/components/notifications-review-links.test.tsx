@@ -280,4 +280,33 @@ describe("notification review links", () => {
       expect(screen.queryByText("ops@venue.co.uk")).not.toBeInTheDocument()
     })
   })
+
+  it("opens a listing changed on Google on its Suggested updates tab (S5)", async () => {
+    renderNotification(
+      notification({
+        kind: "listing_google_changed",
+        subjectType: "google_change",
+        subjectId: `google_change:${LOCATION}`,
+        summary: {
+          title: "Old Crown",
+          locationId: LOCATION,
+          changeId: "55555555-5555-4555-8555-555555555555",
+          field: "phone",
+          fieldLabel: "Phone",
+        },
+        canResolve: false,
+      })
+    )
+    const link = await screen.findByRole("link", {
+      name: "Open suggested updates for Listing changed on Google",
+    })
+    expect(link).toHaveTextContent("Open suggested updates")
+    expect(link).toHaveAttribute("href", `/listings/${LOCATION}/suggestions`)
+    expect(
+      link.closest("li")?.querySelector("svg.lucide-arrow-left-right")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /Open (review|listing) for/ })
+    ).not.toBeInTheDocument()
+  })
 })

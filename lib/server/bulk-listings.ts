@@ -24,6 +24,8 @@ import {
   planTarget,
   type TargetPlan,
 } from "@/lib/server/bulk-listing-targets"
+import { assertBulkBusinessInfoContent } from "@/lib/server/bulk-families/business-info"
+import { assertBulkPostContent } from "@/lib/server/bulk-families/posts"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import {
   resolveGbpLocationContext,
@@ -175,6 +177,11 @@ export async function previewBulkOperation(
         BULK_TARGETS_UNAVAILABLE.message
       )
     }
+    // Post drafts' and descriptions' content is checked before any Google
+    // read: a fail, or a warning not yet acknowledged, refuses the preview
+    // as a whole.
+    await assertBulkPostContent(sql, items)
+    await assertBulkBusinessInfoContent(sql, items)
     const resolved = await Promise.all(
       ids.map(async (locationId) => {
         if (!grants.get(locationId)?.canPublish)

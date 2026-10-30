@@ -6,11 +6,13 @@ import {
   emptyListingSummary,
   type LastPublish,
   type ListingSummary,
+  type ReviewLinkSummary,
   type SyncStatus,
   type SyncedArea,
 } from "@/lib/contracts/location-summary"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { hashFoodMenus } from "@/lib/domain/food-menus"
+import { newestReviewTarget } from "@/lib/domain/review-link"
 import {
   hashHours,
   hoursPartHashes,
@@ -27,6 +29,7 @@ import {
 } from "@/lib/domain/profile"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import type { HoursObservation } from "@/lib/server/hours-observations"
+import { reviewTargetObservationColumns } from "@/lib/server/review-link-target"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -294,6 +297,59 @@ function toLastPublish(row: AttemptRow | undefined): LastPublish | null {
   return { at: new Date(row.at).toISOString(), status, area: row.area }
 }
 
+export type ReviewLinkRow = {
+  locationId: string
+  hasLink: boolean
+  switchedOff: boolean
+  targetUri: string | null
+  /** `metadata.newReviewUri` of the stored profile read, as stored. */
+  profileTarget: string | null
+  /** The profile payload's own `observedAt`, as stored. */
+  profilePayloadObservedAt: string | null
+  /** The profile row's `observed_at`. */
+  profileObservedAt: Date | null
+  /** The same three from the stored Business Information read. */
+  infoTarget: string | null
+  infoPayloadObservedAt: string | null
+  infoObservedAt: Date | null
+}
+
+/**
+ * The review link's status, by the review link area's own rules
+ * (lib/server/review-links.ts `readReviewLinkState`): Google's review form
+ * is the newest stored read's that carries a Google review address
+ * (`newestReviewTarget`, profile first on a tie); the link's target has
+ * changed when both exist and differ.
+ */
+export function reviewLinkSummary(
+  row: ReviewLinkRow | undefined
+): ReviewLinkSummary {
+  const googleTarget = row
+    ? newestReviewTarget([
+        {
+          target: row.profileTarget,
+          payloadObservedAt: row.profilePayloadObservedAt,
+          observedAt: row.profileObservedAt,
+        },
+        {
+          target: row.infoTarget,
+          payloadObservedAt: row.infoPayloadObservedAt,
+          observedAt: row.infoObservedAt,
+        },
+      ])
+    : null
+  if (!row?.hasLink) {
+    return {
+      status: googleTarget ? "not_set_up" : "no_review_form",
+      targetChanged: false,
+    }
+  }
+  return {
+    status: row.switchedOff ? "off" : "live",
+    targetChanged: Boolean(googleTarget && row.targetUri !== googleTarget),
+  }
+}
+
 /** Reconcile runs every 15 minutes; an hour is three missed runs. */
 const FRESHNESS_WINDOW_MS = 60 * 60 * 1000
 
@@ -408,7 +464,9 @@ export async function readListingSummaries(
     photos,
     posts,
     suggestions,
+    googleChanges,
     attempts,
+    reviewLinks,
   ] = await Promise.all([
     sql<CanonicalRow[]>`
         select
@@ -491,11 +549,29 @@ export async function readListingSummaries(
         where location_id = any(${idList}::uuid[]) and status <> 'deleted'
         group by location_id, status
       `,
+    // A suggestion for a field the Google change watch has open (or is
+    // putting back) is decided in the watch's panel, so it is counted there,
+    // once, and not again here (suggestions-page.tsx hides it the same way).
     sql<SuggestionRow[]>`
-        select location_id::text as "locationId", resource_type as "resourceType", count(*)::int as count
-        from presence_import_proposal
-        where location_id = any(${idList}::uuid[]) and status = 'pending'
-        group by location_id, resource_type
+        select p.location_id::text as "locationId", p.resource_type as "resourceType", count(*)::int as count
+        from presence_import_proposal p
+        where p.location_id = any(${idList}::uuid[]) and p.status = 'pending'
+          and not (
+            p.resource_type = 'profile' and p.field_key is not null and exists (
+              select 1 from listing_google_change c
+              where c.location_id = p.location_id and c.field = p.field_key
+                and c.status in ('open', 'reverting')
+            )
+          )
+        group by p.location_id, p.resource_type
+      `,
+    // Protected fields Google changed that nobody has decided on: the same
+    // count as the overview's "changed on Google" badge.
+    sql<CountRow[]>`
+        select location_id::text as "locationId", count(*)::int as count
+        from listing_google_change
+        where location_id = any(${idList}::uuid[]) and status = 'open'
+        group by location_id
       `,
     // The newest attempt per listing across every area that publishes.
     sql<AttemptRow[]>`
@@ -523,6 +599,24 @@ export async function readListingSummaries(
         where location_id = any(${idList}::uuid[])
         order by location_id, at desc
       `,
+    // The review link and Google's review form from the stored reads (the
+    // review link area's rules); one row per listing.
+    sql<ReviewLinkRow[]>`
+        select
+          l.id::text as "locationId",
+          (rl.id is not null) as "hasLink",
+          (rl.disabled_at is not null) as "switchedOff",
+          rl.target_uri as "targetUri",
+          ${reviewTargetObservationColumns(sql, "p", "profile")},
+          ${reviewTargetObservationColumns(sql, "b", "info")}
+        from location l
+        left join review_link rl on rl.location_id = l.id
+        left join presence_resource_reconcile_state p
+          on p.location_id = l.id and p.resource = 'profile'
+        left join presence_resource_reconcile_state b
+          on b.location_id = l.id and b.resource = 'businessInformation'
+        where l.id = any(${idList}::uuid[])
+      `,
   ])
 
   const canonicalBy = new Map<string, CanonicalRow>()
@@ -543,7 +637,11 @@ export async function readListingSummaries(
   const menuBy = new Map(menuStates.map((row) => [row.locationId, row]))
   const bookingBy = new Map(booking.map((row) => [row.locationId, row.count]))
   const photosBy = new Map(photos.map((row) => [row.locationId, row.count]))
+  const googleChangesBy = new Map(
+    googleChanges.map((row) => [row.locationId, row.count])
+  )
   const attemptBy = new Map(attempts.map((row) => [row.locationId, row]))
+  const reviewLinkBy = new Map(reviewLinks.map((row) => [row.locationId, row]))
   const postsBy = new Map<string, Record<string, number>>()
   for (const row of posts) {
     const counts = postsBy.get(row.locationId) ?? {}
@@ -593,7 +691,11 @@ export async function readListingSummaries(
     return {
       ...base,
       freshness: link.linked ? listingFreshness(link) : undefined,
-      lifecycleEnded: link.lifecycleEnded === "delete_location" || link.lifecycleEnded === "transfer_location" ? link.lifecycleEnded : null,
+      lifecycleEnded:
+        link.lifecycleEnded === "delete_location" ||
+        link.lifecycleEnded === "transfer_location"
+          ? link.lifecycleEnded
+          : null,
       connection: link.connectionStatus
         ? {
             status: link.connectionStatus,
@@ -624,6 +726,7 @@ export async function readListingSummaries(
       suggestions: {
         profile: suggestionCounts.profile ?? 0,
         foodMenus: suggestionCounts.food_menus ?? 0,
+        googleChanges: googleChangesBy.get(link.locationId) ?? 0,
       },
       lastPublish: toLastPublish(attemptBy.get(link.locationId)),
       mapsUrl: googleMapsUrl(
@@ -631,6 +734,7 @@ export async function readListingSummaries(
           (row) => row.fieldKey === "mapsUrl"
         )?.mapsUrl
       ),
+      reviewLink: reviewLinkSummary(reviewLinkBy.get(link.locationId)),
     }
   })
 }

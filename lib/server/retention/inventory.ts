@@ -341,6 +341,36 @@ export const RETENTION_INVENTORY = [
     hold: "kept",
     approval: { status: "published" },
   },
+  // S3: review topics. The labels hold no review text and outlive it, like
+  // the star rating. Kept for the life of the review and deleted with it,
+  // privacy erasure included (coordinator decision 2026-10-30; grandfathered
+  // below while D-28 stays open). The feature ships off (org feature
+  // review_topics) until the privacy notice covers classification.
+  {
+    table: "review_topic",
+    provenance: "derived",
+    action: "keep",
+    window: "for the life of its review; deleted with it",
+    cascadeFrom: ["review"],
+    deletes: "gated",
+    hold: "kept",
+    approval: {
+      status: "pending",
+      decision: "D-28",
+      interim:
+        "keep each review's topic labels for the life of the review and delete them with it, erasure included (coordinator decision 2026-10-30)",
+    },
+  },
+  {
+    table: "review_topic_classification",
+    provenance: "operational",
+    action: "keep",
+    window: "for the life of its review; deleted with it",
+    cascadeFrom: ["review"],
+    deletes: "gated",
+    hold: "kept",
+    approval: { status: "lifecycle" },
+  },
 
   // ---- Customer content ---------------------------------------------------
   {
@@ -658,6 +688,27 @@ export const RETENTION_INVENTORY = [
       interim:
         "keep expired and revoked share rows (token hash only) for the life of the client",
     },
+  },
+  // S2 (review links, migration 0152).
+  {
+    table: "review_link",
+    provenance: "customer",
+    action: "keep",
+    window:
+      "for the life of the location (a printed code keeps working through a Google disconnect); switching it off keeps the row",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "review_link_click",
+    provenance: "customer",
+    action: "keep",
+    window:
+      "kept with its review link (a time and a source per open; no IP address or user agent)",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
   },
   {
     table: "notification_preference",
@@ -1128,6 +1179,47 @@ export const RETENTION_INVENTORY = [
     hold: "none",
     approval: { status: "internal" },
   },
+  // ---- S1: listing completeness ------------------------------------------
+  {
+    table: "listing_completeness_skip",
+    provenance: "customer",
+    action: "keep",
+    window: "until an owner or admin removes the skip, or with its listing",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  // S5 (Google change watch, 0155): listing settings and the detected
+  // listing-field changes. Listing data, never personal data; they go with
+  // the listing (location cascade).
+  {
+    table: "listing_google_watch",
+    provenance: "operational",
+    action: "keep",
+    window: "while its listing exists",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "listing_google_watch_recipient",
+    provenance: "operational",
+    action: "keep",
+    window:
+      "with its listing's watch, or until the person's account is deleted",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "listing_google_change",
+    provenance: "operational",
+    action: "keep",
+    window: "while its listing exists",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
 ] as const satisfies readonly RetentionDataset[]
 
 /** A table the inventory classifies. */
@@ -1144,7 +1236,8 @@ export function retentionDataset(table: string): RetentionDataset | undefined {
 
 /**
  * Derived datasets that existed, unapproved, when the inventory was
- * introduced. A derived dataset outside this list needs a `published`
+ * introduced, plus those a recorded decision admitted since. A derived
+ * dataset outside this list needs a `published`
  * window before it lands: no new persistent aggregate is added while D-28 is
  * open (plan P04).
  */
@@ -1152,6 +1245,10 @@ export const GRANDFATHERED_PENDING_DERIVED: readonly string[] = [
   "performance_metric_daily",
   "performance_search_keyword_monthly",
   "food_menu_item_identity",
+  // S3: coordinator decision 2026-10-30 (DECISIONS.md, option (a)): kept for
+  // the life of the review, deleted with it (privacy erasure included); no
+  // review text stored. D-28 stays open for the datasets above.
+  "review_topic",
 ]
 
 const HOLD_LABEL: Record<RetentionHold, string> = {

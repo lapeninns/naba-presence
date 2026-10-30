@@ -16,6 +16,11 @@ import { restoreListingAccess } from "@/lib/server/google/connection-failures"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { alertOnLoweredRating } from "@/lib/server/review-rating-alerts"
+import {
+  clearReviewTopics,
+  markReviewTopicsStale,
+} from "@/lib/server/review-topics"
 
 const RATINGS: Record<string, number> = {
   ONE: 1,
@@ -315,20 +320,27 @@ export async function upsertGoogleReview(
   // transaction follows too (lockReview, lib/server/publishing/settle.ts).
   let mediaUnchanged = false
   let replyUnchanged = false
+  let previousRating: number | null = null
   if (stored) {
     const [locked] = await sql<
-      { mediaUnchanged: boolean; replyUnchanged: boolean }[]
+      {
+        mediaUnchanged: boolean
+        replyUnchanged: boolean
+        previousRating: number | null
+      }[]
     >`
       select
         (raw_payload -> 'reviewMediaItems') is not distinct from
           (${rawPayload}::jsonb -> 'reviewMediaItems') as "mediaUnchanged",
-        content_hash = ${contentHash} as "replyUnchanged"
+        content_hash = ${contentHash} as "replyUnchanged",
+        star_rating as "previousRating"
       from review
       where id = ${stored.id}
       for update
     `
     mediaUnchanged = locked?.mediaUnchanged ?? false
     replyUnchanged = locked?.replyUnchanged ?? false
+    previousRating = locked?.previousRating ?? null
   }
   const fetchedAfter = options.fetchedAfter ?? null
   const held = sql`exists (
@@ -443,6 +455,28 @@ export async function upsertGoogleReview(
   `
   // A concurrent sync applied this payload first.
   if (!review) return stored?.id ?? null
+
+  // S3: a stored review edited down to 3 stars or fewer is announced now;
+  // the health tick's scan only sees reviews new in the last 48 hours.
+  if (stored) {
+    await alertOnLoweredRating(sql, {
+      organisationId,
+      reviewId: review.id,
+      previousRating,
+      rating: ratingValue(payload.starRating),
+      updateTime,
+    })
+    // A reviewer who removes their words on Google leaves no topics behind,
+    // whether or not retention had already redacted our copy of the text
+    // (retention alone keeps them: that review's words were real).
+    if (!text && !review.erasedAt) {
+      await clearReviewTopics(sql, review.id)
+    } else if (text && !review.erasedAt) {
+      // An edited text: its old topics stop counting until it is classified
+      // again. A no-op when the text is the one already classified.
+      await markReviewTopicsStale(sql, review.id)
+    }
+  }
 
   // Skipped wholesale rather than guarded column by column: the delete plus
   // re-insert below would re-create every photo the erasure removed.

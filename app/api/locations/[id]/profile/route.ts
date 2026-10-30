@@ -51,6 +51,7 @@ export const PUT = route({
       locationId: params.id,
       expectedCanonicalRevision: body.expectedCanonicalRevision,
       values: body.values,
+      contentWarningAcknowledgement: body.contentWarningAcknowledgement,
       requestId,
     })
     // A publish waiting for approval was for the profile before this save.

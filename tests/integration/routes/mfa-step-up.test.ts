@@ -213,6 +213,11 @@ describeDatabase("MFA step-up (P02-S9)", () => {
     ["POST", () => `/api/locations/${id()}/posts/${id()}/publish`],
     ["POST", () => `/api/locations/${id()}/posts/${id()}/approval`],
     ["POST", () => `/api/locations/${id()}/change-requests/${id()}`],
+    [
+      "POST",
+      () => `/api/locations/${id()}/google-changes/${id()}`,
+      { action: "put_ours_back", expectedGoogleHash: "x" },
+    ],
     ["POST", () => `/api/locations/${id()}/post-schedules/${id()}/approve`],
     ["POST", () => `/api/listings/bulk/${id()}/approve`],
     ["POST", () => `/api/listings/bulk/${id()}/execute`],

@@ -2150,3 +2150,124 @@ describe("ProfileTab saved work", () => {
     ).toBeInTheDocument()
   })
 })
+
+describe("ProfileTab content warnings", () => {
+  const token = "c".repeat(64)
+  /** The routes, with the first description save refused for warnings. */
+  function stubWarnings() {
+    const fetchMock = stubRoutes()
+    const original = fetchMock.getMockImplementation()
+    if (!original) throw new Error("Profile fixture missing")
+    let refused = false
+    fetchMock.mockImplementation(async (...args) => {
+      const init = args[1]
+      if (String(args[0]).includes("/profile") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body))
+        if (!refused && !body.contentWarningAcknowledgement) {
+          refused = true
+          return jsonResponse(
+            {
+              error: "content_warning_acknowledgement_required",
+              message:
+                "Read and acknowledge the content warnings before continuing.",
+              details: {
+                contentWarningAcknowledgement: token,
+                reasons: [
+                  {
+                    code: "content_caps",
+                    severity: "warn",
+                    message: "The description is written in all capitals.",
+                  },
+                ],
+              },
+            },
+            409
+          )
+        }
+        return jsonResponse({ saved: true, revision: "4" })
+      }
+      return original(...args)
+    })
+    return fetchMock
+  }
+  const puts = (fetchMock: ReturnType<typeof stubRoutes>) =>
+    fetchMock.mock.calls
+      .filter(
+        ([url, init]) =>
+          (init as RequestInit)?.method === "PUT" &&
+          String(url).includes("/profile")
+      )
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)))
+
+  it("shows Save here warnings on the page, focused, without an error toast", async () => {
+    const fetchMock = stubWarnings()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const description = await screen.findByRole("textbox", {
+      name: "Description",
+    })
+    await waitFor(() => expect(description).toBeEnabled())
+    fireEvent.change(description, {
+      target: { value: "THE BEST PUB IN TOWN" },
+    })
+    await userEvent.click(screen.getByRole("button", { name: "Save here" }))
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "I have reviewed these content warnings.",
+    })
+    expect(checkbox).toHaveAccessibleDescription("Tick this, then save again.")
+    const block = document.querySelector<HTMLElement>(
+      '[data-slot="content-warnings"]'
+    )
+    await waitFor(() => expect(block).toHaveFocus())
+    expect(within(block!).getByRole("listitem")).toHaveTextContent(
+      "The description is written in all capitals."
+    )
+    expect(
+      within(screen.getByRole("region", { name: "Notifications" })).queryByText(
+        /acknowledge/i
+      )
+    ).toBeNull()
+    await userEvent.click(checkbox)
+    await userEvent.click(screen.getByRole("button", { name: "Save here" }))
+    await waitFor(() => expect(puts(fetchMock)).toHaveLength(2))
+    expect(puts(fetchMock)[1].contentWarningAcknowledgement).toBe(token)
+  })
+
+  it("keeps the review sheet open with the warnings, then publishes with the consent", async () => {
+    const fetchMock = stubWarnings()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const description = await screen.findByRole("textbox", {
+      name: "Description",
+    })
+    await waitFor(() => expect(description).toBeEnabled())
+    fireEvent.change(description, {
+      target: { value: "THE BEST PUB IN TOWN" },
+    })
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review changes" })
+    )
+    const review = await screen.findByRole("dialog")
+    await userEvent.click(
+      await within(review).findByRole("button", { name: "Publish to Google" })
+    )
+    const checkbox = await within(review).findByRole("checkbox", {
+      name: "I have reviewed these content warnings.",
+    })
+    expect(checkbox).toHaveAccessibleDescription(
+      "Tick this, then publish again."
+    )
+    expect(screen.getByRole("dialog")).toBe(review)
+    expect(
+      within(screen.getByRole("region", { name: "Notifications" })).queryByText(
+        "Publishing stopped. See the steps."
+      )
+    ).toBeNull()
+    await userEvent.click(checkbox)
+    await userEvent.click(
+      within(review).getByRole("button", {
+        name: /Publish to Google|Try again/,
+      })
+    )
+    await waitFor(() => expect(puts(fetchMock)).toHaveLength(2))
+    expect(puts(fetchMock)[1].contentWarningAcknowledgement).toBe(token)
+  })
+})

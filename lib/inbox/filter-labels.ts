@@ -1,6 +1,6 @@
 // Shared human labels for inbox filter values. The Filters sheet, the
 // active-filter chips and the toolbar must say the same thing for the same
-// filter: a chip that reads "Location" above a sheet group called "Venue"
+// filter: a chip that reads "Location" above a sheet group called "Listing"
 // makes an operator wonder whether they are two filters.
 
 import {
@@ -11,12 +11,13 @@ import { formatDayMonth } from "@/lib/format"
 
 /**
  * What each filter is called, wherever it is named: the sheet's group
- * heading and the first half of its chip ("Venue: Riverside").
+ * heading and the first half of its chip ("Listing: Riverside").
  */
 export const FILTER_NAMES = {
   rating: "Rating",
   written: "Written review",
-  venue: "Venue",
+  topic: "Topic",
+  venue: "Listing",
   client: "Client",
   assignee: "Assigned to",
   owner: "Waiting on",

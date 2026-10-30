@@ -16,12 +16,19 @@ export const GET = route({
   handler: async ({ session, query, request }) => {
     const page = await listNotifications(session, query, {
       addressedKinds: requestHasCapability(request, "notification-kinds-2"),
+      kinds3: requestHasCapability(request, "notification-kinds-3"),
     })
     return {
       ...page,
       incidents: page.items.map((item) => ({
-        id: item.id, kind: item.kind, subjectType: item.subjectType, subjectId: item.subjectId,
-        status: item.status, summary: item.summary, openedAt: item.openedAt, resolvedAt: item.resolvedAt,
+        id: item.id,
+        kind: item.kind,
+        subjectType: item.subjectType,
+        subjectId: item.subjectId,
+        status: item.status,
+        summary: item.summary,
+        openedAt: item.openedAt,
+        resolvedAt: item.resolvedAt,
       })),
     }
   },

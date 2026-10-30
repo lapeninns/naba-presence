@@ -35,10 +35,19 @@ export type AreaState = {
   since?: string
 }
 
-/** Pending suggested updates across both inbound resources. */
+/**
+ * Everything the suggestions tab asks someone to decide: the protected fields
+ * Google changed (the overview badge's count) and the suggested updates for
+ * everything else. The summary already leaves out a suggestion for a field
+ * the watch covers, so nothing is counted twice.
+ */
 export function suggestionCount(summary: ListingSummary | undefined): number {
   if (!summary) return 0
-  return summary.suggestions.profile + summary.suggestions.foodMenus
+  return (
+    (summary.suggestions.googleChanges ?? 0) +
+    summary.suggestions.profile +
+    summary.suggestions.foodMenus
+  )
 }
 
 /**
@@ -252,19 +261,75 @@ export function areaState(
           }
     case "suggestions": {
       const count = suggestionCount(summary)
+      const changed = summary.suggestions.googleChanges ?? 0
+      const suggested = count - changed
+      // The same two numbers the tab shows: the protected fields to decide,
+      // then the suggestions waiting below them.
+      const parts = [
+        changed > 0
+          ? plural(
+              changed,
+              "1 protected field changed",
+              "# protected fields changed"
+            )
+          : null,
+        suggested > 0
+          ? plural(suggested, "1 suggestion", "# suggestions")
+          : null,
+      ].filter((part): part is string => part !== null)
       return {
         tone: count > 0 ? "attention" : "healthy",
         label: count > 0 ? `${formatNumber(count)} waiting` : "Nothing waiting",
-        line:
-          count > 0
-            ? plural(
-                count,
-                "1 change Google made to this listing",
-                "# changes Google made to this listing"
-              )
-            : null,
+        line: parts.length > 0 ? parts.join(" · ") : null,
       }
     }
+    case "reviewLink":
+      return reviewLinkState(summary.reviewLink)
+  }
+}
+
+/**
+ * The review link's status from the summary (DB-only). An older cached
+ * summary without it keeps the plain label.
+ */
+function reviewLinkState(link: ListingSummary["reviewLink"]): AreaState {
+  if (!link)
+    return {
+      tone: "neutral",
+      label: "Link & QR code",
+      line: "For tables, receipts and till screens",
+    }
+  switch (link.status) {
+    case "live":
+      return link.targetChanged
+        ? {
+            tone: "attention",
+            label: "Check the address",
+            line: "Google changed its review form address",
+          }
+        : {
+            tone: "healthy",
+            label: "Live",
+            line: "For tables, receipts and till screens",
+          }
+    case "off":
+      return {
+        tone: "neutral",
+        label: "Switched off",
+        line: "Scans and taps show a “not working” page",
+      }
+    case "not_set_up":
+      return {
+        tone: "neutral",
+        label: "Not set up",
+        line: "Make a link and QR code for tables, receipts and till screens",
+      }
+    case "no_review_form":
+      return {
+        tone: "neutral",
+        label: "No review form yet",
+        line: "Google hasn’t given a review link yet",
+      }
   }
 }
 

@@ -11,6 +11,7 @@ import type {
 import { sha256 } from "@/lib/server/crypto"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { queuePredicate } from "@/lib/server/review-queues"
+import { reviewTopicPredicate } from "@/lib/server/review-topics"
 import type { Session } from "@/lib/server/session"
 
 /** The decoded wire query (lib/contracts/reviews.ts) plus the caller. */
@@ -35,8 +36,13 @@ export type InboxFilters = ReviewsQuery & {
  * single id (every existing deep link) or a comma list (the multi-select), so
  * both shapes collapse here and the SQL below only ever sees a list.
  */
-export function locationIdsFor(filters: Pick<ReviewsQuery, "locationId" | "locationIds">) {
-  const ids = [...(filters.locationIds ?? []), ...(filters.locationId ? [filters.locationId] : [])]
+export function locationIdsFor(
+  filters: Pick<ReviewsQuery, "locationId" | "locationIds">
+) {
+  const ids = [
+    ...(filters.locationIds ?? []),
+    ...(filters.locationId ? [filters.locationId] : []),
+  ]
   return ids.length > 0 ? [...new Set(ids)] : undefined
 }
 
@@ -131,7 +137,9 @@ export async function boundedSearchMatches(
       ${SEARCH_MATCH_LIMIT + 1}
     )
   `
-  return rows.length > SEARCH_MATCH_LIMIT ? undefined : rows.map((row) => row.id)
+  return rows.length > SEARCH_MATCH_LIMIT
+    ? undefined
+    : rows.map((row) => row.id)
 }
 
 /**
@@ -159,10 +167,7 @@ function searchPredicate(
   `
 }
 
-export function buildInboxQuery(
-  sql: TransactionSql,
-  filters: InboxFilters
-) {
+export function buildInboxQuery(sql: TransactionSql, filters: InboxFilters) {
   return sql<InboxQueryRow[]>`
     select
       r.id::text as id,
@@ -261,16 +266,16 @@ export function buildInboxQuery(
           ? sql`and r.location_id in ${sql(locationIdsFor(filters)!)}`
           : sql``
       }
-      ${
-        filters.clientId
-          ? sql`and l.client_id = ${filters.clientId}`
-          : sql``
-      }
+      ${filters.clientId ? sql`and l.client_id = ${filters.clientId}` : sql``}
       ${
         filters.queue
           ? sql`and ${queuePredicate(
               sql,
-              { userId: filters.userId, role: filters.role, canPublish: filters.canPublish },
+              {
+                userId: filters.userId,
+                role: filters.role,
+                canPublish: filters.canPublish,
+              },
               filters.queue,
               { requireTwoPersonApproval: filters.requireTwoPersonApproval }
             )}`
@@ -298,6 +303,7 @@ export function buildInboxQuery(
             ? sql`and coalesce(btrim(r.review_text), '') <> ''`
             : sql``
       }
+      ${reviewTopicPredicate(sql, filters.topic)}
       ${
         filters.statuses?.length
           ? sql`and r.workflow_status in ${sql(filters.statuses)}`
@@ -311,9 +317,7 @@ export function buildInboxQuery(
             : sql``
       }
       ${
-        filters.dateFrom
-          ? sql`and r.update_time >= ${filters.dateFrom}`
-          : sql``
+        filters.dateFrom ? sql`and r.update_time >= ${filters.dateFrom}` : sql``
       }
       ${
         // Exclusive: the inbox sends the start of the day after the one

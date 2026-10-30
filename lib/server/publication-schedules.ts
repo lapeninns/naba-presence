@@ -345,20 +345,34 @@ async function sourceSnapshot(
         status: string
         googlePostName: string | null
         revision: number
+        contentWarningAcknowledgement: string | null
       }
     >
   >`
     select topic_type as "topicType", language_code as "languageCode", summary, call_to_action as "callToAction",
-      event, offer, media, status, google_post_name as "googlePostName", content_revision::integer as revision
+      event, offer, media, status, google_post_name as "googlePostName", content_revision::integer as revision,
+      content_warning_acknowledgement as "contentWarningAcknowledgement"
     from gbp_local_post where id = ${postId} and location_id = ${locationId} and status <> 'deleted'
     ${lock ? sql`for update` : sql``}`
   if (!post) throw new ApiError(404, "post_not_found", "Post not found.")
-  const { status, googlePostName, revision, ...content } = post
-  const parsed = localPostInputSchema.safeParse(
-    Object.fromEntries(
+  const {
+    status,
+    googlePostName,
+    revision,
+    contentWarningAcknowledgement,
+    ...content
+  } = post
+  // The draft's explicit content-warning consent travels with its content
+  // into the template, and from there onto every occurrence's post
+  // (publication-schedule-runner.ts). It names the exact text, policy and
+  // warnings it was given for, so the publish of each occurrence rechecks
+  // it (assertContentChecks) and refuses it once any of those has changed.
+  const parsed = localPostInputSchema.safeParse({
+    ...Object.fromEntries(
       Object.entries(content).filter(([, value]) => value !== null)
-    )
-  )
+    ),
+    ...(contentWarningAcknowledgement ? { contentWarningAcknowledgement } : {}),
+  })
   if (!parsed.success)
     throw new ApiError(
       422,

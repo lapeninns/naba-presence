@@ -5,6 +5,7 @@ import {
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { readLiveFoodMenus } from "@/lib/server/food-menus"
+import { watchGoogleChanges } from "@/lib/server/google-change-watch"
 import { getHoursState } from "@/lib/server/hours"
 import { ApiError } from "@/lib/server/http"
 import {
@@ -13,6 +14,7 @@ import {
   reapStrandedProposals,
 } from "@/lib/server/import-review"
 import { withFleetLease } from "@/lib/server/leases"
+import { log } from "@/lib/server/logger"
 import { loadMedia } from "@/lib/server/media"
 import { loadPlaceActions } from "@/lib/server/place-actions"
 import { listLocalPosts } from "@/lib/server/posts"
@@ -269,6 +271,10 @@ async function reconcileOrganisations(
         budgetExhausted = true
         break
       }
+      // The Google change watch compares what Google shows for protected
+      // fields with what we last published; it has something new to look at
+      // only when this pass recorded a fresh hours or profile observation.
+      let observedListing = false
       for (const resource of resources) {
         const startedAt = new Date()
         try {
@@ -278,6 +284,8 @@ async function reconcileOrganisations(
             location.id,
             requestId
           )
+          if (resource === "hours" || resource === "profile")
+            observedListing = true
           await recordOutcome({
             startedAt,
             organisationId: organisation.id,
@@ -310,6 +318,25 @@ async function reconcileOrganisations(
             resource,
             status: "failed",
             errorCode,
+          })
+        }
+      }
+      // After the whole location, so it sees both observations. DB only,
+      // never a Google call. Isolated like the proposal raise: a watch
+      // failure must not fail the observation or the rest of the sweep, and
+      // this log is its only trace.
+      if (observedListing) {
+        try {
+          await watchGoogleChanges({
+            organisationId: organisation.id,
+            locationId: location.id,
+          })
+        } catch (error) {
+          log.error("presence_resources.google_watch_failed", {
+            requestId,
+            organisationId: organisation.id,
+            locationId: location.id,
+            error,
           })
         }
       }

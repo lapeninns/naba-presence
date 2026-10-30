@@ -55,6 +55,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { useOutcomeToast } from "@/components/ui/toast"
 import { ApiClientError, isMfaStepUpError } from "@/lib/api/client"
+import { contentWarningFromError } from "@/lib/api/content-warnings"
+import { ContentWarnings } from "@/components/content/content-warnings"
 import {
   createPost,
   publishPost,
@@ -302,6 +304,15 @@ function isPostChanged(error: unknown): boolean {
  * fields, and the edits stay where they are.
  */
 function saveErrorCopy(error: unknown): string {
+  if (
+    error instanceof ApiClientError &&
+    error.code === "content_checks_failed"
+  ) {
+    const details = error.details as
+      { reasons?: { message: string }[] } | undefined
+    if (details?.reasons?.length)
+      return details.reasons.map((reason) => reason.message).join(" ")
+  }
   return isPostChanged(error)
     ? "Someone else saved this post while you were editing. Your edits are still here: choose whose version to keep, then save again."
     : describeActionError(error, { context: "post" })
@@ -395,6 +406,38 @@ export function PostComposerSheet({
   const isDirty = editor.isDirty
   const [errors, setErrors] = useState<Errors>({})
   const [serverError, setServerError] = useState<string | null>(null)
+  // Content warnings the server asked to be acknowledged, for the values
+  // they were raised on and the action that raised them (its button is the
+  // one to press again). An edit makes them, and any tick, stale.
+  const [contentWarning, setContentWarning] = useState<{
+    token: string
+    messages: string[]
+    values: string
+    action: "save" | "publish"
+  } | null>(null)
+  const [contentWarningsAccepted, setContentWarningsAccepted] = useState(false)
+  const contentWarningAcknowledgement =
+    contentWarningsAccepted && contentWarning?.values === JSON.stringify(values)
+      ? contentWarning.token
+      : undefined
+  const captureContentWarning = (
+    error: unknown,
+    action: "save" | "publish"
+  ) => {
+    const warning = contentWarningFromError(error)
+    if (!warning) return false
+    setContentWarning({
+      token: warning.token,
+      messages: warning.messages,
+      values: JSON.stringify(values),
+      action,
+    })
+    setContentWarningsAccepted(false)
+    return true
+  }
+  const isContentWarning = (error: unknown) =>
+    contentWarningFromError(error) !== null
+
   const [attempt, setAttempt] = useState(0)
   const formRef = useRef<HTMLDivElement | null>(null)
   const typeLabelId = useId()
@@ -451,6 +494,7 @@ export function PostComposerSheet({
 
   const create = useResourceMutation({
     mutationFn: async (input: LocalPostFormValues): Promise<unknown> => {
+      input = { ...input, contentWarningAcknowledgement }
       if (!post) return createPost(locationId, input)
       const saved = await updatePost(locationId, post.id, input, post.updatedAt)
       // Only a save that went through is this editor's own: a refused one
@@ -465,7 +509,13 @@ export function PostComposerSheet({
       : "Draft saved. Google is not affected.",
     errorContext: "post",
     errorToast: saveErrorCopy,
+    // Shown beside the buttons with the acknowledgement, not as a failure.
+    quietError: isContentWarning,
     onError: (error, message) => {
+      if (captureContentWarning(error, "save")) {
+        setServerError(null)
+        return
+      }
       setServerError(message)
       if (isPostChanged(error)) refetchPosts()
     },
@@ -475,6 +525,7 @@ export function PostComposerSheet({
       if (!post) editor.discard()
       setErrors({})
       setServerError(null)
+      savedNewPost.current = null
       setOpen(false)
     },
   })
@@ -485,6 +536,11 @@ export function PostComposerSheet({
   // the intent; a lost answer to the save itself can leave a second draft,
   // as the plain Save draft can.)
   const savedBeforeFailure = useRef(false)
+  const savedNewPost = useRef<{
+    id: string
+    revision?: number
+    content: string
+  } | null>(null)
   const publish = useResourceMutation({
     mutationFn: async (
       input: LocalPostFormValues | null,
@@ -496,6 +552,19 @@ export function PostComposerSheet({
       // to Google is what the consent line above the button covered.
       let revision = post?.contentRevision
       if (input) {
+        const content = JSON.stringify(input)
+        if (
+          !post &&
+          savedNewPost.current &&
+          content !== savedNewPost.current.content
+        ) {
+          throw new ApiClientError(
+            409,
+            "saved_post_changed",
+            "This draft is already saved. Reopen it from the posts list to change it."
+          )
+        }
+        input = { ...input, contentWarningAcknowledgement }
         if (post) {
           const saved = await updatePost(
             locationId,
@@ -508,10 +577,14 @@ export function PostComposerSheet({
           // its answer is the outcome, and there is nothing left to publish.
           if (!("post" in saved)) return saved
           revision = saved.post.contentRevision
+        } else if (savedNewPost.current) {
+          postId = savedNewPost.current.id
+          revision = savedNewPost.current.revision
         } else {
           const created = await createPost(locationId, input)
           postId = created.post.id
           revision = created.post.contentRevision
+          savedNewPost.current = { id: postId, revision, content }
         }
       }
       if (!postId) throw new Error("There is no post to publish.")
@@ -519,6 +592,7 @@ export function PostComposerSheet({
       const result = await publishPost(locationId, postId, {
         intentId: intent.intentId,
         expectedRevision: revision,
+        contentWarningAcknowledgement,
       })
       savedBeforeFailure.current = false
       return result
@@ -544,13 +618,21 @@ export function PostComposerSheet({
         : reason
     },
     onSuccess: (result) => {
+      savedNewPost.current = null
       if (!post) editor.discard()
       setErrors({})
       setServerError(null)
+      savedNewPost.current = null
       setOpen(false)
       outcomeToast.show(publishToast(result))
     },
+    quietError: isContentWarning,
     onError: (error, message) => {
+      if (captureContentWarning(error, "publish")) {
+        setServerError(null)
+        savedBeforeFailure.current = false
+        return
+      }
       if (!savedBeforeFailure.current) {
         setServerError(message)
         if (isPostChanged(error)) refetchPosts()
@@ -561,6 +643,7 @@ export function PostComposerSheet({
       if (!post) editor.discard()
       setErrors({})
       setServerError(null)
+      savedNewPost.current = null
       setOpen(false)
       refetchPosts()
     },
@@ -648,6 +731,12 @@ export function PostComposerSheet({
   }
 
   function submit() {
+    if (savedNewPost.current) {
+      setServerError(
+        "This draft is already saved. Reopen it from the posts list to change it."
+      )
+      return
+    }
     const input = parsedInput(false)
     if (!input) return
     create.mutate(input)
@@ -671,7 +760,14 @@ export function PostComposerSheet({
   return (
     <Sheet
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {
+        if (!next) {
+          savedNewPost.current = null
+          setContentWarning(null)
+          setContentWarningsAccepted(false)
+        }
+        setOpen(next)
+      }}
       dirty={isDirty}
       onDiscard={discard}
       discardPrompt={{
@@ -1252,6 +1348,15 @@ export function PostComposerSheet({
               <p role="alert" className="text-ui text-danger-ink">
                 {serverError}
               </p>
+            ) : null}
+            {contentWarning &&
+            contentWarning.values === JSON.stringify(values) ? (
+              <ContentWarnings
+                messages={contentWarning.messages}
+                checked={contentWarningsAccepted}
+                onCheckedChange={setContentWarningsAccepted}
+                action={contentWarning.action}
+              />
             ) : null}
             {saveReason ? <p id={saveReasonId}>{saveReason}</p> : null}
             {gate ? (

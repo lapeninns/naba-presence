@@ -112,6 +112,10 @@ export type RecurrenceInfo = z.infer<typeof recurrenceInfoSchema>
 /** POST `/posts` and PATCH `/posts/[postId]` body. */
 export const localPostInputSchema = z
   .object({
+    contentWarningAcknowledgement: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     topicType: z.enum(LOCAL_POST_TOPIC_TYPES),
     languageCode: z.string().trim().min(2).max(16).default("en-GB"),
     summary: z.string().trim().max(1500).default(""),
@@ -190,6 +194,10 @@ export type LocalPostInputValues = z.input<typeof localPostInputSchema>
  * a post that has changed since is refused (409 `post_changed_since_saved`).
  */
 export const postPublishBodySchema = z.object({
+  contentWarningAcknowledgement: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   expectedRevision: z.number().int().positive().optional(),
 })
 
@@ -202,8 +210,19 @@ export const postPublishBodySchema = z.object({
  * approval always names the exact content it covers. It is optional in the
  * schema only so that a viewer or non-publisher is refused for who they are
  * (403) before what they sent is looked at.
+ *
+ * `contentWarningAcknowledgement` is the approver's own consent to the post's
+ * content warnings, needed when the author's stored consent no longer
+ * matches (the organisation's policy changed since it was given): the
+ * server answers 409 `content_warning_acknowledgement_required` with the
+ * current warnings and the token, and the approval dialog asks the approver
+ * to acknowledge them before approving again.
  */
 export const postApprovalDecisionSchema = z.object({
+  contentWarningAcknowledgement: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   decision: z.enum(["approve", "reject"]),
   expectedRevision: z.number().int().positive().optional(),
 })

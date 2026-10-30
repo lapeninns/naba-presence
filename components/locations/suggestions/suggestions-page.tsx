@@ -5,6 +5,7 @@ import { CircleAlertIcon, CircleCheckIcon, RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 
 import { LocationTab } from "@/components/locations/location-tab"
+import { GoogleChangesPanel } from "@/components/locations/suggestions/google-changes-panel"
 import {
   isBillingHold,
   SuggestionList,
@@ -21,9 +22,15 @@ import { formatNumber } from "@/lib/format"
 import { listingHref } from "@/lib/listings/areas"
 import { queryKeys } from "@/lib/queries/keys"
 import {
+  useCheckGoogleChanges,
+  useGoogleChanges,
+} from "@/lib/queries/use-google-change-watch"
+import {
   useImportReview,
   useRefreshImportReview,
 } from "@/lib/queries/use-import-review"
+import type { GoogleChangeCheckResponse } from "@/lib/contracts/google-change-watch"
+import { WATCHED_FIELD_LABELS } from "@/lib/domain/google-change-watch-vocabulary"
 import { useProfile } from "@/lib/queries/use-location-profile"
 import { cn } from "@/lib/utils"
 
@@ -42,11 +49,20 @@ export function SuggestionsTab({ locationId }: { locationId: string }) {
       useResource={useProfile}
     >
       {({ data: profile, editReason }) => (
-        <SuggestionsView
-          locationId={locationId}
-          canonicalRevision={profile.canonicalResource.revision}
-          editReason={editReason}
-        />
+        <div className="flex flex-col gap-(--np-gap-section)">
+          {/* One check for the whole tab, above everything it refreshes. */}
+          <CheckGoogleRow locationId={locationId} editReason={editReason} />
+          {/* Protected fields Google changed, then Google's suggestions. */}
+          <GoogleChangesPanel
+            locationId={locationId}
+            editReason={isBillingHold(editReason) ? editReason : null}
+          />
+          <SuggestionsView
+            locationId={locationId}
+            canonicalRevision={profile.canonicalResource.revision}
+            editReason={editReason}
+          />
+        </div>
       )}
     </LocationTab>
   )
@@ -67,6 +83,125 @@ function checkResult(outcomes: ImportReviewRefreshResponse["outcomes"]) {
   return raised === 0
     ? "Nothing new since the last check."
     : `${countNoun(raised, "new suggestion")} to review.`
+}
+
+/** What the protected-field watch found, or nothing when it found nothing. */
+function watchResult(data: GoogleChangeCheckResponse): string[] {
+  const lines: string[] = []
+  if (data.found > 0) {
+    lines.push(`${countNoun(data.found, "protected field")} changed on Google.`)
+  }
+  if (data.unchecked.length > 0) {
+    lines.push(
+      `We couldn’t read ${data.unchecked
+        .map((field) => WATCHED_FIELD_LABELS[field].toLowerCase())
+        .join(
+          ", "
+        )} from Google, so ${data.unchecked.length === 1 ? "it wasn’t" : "they weren’t"} checked. Try again in a few minutes.`
+    )
+  }
+  return lines
+}
+
+/**
+ * The tab's one "Check Google now": it runs the protected-field watch and,
+ * when suggested updates are on, the suggestions check, then says what both
+ * found in a single toast.
+ */
+function CheckGoogleRow({
+  locationId,
+  editReason,
+}: {
+  locationId: string
+  editReason: string | null
+}) {
+  const queryClient = useQueryClient()
+  const toasts = useToastManager()
+  const profileReview = useImportReview(locationId, "profile")
+  const menuReview = useImportReview(locationId, "food_menus")
+  const refresh = useRefreshImportReview(locationId)
+  const watchCheck = useCheckGoogleChanges(locationId)
+  // Unknown until the lists load: check suggestions too unless they're off.
+  const suggestionsOff =
+    profileReview.data !== undefined &&
+    menuReview.data !== undefined &&
+    !profileReview.data.importReviewEnabled &&
+    !menuReview.data.importReviewEnabled
+  const billingHold = isBillingHold(editReason)
+  // A UI hint only: the routes stay the authority on who may check.
+  const checkReason = editReason
+    ? billingHold
+      ? editReason
+      : CHECK_ROLE_REASON
+    : undefined
+
+  const check = async () => {
+    const [watch, suggestions] = await Promise.allSettled([
+      watchCheck.mutateAsync(),
+      suggestionsOff ? Promise.resolve(null) : refresh.mutateAsync("all"),
+    ])
+    if (suggestions.status === "fulfilled" && suggestions.value) {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.listingSummary(locationId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.listingSummaries,
+      })
+    }
+    if (watch.status === "rejected" && suggestions.status === "rejected") {
+      toasts.add({
+        title: describeActionError(suggestions.reason),
+        type: "error",
+      })
+      return
+    }
+    const lines =
+      watch.status === "fulfilled"
+        ? watchResult(watch.value)
+        : [
+            `Protected fields weren’t checked. ${describeActionError(watch.reason)}`,
+          ]
+    if (suggestions.status === "rejected") {
+      lines.push(
+        `Suggestions weren’t checked. ${describeActionError(suggestions.reason)}`
+      )
+    } else if (suggestions.value) {
+      lines.push(checkResult(suggestions.value.outcomes))
+    } else if (lines.length === 0) {
+      lines.push("No protected field changed.")
+    }
+    const partial =
+      watch.status === "rejected" ||
+      suggestions.status === "rejected" ||
+      (watch.status === "fulfilled" && watch.value.unchecked.length > 0)
+    toasts.add({
+      title: "Checked with Google",
+      description: lines.join(" "),
+      type: partial ? "warning" : "info",
+    })
+  }
+
+  return (
+    <div
+      data-slot="suggestions-check"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1"
+    >
+      <p className="min-w-0 grow basis-48 text-ui text-ink-muted">
+        Where Google differs from ours: protected fields first, then suggested
+        updates.
+      </p>
+      <Button
+        variant="secondary"
+        onClick={() => void check()}
+        disabledReason={checkReason}
+        pending={watchCheck.isPending || refresh.isPending}
+        pendingLabel="Checking…"
+      >
+        <RefreshCwIcon aria-hidden />
+        Check Google now
+      </Button>
+    </div>
+  )
 }
 
 /** The shape of the loaded page: the summary line, then a group of rows. */
@@ -106,30 +241,9 @@ function SuggestionsView({
   canonicalRevision: string
   editReason: string | null
 }) {
-  const queryClient = useQueryClient()
-  const toasts = useToastManager()
   const profileReview = useImportReview(locationId, "profile")
   const menuReview = useImportReview(locationId, "food_menus")
-  const refresh = useRefreshImportReview(locationId)
-
-  const refreshFromGoogle = (resourceType: "profile" | "food_menus" | "all") =>
-    refresh.mutate(resourceType, {
-      onSuccess: (data) => {
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.listingSummary(locationId),
-        })
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.listingSummaries,
-        })
-        toasts.add({
-          title: "Checked with Google",
-          description: checkResult(data.outcomes),
-          type: "info",
-        })
-      },
-      onError: (error) =>
-        toasts.add({ title: describeActionError(error), type: "error" }),
-    })
+  const watched = useGoogleChanges(locationId)
 
   if (profileReview.isPending || menuReview.isPending)
     return <SuggestionsSkeleton />
@@ -164,22 +278,35 @@ function SuggestionsView({
 
   const profile = profileReview.data!
   const menu = menuReview.data!
-  const pendingProfile = profile.importReviewEnabled
+  // A protected field Google changed is decided once, in the panel above,
+  // not again here as a suggestion (the listing summary counts it the same
+  // way, lib/server/location-summary.ts).
+  const liveAbove = (watched.data?.changes ?? []).filter(
+    (change) => change.status === "open" || change.status === "reverting"
+  )
+  const decidedAbove = new Set<string>(liveAbove.map((change) => change.field))
+  const allPendingProfile = profile.importReviewEnabled
     ? profile.proposals.filter((p) => p.status === "pending")
     : []
+  const pendingProfile = allPendingProfile.filter(
+    (p) => !p.fieldKey || !decidedAbove.has(p.fieldKey)
+  )
+  const hiddenAbove = allPendingProfile.length - pendingProfile.length
   const pendingMenu = menu.importReviewEnabled
     ? menu.proposals.filter((p) => p.status === "pending")
     : []
   const total = pendingProfile.length + pendingMenu.length
   const enabled = profile.importReviewEnabled || menu.importReviewEnabled
-  const refreshing = refresh.isPending
   const billingHold = isBillingHold(editReason)
-  // A UI hint only: the route stays the authority on who may check.
-  const checkReason = editReason
-    ? billingHold
-      ? editReason
-      : CHECK_ROLE_REASON
-    : undefined
+
+  // No count of its own: the panel above already says how many to decide.
+  const decidedAboveNote =
+    hiddenAbove > 0 ? (
+      <p className="text-caption text-ink-muted">
+        Suggestions for protected fields are decided above, under Protected
+        fields Google changed.
+      </p>
+    ) : null
 
   const gate = editReason ? (
     <Alert variant="info">
@@ -201,20 +328,6 @@ function SuggestionsView({
     </Alert>
   ) : null
 
-  const checkButton = (variant: "secondary" | "ghost") => (
-    <Button
-      variant={variant}
-      size={variant === "ghost" ? "sm" : "default"}
-      onClick={() => refreshFromGoogle("all")}
-      disabledReason={checkReason}
-      pending={refreshing}
-      pendingLabel="Checking…"
-    >
-      <RefreshCwIcon aria-hidden />
-      Check Google now
-    </Button>
-  )
-
   if (!enabled) {
     return (
       <Empty
@@ -222,7 +335,12 @@ function SuggestionsView({
         icon={<CircleCheckIcon />}
         titleAs="h2"
         title="Suggested updates aren’t checked for this listing"
-        description="NabaPresence isn’t comparing this listing with Google for suggested updates, so there is nothing to review here. The check is switched off for this whole NabaPresence installation, so whoever runs it for your team can turn it on. Until then, the profile and menu editors still show where Google differs."
+        description={`NabaPresence isn’t comparing this listing with Google for suggested updates${
+          // The panel above can still hold protected fields to decide.
+          liveAbove.length === 0
+            ? ", so there is nothing to review here"
+            : ". Protected fields Google changed are still decided above"
+        }. The check is switched off for this whole NabaPresence installation, so whoever runs it for your team can turn it on. Until then, the profile and menu editors still show where Google differs.`}
         action={
           <>
             <Link
@@ -247,6 +365,7 @@ function SuggestionsView({
     return (
       <div className="flex flex-col gap-4">
         {gate}
+        {decidedAboveNote}
         <Empty
           placement="page"
           tone="ok"
@@ -254,7 +373,6 @@ function SuggestionsView({
           titleAs="h2"
           title="No suggestions from Google"
           description="When Google or a customer changes this listing on Google, the change shows up here for you to accept or ignore."
-          action={checkButton("secondary")}
         />
       </div>
     )
@@ -263,6 +381,7 @@ function SuggestionsView({
   return (
     <div className="flex flex-col gap-6">
       {gate}
+      {decidedAboveNote}
       <div
         data-slot="suggestions-summary"
         className="flex flex-wrap items-center gap-x-3 gap-y-1"
@@ -280,7 +399,6 @@ function SuggestionsView({
             ? ` · ${formatNumber(pendingMenu.length)} food menu`
             : null}
         </p>
-        {checkButton("ghost")}
       </div>
 
       {pendingProfile.length > 0 ? (

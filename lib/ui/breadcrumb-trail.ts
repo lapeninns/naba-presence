@@ -25,6 +25,7 @@ const LISTING_AREAS: Record<string, string> = {
   verification: "Verification",
   suggestions: "Suggested updates",
   changes: "Review & publish",
+  "review-link": "Review link", // S2
 }
 
 const TOP_LEVEL: Record<string, string> = {

@@ -2,6 +2,7 @@
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowLeftRight,
   BadgeCheck,
   Bell,
   BellOffIcon,
@@ -12,6 +13,7 @@ import {
   ClipboardCheck,
   ClockAlert,
   KeyRound,
+  MessageSquareWarning,
   Layers,
   Lightbulb,
   RefreshCw,
@@ -101,6 +103,18 @@ const KIND_ICONS: Partial<Record<NotificationEventKind, LucideIcon>> = {
   verification_changed: BadgeCheck,
   suggestions_available: Lightbulb,
   resource_stale: RefreshCw,
+  review_topic_negative: MessageSquareWarning,
+  listing_google_changed: ArrowLeftRight,
+}
+
+/**
+ * A topic alert opens a filtered list of reviews, not one review. A listing
+ * changed on Google opens its Suggested updates tab.
+ */
+function reviewsLabel(kind: NotificationEventKind): string {
+  if (kind === "review_topic_negative") return "Open reviews"
+  if (kind === "listing_google_changed") return "Open suggested updates"
+  return "Open review"
 }
 
 /**
@@ -689,9 +703,9 @@ function NotificationRow({
               <Link
                 href={reviewHref}
                 className={cn(buttonVariants({ variant: "ghost" }))}
-                aria-label={`Open review for ${copy.label}`}
+                aria-label={`${reviewsLabel(item.kind)} for ${copy.label}`}
               >
-                Open review
+                {reviewsLabel(item.kind)}
               </Link>
             ) : item.locationId ? (
               <Link

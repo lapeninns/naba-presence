@@ -14,6 +14,12 @@ import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
 import type { ReviewCounts } from "@/lib/contracts/reviews"
 import type { InboxState } from "@/lib/inbox/url-state"
 
+// S3: the Filters sheet asks whether review topics are on; off here, as for
+// an organisation without the feature.
+vi.mock("@/components/reports/review-topics-enabled", () => ({
+  useReviewTopicsEnabled: () => false,
+}))
+
 const state: InboxState = {
   queue: "needs_reply",
   locationIds: [],

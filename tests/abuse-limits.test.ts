@@ -184,6 +184,19 @@ describe("takeAbuseBudget", () => {
     ).rejects.toMatchObject({ status: 429, code: "draft_rate_limited" })
   })
 
+  it("keeps the public review link's bucket: review_link_ip, 120 opens per 15 minutes", async () => {
+    const calls = database(() => [true, 0])
+    await checkAbuseBudget("review_link", { ip: "203.0.113.7" })
+    expect(calls).toEqual([
+      {
+        scope: "review_link_ip",
+        keyHash: abuseKeyHash("ip", "203.0.113.7", testEnv.NEXTAUTH_SECRET),
+        limit: 120,
+        window: 15 * 60,
+      },
+    ])
+  })
+
   it("counts nothing when switched off", async () => {
     testEnv.ABUSE_LIMITS_ENABLED = false
     const calls = database(() => [false, 1])

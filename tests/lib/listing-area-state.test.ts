@@ -140,11 +140,75 @@ describe("areaState", () => {
     expect(areaState("suggestions", summary()).label).toBe("Nothing waiting")
   })
 
+  it("counts protected fields Google changed once, beside the suggestions", () => {
+    // The summary already leaves out suggestions the watch covers.
+    const mixed = summary({
+      suggestions: { profile: 1, foodMenus: 0, googleChanges: 2 },
+    })
+    expect(suggestionCount(mixed)).toBe(3)
+    expect(areaState("suggestions", mixed)).toMatchObject({
+      tone: "attention",
+      label: "3 waiting",
+      line: "2 protected fields changed · 1 suggestion",
+    })
+    const onlyWatch = summary({
+      suggestions: { profile: 0, foodMenus: 0, googleChanges: 1 },
+    })
+    expect(areaState("suggestions", onlyWatch).line).toBe(
+      "1 protected field changed"
+    )
+  })
+
   it("reports verification from the summary only", () => {
     expect(areaState("verification", summary()).label).toBe("Verified")
     expect(areaState("verification", summary({ verified: false })).label).toBe(
       "Not verified"
     )
+  })
+})
+
+describe("areaState reviewLink", () => {
+  const withLink = (reviewLink: ListingSummary["reviewLink"]) =>
+    areaState("reviewLink", summary({ reviewLink }))
+
+  it("says whether the link is live, from the summary", () => {
+    expect(withLink({ status: "live", targetChanged: false })).toEqual({
+      tone: "healthy",
+      label: "Live",
+      line: "For tables, receipts and till screens",
+    })
+    expect(withLink({ status: "off", targetChanged: false })).toMatchObject({
+      tone: "neutral",
+      label: "Switched off",
+    })
+  })
+
+  it("asks for attention when Google moved the review form under a live link", () => {
+    expect(withLink({ status: "live", targetChanged: true })).toMatchObject({
+      tone: "attention",
+      label: "Check the address",
+    })
+  })
+
+  it("says whether one can be made yet", () => {
+    expect(withLink({ status: "not_set_up", targetChanged: false }).label).toBe(
+      "Not set up"
+    )
+    expect(
+      withLink({ status: "no_review_form", targetChanged: false })
+    ).toEqual({
+      tone: "neutral",
+      label: "No review form yet",
+      line: "Google hasn’t given a review link yet",
+    })
+  })
+
+  it("keeps the plain label for a cached summary without the status", () => {
+    expect(withLink(undefined)).toEqual({
+      tone: "neutral",
+      label: "Link & QR code",
+      line: "For tables, receipts and till screens",
+    })
   })
 })
 

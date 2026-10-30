@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -177,10 +177,13 @@ describe("cancelling (p4-F14 C2)", () => {
     expect(dialog).toHaveTextContent(
       "1 confirmed listing keeps its change. The one already sending finishes. This can’t be undone."
     )
-    // Keeping it is the default and sends nothing.
-    expect(
-      within(dialog).getByRole("button", { name: "Keep sending" })
-    ).toHaveFocus()
+    // Keeping it is the default and sends nothing. The dialog moves focus
+    // after it opens, so wait for it.
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Keep sending" })
+      ).toHaveFocus()
+    )
     await user.click(
       within(dialog).getByRole("button", { name: "Keep sending" })
     )

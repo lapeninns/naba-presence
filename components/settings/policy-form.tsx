@@ -40,6 +40,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import {
   Select,
@@ -82,6 +83,7 @@ import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import { HYDRATION_DAY_ZONE } from "@/lib/settings/use-format-day"
 
 type FormState = {
+  bannedPhrases: string
   approvalRequired: boolean
   requireTwoPersonApproval: boolean
   rawContentRetentionDays: string
@@ -92,6 +94,7 @@ type FormState = {
 
 function toState(settings: OrgSettings): FormState {
   return {
+    bannedPhrases: (settings.bannedPhrases ?? []).join("\n"),
     approvalRequired: settings.approvalRequired,
     requireTwoPersonApproval: settings.requireTwoPersonApproval,
     rawContentRetentionDays: String(settings.rawContentRetentionDays),
@@ -138,6 +141,7 @@ function parsePolicyDraft(
  * listed by its label, `terms.orgName`.
  */
 const CHANGE_LABELS: Record<keyof FormState, string> = {
+  bannedPhrases: "Banned phrases",
   approvalRequired: "Approval",
   directPublishConsent: "Approval",
   requireTwoPersonApproval: "Second approver",
@@ -193,6 +197,14 @@ function localErrors(
   state: FormState
 ): Partial<Record<keyof FormState, string>> {
   const errors: Partial<Record<keyof FormState, string>> = {}
+  const phrases = settingsPolicyFormSchema.shape.bannedPhrases.safeParse(
+    state.bannedPhrases
+      .split("\n")
+      .map((phrase) => phrase.trim())
+      .filter(Boolean)
+  )
+  if (!phrases.success)
+    errors.bannedPhrases = "Use up to 100 phrases of 200 characters each."
   const days = state.rawContentRetentionDays.trim()
   if (!/^\d+$/.test(days) || Number(days) < 1 || Number(days) > 30) {
     errors.rawContentRetentionDays = RETENTION_MESSAGE
@@ -419,6 +431,10 @@ export function PolicyForm({ role }: { role: string | null }) {
   const parsed = (
     timezoneChanged ? settingsPolicyFormSchema : storedTimezoneSchema
   ).safeParse({
+    bannedPhrases: current.bannedPhrases
+      .split("\n")
+      .map((phrase) => phrase.trim())
+      .filter(Boolean),
     approvalRequired: current.approvalRequired,
     requireTwoPersonApproval: current.requireTwoPersonApproval,
     rawContentRetentionDays: Number(current.rawContentRetentionDays),
@@ -463,6 +479,7 @@ export function PolicyForm({ role }: { role: string | null }) {
     if (policyDirty && parsed.success) {
       writes.push(
         mutation.mutateAsync({
+          bannedPhrases: parsed.data.bannedPhrases,
           approvalRequired: parsed.data.approvalRequired,
           requireTwoPersonApproval: parsed.data.requireTwoPersonApproval,
           rawContentRetentionDays: parsed.data.rawContentRetentionDays,
@@ -681,6 +698,36 @@ export function PolicyForm({ role }: { role: string | null }) {
             </AlertDescription>
           </Alert>
         )}
+      </SettingsSection>
+
+      <SettingsSection
+        id="settings-banned-phrases"
+        title="Banned phrases"
+        description="Phrases your team must leave out of replies, posts and profile descriptions."
+        variant="group"
+      >
+        <Field error={fieldError("bannedPhrases")}>
+          <FieldLabel htmlFor="policy-banned-phrases">
+            Phrases to block
+          </FieldLabel>
+          {/* Field wires the description and the error to the textarea;
+              explicit ids here would override that and leave the error
+              unannounced. */}
+          <FieldDescription>
+            Add one phrase per line, up to 100 phrases of 200 characters each.
+            Matching ignores capital letters.
+          </FieldDescription>
+          <Textarea
+            id="policy-banned-phrases"
+            value={current.bannedPhrases}
+            onChange={(event) => set("bannedPhrases", event.target.value)}
+            // Members can read the list (it explains a refused reply) but
+            // not change it: read-only keeps it focusable and selectable.
+            readOnly={!canEdit}
+            rows={5}
+          />
+          <FieldError>{fieldError("bannedPhrases")}</FieldError>
+        </Field>
       </SettingsSection>
 
       <SettingsSection

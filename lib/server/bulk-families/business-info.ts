@@ -1,12 +1,16 @@
 import "server-only"
 
+import type { TransactionSql } from "postgres"
+
 import {
   businessInfoApplied,
   businessInfoCurrent,
   businessInfoPatch,
   businessInfoProposed,
+  bulkDescriptionChange,
   type BulkBusinessInfoInput,
 } from "@/lib/domain/bulk-business-info"
+import type { BulkOperationInput } from "@/lib/domain/bulk-merge"
 import { comparisonHash } from "@/lib/server/bulk-families/compare"
 import {
   outcomeOfThrownWrite,
@@ -17,8 +21,55 @@ import {
   BUSINESS_LOCATION_FIELDS,
   runBulkWrite,
 } from "@/lib/server/bulk-families/write-attempts"
+import { assertContentChecks } from "@/lib/server/content-checks"
+import { withTenant } from "@/lib/server/db"
 import type { GbpLocationContext } from "@/lib/server/gbp-management"
 import { getGoogleLocation, patchGoogleLocation } from "@/lib/server/google"
+import { ApiError } from "@/lib/server/http"
+
+/**
+ * The description content checks of a business-information change: the
+ * profile editor's checks, with the organisation's banned phrases. Clearing
+ * the description is never refused.
+ */
+async function assertBulkDescription(
+  sql: TransactionSql,
+  input: BulkBusinessInfoInput
+) {
+  const description = bulkDescriptionChange(input)
+  if (!description) return
+  await assertContentChecks(sql, {
+    kind: "description",
+    body: description.value,
+    contentWarningAcknowledgement: description.contentWarningAcknowledgement,
+  })
+}
+
+/**
+ * The description checks of a batch's business-information changes, at
+ * preview, as `assertBulkPostContent` checks post drafts: a fail refuses
+ * the preview (422 `content_checks_failed`); a warning without the
+ * person's consent refuses it with the reasons and the token to
+ * acknowledge (409 `content_warning_acknowledgement_required`). Both name
+ * the change (`details.item`). The consent is part of the change, so it is
+ * frozen into the preview and checked again as each listing is sent.
+ */
+export async function assertBulkBusinessInfoContent(
+  sql: TransactionSql,
+  items: readonly BulkOperationInput[]
+) {
+  for (const [item, change] of items.entries()) {
+    if (change.operation !== "business_info") continue
+    try {
+      await assertBulkDescription(sql, change)
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error
+      throw new ApiError(error.status, error.code, error.message, {
+        details: { ...(error.details as Record<string, unknown>), item },
+      })
+    }
+  }
+}
 
 /** The listing's business-information fields this family and categories compare. */
 export async function readBusinessLocation(linked: GbpLocationContext) {
@@ -92,6 +143,16 @@ export const businessInfoFamily: BulkFamily<BulkBusinessInfoInput> = {
         observed: current,
       }
     if (!context.stillOpen()) return { kind: "expired" }
+    // The description is checked again before it is sent: a policy change
+    // since the preview fails this listing with nothing sent.
+    try {
+      await withTenant(context.organisationId, (sql) =>
+        assertBulkDescription(sql, input)
+      )
+    } catch (error) {
+      if (error instanceof ApiError) return { kind: "failed", code: error.code }
+      throw error
+    }
     const patch = businessInfoPatch(input)
     const send = async (validateOnly: boolean) =>
       patchGoogleLocation(

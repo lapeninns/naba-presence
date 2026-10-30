@@ -24,6 +24,7 @@ import {
   mintIntentId,
 } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { contentWarningFromError } from "@/lib/api/content-warnings"
 import { queryKeys } from "@/lib/queries/keys"
 import { gbpMutationResultSchema } from "@/lib/contracts/gbp-management"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
@@ -213,6 +214,9 @@ export function usePublishFlow({
     setResults(running)
 
     let failure: string | null = null
+    // A step refused for content warnings to acknowledge: the surface shows
+    // them beside the acknowledgement, so it is not toasted as a failure.
+    let quietFailure = false
     let parked = false
     for (const [index, step] of plan.entries()) {
       running[index] = { ...running[index], status: "running" }
@@ -238,8 +242,19 @@ export function usePublishFlow({
         // lodging) answers its attempt row: anything short of a confirmed
         // success is not finished, whatever HTTP status carried it.
         const recorded = gbpMutationResultSchema.safeParse(answer)
-        if (recorded.success && (recorded.data.status !== "succeeded" || (recorded.data.confirmationState !== undefined && recorded.data.confirmationState !== "confirmed" && recorded.data.confirmationState !== "unrecorded"))) {
-          throw new ApiClientError(409, "google_confirmation_required", "Check the recorded outcome in Activity before publishing again.", { mutationId: recorded.data.id })
+        if (
+          recorded.success &&
+          (recorded.data.status !== "succeeded" ||
+            (recorded.data.confirmationState !== undefined &&
+              recorded.data.confirmationState !== "confirmed" &&
+              recorded.data.confirmationState !== "unrecorded"))
+        ) {
+          throw new ApiClientError(
+            409,
+            "google_confirmation_required",
+            "Check the recorded outcome in Activity before publishing again.",
+            { mutationId: recorded.data.id }
+          )
         }
         running[index] = {
           ...running[index],
@@ -274,6 +289,7 @@ export function usePublishFlow({
           : completed.some((result) => result.kind === "local")
             ? " Completed local saves are kept. No Google step completed successfully."
             : ""
+        quietFailure = contentWarningFromError(cause) !== null
         const reason = describePublishStepError(cause, step.kind ?? "google")
         failure = reason + progress
         running[index] = {
@@ -310,7 +326,8 @@ export function usePublishFlow({
       setError(failure)
       // The step and the surface's banner carry the reason; the toast only
       // says it stopped.
-      toasts.add({ title: PUBLISH_FAILURE_TOAST, type: "error" })
+      if (!quietFailure)
+        toasts.add({ title: PUBLISH_FAILURE_TOAST, type: "error" })
       return false
     }
     // A parked step is the news: the surface's own "sent to Google" or

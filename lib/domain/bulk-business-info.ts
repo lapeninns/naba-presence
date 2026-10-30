@@ -54,6 +54,12 @@ export const bulkBusinessInfoChangeSchema = z.union([
     field: z.literal("profile.description"),
     action: z.literal("set"),
     value: z.string().trim().min(1).max(750),
+    /**
+     * The person's consent to this description's content warnings (the
+     * token a 409 `content_warning_acknowledgement_required` named), checked
+     * at preview and again when each listing is sent. Not sent to Google.
+     */
+    contentWarningAcknowledgement: z.string().length(64).optional(),
   }),
   clear("profile.description"),
   z.strictObject({
@@ -91,6 +97,16 @@ export const bulkBusinessInfoInputSchema = z
     "Change each field once."
   )
 export type BulkBusinessInfoInput = z.infer<typeof bulkBusinessInfoInputSchema>
+
+/** The description a batch sets, with any consent given for its warnings. */
+export function bulkDescriptionChange(
+  input: BulkBusinessInfoInput
+): { value: string; contentWarningAcknowledgement?: string } | null {
+  for (const change of input.changes)
+    if (change.field === "profile.description" && change.action === "set")
+      return change
+  return null
+}
 
 /** The value of one offered field on a Google location (undefined when unset). */
 export function businessInfoFieldValue(

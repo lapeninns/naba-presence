@@ -1518,6 +1518,10 @@ listed in `failures` with `retention_dry_run_budget`.
 | `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
 | `invitation_delivery` | operational | keep | with its invitation; deleted when the invitation is revoked | none | none | no | lifecycle |
 | `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0141) | cascade from `review` | gated | yes | lifecycle |
+| `listing_completeness_skip` | customer | keep | until an owner or admin removes the skip, or with its listing | none | none | no | lifecycle |
+| `listing_google_change` | operational | keep | while its listing exists | none | none | no | lifecycle |
+| `listing_google_watch` | operational | keep | while its listing exists | none | none | no | lifecycle |
+| `listing_google_watch_recipient` | operational | keep | with its listing's watch, or until the person's account is deleted | none | none | no | lifecycle |
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |
@@ -1563,8 +1567,12 @@ listed in `failures` with `retention_dry_run_budget`.
 | `retention_cycle` | operational | delete | completed cycles 35 days after their day (RETENTION_CYCLE_KEEP_DAYS) | openOrResumeCycle (lib/server/retention/cycle.ts), when a new cycle opens | ungated | no | internal |
 | `retention_cycle_org` | operational | delete | with its cycle | cascade from `retention_cycle` | ungated | no | internal |
 | `review` | google | redact | review text, reviewer name, photo link and raw payload at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at) | `reviews`, `disconnectedReviews`, cascade from `external_location` | gated | yes | published |
+| `review_link` | customer | keep | for the life of the location (a printed code keeps working through a Google disconnect); switching it off keeps the row | none | none | no | lifecycle |
+| `review_link_click` | customer | keep | kept with its review link (a time and a source per open; no IP address or user agent) | none | none | no | lifecycle |
 | `review_media_item` | google | delete | with its review's raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt | `media`, cascade from `review` | gated | yes | published |
 | `review_reply` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect; scrubbed by privacy erasure | cascade from `review` | gated | yes | published |
+| `review_topic` | derived | keep | for the life of its review; deleted with it | cascade from `review` | gated | yes | pending D-28: keep each review's topic labels for the life of the review and delete them with it, erasure included (coordinator decision 2026-10-30) |
+| `review_topic_classification` | operational | keep | for the life of its review; deleted with it | cascade from `review` | gated | yes | lifecycle |
 | `risc_event` | operational | keep | kept as the Cross-Account Protection record | none | none | no | pending D-47: keep received security events as their record |
 | `schema_migration` | operational | keep | one row per applied migration | none | none | no | internal |
 | `sync_checkpoint` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |

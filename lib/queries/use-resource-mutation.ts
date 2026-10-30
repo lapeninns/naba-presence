@@ -64,6 +64,12 @@ export type ResourceMutationOptions<TData, TVariables> = {
    */
   errorToast?: (error: unknown) => string
   /**
+   * Errors the surface shows itself, beside the control, instead of in a
+   * toast (content warnings to acknowledge: `contentWarningFromError`).
+   * `onError` still runs for them.
+   */
+  quietError?: (error: unknown) => boolean
+  /**
    * Surface handed to `describeActionError` for the two approval codes whose
    * copy differs between review replies and Google posts. Ignored when
    * `errorToast` is set.
@@ -113,6 +119,7 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
     invalidate,
     successToast,
     errorToast,
+    quietError,
     errorContext,
     onSuccess,
     onError,
@@ -191,7 +198,7 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
         ? errorToast(error)
         : describeActionError(error, { context: errorContext })
       onError?.(error, message, variables)
-      toasts.add({ title: message, type: "error" })
+      if (!quietError?.(error)) toasts.add({ title: message, type: "error" })
     },
   })
 }

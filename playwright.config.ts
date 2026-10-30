@@ -14,7 +14,7 @@ const suite = process.env.PLAYWRIGHT_SUITE
 // The specs that start their own app server, Google stub and tenant and read
 // no journey state: they need neither the global setup nor the :3100 server.
 const ISOLATED =
-  /(lodging-complete-backend|lodging-recovery-backend|services-backend|administration-access-backend|administration-access-recovery|lifecycle-backend|verification-pin-backend|verification-pin-drift|verification-pin-recovery|verification-start-backend|place-actions-backend|operations-features|approval-notifications)\.spec\.ts$/
+  /(lodging-complete-backend|lodging-recovery-backend|services-backend|administration-access-backend|administration-access-recovery|lifecycle-backend|verification-pin-backend|verification-pin-drift|verification-pin-recovery|verification-start-backend|place-actions-backend|operations-features|approval-notifications|google-change-watch-backend)\.spec\.ts$/
 const TOUCH = /touch-critical\.spec\.ts$/
 
 export default defineConfig({

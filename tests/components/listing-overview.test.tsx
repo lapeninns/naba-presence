@@ -7,6 +7,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/listings/l1",
   notFound: vi.fn(),
 }))
+// The completeness card has its own test; it needs a toast provider and
+// its own queries.
+vi.mock("@/components/listings/completeness-card", () => ({
+  CompletenessCard: () => <div data-testid="completeness-card" />,
+}))
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -30,6 +35,7 @@ import {
   type ListingSummary,
 } from "@/lib/contracts/location-summary"
 import * as capsHook from "@/lib/queries/use-location-capabilities"
+import * as googleChangesHook from "@/lib/queries/use-google-change-watch"
 import * as summaryHook from "@/lib/queries/use-listing-summary"
 import * as locationsHook from "@/lib/queries/use-locations"
 
@@ -37,11 +43,18 @@ function stub({
   summary,
   caps,
   entry,
+  googleChanges = [],
 }: {
   summary: ListingSummary | undefined
   caps?: LocationCapabilities
   entry?: { linked?: boolean; clientId?: string | null }
+  /** The statuses of the listing's changes made on Google. */
+  googleChanges?: string[]
 }) {
+  vi.spyOn(googleChangesHook, "useGoogleChanges").mockReturnValue({
+    data: { changes: googleChanges.map((status) => ({ status })) },
+    isPending: false,
+  } as unknown as ReturnType<typeof googleChangesHook.useGoogleChanges>)
   vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
     data: [
       {
@@ -327,6 +340,16 @@ describe("ListingOverview", () => {
     ).toBeTruthy()
   })
 
+  it("shows the completeness score above the areas, near the top on a phone", () => {
+    stub({ summary: summary() })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    const areas = screen.getByRole("region", { name: "Areas" })
+    const card = screen.getByTestId("completeness-card")
+    expect(
+      card.compareDocumentPosition(areas) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it("keeps only the connection and last published under the areas, without repeating verification or sync", () => {
     stub({
       summary: summary({
@@ -522,5 +545,64 @@ describe("ListingOverview", () => {
       <ListingOverview locationId="l1" role="owner" />
     )
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+  })
+
+  it("shows what changed on Google beside the health pill, linking to Suggested updates", () => {
+    stub({
+      summary: summary(),
+      googleChanges: ["open", "open", "accepted", "reverting"],
+    })
+    const { container } = render(
+      <ListingOverview locationId="l1" role="member" />
+    )
+    const header = container.querySelector(
+      '[data-slot="listing-area-header"]'
+    ) as HTMLElement
+    const badge = within(header).getByRole("link", {
+      name: /^2 changed on Google/,
+    })
+    expect(badge).toHaveAttribute("href", "/listings/l1/suggestions")
+    expect(badge).toHaveTextContent("2 changed on Google")
+    // The health pill stays; the badge sits beside it.
+    expect(within(header).getByText("Not checked")).toBeInTheDocument()
+  })
+
+  it("shows no Google badge when nothing is open, or for a listing that isn't linked", () => {
+    stub({ summary: summary(), googleChanges: ["accepted"] })
+    const { unmount } = render(<ListingOverview locationId="l1" role="owner" />)
+    expect(screen.queryByText(/changed on Google/)).toBeNull()
+    unmount()
+
+    stub({
+      summary: emptyListingSummary({
+        locationId: "l1",
+        linked: false,
+        verified: false,
+      }),
+      entry: { linked: false },
+      googleChanges: ["open"],
+    })
+    const watched = vi.mocked(googleChangesHook.useGoogleChanges)
+    watched.mockClear()
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(screen.queryByText(/changed on Google/)).toBeNull()
+    // Not even asked: an unlinked listing has nothing on Google to compare.
+    expect(watched).not.toHaveBeenCalled()
+  })
+
+  it("keeps the Google badge when the summary could not be read", () => {
+    stub({ summary: undefined, googleChanges: ["open"] })
+    vi.spyOn(summaryHook, "useListingSummary").mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: true,
+      refetch: vi.fn(),
+    } as unknown as UseQueryResult<ListingSummary>)
+    render(<ListingOverview locationId="l1" role="owner" />)
+    expect(
+      screen.getByRole("link", {
+        name: /^1 changed on Google/,
+      })
+    ).toHaveAttribute("href", "/listings/l1/suggestions")
   })
 })

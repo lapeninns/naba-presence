@@ -43,6 +43,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ApiClientError } from "@/lib/api/client"
+import { contentWarningFromError } from "@/lib/api/content-warnings"
+import { ContentWarnings } from "@/components/content/content-warnings"
 import {
   decidePostApproval,
   deletePost,
@@ -163,6 +165,22 @@ export function PostsActionBar({
   const [publishOpen, setPublishOpen] = useState(false)
   // Approving publishes, so the approver sees exactly what goes to Google.
   const [approveOpen, setApproveOpen] = useState(false)
+  // Content warnings the server asked this approver to acknowledge (the
+  // author's consent no longer matches, say after a policy change), for the
+  // revision they were raised on. The approver's own consent is sent with
+  // the next Approve; an edit to the post makes both stale.
+  const [approvalWarning, setApprovalWarning] = useState<{
+    token: string
+    messages: string[]
+    revision: number | undefined
+  } | null>(null)
+  const [approvalWarningAccepted, setApprovalWarningAccepted] = useState(false)
+  const shownApprovalWarning =
+    approvalWarning?.revision === post.contentRevision ? approvalWarning : null
+  const approvalConsent =
+    shownApprovalWarning && approvalWarningAccepted
+      ? shownApprovalWarning.token
+      : undefined
   // A failed delete keeps its dialog open and says why there, beside the
   // button that was pressed, not only in a toast across the screen.
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -242,16 +260,36 @@ export function PostsActionBar({
       // this approver never read.
       decidePostApproval(locationId, post.id, decision, post.contentRevision, {
         intentId: intent.intentId,
+        ...(decision === "approve" && approvalConsent
+          ? { contentWarningAcknowledgement: approvalConsent }
+          : {}),
       }),
     // A retry after a lost answer resends the intent, so an approval that
     // already published is answered with its outcome, not a 409.
-    intentKey: (decision) => [post.id, decision, post.contentRevision],
+    intentKey: (decision) => [
+      post.id,
+      decision,
+      post.contentRevision,
+      decision === "approve" ? (approvalConsent ?? null) : null,
+    ],
     invalidate,
     // Rejecting only changes NabaPresence (a plain toast); approving
     // publishes, so its toast is a Google write.
     successToast: (_, decision) =>
       decision === "reject" ? "Sent back to draft" : null,
     errorContext: "post",
+    // Shown in the approve dialog with the acknowledgement, not as a failure.
+    quietError: (error) => contentWarningFromError(error) !== null,
+    onError: (error, _message, decision) => {
+      const warning = decision === "approve" && contentWarningFromError(error)
+      if (!warning) return
+      setApprovalWarning({
+        token: warning.token,
+        messages: warning.messages,
+        revision: post.contentRevision,
+      })
+      setApprovalWarningAccepted(false)
+    },
     onSuccess: (result, decision) => {
       if (decision === "approve") {
         settled.current = true
@@ -616,6 +654,16 @@ export function PostsActionBar({
             Google accepts it.
           </AlertDialogDescription>
           {previewNode}
+          {shownApprovalWarning ? (
+            // The warnings as they stand now. Approving publishes, so it
+            // waits for this approver's own acknowledgement.
+            <ContentWarnings
+              messages={shownApprovalWarning.messages}
+              checked={approvalWarningAccepted}
+              onCheckedChange={setApprovalWarningAccepted}
+              action="approve and publish"
+            />
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogClose
               render={<Button variant="ghost">Not yet</Button>}
@@ -623,8 +671,16 @@ export function PostsActionBar({
             <Button
               onClick={() =>
                 decide.mutate("approve", {
-                  onSettled: () => setApproveOpen(false),
+                  // Warnings to acknowledge keep the dialog open, beside them.
+                  onSettled: (_, error) => {
+                    if (!contentWarningFromError(error)) setApproveOpen(false)
+                  },
                 })
+              }
+              disabledReason={
+                shownApprovalWarning && !approvalWarningAccepted
+                  ? "Acknowledge the content warnings first"
+                  : undefined
               }
               pending={decide.isPending && decide.variables === "approve"}
               pendingLabel="Publishing…"

@@ -1,9 +1,12 @@
 import { PageFrame } from "@/components/app-shell/page-frame"
 import { PerformanceView } from "@/components/performance/performance-view"
+import { ReviewTopicsPanel } from "@/components/reports/review-topics-panel"
 import { ViewHeader } from "@/components/ui/view-header"
 
 import { resolveTabRange } from "@/lib/reporting/ranges"
 import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
+import { withTenant } from "@/lib/server/db"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { prefetch } from "@/lib/server/prefetch"
 import { replyReportPrefetch } from "@/lib/server/reports-prefetch"
 import { getSession } from "@/lib/server/session"
@@ -44,6 +47,18 @@ export default async function ReportsPage({
     !one(params.locationId) &&
     (clientParam === undefined || clientId !== undefined)
   const now = new Date()
+  // "What guests talk about" (S3) sits under the Reply tab, for the scope
+  // the address asks for, while the organisation has review topics on.
+  const locationParam = one(params.locationId)
+  const locationId = z.uuid().safeParse(locationParam).success
+    ? locationParam
+    : undefined
+  const showTopics =
+    session && replyTab
+      ? await withTenant(session.organisationId, (sql) =>
+          isOrgFeatureEnabled(sql, session.organisationId, "review_topics")
+        ).catch(() => false)
+      : false
   // One tree whatever the address: switching tab or period re-renders this
   // page on the server, and a different wrapper here would remount the view.
   const state = await prefetch(
@@ -77,6 +92,9 @@ export default async function ReportsPage({
       <HydrationBoundary state={state}>
         <PerformanceView windowNow={now.toISOString()} />
       </HydrationBoundary>
+      {showTopics ? (
+        <ReviewTopicsPanel clientId={clientId} locationId={locationId} />
+      ) : null}
     </PageFrame>
   )
 }

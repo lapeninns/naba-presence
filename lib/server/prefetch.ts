@@ -105,6 +105,11 @@ import {
 } from "@/lib/locations/photos-url-state"
 import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 import { sessionSchema } from "@/lib/contracts/session"
+import type { ListingCompleteness } from "@/lib/listings/completeness"
+import {
+  listingCompletenessResponseSchema,
+  type ListingCompletenessResponse,
+} from "@/lib/listings/completeness-contract"
 import { pendingAreas, type AreaKey } from "@/lib/listings/pending-areas"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
@@ -123,6 +128,7 @@ import { getFoodMenusState } from "@/lib/server/food-menus"
 import { loadGoogleVerificationState } from "@/lib/server/google-verification-state"
 import { listImportProposals } from "@/lib/server/import-review"
 import { loadInvitations } from "@/lib/server/invitations/list"
+import { readListingCompleteness } from "@/lib/server/listing-completeness"
 import {
   readHoursResponse,
   readMediaListResponse,
@@ -344,6 +350,39 @@ export async function readListingSummariesForBoard(
 }
 
 /**
+ * What `useBoardCompleteness()` (no id) and `useListingCompleteness(id)`
+ * fetch: `GET /api/listings/summary?view=completeness[&locationId=]`, the
+ * reader that route calls. DB-only.
+ */
+export async function readCompletenessForBoard(
+  session: Session
+): Promise<ListingCompleteness[]> {
+  const payload = {
+    completeness: await withTenant(session.organisationId, (sql) =>
+      readListingCompleteness(sql, session)
+    ),
+  } satisfies ListingCompletenessResponse
+  return throughWire(listingCompletenessResponseSchema, payload).completeness
+}
+
+/** One listing's completeness, as `useListingCompleteness(id)` holds it. */
+export async function readCompletenessForListing(
+  session: Session,
+  locationId: string
+): Promise<ListingCompleteness | null> {
+  const payload = {
+    completeness: await withTenant(session.organisationId, (sql) =>
+      readListingCompleteness(sql, session, [locationId])
+    ),
+  } satisfies ListingCompletenessResponse
+  const [completeness] = throughWire(
+    listingCompletenessResponseSchema,
+    payload
+  ).completeness
+  return completeness ?? null
+}
+
+/**
  * What `useSettingsCapabilities()` fetches: a role projection plus the
  * organisation's settings feature switches, read in one tenant transaction
  * for an owner or admin and skipped for anyone else.
@@ -402,9 +441,10 @@ export async function readInvitations(
 export async function readNotificationPreferences(
   session: Session
 ): Promise<NotificationPreferencesResponse> {
-  // Rendered for this build's own client, which reads the approval kinds.
+  // Rendered for this build's own client, which reads every kind it knows.
   const payload = await loadNotificationPreferences(session, {
     addressedKinds: true,
+    kinds3: true,
   })
   return throughWire(notificationPreferencesResponseSchema, payload)
 }
@@ -590,15 +630,39 @@ export function listingPagePrefetch(
 }
 
 /**
+ * The listing overview (/listings/{id}) on top of the layout's
+ * `listingPagePrefetch`: its completeness card's checks, so the card paints
+ * with the page instead of after one fetch. Pure SQL, and only the overview
+ * shows the card, so the area pages under the same layout don't pay for it.
+ */
+export function listingOverviewPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => [
+    {
+      queryKey: queryKeys.listingCompleteness(locationId),
+      load: () => readCompletenessForListing(session, locationId),
+    },
+  ]
+}
+
+/**
  * /listings: the board's DB-only summaries (as `/api/listings/summary`), so
  * each row's health pill and the health chips are in the first HTML instead
- * of appearing after the client bundle hydrates and fetches them.
+ * of appearing after the client bundle hydrates and fetches them. The
+ * Completeness column's checks (`?view=completeness`) are read beside them,
+ * concurrently and in their own transaction; the default summary read is
+ * unchanged and doesn't compute them.
  */
 export function listingsBoardPrefetch(): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
       queryKey: queryKeys.listingSummaries,
       load: () => readListingSummariesForBoard(session),
+    },
+    {
+      queryKey: queryKeys.listingCompletenessBoard,
+      load: () => readCompletenessForBoard(session),
     },
   ]
 }

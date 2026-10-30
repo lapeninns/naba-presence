@@ -574,9 +574,10 @@ export async function processSchedule(
         { id: string }[]
       >`select external_location_id::text as id from location_link where location_id = ${schedule.locationId} and is_active limit 1`
       const [post] = await sql<{ id: string }[]>`
-        insert into gbp_local_post (organisation_id, location_id, external_location_id, topic_type, language_code, summary, call_to_action, event, offer, media, created_by)
+        insert into gbp_local_post (organisation_id, location_id, external_location_id, topic_type, language_code, summary, call_to_action, event, offer, media, created_by, content_warning_acknowledgement)
         values (${organisationId}, ${schedule.locationId}, ${external.id}, ${content.topicType}, ${content.languageCode}, ${content.summary},
-          ${jsonColumnOrNull(sql, content.callToAction)}, ${jsonColumnOrNull(sql, content.event)}, ${jsonColumnOrNull(sql, content.offer)}, ${jsonColumn(sql, content.media)}, ${schedule.requestedBy})
+          ${jsonColumnOrNull(sql, content.callToAction)}, ${jsonColumnOrNull(sql, content.event)}, ${jsonColumnOrNull(sql, content.offer)}, ${jsonColumn(sql, content.media)}, ${schedule.requestedBy},
+          ${content.contentWarningAcknowledgement ?? null})
         returning id::text as id`
       postId = post.id
     }
