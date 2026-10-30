@@ -468,7 +468,7 @@ describe("GoogleChangesPanel", () => {
     })
   })
 
-  it("shows a failed decision on the row as Not changed with the error message", async () => {
+  it("shows a failed decision on the row as Didn’t go through with the error message", async () => {
     mockChanges(response([change()]))
     vi.spyOn(watchApi, "decideGoogleChange").mockRejectedValue(
       new ApiClientError(403, "forbidden", "Not allowed")
@@ -481,7 +481,7 @@ describe("GoogleChangesPanel", () => {
     )
 
     const alert = await within(row).findByRole("alert")
-    expect(alert).toHaveTextContent("Not changed")
+    expect(alert).toHaveTextContent("Didn’t go through")
     expect(alert).toHaveTextContent("You do not have permission to do that.")
   })
 

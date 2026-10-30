@@ -24,27 +24,39 @@ export async function startGoogleWatchBackend() {
   if (!process.env.DIRECT_DATABASE_URL)
     throw new Error("Isolated PostgreSQL required")
   const admin = postgres(process.env.DIRECT_DATABASE_URL, { max: 1 })
-  const google = await startGoogleStub({ port: 0 })
   const organisations: string[] = []
-  const server = await startAppServer({
-    GOOGLE_API_PROXY_BASE: google.baseUrl,
-    GBP_PROFILE_WRITES_ENABLED: "true",
-    PUBLISH_ENABLED: "true",
-    RESEND_API_KEY: "",
-  })
+  let google: Awaited<ReturnType<typeof startGoogleStub>> | null = null
+  let server: Awaited<ReturnType<typeof startAppServer>>
+  try {
+    google = await startGoogleStub({ port: 0 })
+    server = await startAppServer({
+      GOOGLE_API_PROXY_BASE: google.baseUrl,
+      GBP_PROFILE_WRITES_ENABLED: "true",
+      PUBLISH_ENABLED: "true",
+      RESEND_API_KEY: "",
+    })
+  } catch (error) {
+    await google?.stop()
+    await admin.end()
+    throw error
+  }
+  const stub = google
 
   return {
     admin,
-    google,
+    google: stub,
     server,
     async stop() {
-      await server.stop()
-      await google.stop()
-      await destroyTenants(admin, organisations)
-      await admin.end()
+      try {
+        await server.stop()
+        await stub.stop()
+      } finally {
+        await destroyTenants(admin, organisations)
+        await admin.end()
+      }
     },
     async fixture(page: Page) {
-      google.reset()
+      stub.reset()
       const owner = await createTestTenant(admin)
       organisations.push(owner.organisationId)
       const connection = await seedGoogleConnection(admin, {
@@ -80,32 +92,34 @@ export async function startGoogleWatchBackend() {
         },
         metadata: {},
       }
+      /** What reached "Google": each real (not validate-only) PATCH. */
       const writes: Array<Record<string, unknown>> = []
-      google.respond({ method: "GET", pathIncludes: "/v1/" }, () => ({
+      const updateMasks: string[] = []
+      stub.respond({ method: "GET", pathIncludes: "/v1/" }, () => ({
         status: 200,
         json: {},
       }))
-      google.respond(
+      stub.respond(
         { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
         () => ({ status: 200, json: location })
       )
-      google.respond(
+      stub.respond(
         {
           method: "GET",
           pathIncludes: `/v1/${linked.googleLocationName}/attributes`,
         },
         () => ({ status: 200, json: { attributes: [], attributeMetadata: [] } })
       )
-      google.respond(
-        { method: "GET", pathIncludes: "/v1/attributes?" },
-        () => ({ status: 200, json: { attributeMetadata: [] } })
-      )
-      google.respond(
+      stub.respond({ method: "GET", pathIncludes: "/v1/attributes?" }, () => ({
+        status: 200,
+        json: { attributeMetadata: [] },
+      }))
+      stub.respond(
         { method: "GET", pathIncludes: "/categories:batchGet" },
         (call) => ({
           status: 200,
           json: {
-            categories: new URL(call.path, google.baseUrl).searchParams
+            categories: new URL(call.path, stub.baseUrl).searchParams
               .getAll("names")
               .map((name) => ({
                 name,
@@ -114,16 +128,14 @@ export async function startGoogleWatchBackend() {
           },
         })
       )
-      google.respond(
+      stub.respond(
         { method: "PATCH", pathIncludes: `/v1/${linked.googleLocationName}` },
         (call) => {
           const body = call.body as Record<string, unknown>
-          if (
-            new URL(call.path, google.baseUrl).searchParams.get(
-              "validateOnly"
-            ) !== "true"
-          ) {
+          const params = new URL(call.path, stub.baseUrl).searchParams
+          if (params.get("validateOnly") !== "true") {
             writes.push(body)
+            updateMasks.push(params.get("updateMask") ?? "")
             Object.assign(location, body)
           }
           return { status: 200, json: location }
@@ -147,6 +159,7 @@ export async function startGoogleWatchBackend() {
         linked,
         location,
         writes,
+        updateMasks,
         signIn,
         goto: (path: string) => page.goto(`${server.baseUrl}${path}`),
         /** "Check Google now" for the watch, as the owner, without the page. */

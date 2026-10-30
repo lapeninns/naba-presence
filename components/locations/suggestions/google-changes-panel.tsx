@@ -253,6 +253,7 @@ export function GoogleChangesPanel({
     (change) => change.status !== "open" && change.status !== "reverting"
   )
   const history = past.slice(0, HISTORY_SHOWN)
+  const openCount = live.filter((change) => change.status === "open").length
   const gateReason = editReason ?? (canDecide ? undefined : DECIDE_REASON)
   const busy = decide.isPending || approve.isPending || publish.isPending
   const protectedCount = settings.data?.settings.protectedFields.length
@@ -339,10 +340,10 @@ export function GoogleChangesPanel({
         label={
           <span ref={headingRef} tabIndex={-1} className="outline-none">
             Protected fields Google changed
-            {live.length > 0 ? (
+            {openCount > 0 ? (
               <span className="font-normal tabular-nums">
                 {" "}
-                · {live.length} waiting
+                · {openCount} to decide
               </span>
             ) : null}
           </span>
@@ -414,7 +415,9 @@ export function GoogleChangesPanel({
                         role="alert"
                         className="flex flex-wrap items-center gap-2 text-ui"
                       >
-                        <StatusPill tone="at-risk">Not changed</StatusPill>
+                        <StatusPill tone="at-risk">
+                          Didn’t go through
+                        </StatusPill>
                         <span className="min-w-0 grow basis-64 text-ink">
                           {failure}
                         </span>

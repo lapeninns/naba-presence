@@ -1,12 +1,13 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, test } from "@playwright/test"
+import { expect, type Locator, type Page, test } from "@playwright/test"
 
 import { startGoogleWatchBackend } from "./helpers/google-watch-backend"
 
 // The Google change watch (S5) against a private Google stub: a field changed
 // on Google is shown as ours against Google's, put back through the reviewed
-// business-information change (approve, then publish), and confirmed by
-// reading Google again. Nothing reaches a real Google.
+// business-information change (approve, then publish) or the hours publish,
+// or kept as Google's, and settled by reading Google again. Nothing reaches
+// a real Google.
 //
 // INTEGRATION(S5): add `google-change-watch-backend` to the ISOLATED pattern
 // in playwright.config.ts so the shared suite skips this self-contained spec.
@@ -26,6 +27,50 @@ test.beforeEach(async ({ context }) => {
   )
 })
 
+/** The one row of a change, found by its diff table's title. */
+function changeRow(page: Page, title: string) {
+  return page.locator('[data-slot="google-change"]').filter({
+    has: page.getByRole("table", {
+      name: `${title}: ours against what Google shows`,
+    }),
+  })
+}
+
+/** The Ours and On Google cells of a diff row, by its first cell. */
+async function expectDiff(
+  row: Locator,
+  label: string,
+  ours: string,
+  google: string
+) {
+  const line = row.getByRole("row").filter({ hasText: label })
+  const cells = line.getByRole("cell")
+  await expect(cells.nth(0)).toHaveText(new RegExp(`${ours}$`))
+  await expect(cells.nth(1)).toHaveText(new RegExp(`${google}$`))
+}
+
+/** The tab's one "Check Google now", which also runs the watch. */
+async function checkGoogle(page: Page) {
+  const check = page.getByRole("button", { name: "Check Google now" })
+  await expect(check).toHaveCount(1)
+  await check.click()
+  await expect(page.getByText("Checked with Google")).toBeVisible()
+}
+
+async function expectNoSidewaysScroll(page: Page) {
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth
+  )
+  expect(overflow).toBeLessThanOrEqual(1)
+}
+
+async function expectAccessible(page: Page) {
+  const results = await new AxeBuilder({ page })
+    .include('[data-slot="google-changes"]')
+    .analyze()
+  expect(results.violations).toEqual([])
+}
+
 test("an owner puts a business name Google changed back, through review, approval and publishing", async ({
   page,
 }) => {
@@ -40,20 +85,19 @@ test("an owner puts a business name Google changed back, through review, approva
   await expect(
     panel.getByRole("heading", { name: /Protected fields Google changed/ })
   ).toBeVisible()
-  await page.getByRole("button", { name: "Check Google now" }).first().click()
+  await checkGoogle(page)
 
-  const row = panel.locator('[data-slot="google-change"]')
+  const row = changeRow(page, "Business name")
   await expect(row).toHaveCount(1)
-  const diff = row.getByRole("table", {
-    name: "Business name: ours against what Google shows",
-  })
-  await expect(diff).toContainText("Old Crown")
-  await expect(diff).toContainText("Old Crown Inn")
+  await expectDiff(row, "Business name", "Old Crown", "Old Crown Inn")
   await expect(row.getByText("Needs a decision")).toBeVisible()
-  // The same field is not offered again as one of Google's suggestions.
   await expect(
-    page.getByRole("button", { name: "Accept", exact: true })
-  ).toHaveCount(0)
+    panel.getByRole("heading", { name: /· 1 to decide/ })
+  ).toBeVisible()
+  // Google's own suggestion for the same field is decided here, not twice.
+  await expect(
+    page.getByText(/1 suggestion for protected fields is decided above/)
+  ).toBeVisible()
 
   await row.getByRole("button", { name: "Put ours back" }).click()
   await expect(page.getByText("Ours is ready to review")).toBeVisible()
@@ -63,18 +107,104 @@ test("an owner puts a business name Google changed back, through review, approva
   await row.getByRole("button", { name: "Approve" }).click()
   await expect(row.getByText("Ready to publish")).toBeVisible()
   expect(f.writes).toHaveLength(0)
+  await expectAccessible(page)
 
   await row.getByRole("button", { name: "Publish to Google" }).click()
-  await expect(page.getByText("Sent to Google", { exact: true })).toBeVisible()
+  await expect(
+    row.getByText("Sent to Google, waiting for Google to confirm")
+  ).toBeVisible()
+  // Only the name went to Google: nothing else on the listing was written.
   expect(f.writes).toEqual([expect.objectContaining({ title: "Old Crown" })])
+  expect(f.updateMasks).toEqual(["title"])
   expect(f.location.title).toBe("Old Crown")
 
   // Reading Google again settles it as put back.
-  await page.getByRole("button", { name: "Check Google now" }).first().click()
+  await checkGoogle(page)
   await expect(
     panel.getByText(/Google matches ours for every protected field/)
   ).toBeVisible()
   await panel.getByText(/Earlier changes on Google/).click()
+  await expect(panel.getByText("Ours was put back on Google")).toBeVisible()
+})
+
+test("Google changing a field again before it is put back stops the put-back", async ({
+  page,
+}) => {
+  const f = await backend.fixture(page)
+  expect((await f.check()).found).toBe(0)
+  f.location.websiteUri = "https://crown-pub.example"
+  expect((await f.check()).found).toBe(1)
+
+  await f.goto(`/listings/${f.linked.locationId}/suggestions`)
+  const row = changeRow(page, "Website")
+  await expectDiff(
+    row,
+    "Website",
+    "https://old-crown.example",
+    "https://crown-pub.example"
+  )
+  // Google moves again after the page showed its value.
+  f.location.websiteUri = "https://another.example"
+  await row.getByRole("button", { name: "Put ours back" }).click()
+  await expect(row.getByRole("alert")).toContainText(
+    "Google changed this again"
+  )
+  await expect(row.getByText("Needs a decision")).toBeVisible()
+  expect(f.writes).toHaveLength(0)
+})
+
+test("hours go back through a confirmation, and Google's website can be kept as ours", async ({
+  page,
+}) => {
+  const f = await backend.fixture(page)
+  expect((await f.check()).found).toBe(0)
+  f.location.regularHours = {
+    periods: [
+      {
+        openDay: "FRIDAY",
+        openTime: { hours: 12 },
+        closeDay: "FRIDAY",
+        closeTime: { hours: 18 },
+      },
+      {
+        openDay: "SATURDAY",
+        openTime: { hours: 12 },
+        closeDay: "SATURDAY",
+        closeTime: { hours: 23 },
+      },
+    ],
+  }
+  f.location.websiteUri = "https://crown-pub.example"
+  expect((await f.check()).found).toBe(2)
+
+  await f.goto(`/listings/${f.linked.locationId}/suggestions`)
+  const hours = changeRow(page, "Opening hours: Friday")
+  await expectDiff(hours, "Friday", "12:00–23:00", "12:00–18:00")
+  await hours.getByRole("button", { name: "Put ours back" }).click()
+  const dialog = page.getByRole("alertdialog", {
+    name: "Put our hours back on Google?",
+  })
+  await expect(dialog).toContainText("Friday")
+  expect(f.writes).toHaveLength(0)
+  await dialog.getByRole("button", { name: "Put ours back" }).click()
+  await expect(page.getByText("Sent to Google", { exact: true })).toBeVisible()
+  expect(f.updateMasks).toEqual(["regularHours"])
+
+  const website = changeRow(page, "Website")
+  await website.getByRole("button", { name: "Accept Google’s" }).click()
+  const keep = page.getByRole("alertdialog", { name: "Keep Google’s website?" })
+  await expect(keep).toContainText("Nothing is sent to Google")
+  await keep.getByRole("button", { name: "Accept Google’s" }).click()
+  await expect(page.getByText("Kept Google’s website")).toBeVisible()
+  // Keeping Google's writes nothing to Google.
+  expect(f.updateMasks).toEqual(["regularHours"])
+
+  const panel = page.locator('[data-slot="google-changes"]')
+  await expect(
+    panel.getByText(/Google matches ours for every protected field/)
+  ).toBeVisible()
+  await panel.getByText(/Earlier changes on Google/).click()
+  await expect(panel.getByText("Kept Google’s")).toBeVisible()
   await expect(panel.getByText("Ours was put back on Google")).toBeVisible()
 })
 
@@ -90,26 +220,21 @@ test("a member sees what Google changed, with the reason they can't decide, on a
   await page.context().clearCookies()
   await f.signIn(f.member.cookie)
   await f.goto(`/listings/${f.linked.locationId}/suggestions`)
-  const panel = page.locator('[data-slot="google-changes"]')
-  const row = panel.locator('[data-slot="google-change"]')
-  await expect(row.getByRole("table")).toContainText("+44 1223 999999")
-  const putBack = row.getByRole("button", { name: "Put ours back" })
-  await expect(putBack).toHaveAttribute("aria-disabled", "true")
+  const row = changeRow(page, "Phone")
+  await expectDiff(row, "Phone", "\\+44 1223 000000", "\\+44 1223 999999")
+  const reason =
+    "Only owners and admins who can publish this listing can put ours back or keep Google’s."
+  for (const name of ["Put ours back", "Accept Google’s"]) {
+    const button = row.getByRole("button", { name })
+    await expect(button).toHaveAttribute("aria-disabled", "true")
+    await expect(button).toHaveAccessibleDescription(reason)
+  }
   await expect(
-    panel.getByText(
-      "Only owners and admins who can publish this listing can put ours back or keep Google’s. You can see what changed."
-    )
+    page.getByText(`${reason} You can see what changed.`)
   ).toBeVisible()
-  await putBack.click({ force: true })
+  // No check for a member either: the tab's check is for owners and admins.
   expect(f.writes).toHaveLength(0)
 
-  // Nothing in the panel scrolls sideways at 390px.
-  const overflow = await panel.evaluate(
-    (element) => element.scrollWidth - element.clientWidth
-  )
-  expect(overflow).toBeLessThanOrEqual(1)
-  const results = await new AxeBuilder({ page })
-    .include('[data-slot="google-changes"]')
-    .analyze()
-  expect(results.violations).toEqual([])
+  await expectNoSidewaysScroll(page)
+  await expectAccessible(page)
 })
