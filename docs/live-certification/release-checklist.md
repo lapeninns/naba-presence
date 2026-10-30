@@ -6,39 +6,36 @@
 > updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
 > separate scheduler process).
 
-## Latest production promotion — 29 October 2026
+## Latest production promotion — 30 October 2026
 
 - Production: [nabapresence.com](https://nabapresence.com).
-- Deployed commit: `c52f9efaacacd449491e72f560284a337f6c3987`, shipping
-  PR #262 (the all-flows UX/UI pass: sign-in and legal, onboarding and
-  clients, listings, inbox, notifications, calendar and reports, and
-  settings, team, billing and the design system), with no server, contract
-  or migration change.
-- Vercel deployment: `dpl_B9Q2RCcQcXkNizvhJAxrfDj19axD`.
-- Promoted at `2026-10-29T11:04:07Z` (11:04 Europe/London).
-- [Production receipt](../release/receipts/20261029T110407Z-c52f9efaacac.json)
-  and its byte-pinned [local gate receipt](../release/receipts/20261029T110407Z-c52f9efaacac.local.json).
+- Deployed commit: `3d0fcbff36804ce2da9a4080fc278775de6e9d9a`, shipping
+  PR #265 (listing completeness, review links, review topics, content checks
+  and Google change watch).
+- Vercel deployment: `dpl_4hav41nSWyopfFbPwHvnyVcPcybP`.
+- Promoted at `2026-10-30T15:51:33.526Z` (15:51 Europe/London).
+- [Production receipt](../release/receipts/20261030T155133Z-3d0fcbff3680.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261030T155133Z-3d0fcbff3680.local.json).
 - All 17 exact-main local release gate steps passed with no requested skips,
-  in 15.2 minutes: 9,128 unit/component tests (one existing opt-in live AI
-  case skipped), 1,568 integration tests with no skips and 603 browser cases.
-  Formatting, design/contrast, bundle budgets, migration checks, production
-  dependency audit, workflow lint and full-history secret scanning passed.
-  Upgrade base: `7a70387b365412c33ffe7c6fbca28d27059f103b`.
-- `db:status --expect-current` against production confirmed all 149
-  migrations applied, with no pending or unknown versions. The commit ships
-  no new migration, so none was applied and no snapshot was taken.
+  in 16.3 minutes: 10,089 unit/component tests (one skipped), 1,675
+  integration tests and 624 browser cases. Formatting, design/contrast,
+  bundle budgets, migration checks, production dependency audit, workflow
+  lint and full-history secret scanning passed. Upgrade base:
+  `c52f9efaacacd449491e72f560284a337f6c3987`.
+- A pre-migration `pg_dump` snapshot was saved locally at
+  `~/Library/Caches/naba-release-snapshots/naba-prod-20261030T154721Z-pre-opengmb.dump`.
+  Expand-only migrations 0150–0156 were applied; `db:status --expect-current`
+  confirmed all 156 migrations applied, with no pending or unknown versions.
 - The source-owned helper staged with `--skip-domain`; its authenticated
-  staged readiness probe reported this exact SHA before `vercel promote`. The
-  production receipt's first probe confirmed it and `productionProbe.ok` is
-  true. Follow-up protected readiness and platform health returned HTTP 200,
-  `release.sha` equal to the receipt's with source `naba_release_sha`, and
-  `schema.compatible: true`; `vercel promote status` names this deployment.
-  Readiness remains **degraded** solely for existing `telemetry_disabled`
-  (`no_endpoint`); this is not a fully healthy telemetry claim.
+  staged readiness probe reported this exact SHA before `vercel promote`.
+  The first production probe confirmed it and `productionProbe.ok` is true.
+  Follow-up platform health returned HTTP 200, the receipt's `release.sha`,
+  and `schema.compatible: true`. Readiness was **degraded** for
+  `telemetry_disabled` (`no_endpoint`).
 - Public check: `/` redirects (HTTP 307) and `/sign-in` and `/terms` answer
-  HTTP 200. The public e2e supplement and an authenticated browser smoke were
-  not run for this promotion. No business publishing, password reset, email,
-  edit or provider-sync action was triggered.
+  HTTP 200. The public agentic e2e supplement and an authenticated browser
+  smoke were not run for this promotion. The `review_topics` organisation
+  feature was not enabled by this release operation.
 
 ## Historical PR #66 certification record
 
