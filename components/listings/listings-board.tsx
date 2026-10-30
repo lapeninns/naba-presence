@@ -65,6 +65,15 @@ import {
   type ListingHealth,
 } from "@/lib/listings/health"
 import { BULK_MAX_TARGETS } from "@/lib/domain/bulk-merge"
+import {
+  compareMostToFix,
+  completenessLabel,
+  completenessTone,
+  failingChecks,
+  type ListingCompleteness,
+} from "@/lib/listings/completeness"
+import { useBoardCompleteness } from "@/lib/listings/completeness-query"
+import { visibleFix } from "@/lib/listings/completeness-view"
 import { listingHref } from "@/lib/listings/areas"
 import { formatAddressLine } from "@/lib/locations/address"
 import { useClients } from "@/lib/queries/use-clients"
@@ -91,30 +100,45 @@ function isHealthFilter(value: string | null): value is HealthFilter {
   return HEALTH_FILTERS.some((filter) => filter.value === value)
 }
 
-/** Worst health first across every client, or grouped under each client. */
-type BoardOrder = "health" | "client"
+/**
+ * Worst health first across every client, grouped under each client, or
+ * the most incomplete listing first (the heaviest failing completeness
+ * checks, then the lowest score).
+ */
+type BoardOrder = "health" | "client" | "fix"
 
 const BOARD_ORDERS: readonly { value: BoardOrder; label: string }[] = [
   { value: "health", label: "Worst first" },
   { value: "client", label: "By client" },
+  { value: "fix", label: "Most to fix" },
 ]
+
+function parseOrder(value: string | null): BoardOrder {
+  return value === "fix" || value === "client" ? value : "health"
+}
 
 /**
  * The order, folded into the health strip as one chip ("Worst first ⌄"):
- * a menu of the two orders (a sheet on a phone) rather than a row of its
+ * a menu of the orders (a sheet on a phone) rather than a row of its
  * own. Styled as a filter chip, but not pressed: it names the current
  * choice instead of switching a filter on.
  */
 function OrderChip({
   value,
   onChange,
+  business,
   className,
 }: {
   value: BoardOrder
   onChange: (next: BoardOrder) => void
+  /** A business has no clients, so no "By client". */
+  business: boolean
   className?: string
 }) {
-  const current = BOARD_ORDERS.find((order) => order.value === value)
+  const orders = BOARD_ORDERS.filter(
+    (order) => !business || order.value !== "client"
+  )
+  const current = orders.find((order) => order.value === value)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -133,7 +157,7 @@ function OrderChip({
           value={value}
           onValueChange={(next: string) => onChange(next as BoardOrder)}
         >
-          {BOARD_ORDERS.map((order) => (
+          {orders.map((order) => (
             <DropdownMenuRadioItem
               key={order.value}
               value={order.value}
@@ -156,6 +180,8 @@ const SEARCH_URL_DELAY_MS = 300
 type BoardRow = {
   entry: DirectoryEntry
   summary: ListingSummary | undefined
+  /** Undefined while loading, or when it couldn't be read. */
+  completeness: ListingCompleteness | undefined
   health: ListingHealth
   verified: boolean | undefined
   clientId: string
@@ -330,6 +356,7 @@ const QUICK_LOOK_AREAS = [
 function ListingQuickLook({
   row,
   business,
+  canManage,
   now,
   summaryPending,
   summaryFailed,
@@ -337,6 +364,8 @@ function ListingQuickLook({
 }: {
   row: BoardRow
   business: boolean
+  /** Owner or admin: owner-only areas are a fix they can follow. */
+  canManage: boolean
   /** The board's `useNow()`, so an overdue check reads the same everywhere. */
   now: number
   summaryPending: boolean
@@ -417,6 +446,14 @@ function ListingQuickLook({
           </QuickLookFacts>
         </QuickLookSection>
       ) : null}
+      {row.completeness && row.completeness.score !== null ? (
+        <QuickLookSection title="Completeness">
+          <CompletenessFacts
+            completeness={row.completeness}
+            canManage={canManage}
+          />
+        </QuickLookSection>
+      ) : null}
       {summary ? (
         <QuickLookSection title="Waiting">
           <PendingChips summary={summary} />
@@ -457,6 +494,100 @@ function ListingQuickLook({
   )
 }
 
+/** Sorts after any listing whose completeness is known. */
+const UNSCORED = { fixPoints: 0, score: null }
+
+/**
+ * The completeness score, with the most important thing to fix under it on
+ * a desk. On a phone it joins the row's caption line ("Completeness 82%").
+ */
+function CompletenessCell({
+  completeness,
+  linked,
+  pending,
+}: {
+  completeness: ListingCompleteness | undefined
+  linked: boolean
+  pending: boolean
+}) {
+  if (!linked) return <span className="text-ink-muted">—</span>
+  if (!completeness)
+    return pending ? (
+      <Skeleton className="h-3.5 w-12 @3xl/table:h-5.5 @3xl/table:w-16" />
+    ) : (
+      <span className="text-ink-muted">
+        —<span className="sr-only">Couldn’t check</span>
+      </span>
+    )
+  const first = failingChecks(completeness)[0]
+  const label = completenessLabel(completeness.score)
+  return (
+    <>
+      <span className={PHONE.onlyInline}>{label}</span>
+      <span className={cn("flex flex-col items-start gap-1", PHONE.wide)}>
+        <StatusPill tone={completenessTone(completeness.score)}>
+          {label}
+        </StatusPill>
+        {first ? (
+          <span className="text-caption text-ink-muted">
+            {completeness.counts.fail > 1
+              ? `${first.title} +${formatNumber(completeness.counts.fail - 1)}`
+              : first.title}
+          </span>
+        ) : null}
+      </span>
+    </>
+  )
+}
+
+/** The quick look's top three things to fix, each linked to its area. */
+function CompletenessFacts({
+  completeness,
+  canManage,
+}: {
+  completeness: ListingCompleteness
+  canManage: boolean
+}) {
+  const failing = failingChecks(completeness)
+  return (
+    <QuickLookFacts>
+      <QuickLookFact label="Score">
+        <StatusPill tone={completenessTone(completeness.score)}>
+          {completenessLabel(completeness.score)}
+        </StatusPill>
+      </QuickLookFact>
+      {failing.length === 0 ? (
+        <QuickLookFact label="To fix">
+          <span className="text-ink-muted">Nothing</span>
+        </QuickLookFact>
+      ) : (
+        failing.slice(0, 3).map((check) => {
+          const fix = visibleFix(check, canManage)
+          return (
+            <QuickLookFact
+              key={check.id}
+              label={
+                fix ? (
+                  <Link
+                    href={fix.href}
+                    className="rounded-(--np-radius-tag) underline-offset-4 focus-halo hover:underline"
+                  >
+                    {check.title}
+                  </Link>
+                ) : (
+                  check.title
+                )
+              }
+            >
+              <span className="text-ink-muted">{check.detail}</span>
+            </QuickLookFact>
+          )
+        })
+      )}
+    </QuickLookFacts>
+  )
+}
+
 function VerificationCell({ row }: { row: BoardRow }) {
   if (!row.entry.linked || row.verified === undefined)
     return <span className="text-ink-muted">—</span>
@@ -471,6 +602,7 @@ const COLUMNS = [
   "Listing",
   "Client",
   "Health",
+  "Completeness",
   "Waiting",
   "Verification",
   "Last published",
@@ -526,7 +658,8 @@ function BoardTable({
   return (
     <Table surface responsive aria-busy={busy || undefined}>
       <caption className="sr-only">
-        Listings, with their Google health and what is waiting on each
+        Listings, with their Google health, completeness and what is waiting on
+        each
       </caption>
       <TableHeader>
         <TableRow>
@@ -560,9 +693,7 @@ function BoardSkeleton({ canManage = false }: { canManage?: boolean }) {
               className="h-(--np-chip-h) w-24 shrink-0 rounded-(--np-radius-pill)"
             />
           ))}
-          {business ? null : (
-            <Skeleton className="h-(--np-chip-h) w-28 shrink-0 rounded-(--np-radius-pill)" />
-          )}
+          <Skeleton className="h-(--np-chip-h) w-28 shrink-0 rounded-(--np-radius-pill)" />
         </div>
       </div>
       <BoardTable busy>
@@ -581,6 +712,9 @@ function BoardSkeleton({ canManage = false }: { canManage?: boolean }) {
             )}
             <TableCell priority="trailing" className="@max-3xl/table:self-end">
               <Skeleton className="h-5.5 w-24" />
+            </TableCell>
+            <TableCell priority="meta">
+              <Skeleton className="h-3.5 w-12 @3xl/table:h-5.5 @3xl/table:w-16" />
             </TableCell>
             <TableCell priority="meta">
               <Skeleton className="h-3.5 w-24 @3xl/table:h-5.5 @3xl/table:w-32" />
@@ -654,6 +788,7 @@ function ListingsBoard({
   const directory = useLocationDirectory(role)
   const clients = useClients()
   const summaries = useListingSummaries()
+  const completeness = useBoardCompleteness()
   // From `lg` a row click answers "what is waiting here?" in a side panel;
   // Enter and a modifier click on the row's link still open the listing
   // (DSK-23).
@@ -687,9 +822,10 @@ function ListingsBoard({
     setClientState(urlClient)
   }
   const [orderState, setOrderState] = React.useState<BoardOrder>(() =>
-    searchParams.get("order") === "client" ? "client" : "health"
+    parseOrder(searchParams.get("order"))
   )
-  const order: BoardOrder = business ? "health" : orderState
+  const order: BoardOrder =
+    business && orderState === "client" ? "health" : orderState
 
   const pendingSearch = React.useRef<{ q: string; timer: number } | null>(null)
   React.useEffect(
@@ -815,11 +951,15 @@ function ListingsBoard({
   const summaryById = new Map(
     (summaries.data ?? []).map((summary) => [summary.locationId, summary])
   )
+  const completenessById = new Map(
+    (completeness.data ?? []).map((entry) => [entry.locationId, entry])
+  )
   const rows: BoardRow[] = (directory.data ?? []).map((entry) => {
     const summary = summaryById.get(entry.id)
     return {
       entry,
       summary,
+      completeness: completenessById.get(entry.id),
       // Either source saying "not verified" wins, as it does for health.
       verified:
         entry.verified === false || summary?.verified === false
@@ -870,6 +1010,16 @@ function ListingsBoard({
     .filter((row) => matchesHealth(row.health, health))
     .sort((a, b) => {
       const worst = HEALTH_ORDER[a.health] - HEALTH_ORDER[b.health]
+      if (order === "fix") {
+        // Most to fix first; a listing whose completeness isn't known goes
+        // last, then the usual worst-first order breaks ties.
+        const fix = compareMostToFix(
+          a.completeness ?? UNSCORED,
+          b.completeness ?? UNSCORED
+        )
+        if (fix !== 0) return fix
+        return worst !== 0 ? worst : a.entry.name.localeCompare(b.entry.name)
+      }
       if (order === "health")
         // Worst health first across every client, then by name.
         return worst !== 0 ? worst : a.entry.name.localeCompare(b.entry.name)
@@ -1078,6 +1228,13 @@ function ListingsBoard({
             </span>
           </span>
         </TableCell>
+        <TableCell priority="meta" label="Completeness">
+          <CompletenessCell
+            completeness={row.completeness}
+            linked={row.entry.linked}
+            pending={completeness.isPending}
+          />
+        </TableCell>
         <TableCell priority="meta">
           {summaries.isPending ? (
             <Skeleton className="h-3.5 w-24 @3xl/table:h-5.5 @3xl/table:w-32" />
@@ -1168,15 +1325,14 @@ function ListingsBoard({
                 </FilterChip>
               ))}
             </div>
-            {business ? null : (
-              // Its own menu, so choosing an order never re-filters the
-              // board or moves the pressed chip.
-              <OrderChip
-                value={order}
-                onChange={setOrder}
-                className="md:ml-auto"
-              />
-            )}
+            {/* Its own menu, so choosing an order never re-filters the
+                board or moves the pressed chip. */}
+            <OrderChip
+              value={order}
+              onChange={setOrder}
+              business={business}
+              className="md:ml-auto"
+            />
           </FilterChipStrip>
           {clientChips.length > 1 ? (
             <FilterChipStrip className="-mx-5 px-5 md:mx-0 md:flex-wrap md:border-l md:border-line md:px-0.5 md:pl-3">
@@ -1383,6 +1539,7 @@ function ListingsBoard({
             quick.item
           }
           business={business}
+          canManage={canManage}
           now={now}
           summaryPending={summaries.isPending}
           summaryFailed={summaries.isError && !summaries.data}

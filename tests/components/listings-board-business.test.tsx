@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import type { UseQueryResult } from "@tanstack/react-query"
 import type { ComponentProps } from "react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const replace = vi.fn()
@@ -11,6 +12,10 @@ vi.mock("next/navigation", () => ({
 }))
 vi.mock("@/lib/navigation/shallow-url", () => ({
   replaceUrl: (href: string) => replace(href),
+}))
+// Completeness has its own query and tests; here it is simply not known.
+vi.mock("@/lib/listings/completeness-query", () => ({
+  useBoardCompleteness: () => ({ data: [], isPending: false }),
 }))
 vi.mock("next/link", () => ({
   default: ({
@@ -92,7 +97,7 @@ function stub() {
 }
 
 describe("ListingsBoard in business mode", () => {
-  it("has no client column, chips, grouping or order control", () => {
+  it("has no client column, chips, grouping or client order", async () => {
     stub()
     const { container } = render(<ListingsBoard role="owner" />)
     expect(
@@ -104,9 +109,16 @@ describe("ListingsBoard in business mode", () => {
     expect(
       screen.queryByRole("group", { name: "Filter by client" })
     ).not.toBeInTheDocument()
+    // The order menu offers worst first and most to fix, never by client.
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: /^Order listings/ }))
     expect(
-      screen.queryByRole("button", { name: /^Order listings/ })
+      await screen.findByRole("menuitemradio", { name: "Most to fix" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitemradio", { name: "By client" })
     ).not.toBeInTheDocument()
+    await user.keyboard("{Escape}")
     expect(screen.queryByText("File under a client")).not.toBeInTheDocument()
     expect(container.textContent).not.toMatch(/client|agency/i)
   })

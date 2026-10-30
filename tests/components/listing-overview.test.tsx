@@ -7,6 +7,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/listings/l1",
   notFound: vi.fn(),
 }))
+// The completeness card has its own test; it needs a toast provider and
+// its own queries.
+vi.mock("@/components/listings/completeness-card", () => ({
+  CompletenessCard: () => null,
+}))
 vi.mock("next/link", () => ({
   default: ({
     href,
