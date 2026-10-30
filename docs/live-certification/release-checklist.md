@@ -9,23 +9,21 @@
 ## Latest production promotion — 30 October 2026
 
 - Production: [nabapresence.com](https://nabapresence.com).
-- Deployed commit: `3d0fcbff36804ce2da9a4080fc278775de6e9d9a`, shipping
-  PR #265 (listing completeness, review links, review topics, content checks
-  and Google change watch).
-- Vercel deployment: `dpl_4hav41nSWyopfFbPwHvnyVcPcybP`.
-- Promoted at `2026-10-30T15:51:33.526Z` (15:51 Europe/London).
-- [Production receipt](../release/receipts/20261030T155133Z-3d0fcbff3680.json)
-  and its byte-pinned [local gate receipt](../release/receipts/20261030T155133Z-3d0fcbff3680.local.json).
+- Deployed commit: `73536ddcf909e02cce5509d41d43007de2f84f4d`, shipping
+  PR #267 (replacement of the retired AI reply-generation model).
+- Vercel deployment: `dpl_9o4wEXWot4jgX1tKk8RWTTSFEmry`.
+- Promoted at `2026-10-30T17:49:13.269Z` (17:49 Europe/London).
+- [Production receipt](../release/receipts/20261030T174913Z-73536ddcf909.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261030T174913Z-73536ddcf909.local.json).
 - All 17 exact-main local release gate steps passed with no requested skips,
-  in 16.3 minutes: 10,089 unit/component tests (one skipped), 1,675
-  integration tests and 624 browser cases. Formatting, design/contrast,
-  bundle budgets, migration checks, production dependency audit, workflow
-  lint and full-history secret scanning passed. Upgrade base:
-  `c52f9efaacacd449491e72f560284a337f6c3987`.
-- A pre-migration `pg_dump` snapshot was saved locally at
-  `~/Library/Caches/naba-release-snapshots/naba-prod-20261030T154721Z-pre-opengmb.dump`.
-  Expand-only migrations 0150–0156 were applied; `db:status --expect-current`
-  confirmed all 156 migrations applied, with no pending or unknown versions.
+  in 15.8 minutes: 10,094 unit/component tests (one opt-in live test skipped),
+  1,675 integration tests and 624 browser cases. The separate synthetic live
+  provider test passed for generation and semantic verification. Upgrade base:
+  `3d0fcbff36804ce2da9a4080fc278775de6e9d9a`.
+- A pre-promotion `pg_dump` snapshot was saved locally at
+  `~/Library/Caches/naba-release-snapshots/naba-prod-20261030T174315Z-pre-ai-fix.dump`.
+  The release added no migrations; `db:status --expect-current` confirmed all
+  156 migrations applied, with no pending or unknown versions.
 - The source-owned helper staged with `--skip-domain`; its authenticated
   staged readiness probe reported this exact SHA before `vercel promote`.
   The first production probe confirmed it and `productionProbe.ok` is true.
@@ -33,9 +31,8 @@
   and `schema.compatible: true`. Readiness was **degraded** for
   `telemetry_disabled` (`no_endpoint`).
 - Public check: `/` redirects (HTTP 307) and `/sign-in` and `/terms` answer
-  HTTP 200. The public agentic e2e supplement and an authenticated browser
-  smoke were not run for this promotion. The `review_topics` organisation
-  feature was not enabled by this release operation.
+  HTTP 200. A live generation retry produced a private draft; its verification
+  flagged a sentence for correction and publication was not attempted.
 
 ## Historical PR #66 certification record
 
