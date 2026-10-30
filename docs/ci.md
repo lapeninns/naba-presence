@@ -26,7 +26,7 @@ budget alone would not enable a disabled repository.
 promotion, and no application deployment is needed for CI-only configuration.
 Keep the summary in the PR (`.github/pull_request_template.md`).
 
-### Local-ci merge-check proposal, not yet applied
+### Approved local-ci merge check, live cut-over pending validation
 
 The live main ruleset still requires Actions' `CI result`, pinned to the
 GitHub Actions integration (15368). Local-ci cannot publish that check under
@@ -40,16 +40,17 @@ type/lint/format/unit/design subset. The last successful local-ci run on
 2026-10-30 spent another 215.688 seconds on that duplicate subset after its
 966.333-second full gate. New end-to-end timing is not yet measured. The profile uses the
 PR's exact base SHA for upgrade checks, and allows 100 minutes for the
-90-minute gate plus browser installation. Prove the complete profile on the
-up-to-date PR head before asking the owner to replace `CI result` with
-`local-ci/release-gate`; keep strict up-to-date and PR requirements.
+90-minute gate plus browser installation. The owner approved replacing
+`CI result` with `local-ci/release-gate` after the complete profile passes on the
+up-to-date PR head. Keep strict up-to-date and PR requirements.
 
 This also changes the publisher trust boundary: the existing local-ci transport
 posts as the repository owner's authenticated `gh` account, not GitHub Actions.
-A status context alone does not pin that account in a ruleset. The owner must
-explicitly accept that model or provision a dedicated publisher GitHub App and
-pin its integration ID before cut-over. No ruleset change is part of this
-proposal. The checked-in Actions ruleset remains unchanged until approval.
+A status context alone does not pin that account in a ruleset. On 2026-10-30 the
+owner explicitly accepted owner-account statuses, matching NabaPerks. The
+checked-in ruleset records that approved target; the live ruleset must remain
+unchanged until exact-head validation and review complete. A dedicated publisher
+GitHub App with a pinned integration remains a future hardening option.
 
 - Workflows: `.github/workflows/ci.yml` (the required `CI result`) and
   `codeql.yml` (dormant: code scanning is unavailable on this private
@@ -119,7 +120,13 @@ after another (54-74 minutes); the workflow now calls the local gate.
 
 ## 3. Required checks
 
-**`CI result` is the only check to require.** It runs with `if: always()`,
+**Local-ci:** require `local-ci/release-gate` after the approved cut-over.
+It requires the complete native release gate, separate secret scan and the
+quick-check acknowledgment described above. Missing, skipped, failed or
+cancelled required work cannot produce a successful aggregate. Before cut-over,
+the existing live `CI result` requirement continues to block merge.
+
+**Dormant Actions reference: `CI result`.** It runs with `if: always()`,
 checks out only `scripts/ci`, and runs `node scripts/ci/aggregate-results.mjs`
 with `needs`, Plan's `code` output and the event. Every job that applies must
 be `success`; `skipped`, `failure` and `cancelled` all fail, except one
@@ -136,27 +143,29 @@ the gate (`GATE_STEPS` in `scripts/release/local-receipt.mjs`), not in a new
 job, so it runs locally too. No ruleset change is needed: the ruleset only
 knows `CI result`, and job names are the same on both lanes.
 
-**Ruleset "main protection"** (id `23895031`, applied 2026-09-25 as
-`lapeninns`). Source of truth: `.github/rulesets/main.json`.
+**Ruleset "main protection"** (id `23895031`). The approved desired state is
+`.github/rulesets/main.json`; read back GitHub to prove the live state.
 
 - Deletion and non-fast-forward pushes are blocked.
 - A PR is required, with 0 approvals.
-- `CI result` (GitHub Actions, integration 15368) is required, and the
-  branch must be up to date.
-- Admins can bypass only through a PR, so there are no direct pushes. While
-  hosted CI cannot run, every merge uses that bypass: 178 PRs between
-  2026-10-04 and 2026-10-21 merged with `CI result` failing. Record the
-  gate's receipt summary in the PR (the template asks for it) and any
-  bypass in `docs/release/ledger.md` (CI-04).
+- `local-ci/release-gate` is the approved target, with the branch up to date.
+  Until validation and live re-application, GitHub still requires `CI result`
+  from integration 15368.
+- The existing admin-through-PR bypass setting is preserved, but do not use
+  it for this cut-over. Earlier budget-blocked merges used that bypass;
+  they are historical evidence, not permission to skip a current check.
 
 Merges are squash merges from an up-to-date branch, so the tree on `main`
 is the tree the gate tested.
 
-To change the ruleset, edit the JSON in a PR, then re-apply it and read it
-back:
+After the complete current-head profile passes and review is complete,
+compare the current live ruleset with the reviewed baseline. Stop if any
+unapproved setting changed. Apply only the approved required-check change,
+preserving every other rule, condition and bypass actor, then read it back.
+The target JSON is an audit reference, not permission to overwrite concurrent
+settings. Readback:
 
 ```bash
-gh api -X PUT repos/lapeninns/naba-presence/rulesets/23895031 --input .github/rulesets/main.json
 gh api repos/lapeninns/naba-presence/rules/branches/main
 ```
 
