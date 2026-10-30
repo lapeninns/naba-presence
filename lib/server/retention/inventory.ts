@@ -1128,6 +1128,16 @@ export const RETENTION_INVENTORY = [
     hold: "none",
     approval: { status: "internal" },
   },
+  // ---- S1: listing completeness ------------------------------------------
+  {
+    table: "listing_completeness_skip",
+    provenance: "customer",
+    action: "keep",
+    window: "until an owner or admin removes the skip, or with its listing",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
 ] as const satisfies readonly RetentionDataset[]
 
 /** A table the inventory classifies. */

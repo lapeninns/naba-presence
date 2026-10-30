@@ -161,4 +161,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "20260729000400_remove_local_demo_data",
   // S4: Organisation-wide content policy.
   "0330_content_banned_phrases",
+  // S1: listing completeness
+  "0300_listing_completeness_skip",
 ]

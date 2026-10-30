@@ -1518,6 +1518,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
 | `invitation_delivery` | operational | keep | with its invitation; deleted when the invitation is revoked | none | none | no | lifecycle |
 | `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0141) | cascade from `review` | gated | yes | lifecycle |
+| `listing_completeness_skip` | customer | keep | until an owner or admin removes the skip, or with its listing | none | none | no | lifecycle |
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |

@@ -9,6 +9,7 @@ import {
   ReviewPublishLink,
 } from "@/components/listings/area-frame"
 import { AreaCards } from "@/components/listings/area-cards"
+import { CompletenessCard } from "@/components/listings/completeness-card"
 import { FileUnderClient } from "@/components/listings/file-under-client"
 import {
   HealthStrip,
@@ -369,6 +370,12 @@ function ListingOverview({
                 canManageConsoles={canManageConsoles}
               />
             </section>
+
+            <CompletenessCard
+              locationId={locationId}
+              linked={entry.linked}
+              canManage={canManageConsoles}
+            />
 
             <HealthStrip
               linked={entry.linked}
