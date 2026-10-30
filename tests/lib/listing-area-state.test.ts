@@ -140,6 +140,25 @@ describe("areaState", () => {
     expect(areaState("suggestions", summary()).label).toBe("Nothing waiting")
   })
 
+  it("counts protected fields Google changed once, beside the suggestions", () => {
+    // The summary already leaves out suggestions the watch covers.
+    const mixed = summary({
+      suggestions: { profile: 1, foodMenus: 0, googleChanges: 2 },
+    })
+    expect(suggestionCount(mixed)).toBe(3)
+    expect(areaState("suggestions", mixed)).toMatchObject({
+      tone: "attention",
+      label: "3 waiting",
+      line: "2 protected fields changed · 1 suggestion",
+    })
+    const onlyWatch = summary({
+      suggestions: { profile: 0, foodMenus: 0, googleChanges: 1 },
+    })
+    expect(areaState("suggestions", onlyWatch).line).toBe(
+      "1 protected field changed"
+    )
+  })
+
   it("reports verification from the summary only", () => {
     expect(areaState("verification", summary()).label).toBe("Verified")
     expect(areaState("verification", summary({ verified: false })).label).toBe(

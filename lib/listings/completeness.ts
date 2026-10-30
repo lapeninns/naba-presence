@@ -389,7 +389,7 @@ export function evaluateCompleteness(
         }
       : {
           status: "pass",
-          detail: "Reads well and isn’t copied from another venue.",
+          detail: "Reads well and isn’t copied from another listing.",
         }
   })
   fromProfile("additional_categories", "Add categories", (value) =>

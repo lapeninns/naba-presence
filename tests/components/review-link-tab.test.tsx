@@ -39,6 +39,13 @@ vi.mock("@/lib/domain/review-link-qr", async (importOriginal) => {
   }
 })
 
+// The listing's name comes from the directory the listing's gate loaded.
+vi.mock("@/lib/queries/use-locations", () => ({
+  useLocationDirectory: () => ({
+    data: [{ id: "loc-1", name: "The Old Crown & Anchor" }],
+  }),
+}))
+
 const LOCATION = "loc-1"
 const TARGET = "https://g.page/r/abc/review"
 
@@ -118,14 +125,14 @@ function statsLoaded(totals = { clicks: 12, qrClicks: 5, newReviews: 3 }) {
   )
 }
 
-function renderTab() {
+function renderTab(role: string | null = "owner") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
-        <ReviewLinkTab locationId={LOCATION} />
+        <ReviewLinkTab locationId={LOCATION} role={role} />
       </Toaster>
     </QueryClientProvider>
   )
@@ -200,7 +207,7 @@ describe("ReviewLinkTab: no link yet", () => {
       screen.queryByRole("button", { name: "Create review link" })
     ).not.toBeInTheDocument()
     await userEvent.click(
-      screen.getByRole("button", { name: "Check Google now" })
+      screen.getByRole("button", { name: "Check for a new review form" })
     )
     expect(check.mutate).toHaveBeenCalledOnce()
   })
@@ -294,6 +301,38 @@ describe("ReviewLinkTab: a live link", () => {
     await user.click(within(dialog).getByRole("button", { name: "Switch off" }))
     expect(update.mutate).toHaveBeenCalledOnce()
     expect(update.mutate.mock.calls[0]![0]).toEqual({ action: "disable" })
+  })
+
+  it("keeps Make a new link and Switch off from a member, saying why", async () => {
+    loaded(makeState())
+    statsLoaded()
+    const user = userEvent.setup()
+    renderTab("member")
+    const reason =
+      "Only an owner or admin can do this: printed QR codes would stop working."
+    for (const name of ["Make a new link", "Switch off"]) {
+      const button = screen.getByRole("button", { name })
+      expectBlocked(button)
+      expect(button).toHaveAccessibleDescription(reason)
+      await user.click(button)
+    }
+    expect(screen.getByText(reason, { selector: "p" })).toBeVisible()
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(update.mutate).not.toHaveBeenCalled()
+    // The caption stays theirs to change.
+    expect(
+      screen.getByRole("textbox", { name: /Caption under the code/ })
+    ).toBeInTheDocument()
+  })
+
+  it("lets a member switch a switched-off link back on", async () => {
+    loaded(makeState({ link: makeLink({ status: "off" }) }))
+    statsLoaded()
+    renderTab("member")
+    await userEvent.click(
+      screen.getByRole("button", { name: "Switch back on" })
+    )
+    expect(update.mutate.mock.calls[0]![0]).toEqual({ action: "enable" })
   })
 
   it("points the link at Google’s new address on request", async () => {
@@ -424,6 +463,31 @@ describe("ReviewLinkTab: QR code", () => {
     expect(caption).toBe("Leave us a review on Google")
     for (const name of ["Download PNG", "Download SVG"]) {
       expect(screen.getByRole("button", { name })).not.toBeDisabled()
+    }
+  })
+
+  it("names the download after the listing and the code", async () => {
+    loaded(makeState())
+    statsLoaded()
+    const names: string[] = []
+    const createObjectURL = vi.fn(() => "blob:qr")
+    const revokeObjectURL = vi.fn()
+    Object.assign(URL, { createObjectURL, revokeObjectURL })
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        names.push(this.download)
+      })
+    try {
+      renderTab()
+      await userEvent.click(
+        screen.getByRole("button", { name: "Download SVG" })
+      )
+      expect(names).toEqual([
+        "the-old-crown-and-anchor-review-qr-abcdefghjk.svg",
+      ])
+    } finally {
+      click.mockRestore()
     }
   })
 

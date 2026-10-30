@@ -114,12 +114,13 @@ describeDatabase("review links", () => {
     locationId: string,
     action: Parameters<
       Awaited<ReturnType<typeof modules>>["updateReviewLink"]
-    >[1]["action"]
+    >[1]["action"],
+    role: Parameters<typeof sessionOf>[1] = "owner"
   ) {
     const { withTenant, updateReviewLink } = await modules()
     return withTenant(t.organisationId, (sql) =>
       updateReviewLink(sql, {
-        session: sessionOf(t),
+        session: sessionOf(t, role),
         locationId,
         requestId: randomUUID(),
         baseUrl: BASE,
@@ -256,6 +257,45 @@ describeDatabase("review links", () => {
     const on = await update(t, locationId, { action: "enable" })
     expect(on).toMatchObject({ status: "live", code: link.code })
     expect(await resolveReviewLink(link.code)).not.toBeNull()
+  })
+
+  it("lets only an owner or admin make a new link or switch it off", async () => {
+    const t = await tenant()
+    const locationId = await locationWithTarget(t)
+    const { link } = await create(t, locationId)
+    const { resolveReviewLink } = await modules()
+
+    // A member who may edit the listing: both break printed codes, so 403,
+    // and nothing changes.
+    for (const action of ["rotate", "disable"] as const) {
+      await expect(
+        update(t, locationId, { action }, "member")
+      ).rejects.toMatchObject({ status: 403, code: "permission_denied" })
+    }
+    expect(await resolveReviewLink(link.code)).toMatchObject({
+      linkId: link.id,
+    })
+    // The rest stays with anyone who may edit.
+    expect(
+      (
+        await update(
+          t,
+          locationId,
+          { action: "caption", caption: "Thanks for visiting" },
+          "member"
+        )
+      ).caption
+    ).toBe("Thanks for visiting")
+
+    // An admin may do both.
+    const rotated = await update(t, locationId, { action: "rotate" }, "admin")
+    expect(rotated.code).not.toBe(link.code)
+    const off = await update(t, locationId, { action: "disable" }, "admin")
+    expect(off.status).toBe("off")
+    // Switching back on breaks nothing: a member may.
+    expect(
+      (await update(t, locationId, { action: "enable" }, "member")).status
+    ).toBe("live")
   })
 
   it("follows Google's new review form when asked", async () => {

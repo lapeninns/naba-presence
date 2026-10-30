@@ -62,6 +62,7 @@ const OTHER_GROUPS: readonly {
 ]
 
 const HEADING_ID = "listing-completeness-heading"
+const CAPTION_ID = "listing-completeness-caption"
 
 /**
  * The card's heading, made focusable: where focus goes when the control it
@@ -126,6 +127,9 @@ function CompletenessCard({
   const [showAll, setShowAll] = useState(false)
   const data = query.data ?? null
 
+  // The card's own section label, drawn as the overview draws its other
+  // section labels ("Areas"): a muted caption-size h2 with its line under
+  // it, and the rows in a card below.
   const group = (
     children: React.ReactNode,
     options: {
@@ -134,32 +138,41 @@ function CompletenessCard({
       action?: React.ReactNode
     } = {}
   ) => (
-    <SettingsGroup
+    <section
       id="listing-completeness"
-      label="Completeness"
-      caption={options.caption}
-      action={options.action}
-      card
-      className="mt-0"
+      aria-labelledby={HEADING_ID}
+      aria-describedby={options.caption ? CAPTION_ID : undefined}
       aria-busy={options.busy || undefined}
+      className="flex flex-col gap-2"
     >
-      {children}
-    </SettingsGroup>
+      <div className="flex min-w-0 flex-col gap-0.5 px-1">
+        <div className="flex min-h-(--np-touch) items-center justify-between gap-3 desk:min-h-8">
+          <h2
+            id={HEADING_ID}
+            tabIndex={-1}
+            className="scroll-mt-(--np-touch) rounded-(--np-radius-tag) text-caption font-medium text-ink-muted outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-solid"
+          >
+            Completeness
+          </h2>
+          {options.action}
+        </div>
+        {options.caption ? (
+          <p
+            id={CAPTION_ID}
+            className="text-caption text-pretty text-ink-muted"
+          >
+            {options.caption}
+          </p>
+        ) : null}
+      </div>
+      <SettingsGroup card className="mt-0">
+        {children}
+      </SettingsGroup>
+    </section>
   )
 
-  if (!linked) {
-    return group(
-      <SettingsRow
-        label="Not linked to Google"
-        description="Link this listing to check how complete it is on Google."
-        value={
-          <StatusPill tone="neutral" plain>
-            Not linked
-          </StatusPill>
-        }
-      />
-    )
-  }
+  // The overview already says the listing isn't linked, with what to do.
+  if (!linked) return null
 
   if (query.isPending) {
     return group(
@@ -205,7 +218,10 @@ function CompletenessCard({
   const failing = failingChecks(data)
   const others = data.checks.length - failing.length
   // The last other check counted again leaves nothing to show or hide.
-  if (others === 0 && showAll) setShowAll(false)
+  const expanded = showAll && others > 0
+  // With nothing to fix, the row below says so: the caption keeps only the
+  // score, unless there's no score yet to explain.
+  const nothingToFix = failing.length === 0 && data.score !== null
   const caption = (
     <>
       <StatusPill tone={completenessTone(data.score)} className="me-2">
@@ -213,7 +229,7 @@ function CompletenessCard({
           ? completenessLabel(null)
           : `${completenessLabel(data.score)} complete`}
       </StatusPill>
-      {completenessSummary(data)}
+      {nothingToFix ? null : completenessSummary(data)}
       {!canManage && failing.length > 0
         ? " An owner or admin can skip a check that doesn’t apply."
         : null}
@@ -249,11 +265,6 @@ function CompletenessCard({
                 ? "Everything checked so far is in place. Some checks aren’t done yet."
                 : "This listing has everything we check for."
             }
-            value={
-              data.counts.unknown > 0 ? undefined : (
-                <StatusPill tone="healthy">Done</StatusPill>
-              )
-            }
           />
         ) : (
           failing.map((check) => (
@@ -285,11 +296,11 @@ function CompletenessCard({
           action:
             others > 0 ? (
               <SettingsGroupAction
-                aria-expanded={showAll}
+                aria-expanded={expanded}
                 aria-controls="listing-completeness-others"
                 onClick={() => setShowAll((open) => !open)}
               >
-                {showAll
+                {expanded
                   ? "Hide other checks"
                   : `Show other checks (${others})`}
               </SettingsGroupAction>
@@ -298,10 +309,10 @@ function CompletenessCard({
       )}
       <div
         id="listing-completeness-others"
-        hidden={!showAll}
+        hidden={!expanded}
         className="flex flex-col gap-4"
       >
-        {showAll ? (
+        {expanded ? (
           <OtherChecks
             data={data}
             canManage={canManage}

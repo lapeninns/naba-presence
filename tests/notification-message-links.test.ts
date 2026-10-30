@@ -126,7 +126,7 @@ describe("notification email links", () => {
       locationId,
       changeId: "44444444-4444-4444-8444-444444444444",
       field: "phone",
-      fieldLabel: "Phone",
+      fieldLabel: "Phone number",
     }
     expect(reviewNotificationPath("listing_google_changed", summary)).toBe(
       `/listings/${locationId}/suggestions`
@@ -138,7 +138,7 @@ describe("notification email links", () => {
     )
     expect(subject).toBe("Listing changed on Google: The White Horse")
     expect(text).toContain(
-      "Phone for The White Horse was changed on Google and no longer matches yours. Guests see Google's version now. Nothing is sent to Google until an owner or admin puts yours back or keeps Google's."
+      "Phone number for The White Horse was changed on Google and no longer matches yours. Guests see Google's version now. Nothing is sent to Google until an owner or admin chooses Put ours back or Keep Google's."
     )
     expect(linkLine(text, "Open")).toBe(
       `${APP}/listings/${locationId}/suggestions`

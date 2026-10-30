@@ -115,7 +115,7 @@ function renderPanel() {
 /** The list row of the change whose diff table has this title. */
 async function rowFor(title: string) {
   const table = await screen.findByRole("table", {
-    name: `${title}: ours against what Google shows`,
+    name: `${title}: ours against Google’s`,
   })
   const row = table.closest("li")
   expect(row).not.toBeNull()
@@ -227,7 +227,7 @@ describe("GoogleChangesPanel", () => {
       within(table).getByRole("columnheader", { name: "Ours" })
     ).toBeInTheDocument()
     expect(
-      within(table).getByRole("columnheader", { name: "On Google" })
+      within(table).getByRole("columnheader", { name: "Google’s" })
     ).toBeInTheDocument()
     const cells = within(table).getAllByRole("cell")
     expect(cells[0]).toHaveTextContent("The White Horse")
@@ -237,7 +237,7 @@ describe("GoogleChangesPanel", () => {
       within(row).getByRole("button", { name: "Put ours back" })
     ).toBeInTheDocument()
     expect(
-      within(row).getByRole("button", { name: "Accept Google’s" })
+      within(row).getByRole("button", { name: "Keep Google’s" })
     ).toBeInTheDocument()
   })
 
@@ -253,7 +253,7 @@ describe("GoogleChangesPanel", () => {
     )
     renderPanel()
 
-    const row = await rowFor("Phone")
+    const row = await rowFor("Phone number")
     expect(within(row).getByText("Needs a decision")).toBeInTheDocument()
     expect(
       within(row).queryByText("Ours includes unpublished edits")
@@ -302,7 +302,7 @@ describe("GoogleChangesPanel", () => {
     renderPanel()
 
     const table = await screen.findByRole("table", {
-      name: /^Special hours: .*25 Dec 2026: ours against what Google shows$/,
+      name: /^Special hours: .*25 Dec 2026: ours against Google’s$/,
     })
     const bodyRows = within(table).getAllByRole("row").slice(1)
     expect(bodyRows).toHaveLength(1)
@@ -319,7 +319,7 @@ describe("GoogleChangesPanel", () => {
     renderPanel()
 
     const row = await rowFor("Business name")
-    for (const name of ["Put ours back", "Accept Google’s"]) {
+    for (const name of ["Put ours back", "Keep Google’s"]) {
       const button = within(row).getByRole("button", { name })
       expect(button).toHaveAttribute("aria-disabled", "true")
       expect(button).toHaveAccessibleDescription(DECIDE_REASON)
@@ -412,9 +412,9 @@ describe("GoogleChangesPanel", () => {
     })
     renderPanel()
 
-    const row = await rowFor("Phone")
+    const row = await rowFor("Phone number")
     await userEvent.click(
-      within(row).getByRole("button", { name: "Accept Google’s" })
+      within(row).getByRole("button", { name: "Keep Google’s" })
     )
     const dialog = await screen.findByRole("alertdialog", {
       name: /^Keep Google’s .*\?$/,
@@ -422,7 +422,7 @@ describe("GoogleChangesPanel", () => {
     expect(decide).not.toHaveBeenCalled()
 
     await userEvent.click(
-      within(dialog).getByRole("button", { name: "Accept Google’s" })
+      within(dialog).getByRole("button", { name: "Keep Google’s" })
     )
     await waitFor(() => expect(decide).toHaveBeenCalled())
     expect(decide.mock.calls[0]?.slice(0, 3)).toEqual([
@@ -442,13 +442,13 @@ describe("GoogleChangesPanel", () => {
 
     const row = await rowFor("Business name")
     await userEvent.click(
-      within(row).getByRole("button", { name: "Accept Google’s" })
+      within(row).getByRole("button", { name: "Keep Google’s" })
     )
     const dialog = await screen.findByRole("alertdialog", {
       name: /^Keep Google’s .*\?$/,
     })
     const confirm = within(dialog).getByRole("button", {
-      name: "Accept Google’s",
+      name: "Keep Google’s",
     })
     expect(
       confirm.hasAttribute("disabled") ||
@@ -459,7 +459,7 @@ describe("GoogleChangesPanel", () => {
 
     await userEvent.click(within(dialog).getByRole("checkbox"))
     await userEvent.click(
-      within(dialog).getByRole("button", { name: "Accept Google’s" })
+      within(dialog).getByRole("button", { name: "Keep Google’s" })
     )
     await waitFor(() => expect(decide).toHaveBeenCalled())
     expect(decide.mock.calls[0]?.[2]).toEqual({
@@ -640,23 +640,25 @@ describe("GoogleChangesPanel", () => {
     expect(within(row).queryByRole("button")).toBeNull()
   })
 
-  it("summarises what is watched and opens the settings on request", async () => {
+  it("summarises what is protected and opens the settings on request", async () => {
     mockChanges(response([]))
     renderPanel()
 
     expect(
       await screen.findByText(
-        "Watching 7 fields · alerts go to owners and admins"
+        "7 fields protected · alerts go to owners and admins"
       )
     ).toBeInTheDocument()
-    const toggle = screen.getByRole("button", { name: "Choose what’s watched" })
+    const toggle = screen.getByRole("button", {
+      name: "Choose protected fields",
+    })
     expect(toggle).toHaveAttribute("aria-expanded", "false")
     await userEvent.click(toggle)
     expect(
-      screen.getByRole("button", { name: "Hide what’s watched" })
+      screen.getByRole("button", { name: "Hide protected fields" })
     ).toHaveAttribute("aria-expanded", "true")
     expect(
-      await screen.findByRole("heading", { name: "What’s watched on Google" })
+      await screen.findByRole("heading", { name: "What’s protected on Google" })
     ).toBeInTheDocument()
   })
 

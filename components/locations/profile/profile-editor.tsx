@@ -37,7 +37,6 @@ import {
 } from "react"
 
 import { DiscardDialog } from "@/components/editors/discard-dialog"
-import { Checkbox } from "@/components/ui/checkbox"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
@@ -98,6 +97,8 @@ import {
   useRefreshProfile,
 } from "@/lib/queries/use-location-profile"
 import { ApiClientError, isAwaitingApproval } from "@/lib/api/client"
+import { contentWarningFromError } from "@/lib/api/content-warnings"
+import { ContentWarnings } from "@/components/content/content-warnings"
 import {
   publishBusinessAttributes,
   publishBusinessInformation,
@@ -471,18 +472,28 @@ function ProfileEditor({
   } = valuesDraft
   const [reviewOpen, setReviewOpen] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
+  // Content warnings the server asked to be acknowledged, for the values
+  // they were raised on and the action that raised them: "Save here" on the
+  // page, or Publish in the review sheet, which stays open with them.
   const [contentWarning, setContentWarning] = useState<{
     token: string
     messages: string[]
     values: string
+    action: "save" | "publish"
   } | null>(null)
   const [contentWarningsAccepted, setContentWarningsAccepted] = useState(false)
   const contentWarningAcknowledgement =
     contentWarningsAccepted && contentWarning?.values === JSON.stringify(values)
       ? contentWarning.token
       : undefined
+  // The page's warnings block: a refused "Save here" moves focus to it.
+  const contentWarningsRef = useRef<HTMLDivElement>(null)
+  const [focusWarnings, setFocusWarnings] = useState(0)
+  useEffect(() => {
+    if (focusWarnings > 0) contentWarningsRef.current?.focus()
+  }, [focusWarnings])
   const captureContentWarning = useCallback(
-    (error: unknown) => {
+    (error: unknown, action: "save" | "publish") => {
       if (
         error instanceof ApiClientError &&
         error.code === "content_checks_failed"
@@ -497,26 +508,16 @@ function ProfileEditor({
               .join(" "),
           }))
       }
-      if (
-        !(error instanceof ApiClientError) ||
-        error.code !== "content_warning_acknowledgement_required"
-      )
-        return false
-      const details = error.details as
-        | {
-            contentWarningAcknowledgement?: unknown
-            reasons?: { message: string }[]
-          }
-        | undefined
-      if (typeof details?.contentWarningAcknowledgement !== "string")
-        return false
+      const warning = contentWarningFromError(error)
+      if (!warning) return false
       setContentWarning({
-        token: details.contentWarningAcknowledgement,
-        messages: details.reasons?.map((reason) => reason.message) ?? [],
+        token: warning.token,
+        messages: warning.messages,
         values: JSON.stringify(values),
+        action,
       })
       setContentWarningsAccepted(false)
-      setReviewOpen(false)
+      if (action === "save") setFocusWarnings((count) => count + 1)
       return true
     },
     [values]
@@ -753,7 +754,7 @@ function ProfileEditor({
             })
             expectValuesSave()
           } catch (cause) {
-            captureContentWarning(cause)
+            captureContentWarning(cause, "publish")
             // A server validation error belongs on the field it names, not
             // only in the step's failure line.
             const fields = serverFieldErrors(cause)
@@ -794,7 +795,7 @@ function ProfileEditor({
         return runProfileOperation(locationId, body, {
           intentId: intent.idFor(body),
         }).catch((cause) => {
-          captureContentWarning(cause)
+          captureContentWarning(cause, "publish")
           throw cause
         })
       },
@@ -959,8 +960,10 @@ function ProfileEditor({
           ? "Other profile edits still need review and publication."
           : "Not on Google until you publish.",
     },
+    // Shown on the page with the acknowledgement, not as a failure.
+    quietError: (cause) => contentWarningFromError(cause) !== null,
     onError: (cause) => {
-      captureContentWarning(cause)
+      captureContentWarning(cause, "save")
       const fields = serverFieldErrors(cause)
       if (Object.keys(fields).length > 0) setErrors(fields)
     },
@@ -1756,21 +1759,18 @@ function ProfileEditor({
             />
           </div>
 
+          {/* While the review sheet is open, it shows the warnings beside
+              its Publish button instead. */}
           {contentWarning &&
+          !reviewOpen &&
           contentWarning.values === JSON.stringify(values) ? (
-            <div
-              className="flex flex-col gap-2 text-ui text-warning-ink"
-              role="status"
-            >
-              <p>{contentWarning.messages.join(" ")}</p>
-              <Checkbox
-                checked={contentWarningsAccepted}
-                onCheckedChange={(checked) =>
-                  setContentWarningsAccepted(checked === true)
-                }
-                label="I have reviewed these content warnings."
-              />
-            </div>
+            <ContentWarnings
+              ref={contentWarningsRef}
+              messages={contentWarning.messages}
+              checked={contentWarningsAccepted}
+              onCheckedChange={setContentWarningsAccepted}
+              action={contentWarning.action}
+            />
           ) : null}
           {blocks.map((block) =>
             block.show ? (
@@ -1809,6 +1809,16 @@ function ProfileEditor({
         publishing={flow.isPublishing}
         results={flow.results}
         error={flow.error}
+        notice={
+          contentWarning && contentWarning.values === JSON.stringify(values) ? (
+            <ContentWarnings
+              messages={contentWarning.messages}
+              checked={contentWarningsAccepted}
+              onCheckedChange={setContentWarningsAccepted}
+              action="publish"
+            />
+          ) : null
+        }
         // Two-person gating is unchanged: any prepared request this person
         // can't approve keeps the whole publish off.
         publishDisabledReason={

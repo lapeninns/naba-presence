@@ -103,15 +103,13 @@ const KIND_ICONS: Partial<Record<NotificationEventKind, LucideIcon>> = {
   verification_changed: BadgeCheck,
   suggestions_available: Lightbulb,
   resource_stale: RefreshCw,
-  // S3
   review_topic_negative: MessageSquareWarning,
-  // S5
   listing_google_changed: ArrowLeftRight,
 }
 
 /**
- * S3: a topic alert opens a filtered list of reviews, not one review. S5: a
- * listing changed on Google opens its Suggested updates tab.
+ * A topic alert opens a filtered list of reviews, not one review. A listing
+ * changed on Google opens its Suggested updates tab.
  */
 function reviewsLabel(kind: NotificationEventKind): string {
   if (kind === "review_topic_negative") return "Open reviews"

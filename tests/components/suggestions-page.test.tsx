@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { renderWithProviders } from "../helpers/render"
 import { SuggestionsTab } from "@/components/locations/suggestions/suggestions-page"
 import { ApiClientError } from "@/lib/api/client"
+import * as watchApi from "@/lib/api/google-change-watch"
 import * as importReviewApi from "@/lib/api/location-import-review"
 import type {
   ImportProposal,
@@ -157,12 +158,13 @@ describe("SuggestionsTab", () => {
     serve([proposal()])
     renderWithProviders(<SuggestionsTab locationId={LOCATION} />)
 
+    // No third number: the panel above already counts what to decide.
     expect(
       await screen.findByText(
-        /1 suggestion for protected fields is decided above/
+        "Suggestions for protected fields are decided above, under Protected fields Google changed."
       )
     ).toBeInTheDocument()
-    // Decided in the panel ("Put ours back" / "Accept Google’s"), not
+    // Decided in the panel ("Put ours back" / "Keep Google’s"), not
     // again as a suggestion (Accept / Ignore).
     expect(screen.queryByRole("button", { name: "Accept" })).toBeNull()
     expect(
@@ -170,7 +172,17 @@ describe("SuggestionsTab", () => {
     ).toBeInTheDocument()
   })
 
-  beforeEach(() => useCapsMock.mockReturnValue(caps()))
+  beforeEach(() => {
+    useCapsMock.mockReturnValue(caps())
+    // The watch's own check finds nothing unless a test says otherwise.
+    vi.spyOn(watchApi, "checkGoogleChanges").mockResolvedValue({
+      changes: [],
+      canDecide: true,
+      lastCheckedAt: new Date().toISOString(),
+      found: 0,
+      unchecked: [],
+    })
+  })
   afterEach(() => vi.restoreAllMocks())
 
   it("tells a screen reader the list is loading", async () => {
@@ -215,7 +227,7 @@ describe("SuggestionsTab", () => {
       "Only owners and admins can check Google for suggestions."
     )
     expect(
-      screen.getByText(
+      await screen.findByText(
         "Only owners and admins can accept or ignore suggestions"
       )
     ).toBeInTheDocument()
@@ -308,5 +320,88 @@ describe("SuggestionsTab", () => {
     expect(
       screen.queryByRole("button", { name: "Refresh from Google" })
     ).not.toBeInTheDocument()
+  })
+
+  it("runs both checks from one button and says what they found in one toast", async () => {
+    const user = userEvent.setup()
+    serve([proposal()])
+    const watch = vi.mocked(watchApi.checkGoogleChanges).mockResolvedValue({
+      changes: [],
+      canDecide: true,
+      lastCheckedAt: new Date().toISOString(),
+      found: 2,
+      unchecked: [],
+    })
+    const refresh = vi
+      .spyOn(importReviewApi, "refreshImportReview")
+      .mockResolvedValue({
+        refreshed: true,
+        outcomes: { profile: outcome(1), foodMenus: outcome(0) },
+      })
+    renderWithProviders(<SuggestionsTab locationId={LOCATION} />)
+
+    // One check for the tab, above the protected fields panel.
+    const checks = await screen.findAllByRole("button", {
+      name: "Check Google now",
+    })
+    expect(checks).toHaveLength(1)
+    const panel = screen.getByRole("heading", {
+      name: /Protected fields Google changed/,
+    })
+    expect(
+      checks[0]!.compareDocumentPosition(panel) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+
+    await user.click(checks[0]!)
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    expect(watch).toHaveBeenCalledTimes(1)
+    expect(await screen.findAllByText("Checked with Google")).toHaveLength(1)
+    expect(
+      screen.getByText(
+        "2 protected fields changed on Google. 1 new suggestion to review."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("with suggestions off, says there is nothing to review only when nothing is open above", async () => {
+    vi.spyOn(importReviewApi, "fetchImportReview").mockResolvedValue({
+      ...list([]),
+      importReviewEnabled: false,
+    })
+    const { unmount } = renderWithProviders(
+      <SuggestionsTab locationId={LOCATION} />
+    )
+    expect(
+      await screen.findByText(/so there is nothing to review here/)
+    ).toBeInTheDocument()
+    unmount()
+
+    watchChanges.live = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        field: "phone",
+        status: "open",
+        resolution: null,
+        ours: { field: "phone", value: "01234 567890" },
+        google: { field: "phone", value: "01234 000000" },
+        googleHash: "a".repeat(64),
+        localEdits: false,
+        regularDays: [],
+        specialDates: [],
+        detectedAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        decidedAt: null,
+        decidedBy: null,
+        revert: null,
+      },
+    ]
+    renderWithProviders(<SuggestionsTab locationId={LOCATION} />)
+    expect(
+      await screen.findByText(
+        /Protected fields Google changed are still decided above/
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/nothing to review here/)).toBeNull()
   })
 })

@@ -163,8 +163,6 @@ export function modelNote(
 ): string {
   // Booking links have no NabaPresence draft, but nothing goes out unreviewed:
   // each change is prepared, reviewed and approved, then sent separately.
-  if (area === "reviewLink")
-    return "Nothing here changes the listing on Google: the link sends guests to Google’s own review form."
   if (area === "booking")
     return "No draft is kept here: review each link change, approve it, then send it to Google as a separate step."
   if (area === "people")
@@ -185,6 +183,7 @@ export function modelNote(
     case "inbound":
       return "Google's changes wait here until you accept or ignore them. Accepting changes NabaPresence's copy only."
     case "local":
-      return "Nothing here changes your Google listing. The link and QR code just send guests to Google’s own review form."
+      // The review link's model: it is the only "local" area.
+      return "Nothing here changes the listing on Google: the link and QR code send guests to Google’s own review form."
   }
 }

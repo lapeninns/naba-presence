@@ -35,7 +35,6 @@ import {
 } from "@/components/locations/posts/post-publish"
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ApiClientError } from "@/lib/api/client"
 import { contentWarningFromError } from "@/lib/api/content-warnings"
+import { ContentWarnings } from "@/components/content/content-warnings"
 import {
   decidePostApproval,
   deletePost,
@@ -278,6 +278,8 @@ export function PostsActionBar({
     successToast: (_, decision) =>
       decision === "reject" ? "Sent back to draft" : null,
     errorContext: "post",
+    // Shown in the approve dialog with the acknowledgement, not as a failure.
+    quietError: (error) => contentWarningFromError(error) !== null,
     onError: (error, _message, decision) => {
       const warning = decision === "approve" && contentWarningFromError(error)
       if (!warning) return
@@ -655,19 +657,12 @@ export function PostsActionBar({
           {shownApprovalWarning ? (
             // The warnings as they stand now. Approving publishes, so it
             // waits for this approver's own acknowledgement.
-            <div
-              role="status"
-              className="flex flex-col gap-2 text-ui text-warning-ink"
-            >
-              <p>{shownApprovalWarning.messages.join(" ")}</p>
-              <Checkbox
-                checked={approvalWarningAccepted}
-                onCheckedChange={(checked) =>
-                  setApprovalWarningAccepted(checked === true)
-                }
-                label="I have reviewed these content warnings."
-              />
-            </div>
+            <ContentWarnings
+              messages={shownApprovalWarning.messages}
+              checked={approvalWarningAccepted}
+              onCheckedChange={setApprovalWarningAccepted}
+              action="approve and publish"
+            />
           ) : null}
           <AlertDialogFooter>
             <AlertDialogClose

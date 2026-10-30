@@ -29,7 +29,7 @@ import {
 /**
  * Which fields of this listing are protected on Google and who hears when
  * Google changes one. Owners and admins choose; everyone else sees what is
- * watched and who is alerted. One card, saved with its own button (the
+ * protected and who is alerted. One card, saved with its own button (the
  * settings save contract, components/settings/policy-form.tsx).
  */
 
@@ -103,7 +103,7 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
     return (
       <div className="flex flex-col items-start gap-2">
         <Alert variant="destructive">
-          <AlertTitle>We couldn’t load what’s watched on Google</AlertTitle>
+          <AlertTitle>We couldn’t load what’s protected on Google</AlertTitle>
           <AlertDescription>
             {describeActionError(query.error)}
           </AlertDescription>
@@ -123,7 +123,7 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
     return (
       <div aria-busy="true" className="flex flex-col gap-2">
         <p role="status" className="sr-only">
-          Loading what’s watched on Google…
+          Loading what’s protected on Google…
         </p>
         <Skeleton className="h-4 w-1/4" />
         <Skeleton className="h-24 w-full" />
@@ -154,17 +154,17 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
       <SettingsGroup
         headingAs="h2"
         headingId="google-watch-heading"
-        label="What’s watched on Google"
-        caption="Owners and admins choose what’s watched and who is alerted."
+        label="What’s protected on Google"
+        caption="Owners and admins choose what’s protected and who is alerted."
         card
         bodyAs="div"
         className="mt-0"
       >
         <dl className="flex flex-col gap-2 py-3 text-ui desk:px-(--np-card-pad)">
           <div className="flex flex-wrap gap-x-2">
-            <dt className="text-ink-muted">Watched</dt>
+            <dt className="text-ink-muted">Protected</dt>
             <dd className="text-ink">
-              {fields.length ? fields.join(", ") : "Nothing is watched"}
+              {fields.length ? fields.join(", ") : "Nothing is protected"}
             </dd>
           </div>
           <div className="flex flex-wrap gap-x-2">
@@ -186,7 +186,7 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
       {
         onSuccess: () => {
           setDraft(null)
-          toasts.add({ title: "Watch settings saved", type: "success" })
+          toasts.add({ title: "Protection settings saved", type: "success" })
         },
       }
     )
@@ -195,7 +195,7 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
     <SettingsGroup
       headingAs="h2"
       headingId="google-watch-heading"
-      label="What’s watched on Google"
+      label="What’s protected on Google"
       caption="Choose the fields to protect and who hears when Google changes one. Nothing is ever put back automatically."
       card
       bodyAs="div"
@@ -227,8 +227,8 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
           </OptionRowGroup>
           {draft.protectedFields.length === 0 ? (
             <p className="text-caption text-ink-muted">
-              Nothing is watched. Google can change this listing without anyone
-              hearing about it here.
+              Nothing is protected. Google can change this listing without
+              anyone hearing about it here.
             </p>
           ) : null}
         </div>
@@ -312,7 +312,8 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
 
         {save.isError ? (
           <p role="alert" className="text-ui text-danger-ink">
-            Your watch settings weren’t saved. {describeActionError(save.error)}
+            Your protection settings weren’t saved.{" "}
+            {describeActionError(save.error)}
           </p>
         ) : null}
 
@@ -330,7 +331,7 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
             pending={save.isPending}
             pendingLabel="Saving…"
           >
-            Save watch settings
+            Save protection settings
           </Button>
           {changed ? (
             <Button variant="ghost" onClick={() => setDraft(null)}>

@@ -197,3 +197,78 @@ describe("BulkCompose content warnings (S4)", () => {
     ).toBeNull()
   })
 })
+
+describe("BulkCompose description content warnings", () => {
+  it("asks for the description's consent and sends it with that change", async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith("/api/listings/bulk/preview")) {
+        const body = JSON.parse(String(init?.body))
+        const change = body.items[0].changes[0]
+        return change.contentWarningAcknowledgement === TOKEN
+          ? json({ operation: { id: NEW_ID } }, 400)
+          : json(
+              {
+                error: "content_warning_acknowledgement_required",
+                message:
+                  "Read and acknowledge the content warnings before continuing.",
+                details: {
+                  item: 0,
+                  contentWarningAcknowledgement: TOKEN,
+                  reasons: [
+                    {
+                      code: "content_caps",
+                      severity: "warn",
+                      message: "The description is written in all capitals.",
+                    },
+                  ],
+                },
+              },
+              409
+            )
+      }
+      if (url.startsWith("/api/assets?status=ready"))
+        return json({ assets: [] })
+      return json({ error: "not_found" }, 404)
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<BulkCompose />)
+    await user.click(screen.getByRole("combobox", { name: "What to change" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Business information" })
+    )
+    await user.click(
+      screen.getByRole("combobox", { name: "Description change" })
+    )
+    await user.click(await screen.findByRole("option", { name: "Set to" }))
+    await user.type(
+      screen.getByLabelText("New description"),
+      "THE BEST PUB IN TOWN"
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Preview this change" })
+    )
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "I have reviewed these content warnings for the description on every listing.",
+    })
+    expect(checkbox).toHaveAccessibleDescription(
+      "Tick this, then preview again."
+    )
+    expect(
+      screen.getByText("The description is written in all capitals.")
+    ).toBeInTheDocument()
+    await user.click(checkbox)
+    await user.click(
+      screen.getByRole("button", { name: "Preview this change" })
+    )
+    await vi.waitFor(() => expect(previewBodies()).toHaveLength(2))
+    expect(previewBodies()[1].items[0].changes).toEqual([
+      {
+        field: "profile.description",
+        action: "set",
+        value: "THE BEST PUB IN TOWN",
+        contentWarningAcknowledgement: TOKEN,
+      },
+    ])
+  })
+})

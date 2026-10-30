@@ -86,6 +86,24 @@ const LOCATION_NOT_FOUND = {
   message: "Listing not found.",
 }
 
+/**
+ * Visibility plus existence: owners and admins are granted every id, so a
+ * listing from another organisation (or none) must still answer 404.
+ */
+async function requireListing(
+  sql: TransactionSql,
+  session: Session,
+  locationId: string
+) {
+  await requireLocationAccess(sql, session, locationId, LOCATION_NOT_FOUND)
+  const [row] = await sql<{ id: string }[]>`
+    select id from location
+    where id = ${locationId} and organisation_id = ${session.organisationId}
+  `
+  if (!row)
+    throw new ApiError(404, LOCATION_NOT_FOUND.code, LOCATION_NOT_FOUND.message)
+}
+
 const PROFILE_FIELDS = ["name", "description", "phone", "website"] as const
 
 // ---------------------------------------------------------------------------
@@ -164,7 +182,7 @@ export async function readGoogleWatchSettings(
   locationId: string
 ): Promise<GoogleWatchSettingsResponse> {
   return withTenant(session.organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId, LOCATION_NOT_FOUND)
+    await requireListing(sql, session, locationId)
     const watch = await loadWatch(sql, session.organisationId, locationId)
     const canManage = isManagerialRole(session.role)
     const everyone = await describePeople(sql, locationId)
@@ -229,7 +247,7 @@ export async function updateGoogleWatchSettings(input: {
   const recipientIds =
     settings.alertMode === "chosen" ? [...new Set(settings.recipientIds)] : []
   await withTenant(session.organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId, LOCATION_NOT_FOUND)
+    await requireListing(sql, session, locationId)
     const [location] = await sql<{ id: string }[]>`
       select id::text as id from location
       where id = ${locationId} and organisation_id = ${session.organisationId}
@@ -1128,7 +1146,7 @@ export async function listGoogleChanges(
   locationId: string
 ): Promise<GoogleChangesResponse> {
   return withTenant(session.organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId, LOCATION_NOT_FOUND)
+    await requireListing(sql, session, locationId)
     return readChanges(sql, session, locationId)
   })
 }

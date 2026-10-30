@@ -34,7 +34,11 @@ export const reviewLinkStateSchema = z.object({
   googleTarget: z.string().nullable(),
   /** The link points somewhere other than Google's current review form. */
   targetChanged: z.boolean(),
-  /** Whether this person may create, rotate, switch off or caption it. */
+  /**
+   * Whether this person may create, caption or switch it back on. Rotating
+   * and switching off are for owners and admins only (printed codes stop
+   * working), decided from the session role.
+   */
   canManage: z.boolean(),
 })
 export type ReviewLinkState = z.infer<typeof reviewLinkStateSchema>

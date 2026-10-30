@@ -388,7 +388,7 @@ describe("topicTrendsCsv", () => {
   it("starts with a header naming each trend week", () => {
     const rows = topicTrendsCsv(trends())
     expect(rows[0]).toEqual([
-      "Venue",
+      "Listing",
       "Topic",
       "Reviews classified",
       "Mentions",
@@ -403,7 +403,12 @@ describe("topicTrendsCsv", () => {
     const rows = topicTrendsCsv(trends())
     expect(rows).toHaveLength(1 + REVIEW_TOPICS.length * 4)
     const venues = rows.slice(1).map((row) => row[0])
-    const blocks = ["All venues", "The Bell", "The Railway", "The White Horse"]
+    const blocks = [
+      "All listings",
+      "The Bell",
+      "The Railway",
+      "The White Horse",
+    ]
     expect(venues).toEqual(
       blocks.flatMap((venue) => REVIEW_TOPICS.map(() => venue))
     )
@@ -429,8 +434,8 @@ describe("topicTrendsCsv", () => {
       if (!row) throw new Error(`missing row ${venue} ${topic}`)
       return row
     }
-    expect(find("All venues", "food_quality")).toEqual([
-      "All venues",
+    expect(find("All listings", "food_quality")).toEqual([
+      "All listings",
       REVIEW_TOPIC_LABELS.food_quality,
       18,
       8,
@@ -464,7 +469,7 @@ describe("topicTrendsCsv", () => {
       4,
     ])
     // Nobody mentioned it: a real 0 share, an unknown negative share.
-    expect(find("All venues", "cleanliness").slice(2, 7)).toEqual([
+    expect(find("All listings", "cleanliness").slice(2, 7)).toEqual([
       18,
       0,
       0,

@@ -56,11 +56,21 @@ export async function assertContentChecks(
   sql: TransactionSql,
   input: {
     locationId?: string
+    /**
+     * Kept in the consent token only (it no longer changes the checks), so
+     * consents already stored on posts stay valid.
+     */
     allowEmpty?: boolean
     kind: "post" | "description"
     body: string
     offerEndDate?: string | null
     contentWarningAcknowledgement?: string | null
+    /**
+     * For a request that has no way to carry a consent: warnings refuse
+     * with this message, and without a token to acknowledge, so the person
+     * is sent where they can acknowledge them instead.
+     */
+    warningsAcknowledgedElsewhere?: string
   }
 ): Promise<string | null> {
   const bannedPhrases = await loadBannedPhrases(sql)
@@ -77,7 +87,13 @@ export async function assertContentChecks(
     month: "2-digit",
     day: "2-digit",
   }).format(new Date())
-  const reasons = contentChecks({ ...input, bannedPhrases, today })
+  const reasons = contentChecks({
+    kind: input.kind,
+    body: input.body,
+    offerEndDate: input.offerEndDate,
+    bannedPhrases,
+    today,
+  })
   const acknowledgement = contentWarningConsent({
     kind: input.kind,
     allowEmpty: input.allowEmpty ?? false,
@@ -95,6 +111,18 @@ export async function assertContentChecks(
   }
   if (
     reasons.length &&
+    input.contentWarningAcknowledgement !== acknowledgement &&
+    input.warningsAcknowledgedElsewhere
+  ) {
+    throw new ApiError(
+      409,
+      "content_warning_acknowledgement_required",
+      input.warningsAcknowledgedElsewhere,
+      { details: { reasons } }
+    )
+  }
+  if (
+    reasons.length &&
     input.contentWarningAcknowledgement !== acknowledgement
   ) {
     throw new ApiError(
@@ -105,6 +133,42 @@ export async function assertContentChecks(
     )
   }
   return reasons.length ? acknowledgement : null
+}
+
+/** Where a description's warnings can be acknowledged, for paths that cannot. */
+export const DESCRIPTION_WARNINGS_ELSEWHERE =
+  "This description has content warnings to acknowledge. Edit the description in the profile editor (the listing’s Profile tab), acknowledge the warnings there, then publish it from there."
+
+/** Whether a Google business-information update mask writes the description. */
+export function maskWritesDescription(updateMask: readonly string[]): boolean {
+  return updateMask.some(
+    (field) => field === "profile" || field === "profile.description"
+  )
+}
+
+/**
+ * The description content checks for a business-information write (the
+ * business-information editor, a Google change put back): the same checks,
+ * the same fail (422 `content_checks_failed`) and the organisation's banned
+ * phrases as the profile editor's save. These requests carry no consent, so
+ * a warning refuses (409 `content_warning_acknowledgement_required`, no
+ * token) with a pointer to the profile editor, where it can be given.
+ */
+export async function assertBusinessDescriptionChecks(
+  sql: TransactionSql,
+  input: {
+    locationId: string
+    updateMask: readonly string[]
+    payload: { profile?: { description?: string } }
+  }
+): Promise<void> {
+  if (!maskWritesDescription(input.updateMask)) return
+  await assertContentChecks(sql, {
+    kind: "description",
+    locationId: input.locationId,
+    body: input.payload.profile?.description ?? "",
+    warningsAcknowledgedElsewhere: DESCRIPTION_WARNINGS_ELSEWHERE,
+  })
 }
 
 /** Google LocalPost dates are calendar values, not host-local timestamps. */

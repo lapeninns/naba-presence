@@ -58,6 +58,7 @@ import {
   contentCheckFailureText,
   contentWarningFromError,
 } from "@/lib/api/content-warnings"
+import { ContentWarnings } from "@/components/content/content-warnings"
 import { fetchHours } from "@/lib/api/location-hours"
 import { fetchFoodMenus } from "@/lib/api/location-menu"
 import { bulkPreviewRequestSchema } from "@/lib/contracts/bulk-listings"
@@ -460,17 +461,19 @@ export function BulkCompose() {
     chooseAgain?: boolean
   } | null>(null)
   /**
-   * Content warnings the last preview asked to be acknowledged, for one post
-   * of the batch as it was sent (`post`: its content without any consent).
-   * Shown only while that post is unchanged in the batch; editing it makes
-   * the warnings, and any consent given for them, stale.
+   * Content warnings the last preview asked to be acknowledged, for one
+   * change of the batch as it was sent (`key`: its post or description
+   * without any consent, `consentKey`). Shown only while that change is
+   * unchanged in the batch; editing it makes the warnings, and any consent
+   * given for them, stale.
    */
   const [contentWarning, setContentWarning] = useState<{
-    post: string
+    key: string
+    subject: "post" | "description"
     token: string
     messages: string[]
   } | null>(null)
-  /** Consents given, by post content (`postConsentKey`): the token each acknowledged. */
+  /** Consents given, by content (`consentKey`): the token each acknowledged. */
   const [consents, setConsents] = useState<Record<string, string>>({})
   // Set once the preview exists and the page is on its way to it: the
   // button stays busy until the route changes, so a second press in that
@@ -702,26 +705,17 @@ export function BulkCompose() {
     : parsed.success && !problem
       ? [parsed.data]
       : []
-  // What is sent: each post draft with the warning consent given for its
-  // exact content, if any. The server checks the consent again at preview
-  // and when each listing's draft is made.
+  // What is sent: each post draft and description with the warning consent
+  // given for its exact content, if any. The server checks the consent
+  // again at preview and when each listing's change is made.
   const sent = batch.map((item) => {
-    if (item.operation !== "post_draft") return item
-    const token = consents[postConsentKey(item.post)]
-    return token
-      ? {
-          ...item,
-          post: { ...item.post, contentWarningAcknowledgement: token },
-        }
-      : item
+    const key = consentKey(item)
+    const token = key === null ? undefined : consents[key]
+    return token ? withConsent(item, token) : item
   })
   const shownWarning =
     contentWarning &&
-    batch.some(
-      (item) =>
-        item.operation === "post_draft" &&
-        postConsentKey(item.post) === contentWarning.post
-    )
+    batch.some((item) => consentKey(item) === contentWarning.key)
       ? contentWarning
       : null
   const request = bulkPreviewRequestSchema.safeParse({
@@ -786,16 +780,17 @@ export function BulkCompose() {
     onError: (error, key) => {
       const warning = contentWarningFromError(error)
       const item = warning?.item === undefined ? undefined : batch[warning.item]
-      if (warning && item?.operation === "post_draft") {
-        // Not a failure: the post needs the person's acknowledgement, given
-        // below, before the preview is asked for again.
-        const post = postConsentKey(item.post)
+      const consent = item ? consentKey(item) : null
+      if (warning && item && consent !== null) {
+        // Not a failure: the change needs the person's acknowledgement,
+        // given below, before the preview is asked for again.
         setContentWarning({
-          post,
+          key: consent,
+          subject: item.operation === "post_draft" ? "post" : "description",
           token: warning.token,
           messages: warning.messages,
         })
-        setConsents((given) => withoutKey(given, post))
+        setConsents((given) => withoutKey(given, consent))
         return
       }
       setFailure({ ...previewFailure(error), key })
@@ -1902,23 +1897,19 @@ export function BulkCompose() {
             </p>
           ) : null}
           {shownWarning ? (
-            <div
-              role="status"
-              className="flex flex-col gap-2 text-ui text-warning-ink"
-            >
-              <p>{shownWarning.messages.join(" ")}</p>
-              <Checkbox
-                checked={consents[shownWarning.post] === shownWarning.token}
-                onCheckedChange={(checked) =>
-                  setConsents((given) =>
-                    checked === true
-                      ? { ...given, [shownWarning.post]: shownWarning.token }
-                      : withoutKey(given, shownWarning.post)
-                  )
-                }
-                label="I have reviewed these content warnings for the post on every listing."
-              />
-            </div>
+            <ContentWarnings
+              messages={shownWarning.messages}
+              checked={consents[shownWarning.key] === shownWarning.token}
+              onCheckedChange={(checked) =>
+                setConsents((given) =>
+                  checked
+                    ? { ...given, [shownWarning.key]: shownWarning.token }
+                    : withoutKey(given, shownWarning.key)
+                )
+              }
+              label={`I have reviewed these content warnings for the ${shownWarning.subject} on every listing.`}
+              action="preview"
+            />
           ) : null}
           <FormError>{shownFailure?.text}</FormError>
           {shownFailure?.chooseAgain ? (
@@ -1991,6 +1982,44 @@ export function BulkCompose() {
  */
 function postConsentKey(post: Record<string, unknown>): string {
   return JSON.stringify(withoutKey(post, "contentWarningAcknowledgement"))
+}
+
+/**
+ * The content a change's warning consent is given for: a post draft's
+ * post, or the description a business-information change sets. Null for a
+ * change without content checks.
+ */
+function consentKey(item: BulkOperationInput): string | null {
+  if (item.operation === "post_draft")
+    return `post:${postConsentKey(item.post)}`
+  if (item.operation === "business_info") {
+    for (const change of item.changes)
+      if (change.field === "profile.description" && change.action === "set")
+        return `description:${JSON.stringify(change.value)}`
+  }
+  return null
+}
+
+/** The change with the consent given for its content. */
+function withConsent(
+  item: BulkOperationInput,
+  token: string
+): BulkOperationInput {
+  if (item.operation === "post_draft")
+    return {
+      ...item,
+      post: { ...item.post, contentWarningAcknowledgement: token },
+    }
+  if (item.operation === "business_info")
+    return {
+      ...item,
+      changes: item.changes.map((change) =>
+        change.field === "profile.description" && change.action === "set"
+          ? { ...change, contentWarningAcknowledgement: token }
+          : change
+      ),
+    }
+  return item
 }
 
 function withoutKey<T>(

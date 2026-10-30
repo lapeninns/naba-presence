@@ -249,6 +249,7 @@ export function CombinedReviewSheet({
   publishing,
   results = [],
   error,
+  notice,
   publishDisabledReason,
 }: {
   readonly open: boolean
@@ -260,6 +261,11 @@ export function CombinedReviewSheet({
   /** The publish flow's per-step results, mapped onto the rows. */
   readonly results?: readonly PublishStepResult[]
   readonly error?: string | null
+  /**
+   * Something the person must act on before publishing again, shown above
+   * the error (content warnings to acknowledge).
+   */
+  readonly notice?: React.ReactNode
   /** Why publishing can't run right now (paused, no permission). */
   readonly publishDisabledReason?: string | null
 }) {
@@ -428,6 +434,8 @@ export function CombinedReviewSheet({
           fallback={stepOutcome(unconfirmed) ?? "uncertain"}
         />
       ) : null}
+
+      {notice}
 
       {error ? (
         <p role="alert" className="text-ui text-danger-ink">

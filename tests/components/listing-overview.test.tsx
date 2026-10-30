@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({
 // The completeness card has its own test; it needs a toast provider and
 // its own queries.
 vi.mock("@/components/listings/completeness-card", () => ({
-  CompletenessCard: () => null,
+  CompletenessCard: () => <div data-testid="completeness-card" />,
 }))
 vi.mock("next/link", () => ({
   default: ({
@@ -48,7 +48,7 @@ function stub({
   summary: ListingSummary | undefined
   caps?: LocationCapabilities
   entry?: { linked?: boolean; clientId?: string | null }
-  /** The statuses of the listing's changes made on Google (S5). */
+  /** The statuses of the listing's changes made on Google. */
   googleChanges?: string[]
 }) {
   vi.spyOn(googleChangesHook, "useGoogleChanges").mockReturnValue({
@@ -340,6 +340,16 @@ describe("ListingOverview", () => {
     ).toBeTruthy()
   })
 
+  it("shows the completeness score above the areas, near the top on a phone", () => {
+    stub({ summary: summary() })
+    render(<ListingOverview locationId="l1" role="owner" />)
+    const areas = screen.getByRole("region", { name: "Areas" })
+    const card = screen.getByTestId("completeness-card")
+    expect(
+      card.compareDocumentPosition(areas) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it("keeps only the connection and last published under the areas, without repeating verification or sync", () => {
     stub({
       summary: summary({
@@ -537,7 +547,7 @@ describe("ListingOverview", () => {
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
-  it("shows what changed on Google beside the health pill, linking to Suggested updates (S5)", () => {
+  it("shows what changed on Google beside the health pill, linking to Suggested updates", () => {
     stub({
       summary: summary(),
       googleChanges: ["open", "open", "accepted", "reverting"],
@@ -549,7 +559,7 @@ describe("ListingOverview", () => {
       '[data-slot="listing-area-header"]'
     ) as HTMLElement
     const badge = within(header).getByRole("link", {
-      name: "2 fields changed on Google. Review them.",
+      name: /^2 changed on Google/,
     })
     expect(badge).toHaveAttribute("href", "/listings/l1/suggestions")
     expect(badge).toHaveTextContent("2 changed on Google")
@@ -557,7 +567,7 @@ describe("ListingOverview", () => {
     expect(within(header).getByText("Not checked")).toBeInTheDocument()
   })
 
-  it("shows no Google badge when nothing is open, or for a listing that isn't linked (S5)", () => {
+  it("shows no Google badge when nothing is open, or for a listing that isn't linked", () => {
     stub({ summary: summary(), googleChanges: ["accepted"] })
     const { unmount } = render(<ListingOverview locationId="l1" role="owner" />)
     expect(screen.queryByText(/changed on Google/)).toBeNull()
@@ -580,7 +590,7 @@ describe("ListingOverview", () => {
     expect(watched).not.toHaveBeenCalled()
   })
 
-  it("keeps the Google badge when the summary could not be read (S5)", () => {
+  it("keeps the Google badge when the summary could not be read", () => {
     stub({ summary: undefined, googleChanges: ["open"] })
     vi.spyOn(summaryHook, "useListingSummary").mockReturnValue({
       data: undefined,
@@ -591,7 +601,7 @@ describe("ListingOverview", () => {
     render(<ListingOverview locationId="l1" role="owner" />)
     expect(
       screen.getByRole("link", {
-        name: "1 field changed on Google. Review it.",
+        name: /^1 changed on Google/,
       })
     ).toHaveAttribute("href", "/listings/l1/suggestions")
   })

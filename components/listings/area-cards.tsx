@@ -14,7 +14,7 @@ import {
   UsersIcon,
   UtensilsIcon,
   type LucideIcon,
-  QrCodeIcon, // S2
+  QrCodeIcon,
 } from "lucide-react"
 
 import { ShellLink } from "@/components/app-shell/shell-link"
@@ -58,7 +58,7 @@ const AREA_ICON: Record<ListingAreaKey, LucideIcon> = {
   people: UsersIcon,
   verification: BadgeCheckIcon,
   suggestions: SparklesIcon,
-  reviewLink: QrCodeIcon, // S2
+  reviewLink: QrCodeIcon,
 }
 
 function AreaIcon({ area }: { area: ListingAreaKey }) {

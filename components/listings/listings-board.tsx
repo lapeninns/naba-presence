@@ -527,6 +527,7 @@ function CompletenessCell({
       </span>
     )
   const first = failingChecks(completeness)[0]
+  const more = completeness.counts.fail - 1
   const label = completenessLabel(completeness.score)
   return (
     <>
@@ -537,12 +538,24 @@ function CompletenessCell({
       <span className={cn("flex flex-col items-start gap-1", PHONE.wide)}>
         <StatusPill tone={completenessTone(completeness.score)}>
           {label}
+          {/* The column heading says it on screen; the overview's card reads
+              "82% complete", and so does a screen reader here. */}
+          {completeness.score === null ? null : (
+            <span className="sr-only"> complete</span>
+          )}
         </StatusPill>
         {first ? (
           <span className="text-caption text-ink-muted">
-            {completeness.counts.fail > 1
-              ? `${first.title} +${formatNumber(completeness.counts.fail - 1)}`
-              : first.title}
+            {first.title}
+            {more > 0 ? (
+              <>
+                {" "}
+                <span aria-hidden>+{formatNumber(more)}</span>
+                <span className="sr-only">
+                  and {formatNumber(more)} more to fix
+                </span>
+              </>
+            ) : null}
           </span>
         ) : null}
       </span>

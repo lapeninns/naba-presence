@@ -92,7 +92,9 @@ async function ensureLiveLink(page: Page, locationId: string) {
   if (await missing.isVisible()) {
     // The Business Information read, against the stub, which stores Google's
     // review form with the listing's details.
-    await page.getByRole("button", { name: "Check Google now" }).click()
+    await page
+      .getByRole("button", { name: "Check for a new review form" })
+      .click()
     await expect(create).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
   }
   if (await create.isVisible()) {
@@ -357,8 +359,9 @@ test.describe.serial("review link", () => {
         page.waitForEvent("download"),
         page.getByRole("button", { name }).click(),
       ])
-      expect(download.suggestedFilename()).toBe(
-        `review-qr-${code}.${extension}`
+      // Named after the listing (a slug of its name), then the code.
+      expect(download.suggestedFilename()).toMatch(
+        new RegExp(`^[a-z0-9-]+-review-qr-${code}\\.${extension}$`)
       )
       const path = await download.path()
       expect(path, `${name} saved`).toBeTruthy()
@@ -387,14 +390,14 @@ test.describe.serial("review link", () => {
       ).toBeVisible()
       await expect(
         viewer.getByText(
-          "Someone who can edit this listing can make a new link or switch it off."
+          "An owner or admin can make a new link or switch it off."
         )
       ).toBeVisible()
       for (const name of [
         "Make a new link",
         "Switch off",
         "Switch back on",
-        "Check Google now",
+        "Check for a new review form",
       ]) {
         await expect(viewer.getByRole("button", { name })).toHaveCount(0)
       }

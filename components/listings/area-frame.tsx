@@ -13,7 +13,7 @@ import {
   SendIcon,
   ShieldCheckIcon,
   UploadIcon,
-  LinkIcon, // S2
+  LinkIcon,
 } from "lucide-react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
@@ -113,7 +113,7 @@ const MODEL_ICON: Record<
   lifecycle: SendIcon,
   reviewed: ShieldCheckIcon,
   inbound: DownloadIcon,
-  local: LinkIcon, // S2
+  local: LinkIcon,
 }
 
 export type { ListingPageKey }
@@ -815,7 +815,7 @@ function AreaFrameBody({
       status
     ) : areaKey === "changes" ||
       areaKey === "verification" ||
-      // S2: the review link's page draws its own Live / Switched off.
+      // The review link's page draws its own Live / Switched off.
       areaKey === "reviewLink" ? null : editorPill ? (
       <StatusPill tone={editorPill.tone} data-slot="area-editor-status">
         {editorPill.label}
@@ -955,7 +955,6 @@ const AREA_EDITORS: Record<
       ),
     { loading: AreaEditorLoading }
   ),
-  // S2: review links.
   reviewLink: dynamic(
     () =>
       import("@/components/listings/review-link-tab").then(

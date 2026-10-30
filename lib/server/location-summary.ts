@@ -446,6 +446,7 @@ export async function readListingSummaries(
     photos,
     posts,
     suggestions,
+    googleChanges,
     attempts,
     reviewLinks,
   ] = await Promise.all([
@@ -530,11 +531,29 @@ export async function readListingSummaries(
         where location_id = any(${idList}::uuid[]) and status <> 'deleted'
         group by location_id, status
       `,
+    // A suggestion for a field the Google change watch has open (or is
+    // putting back) is decided in the watch's panel, so it is counted there,
+    // once, and not again here (suggestions-page.tsx hides it the same way).
     sql<SuggestionRow[]>`
-        select location_id::text as "locationId", resource_type as "resourceType", count(*)::int as count
-        from presence_import_proposal
-        where location_id = any(${idList}::uuid[]) and status = 'pending'
-        group by location_id, resource_type
+        select p.location_id::text as "locationId", p.resource_type as "resourceType", count(*)::int as count
+        from presence_import_proposal p
+        where p.location_id = any(${idList}::uuid[]) and p.status = 'pending'
+          and not (
+            p.resource_type = 'profile' and p.field_key is not null and exists (
+              select 1 from listing_google_change c
+              where c.location_id = p.location_id and c.field = p.field_key
+                and c.status in ('open', 'reverting')
+            )
+          )
+        group by p.location_id, p.resource_type
+      `,
+    // Protected fields Google changed that nobody has decided on: the same
+    // count as the overview's "changed on Google" badge.
+    sql<CountRow[]>`
+        select location_id::text as "locationId", count(*)::int as count
+        from listing_google_change
+        where location_id = any(${idList}::uuid[]) and status = 'open'
+        group by location_id
       `,
     // The newest attempt per listing across every area that publishes.
     sql<AttemptRow[]>`
@@ -602,6 +621,9 @@ export async function readListingSummaries(
   const menuBy = new Map(menuStates.map((row) => [row.locationId, row]))
   const bookingBy = new Map(booking.map((row) => [row.locationId, row.count]))
   const photosBy = new Map(photos.map((row) => [row.locationId, row.count]))
+  const googleChangesBy = new Map(
+    googleChanges.map((row) => [row.locationId, row.count])
+  )
   const attemptBy = new Map(attempts.map((row) => [row.locationId, row]))
   const reviewLinkBy = new Map(reviewLinks.map((row) => [row.locationId, row]))
   const postsBy = new Map<string, Record<string, number>>()
@@ -688,6 +710,7 @@ export async function readListingSummaries(
       suggestions: {
         profile: suggestionCounts.profile ?? 0,
         foodMenus: suggestionCounts.food_menus ?? 0,
+        googleChanges: googleChangesBy.get(link.locationId) ?? 0,
       },
       lastPublish: toLastPublish(attemptBy.get(link.locationId)),
       mapsUrl: googleMapsUrl(

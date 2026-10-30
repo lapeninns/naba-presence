@@ -12,6 +12,7 @@ import {
 import { ScopeSelect } from "@/components/performance/scope-select"
 import {
   ReviewTopicsSparkline,
+  ReviewTopicsSparklineLegend,
   sparklineLabel,
 } from "@/components/reports/review-topics-sparkline"
 import { SectionHeader } from "@/components/ui/section-header"
@@ -103,7 +104,7 @@ const reviewsWithText = (n: number) =>
   `${formatNumber(n)} ${n === 1 ? "review" : "reviews"} with text`
 
 /**
- * "What guests talk about" on Reports (S3): which topics reviews with text
+ * "What guests talk about" on Reports: which topics reviews with text
  * mention, how often, how negatively, and the last 8 weeks of each. One
  * table for the scope the page shows (the group, a client, or one listing),
  * then, when there is more than one listing, a listing-by-listing table for
@@ -194,6 +195,7 @@ function ReviewTopicsBody({
           }
         </p>
         <TopicTable lines={mentioned} scope={scope} />
+        <ReviewTopicsSparklineLegend />
         {unmentioned.length > 0 ? (
           <p className="text-caption text-ink-muted">
             {`Not mentioned: ${unmentioned
@@ -382,6 +384,7 @@ function ListingsByTopic({
           ))}
         </TableBody>
       </Table>
+      <ReviewTopicsSparklineLegend />
     </section>
   )
 }

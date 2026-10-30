@@ -412,7 +412,7 @@ describe("ReviewTopicsPanel topic table", () => {
     ).toBeInTheDocument()
   })
 
-  it("downloads every scope's topics with the Venue,Topic header", async () => {
+  it("downloads every scope's topics with the Listing,Topic header", async () => {
     const blobs: Blob[] = []
     vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
       blobs.push(blob as Blob)
@@ -434,14 +434,14 @@ describe("ReviewTopicsPanel topic table", () => {
       .split(/\r?\n/)
       .filter(Boolean)
       .map((line) => line.split(",").map((cell) => cell.replace(/^"|"$/g, "")))
-    expect(lines[0].slice(0, 2)).toEqual(["Venue", "Topic"])
+    expect(lines[0].slice(0, 2)).toEqual(["Listing", "Topic"])
     expect(lines[0]).toContain(`Week of ${WEEKS[0]}`)
     expect(lines[0].at(-1)).toBe(`Week of ${WEEKS[7]}`)
     // Header, then 13 topics for the group and for each of two listings.
     expect(lines).toHaveLength(1 + 13 * 3)
     const row = (venue: string, topic: string) =>
       lines.find((line) => line[0] === venue && line[1] === topic)
-    expect(row("All venues", "Food quality")?.slice(2, 4)).toEqual(["6", "3"])
+    expect(row("All listings", "Food quality")?.slice(2, 4)).toEqual(["6", "3"])
     expect(row("Zed Tavern", "Food quality")?.slice(2, 4)).toEqual(["4", "2"])
     expect(row("Alpha Inn", "Drinks")?.slice(2, 4)).toEqual(["2", "1"])
     window.dispatchEvent(new Event("pagehide"))

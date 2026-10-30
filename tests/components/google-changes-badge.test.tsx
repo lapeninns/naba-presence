@@ -97,5 +97,7 @@ describe("GoogleChangesBadge", () => {
     const link = await screen.findByRole("link")
     expect(link).toHaveAttribute("href", `/listings/${LOCATION}/suggestions`)
     expect(link).toHaveTextContent("2 changed on Google")
+    // The accessible name starts with what is on screen (WCAG 2.5.3).
+    expect(link.getAttribute("aria-label")).toMatch(/^2 changed on Google/)
   })
 })

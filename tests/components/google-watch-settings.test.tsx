@@ -36,8 +36,8 @@ const ALL_FIELDS = [
 
 const FIELD_LABELS = [
   "Business name",
-  "Description",
-  "Phone",
+  "Business description",
+  "Phone number",
   "Website",
   "Primary category",
   "Opening hours",
@@ -78,7 +78,7 @@ function isDisabled(element: HTMLElement) {
 }
 
 async function saveButton() {
-  return screen.findByRole("button", { name: "Save watch settings" })
+  return screen.findByRole("button", { name: "Save protection settings" })
 }
 
 describe("GoogleWatchSettings", () => {
@@ -88,7 +88,7 @@ describe("GoogleWatchSettings", () => {
     renderSettings(settingsResponse())
 
     expect(
-      await screen.findByRole("heading", { name: "What’s watched on Google" })
+      await screen.findByRole("heading", { name: "What’s protected on Google" })
     ).toBeInTheDocument()
     for (const label of FIELD_LABELS) {
       expect(screen.getByRole("checkbox", { name: label })).toHaveAttribute(
@@ -153,7 +153,9 @@ describe("GoogleWatchSettings", () => {
     )
     expect(input.alertMode).toBe("everyone")
     expect(input.recipientIds).toEqual([])
-    expect(await screen.findByText("Watch settings saved")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Protection settings saved")
+    ).toBeInTheDocument()
   })
 
   it("drops saved recipients when switching away from chosen people", async () => {
@@ -222,15 +224,15 @@ describe("GoogleWatchSettings", () => {
     )
   })
 
-  it("notes that nothing is watched when every field is unticked", async () => {
+  it("notes that nothing is protected when every field is unticked", async () => {
     renderSettings(settingsResponse())
 
     await screen.findByRole("checkbox", { name: "Business name" })
-    expect(screen.queryByText(/Nothing is watched\./)).toBeNull()
+    expect(screen.queryByText(/Nothing is protected\./)).toBeNull()
     for (const label of FIELD_LABELS) {
       await userEvent.click(screen.getByRole("checkbox", { name: label }))
     }
-    expect(screen.getByText(/Nothing is watched\./)).toBeInTheDocument()
+    expect(screen.getByText(/Nothing is protected\./)).toBeInTheDocument()
   })
 
   it("shows why a save failed", async () => {
@@ -240,14 +242,14 @@ describe("GoogleWatchSettings", () => {
     renderSettings(settingsResponse())
 
     await userEvent.click(
-      await screen.findByRole("checkbox", { name: "Phone" })
+      await screen.findByRole("checkbox", { name: "Phone number" })
     )
     await userEvent.click(await saveButton())
 
     const alert = await screen.findByRole("alert")
-    expect(alert).toHaveTextContent("Your watch settings weren’t saved.")
+    expect(alert).toHaveTextContent("Your protection settings weren’t saved.")
     expect(alert).toHaveTextContent("You do not have permission to do that.")
-    expect(screen.queryByText("Watch settings saved")).toBeNull()
+    expect(screen.queryByText("Protection settings saved")).toBeNull()
   })
 
   it("undoes unsaved changes back to the saved values", async () => {
@@ -283,16 +285,16 @@ describe("GoogleWatchSettings", () => {
       })
     )
 
-    const watched = await screen.findByText("Watched")
+    const watched = await screen.findByText("Protected")
     expect(watched.nextElementSibling).toHaveTextContent("Business name")
-    expect(watched.nextElementSibling).toHaveTextContent("Phone")
+    expect(watched.nextElementSibling).toHaveTextContent("Phone number")
     expect(watched.nextElementSibling).not.toHaveTextContent("Website")
     const alerts = screen.getByText("Alerts go to")
     expect(alerts.nextElementSibling).toHaveTextContent(
       "Everyone who can see this listing"
     )
     expect(
-      screen.queryByRole("button", { name: "Save watch settings" })
+      screen.queryByRole("button", { name: "Save protection settings" })
     ).toBeNull()
     expect(screen.queryByRole("checkbox")).toBeNull()
     expect(screen.queryByRole("radio")).toBeNull()
@@ -312,7 +314,7 @@ describe("GoogleWatchSettings", () => {
     const section = alerts.closest("dl") as HTMLElement
     expect(within(section).queryByText(MEMBER.name)).toBeNull()
     expect(
-      screen.queryByRole("button", { name: "Save watch settings" })
+      screen.queryByRole("button", { name: "Save protection settings" })
     ).toBeNull()
   })
 })

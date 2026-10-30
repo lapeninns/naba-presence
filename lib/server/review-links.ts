@@ -38,6 +38,7 @@ import { log } from "@/lib/server/logger"
 import {
   actionAllowed,
   grantsFor,
+  isManagerialRole,
   requireLocationAccess,
   type LocationNotFound,
 } from "@/lib/server/permissions"
@@ -353,9 +354,34 @@ export async function createReviewLink(
 }
 
 /**
+ * Actions that stop the current link and every printed QR code working:
+ * owner or admin only, on top of the "edit" action. Creating a link,
+ * captioning it, following Google's form and switching it back on stay
+ * with anyone who may edit the listing.
+ */
+const RETIRING_ACTIONS: ReadonlySet<ReviewLinkAction["action"]> = new Set([
+  "rotate",
+  "disable",
+])
+
+export function requireReviewLinkActionRole(
+  session: Pick<Session, "role">,
+  action: ReviewLinkAction["action"]
+): void {
+  if (RETIRING_ACTIONS.has(action) && !isManagerialRole(session.role)) {
+    throw new ApiError(
+      403,
+      "permission_denied",
+      "Only an owner or admin can make a new review link or switch it off: printed QR codes would stop working."
+    )
+  }
+}
+
+/**
  * Rotate, switch off, switch back on, follow Google's current review form,
  * or change the caption. Every change also follows Google's current form
- * when the stored read has one. The caller has checked the "edit" action.
+ * when the stored read has one. The caller has checked the "edit" action;
+ * rotating and switching off also need an owner or admin, checked here.
  */
 export async function updateReviewLink(
   sql: TransactionSql,
@@ -363,6 +389,7 @@ export async function updateReviewLink(
 ): Promise<ReviewLink> {
   const { session, locationId, action } = input
   await requireLocationRow(sql, locationId)
+  requireReviewLinkActionRole(session, action.action)
   const current = await selectLink(sql, locationId, { forUpdate: true })
   if (!current) {
     throw new ApiError(

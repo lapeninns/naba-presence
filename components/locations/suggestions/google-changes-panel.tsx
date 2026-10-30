@@ -48,12 +48,12 @@ import { cn } from "@/lib/utils"
  * Protected fields Google now shows differently from ours (the Google change
  * watch). Each row shows ours against what Google shows, with one action
  * each way: "Put ours back" makes a reviewed change that goes through the
- * usual approval and publishing, and "Accept Google’s" keeps Google’s value
+ * usual approval and publishing, and "Keep Google’s" keeps Google’s value
  * as ours. Nothing changes on Google without a person publishing it, and
  * nothing is put back automatically.
  *
  * Reads only the database (GET /google-changes). The tab's one "Check
- * Google now" (suggestions-page.tsx) also runs the watch.
+ * Google now", at the top of the tab (suggestions-page.tsx), runs the watch.
  */
 
 const DECIDE_REASON =
@@ -173,8 +173,8 @@ function watchSummary(settings: GoogleWatchSettingsResponse | undefined) {
   const { protectedFields, alertMode } = settings.settings
   const fields =
     protectedFields.length === 0
-      ? "Nothing is watched"
-      : `Watching ${countNoun(protectedFields.length, "field")}`
+      ? "Nothing is protected"
+      : `${countNoun(protectedFields.length, "field")} protected`
   const audience =
     alertMode === "managers"
       ? "alerts go to owners and admins"
@@ -323,11 +323,11 @@ export function GoogleChangesPanel({
 
   const emptyText =
     protectedCount === 0
-      ? "Nothing is protected. Choose what’s watched to protect fields."
+      ? "Nothing is protected. Choose fields to protect."
       : lastCheckedAt
         ? null
         : canDecide
-          ? "Not checked with Google yet. Use Check Google now to compare."
+          ? "Not checked with Google yet. Use Check Google now, at the top of this tab, to compare."
           : "Not checked with Google yet. An owner or admin can check now."
 
   return (
@@ -401,10 +401,10 @@ export function GoogleChangesPanel({
                 footer={
                   <div className="flex min-w-0 flex-col gap-3 pt-2">
                     <DiffView
-                      caption={`${fieldTitle(change)}: ours against what Google shows`}
+                      caption={`${fieldTitle(change)}: ours against Google’s`}
                       fieldLabel={hours ? "When" : "Field"}
                       beforeLabel="Ours"
-                      afterLabel="On Google"
+                      afterLabel="Google’s"
                       rows={changeRows(change)}
                     />
                     <p className="text-caption text-ink-muted">
@@ -559,7 +559,7 @@ export function GoogleChangesPanel({
                               startDecision(change, "accept_google")
                             }
                           >
-                            Accept Google’s
+                            Keep Google’s
                           </Button>
                         </div>
                         <p className="text-caption text-ink-muted">
@@ -594,7 +594,7 @@ export function GoogleChangesPanel({
           aria-controls={settingsId}
           onClick={() => setShowSettings((open) => !open)}
         >
-          {showSettings ? "Hide what’s watched" : "Choose what’s watched"}
+          {showSettings ? "Hide protected fields" : "Choose protected fields"}
         </Button>
       </div>
       {showSettings ? (
@@ -605,7 +605,7 @@ export function GoogleChangesPanel({
 
       {history.length > 0 ? (
         <details className="text-ui">
-          <summary className="focus-ring cursor-pointer text-ink-secondary">
+          <summary className="w-fit cursor-pointer rounded-(--np-radius-tag) text-ink-secondary focus-halo pointer-coarse:flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center">
             {past.length > HISTORY_SHOWN
               ? `Last ${HISTORY_SHOWN} changes on Google`
               : `Earlier changes on Google (${history.length})`}
@@ -645,7 +645,7 @@ export function GoogleChangesPanel({
         }
         confirmLabel={
           confirming?.action === "accept_google"
-            ? "Accept Google’s"
+            ? "Keep Google’s"
             : "Put ours back"
         }
         requireAcknowledgement={Boolean(

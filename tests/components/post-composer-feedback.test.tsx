@@ -189,6 +189,20 @@ describe("PostComposerSheet feedback", () => {
       api.createPost.mock.calls[0][1].contentWarningAcknowledgement
     ).toBeUndefined()
     expect(within(sheet).getByText("Use sentence case.")).toBeInTheDocument()
+    // The shared block: the warnings as a list in a warning alert, and the
+    // acknowledgement outside its live region, saying what to do next.
+    const alert = within(sheet)
+      .getByText("Use sentence case.")
+      .closest<HTMLElement>('[data-slot="alert"]')
+    expect(alert).toHaveAttribute("role", "status")
+    expect(within(alert!).getByRole("listitem")).toHaveTextContent(
+      "Use sentence case."
+    )
+    expect(alert).not.toContainElement(checkbox)
+    expect(checkbox).toHaveAccessibleDescription("Tick this, then save again.")
+    // Not a failure: no error toast, and no refusal line beside the button.
+    expect(document.querySelector('[data-slot="toast"]')).toBeNull()
+    expect(within(sheet).queryByRole("alert")).toBeNull()
     await user.click(checkbox)
     await user.click(within(sheet).getByRole("button", { name: "Save draft" }))
     await waitFor(() => expect(api.createPost).toHaveBeenCalledTimes(2))

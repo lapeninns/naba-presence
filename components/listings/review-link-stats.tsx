@@ -111,7 +111,7 @@ export function ReviewLinkStats({ locationId }: { locationId: string }) {
                   title="Review link opens and new reviews"
                   categoryHeading="Day"
                   unitName="day"
-                  unitNote="Daily totals, on the venue’s calendar."
+                  unitNote="Daily totals, on the listing’s calendar."
                   csvName={`review-link-${stats.data.days}-days`}
                   data={stats.data.series.map((day) => ({
                     label: formatDayMonth(

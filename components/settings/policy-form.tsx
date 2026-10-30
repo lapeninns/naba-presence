@@ -710,16 +710,20 @@ export function PolicyForm({ role }: { role: string | null }) {
           <FieldLabel htmlFor="policy-banned-phrases">
             Phrases to block
           </FieldLabel>
-          <FieldDescription id="policy-banned-phrases-help">
+          {/* Field wires the description and the error to the textarea;
+              explicit ids here would override that and leave the error
+              unannounced. */}
+          <FieldDescription>
             Add one phrase per line, up to 100 phrases of 200 characters each.
             Matching ignores capital letters.
           </FieldDescription>
           <Textarea
             id="policy-banned-phrases"
-            aria-describedby="policy-banned-phrases-help"
             value={current.bannedPhrases}
             onChange={(event) => set("bannedPhrases", event.target.value)}
-            disabled={!canEdit}
+            // Members can read the list (it explains a refused reply) but
+            // not change it: read-only keeps it focusable and selectable.
+            readOnly={!canEdit}
             rows={5}
           />
           <FieldError>{fieldError("bannedPhrases")}</FieldError>

@@ -103,6 +103,13 @@ describe("PostsActionBar approval after a content policy change (S4)", () => {
       name: "Approve and publish",
     })
     expect(approve).toHaveAttribute("aria-disabled", "true")
+    // The shared block, and no error toast: it is not a failure.
+    expect(
+      within(dialog).getByRole("checkbox", {
+        name: "I have reviewed these content warnings.",
+      })
+    ).toHaveAccessibleDescription("Tick this, then approve and publish again.")
+    expect(document.querySelector('[data-slot="toast"]')).toBeNull()
     await userEvent.click(approve)
     expect(api.decidePostApproval).toHaveBeenCalledTimes(1)
 

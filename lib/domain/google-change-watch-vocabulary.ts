@@ -27,11 +27,12 @@ export type WatchedField = (typeof WATCHED_FIELDS)[number]
 /** Every field is protected until someone switches one off. */
 export const DEFAULT_PROTECTED_FIELDS: readonly WatchedField[] = WATCHED_FIELDS
 
+/** The names the completeness checklist uses (lib/listings/completeness.ts). */
 export const WATCHED_FIELD_LABELS: Record<WatchedField, string> = {
   name: "Business name",
-  phone: "Phone",
+  phone: "Phone number",
   website: "Website",
-  description: "Description",
+  description: "Business description",
   primaryCategory: "Primary category",
   regularHours: "Opening hours",
   specialHours: "Special hours",
@@ -97,7 +98,7 @@ export const GOOGLE_CHANGE_RESOLUTION_LABELS: Record<
 > = {
   google_restored: "Google shows ours again",
   published: "Ours was put back on Google",
-  unwatched: "No longer watched",
+  unwatched: "No longer protected",
 }
 
 export type WatchedCategory = { name: string; displayName: string | null }

@@ -29,12 +29,12 @@ test.beforeEach(async ({ context }) => {
 function changeRow(page: Page, title: string) {
   return page.locator('[data-slot="google-change"]').filter({
     has: page.getByRole("table", {
-      name: `${title}: ours against what Google shows`,
+      name: `${title}: ours against Google’s`,
     }),
   })
 }
 
-/** The Ours and On Google cells of a diff row, by its first cell. */
+/** The Ours and Google’s cells of a diff row, by its first cell. */
 async function expectDiff(
   row: Locator,
   label: string,
@@ -94,7 +94,7 @@ test("an owner puts a business name Google changed back, through review, approva
   ).toBeVisible()
   // Google's own suggestion for the same field is decided here, not twice.
   await expect(
-    page.getByText(/1 suggestion for protected fields is decided above/)
+    page.getByText(/Suggestions for protected fields are decided above/)
   ).toBeVisible()
 
   await row.getByRole("button", { name: "Put ours back" }).click()
@@ -189,10 +189,10 @@ test("hours go back through a confirmation, and Google's website can be kept as 
   expect(f.updateMasks).toEqual(["regularHours"])
 
   const website = changeRow(page, "Website")
-  await website.getByRole("button", { name: "Accept Google’s" }).click()
+  await website.getByRole("button", { name: "Keep Google’s" }).click()
   const keep = page.getByRole("alertdialog", { name: "Keep Google’s website?" })
   await expect(keep).toContainText("Nothing is sent to Google")
-  await keep.getByRole("button", { name: "Accept Google’s" }).click()
+  await keep.getByRole("button", { name: "Keep Google’s" }).click()
   await expect(page.getByText("Kept Google’s website")).toBeVisible()
   // Keeping Google's writes nothing to Google.
   expect(f.updateMasks).toEqual(["regularHours"])
@@ -218,11 +218,16 @@ test("a member sees what Google changed, with the reason they can't decide, on a
   await page.context().clearCookies()
   await f.signIn(f.member.cookie)
   await f.goto(`/listings/${f.linked.locationId}/suggestions`)
-  const row = changeRow(page, "Phone")
-  await expectDiff(row, "Phone", "\\+44 1223 000000", "\\+44 1223 999999")
+  const row = changeRow(page, "Phone number")
+  await expectDiff(
+    row,
+    "Phone number",
+    "\\+44 1223 000000",
+    "\\+44 1223 999999"
+  )
   const reason =
     "Only owners and admins who can publish this listing can put ours back or keep Google’s."
-  for (const name of ["Put ours back", "Accept Google’s"]) {
+  for (const name of ["Put ours back", "Keep Google’s"]) {
     const button = row.getByRole("button", { name })
     await expect(button).toHaveAttribute("aria-disabled", "true")
     await expect(button).toHaveAccessibleDescription(reason)

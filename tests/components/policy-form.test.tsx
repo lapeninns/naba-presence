@@ -142,9 +142,27 @@ describe("PolicyForm", () => {
     })
     useCapsMock.mockReturnValue({ data: { canEditSettings: false } })
     renderForm("member")
-    expect(
-      screen.getByRole("textbox", { name: "Phrases to block" })
-    ).toBeDisabled()
+    // Read-only, not disabled: a member can still focus and read the list.
+    const phrases = screen.getByRole("textbox", { name: "Phrases to block" })
+    expect(phrases).not.toBeDisabled()
+    expect(phrases).toHaveAttribute("readonly")
+  })
+
+  it("announces the banned-phrases error on the field", () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings({ bannedPhrases: [] }),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({ data: { canEditSettings: true } })
+    renderForm("admin")
+    const phrases = screen.getByRole("textbox", { name: "Phrases to block" })
+    fireEvent.change(phrases, { target: { value: "x".repeat(201) } })
+    expect(phrases).toHaveAttribute("aria-invalid", "true")
+    expect(phrases).toHaveAccessibleDescription(
+      expect.stringContaining("Use up to 100 phrases of 200 characters each.")
+    )
   })
 
   it("renders the current policy and enables save once an owner edits", async () => {

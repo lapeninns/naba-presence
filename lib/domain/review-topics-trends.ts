@@ -232,7 +232,7 @@ export function topicTrendsCsv(trends: TopicTrends): CsvCell[][] {
     ])
   return [
     [
-      "Venue",
+      "Listing",
       "Topic",
       "Reviews classified",
       "Mentions",
@@ -241,7 +241,7 @@ export function topicTrendsCsv(trends: TopicTrends): CsvCell[][] {
       "Negative share",
       ...trends.weeks.map((week) => `Week of ${week}`),
     ],
-    ...rows("All venues", trends.group),
+    ...rows("All listings", trends.group),
     ...trends.locations.flatMap((location) => rows(location.name, location)),
   ]
 }

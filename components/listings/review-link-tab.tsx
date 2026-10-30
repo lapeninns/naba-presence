@@ -12,6 +12,7 @@ import * as React from "react"
 import {
   QrDownloads,
   QrImage,
+  reviewQrFileStem,
   useReviewLinkQrSvg,
 } from "@/components/listings/review-link-qr"
 import {
@@ -67,39 +68,74 @@ import type {
 } from "@/lib/domain/review-link-contract"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format/number"
+import { useLocationDirectory } from "@/lib/queries/use-locations"
+
+/**
+ * Making a new link or switching it off stops every printed code working,
+ * so only an owner or admin may; anyone who may edit the listing can still
+ * create one, caption it, or switch it back on. The server enforces the same
+ * rule (lib/server/review-links.ts).
+ */
+const RETIRE_REASON =
+  "Only an owner or admin can do this: printed QR codes would stop working."
+
+function canRetireLinks(role: string | null | undefined): boolean {
+  return role === "owner" || role === "admin"
+}
 
 /**
  * The "Review link" area (/listings/[id]/review-link): one short link per
- * venue to its Google review form, its QR code for table talkers, receipts
+ * listing to its Google review form, its QR code for table talkers, receipts
  * and till screens, and how often it is opened beside the new reviews that
  * arrive. Nothing here writes to Google; the link's target is the review
  * form Google gives in the listing's details.
  */
 export function ReviewLinkTab({
   locationId,
+  role = null,
 }: {
   locationId: string
   role?: string | null
 }) {
   const query = useReviewLink(locationId)
+  // Already loaded by the listing's gate: names the QR downloads.
+  const directory = useLocationDirectory(role)
+  const listingName =
+    directory.data?.find((entry) => entry.id === locationId)?.name ?? null
   if (query.isPending) return <TabLoading label="Loading the review link…" />
   if (query.isError)
     return <TabError error={query.error} onRetry={() => void query.refetch()} />
-  return <ReviewLinkPanel locationId={locationId} state={query.data} />
+  return (
+    <ReviewLinkPanel
+      locationId={locationId}
+      state={query.data}
+      canRetire={canRetireLinks(role)}
+      listingName={listingName}
+    />
+  )
 }
 
 function ReviewLinkPanel({
   locationId,
   state,
+  canRetire,
+  listingName,
 }: {
   locationId: string
   state: ReviewLinkState
+  canRetire: boolean
+  listingName: string | null
 }) {
   const { link } = state
   if (!link) return <NoLinkYet locationId={locationId} state={state} />
   return (
     <div className="flex flex-col gap-(--np-gap-card)" data-slot="review-link">
-      <LinkCard locationId={locationId} state={state} link={link} />
+      <LinkCard
+        locationId={locationId}
+        state={state}
+        link={link}
+        canRetire={canRetire}
+      />
       {/* Keyed on the saved caption: a caption saved elsewhere (another
           tab, a refetch) reseeds the draft instead of being reverted. */}
       <QrCard
@@ -107,6 +143,7 @@ function ReviewLinkPanel({
         locationId={locationId}
         state={state}
         link={link}
+        listingName={listingName}
       />
       <ReviewLinkStats locationId={locationId} />
     </div>
@@ -153,7 +190,7 @@ function CheckGoogleButton({
       }
     >
       <RefreshCwIcon aria-hidden />
-      Check Google now
+      Check for a new review form
     </Button>
   )
 }
@@ -243,10 +280,13 @@ function LinkCard({
   locationId,
   state,
   link,
+  canRetire,
 }: {
   locationId: string
   state: ReviewLinkState
   link: ReviewLink
+  /** Owner or admin: may make a new link or switch it off. */
+  canRetire: boolean
 }) {
   const toast = useToastManager()
   const update = useUpdateReviewLink(locationId)
@@ -397,32 +437,47 @@ function LinkCard({
         ) : null}
 
         {state.canManage ? (
-          <div className="flex flex-wrap gap-2" data-slot="review-link-actions">
-            <Button variant="secondary" onClick={() => ask("rotate")}>
-              <RotateCwIcon aria-hidden />
-              Make a new link
-            </Button>
-            {live ? (
-              <Button variant="danger-outline" onClick={() => ask("disable")}>
-                Switch off
-              </Button>
-            ) : (
+          <div className="flex flex-col gap-2">
+            <div
+              className="flex flex-wrap gap-2"
+              data-slot="review-link-actions"
+            >
               <Button
                 variant="secondary"
-                pending={update.isPending}
-                pendingLabel="Switching on…"
-                onClick={() =>
-                  run({ action: "enable" }, "Review link switched back on")
-                }
+                onClick={() => ask("rotate")}
+                disabledReason={canRetire ? undefined : RETIRE_REASON}
               >
-                Switch back on
+                <RotateCwIcon aria-hidden />
+                Make a new link
               </Button>
+              {live ? (
+                <Button
+                  variant="danger-outline"
+                  onClick={() => ask("disable")}
+                  disabledReason={canRetire ? undefined : RETIRE_REASON}
+                >
+                  Switch off
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  pending={update.isPending}
+                  pendingLabel="Switching on…"
+                  onClick={() =>
+                    run({ action: "enable" }, "Review link switched back on")
+                  }
+                >
+                  Switch back on
+                </Button>
+              )}
+            </div>
+            {canRetire ? null : (
+              <p className="text-caption text-ink-muted">{RETIRE_REASON}</p>
             )}
           </div>
         ) : (
           <p className="text-ui text-ink-muted">
-            Someone who can edit this listing can make a new link or switch it
-            off.
+            An owner or admin can make a new link or switch it off.
           </p>
         )}
       </CardContent>
@@ -490,10 +545,13 @@ function QrCard({
   locationId,
   state,
   link,
+  listingName,
 }: {
   locationId: string
   state: ReviewLinkState
   link: ReviewLink
+  /** The listing's name, for the download's file name. */
+  listingName: string | null
 }) {
   const toast = useToastManager()
   const update = useUpdateReviewLink(locationId)
@@ -598,7 +656,7 @@ function QrCard({
           )}
           <QrDownloads
             svg={svg}
-            fileStem={`review-qr-${link.code}`}
+            fileStem={reviewQrFileStem(listingName, link.code)}
             disabledReason={
               link.status === "live"
                 ? null

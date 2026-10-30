@@ -291,6 +291,35 @@ describe("CompletenessCard", () => {
     ])
   })
 
+  it("gives an example reason only where one fits, and a Cancel", async () => {
+    stubApi()
+    const user = userEvent.setup()
+    renderCard({ canManage: true })
+    await user.click(
+      await screen.findByRole("button", { name: "Skip: Additional categories" })
+    )
+    let dialog = await screen.findByRole("dialog", {
+      name: "Skip “Additional categories”?",
+    })
+    expect(within(dialog).queryByText(/For example/)).not.toBeInTheDocument()
+    expect(within(dialog).queryByText(/walk-ins/)).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+
+    await user.click(
+      screen.getByRole("button", { name: "Skip: A post in the last 30 days" })
+    )
+    dialog = await screen.findByRole("dialog", {
+      name: "Skip “A post in the last 30 days”?",
+    })
+    expect(
+      within(dialog).getByText(/For example: “We’re closed for refurbishment/)
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText(/walk-ins/)).not.toBeInTheDocument()
+  })
+
   it("shows the skipped checks and their reason, with Count again for an owner", async () => {
     stubApi()
     const user = userEvent.setup()
@@ -330,15 +359,12 @@ describe("CompletenessCard", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("says the listing isn't linked, with no checks", () => {
+  it("draws nothing when the listing isn't linked: the overview says so", () => {
     stubApi()
-    renderCard({ linked: false, canManage: true })
-    const rows = within(group()).getAllByRole("listitem")
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toHaveTextContent("Not linked to Google")
-    expect(screen.queryByText("Phone number")).not.toBeInTheDocument()
+    const { container } = renderCard({ linked: false, canManage: true })
+    expect(container).toBeEmptyDOMElement()
     expect(
-      screen.queryByRole("button", { name: /Show other checks/ })
+      screen.queryByRole("region", { name: "Completeness" })
     ).not.toBeInTheDocument()
   })
 
@@ -360,6 +386,10 @@ describe("CompletenessCard", () => {
     const rows = within(group()).getAllByRole("listitem")
     expect(rows).toHaveLength(1)
     expect(rows[0]).toHaveTextContent("Nothing to fix")
+    // Said once: the row, not a "Done" pill or the caption as well.
+    expect(within(group()).getAllByText(/Nothing to fix/)).toHaveLength(1)
+    expect(within(group()).queryByText("Done")).not.toBeInTheDocument()
+    expect(within(group()).getByText(/100% complete/)).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /^Skip/ })
     ).not.toBeInTheDocument()

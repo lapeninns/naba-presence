@@ -359,6 +359,14 @@ function ListingOverview({
               className="w-full md:hidden"
             />
 
+            {/* The score sits above the areas, so it is in the first screen
+                on a phone. */}
+            <CompletenessCard
+              locationId={locationId}
+              linked={entry.linked}
+              canManage={canManageConsoles}
+            />
+
             <section
               aria-labelledby="listing-areas"
               className="flex flex-col gap-2"
@@ -381,12 +389,6 @@ function ListingOverview({
                 canManageConsoles={canManageConsoles}
               />
             </section>
-
-            <CompletenessCard
-              locationId={locationId}
-              linked={entry.linked}
-              canManage={canManageConsoles}
-            />
 
             <HealthStrip
               linked={entry.linked}

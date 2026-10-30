@@ -14,8 +14,11 @@ function check(body: string, kind: "post" | "description" = "post") {
 }
 
 describe("post and description content checks", () => {
-  it("fails an empty post", () => {
-    expect(check(" \n\t ", "post")).toContainEqual(reason("content_empty"))
+  // The post contract allows an empty summary (a photo post), so an empty
+  // post is not a content-check failure.
+  it("allows an empty post", () => {
+    expect(check("", "post")).toEqual([])
+    expect(check(" \n\t ", "post")).toEqual([])
   })
 
   it("allows clearing an existing description", () => {
@@ -84,6 +87,49 @@ describe("post and description content checks", () => {
     }
   )
 
+  // Regression: ordinary pub copy that the phone and link rules refused.
+  it.each([
+    "Food served 12.00 - 21.00 every day",
+    "Kitchen open 12.00-15.00 and 17.00-21.00",
+    "Open 10.30-23.00",
+    "Open 9.30am-11pm, food 12:00–21:00.",
+    "Christmas 2026 - 2027 menu",
+    "Our 2026-2027 season menu",
+    "Roast is back.Book now",
+    "Quiz night at 8pm.Book early",
+    "Open 24/7 for our guests.",
+    "Sunday lunch is £12.50.",
+    "The 3 Horseshoes welcomes you.",
+    "Tables for 2, 4 or 6.",
+  ])("does not refuse ordinary pub copy: %s", (body) => {
+    const codes = check(body).map((entry) => entry.code)
+    expect(codes).not.toContain("content_phone")
+    expect(codes).not.toContain("content_url")
+  })
+
+  it.each([
+    ["Call 01234 567890", "content_phone"],
+    ["Call +44 20 7946 0958", "content_phone"],
+    ["Ring 01234-567-890 to book", "content_phone"],
+    ["Book on 01234567890.", "content_phone"],
+    ["Visit www.example.com", "content_url"],
+    ["Book at https://x.co", "content_url"],
+    ["Book at lapeninns.co.uk", "content_url"],
+    ["See example.com/menu", "content_url"],
+    ["Visit WWW.EXAMPLE.COM", "content_url"],
+  ])("still refuses contact data: %s", (body, code) => {
+    expect(check(body).map((entry) => entry.code)).toContain(code)
+  })
+
+  it("writes the post limit with a thousands separator", () => {
+    expect(check("a".repeat(1501))).toContainEqual(
+      expect.objectContaining({
+        code: "content_too_long",
+        message: "The post exceeds Google’s 1,500-character limit.",
+      })
+    )
+  })
+
   it.each([
     ["WELCOME EVERYONE", true],
     ["WELCOME", false],
@@ -143,6 +189,30 @@ describe("post and description content checks", () => {
 })
 
 describe("organisation banned phrases", () => {
+  it("quotes each matched phrase and says where the list is kept", () => {
+    expect(
+      bannedPhraseChecks("The best in town, and cheap as chips.", [
+        "Best in town",
+        "cheap as chips",
+        "not here",
+        "best  in town",
+      ])
+    ).toEqual([
+      {
+        code: "banned_phrase",
+        severity: "fail",
+        message:
+          "“Best in town” is on your banned-phrase list (Settings › Reply policy).",
+      },
+      {
+        code: "banned_phrase",
+        severity: "fail",
+        message:
+          "“cheap as chips” is on your banned-phrase list (Settings › Reply policy).",
+      },
+    ])
+  })
+
   it.each([
     ["The BEST IN TOWN.", "best in town"],
     ["The best-in-town welcome.", "best in town"],

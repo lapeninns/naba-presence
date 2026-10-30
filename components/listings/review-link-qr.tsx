@@ -59,7 +59,7 @@ export function QrImage({
         <QrCodeIcon
           aria-hidden
           strokeWidth={1.75}
-          className="size-8 text-ink-faint"
+          className="size-5 text-ink-faint"
         />
         <p className="text-ui text-ink-secondary">{title}</p>
         <p className="text-caption text-ink-muted">{body}</p>
@@ -117,14 +117,36 @@ async function svgToPng(svg: string): Promise<Blob> {
   )
 }
 
-/** PNG and SVG downloads of the code, named after the venue. */
+/**
+ * The downloads' file name without its extension: the listing's name as a
+ * slug, then the code ("the-old-crown-review-qr-abcdefghjk"), so a folder
+ * of codes for several listings says which is which, and a rotated link's
+ * code doesn't overwrite the old one's file.
+ */
+export function reviewQrFileStem(
+  listingName: string | null | undefined,
+  code: string
+): string {
+  const slug = (listingName ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/, "")
+  return slug ? `${slug}-review-qr-${code}` : `review-qr-${code}`
+}
+
+/** PNG and SVG downloads of the code, named after the listing. */
 export function QrDownloads({
   svg,
   fileStem,
   disabledReason,
 }: {
   svg: string | null
-  /** "the-old-crown-review-qr": the file name without its extension. */
+  /** The file name without its extension: see `reviewQrFileStem`. */
   fileStem: string
   /** Why the downloads are off, when the link is. */
   disabledReason: string | null

@@ -1718,6 +1718,11 @@ export async function requestOrPublishLocalPost(input: {
         lock: true,
       })
       const publishWith = async (approval: ApprovalRef | null) => {
+        // The dispatch gate itself (env and operator pause table), not just
+        // the env flag: a table pause must refuse here, before a decision
+        // row or its audit is written, as well as at runGbpWrite. It comes
+        // before the content checks, so a pause always answers as a pause.
+        await requireGbpDispatch("posts", POSTS_PAUSED, { snapshot: pauses })
         const consent = await assertContentChecks(sql, {
           kind: "post",
           locationId: input.locationId,
@@ -1728,10 +1733,6 @@ export async function requestOrPublishLocalPost(input: {
             input.contentWarningAcknowledgement ??
             post.contentWarningAcknowledgement,
         })
-        // The dispatch gate itself (env and operator pause table), not just
-        // the env flag: a table pause must refuse here, before a decision
-        // row or its audit is written, as well as at runGbpWrite.
-        await requireGbpDispatch("posts", POSTS_PAUSED, { snapshot: pauses })
         const linked = await loadLinkedLocation(
           sql,
           input.session,

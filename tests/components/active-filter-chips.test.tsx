@@ -78,14 +78,14 @@ describe("ActiveFilterChips", () => {
         onClear={() => {}}
       />
     )
-    // Each chip names its filter as the Filters sheet heads it ("Venue",
+    // Each chip names its filter as the Filters sheet heads it ("Listing",
     // not "Location"), and the whole chip is the remove control.
-    expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
+    expect(screen.getByText("Listing: Riverside")).toBeInTheDocument()
     // Rating is a pressed chip above the list, so it is not drawn twice.
     expect(screen.queryByText(/^Rating:/)).not.toBeInTheDocument()
     expect(screen.getByText("Search: “slow”")).toBeInTheDocument()
     await user.click(
-      screen.getByRole("button", { name: "Remove filter: Venue: Riverside" })
+      screen.getByRole("button", { name: "Remove filter: Listing: Riverside" })
     )
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
@@ -143,7 +143,7 @@ describe("ActiveFilterChips", () => {
         onClear={() => {}}
       />
     )
-    expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
+    expect(screen.getByText("Listing: Riverside")).toBeInTheDocument()
     expect(screen.queryByText(/Client/)).not.toBeInTheDocument()
   })
 
@@ -191,7 +191,7 @@ describe("ActiveFilterChips", () => {
       />
     )
     expect(screen.getByText("Client: selected")).toBeInTheDocument()
-    expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
+    expect(screen.getByText("Listing: Riverside")).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Clear all filters" })
     ).toBeInTheDocument()
@@ -250,7 +250,7 @@ describe("ActiveFilterChips", () => {
       />
     )
     await user.click(
-      screen.getByRole("button", { name: "Remove filter: Venue: selected" })
+      screen.getByRole("button", { name: "Remove filter: Listing: selected" })
     )
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })

@@ -10,7 +10,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useId, useImperativeHandle, useRef, useState } from "react"
 
-import { Checkbox } from "@/components/ui/checkbox"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { PostPhotoPicker } from "@/components/locations/posts/post-photo-picker"
 import { PostPreview } from "@/components/locations/posts/post-preview"
@@ -56,6 +55,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { useOutcomeToast } from "@/components/ui/toast"
 import { ApiClientError, isMfaStepUpError } from "@/lib/api/client"
+import { contentWarningFromError } from "@/lib/api/content-warnings"
+import { ContentWarnings } from "@/components/content/content-warnings"
 import {
   createPost,
   publishPost,
@@ -405,37 +406,37 @@ export function PostComposerSheet({
   const isDirty = editor.isDirty
   const [errors, setErrors] = useState<Errors>({})
   const [serverError, setServerError] = useState<string | null>(null)
+  // Content warnings the server asked to be acknowledged, for the values
+  // they were raised on and the action that raised them (its button is the
+  // one to press again). An edit makes them, and any tick, stale.
   const [contentWarning, setContentWarning] = useState<{
     token: string
     messages: string[]
     values: string
+    action: "save" | "publish"
   } | null>(null)
   const [contentWarningsAccepted, setContentWarningsAccepted] = useState(false)
   const contentWarningAcknowledgement =
     contentWarningsAccepted && contentWarning?.values === JSON.stringify(values)
       ? contentWarning.token
       : undefined
-  const captureContentWarning = (error: unknown) => {
-    if (
-      !(error instanceof ApiClientError) ||
-      error.code !== "content_warning_acknowledgement_required"
-    )
-      return false
-    const details = error.details as
-      | {
-          contentWarningAcknowledgement?: unknown
-          reasons?: { message: string }[]
-        }
-      | undefined
-    if (typeof details?.contentWarningAcknowledgement !== "string") return false
+  const captureContentWarning = (
+    error: unknown,
+    action: "save" | "publish"
+  ) => {
+    const warning = contentWarningFromError(error)
+    if (!warning) return false
     setContentWarning({
-      token: details.contentWarningAcknowledgement,
-      messages: details.reasons?.map((reason) => reason.message) ?? [],
+      token: warning.token,
+      messages: warning.messages,
       values: JSON.stringify(values),
+      action,
     })
     setContentWarningsAccepted(false)
     return true
   }
+  const isContentWarning = (error: unknown) =>
+    contentWarningFromError(error) !== null
 
   const [attempt, setAttempt] = useState(0)
   const formRef = useRef<HTMLDivElement | null>(null)
@@ -508,8 +509,13 @@ export function PostComposerSheet({
       : "Draft saved. Google is not affected.",
     errorContext: "post",
     errorToast: saveErrorCopy,
+    // Shown beside the buttons with the acknowledgement, not as a failure.
+    quietError: isContentWarning,
     onError: (error, message) => {
-      captureContentWarning(error)
+      if (captureContentWarning(error, "save")) {
+        setServerError(null)
+        return
+      }
       setServerError(message)
       if (isPostChanged(error)) refetchPosts()
     },
@@ -620,9 +626,10 @@ export function PostComposerSheet({
       setOpen(false)
       outcomeToast.show(publishToast(result))
     },
+    quietError: isContentWarning,
     onError: (error, message) => {
-      if (captureContentWarning(error)) {
-        setServerError(message)
+      if (captureContentWarning(error, "publish")) {
+        setServerError(null)
         savedBeforeFailure.current = false
         return
       }
@@ -1344,19 +1351,12 @@ export function PostComposerSheet({
             ) : null}
             {contentWarning &&
             contentWarning.values === JSON.stringify(values) ? (
-              <div
-                className="flex flex-col gap-2 text-ui text-warning-ink"
-                role="status"
-              >
-                <p>{contentWarning.messages.join(" ")}</p>
-                <Checkbox
-                  checked={contentWarningsAccepted}
-                  onCheckedChange={(checked) =>
-                    setContentWarningsAccepted(checked === true)
-                  }
-                  label="I have reviewed these content warnings."
-                />
-              </div>
+              <ContentWarnings
+                messages={contentWarning.messages}
+                checked={contentWarningsAccepted}
+                onCheckedChange={setContentWarningsAccepted}
+                action={contentWarning.action}
+              />
             ) : null}
             {saveReason ? <p id={saveReasonId}>{saveReason}</p> : null}
             {gate ? (

@@ -25,6 +25,8 @@ export const runtime = "nodejs"
  * A location's review link (lib/server/review-links.ts): the short link to
  * Google's review form and its QR code. Reading is DB-only; anyone who can
  * see the location may read it, and changing it is the "edit" action.
+ * Making a new link or switching it off breaks printed codes, so those two
+ * also need an owner or admin (updateReviewLink checks, answering 403).
  * Every write answers with the whole state, as GET does.
  */
 export const GET = route({

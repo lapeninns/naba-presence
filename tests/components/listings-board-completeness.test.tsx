@@ -254,6 +254,19 @@ describe("ListingsBoard completeness", () => {
       within(crown).getAllByText(`${CROWN.score}%`).length
     ).toBeGreaterThan(0)
     expect(within(crown).getByText(/^Phone number/)).toBeInTheDocument()
+    // Read as the overview's card says it, and the "+3" in words.
+    expect(
+      within(crown).getByText(
+        (_, node) =>
+          node?.getAttribute("data-slot") === "status-pill" &&
+          node.textContent === `${CROWN.score}% complete`
+      )
+    ).toBeInTheDocument()
+    const more = CROWN.counts.fail - 1
+    expect(within(crown).getByText(`and ${more} more to fix`)).toHaveClass(
+      "sr-only"
+    )
+    expect(within(crown).getByText(`+${more}`)).toHaveAttribute("aria-hidden")
     const harbour = screen.getByRole("row", { name: /Harbour View/ })
     expect(
       within(harbour).getByText("Additional categories")

@@ -19,16 +19,41 @@ import {
   FieldError,
   FieldLabel,
 } from "@/components/ui/field"
+import { OverlayCancel } from "@/components/ui/overlay"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import { describeActionError } from "@/lib/errors/action-errors"
-import type { CompletenessCheck } from "@/lib/listings/completeness"
+import type {
+  CompletenessCheck,
+  CompletenessCheckId,
+} from "@/lib/listings/completeness"
 import { completenessSkipInputSchema } from "@/lib/listings/completeness-contract"
 import { useCompletenessSkipMutations } from "@/lib/queries/use-listing-completeness"
 
 /**
+ * A reason that fits the check, as a hint under the field. Checks without
+ * an obvious one get no example rather than one that reads oddly.
+ */
+const REASON_EXAMPLES: Partial<Record<CompletenessCheckId, string>> = {
+  booking_link: "We take walk-ins only.",
+  services_or_menu: "We don’t serve food.",
+  special_hours: "We keep our usual hours on bank holidays.",
+  logo_photo: "We don’t have a logo.",
+  recent_post: "We’re closed for refurbishment until spring.",
+  recent_photo: "We’re closed for refurbishment until spring.",
+}
+
+function reasonHint(check: CompletenessCheck | null): string | null {
+  if (!check) return null
+  if (check.importance === "necessary")
+    return "This is an essential check: customers rely on it. Skip it only if it truly doesn’t apply."
+  const example = REASON_EXAMPLES[check.id]
+  return example ? `For example: “${example}”` : null
+}
+
+/**
  * Stop one completeness check counting for a listing, with the reason an
- * owner or admin gives ("We take walk-ins only"). The reason is shown to
+ * owner or admin gives ("We take walk-ins only" for a booking link). The reason is shown to
  * everyone who opens the listing, and the skip is audited.
  */
 function CompletenessSkipDialog({
@@ -53,6 +78,7 @@ function CompletenessSkipDialog({
   // animates closed. Adjusted during render, not in an effect.
   const [shown, setShown] = useState(check)
   if (check && check !== shown) setShown(check)
+  const hint = reasonHint(shown)
 
   const reset = () => {
     setReason("")
@@ -107,6 +133,9 @@ function CompletenessSkipDialog({
       <DialogContent
         className="grid-cols-[minmax(0,1fr)]"
         finalFocus={finalFocus}
+        // A Cancel in the footer instead of the ✕: the way out sits by the
+        // confirm, and a typed reason still asks before it's lost.
+        showCloseButton={false}
       >
         <DialogHeader>
           <DialogTitle>Skip “{shown?.title}”?</DialogTitle>
@@ -128,11 +157,7 @@ function CompletenessSkipDialog({
                   if (error) setError(undefined)
                 }}
               />
-              <FieldDescription>
-                {shown?.importance === "necessary"
-                  ? "This is an essential check: customers rely on it. Skip it only if it truly doesn’t apply."
-                  : "For example: “We take walk-ins only.”"}
-              </FieldDescription>
+              {hint ? <FieldDescription>{hint}</FieldDescription> : null}
               <FieldError>{error}</FieldError>
             </Field>
             {formError ? (
@@ -143,6 +168,7 @@ function CompletenessSkipDialog({
             ) : null}
           </DialogBody>
           <DialogFooter>
+            <OverlayCancel disabled={skip.isPending} />
             <Button
               type="submit"
               pending={skip.isPending}

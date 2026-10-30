@@ -170,7 +170,7 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
       within(sheet).queryByRole("combobox", { name: "Filter by location" })
     ).not.toBeInTheDocument()
     expect(
-      within(sheet).queryByRole("heading", { name: "Venue" })
+      within(sheet).queryByRole("heading", { name: "Listing" })
     ).not.toBeInTheDocument()
     expect(
       within(sheet).getByRole("radiogroup", { name: "Written review" })
@@ -422,7 +422,7 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     expect(screen.getByLabelText("To date")).toBeInTheDocument()
     for (const title of [
       "Written review",
-      "Venue",
+      "Listing",
       "Assigned to",
       "Age",
       "Date range",
@@ -434,7 +434,13 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     // named by its heading, or (Written review) the control's own named
     // group, never both.
     const sheet = screen.getByRole("dialog", { name: "Filters" })
-    for (const title of ["Venue", "Assigned to", "Age", "Date range", "Sort"]) {
+    for (const title of [
+      "Listing",
+      "Assigned to",
+      "Age",
+      "Date range",
+      "Sort",
+    ]) {
       expect(within(sheet).getByRole("group", { name: title })).toBeVisible()
     }
     expect(

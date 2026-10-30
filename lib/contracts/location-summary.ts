@@ -91,9 +91,16 @@ export const listingSummarySchema = z.object({
     failed: z.number().int().nonnegative(),
     published: z.number().int().nonnegative(),
   }),
+  /**
+   * What the suggestions tab asks someone to decide. `profile` leaves out
+   * suggestions for a field the Google change watch already has open, so a
+   * change is counted once; `googleChanges` is those open protected-field
+   * changes. Optional so an older cached response still parses.
+   */
   suggestions: z.object({
     profile: z.number().int().nonnegative(),
     foodMenus: z.number().int().nonnegative(),
+    googleChanges: z.number().int().nonnegative().optional(),
   }),
   lastPublish: lastPublishSchema.nullable(),
   /**

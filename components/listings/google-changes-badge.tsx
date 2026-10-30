@@ -21,8 +21,10 @@ export function GoogleChangesBadge({ locationId }: { locationId: string }) {
   return (
     <Link
       href={listingHref(locationId, "suggestions")}
-      className="focus-ring rounded-(--np-radius-pill) no-underline"
-      aria-label={`${open} ${open === 1 ? "field" : "fields"} changed on Google. Review ${open === 1 ? "it" : "them"}.`}
+      className="inline-flex items-center rounded-(--np-radius-pill) no-underline focus-halo pointer-coarse:min-h-(--np-touch)"
+      // Starts with the visible text, so a spoken "2 changed on Google"
+      // finds it (WCAG 2.5.3); the rest says where it leads.
+      aria-label={`${open} changed on Google: protected ${open === 1 ? "field" : "fields"} to keep or put back`}
     >
       <StatusPill tone="attention">{open} changed on Google</StatusPill>
     </Link>
