@@ -328,7 +328,15 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       deletedRef.current = result.status !== "ambiguous"
       setDeleteOpen(false)
     } catch (error) {
-      setDeleteError(describeActionError(error))
+      // This code is only thrown once Google has answered that it did not
+      // delete; an unanswered delete resolves as `ambiguous` instead.
+      const notDeleted =
+        error instanceof ApiClientError && error.code === "google_delete_failed"
+      setDeleteError(
+        notDeleted
+          ? `${describeActionError(error)} Your reply is still on Google.`
+          : describeActionError(error)
+      )
     }
   }
 

@@ -1309,6 +1309,36 @@ describe("ActionBar", () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
+  it("says a delete Google refused left the reply on Google", async () => {
+    const user = userEvent.setup()
+    const del = mutation(
+      vi
+        .fn()
+        .mockRejectedValue(
+          new ApiClientError(
+            502,
+            "google_delete_failed",
+            "Google delete failed."
+          )
+        )
+    )
+    stubHooks(detailWith(liveReply), mutation(), mutation(), del)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Review actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Delete published reply" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Delete reply" })
+    )
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Delete published reply?",
+    })
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /Your reply is still on Google\.$/
+    )
+  })
+
   it("shows 'Draft reply removed' when the delete resolves a never-live reply", async () => {
     await deleteReply("cancelled")
     await waitFor(() =>
