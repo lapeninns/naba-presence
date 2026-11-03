@@ -117,12 +117,12 @@ const TRIGGER_CLASS: Record<ScopeVariant, string> = {
   // The desk sidebar's "Working on" button: two lines, full width.
   sidebar: cn(
     "flex min-h-14 w-full min-w-0 items-center gap-2.5 rounded-(--np-radius-control) border border-line bg-surface p-2 text-left",
-    "transition-colors duration-(--np-duration-fast) hover-fine:hover:border-line-strong aria-expanded:bg-fill"
+    "transition-colors duration-(--np-duration-fast) aria-expanded:bg-fill hover-fine:hover:border-line-strong"
   ),
   // The tablet top bar's pill: one line, the words after the name.
   pill: cn(
-    "flex h-11 max-w-[45vw] min-w-0 shrink items-center gap-2 rounded-(--np-radius-pill) border border-line bg-surface pr-3 pl-1.5 text-left desk:h-9 lg:max-w-md",
-    "transition-colors duration-(--np-duration-fast) hover-fine:hover:border-line-strong aria-expanded:bg-fill"
+    "flex h-11 max-w-[45vw] min-w-0 shrink items-center gap-2 rounded-(--np-radius-pill) border border-line bg-surface pr-3 pl-1.5 text-left lg:max-w-md desk:h-9",
+    "transition-colors duration-(--np-duration-fast) aria-expanded:bg-fill hover-fine:hover:border-line-strong"
   ),
   // The phone app bar's chip: the name only; the words are in its name.
   chip: cn(

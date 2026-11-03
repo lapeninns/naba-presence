@@ -499,9 +499,7 @@ export function useScopeControl(
     health = "Data may be stale"
   }
 
-  const title = business
-    ? (organisationName ?? "All locations")
-    : scope.label
+  const title = business ? (organisationName ?? "All locations") : scope.label
   const lead = business
     ? scope.label
     : scope.client

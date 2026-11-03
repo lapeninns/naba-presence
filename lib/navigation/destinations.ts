@@ -155,7 +155,8 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Reports",
     icon: BarChart3,
     description: {
-      agency: "Ratings, reply times and profile views for the clients you work on",
+      agency:
+        "Ratings, reply times and profile views for the clients you work on",
       business: "Ratings, reply times and profile views by location",
     },
     group: "primary",

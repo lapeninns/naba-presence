@@ -41,7 +41,7 @@ import { ShellLink } from "./shell-link"
  */
 const ROW_CLASS = cn(
   "flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-left text-body text-ink",
-  "transition-colors duration-(--np-duration-fast) hover-fine:hover:bg-fill active:bg-fill",
+  "transition-colors duration-(--np-duration-fast) active:bg-fill hover-fine:hover:bg-fill",
   "focus-halo focus-visible:outline-none",
   "aria-[current=page]:bg-fill aria-[current=page]:font-semibold aria-[current=page]:text-ink"
 )
@@ -147,10 +147,7 @@ function MoreSheetContent({
   const pathname = navigationPath(usePathname(), context.mode)
   const unread = useUnreadNotificationCount()
   const health = useContextHealth()
-  const scope = useScopeControl(
-    context.mode,
-    session?.organisationName ?? null
-  )
+  const scope = useScopeControl(context.mode, session?.organisationName ?? null)
   const agency = context.mode === "agency"
   const healthDetailId = React.useId()
 

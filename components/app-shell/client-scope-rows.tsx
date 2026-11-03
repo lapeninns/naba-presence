@@ -90,10 +90,7 @@ function CurrentMark({ current }: { current: boolean }) {
     <CheckIcon
       aria-hidden
       strokeWidth={2}
-      className={cn(
-        "size-4 shrink-0 text-ink!",
-        !current && "invisible"
-      )}
+      className={cn("size-4 shrink-0 text-ink!", !current && "invisible")}
     />
   )
 }
