@@ -207,7 +207,7 @@ describe("DEFAULT_ROUTES", () => {
   const captured = DEFAULT_ROUTES.map((spec) =>
     templateOf(parseSpec(spec).path).split("/").filter(Boolean)
   )
-  const reaches = (segments: string[], path: string[]) => {
+  const reaches = (segments: string[], path: string[]): boolean => {
     if (segments.at(-1)?.startsWith("[...")) {
       const head = segments.slice(0, -1)
       return (
