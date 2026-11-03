@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ChipRow, FilterChip } from "@/components/ui/chip"
-import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { Empty } from "@/components/ui/empty"
 import { ListRows } from "@/components/ui/list-row"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -195,7 +195,6 @@ export function OutboxView() {
             <Empty
               titleAs="h2"
               placement="page"
-              illustration={<EmptyIllustration name="inbox-zero" />}
               title={
                 view.group
                   ? `Nothing in ${groupTitle(view.group)}`
