@@ -69,4 +69,49 @@ describe("GoogleFreshness", () => {
     render(<GoogleFreshness />)
     expect(screen.getByText("Google checked just now")).toBeInTheDocument()
   })
+
+  describe("across clients (agency scope)", () => {
+    function stubTwo(second: string | null) {
+      const entry = (lastSuccessfulCheckAt: string | null) => ({
+        state: "up_to_date",
+        reason: null,
+        lastSuccessfulCheckAt,
+      })
+      vi.spyOn(clientsHook, "useClients").mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "c1",
+              linkedCount: 1,
+              freshness: entry(new Date(Date.now() - 300_000).toISOString()),
+            },
+            { id: "c2", linkedCount: 2, freshness: entry(second) },
+          ],
+        },
+      } as unknown as ReturnType<typeof clientsHook.useClients>)
+    }
+
+    it("dates the scope by its least recently checked client", () => {
+      stubTwo(new Date(Date.now() - 3 * 3_600_000).toISOString())
+      render(<GoogleFreshness />)
+      expect(
+        screen.getByText(/Google checked 3 h(ou)?rs? ago/)
+      ).toBeInTheDocument()
+    })
+
+    it("does not date the scope by the checked clients while another was never checked", () => {
+      stubTwo(null)
+      const { container } = render(<GoogleFreshness />)
+      expect(container.firstElementChild).toHaveTextContent(
+        "Google not checked for every listing yet"
+      )
+      expect(screen.queryByText(/Google checked/)).not.toBeInTheDocument()
+    })
+
+    it("dates a filtered client by its own check", () => {
+      stubTwo(null)
+      render(<GoogleFreshness clientId="c1" />)
+      expect(screen.getByText(/Google checked 5 min/)).toBeInTheDocument()
+    })
+  })
 })
