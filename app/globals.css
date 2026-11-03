@@ -303,69 +303,15 @@
   --shadow-np-focus: var(--np-focus-halo);
   --shadow-np-focus-danger: var(--np-focus-halo-danger);
 
-  /* The indeterminate Progress highlight, travelling once every two seconds.
-     Skeletons no longer shimmer: they are flat bars (taste pilot P4). */
-  --animate-shimmer: shimmer 2s var(--np-ease-standard) infinite;
-  @keyframes shimmer {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(100%);
-    }
-  }
+  /* No entrance or shimmer keyframes (SYSTEM §13): screens and skeletons
+     arrive at their final frame, and loading only breathes in opacity
+     through Tailwind's own `animate-pulse`. */
 
-  /* Entrances. `rise` is the page-load stagger (header, then panel, then
-     rows); `slide-in` is a pane arriving from the edge it belongs to. Both
-     animate opacity and transform only, both run once, and both collapse to
-     their final frame under reduced motion through the global rule below. */
-  --animate-np-rise: np-rise var(--np-duration-enter) var(--np-ease-out) both;
-  --animate-np-rise-lg: np-rise-lg var(--np-duration-enter) var(--np-ease-out)
-    both;
-  --animate-np-slide-in: np-slide-in var(--np-duration-standard)
-    var(--np-ease-out) both;
-  --animate-np-fade: np-fade var(--np-duration-standard) var(--np-ease-out) both;
-  @keyframes np-rise {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  @keyframes np-rise-lg {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  @keyframes np-slide-in {
-    from {
-      opacity: 0;
-      transform: translateX(12px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  @keyframes np-fade {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-
-  --ease-spring: var(--np-ease-spring);
-  --ease-spring-snappy: var(--np-ease-spring-snappy);
+  /* `press` is the short feedback curve (buttons, chips, toggles);
+     `emphasis` the ease-out for things that arrive (menus, dialogs). Neither
+     is a spring: both settle without overshoot. */
+  --ease-press: var(--np-ease-press);
+  --ease-emphasis: var(--np-ease-emphasis);
   --ease-standard: var(--np-ease-standard);
   --ease-out-strong: var(--np-ease-out);
 
@@ -502,12 +448,13 @@
   /* The accent as a quiet surface: the "needs a reply" summary tile. */
 
   /* Ink ladder. `secondary` is strong supporting text; `muted` is the
-     descriptive grey; `faint` is the last readable step. Quaternary is
+     descriptive grey; `faint` is retired (SYSTEM §2.1): an alias of `muted`
+     for one release while the last `text-ink-faint` uses move. Quaternary is
      DECORATIVE ONLY and absent from the contrast manifest. */
   --np-ink: var(--np-ramp-neutral-900);
   --np-ink-secondary: var(--np-ramp-neutral-600);
   --np-ink-muted: var(--np-ramp-neutral-500);
-  --np-ink-faint: var(--np-ramp-neutral-500);
+  --np-ink-faint: var(--np-ink-muted);
   --np-ink-quaternary: var(--np-ramp-neutral-400);
   --np-ink-inverse: var(--np-ramp-neutral-0);
   /* The ink button's hover and pressed fills ("ink saves", D1). */
@@ -524,7 +471,6 @@
   --np-line-subtle: var(--np-ramp-neutral-150);
   --np-line: var(--np-ramp-neutral-200);
   --np-line-strong: var(--np-ramp-neutral-400);
-  --np-line-focus: var(--np-ramp-accent-400);
 
   --np-accent: var(--np-ramp-accent-500);
   --np-accent-hover: var(--np-ramp-accent-600);
@@ -596,8 +542,6 @@
     0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-danger-line);
   /* A field's focus ring: a 3px tint outside its border, danger while
      invalid. */
-  --np-field-ring: 0 0 0 3px var(--np-accent-tint);
-  --np-field-ring-invalid: 0 0 0 3px var(--np-danger-tint);
 
   /* Chrome is opaque paper with a 1px line. The material names survive so
      every `material-*` utility still resolves. */
@@ -671,12 +615,12 @@
   --np-duration-standard: 260ms;
   --np-duration-deliberate: 360ms;
   --np-duration-overlay: 240ms;
-  --np-duration-enter: 360ms;
-  --np-stagger: 50ms;
   --np-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --np-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --np-ease-spring-snappy: cubic-bezier(0.2, 0, 0, 1);
-  --np-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Named for what they do, not springs: the press curve is the standard
+     one, the emphasis curve the strong ease-out. */
+  --np-ease-press: cubic-bezier(0.2, 0, 0, 1);
+  --np-ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
   /* A screen pushed over its parent (list → detail on a phone) and a bottom
      sheet rising are the two longest movements; both stay under 1/3s. */
   --np-duration-push: 300ms;
@@ -923,7 +867,7 @@
   --np-ink: oklch(0.95 0.006 250);
   --np-ink-secondary: oklch(0.85 0.01 240);
   --np-ink-muted: oklch(0.72 0.014 240);
-  --np-ink-faint: oklch(0.72 0.014 240);
+  --np-ink-faint: var(--np-ink-muted);
   --np-ink-quaternary: oklch(0.5 0.014 240);
   --np-ink-inverse: oklch(0.18 0.012 240);
   --np-ink-hover: oklch(0.85 0.01 240);
@@ -936,7 +880,6 @@
   --np-line-subtle: oklch(0.27 0.014 240);
   --np-line: oklch(0.32 0.014 240);
   --np-line-strong: oklch(0.56 0.014 240);
-  --np-line-focus: oklch(0.72 0.15 145);
 
   --np-accent: oklch(0.74 0.14 150);
   --np-accent-hover: oklch(0.82 0.12 150);
@@ -990,8 +933,6 @@
   --np-focus-halo: 0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
   /* A field's focus ring: a 3px tint outside its border, danger while
      invalid. */
-  --np-field-ring: 0 0 0 3px var(--np-accent-tint);
-  --np-field-ring-invalid: 0 0 0 3px var(--np-danger-tint);
 
   --np-material-sidebar: oklch(0.18 0.012 240);
   --np-material-toolbar: oklch(0.18 0.012 240);
@@ -1060,7 +1001,7 @@
     --np-ink: oklch(0.95 0.006 250);
     --np-ink-secondary: oklch(0.85 0.01 240);
     --np-ink-muted: oklch(0.72 0.014 240);
-    --np-ink-faint: oklch(0.72 0.014 240);
+    --np-ink-faint: var(--np-ink-muted);
     --np-ink-quaternary: oklch(0.5 0.014 240);
     --np-ink-inverse: oklch(0.18 0.012 240);
     --np-ink-hover: oklch(0.85 0.01 240);
@@ -1073,7 +1014,6 @@
     --np-line-subtle: oklch(0.27 0.014 240);
     --np-line: oklch(0.32 0.014 240);
     --np-line-strong: oklch(0.56 0.014 240);
-    --np-line-focus: oklch(0.72 0.15 145);
 
     --np-accent: oklch(0.74 0.14 150);
     --np-accent-hover: oklch(0.82 0.12 150);
@@ -1128,8 +1068,6 @@
       0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
     /* A field's focus ring: a 3px tint outside its border, danger while
        invalid. */
-    --np-field-ring: 0 0 0 3px var(--np-accent-tint);
-    --np-field-ring-invalid: 0 0 0 3px var(--np-danger-tint);
 
     --np-material-sidebar: oklch(0.18 0.012 240);
     --np-material-toolbar: oklch(0.18 0.012 240);
@@ -1588,25 +1526,21 @@
       0 0 0 2px var(--np-charcoal),
       0 0 0 4px var(--np-ink-on-charcoal);
   }
-  & [data-slot="button"][data-variant="send"]:is(
-      :disabled,
-      [data-disabled],
-      [aria-disabled="true"]
-    ):not([aria-busy="true"]) {
+  /* Disabled secondaries are drawn on the lifted charcoal too, not on the
+     surface's light disabled fill, which would read as a lit button here. */
+  &
+    [data-slot="button"]:is(
+      [data-variant="send"],
+      [data-variant="ghost"],
+      [data-variant="secondary"],
+      [data-variant="outline"]
+    ):is(:disabled, [data-disabled], [aria-disabled="true"]):not(
+      [aria-busy="true"]
+    ) {
     color: var(--np-disabled-on-charcoal-ink);
     background-color: var(--np-disabled-on-charcoal-bg);
     border-color: transparent;
   }
-}
-
-/* Entrance stagger: each child takes `--np-enter-index` and starts that many
-   steps after its parent. Capped at four steps (240ms) so a long list never
-   queues invisible rows. */
-@utility enter-stagger {
-  animation-delay: calc(
-    var(--np-enter-base, 0ms) + min(var(--np-enter-index, 0), 4) *
-      var(--np-stagger)
-  );
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1614,8 +1548,8 @@
   ::before,
   ::after {
     animation-duration: 0.01ms !important;
-    /* A staggered entrance holds its first frame for the whole delay, so
-       the delay has to collapse too or rows would sit invisible. */
+    /* A delayed animation holds its first frame for the whole delay, so the
+       delay has to collapse too or the element would sit invisible. */
     animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

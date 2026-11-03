@@ -246,7 +246,7 @@ describe("Checkbox and radio touch targets", () => {
 })
 
 describe("ChoiceCard", () => {
-  it("renders the aside slot and does not fade the ring a second time", () => {
+  it("renders the aside slot and draws disabled with the disabled roles, never faded", () => {
     render(
       <RadioGroup aria-label="Plan" defaultValue="a">
         <ChoiceCard value="a" title="Monthly" aside="£12" />
@@ -257,8 +257,15 @@ describe("ChoiceCard", () => {
       "data-slot",
       "choice-card-aside"
     )
-    expect(screen.getByRole("radio", { name: "Yearly" }).className).toContain(
-      "data-disabled:opacity-100"
+    const radio = screen.getByRole("radio", { name: "Yearly" })
+    const card = radio.closest('[data-slot="choice-card"]')!
+    expect(card.className).not.toMatch(/opacity/)
+    expect(radio.className).not.toMatch(/opacity/)
+    expect(card).toHaveClass(
+      "has-data-disabled:bg-disabled",
+      "has-data-disabled:border-disabled-line",
+      // A disabled current choice keeps an edge in the disabled ink.
+      "has-data-checked:has-data-disabled:border-disabled-ink"
     )
   })
 })

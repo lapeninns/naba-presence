@@ -14,14 +14,19 @@ import { cn } from "@/lib/utils"
  * desk (the height follows `--np-touch`, so it needs no pointer patch).
  * Use only for a truly boolean value; if "not set" is a real state, use
  * `TriState` (components/ui/tri-state.tsx) instead.
+ *
+ * Disabled is drawn with the disabled roles, never faded: off, the track
+ * steps back to the quiet `disabled-line` grey; on, it is the disabled ink,
+ * so a disabled switch still says which way it is set by tone as well as by
+ * the thumb's side.
  */
 const switchVariants = cva(
   cn(
     "group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-(--np-radius-pill) bg-line-strong p-0.5 focus-halo select-none",
     "before:absolute before:-inset-x-1 before:inset-y-[calc((100%-var(--np-touch))/2)] before:content-[''] desk:before:-inset-y-1",
-    "transition-[background-color] duration-(--np-duration-fast) ease-spring-snappy",
+    "transition-[background-color] duration-(--np-duration-fast) ease-press",
     "data-checked:bg-primary",
-    "data-disabled:cursor-not-allowed data-disabled:opacity-50"
+    "data-disabled:cursor-not-allowed data-disabled:bg-disabled-line data-disabled:data-checked:bg-disabled-ink"
   ),
   {
     variants: {
@@ -37,7 +42,7 @@ const switchVariants = cva(
 const thumbVariants = cva(
   cn(
     "block rounded-(--np-radius-pill) bg-surface shadow-np-raised",
-    "transition-transform duration-(--np-duration-fast) ease-spring"
+    "transition-transform duration-(--np-duration-fast) ease-emphasis"
   ),
   {
     variants: {

@@ -376,7 +376,7 @@ function AppBarAction({ action }: { action: ShellAction }) {
   const className = cn(
     "grid h-11 min-w-11 shrink-0 place-items-center rounded-md text-ink",
     "transition-colors duration-(--np-duration-fast) hover:bg-fill",
-    "focus-halo focus-visible:outline-none aria-busy:cursor-progress aria-disabled:opacity-50",
+    "focus-halo focus-visible:outline-none aria-busy:cursor-progress aria-disabled:text-disabled-ink",
     Icon ? "w-11" : "px-2 text-ui font-medium whitespace-nowrap"
   )
   const content = Icon ? (

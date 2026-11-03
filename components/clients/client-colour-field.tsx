@@ -69,7 +69,7 @@ function ClientColourField({
                 value={option.value}
                 aria-label={option.name}
                 style={{ "--swatch": option.value } as React.CSSProperties}
-                className="size-8 rounded-(--np-radius-control) border border-line bg-(--swatch) transition-transform duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96] pointer-coarse:size-11 data-checked:border data-checked:border-line data-checked:outline-2 data-checked:outline-offset-2 data-checked:outline-ink"
+                className="size-8 rounded-(--np-radius-control) border border-line bg-(--swatch) transition-transform duration-(--np-duration-fast) ease-press active:scale-[0.96] pointer-coarse:size-11 data-checked:border data-checked:border-line data-checked:outline-2 data-checked:outline-offset-2 data-checked:outline-ink"
               />
               {/* The tick is a second cue beside the ring, so the choice
                   never rests on colour alone. Every swatch is a deep colour

@@ -33,7 +33,7 @@ function cardClassName({
     surface === "sunken" ? "bg-surface-alt" : "bg-surface",
     interactive &&
       cn(
-        "cursor-pointer transition-[background-color,border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
+        "cursor-pointer transition-[background-color,border-color,box-shadow] duration-(--np-duration-fast) ease-press",
         // Flat: hover firms the hairline, never lifts the card.
         "hover-fine:hover:border-line-strong",
         // Pressed: the whole card dims a step under the finger, the same

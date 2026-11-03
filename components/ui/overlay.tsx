@@ -274,11 +274,11 @@ export const overlayPopupClassName = {
    */
   dialog: cn(
     "fixed top-[calc(50%-var(--np-keyboard-inset)/2)] left-1/2 z-overlay grid max-h-[min(calc(86dvh-var(--np-keyboard-inset)),var(--np-dialog-max-h))] w-full max-w-[calc(100%-2*var(--np-overlay-gutter))] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-(--np-radius-modal) bg-surface p-(--dlg-pad) text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px] [--overlay-dock:0px] sm:max-w-(--np-dialog-w) data-[size=wide]:sm:max-w-(--np-dialog-w-wide)",
-    "transition-[opacity,scale,translate] duration-(--np-duration-standard) ease-spring data-ending-style:scale-[0.985] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:translate-y-[calc(-50%+--spacing(2))] data-starting-style:scale-[0.985] data-starting-style:opacity-0"
+    "transition-[opacity,scale,translate] duration-(--np-duration-standard) ease-emphasis data-ending-style:scale-[0.985] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:translate-y-[calc(-50%+--spacing(2))] data-starting-style:scale-[0.985] data-starting-style:opacity-0"
   ),
   /**
    * The bottom sheet: full width up to 40rem (centred beyond, for a phone
-   * on its side), 20px top corners, no taller than the screen under the
+   * on its side), top corners on `--np-radius-sheet`, no taller than the screen under the
    * status bar. Its height follows its content; snap points, when given,
    * offset it by `--drawer-snap-point-offset`. A second, solid shadow 3rem
    * under the bottom edge is the bleed that covers the gap an upward
@@ -294,11 +294,13 @@ export const overlayPopupClassName = {
   ),
   /**
    * The right side panel: full height, min(560px, 100vw) wide (`wide`:
-   * 880px), slid in from the edge and swiped back to it.
+   * 880px), slid in from the edge and swiped back to it. Its leading
+   * (inner) corners take the modal radius, as a dialog's do; the trailing
+   * edge meets the screen edge square.
    */
   panel: cn(
     drawerPopupBaseClassName,
-    "ml-auto h-dvh max-h-dvh w-[min(var(--np-panel-w),100vw)] pr-safe data-[size=wide]:w-[min(var(--np-panel-w-wide),100vw)]",
+    "ml-auto h-dvh max-h-dvh w-[min(var(--np-panel-w),100vw)] rounded-l-(--np-radius-modal) pr-safe data-[size=wide]:w-[min(var(--np-panel-w-wide),100vw)]",
     "[transform:translateX(var(--drawer-swipe-movement-x,0px))]",
     "data-ending-style:[transform:translateX(100%)] data-starting-style:[transform:translateX(100%)]"
   ),
