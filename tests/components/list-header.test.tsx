@@ -314,6 +314,58 @@ describe("ListHeader", () => {
     expect(readout()).toBe("none · off")
   })
 
+  it("catches focus that falls with the selection bar when the last tick goes", async () => {
+    function Bar() {
+      const { selected, clear } = useSelection()
+      if (selected.size === 0) return null
+      return (
+        <button type="button" onClick={() => clear()}>
+          bar action
+        </button>
+      )
+    }
+    for (const desk of [true, false]) {
+      stubDesk(desk)
+      const user = userEvent.setup()
+      const { unmount } = render(
+        <QueryClientProvider client={new QueryClient()}>
+          <SelectionProvider>
+            <ListHeader
+              canBatch
+              reviews={[row("a"), row("b")]}
+              loaded
+              countLabel="2 reviews"
+              countAnnouncement="2 reviews"
+              refreshed="14:32"
+            />
+            <Controls />
+            <Bar />
+          </SelectionProvider>
+        </QueryClientProvider>
+      )
+      if (!desk)
+        await user.click(screen.getByRole("button", { name: "Select" }))
+      await user.click(screen.getByRole("button", { name: "tick a" }))
+      await user.click(screen.getByRole("button", { name: "bar action" }))
+      expect(document.activeElement).toBe(
+        desk
+          ? screen.getByRole("checkbox", { name: "Select all loaded reviews" })
+          : screen.getByRole("button", { name: "Cancel selection" })
+      )
+      unmount()
+    }
+  })
+
+  it("leaves focus where the operator moved it when the last tick goes", async () => {
+    stubDesk(true)
+    const user = userEvent.setup()
+    renderHeader()
+    await user.click(screen.getByRole("button", { name: "tick a" }))
+    const escape = screen.getByRole("button", { name: "escape" })
+    await user.click(escape)
+    expect(document.activeElement).toBe(escape)
+  })
+
   it("keeps touch select mode, '0 selected' and all, when the last tick goes", async () => {
     const user = userEvent.setup()
     const { container } = renderHeader()
