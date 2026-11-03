@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { listingAreaNavItems } from "@/lib/listings/area-nav"
+import {
+  listingAreaNavItems,
+  PRIMARY_LISTING_PAGES,
+} from "@/lib/listings/area-nav"
+import {
+  emptyListingSummary,
+  type ListingSummary,
+} from "@/lib/contracts/location-summary"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 
 const caps = (over: Partial<LocationCapabilities>): LocationCapabilities =>
@@ -37,5 +44,53 @@ describe("Review & publish in the listing navigation", () => {
   })
   it("stays, and stays current, on a direct link to the page", () => {
     expect(keys(caps({}), "changes")).toContain("changes")
+  })
+})
+
+describe("the listing's area order and counts", () => {
+  const items = (summary?: ListingSummary) =>
+    listingAreaNavItems({
+      locationId: "l1",
+      current: "overview",
+      canManageConsoles: true,
+      summary,
+      caps: caps({ canEditCanonical: true, canPublish: true }),
+      linked: true,
+    })
+
+  it("leads with the six primary pages, the rest after them", () => {
+    const keys = items().map((item) => item.key)
+    expect(keys.slice(0, 6)).toEqual([...PRIMARY_LISTING_PAGES])
+    expect(keys.slice(6)).toEqual([
+      "booking",
+      "people",
+      "verification",
+      "suggestions",
+      "reviewLink",
+      "changes",
+    ])
+  })
+
+  it("counts each area's changes saved here, not on Google", () => {
+    const summary = emptyListingSummary({
+      locationId: "l1",
+      linked: true,
+      verified: true,
+    })
+    const edited = items({
+      ...summary,
+      hours: { status: "core_dirty", dirtyCount: 2, observedAt: null },
+      menu: { ...summary.menu, status: "conflict", dirtyCount: 0 },
+    })
+    const count = (key: string) =>
+      edited.find((item) => item.key === key)?.count
+    expect(count("hours")).toBe(2)
+    expect(count("menu")).toBe(1)
+    expect(count("profile")).toBe(0)
+    expect(edited.find((item) => item.key === "hours")?.countNoun).toBe(
+      "to publish"
+    )
+    // The listing total is the sum of the areas.
+    expect(count("changes")).toBe(3)
   })
 })
