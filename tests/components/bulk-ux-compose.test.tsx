@@ -255,12 +255,19 @@ describe("BulkCompose preview failures (p4-F13 C5)", () => {
 })
 
 describe("BulkCompose batch copy (p4-F13 C6)", () => {
+  it("never says the preview sends, or that anything is published", () => {
+    renderWithProviders(<BulkCompose />)
+    const form = document.body.textContent ?? ""
+    expect(form).not.toMatch(/preview sends/i)
+    expect(form).not.toMatch(/published|live on Google/i)
+  })
+
   it("speaks of one batch, before and after a change is added", async () => {
     const user = userEvent.setup()
     renderWithProviders(<BulkCompose />)
     expect(
       screen.getByText(
-        /Preview sends the change above on its own\. To send more than one change to each listing, add each one to the batch\./
+        /With nothing in the batch, the preview covers the change above on its own\. To make more than one change to each listing, add each one to the batch\./
       )
     ).toBeInTheDocument()
     pickDate()

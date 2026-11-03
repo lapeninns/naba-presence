@@ -150,7 +150,7 @@ const OPERATIONS: Array<{
   {
     value: "post_draft",
     label: "Post draft",
-    description: "A draft post on each listing. Nothing is published.",
+    description: "A draft post on each listing. Nothing is sent to Google.",
   },
   {
     value: "photos",
@@ -1569,9 +1569,9 @@ export function BulkCompose() {
             ) : operation === "post_draft" ? (
               <Fieldset>
                 <FieldsetLegend variant="muted">
-                  Creates a separate draft on each listing. Nothing is
-                  published: each draft is published from that listing’s posts,
-                  with its own approval when two-person approval is on.
+                  Creates a separate draft on each listing. Nothing is sent to
+                  Google here: each draft is published from that listing’s
+                  posts, with its own approval when two-person approval is on.
                 </FieldsetLegend>
                 <Field>
                   <FieldLabel>Post text</FieldLabel>
@@ -1878,8 +1878,9 @@ export function BulkCompose() {
             </ol>
           ) : (
             <p className="text-ui text-ink-secondary">
-              Preview sends the change above on its own. To send more than one
-              change to each listing, add each one to the batch.
+              With nothing in the batch, the preview covers the change above on
+              its own. To make more than one change to each listing, add each
+              one to the batch.
             </p>
           )}
           <p className="text-caption text-ink-muted tabular-nums">
