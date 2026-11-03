@@ -525,7 +525,7 @@ export function AddPhotoDialog({
             onDrop={onDrop}
             className={cn(
               "flex flex-col items-center gap-3 rounded-lg border-[1.5px] border-dashed border-line-strong bg-surface-alt px-4 py-5 text-center transition-colors duration-(--np-duration-fast)",
-              "data-[dragging]:border-primary data-[dragging]:bg-accent-tint"
+              "data-[dragging]:border-primary data-[dragging]:bg-fill"
             )}
           >
             <input

@@ -276,7 +276,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                     className={cn(
                       "grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] text-caption font-semibold tabular-nums",
                       index === 0
-                        ? "border-primary bg-accent-tint text-accent-ink"
+                        ? "border-primary bg-primary text-primary-foreground"
                         : "border-line-strong text-ink-muted"
                     )}
                   >
