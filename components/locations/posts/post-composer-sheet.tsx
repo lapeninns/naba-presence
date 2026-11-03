@@ -293,6 +293,8 @@ function toCandidate(
   return candidate
 }
 
+const WARNING_REASON = "Acknowledge the content warnings first"
+
 /** A save refused because someone else saved the post after it was opened. */
 function isPostChanged(error: unknown): boolean {
   return error instanceof ApiClientError && error.code === "post_changed"
@@ -435,6 +437,12 @@ export function PostComposerSheet({
     setContentWarningsAccepted(false)
     return true
   }
+  // Warnings on screen for these values and not yet ticked: sending again
+  // would only be refused again, so both buttons wait for the tick.
+  const warningUnacknowledged =
+    contentWarning !== null &&
+    contentWarning.values === JSON.stringify(values) &&
+    !contentWarningsAccepted
   const isContentWarning = (error: unknown) =>
     contentWarningFromError(error) !== null
 
@@ -1393,6 +1401,9 @@ export function PostComposerSheet({
                   ? saveReasonId
                   : undefined
             }
+            disabledReason={
+              warningUnacknowledged ? WARNING_REASON : undefined
+            }
             pending={create.isPending}
             pendingLabel="Saving…"
           >
@@ -1403,7 +1414,10 @@ export function PostComposerSheet({
               variant={gate.requestApproval ? "default" : "send"}
               onClick={submitPublish}
               disabled={disabled || (!post && !isDirty) || create.isPending}
-              disabledReason={gate.reason ?? undefined}
+              disabledReason={
+                gate.reason ??
+                (warningUnacknowledged ? WARNING_REASON : undefined)
+              }
               // The consent first, always; then why it is off, as for Save.
               aria-describedby={[
                 consentId,
