@@ -144,7 +144,11 @@ describe("derivePrimaryAction — which action applies", () => {
   it("offers Approve while the reply is awaiting approval", () => {
     expect(
       derivePrimaryAction(input({ workflowStatus: "awaiting_approval" }))
-    ).toMatchObject({ kind: "approve", label: "Approve reply", enabled: true })
+    ).toMatchObject({
+      kind: "approve",
+      label: "Approve and publish",
+      enabled: true,
+    })
   })
 
   // The approval decision is the top branch, so it must win even for an

@@ -358,7 +358,7 @@ describe("ActionBar", () => {
     )
     renderActionBar(true, save)
     expect(
-      screen.queryByRole("button", { name: "Approve reply" })
+      screen.queryByRole("button", { name: "Approve and publish" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Send back" })
@@ -394,7 +394,7 @@ describe("ActionBar", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar(false)
     expect(
-      screen.getByRole("button", { name: "Approve reply" })
+      screen.getByRole("button", { name: "Approve and publish" })
     ).toBeInTheDocument()
   })
 
@@ -405,7 +405,23 @@ describe("ActionBar", () => {
       variables: { decision: "reject" },
     } as unknown as ReturnType<typeof mutation>)
     renderActionBar()
-    expect(screen.getByRole("button", { name: "Approve reply" })).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Approve and publish" })
+    ).toBeDisabled()
+    expect(screen.queryByText("Sending…")).not.toBeInTheDocument()
+  })
+
+  it("reads Sending… while the approval publishes, and keeps focus on it", () => {
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), {
+      ...mutation(),
+      isPending: true,
+      variables: { decision: "approve" },
+    } as unknown as ReturnType<typeof mutation>)
+    renderActionBar()
+    const approve = screen.getByRole("button", { name: /Sending…/ })
+    expect(approve).toHaveAttribute("aria-busy", "true")
+    // Pending, not disabled: a disabled button would drop focus to the body.
+    expect(approve).not.toBeDisabled()
     expect(screen.queryByText("Approving…")).not.toBeInTheDocument()
   })
 
@@ -420,7 +436,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     expect(
       await screen.findByText(
         "The customer changed their review after you opened it. It has been reloaded. Read it, then approve or send back."
@@ -667,7 +685,7 @@ describe("ActionBar", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar()
     expect(
-      screen.getByRole("button", { name: "Approve reply" })
+      screen.getByRole("button", { name: "Approve and publish" })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Send back" })
@@ -689,7 +707,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() =>
       expect(
         screen.getByText("A different authorised user must approve this reply.")
@@ -711,7 +731,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() => expect(approval.mutateAsync).toHaveBeenCalledTimes(1))
     expect(approval.mutateAsync).toHaveBeenCalledWith({
       decision: "approve",
@@ -741,7 +763,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() => expect(approval.mutateAsync).toHaveBeenCalledTimes(1))
     expect(approval.mutateAsync).toHaveBeenCalledWith({
       decision: "approve",
@@ -765,7 +789,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -955,7 +981,7 @@ describe("ActionBar", () => {
     // Approving publishes, so it is the one green send on the bar; an ink
     // `default` button would be 1.05:1 on charcoal.
     expect(
-      screen.getByRole("button", { name: "Approve reply" })
+      screen.getByRole("button", { name: "Approve and publish" })
     ).toHaveAttribute("data-variant", "send")
     expect(
       document.querySelector(
@@ -1334,7 +1360,7 @@ describe("ActionBar", () => {
       )
       renderActionBar()
       expect(
-        screen.queryByRole("button", { name: "Approve reply" })
+        screen.queryByRole("button", { name: "Approve and publish" })
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: "Send back" })
@@ -1364,7 +1390,7 @@ describe("ActionBar", () => {
       )
       renderActionBar()
       expect(
-        screen.getByRole("button", { name: "Approve reply" })
+        screen.getByRole("button", { name: "Approve and publish" })
       ).toBeEnabled()
       expect(
         screen.getByRole("button", { name: "Send back" })
@@ -1388,7 +1414,7 @@ describe("ActionBar", () => {
       )
       renderActionBar()
       expect(
-        screen.queryByRole("button", { name: "Approve reply" })
+        screen.queryByRole("button", { name: "Approve and publish" })
       ).not.toBeInTheDocument()
       // Alone, Reject is the bar's own button at every width, not a ⋯ row.
       const reject = screen.getByRole("button", { name: "Send back" })

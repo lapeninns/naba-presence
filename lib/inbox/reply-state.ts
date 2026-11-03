@@ -95,7 +95,7 @@ export type ReplyStateInput = {
 
 export type PrimaryAction = {
   kind: PrimaryActionKind
-  /** "Publish reply" / "Update reply" / "Approve reply" / "Submit for approval". */
+  /** "Publish reply" / "Update reply" / "Approve and publish" / "Submit for approval". */
   label: string
   enabled: boolean
   /** Why it is off. Always present when `enabled` is false. */
@@ -112,7 +112,7 @@ export type PrimaryAction = {
 const ACTION_LABELS: Record<PrimaryActionKind, string> = {
   publish: "Publish reply",
   update: "Update reply",
-  approve: "Approve reply",
+  approve: "Approve and publish",
   submit: "Submit for approval",
 }
 

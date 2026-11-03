@@ -397,6 +397,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // Approve's pending words only while it is Approve that runs.
   const approving =
     approval.isPending && approval.variables?.decision === "approve"
+  const sendingBack =
+    approval.isPending && approval.variables?.decision === "reject"
 
   const shortcutHint = oneStep ? (
     // Desk only: a key hint means nothing to a thumb.
@@ -443,10 +445,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Send back
             </Button>
             {offerApprove ? (
+              // Approving publishes at once (there is no separate send
+              // after it), so the button says both and runs as a send.
               <Button
                 ref={primaryRef}
                 variant="send"
-                disabled={!primary.enabled || approval.isPending}
+                disabled={!primary.enabled || sendingBack}
+                pending={approving}
+                pendingLabel="Sending…"
                 onClick={() => void onDecision("approve")}
               >
                 <CheckIcon
@@ -454,7 +460,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   strokeWidth={1.75}
                   data-icon="inline-start"
                 />
-                {approving ? "Approving…" : "Approve reply"}
+                Approve and publish
               </Button>
             ) : null}
           </>
@@ -653,12 +659,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Cancel
             </AlertDialogClose>
             <Button
-              disabled={approval.isPending}
+              disabled={approving}
+              pending={sendingBack}
+              pendingLabel="Sending back…"
               onClick={() =>
                 void onDecision("reject", rejectNote.trim() || undefined)
               }
             >
-              {approval.isPending ? "Sending back…" : "Send back"}
+              Send back
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
