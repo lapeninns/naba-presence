@@ -136,6 +136,19 @@ describe("ChangeTrack", () => {
     ])
   })
 
+  it("speaks an unconfirmed On Google stop as waiting for Google", () => {
+    render(<ChangeTrack state="awaiting_confirmation" compact />)
+    const items = screen.getAllByRole("listitem")
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Saved here, done",
+      "Approved, done",
+      "Sent, done",
+      "On Google, waiting for Google",
+    ])
+    expect(items[3]).toHaveAttribute("aria-current", "step")
+    expect(items[3]).toHaveAttribute("data-state", "current")
+  })
+
   it("draws to-do stops in ink-muted, readable without their labels", () => {
     const { container } = render(<ChangeTrack state="saved_locally" compact />)
     const todo = container.querySelectorAll('[data-glyph="todo"]')

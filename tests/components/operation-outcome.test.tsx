@@ -99,6 +99,7 @@ describe("operation outcome vocabulary", () => {
     expect(describeOutcome("sent").track).toEqual({ stop: "sent" })
     expect(describeOutcome("awaiting_confirmation").track).toEqual({
       stop: "google",
+      waitingOn: "Google",
     })
     expect(describeOutcome("confirmed_applied").track).toEqual({
       stop: "google",
