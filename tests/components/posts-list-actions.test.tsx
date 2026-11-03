@@ -130,12 +130,26 @@ describe("publish consent", () => {
 })
 
 describe("the row's actions speak the lifecycle", () => {
-  it("draws Publish as the send it opens and Request approval as a local step", () => {
+  it("keeps green for the dialog's send, not the Publish that opens it", async () => {
     renderRow()
-    expect(screen.getByRole("button", { name: "Publish" })).toHaveAttribute(
-      "data-variant",
-      "send"
-    )
+    const opener = screen.getByRole("button", { name: "Publish" })
+    expect(opener).not.toHaveAttribute("data-variant", "send")
+    await userEvent.click(opener)
+    const dialog = await screen.findByRole("alertdialog")
+    expect(
+      within(dialog).getByRole("button", { name: "Publish to Google" })
+    ).toHaveAttribute("data-variant", "send")
+  })
+
+  it("keeps green for Approve and publish, not the Approve that opens it", async () => {
+    renderRow({ post: post({ status: "awaiting_approval" }) })
+    const opener = screen.getByRole("button", { name: "Approve" })
+    expect(opener).not.toHaveAttribute("data-variant", "send")
+    await userEvent.click(opener)
+    const dialog = await screen.findByRole("alertdialog")
+    expect(
+      within(dialog).getByRole("button", { name: "Approve and publish" })
+    ).toHaveAttribute("data-variant", "send")
   })
 
   it("keeps Request approval off the send fill: it sends nothing to Google", () => {

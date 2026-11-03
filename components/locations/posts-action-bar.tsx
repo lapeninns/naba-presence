@@ -420,9 +420,9 @@ export function PostsActionBar({
       {editable ? (
         <Button
           size="sm"
+          variant="secondary"
           // A request for approval sends nothing to Google, so it goes
           // straight through; a publish shows the post first.
-          variant={offerRequestApproval ? "secondary" : "send"}
           onClick={() =>
             offerRequestApproval ? publish.mutate() : setPublishOpen(true)
           }
@@ -453,7 +453,7 @@ export function PostsActionBar({
       {awaiting && !waitingForApprover ? (
         <Button
           size="sm"
-          variant="send"
+          variant="secondary"
           onClick={() => setApproveOpen(true)}
           disabled={Boolean(approveReason) || decide.isPending}
           pending={decide.isPending && decide.variables === "approve"}
