@@ -93,6 +93,15 @@ const pickDate = (value = "2026-12-25") =>
   })
 
 describe("BulkCompose first run (p4-F13 C1, C2)", () => {
+  it("keeps the date field's focus halo while its calendar button has focus", () => {
+    renderWithProviders(<BulkCompose />)
+    const date = screen.getByLabelText("Date", { exact: true })
+    expect(date).toHaveClass(
+      "focus-within:shadow-(--np-focus-halo)",
+      "focus-within:border-accent-solid"
+    )
+  })
+
   it("asks for the date as the next step, never the contract's ISO wording", () => {
     renderWithProviders(<BulkCompose />)
     expect(screen.queryByText(/Invalid ISO date/)).toBeNull()

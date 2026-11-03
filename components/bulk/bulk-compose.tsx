@@ -916,8 +916,12 @@ export function BulkCompose() {
                       <div className="grid gap-3 @md/date:grid-cols-2">
                         <Field>
                           <FieldLabel>Date</FieldLabel>
+                          {/* Chromium's desktop date input gives its calendar
+                              button a Tab stop of its own; there the input
+                              loses :focus but keeps :focus-within. */}
                           <Input
                             type="date"
+                            className="focus-within:border-accent-solid focus-within:shadow-(--np-focus-halo) aria-invalid:focus-within:border-danger-ink aria-invalid:focus-within:shadow-np-focus-danger"
                             enterKeyHint="next"
                             value={row.date}
                             onChange={(e) =>
