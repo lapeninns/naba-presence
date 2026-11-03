@@ -320,7 +320,9 @@ function readReplies(
           and rr.updated_at > now() - ${WINDOW}::interval
           and not (
             rr.publish_status = 'published'
-            and rr.google_reply_state = 'APPROVED'
+            -- coalesce: Google's state is null until it answers, and a null
+            -- here would drop a reply that is still waiting.
+            and coalesce(rr.google_reply_state, '') = 'APPROVED'
             and coalesce(rr.google_reply_updated_at, rr.updated_at)
               <= now() - ${CONFIRMED_WINDOW}::interval
           )
@@ -437,9 +439,11 @@ function readChanges(
           and o.updated_at > now() - ${CONFIRMED_WINDOW}::interval
         )
       )
+      -- coalesce: a null error_code would make the whole test null, and
+      -- "not null" drops the row.
       and not (
         o.state = 'failed'
-        and o.error_code in ${sql(RETIRED_REQUEST_CODES)}
+        and coalesce(o.error_code, '') in ${sql(RETIRED_REQUEST_CODES)}
       )
       -- An approved change request takes its dispatch's state, so the
       -- dispatch's own receipt would be the same change twice. Recovery
@@ -610,7 +614,7 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
           p.status = 'published'
           and la.at > now() - ${WINDOW}::interval
           and not (
-            p.google_state = 'LIVE'
+            coalesce(p.google_state, '') = 'LIVE'
             and la.at <= now() - ${CONFIRMED_WINDOW}::interval
           )
         )

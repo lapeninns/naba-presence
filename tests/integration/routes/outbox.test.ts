@@ -227,16 +227,19 @@ describeDatabase("GET /api/outbox", () => {
       return row.id
     }
     ids.post = await post("published", "PROCESSING")
+    // Sent from here before Google has answered at all: still waiting.
+    ids.postUnanswered = await post("published", null)
     ids.importedPost = await post("published", "LIVE")
-    await admin`
-      insert into gbp_local_post_attempt (
-        organisation_id, post_id, actor_user_id, operation, status,
-        idempotency_key, intended_payload
-      ) values (
-        ${org}, ${ids.post}, ${owner.userId}, 'create', 'succeeded',
-        ${randomUUID()}, '{}'::jsonb
-      )
-    `
+    for (const postId of [ids.post, ids.postUnanswered])
+      await admin`
+        insert into gbp_local_post_attempt (
+          organisation_id, post_id, actor_user_id, operation, status,
+          idempotency_key, intended_payload
+        ) values (
+          ${org}, ${postId}, ${owner.userId}, 'create', 'succeeded',
+          ${randomUUID()}, '{}'::jsonb
+        )
+      `
 
     // A running bulk hours change over both listings: one listing failed,
     // the other still queued. Its own hours receipt is the bulk row's.
@@ -341,6 +344,7 @@ describeDatabase("GET /api/outbox", () => {
       title: "Post",
       href: `/listings/${second.locationId}/posts`,
     })
+    expect(items.get(`post:${ids.postUnanswered}`)?.state).toBe("waiting")
     expect(items.get(`bulk:${ids.bulk}:sending`)).toMatchObject({
       kind: "bulk",
       locationId: second.locationId,
