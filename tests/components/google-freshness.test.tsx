@@ -34,24 +34,24 @@ describe("GoogleFreshness", () => {
   it("takes the caller's layout when the data is current", () => {
     stubClients("up_to_date")
     const { container } = render(
-      <GoogleFreshness className="max-desk:hidden min-w-0 truncate" />
+      <GoogleFreshness className="hidden min-w-0 truncate desk:block" />
     )
     expect(screen.getByText(/Google checked/)).toBeInTheDocument()
     const note = container.firstElementChild!
-    expect(note).toHaveClass("min-w-0", "truncate", "max-desk:hidden")
+    expect(note).toHaveClass("min-w-0", "truncate", "hidden desk:block")
     expect(note).toHaveClass("text-ink-muted")
   })
 
   it("takes the caller's layout when the data is delayed, in the warning ink", () => {
     stubClients("data_delayed")
     const { container } = render(
-      <GoogleFreshness className="max-desk:hidden min-w-0 truncate" />
+      <GoogleFreshness className="hidden min-w-0 truncate desk:block" />
     )
     const note = container.firstElementChild!
     expect(note).toHaveTextContent("delayed, retrying")
     // A delay used to ignore the caller's classes, so it could overflow a
     // header that had folded the routine line away.
-    expect(note).toHaveClass("min-w-0", "truncate", "max-desk:hidden")
+    expect(note).toHaveClass("min-w-0", "truncate", "hidden desk:block")
     expect(note).toHaveClass("text-warning-ink")
     expect(note).not.toHaveClass("text-ink-muted")
   })

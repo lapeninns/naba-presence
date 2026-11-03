@@ -11,3 +11,5 @@ import type { CSSProperties } from "react"
 export const INBOX_SPLIT_STYLE = {
   "--inbox-list-w": "clamp(18.75rem, 40%, 30rem)",
 } as CSSProperties
+
+export const INBOX_TITLE = "Inbox · NabaPresence"

@@ -63,13 +63,15 @@ function tab(queue: string) {
 }
 
 /** The queues that draw a figure while `needs_reply` is the current one. */
-const FIGURED = VISIBLE_QUEUES.filter((queue) => queue !== "needs_reply")
+const FIGURED = VISIBLE_QUEUES.filter(
+  (queue) => queue !== "needs_reply" && queue !== "all"
+)
 
 const modeMock = vi.hoisted(() => vi.fn(() => "agency"))
 vi.mock("@/lib/workspace/mode", () => ({ useWorkspaceMode: () => modeMock() }))
 
 describe("QueueTabs", () => {
-  it("is a landmark holding the five visible queues, labelled from the contract", () => {
+  it("is a landmark holding the six visible queues, labelled from the contract", () => {
     // The rail is gone, but these are still the inbox's primary navigation, so
     // the landmark a screen-reader user jumps to has to survive the move.
     renderTabs()
@@ -99,7 +101,7 @@ describe("QueueTabs", () => {
     ).toBeInTheDocument()
     // Singular, because "1 reviews" reads as a bug in the product.
     expect(
-      within(nav()).getByRole("button", { name: "Publishing, 1 review" })
+      within(nav()).getByRole("button", { name: "Sending, 1 review" })
     ).toBeInTheDocument()
     expect(within(tab("approval")).getByText("5")).toBeInTheDocument()
   })
@@ -168,7 +170,7 @@ describe("QueueTabs", () => {
     expect(empty.querySelector('[data-slot="tab-count"]')).toBeNull()
     expect(within(empty).queryByText("–")).not.toBeInTheDocument()
     expect(within(empty).queryByText("0")).not.toBeInTheDocument()
-    expect(empty).toHaveAccessibleName("Publishing, 0 reviews")
+    expect(empty).toHaveAccessibleName("Sending, 0 reviews")
   })
 
   it("marks the current queue with aria-current", () => {
@@ -283,6 +285,36 @@ describe("QueueTabs", () => {
       "text-danger-ink",
       "font-semibold"
     )
+  })
+
+  it("names the queues in the lifecycle's words: Sending, and a visible All", () => {
+    // Nothing in the Sending queue is on Google yet, so it is not called
+    // Publishing; the `publishing` key stays for existing deep links.
+    renderTabs()
+    expect(tab("publishing")).toHaveTextContent(/^Sending/)
+    expect(tab("all")).toHaveTextContent("All")
+  })
+
+  it("draws no figure on All, whose total is not work to do", () => {
+    renderTabs({ counts: counts({ all: 120 }) })
+    expect(tab("all").querySelector('[data-slot="tab-count"]')).toBeNull()
+    expect(tab("all")).toHaveAccessibleName("All")
+  })
+
+  it("marks a non-zero Failed count with a warning glyph, not colour alone", () => {
+    renderTabs({ counts: counts({ failed: 4 }) })
+    const figure = tab("failed").querySelector('[data-slot="tab-count"]')
+    expect(figure?.querySelector("svg[aria-hidden]")).toBeInTheDocument()
+    expect(figure).toHaveTextContent("4")
+    // Any other queue's figure is the number alone.
+    expect(tab("done").querySelector('[data-slot="tab-count"] svg')).toBeNull()
+  })
+
+  it("reports All as its own queue when clicked", async () => {
+    const user = userEvent.setup()
+    const { onQueueChange } = renderTabs({ queue: "needs_reply" })
+    await user.click(tab("all"))
+    expect(onQueueChange).toHaveBeenCalledWith("all")
   })
 
   it("scrolls the strip, not the page, to the current queue on arrival", () => {

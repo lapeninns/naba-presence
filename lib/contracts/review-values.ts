@@ -72,10 +72,12 @@ export const REVIEW_QUEUE_LABELS: Record<ReviewQueue, string> = {
   approval: "Approval",
   awaiting_my_approval: "Awaiting my approval",
   awaiting_others: "Awaiting others",
-  publishing: "Publishing",
+  // A queue of replies Google has not confirmed yet: sending, not published.
+  // The key stays `publishing` so existing `?queue=publishing` links work.
+  publishing: "Sending",
   failed: "Failed",
   done: "Done",
-  all: "All reviews",
+  all: "All",
 }
 
 export { REVIEW_WORKFLOW_STATES, type ReviewWorkflowState }

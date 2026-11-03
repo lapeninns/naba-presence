@@ -504,16 +504,7 @@ function ReviewList({
                 // listing still leaves the client a few letters); the whole
                 // text is the title. Shrink is proportional, so the listing
                 // is `shrink-0` rather than weighted: the client alone gives.
-                // The status pill rides this line, at its end, only where
-                // the line is at least sm (24rem) wide, a desk's list; on a
-                // phone (390px leaves ~19rem) it drops under the venue, as
-                // the pre-redesign row did, so the client · location gets
-                // the width beside the stars. The venue takes the rest with
-                // a zero basis, so it never pushes the pill down on its own.
-                <span
-                  data-slot="review-row-venue"
-                  className="@container/venue block min-w-0"
-                >
+                <span data-slot="review-row-venue" className="block min-w-0">
                   {/* Start-aligned, each item centred in one line's height,
                       so the stars sit on the venue's first line when it
                       wraps (QA N4), not midway down the block. */}
@@ -575,31 +566,34 @@ function ReviewList({
                         />
                       </span>
                     ) : null}
-                    {pillRepeatsQueue ? null : (
-                      <span
-                        data-slot="review-row-status"
-                        className="ml-auto flex shrink-0 self-center @max-sm/venue:ml-0 @max-sm/venue:basis-full"
-                      >
-                        <StatusPill
-                          tone={pill.tone}
-                          dashed={pill.dashed}
-                          className="border-0 bg-transparent px-0"
-                          // The full sentence is the accessible name, so a reader
-                          // hears "Draft checked · Ready to publish" rather than
-                          // the abbreviation the row has room for. Where the title
-                          // already says it (a needs-reply row), not again.
-                          data-slot="reply-status"
-                          data-tone={status.tone}
-                          aria-label={status.text}
-                          aria-hidden={pillSpokenByTitle || undefined}
-                        >
-                          {status.short}
-                        </StatusPill>
-                      </span>
-                    )}
                   </span>
                 </span>
               }
+              // The status pill ends the venue line on a desk; on touch it
+              // sits under the snippet, so the client · location keeps the
+              // width beside the stars.
+              trailing={
+                pillRepeatsQueue ? undefined : (
+                  <span data-slot="review-row-status" className="flex">
+                    <StatusPill
+                      tone={pill.tone}
+                      dashed={pill.dashed}
+                      className="border-0 bg-transparent px-0"
+                      // The full sentence is the accessible name, so a reader
+                      // hears "Draft checked · Ready to publish" rather than
+                      // the abbreviation the row has room for. Where the
+                      // title already says it (a needs-reply row), not again.
+                      data-slot="reply-status"
+                      data-tone={status.tone}
+                      aria-label={status.text}
+                      aria-hidden={pillSpokenByTitle || undefined}
+                    >
+                      {status.short}
+                    </StatusPill>
+                  </span>
+                )
+              }
+              trailingPlacement="adaptive"
               preview={
                 // What they said — two lines on a phone, where the row is all
                 // there is; one on a desk, beside the thread.
@@ -719,6 +713,7 @@ function ReviewRowsSkeleton({
           trailing={
             <SkeletonLine className="h-(--np-pill-h) w-16 rounded-(--np-radius-pill)" />
           }
+          trailingPlacement="adaptive"
           preview={
             <>
               <SkeletonLine className="h-3 w-full" />

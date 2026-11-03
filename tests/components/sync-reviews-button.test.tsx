@@ -57,9 +57,36 @@ function json(body: unknown, status = 200) {
 }
 
 describe("SyncReviewsButton", () => {
-  it("is hidden when this person cannot sync", () => {
-    const { container } = renderButton(false)
-    expect(container).toBeEmptyDOMElement()
+  it("offers a refresh from NabaPresence, never Google, to someone who cannot sync", async () => {
+    // Members and viewers had no way to see new rows short of reloading.
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const refetch = vi
+      .spyOn(client, "refetchQueries")
+      .mockResolvedValue(undefined)
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <SyncReviewsButton canSync={false} />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    expect(screen.queryByRole("button", { name: "Sync reviews" })).toBeNull()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Refresh reviews" })
+    )
+    expect(refetch).toHaveBeenCalledWith({
+      queryKey: queryKeys.reviewsAll,
+      type: "active",
+    })
+    expect(refetch).toHaveBeenCalledWith({
+      queryKey: queryKeys.reviewCountsAll,
+      type: "active",
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("reconciles reviews from Google", async () => {

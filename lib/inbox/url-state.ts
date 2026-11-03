@@ -228,9 +228,9 @@ export function toReviewsFilters(
 // --- The Approval aggregate -------------------------------------------------
 
 /**
- * The five queue controls the Inbox shows. `approval` is the presentation
- * union of the two `awaiting_approval` queues; `all` is reached by clearing
- * filters, not by a control.
+ * The six queue controls the Inbox shows. `approval` is the presentation
+ * union of the two `awaiting_approval` queues; `all` is every review, with
+ * no queue applied.
  */
 export const VISIBLE_QUEUES = [
   "needs_reply",
@@ -238,6 +238,7 @@ export const VISIBLE_QUEUES = [
   "publishing",
   "failed",
   "done",
+  "all",
 ] as const satisfies readonly Queue[]
 export type VisibleQueue = (typeof VISIBLE_QUEUES)[number]
 

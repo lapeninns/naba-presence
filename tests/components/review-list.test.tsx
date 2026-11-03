@@ -1101,7 +1101,7 @@ describe("ReviewList row anatomy", () => {
     ).toBeInTheDocument()
   })
 
-  it("puts the status pill on the venue line, trailing, and the words last", () => {
+  it("puts the status pill at the end of the venue line on a desk and under the words on touch", () => {
     render(
       <ReviewList
         reviews={[row({ id: "a" })]}
@@ -1113,25 +1113,21 @@ describe("ReviewList row anatomy", () => {
     const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     const venue = button.querySelector('[data-slot="review-row-venue"]')!
     const pill = button.querySelector('[data-slot="reply-status"]')!
-    // The venue is the row's subtitle and the pill rides its line, last and
-    // never squeezed (R3 F2-S2, RC3 QA #2): under sm (24rem, any phone up
-    // to ~470px) the pill drops below so the client · location keeps its
-    // width; the location takes the rest with a zero basis, so it never
-    // forces that wrap itself. It is one line (DSK-12): the client gives way
-    // first, with the whole text as the title.
+    // The venue is the row's subtitle; the pill is the row's trailing slot,
+    // placed adaptively (ListRow): at the end of the venue line on a desk,
+    // and on touch below the snippet, so the client · location keeps the
+    // width beside the stars. One element in both places, moved by CSS
+    // order, so nothing is announced twice. It is one line (DSK-12): the
+    // client gives way first, with the whole text as the title.
     const subtitle = venue.closest('[data-slot="list-row-subtitle"]')!
     expect(subtitle).not.toBeNull()
-    expect(venue).toHaveClass("@container/venue")
     const status = pill.closest('[data-slot="review-row-status"]')!
-    expect(venue.contains(status)).toBe(true)
-    expect(status).toHaveClass(
-      "ml-auto",
-      "shrink-0",
-      "self-center",
-      "@max-sm/venue:basis-full"
-    )
+    expect(venue.contains(status)).toBe(false)
+    const trailing = status.closest('[data-slot="list-row-trailing"]')!
+    expect(trailing).toHaveAttribute("data-placement", "adaptive")
+    expect(trailing).toHaveClass("order-1", "desk:order-none", "shrink-0")
+    expect(subtitle.parentElement).toHaveClass("contents", "desk:flex")
     expect(pill).toHaveClass("bg-transparent", "border-0")
-    expect(status.parentElement).toHaveClass("flex-wrap")
     const location = button.querySelector('[data-slot="review-row-location"]')!
     expect(
       location.compareDocumentPosition(status) &
@@ -1160,9 +1156,15 @@ describe("ReviewList row anatomy", () => {
     )
     expect(client.className).not.toMatch(/shrink-\[/)
     expect(location.lastElementChild).toHaveTextContent("Riverside")
-    expect(button.querySelector('[data-slot="list-row-trailing"]')).toBeNull()
 
-    // DOM order is the visual order: name and time, venue, then the words.
+    // DOM order: name and time, venue, status, then the words. The status
+    // is spoken before the words at every size, even where touch draws it
+    // under them.
+    expect(
+      status.compareDocumentPosition(
+        button.querySelector('[data-slot="review-row-preview"]')!
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     const time = button.querySelector("time")!
     const preview = button.querySelector('[data-slot="review-row-preview"]')!
     expect(
