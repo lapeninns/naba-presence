@@ -27,6 +27,25 @@ const DEFAULT_REVIEW_LABEL = "Review changes"
 const NOT_SENT_YET = "Nothing changes on Google until you publish."
 
 /**
+ * A docked phone bar clamps its status to two lines as one -webkit-box, which
+ * runs the headline and sub-line together ("1 unsaved changeNothing…"). On
+ * phones the sub-line stays for assistive tech only; the headline is the
+ * status there.
+ */
+function subLine(text: React.ReactNode) {
+  return <span className="max-md:sr-only">{text}</span>
+}
+
+/**
+ * The status keeps room for "1 unsaved change" on two lines (7rem). The
+ * docked bar is one row while that fits beside the buttons, down to a 360px
+ * phone; narrower, the status wraps to its own row above them rather than
+ * clamping to a word's width ("1 unsa…").
+ */
+const STATUS_KEEPS_ROOM =
+  "max-md:flex-wrap max-md:[&>[data-slot=action-bar-status]]:min-w-28"
+
+/**
  * The dispatch bar's lifecycle state and headline, in the shared words
  * (DIRECTION §6.1): edits only in this tab are "unsaved", a difference
  * NabaPresence already holds is a "draft saved" here, and a copy Google
@@ -253,6 +272,7 @@ function EditorFooter({
     // the buttons, so a phone's bar is two rows only while it has one.
     className: cn(
       reason && "max-md:flex-wrap",
+      STATUS_KEEPS_ROOM,
       "focus-visible:outline-none",
       railClass,
       className
@@ -291,13 +311,13 @@ function EditorFooter({
         state={dispatch.state}
         // Saving goes first so a clamped status can never cut it.
         title={saving ? "Saving…" : dispatch.title}
-        detail={
+        detail={subLine(
           saving
             ? dispatch.title
             : "detail" in dispatch
               ? dispatch.detail
               : NOT_SENT_YET
-        }
+        )}
         // A long primary label ("Review lodging draft") would leave the
         // status no room beside it: it takes its own row then.
         statusRow={reviewLabel.length > DEFAULT_REVIEW_LABEL.length}
@@ -335,7 +355,7 @@ function EditorFooter({
       <SaveBar
         {...shared}
         saving={saving}
-        detail="No changes to publish: they match Google."
+        detail={subLine("No changes to publish: they match Google.")}
         primary={primary}
       >
         {notes}

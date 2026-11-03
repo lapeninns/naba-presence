@@ -32,8 +32,11 @@ describe("EditorFooter", () => {
     const bar = screen.getByRole("region", { name: "Editor actions" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
     expect(bar.className).toMatch(/max-md:fixed/)
-    // One row: the dock's nowrap is not overridden by a wrapping bar.
-    expect(bar.className).not.toMatch(/max-md:flex-wrap/)
+    // One row while the status keeps its two-line room beside the buttons
+    // (a 360px phone and up); only narrower does it wrap to its own row.
+    expect(bar.className).toContain(
+      "max-md:[&>[data-slot=action-bar-status]]:min-w-28"
+    )
     // The ActionBar's dock: an in-flow spacer keeps the last field
     // reachable above the fixed bar.
     expect(
@@ -307,6 +310,23 @@ describe("EditorFooter", () => {
     expect(
       screen.getByRole("region", { name: "Editor actions" }).className
     ).toContain("desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]")
+  })
+
+  it("keeps a docked phone status to its headline, the sub-line for assistive tech", () => {
+    render(footer({ status: "edited", isDirty: true, changeCount: 1 }))
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    const detail = screen.getByText(
+      "Nothing changes on Google until you publish."
+    )
+    // The phone clamp draws the status as one box: a visible sub-line would
+    // run straight on from the headline.
+    expect(detail).toHaveClass("max-md:sr-only")
+    expect(
+      bar.querySelector('[data-slot="action-bar-status"]')
+    ).toContainElement(detail)
+    // Narrower than its room beside the buttons, the status wraps to its
+    // own row instead of clamping to a word.
+    expect(bar.className).toMatch(/max-md:flex-wrap/)
   })
 
   it("keeps the view-only bar inline, with the reason in words", () => {
