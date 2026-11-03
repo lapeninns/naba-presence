@@ -176,7 +176,7 @@ export function ReportsSkeleton({
         data-skeleton="filter-row"
         className="hidden items-center gap-3 md:flex"
       >
-        <Skeleton className="h-(--np-control-h) w-[29rem] max-w-full rounded-(--np-radius-track)" />
+        <Skeleton className="h-(--np-control-h) w-full max-w-md rounded-(--np-radius-track)" />
         <Skeleton className="h-3.5 w-40" />
       </div>
       <Skeleton className="h-11 w-full rounded-(--np-radius-control) sm:w-96" />
