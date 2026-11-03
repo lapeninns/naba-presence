@@ -40,6 +40,11 @@ describe("EditorFooter", () => {
       bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
     ).not.toBeNull()
     expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
+    // Opening the review writes nothing to Google, so it never takes the
+    // send fill; that belongs to the sheet's publish.
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toHaveAttribute("data-variant", "on-dark")
     // The phone's overflow is named, and a touch-sized icon button.
     expect(screen.getByRole("button", { name: "More actions" })).toHaveClass(
       "md:hidden"

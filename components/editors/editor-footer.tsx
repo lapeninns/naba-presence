@@ -220,11 +220,12 @@ function EditorFooter({
       destructive: true,
     })
   }
-  // "Review changes" opens the sheet whose only action publishes: it is the
-  // dispatch bar's one step towards Google, so it takes the send fill.
+  // "Review changes" only opens the review sheet and writes nothing to Google,
+  // so it is the light on-charcoal button; the send fill waits for the
+  // sheet's approved publish.
   const primary = isDirty ? (
     <Button
-      variant="send"
+      variant="on-dark"
       onClick={onReview}
       disabled={Boolean(disabledReason)}
     >
