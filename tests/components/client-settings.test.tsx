@@ -116,7 +116,7 @@ const renderSettings = () =>
   )
 
 describe("ClientSettings", () => {
-  it("offers to unfile the listings and archive in one step", async () => {
+  it("asks before archiving a client with listings, then unfiles them in the same write", async () => {
     // Archiving used to be blocked until every listing was removed by hand,
     // one row at a time.
     const fetchMock = stub({ attached: true })
@@ -127,9 +127,16 @@ describe("ClientSettings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
     )
-    // One step: no confirmation dialog or tick box, the toast's Undo is the
-    // safety net.
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    // Only the toast's Undo files the listings back, so this asks first.
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent("Archive Old Crown Group?")
+    expect(dialog).toHaveTextContent("a later restore from Archived does not")
+    expect(
+      fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")
+    ).toBe(false)
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Archive and unfile" })
+    )
     await waitFor(() => expect(push).toHaveBeenCalledWith("/clients"))
     const patch = fetchMock.mock.calls.find(
       ([, init]) => init?.method === "PATCH"
@@ -253,9 +260,7 @@ describe("ClientSettings", () => {
     )
     renderSettings()
     expect(
-      await screen.findByText(
-        "There are no unfiled listings to add. Bring this client’s listings in from Google."
-      )
+      await screen.findByText("Bring its listings in from Google first.")
     ).toBeInTheDocument()
     expect(screen.queryByText(/unfiled list below/i)).not.toBeInTheDocument()
     // Said once, not again in a caption under the empty state.
@@ -359,6 +364,38 @@ describe("ClientSettings", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("cancels an archive from the dialog without writing anything", async () => {
+    const fetchMock = stub({ attached: true })
+    renderSettings()
+    await screen.findByText(/still has its listing/)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive Old Crown Group" })
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    expect(
+      fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")
+    ).toBe(false)
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it("keeps the unavailable client's line short, with one way on", async () => {
+    const fetchMock = stub({ attached: false })
+    const fallback = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input).includes("/api/clients/c1")
+        ? json({ error: "client_not_found", message: "Not found" }, 404)
+        : fallback(input, init)
+    )
+    renderSettings()
+    const line = await screen.findByText("It may have been archived.")
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+    expect(screen.queryByRole("link", { name: "All clients" })).toBeNull()
+  })
+
   it("archives an empty client at once, with no confirmation step", async () => {
     const fetchMock = stub({ attached: false })
     renderSettings()
@@ -435,6 +472,11 @@ describe("ClientSettings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
     )
+    fireEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Archive and unfile",
+      })
+    )
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }))
     await waitFor(() =>
       expect(
@@ -462,6 +504,11 @@ describe("ClientSettings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
     )
+    fireEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Archive and unfile",
+      })
+    )
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }))
     expect(
       await screen.findByText(
@@ -484,6 +531,11 @@ describe("ClientSettings", () => {
     await screen.findByText(/still has its listing/)
     fireEvent.click(
       screen.getByRole("button", { name: "Archive Old Crown Group" })
+    )
+    fireEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Archive and unfile",
+      })
     )
     expect(
       await screen.findByText(

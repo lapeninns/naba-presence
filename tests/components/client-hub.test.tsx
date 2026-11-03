@@ -125,6 +125,69 @@ describe("ClientHub", () => {
     ).toHaveAttribute("href", "/setup?client=c1&step=locations")
   })
 
+  it("keeps the no-listings empty state to one short sentence", async () => {
+    stub({
+      client: { ...client, locationCount: 0, linkedCount: 0 },
+      locations: [],
+    })
+    renderHub()
+    const line = await screen.findByText("Link its Google listings to start.")
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+  })
+
+  it("says an approval waits on a person, not that it is unpublished", async () => {
+    stub()
+    renderHub()
+    expect(
+      await screen.findByText("Waiting for an approver")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/not yet published/)).toBeNull()
+  })
+
+  it("lets the Google login wrap after its @ rather than mid-word", async () => {
+    stub({
+      client: {
+        ...client,
+        connections: [
+          {
+            id: "g1",
+            googleEmail: "stub@example.test",
+            status: "active",
+            reconnectRequired: false,
+            lastRefreshAt: null,
+          },
+        ],
+      },
+    })
+    renderHub()
+    const email = await screen.findByText(
+      (_, el) =>
+        el?.tagName === "STRONG" && el.textContent === "stub@example.test"
+    )
+    expect(email.innerHTML).toBe("stub@<wbr>example.test")
+  })
+
+  it("says a failed load changed nothing, and offers Try again", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "internal_error" } }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          })
+      )
+    )
+    renderHub()
+    expect(
+      await screen.findByText("We couldn't load this client", undefined, {
+        timeout: 5000,
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Nothing was changed\.$/)).toBeInTheDocument()
+    expect(screen.queryByText(/aren’t shown until it loads/)).toBeNull()
+  })
+
   it("offers a member no management actions they cannot perform", async () => {
     stub({
       client: { ...client, locationCount: 0, linkedCount: 0 },

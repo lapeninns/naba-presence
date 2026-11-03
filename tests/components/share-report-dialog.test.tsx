@@ -434,6 +434,11 @@ describe("Share report dialog", () => {
         "22222222-2222-4222-8222-222222222222"
       )
     )
+    // Revoking only changes NabaPresence: no success green.
+    const toast = (await screen.findByText("Link revoked")).closest(
+      "[data-slot='toast']"
+    )!
+    expect(toast.querySelector(".text-success-solid")).toBeNull()
   })
 
   it("keeps the choice and says why when creating fails", async () => {
