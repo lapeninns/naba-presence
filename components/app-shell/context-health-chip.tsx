@@ -4,12 +4,9 @@ import * as React from "react"
 
 import { healthLabel, healthTone } from "@/lib/clients/health"
 import { useClients, useOrgHealth } from "@/lib/queries/use-clients"
-import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
-import { cn } from "@/lib/utils"
 
 import { useClientScope } from "./client-context"
-import { ShellLink } from "./shell-link"
 
 /**
  * Connection health for whatever the page is about.
@@ -20,8 +17,11 @@ import { ShellLink } from "./shell-link"
  * connected or disconnected, which meant one client's broken login was
  * invisible while another client's login still worked.
  *
- * Shared by the desk toolbar's chip and the phone More sheet's row, so the
- * two never word the same state differently.
+ * The separate toolbar chip that showed it is retired (DIRECTION D8): the
+ * scope control carries the scope's health in words now
+ * (scope-sheet-model.tsx `useScopeControl`). This stays for the live
+ * announcer below and the phone More sheet's Connections row (shown when
+ * there is no scope to switch).
  */
 function useContextHealth() {
   const business = useWorkspaceMode() === "business"
@@ -69,55 +69,9 @@ function useContextHealth() {
 }
 
 /**
- * The desk toolbar's health chip: a bordered white pill with a status dot
- * and the words, always both (the colour never carries the meaning alone).
- * Phones show the same words as a row in the More sheet instead. It shrinks
- * with the toolbar, its words truncating, so the breadcrumb trail beside it
- * is never cut to stubs first (DSK-05).
- */
-function ContextHealthChip() {
-  const { tone, label, href, scopedName, isPending } = useContextHealth()
-
-  if (isPending) return null
-  return (
-    <ShellLink
-      href={href}
-      // The words truncate when the toolbar is tight; the tooltip keeps
-      // them readable in full.
-      title={scopedName ? `${scopedName}: ${label}` : label}
-      data-slot="health-chip"
-      data-tone={tone}
-      className={cn(
-        "inline-flex h-[34px] max-w-[min(22rem,34vw)] min-w-0 shrink items-center gap-2 rounded-full border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink",
-        "transition-colors duration-(--np-duration-fast) hover:border-line-strong",
-        "focus-halo focus-visible:outline-none pointer-coarse:h-11"
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn("size-2 shrink-0 rounded-full", TONE_CLASSES[tone].dot)}
-      />
-      {/* One element, not a visible copy plus a screen-reader copy: two
-          nodes carrying the same text make the chip ambiguous to "next item"
-          navigation and to getByText. Below 1024px the client's name folds
-          away; the words always show. */}
-      <span className="min-w-0 truncate">
-        {scopedName ? (
-          <>
-            <span className="max-lg:sr-only">{scopedName}:</span> {label}
-          </>
-        ) : (
-          label
-        )}
-      </span>
-    </ShellLink>
-  )
-}
-
-/**
  * The health announcer, mounted once by the shell rather than inside a
- * chip: the chip only exists on the desk toolbar, and a live region inside
- * a `display: none` bar never speaks.
+ * control: the scope controls live in bars that are `display: none` at
+ * some widths, and a live region inside one never speaks.
  */
 function ShellHealthAnnouncer() {
   const { label, isPending } = useContextHealth()
@@ -149,4 +103,4 @@ function HealthAnnouncer({ label }: { label: string | null }) {
   )
 }
 
-export { ContextHealthChip, ShellHealthAnnouncer, useContextHealth }
+export { ShellHealthAnnouncer, useContextHealth }

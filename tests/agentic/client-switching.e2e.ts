@@ -1,9 +1,11 @@
 // Client scope (lib/clients/scope.ts): `?clientId=` on Inbox, Listings and
-// Reports is the scope. The top-bar switcher only renders when there is more
-// than one client (components/app-shell/client-switcher.tsx: `clients.length
-// <= 1` returns null) and the seeded tenant has exactly one, "Journey
-// Hospitality", so this journey scopes from the client's hub and returns to
-// all clients through the Inbox's removable "Client: …" filter chip.
+// Reports is the scope. The scope control ("Working on …") only opens a
+// picker when there is more than one client; with one it is drawn inert, not
+// a button (components/app-shell/client-switcher.tsx `ScopeStatic`), and the
+// seeded tenant has exactly one, "Journey Hospitality". So this journey
+// scopes from the client's hub and returns to all clients through the
+// Inbox's removable "Client: …" filter chip (the Inbox's own filter, not the
+// shell's scope control).
 import { describe, test } from "@e2e-dev/web"
 import { expect } from "e2e"
 
@@ -51,6 +53,11 @@ describe("client scope", { tags: ["desktop", "clients"] }, () => {
         name: /^Remove filter: Client: /,
       })
       await expect(clientChip).toBeVisible()
+      // The shell's scope control names the client too, with its health in
+      // words, but is not a button: there is nothing else to switch to.
+      const scope = browser.locator('[data-slot="scope-control"]:visible')
+      await expect(scope).toHaveAttribute("data-static", "true")
+      await expect(scope).toContainText(`Working on ${state.clientName}, `)
       await agent.assert(
         `The Inbox shows that it is filtered to the client "${state.clientName}"`
       )

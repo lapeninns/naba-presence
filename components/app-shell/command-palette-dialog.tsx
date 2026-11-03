@@ -25,6 +25,7 @@ import {
   destinationHref,
   visibleDestinations,
 } from "@/lib/navigation/destinations"
+import { OUTBOX_ROUTE_READY } from "@/lib/navigation/outbox"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -97,7 +98,12 @@ function CommandPaletteDialog({
   const business = mode === "business"
   // The same destinations, in the same order and with the same gating, as
   // the tab bar, rail and sidebar (lib/navigation/destinations.ts).
-  const goTo = visibleDestinations({ role, mode, hideCalendar })
+  const goTo = visibleDestinations({
+    role,
+    mode,
+    hideCalendar,
+    showOutbox: OUTBOX_ROUTE_READY,
+  })
   const actions = paletteEntriesFor(PALETTE_ACTIONS, role, mode)
   // Go to Inbox, Listings or Reports keeps the client in scope, like the
   // sidebar's links.

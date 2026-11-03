@@ -230,13 +230,15 @@ describe("tabDestinations and moreDestinations", () => {
     for (const mode of MODES) {
       for (const role of ROLES) {
         for (const hideCalendar of [false, true]) {
-          const context = { role, mode, hideCalendar }
-          const tabs = ids(tabDestinations(context))
-          const more = ids(moreDestinations(context))
-          expect(tabs).toHaveLength(TAB_COUNT)
-          expect([...tabs, ...more].sort()).toEqual(
-            ids(visibleDestinations(context)).sort()
-          )
+          for (const showOutbox of [false, true]) {
+            const context = { role, mode, hideCalendar, showOutbox }
+            const tabs = ids(tabDestinations(context))
+            const more = ids(moreDestinations(context))
+            expect(tabs).toHaveLength(TAB_COUNT)
+            expect([...tabs, ...more].sort()).toEqual(
+              ids(visibleDestinations(context)).sort()
+            )
+          }
         }
       }
     }
@@ -271,6 +273,130 @@ describe("sidebarDestinations", () => {
   })
 })
 
+// DIRECTION §7.1 (D2): Outbox, where a send to Google is followed and a
+// failed one recovered. Behind a route guard until its page exists
+// (lib/navigation/outbox.ts), and never for a viewer, who cannot send.
+describe("Outbox", () => {
+  it("sits after Reports and before Notifications in the registry", () => {
+    expect(ids([...DESTINATIONS])).toEqual([
+      "inbox",
+      "listings",
+      "clients",
+      "calendar",
+      "reports",
+      "outbox",
+      "notifications",
+      "team",
+      "settings",
+    ])
+    expect(DESTINATIONS.find((d) => d.id === "outbox")).toMatchObject({
+      href: "/outbox",
+      label: "Outbox",
+      group: "primary",
+    })
+  })
+
+  it.each(MODES)(
+    "is shown to owners, admins and members in %s mode",
+    (mode) => {
+      for (const role of ["owner", "admin", "member"]) {
+        expect(
+          ids(visibleDestinations({ role, mode, showOutbox: true }))
+        ).toContain("outbox")
+      }
+    }
+  )
+
+  it.each(MODES)(
+    "is hidden from a viewer and an unknown role in %s mode",
+    (mode) => {
+      for (const role of ["viewer", null]) {
+        expect(
+          ids(visibleDestinations({ role, mode, showOutbox: true }))
+        ).not.toContain("outbox")
+      }
+    }
+  )
+
+  it("is hidden from everyone until the route exists", () => {
+    for (const mode of MODES) {
+      for (const role of ROLES) {
+        expect(ids(visibleDestinations({ role, mode }))).not.toContain("outbox")
+        expect(
+          ids(visibleDestinations({ role, mode, showOutbox: false }))
+        ).not.toContain("outbox")
+      }
+    }
+  })
+
+  it("ends the sidebar's daily list", () => {
+    expect(
+      ids(
+        sidebarDestinations({
+          role: "member",
+          mode: "agency",
+          showOutbox: true,
+        }).primary
+      )
+    ).toEqual(["inbox", "listings", "clients", "calendar", "reports", "outbox"])
+    expect(
+      ids(
+        sidebarDestinations({
+          role: "member",
+          mode: "business",
+          showOutbox: true,
+        }).primary
+      )
+    ).toEqual(["inbox", "listings", "calendar", "reports", "outbox"])
+  })
+
+  it("leaves the phone tabs as they were", () => {
+    const tabs = (context: Parameters<typeof tabDestinations>[0]) =>
+      ids(tabDestinations({ ...context, showOutbox: true }))
+    expect(tabs({ role: "owner", mode: "agency" })).toEqual([
+      "inbox",
+      "listings",
+      "clients",
+      "reports",
+    ])
+    expect(tabs({ role: "owner", mode: "business" })).toEqual([
+      "inbox",
+      "listings",
+      "calendar",
+      "reports",
+    ])
+    expect(
+      tabs({ role: "owner", mode: "business", hideCalendar: true })
+    ).toEqual(["inbox", "listings", "reports", "notifications"])
+  })
+
+  it("comes first in More", () => {
+    expect(
+      ids(moreDestinations({ role: "owner", mode: "agency", showOutbox: true }))
+    ).toEqual(["outbox", "calendar", "notifications", "team", "settings"])
+    expect(
+      ids(
+        moreDestinations({ role: "member", mode: "business", showOutbox: true })
+      )
+    ).toEqual(["outbox", "notifications", "settings"])
+    expect(
+      ids(
+        moreDestinations({
+          role: "admin",
+          mode: "business",
+          hideCalendar: true,
+          showOutbox: true,
+        })
+      )
+    ).toEqual(["outbox", "team", "settings"])
+    expect(
+      ids(
+        moreDestinations({ role: "viewer", mode: "agency", showOutbox: true })
+      )
+    ).toEqual(["calendar", "notifications", "settings"])
+  })
+})
+
 describe("destinationHref", () => {
   const byId = (id: string) => DESTINATIONS.find((d) => d.id === id)!
 
@@ -287,6 +413,7 @@ describe("destinationHref", () => {
     for (const id of [
       "clients",
       "calendar",
+      "outbox",
       "notifications",
       "team",
       "settings",

@@ -5,12 +5,18 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { toast } from "@/components/ui/toast"
-import { healthLabel } from "@/lib/clients/health"
+import {
+  healthLabel,
+  healthTone,
+  summariseHealth,
+  type HealthTone,
+} from "@/lib/clients/health"
 import {
   clientPageKind,
   clientSwitchTarget,
   currentClientId,
 } from "@/lib/clients/scope"
+import { listingCountWords } from "@/lib/clients/scope-words"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import type { SessionResponse } from "@/lib/contracts/session"
 import { guardNavigation } from "@/lib/editors/use-leave-guard"
@@ -415,4 +421,112 @@ export function useClientScopeLabel(): {
   healthWords: string | null
 } {
   return useAgencyScopeLabel(true)
+}
+
+export type ScopeControl = {
+  mode: WorkspaceMode
+  /** The list that decides `switchable` is known. */
+  ready: boolean
+  /** More than one scope to choose from, so the control opens a picker. */
+  switchable: boolean
+  /**
+   * The control's first line: the client or All clients (agency), the
+   * business's own name (business: never "client").
+   */
+  title: string
+  /**
+   * The phone chip's one visible line: the client or All clients (agency),
+   * the location or All locations (business), so a narrowed scope is seen
+   * and not only heard. Always part of `name`.
+   */
+  chipLabel: string
+  /** The client in scope, for its mark. */
+  client: ClientSummary | null
+  /** The one location the address narrows to. */
+  location: DirectoryEntry | null
+  /**
+   * The second line, in words: "9 listings · 1 needs attention", or in a
+   * business "All locations · Needs attention" / "The Bell · Not linked".
+   */
+  detail: string
+  /** The health tone, for the dot that repeats the words. */
+  tone: HealthTone
+  /**
+   * The accessible name: "Working on Journey Hospitality, 9 listings · 1
+   * needs attention". It starts with the words the sidebar shows above the
+   * button and keeps the visible title inside it (WCAG 2.5.3), and it
+   * carries the health words, so the dot never says it alone.
+   */
+  name: string
+}
+
+/**
+ * The one scope control's state (DIRECTION §7.3, D8): the sidebar's
+ * "Working on" button, the tablet top-bar pill and the phone app-bar chip
+ * all read this, so the three never word the same scope differently. It
+ * folds in what the retired health chip said: the scope's health in words.
+ *
+ * Health is the scoped client's (agency), every client's roll-up (All
+ * clients) or the business's roll-up (business, All locations). A refetch
+ * that failed after an earlier success says "Data may be stale" instead,
+ * as the chip did: the numbers on screen are last known, not current.
+ */
+export function useScopeControl(
+  mode: WorkspaceMode,
+  organisationName: string | null
+): ScopeControl {
+  const scope = useScopeLabel(mode)
+  // Same key as the switcher's, so this adds no request; a business reads
+  // it only for the roll-up of its one home client.
+  const clients = useClients()
+  const items = clients.data?.items ?? []
+  const stale = clients.isError && clients.data !== undefined
+  const business = mode === "business"
+  const roll = summariseHealth(
+    items.map((client) => client.health),
+    business ? "business" : "agency"
+  )
+
+  let tone: HealthTone
+  let health: string | null
+  if (business && scope.location) {
+    const words = locationStatusWords(scope.location)
+    tone = words ? "attention" : "neutral"
+    health = words
+  } else if (scope.client) {
+    tone = healthTone(scope.client.health)
+    health = healthLabel(scope.client.health)
+  } else {
+    tone = roll.tone
+    health = clients.data ? roll.label : null
+  }
+  if (stale) {
+    tone = "attention"
+    health = "Data may be stale"
+  }
+
+  const title = business ? (organisationName ?? "All locations") : scope.label
+  const lead = business
+    ? scope.label
+    : scope.client
+      ? listingCountWords(scope.client.locationCount)
+      : clients.data
+        ? listingCountWords(
+            items.reduce((sum, client) => sum + client.locationCount, 0)
+          )
+        : null
+  const detail = [lead, health].filter(Boolean).join(" · ")
+
+  return {
+    mode,
+    ready: scope.ready,
+    switchable: scope.visible,
+    title,
+    chipLabel: scope.label,
+    client: scope.client,
+    location: scope.location,
+    detail,
+    tone,
+    name: detail ? `Working on ${title}, ${detail}` : `Working on ${title}`,
+  }
 }
