@@ -36,9 +36,10 @@ function countWords(count: number) {
 }
 
 /**
- * The one footer every location editor ends with: the dark action bar
- * (reference `.actionbar.editor-foot`), the single charcoal surface on the
- * screen, holding the action that reaches Google.
+ * The one footer every location editor ends with. With something to
+ * publish it is the charcoal DISPATCH BAR (reference `.actionbar.editor-foot`),
+ * the single charcoal surface on the screen, whose `send` primary leads to
+ * Google; with local edits only it is the surface SAVE BAR.
  *
  * A clean editor draws NO bar, at any width (the area header's pill already
  * says where the area stands); the bar arrives with the first change.
@@ -219,9 +220,11 @@ function EditorFooter({
       destructive: true,
     })
   }
+  // "Review changes" opens the sheet whose only action publishes: it is the
+  // dispatch bar's one step towards Google, so it takes the send fill.
   const primary = isDirty ? (
     <Button
-      variant="on-dark"
+      variant="send"
       onClick={onReview}
       disabled={Boolean(disabledReason)}
     >
@@ -239,12 +242,13 @@ function EditorFooter({
     </Button>
   ) : undefined
 
-  // Charcoal only while the bar's subject is a change bound for Google; a
-  // save that only keeps local edits is the surface save bar.
-  const bound = isDirty || status === "conflict"
+  // Charcoal (the dispatch bar) only while there is something to publish;
+  // local edits that match Google, or a conflict with nothing to send, are
+  // the surface save bar, whose primary is the ink "Save here". (An ink
+  // button on charcoal is 1.05:1.)
   return (
     <ActionBar
-      tone={bound ? "charcoal" : "surface"}
+      tone={isDirty ? "charcoal" : "surface"}
       data-slot="editor-footer"
       // Docked on a phone: fixed to the bottom edge, riding the keyboard,
       // the tab bar stepping aside (the primitive's docking contract). One
@@ -306,7 +310,7 @@ function EditorFooter({
       {reason ? (
         <p
           role="note"
-          className="order-last w-full text-caption text-ink-muted-on-charcoal"
+          className="order-last w-full text-caption text-ink-muted-on-charcoal in-data-[bar-tone=surface]:text-ink-muted"
         >
           {reason}
         </p>
