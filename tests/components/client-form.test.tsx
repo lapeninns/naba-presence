@@ -94,6 +94,29 @@ describe("NewClientForm", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it("leaves the empty name field blank rather than showing a sample name", () => {
+    renderForm()
+    expect(
+      screen.getByRole("textbox", { name: /Client name/ })
+    ).not.toHaveAttribute("placeholder")
+  })
+
+  it("toasts a created client in neutral ink, since nothing reached Google", async () => {
+    stubCreate(
+      () => new Response(JSON.stringify({ client: CLIENT }), { status: 200 })
+    )
+    renderForm()
+    fireEvent.change(screen.getByRole("textbox", { name: /Client name/ }), {
+      target: { value: "Old Crown Group" },
+    })
+    fireEvent.submit(screen.getByRole("form", { name: "New client" }))
+    const title = await screen.findByText("Old Crown Group created")
+    const toast = title.closest("[data-slot='toast']")!
+    expect(toast).toHaveTextContent("Next: connect its Google account.")
+    expect(toast.querySelector(".text-success-solid")).toBeNull()
+    expect(push).toHaveBeenCalledWith("/setup?client=c9&step=connect")
+  })
+
   it("docks the create bar on a phone, with Create client as its primary", () => {
     renderForm()
     const bar = screen.getByRole("region", { name: "Create client" })
