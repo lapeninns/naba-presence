@@ -151,7 +151,7 @@ test.describe(`Complete lodging journeys at ${JOURNEY_WIDTH}px`, () => {
       exact: true,
     })
     await expect(
-      footer.getByText("1 change not on Google", { exact: true })
+      footer.getByText("1 unsaved change", { exact: true })
     ).toBeVisible()
     // Save here can't take a lodging draft: it is left out of the bar (and the
     // phone's overflow menu) rather than greyed, and the bar's note says why.

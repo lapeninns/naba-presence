@@ -109,9 +109,25 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       await expect(
         page.getByRole("status").filter({ hasText: "2 open and unread" })
       ).toBeVisible()
-      await expect(
-        page.getByRole("link", { name: "Notifications, 2 unread" })
-      ).toBeVisible()
+      if (width === 375) {
+        await page.getByRole("button", { name: "More", exact: true }).click()
+        const more = page.getByRole("dialog", { name: "More" })
+        await expect(
+          more.getByRole("link", {
+            name: "Notifications, 2 unread",
+            exact: true,
+          })
+        ).toBeVisible()
+        await page.keyboard.press("Escape")
+        await expect(more).toBeHidden()
+      } else {
+        await expect(
+          page.getByRole("link", {
+            name: "Notifications, 2 unread",
+            exact: true,
+          })
+        ).toBeVisible()
+      }
       await capture(page, info, "notifications-unread")
       await page
         .getByRole("button", { name: "Mark read: Publishing failed" })
@@ -593,7 +609,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         .getByRole("button", { name: "Preview this change", exact: true })
         .click()
       await expect(
-        page.getByText("Waiting for approval.", { exact: false })
+        page.getByRole("status").filter({ hasText: /^Awaiting approval\./ })
       ).toBeVisible()
       await expect(page.getByText(/^Approve by /)).toBeVisible()
       expect(
@@ -612,9 +628,12 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       await backend.tick()
       await page.reload()
       await expect(
-        page.getByText("Every eligible listing is confirmed.", { exact: false })
+        page.getByRole("status").filter({
+          hasText:
+            "Every eligible listing was sent. Each one below says whether Google confirmed it.",
+        })
       ).toBeVisible()
-      await expect(page.getByText("Confirmed", { exact: true })).toHaveCount(2)
+      await expect(page.getByText("On Google", { exact: true })).toHaveCount(2)
       await capture(page, info, "bulk-confirmed")
       // One real write per listing; bulk hours publish through the hours
       // editor's path, which validates first (`validateOnly=true`).
@@ -653,7 +672,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await date.focus()
         await tabToAndPress(page, "Preview these 2 changes")
         await expect(
-          page.getByText("Waiting for approval.", { exact: false })
+          page.getByRole("status").filter({ hasText: /^Awaiting approval\./ })
         ).toBeVisible()
         await expect(page.getByText(/^\d+:\d\d left$/)).toBeVisible()
         await capture(page, info, "bulk-preview-countdown")
@@ -670,7 +689,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await tabToAndPress(page, "New preview for 2 listings not sent")
         await expect(page).not.toHaveURL(expiredUrl)
         await expect(
-          page.getByText("Waiting for approval.", { exact: false })
+          page.getByRole("status").filter({ hasText: /^Awaiting approval\./ })
         ).toBeVisible()
         await page.locator("body").focus()
         await tabToAndPress(page, "Approve this exact change")
@@ -693,11 +712,12 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         }
         await page.reload()
         await expect(
-          page.getByText("Every eligible listing is confirmed.", {
-            exact: false,
+          page.getByRole("status").filter({
+            hasText:
+              "Every eligible listing was sent. Each one below says whether Google confirmed it.",
           })
         ).toBeVisible()
-        await expect(page.getByText("Confirmed", { exact: true })).toHaveCount(
+        await expect(page.getByText("On Google", { exact: true })).toHaveCount(
           4
         )
         await page.locator("body").focus()

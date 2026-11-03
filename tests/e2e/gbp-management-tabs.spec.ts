@@ -2602,7 +2602,7 @@ for (const width of [375, 1280])
       .getByRole("button", { name: "Publish to Google", exact: true })
       .click()
     await expect(
-      review.getByText("Not confirmed", { exact: true })
+      review.getByText("Not confirmed: check Google", { exact: true })
     ).toBeVisible()
     await expect(
       review.getByRole("button", { name: "Try again" })
