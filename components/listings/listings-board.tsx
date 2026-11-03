@@ -1173,16 +1173,23 @@ function ListingsBoard({
     // address"); a desk has its own Client column, so this part is phone
     // only. An unfiled row keeps its Client cell on the phone instead.
     const clientInSubtitle = !business && !unfiledRow
-    const capped =
-      !selected.has(row.entry.id) && selected.size >= BULK_MAX_TARGETS
+    const ticked = canSelect && selected.has(row.entry.id)
+    const capped = !ticked && selected.size >= BULK_MAX_TARGETS
     return (
-      <TableRow key={row.entry.id} interactive className="relative">
+      <TableRow
+        key={row.entry.id}
+        interactive
+        // A ticked row is drawn selected (fill and ink edge), so the bar's
+        // count can be matched to rows by eye; the checkbox carries the state.
+        data-selected={ticked || undefined}
+        className="relative"
+      >
         {canSelect ? (
           <TableCell priority="select">
             {/* Above the row's stretched link, so a tap here selects. */}
             <span className="relative z-raised flex">
               <Checkbox
-                checked={selected.has(row.entry.id)}
+                checked={ticked}
                 disabled={capped}
                 // Why it is off: the bar's "50 selected (the most one
                 // change can cover)".

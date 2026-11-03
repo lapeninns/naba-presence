@@ -731,6 +731,48 @@ describe("ListingsBoard", () => {
     await waitFor(() => expect(all).toHaveFocus())
   })
 
+  it("draws a ticked row selected, with the fill and ink edge, and only that row", async () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const user = userEvent.setup()
+    render(<ListingsBoard role="admin" bulkEnabled />)
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    const harbour = screen.getByRole("row", { name: /Harbour View/ })
+    expect(crown).not.toHaveAttribute("data-selected")
+    await user.click(
+      within(crown).getByRole("checkbox", {
+        name: "Select Old Crown Girton for a bulk change",
+      })
+    )
+    expect(crown).toHaveAttribute("data-selected", "true")
+    expect(harbour).not.toHaveAttribute("data-selected")
+    await user.click(
+      within(crown).getByRole("checkbox", {
+        name: "Select Old Crown Girton for a bulk change",
+      })
+    )
+    expect(crown).not.toHaveAttribute("data-selected")
+  })
+
+  it("offers selection only to owners and admins whose organisation has bulk changes", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    for (const role of ["member", "viewer", null]) {
+      const { unmount } = render(<ListingsBoard role={role} bulkEnabled />)
+      expect(screen.queryByRole("checkbox")).toBeNull()
+      unmount()
+    }
+    const { unmount } = render(<ListingsBoard role="owner" />)
+    expect(screen.queryByRole("checkbox")).toBeNull()
+    unmount()
+    render(<ListingsBoard role="admin" bulkEnabled />)
+    expect(screen.getAllByRole("checkbox")).toHaveLength(entries.length + 1)
+  })
+
   it("says how many selected listings are not shown or not linked to Google", async () => {
     const unlinked: locationsHook.DirectoryEntry[] = [
       ...entries,
