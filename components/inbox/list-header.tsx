@@ -157,7 +157,7 @@ function ListHeader({
       <span aria-hidden className="flex-1" />
       <GoogleFreshness
         clientId={clientId}
-        // On a phone too: members and viewers have no Sync button, so this
+        // On a phone too: members and viewers cannot sync from Google, so this
         // is the only sign of how fresh the list is. It steps aside for the
         // selection count, below the desk, where the width is short.
         className={cn("min-w-0 truncate", selecting && "not-desk:hidden")}
