@@ -230,7 +230,9 @@ describe("PostsActionBar", () => {
       within(dialog).getByRole("button", { name: "Approve and publish" })
     )
     expect(
-      (await screen.findByText("Sent, waiting for Google to confirm")).closest("[data-kind]")
+      (await screen.findByText("Sent, waiting for Google to confirm")).closest(
+        "[data-kind]"
+      )
     ).toHaveAttribute("data-kind", "google")
     expect(api.decidePostApproval).toHaveBeenCalledWith(
       "loc-1",
@@ -481,9 +483,7 @@ describe("PostsActionBar", () => {
     ).not.toBeInTheDocument()
 
     await userEvent.click(button)
-    expect(
-      await screen.findByText("Awaiting approval")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Awaiting approval")).toBeInTheDocument()
     expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
       intentId: expect.any(String),
     })
@@ -570,9 +570,7 @@ describe("PostsActionBar", () => {
       })
       renderBar()
       await publishFromDialog()
-      expect(
-        await screen.findByText("Confirmed on Google")
-      ).toBeInTheDocument()
+      expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
     })
 
     it("does not say live while Google is still reviewing the post", async () => {
@@ -584,7 +582,9 @@ describe("PostsActionBar", () => {
       })
       renderBar()
       await publishFromDialog()
-      expect(await screen.findByText("Sent, waiting for Google to confirm")).toBeInTheDocument()
+      expect(
+        await screen.findByText("Sent, waiting for Google to confirm")
+      ).toBeInTheDocument()
       expect(screen.queryByText(/^On Google$|confirmed on Google/i)).toBeNull()
     })
 

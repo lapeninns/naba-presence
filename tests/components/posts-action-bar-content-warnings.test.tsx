@@ -119,7 +119,9 @@ describe("PostsActionBar approval after a content policy change (S4)", () => {
       })
     )
     await userEvent.click(approve)
-    expect(await screen.findByText("Sent, waiting for Google to confirm")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Sent, waiting for Google to confirm")
+    ).toBeInTheDocument()
     expect(api.decidePostApproval).toHaveBeenLastCalledWith(
       "loc-1",
       "p1",

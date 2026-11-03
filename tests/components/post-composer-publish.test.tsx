@@ -148,9 +148,7 @@ describe("PostComposerSheet publishing", () => {
       api.publishPost.mock.invocationCallOrder[0]
     )
     expect(screen.queryByRole("alertdialog")).toBeNull()
-    expect(
-      await screen.findByText("Confirmed on Google")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
   })
 
   it("says Sending… while the post goes to Google, never Publishing…", async () => {
@@ -233,9 +231,7 @@ describe("PostComposerSheet publishing", () => {
       within(sheet).getByRole("button", { name: "Request approval" })
     )
     await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
-    expect(
-      await screen.findByText("Awaiting approval")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Awaiting approval")).toBeInTheDocument()
   })
 
   it("keeps the draft and says so when the publish fails after the save", async () => {

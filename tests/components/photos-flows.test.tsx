@@ -241,9 +241,7 @@ describe("browsing the library (p4-F01)", () => {
     renderTab()
     expect(screen.getByText("No photos yet")).toBeInTheDocument()
     expect(
-      screen.getByText(
-        "Google has no photos for this listing."
-      )
+      screen.getByText("Google has no photos for this listing.")
     ).toBeInTheDocument()
     expect(screen.queryByText(/Use Add photos/)).toBeNull()
     expect(screen.queryByText(/above/)).toBeNull()
@@ -378,7 +376,9 @@ describe("adding photos (p4-F02)", () => {
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
     const dialog = await screen.findByRole("dialog")
     expect(await within(dialog).findByText("Sending…")).toBeInTheDocument()
-    expect(within(dialog).getByText(/^Sending to Google \d+%$/)).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(/^Sending to Google \d+%$/)
+    ).toBeInTheDocument()
     answer({ id: "a1", status: "pending", idempotent: false })
     expect(
       await within(dialog).findByText("Sent, waiting for Google")

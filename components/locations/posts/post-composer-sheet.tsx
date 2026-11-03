@@ -1401,9 +1401,7 @@ export function PostComposerSheet({
                   ? saveReasonId
                   : undefined
             }
-            disabledReason={
-              warningUnacknowledged ? WARNING_REASON : undefined
-            }
+            disabledReason={warningUnacknowledged ? WARNING_REASON : undefined}
             pending={create.isPending}
             pendingLabel="Saving…"
           >
@@ -1430,9 +1428,7 @@ export function PostComposerSheet({
                 .filter(Boolean)
                 .join(" ")}
               pending={publish.isPending}
-              pendingLabel={
-                gate.requestApproval ? "Requesting…" : "Sending…"
-              }
+              pendingLabel={gate.requestApproval ? "Requesting…" : "Sending…"}
             >
               {gate.requestApproval ? null : <UploadIcon aria-hidden />}
               {publishLabel}
