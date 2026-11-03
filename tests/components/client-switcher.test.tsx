@@ -719,6 +719,14 @@ describe("ScopeControlView", () => {
     }
   )
 
+  it("caps the tablet pill at a fixed width rather than a share of the viewport", () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    renderControl({ variant: "pill" })
+    const control = screen.getByRole("button", { name: /^Working on/ })
+    expect(control).toHaveClass("max-w-md", "min-w-0", "shrink")
+    expect(control.className).not.toMatch(/vw\]/)
+  })
+
   it("shows a business its own name with All locations, never a client", () => {
     stubClients([OLD_CROWN])
     renderControl({

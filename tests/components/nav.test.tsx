@@ -36,6 +36,17 @@ function currentLinks() {
 }
 
 describe("primary navigation", () => {
+  it("packs the rail's tiles on a short window and hovers only with a fine pointer", () => {
+    render(<Nav role="owner" />)
+    for (const label of ["Inbox", "Settings"]) {
+      const row = screen.getByRole("link", { name: label })
+      // 48px tiles below 640px tall: still above the 44px touch floor.
+      expect(row).toHaveClass("md:max-wide:short:min-h-12")
+      expect(row).toHaveClass("hover-fine:hover:bg-fill")
+      expect(row.className).not.toMatch(/(^|\s)hover:/)
+    }
+  })
+
   it("offers five destinations and a Workspace group, and no Home", () => {
     render(<Nav />)
     expect(navItemsFor("agency").map((item) => item.label)).toEqual([

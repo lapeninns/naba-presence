@@ -48,10 +48,13 @@ export function navItemsFor(
  */
 const ROW_CLASS = cn(
   "relative flex min-h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-ui font-medium text-ink-secondary",
-  "transition-colors duration-(--np-duration-fast) ease-out-strong hover:bg-fill hover:text-ink",
+  "transition-colors duration-(--np-duration-fast) ease-out-strong hover-fine:hover:bg-fill hover-fine:hover:text-ink",
   "focus-halo focus-visible:outline-none pointer-coarse:min-h-11",
   "aria-[current=page]:bg-fill aria-[current=page]:font-semibold aria-[current=page]:text-ink",
-  "md:max-wide:min-h-14 md:max-wide:flex-col md:max-wide:justify-center md:max-wide:gap-1 md:max-wide:px-0.5 md:max-wide:py-1.5 md:max-wide:text-center md:max-wide:text-caption"
+  "md:max-wide:min-h-14 md:max-wide:flex-col md:max-wide:justify-center md:max-wide:gap-1 md:max-wide:px-0.5 md:max-wide:py-1.5 md:max-wide:text-center md:max-wide:text-caption",
+  // A short window (below 640px tall) packs the rail's tiles to 48px, still
+  // above the 44px touch floor, so more of them fit above the fold.
+  "md:max-wide:short:min-h-12 md:max-wide:short:gap-0.5 md:max-wide:short:py-1"
 )
 
 const LABEL_CLASS = "min-w-0 truncate md:max-wide:w-full"
@@ -232,7 +235,7 @@ function Nav({
             </span>
             <ul
               aria-labelledby={workspaceLabelId}
-              className="flex flex-col gap-0.5 md:max-wide:mt-3"
+              className="flex flex-col gap-0.5 md:max-wide:mt-3 md:max-wide:short:mt-1.5"
             >
               {groups.more.map((item) => (
                 <li key={item.href}>

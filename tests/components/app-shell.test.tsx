@@ -631,6 +631,39 @@ describe("AppShell", () => {
       expect(back).toHaveAttribute("href", "/settings")
     }
   })
+
+  it("lets the navigation column scroll, with a fade, on a short window", () => {
+    renderShell()
+    const column = slot("sidebar-scroll")
+    expect(column).toHaveClass("overflow-y-auto", "min-h-0", "flex-1")
+    const fade = slot("sidebar-scroll-fade")
+    expect(column).toContainElement(fade)
+    expect(fade).toHaveAttribute("aria-hidden", "true")
+    expect(fade).toHaveClass("sticky", "bottom-0")
+    // The account control stays outside the scroll, pinned to the foot.
+    const account = within(slot("sidebar")).getByRole("button", {
+      name: /Aman Shrestha/,
+    })
+    expect(column).not.toContainElement(account)
+  })
+
+  it("scrolls the current row into the column when it sits below the fold", () => {
+    pathname.current = "/settings"
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const box =
+          this.dataset.slot === "sidebar-scroll"
+            ? { top: 60, bottom: 330 }
+            : this.getAttribute("aria-current") === "page"
+              ? { top: 420, bottom: 468 }
+              : { top: 0, bottom: 0 }
+        return { ...box, left: 0, right: 0, width: 0, height: 0 } as DOMRect
+      })
+    renderShell()
+    expect(slot("sidebar-scroll").scrollTop).toBe(468 - 330 + 16)
+    rects.mockRestore()
+  })
 })
 
 describe("session-ready children gate", () => {
