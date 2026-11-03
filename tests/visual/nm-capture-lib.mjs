@@ -155,3 +155,114 @@ export const nameOf = (role, path) =>
     .replace(/[^a-z0-9]+/gi, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 80) || "root")
+
+// Listing areas and settings pages under the default route list.
+export const AREAS = [
+  "profile",
+  "hours",
+  "booking",
+  "photos",
+  "posts",
+  "menu",
+  "people",
+  "verification",
+  "suggestions",
+  "changes",
+  "review-link",
+]
+export const SETTINGS = [
+  "policy",
+  "notifications",
+  "security",
+  "connections",
+  "operations",
+  "privacy",
+  "usage",
+  "billing",
+  "billing/confirming",
+]
+// Every page route (docs/redesign/2026-11/INVENTORY.md; first written for
+// the notion-mail-ledger INVENTORY.md §1). Dynamic segments that need a real token
+// use an invalid one on purpose: that is the page's not-found/expired state.
+export const DEFAULT_ROUTES = [
+  "/",
+  "anon:/",
+  "/profile",
+  "/design-system",
+  "/nm-capture-missing-route",
+  "anon:/sign-in",
+  "anon:/sign-in?mode=create-account",
+  "anon:/sign-in/verify",
+  "anon:/forgot-password",
+  "anon:/reset-password",
+  "anon:/invite/nm-capture-invalid-token",
+  "anon:/confirm-email",
+  // Legacy redirects and user-facing route handlers: the shot is where they
+  // land (finalUrl in the manifest).
+  "/profile/hours",
+  "/photos",
+  "/posts",
+  "/settings/listing",
+  "anon:/auth/confirm",
+  "anon:/r/nm-capture-invalid-code",
+  "/inbox",
+  "/listings",
+  "/listings/{loc}",
+  ...AREAS.map((area) => `/listings/{loc}/${area}`),
+  "/listings/bulk",
+  "/listings/bulk/00000000-0000-4000-8000-000000000000",
+  "/calendar",
+  "/clients",
+  "/clients/new",
+  "/clients/{client}",
+  "/clients/{client}/settings",
+  "/reports",
+  "/notifications",
+  "/team",
+  "/setup",
+  "/settings",
+  ...SETTINGS.map((page) => `/settings/${page}`),
+  "anon:/privacy",
+  "anon:/terms",
+  "anon:/share/report/nm-capture-invalid-token",
+  // Permission-restricted states (INVENTORY.md §2 page-level restrictions).
+  "viewer:/inbox",
+  "viewer:/listings/{loc}/profile",
+  "viewer:/listings/bulk",
+  "viewer:/team",
+  "viewer:/settings/connections",
+  "member:/clients/new",
+  "admin:/settings/billing",
+]
+
+/** Roles nm-capture has cookies for (nm-serve's state file); anon has none. */
+export const ROLES = [
+  "owner",
+  "viewer",
+  "admin",
+  "member",
+  "member-unassigned",
+  "requester",
+  "approver",
+  "anon",
+]
+
+/**
+ * The app route a capture path exercises, as an `app/` URL template: query
+ * dropped, placeholders and invalid ids/tokens turned into `[param]`.
+ * `/listings/{loc}/hours` -> `/listings/[]/hours`. Used by the test that
+ * proves DEFAULT_ROUTES reaches every page under app/.
+ */
+export function templateOf(path) {
+  return (
+    path
+      .replace(/[?#].*$/, "")
+      .split("/")
+      .map((segment) =>
+        /^\{.+\}$|^nm-capture-invalid|^[0-9a-f-]{36}$/.test(segment)
+          ? "[]"
+          : segment
+      )
+      .join("/") || "/"
+  )
+}

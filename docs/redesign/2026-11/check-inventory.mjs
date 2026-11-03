@@ -40,7 +40,9 @@ const routeFiles = files
 const apiGroups = [
   ...new Set(
     files
-      .filter((file) => file.startsWith("app/api/") && file.endsWith("route.ts"))
+      .filter(
+        (file) => file.startsWith("app/api/") && file.endsWith("route.ts")
+      )
       .map((file) => file.split("/")[2])
   ),
 ].sort()
@@ -79,7 +81,9 @@ const argv = process.argv.slice(2)
 const manifestAt = argv.indexOf("--manifest")
 let captureSummary = ""
 if (manifestAt !== -1) {
-  const manifest = JSON.parse(readFileSync(resolve(argv[manifestAt + 1]), "utf8"))
+  const manifest = JSON.parse(
+    readFileSync(resolve(argv[manifestAt + 1]), "utf8")
+  )
   // Capture cells look like: capture: `inbox`, `state--inbox-selected`.
   const shots = new Map()
   for (const entry of manifest.entries) {

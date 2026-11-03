@@ -29,6 +29,9 @@
 //   --mobile-dpr <n>      touch viewports' device scale factor (default 3)
 //   --desktop-dpr <n>     mouse viewports' device scale factor (default 1)
 //   --merge               merge into an existing <out>/manifest.json
+//   --list                print the shots this run would take (viewport,
+//                         theme, name, role, route) and exit; needs no app,
+//                         state file or browser
 //
 // Placeholders: {loc} primary location, {loc2} approval location, {client}
 // seeded client, {review} direct review, {areview} approval review.
@@ -45,13 +48,17 @@ import { resolve } from "node:path"
 import { chromium } from "@playwright/test"
 
 import {
+  DEFAULT_ROUTES,
   dirFor,
   nameOf,
   parseSpec,
   resolveThemes,
   resolveViewports,
+  ROLES,
   stateRunsOn,
 } from "./nm-capture-lib.mjs"
+
+export { DEFAULT_ROUTES }
 
 const argv = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -62,7 +69,8 @@ const arg = (name, fallback) => {
 }
 
 const base = String(arg("base", process.env.APP_URL ?? "")).replace(/\/$/, "")
-if (!base) throw new Error("--base or APP_URL is required")
+if (!base && !arg("list", false))
+  throw new Error("--base or APP_URL is required")
 const out = resolve(String(arg("out", "test-results/nm-capture")))
 const themes = resolveThemes({
   themes: arg("themes", null),
@@ -80,84 +88,6 @@ const VIEWPORTS = Object.fromEntries(
     dpr: { desktop: arg("desktop-dpr", 1), mobile: arg("mobile-dpr", 3) },
   }).map((viewport) => [viewport.name, viewport])
 )
-
-const AREAS = [
-  "profile",
-  "hours",
-  "booking",
-  "photos",
-  "posts",
-  "menu",
-  "people",
-  "verification",
-  "suggestions",
-  "changes",
-  "review-link",
-]
-const SETTINGS = [
-  "policy",
-  "notifications",
-  "security",
-  "connections",
-  "operations",
-  "privacy",
-  "usage",
-  "billing",
-  "billing/confirming",
-]
-// Every page route (docs/redesign/2026-11/INVENTORY.md; first written for
-// the notion-mail-ledger INVENTORY.md §1). Dynamic segments that need a real token
-// use an invalid one on purpose: that is the page's not-found/expired state.
-export const DEFAULT_ROUTES = [
-  "/",
-  "anon:/",
-  "/profile",
-  "/design-system",
-  "/nm-capture-missing-route",
-  "anon:/sign-in",
-  "anon:/sign-in?mode=create-account",
-  "anon:/sign-in/verify",
-  "anon:/forgot-password",
-  "anon:/reset-password",
-  "anon:/invite/nm-capture-invalid-token",
-  "anon:/confirm-email",
-  // Legacy redirects and user-facing route handlers: the shot is where they
-  // land (finalUrl in the manifest).
-  "/profile/hours",
-  "/photos",
-  "/posts",
-  "/settings/listing",
-  "anon:/auth/confirm",
-  "anon:/r/nm-capture-invalid-code",
-  "/inbox",
-  "/listings",
-  "/listings/{loc}",
-  ...AREAS.map((area) => `/listings/{loc}/${area}`),
-  "/listings/bulk",
-  "/listings/bulk/00000000-0000-4000-8000-000000000000",
-  "/calendar",
-  "/clients",
-  "/clients/new",
-  "/clients/{client}",
-  "/clients/{client}/settings",
-  "/reports",
-  "/notifications",
-  "/team",
-  "/setup",
-  "/settings",
-  ...SETTINGS.map((page) => `/settings/${page}`),
-  "anon:/privacy",
-  "anon:/terms",
-  "anon:/share/report/nm-capture-invalid-token",
-  // Permission-restricted states (INVENTORY.md §2 page-level restrictions).
-  "viewer:/inbox",
-  "viewer:/listings/{loc}/profile",
-  "viewer:/listings/bulk",
-  "viewer:/team",
-  "viewer:/settings/connections",
-  "member:/clients/new",
-  "admin:/settings/billing",
-]
 
 const fill = async (page, locator, text) => {
   await locator.first().waitFor({ state: "visible", timeout: 10_000 })
@@ -347,29 +277,6 @@ export const STATES = [
   ],
 ]
 
-const state = JSON.parse(
-  await readFile(
-    process.env.NM_STATE_FILE ?? resolve("test-results/e2e-journey-state.json"),
-    "utf8"
-  )
-)
-const cookies = {
-  owner: state.cookie,
-  viewer: state.viewerCookie,
-  admin: state.adminCookie,
-  member: state.memberAssignedCookie,
-  "member-unassigned": state.memberUnassignedCookie,
-  requester: state.approval.requesterCookie,
-  approver: state.approval.approverCookie,
-  anon: null,
-}
-const fillPath = (path) =>
-  path
-    .replaceAll("{loc}", state.primaryLocationId)
-    .replaceAll("{loc2}", state.approvalReview.locationId)
-    .replaceAll("{client}", state.clientId)
-    .replaceAll("{review}", state.directReview.id)
-    .replaceAll("{areview}", state.approvalReview.id)
 const routesArg = arg("routes", null)
 const specs =
   typeof routesArg !== "string"
@@ -386,7 +293,7 @@ for (const theme of themes) {
   for (const viewport of Object.keys(VIEWPORTS)) {
     for (const spec of specs) {
       const { role, path } = parseSpec(spec)
-      if (!(role in cookies)) throw new Error(`Unknown role ${role}`)
+      if (!ROLES.includes(role)) throw new Error(`Unknown role ${role}`)
       jobs.push({
         theme,
         viewport,
@@ -417,6 +324,39 @@ const selected = only
   ? jobs.filter((job) => only.test(job.name) || only.test(job.route))
   : jobs
 
+if (arg("list", false)) {
+  for (const job of selected) {
+    console.log(
+      [job.viewport, job.theme, job.name, job.role, job.route].join("\t")
+    )
+  }
+  console.log(`${selected.length} shots`)
+  process.exit(0)
+}
+
+const state = JSON.parse(
+  await readFile(
+    process.env.NM_STATE_FILE ?? resolve("test-results/e2e-journey-state.json"),
+    "utf8"
+  )
+)
+const cookies = {
+  owner: state.cookie,
+  viewer: state.viewerCookie,
+  admin: state.adminCookie,
+  member: state.memberAssignedCookie,
+  "member-unassigned": state.memberUnassignedCookie,
+  requester: state.approval.requesterCookie,
+  approver: state.approval.approverCookie,
+  anon: null,
+}
+const fillPath = (path) =>
+  path
+    .replaceAll("{loc}", state.primaryLocationId)
+    .replaceAll("{loc2}", state.approvalReview.locationId)
+    .replaceAll("{client}", state.clientId)
+    .replaceAll("{review}", state.directReview.id)
+    .replaceAll("{areview}", state.approvalReview.id)
 // Refuse unless the cookies resolve to the fixture tenant (as shoot.mjs).
 for (const role of new Set(selected.map((job) => job.role))) {
   const cookie = cookies[role]

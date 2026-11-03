@@ -1,14 +1,20 @@
+import { readdirSync } from "node:fs"
+import { join, relative } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import {
   contextOptions,
+  DEFAULT_ROUTES,
   dirFor,
   nameOf,
   parseSize,
   parseSpec,
   resolveThemes,
   resolveViewports,
+  ROLES,
   stateRunsOn,
+  templateOf,
 } from "./nm-capture-lib.mjs"
 
 describe("resolveViewports", () => {
@@ -164,5 +170,75 @@ describe("names and specs", () => {
       "listings-loc-profile"
     )
     expect(nameOf("anon", "/")).toBe("anon--root")
+  })
+})
+
+describe("templateOf", () => {
+  it("turns placeholders, invalid tokens and uuids into params", () => {
+    expect(templateOf("/listings/{loc}/hours")).toBe("/listings/[]/hours")
+    expect(templateOf("/invite/nm-capture-invalid-token")).toBe("/invite/[]")
+    expect(
+      templateOf("/listings/bulk/00000000-0000-4000-8000-000000000000")
+    ).toBe("/listings/bulk/[]")
+    expect(templateOf("/sign-in?mode=create-account")).toBe("/sign-in")
+    expect(templateOf("/")).toBe("/")
+  })
+})
+
+describe("DEFAULT_ROUTES", () => {
+  const appDir = join(import.meta.dirname, "../../app")
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory()
+        ? walk(join(dir, entry.name))
+        : [relative(appDir, join(dir, entry.name))]
+    )
+  // Pages and user-facing route handlers (app/api is not a screen).
+  const routes = walk(appDir)
+    .filter((file) => !file.startsWith("api/"))
+    .filter((file) => /(^|\/)(page\.tsx|route\.ts)$/.test(file))
+    .map((file) => {
+      const segments = file
+        .split("/")
+        .slice(0, -1)
+        .filter((segment) => !/^\(.+\)$/.test(segment))
+      return { file, segments }
+    })
+  const captured = DEFAULT_ROUTES.map((spec) =>
+    templateOf(parseSpec(spec).path).split("/").filter(Boolean)
+  )
+  const reaches = (segments: string[], path: string[]) => {
+    if (segments.at(-1)?.startsWith("[...")) {
+      const head = segments.slice(0, -1)
+      return (
+        path.length > head.length &&
+        head.every((segment, index) => reaches([segment], [path[index]]))
+      )
+    }
+    return (
+      segments.length === path.length &&
+      segments.every((segment, index) =>
+        segment.startsWith("[") ? path[index] === "[]" : segment === path[index]
+      )
+    )
+  }
+
+  it("reaches every page and user-facing route handler under app/", () => {
+    expect(routes.length).toBeGreaterThan(50)
+    const missing = routes
+      .filter(
+        ({ segments }) => !captured.some((path) => reaches(segments, path))
+      )
+      .map(({ file }) => file)
+    expect(missing).toEqual([])
+  })
+
+  it("names only roles nm-capture has cookies for, with unique shot names", () => {
+    const specs = DEFAULT_ROUTES.map(parseSpec)
+    expect(specs.filter(({ role }) => !ROLES.includes(role))).toEqual([])
+    const names = specs.map(({ role, path }) => nameOf(role, path))
+    expect(
+      names.filter((name, index) => names.indexOf(name) !== index)
+    ).toEqual([])
   })
 })
