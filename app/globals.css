@@ -538,8 +538,6 @@
      role of roles, so the dark blocks need no copy. */
   --np-focus-halo-danger:
     0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-danger-line);
-  /* A field's focus ring: a 3px tint outside its border, danger while
-     invalid. */
 
   /* Chrome is opaque paper with a 1px line. The material names survive so
      every `material-*` utility still resolves. */
@@ -928,8 +926,6 @@
   --np-hover-bg: oklch(0.28 0.015 240);
   --np-focus-ring: oklch(0.72 0.15 145);
   --np-focus-halo: 0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
-  /* A field's focus ring: a 3px tint outside its border, danger while
-     invalid. */
 
   --np-material-sidebar: oklch(0.18 0.012 240);
   --np-material-toolbar: oklch(0.18 0.012 240);
@@ -1062,8 +1058,6 @@
     --np-focus-ring: oklch(0.72 0.15 145);
     --np-focus-halo:
       0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
-    /* A field's focus ring: a 3px tint outside its border, danger while
-       invalid. */
 
     --np-material-sidebar: oklch(0.18 0.012 240);
     --np-material-toolbar: oklch(0.18 0.012 240);
