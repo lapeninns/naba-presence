@@ -148,9 +148,10 @@ function EditorFooter({
   )
 
   if (readOnlyReason) {
+    // Nothing here is bound for Google, so it is a surface bar.
     return (
       <ActionBar
-        tone="charcoal"
+        tone="surface"
         data-slot="editor-footer"
         sticky={false}
         safeArea={false}
@@ -228,7 +229,6 @@ function EditorFooter({
     </Button>
   ) : canSave ? (
     <Button
-      variant="on-dark"
       onClick={saveAction.onClick}
       pending={saving}
       pendingLabel="Saving…"
@@ -239,9 +239,12 @@ function EditorFooter({
     </Button>
   ) : undefined
 
+  // Charcoal only while the bar's subject is a change bound for Google; a
+  // save that only keeps local edits is the surface save bar.
+  const bound = isDirty || status === "conflict"
   return (
     <ActionBar
-      tone="charcoal"
+      tone={bound ? "charcoal" : "surface"}
       data-slot="editor-footer"
       // Docked on a phone: fixed to the bottom edge, riding the keyboard,
       // the tab bar stepping aside (the primitive's docking contract). One
