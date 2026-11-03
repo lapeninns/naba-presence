@@ -3,6 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { SettingsGroup } from "@/components/ui/settings-row"
+import { StatusPill } from "@/components/ui/status-pill"
 import { cn } from "@/lib/utils"
 import { fetchPlaceActionWorkflows } from "@/lib/api/place-action-reviews"
 import { resourceDisabledReason } from "@/lib/locations/gating"
@@ -160,20 +161,28 @@ export function SavedPlaceActionWork({
                   footerLayout="stack"
                   footer={
                     <>
-                      <p className="text-caption text-ink-muted">
-                        {item.attemptId ? (
-                          "Request outcome recorded"
-                        ) : (
-                          <>
-                            {item.changeSet.approvedBy
-                              ? "Approved request"
-                              : "Awaiting approval"}
+                      {item.attemptId ? (
+                        <p className="text-caption text-ink-muted">
+                          Request outcome recorded
+                        </p>
+                      ) : (
+                        // The lifecycle pill, amber either way: a person
+                        // acts next (approves, or sends the approved change).
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-muted">
+                          <StatusPill
+                            state={
+                              item.changeSet.approvedBy
+                                ? "approved"
+                                : "awaiting_approval"
+                            }
+                          />
+                          <span>
                             <ExpiryNearby
                               expiresAt={item.changeSet.expiresAt}
                             />
-                          </>
-                        )}
-                      </p>
+                          </span>
+                        </p>
+                      )}
                       {/* Google's resource name is for support, not for
                           deciding. */}
                       <SupportDetails
