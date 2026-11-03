@@ -259,6 +259,15 @@ describe("health vocabulary", () => {
     }
   })
 
+  it("keeps blue for Google's work: edits only saved here are neutral", () => {
+    expect(healthTone("unpublished")).toBe("neutral")
+    expect(healthTone("syncing")).toBe("pending")
+    expect(summariseHealth(["healthy", "unpublished"])).toEqual({
+      tone: "neutral",
+      label: "Changes to publish",
+    })
+  })
+
   it("never describes a state in provider or internal vocabulary", () => {
     for (const state of all) {
       expect(healthDescription(state)).not.toMatch(

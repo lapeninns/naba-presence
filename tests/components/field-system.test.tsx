@@ -45,6 +45,21 @@ describe("Field auto-wiring", () => {
     )
   })
 
+  it("keeps the halo while a date input's calendar button holds focus", () => {
+    render(
+      <Field>
+        <FieldLabel>Date</FieldLabel>
+        <Input type="date" />
+      </Field>
+    )
+    const date = screen.getByLabelText("Date")
+    expect(date).toHaveClass(
+      "focus-within:border-accent-solid",
+      "focus-within:shadow-(--np-focus-halo)",
+      "aria-invalid:focus-within:shadow-np-focus-danger"
+    )
+  })
+
   it("wires errors as an alert and marks the control invalid", () => {
     render(
       <Field error="Enter a business name.">
@@ -375,7 +390,7 @@ describe("Field chrome: disabled is drawn, never faded", () => {
   it("darkens the edge on hover only where no other state is drawn", () => {
     render(<Input aria-label="Name" />)
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveClass(
-      "hover-fine:hover:not-focus:not-disabled:not-read-only:not-aria-invalid:border-ink-muted"
+      "hover-fine:hover:not-focus-within:not-disabled:not-read-only:not-aria-invalid:border-ink-muted"
     )
   })
 })

@@ -260,18 +260,14 @@ function ClientsIndex({ role }: { role: string | null }) {
               title="Set up your first client"
               description={
                 <span className="text-caption">
-                  A client is a business you look after. Add one, then connect
-                  the Google account that manages its Business Profile.
+                  A client is a business you look after.
                 </span>
               }
               action={
-                <>
-                  <Link href="/clients/new" className={cn(buttonVariants())}>
-                    <PlusIcon aria-hidden />
-                    New client
-                  </Link>
-                  {archivedLink}
-                </>
+                <Link href="/clients/new" className={cn(buttonVariants())}>
+                  <PlusIcon aria-hidden />
+                  New client
+                </Link>
               }
             />
           ) : (
@@ -281,13 +277,15 @@ function ClientsIndex({ role }: { role: string | null }) {
               title="No clients shared with you yet"
               description={
                 <span className="text-caption">
-                  An owner or admin chooses which clients you can see. Once they
-                  share one, it appears here with its reviews and listings.
+                  An owner or admin chooses what you see.
                 </span>
               }
             />
           )}
         </Card>
+        {/* The empty state keeps its one action; archived clients are a
+            way back, not a second call to act. */}
+        {archivedLink ? <div className="flex">{archivedLink}</div> : null}
       </div>
     )
   }
@@ -368,8 +366,8 @@ function ClientsIndex({ role }: { role: string | null }) {
               description={
                 <span className="text-caption">
                   {needle
-                    ? "Check the spelling, or clear the search to see every client."
-                    : "No client is in this state right now. Clear the filter to see the rest."}
+                    ? "Check the spelling or clear the search."
+                    : "No client is in this state right now."}
                 </span>
               }
               action={
@@ -584,8 +582,9 @@ function ArchivedClients({
     setError(null)
     try {
       await update.mutateAsync({ clientId: client.id, archived: false })
+      // Neutral, not the success green: green is kept for what is
+      // confirmed on Google, and a restore only changes NabaPresence.
       toast.add({
-        type: "success",
         title: `${client.name} restored`,
         description:
           "It’s back in your lists. File its listings again from its settings.",
@@ -670,8 +669,8 @@ function ArchivedClients({
             description={
               <span className="text-caption">
                 {needle
-                  ? "Clear the search to see every archived client."
-                  : "Clients you archive appear here, ready to restore."}
+                  ? "Clear the search to see them all."
+                  : "Archived clients wait here to restore."}
               </span>
             }
           />
@@ -899,7 +898,11 @@ function LoginCell({ client }: { client: ClientSummary }) {
   return (
     <span className="flex min-w-0 flex-col text-ui">
       <span className="[overflow-wrap:anywhere] text-ink">
-        {first.googleEmail ?? "Google account"}
+        {first.googleEmail ? (
+          <EmailWithBreak email={first.googleEmail} />
+        ) : (
+          "Google account"
+        )}
       </span>
       <span className="text-caption text-ink-muted">
         {rest.length > 0 ? `+${formatNumber(rest.length)} more` : null}
@@ -913,6 +916,22 @@ function LoginCell({ client }: { client: ClientSummary }) {
         ) : null}
       </span>
     </span>
+  )
+}
+
+/**
+ * An address that wraps after its "@" in a narrow column, so the domain
+ * moves down whole instead of being cut mid-word ("stub@example.te / st").
+ */
+function EmailWithBreak({ email }: { email: string }) {
+  const at = email.indexOf("@")
+  if (at <= 0) return email
+  return (
+    <>
+      {email.slice(0, at + 1)}
+      <wbr />
+      {email.slice(at + 1)}
+    </>
   )
 }
 

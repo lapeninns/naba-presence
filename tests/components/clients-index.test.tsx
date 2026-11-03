@@ -136,6 +136,46 @@ describe("ClientsIndex", () => {
     )
   })
 
+  it("keeps each empty state to one short sentence and one action", async () => {
+    stub([])
+    renderIndex("owner")
+    const line = await screen.findByText(
+      "A client is a business you look after."
+    )
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+    const card = line.closest("[data-slot='empty']") ?? line.parentElement!
+    expect(within(card as HTMLElement).getAllByRole("link")).toHaveLength(1)
+  })
+
+  it("keeps a member's empty state to one short sentence", async () => {
+    stub([])
+    renderIndex("member")
+    const line = await screen.findByText(
+      "An owner or admin chooses what you see."
+    )
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+  })
+
+  it("lets a desk email wrap after its @ rather than mid-word", async () => {
+    stub([
+      {
+        ...base,
+        connections: [
+          {
+            id: "g1",
+            googleEmail: "stub@example.test",
+            status: "active",
+            reconnectRequired: false,
+            lastRefreshAt: null,
+          },
+        ],
+      },
+    ])
+    renderIndex()
+    const email = (await screen.findAllByText(/stub@/))[0]
+    expect(email.innerHTML).toBe("stub@<wbr>example.test")
+  })
+
   it("tells a member who to ask instead of offering a button they cannot use", async () => {
     stub([])
     renderIndex("member")
@@ -471,6 +511,11 @@ describe("ClientsIndex", () => {
       await screen.findByRole("button", { name: "Restore Closed Inn" })
     )
     expect(await screen.findByText("Closed Inn restored")).toBeInTheDocument()
+    // A restore only changes NabaPresence: no success green.
+    const toast = screen
+      .getByText("Closed Inn restored")
+      .closest("[data-slot='toast']")!
+    expect(toast.querySelector(".text-success-solid")).toBeNull()
     const patch = fetchMock.mock.calls.find(
       ([, init]) => init?.method === "PATCH"
     )
