@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 // draws while its query is pending, so nothing shifts on swap.
 export default function Loading() {
   return (
-    <div className="@container mx-auto flex w-full max-w-(--np-page-max-width) flex-col gap-(--np-gap-section) px-5 pt-6 pb-12 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y) md:pb-[calc(var(--np-page-pad-y)+24px)]">
+    <div className="@container mx-auto flex w-full max-w-(--np-page-max-width) flex-col gap-(--np-gap-section) px-5 pt-6 pb-12 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)">
       <div
         aria-hidden
         className="flex flex-wrap items-end justify-between gap-4"

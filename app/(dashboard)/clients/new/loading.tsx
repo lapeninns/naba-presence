@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 // the action row beneath it.
 export default function Loading() {
   return (
-    <div className="@container mx-auto flex w-full max-w-(--np-page-narrow-width) flex-col gap-(--np-gap-section) px-5 pt-6 pb-12 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y) md:pb-[calc(var(--np-page-pad-y)+24px)]">
+    <div className="@container mx-auto flex w-full max-w-(--np-page-narrow-width) flex-col gap-(--np-gap-section) px-5 pt-6 pb-12 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)">
       <p role="status" className="sr-only">
         Loading the new client form…
       </p>
