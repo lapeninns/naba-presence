@@ -54,7 +54,7 @@ export function ChartLegend({
           <span
             aria-hidden
             className={cn(
-              "size-2.5 shrink-0 rounded-[3px]",
+              "size-2.5 shrink-0 rounded-sm",
               SWATCH_CLASS[item.colorVar]
             )}
           />

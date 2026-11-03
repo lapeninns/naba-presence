@@ -26,8 +26,8 @@ export const RULES = {
     title: "Arbitrary type size",
     description:
       "text-[<length>], leading-[…], leading-<n>, Tailwind's default text-xs…9xl scale, or an inline fontSize/lineHeight.",
-    why: "Type sizes are nine roles with paired line heights; a one-off size drifts from the scale and from the fluid page title.",
-    fix: "Use text-caption / count / ui / body / title / section / page-title / display / reading, or add a role to globals.css.",
+    why: "Type sizes are ten roles with paired line heights; a one-off size drifts from the scale and from the fluid page title.",
+    fix: "Use text-caption / count / ui / body / title / section / page-title / display / figure / reading, or add a role to globals.css.",
   },
   R2: {
     title: "Literal colour",
@@ -48,7 +48,7 @@ export const RULES = {
     description:
       "rounded-[…], bare rounded / rounded-xs, shadow-[…], shadow-sm…2xl, z-[…], raw z-10…z-50, or an inline zIndex.",
     why: "Radii and elevation are tokens (rounded-sm…4xl, shadow-np-*); stacking needs one scale so overlays cannot fight.",
-    fix: "Use rounded-sm/md/lg/xl/2xl/full and shadow-np-raised/pop/modal/hairline; z-index waits for the shared scale.",
+    fix: "Use rounded-sm/md/lg/xl/2xl/full and shadow-np-raised/pop/modal/hairline; for stacking use the z-* utilities (z-sticky, z-chrome, z-overlay, z-popover, z-toast…).",
   },
   R5: {
     title: "Raw primitive in feature code",
@@ -68,7 +68,7 @@ export const RULES = {
     title: "Literal breakpoint",
     description:
       "A media-query string with a literal width (for useMediaQuery/matchMedia), or an arbitrary max-[…]: / min-[…]: / [@media…]: variant.",
-    why: "Layouts that pick their own pixel breakpoints drift apart from the shell's 768 / 1180 split.",
+    why: "Layouts that pick their own pixel breakpoints drift apart from the shell's md / wide split.",
     fix: "Use sm/md/lg/xl, the controls/capsules variants, or a container query (@max-*); share JS queries from one module.",
   },
 }

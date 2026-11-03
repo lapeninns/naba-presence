@@ -4,7 +4,7 @@
     "R1": 12,
     "R2": 9,
     "R3": 53,
-    "R4": 12,
+    "R4": 7,
     "R5": 1,
     "R6": 2,
     "R7": 14
@@ -258,22 +258,6 @@
         }
       }
     },
-    "components/ui/chart.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[3px]": 1
-        }
-      }
-    },
-    "components/ui/checkbox.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[5px]": 1
-        }
-      }
-    },
     "components/ui/choice-card.tsx": {
       "R4": {
         "total": 1,
@@ -358,10 +342,8 @@
     },
     "components/ui/segmented-control.tsx": {
       "R4": {
-        "total": 4,
+        "total": 1,
         "patterns": {
-          "rounded-[10px]": 1,
-          "rounded-[7px]": 2,
           "z-10": 1
         }
       }
