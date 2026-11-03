@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
   CheckIcon,
-  CircleAlertIcon,
   ChevronDownIcon,
-  InfoIcon,
   PenLineIcon,
   RotateCcwIcon,
   SparklesIcon,
 } from "lucide-react"
 
+import { ReplyChecks } from "@/components/inbox/detail/reply-checks"
 import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -506,14 +505,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const verification = verdictStale
     ? null
     : (mutationVerification ?? review.latestVerification)
-  const failing =
-    verification?.verdict === "fail"
-      ? verification.reasons.filter((reason) => reason.severity === "fail")
-      : []
-  const warnings =
-    verification?.verdict === "warn"
-      ? verification.reasons.filter((reason) => reason.severity === "warn")
-      : []
   const showFail = verification?.verdict === "fail"
   const empty = body.trim() === ""
   // Credits are for Generate: with no AI to spend them on, they are noise.
@@ -883,37 +874,14 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         </span>
       </div>
 
-      {showFail ? (
-        <p
-          id={`${fieldId}-problem`}
-          role="alert"
-          data-slot="reply-problem"
-          className="flex items-start gap-2 rounded-(--np-radius-control) bg-danger-tint px-3 py-2 text-caption text-ink"
-        >
-          <CircleAlertIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className="mt-px size-4 shrink-0 text-danger-ink"
-          />
-          <span>
-            <strong className="font-semibold">Can&rsquo;t publish yet.</strong>{" "}
-            {failing.map((reason) => reason.message).join(" ")} Edit the reply
-            and try again.
-          </span>
-        </p>
-      ) : warnings.length > 0 ? (
-        <p
-          data-slot="reply-note"
-          className="flex items-start gap-1.5 text-caption text-ink-muted"
-        >
-          <InfoIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className="mt-px size-3.5 shrink-0"
-          />
-          <span>{warnings.map((reason) => reason.message).join(" ")}</span>
-        </p>
-      ) : null}
+      <ReplyChecks
+        verification={
+          verification?.verdict === "pass" && (isDirty || draftBody === null)
+            ? null
+            : verification
+        }
+        problemId={`${fieldId}-problem`}
+      />
     </div>
   )
 }

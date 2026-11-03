@@ -1022,10 +1022,11 @@ describe("ReplyComposer — checks and length", () => {
     mount(FAILED)
     const problem = screen.getByRole("alert")
     expect(problem).toHaveTextContent(
-      "Can’t publish yet. It promises a refund nobody offered. Edit the reply and try again."
+      "Blocked by checks It promises a refund nobody offered. Edit the reply and try again."
     )
+    expect(problem).toHaveAttribute("data-verdict", "fail")
     expect(textbox()).toHaveAttribute("aria-invalid", "true")
-    expect(textbox()).toHaveAccessibleDescription(/Can’t publish yet/)
+    expect(textbox()).toHaveAccessibleDescription(/^Blocked by checks/)
   })
 
   it("clears the failed check on the next input", async () => {
@@ -1050,6 +1051,40 @@ describe("ReplyComposer — checks and length", () => {
     expect(screen.getByText("Reads a little stiff.")).toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(textbox()).not.toHaveAttribute("aria-invalid")
+  })
+
+  it("says the checks passed for the saved text, in ink, and drops it on typing", () => {
+    mount({
+      ...EXISTING,
+      latestVerification: { verdict: "pass", reasons: [] },
+    })
+    const passed = document.querySelector<HTMLElement>(
+      '[data-slot="reply-checks"]'
+    )!
+    expect(passed).toHaveTextContent("Checks passed")
+    expect(passed).toHaveAttribute("data-verdict", "pass")
+    // Passing the checks is not being on Google: no green anywhere on it.
+    expect(passed.outerHTML).not.toMatch(/success/)
+    fireEvent.change(textbox(), { target: { value: "Changed words" } })
+    expect(document.querySelector('[data-slot="reply-checks"]')).toBeNull()
+  })
+
+  it("heads a warning with its own words and keeps it quiet", () => {
+    mount({
+      ...EXISTING,
+      drafts: [draft({ verificationStatus: "warn" })],
+      latestVerification: {
+        verdict: "warn",
+        reasons: [
+          { code: "tone", severity: "warn", message: "Reads a little stiff." },
+        ],
+      },
+    })
+    const note = document.querySelector<HTMLElement>(
+      '[data-slot="reply-note"]'
+    )!
+    expect(note).toHaveTextContent("Checked with a note")
+    expect(note).not.toHaveAttribute("role")
   })
 
   it("says nothing about length until the reply reaches 80% of Google's limit", () => {
