@@ -155,6 +155,28 @@ describe("BulkCompose with no listings (p4-F13 C3)", () => {
     renderWithProviders(<BulkCompose />)
     expect(screen.getByText("Choose listings first")).toBeInTheDocument()
   })
+
+  it("keeps the empty state to one short sentence", () => {
+    search = ""
+    renderWithProviders(<BulkCompose />)
+    const line = screen.getByText("Tick them on the Listings board first.")
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+  })
+
+  it("offers a way back to the board when the selection is over the listing cap", () => {
+    search = `ids=${Array.from(
+      { length: 51 },
+      (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`
+    ).join(",")}`
+    renderWithProviders(<BulkCompose />)
+    expect(
+      screen.getAllByText(/covers at most 50 listings; this selection has 51/)
+        .length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getByRole("link", { name: "Choose listings" })
+    ).toHaveAttribute("href", "/listings")
+  })
 })
 
 describe("BulkCompose preview hand-off (p4-F13 C4)", () => {

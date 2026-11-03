@@ -820,7 +820,7 @@ export function BulkCompose() {
         <Empty
           framed
           title="Choose listings first"
-          description="Tick the listings to change on the Listings board, then choose Prepare bulk change."
+          description="Tick them on the Listings board first."
           action={
             <Link href="/listings" className={buttonVariants()}>
               Choose listings
@@ -1912,7 +1912,9 @@ export function BulkCompose() {
             />
           ) : null}
           <FormError>{shownFailure?.text}</FormError>
-          {shownFailure?.chooseAgain ? (
+          {/* Over the listing cap nothing here can be previewed: the way on
+              is a smaller selection, made on the board. */}
+          {shownFailure?.chooseAgain || ids.length > BULK_MAX_TARGETS ? (
             <Link
               href="/listings"
               className={buttonVariants({
