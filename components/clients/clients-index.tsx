@@ -59,7 +59,11 @@ import {
   type HealthFilter,
 } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
-import { describeActionError } from "@/lib/errors/action-errors"
+import { ApiClientError } from "@/lib/api/client"
+import {
+  describeActionError,
+  isUnconfirmedFailure,
+} from "@/lib/errors/action-errors"
 import { formatDate, formatNumber } from "@/lib/format"
 import {
   useArchivedClients,
@@ -576,7 +580,10 @@ function ArchivedClients({
   const { update } = useClientMutations()
   const toast = useToastManager()
   const [restoring, setRestoring] = React.useState<string | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<{
+    title: string
+    body: string
+  } | null>(null)
 
   const restore = async (client: ClientSummary) => {
     setRestoring(client.id)
@@ -591,7 +598,25 @@ function ArchivedClients({
           "It’s back in your lists. File its listings again from its settings.",
       })
     } catch (cause) {
-      setError(`${client.name} wasn’t restored. ${describeActionError(cause)}`)
+      // A dropped connection may still have restored it, so that case never
+      // says it wasn't, and the list is re-read to show which. A restore never
+      // touches Google, so a server failure is not described as Google's.
+      if (isUnconfirmedFailure(cause)) {
+        setError({
+          title: `We couldn’t confirm ${client.name} was restored`,
+          body: "NabaPresence didn’t answer, so it may be back in your lists already. Check All clients before trying again.",
+        })
+        void query.refetch()
+      } else {
+        setError({
+          title: `${client.name} wasn’t restored`,
+          body: `${
+            cause instanceof ApiClientError && cause.status >= 500
+              ? "NabaPresence couldn’t save it just now. Try again in a moment."
+              : describeActionError(cause)
+          } It’s still archived.`,
+        })
+      }
     } finally {
       setRestoring(null)
     }
@@ -653,8 +678,8 @@ function ArchivedClients({
       </div>
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>That didn’t work</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertTitle>{error.title}</AlertTitle>
+          <AlertDescription>{error.body}</AlertDescription>
         </Alert>
       ) : null}
       {items.length === 0 ? (
