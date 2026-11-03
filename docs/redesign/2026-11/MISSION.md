@@ -264,8 +264,10 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | Defect | Route (INVENTORY id) | Severity | Status |
 | --- | --- | --- | --- |
 | D01–D30 | see BASELINE §5.1 | 2 high, 14 medium, 14 low | open (code-verified at 367719b3) |
-| S1 | Shell rail at 844x390 landscape cuts off Team/Settings (no rail scroll) | medium | open (`evidence/controller/shell-matrix-dd1d209a/w844x390/inbox.png`) |
-| S2 | Tablet scope pill truncates "All clients" at 768 despite free width (`max-w-[45vw]`) | low | open (`.../w768x1024/listings.png`) |
+| S1 | Shell rail at 844x390 landscape cuts off Team/Settings | medium | fix merged `6f269f47`; at `c281ba68` account stays visible but Settings is still clipped in the static shot. Scroll reachability not yet verified (needs an interaction check) |
+| S2 | Tablet scope pill truncates "All clients" at 768 despite free width | low | fixed, verified in render `shell-matrix-c281ba68/w768x1024/listings.png` |
+| S3 | Scope health words differ by size: tablet pill "Some clients need checking", desktop sidebar "1 client needs attention" for the same data | low | open (`shell-matrix-c281ba68/w768x1024`, `after-c281ba68/desktop/state--inbox-selected`) |
+| T1 | `tests/components/sign-in-recovery.test.tsx` "clears the last answer on a new attempt" failed once in full `pnpm test` at `c281ba68`; passed 3/3 in isolation; files untouched by the redesign | low (flaky) | open, watch in final gate |
 | BASELINE §5.2 render items (13) | see BASELINE §5.2 | 3 high claimed | needs render |
 
 ## Evidence index
@@ -278,4 +280,5 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | Curated before webp (34) | `docs/redesign/2026-11/evidence/before/` (list: `tests/visual/nm-capture-before.curated.txt`) | **blocked** |
 | Agentic journeys desktop and mobile at 367719b3 | `before-367719b3/agentic-{desktop,mobile}/` | **blocked** (port binding; e2e runner `CONFIG_LOAD_FAILED`) |
 | After-captures integration `dd1d209a` (A+B+C2): shell matrix 17 sizes x 6 shots; every route phone/tablet/desktop light (225 shots); phone/desktop dark | `2026-11-redesign/evidence/controller/{shell-matrix,after,after-dd1d209a-dark}-dd1d209a/` + manifests; script `evidence/controller/capture-integration.sh` | done (Chromium, touch <1024, mouse >=1024; states not reached: client-switcher (1 client), share-report dialog, disconnect dialog; More sheet at >=768 expected absent) |
+| Integration `c281ba68` (A+B+C2 + vocabulary + S1/S2 fixes): static checks all exit 0; `pnpm test` 10206 pass / 1 fail (T1); captures 95 + 225 + 298 shots, console errors only on the deliberate 404/invalid-code routes | `2026-11-redesign/evidence/controller/*-c281ba68*` | done (Chromium) |
 | Prior captures (not current: 2026-10-14, pre #262/#264) | `notion-mail-ledger/evidence/after-52b237ba/` etc. | reference only |
