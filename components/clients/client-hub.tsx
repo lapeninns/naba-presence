@@ -17,6 +17,7 @@ import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientAvatar } from "@/components/clients/client-avatar"
+import { EmailWithBreak } from "@/components/clients/email-with-break"
 import { ShareReportDialog } from "@/components/clients/share-report-dialog"
 import {
   Alert,
@@ -124,7 +125,7 @@ function ClientHub({
             titleAs="h2"
             icon={<CircleAlertIcon />}
             title="We couldn't load this client"
-            description={`${describeActionError(query.error)} Health, work and listings aren’t shown until it loads. Nothing was changed.`}
+            description={`${describeActionError(query.error)} Nothing was changed.`}
             action={
               <>
                 <Button
@@ -254,7 +255,7 @@ function ClientHub({
             hint={
               client.openWork.awaitingApproval === 0
                 ? "Nothing waiting"
-                : "Drafted, not yet published"
+                : "Waiting for an approver"
             }
             href={`/inbox?clientId=${client.id}&queue=approval`}
           />
@@ -467,7 +468,11 @@ function LoginLine({
         <span className="min-w-0 [overflow-wrap:anywhere]">
           Google login:{" "}
           <strong className="font-semibold text-ink">
-            {shown.googleEmail ?? "Google account"}
+            {shown.googleEmail ? (
+              <EmailWithBreak email={shown.googleEmail} />
+            ) : (
+              "Google account"
+            )}
           </strong>
           {others > 0 ? ` and ${formatNumber(others)} more` : ""}
           {!shownBroken && !accessLost ? (
@@ -584,7 +589,7 @@ function ListingsSection({
             titleAs="h3"
             icon={<MapPinIcon />}
             title="No listings yet"
-            description={`Connect the Google account that manages ${client.name}'s Business Profile, then pick its ${LISTING_TERMS.placePlural}. Reviews start arriving once a ${LISTING_TERMS.place} is linked.`}
+            description={`Link its Google ${LISTING_TERMS.placePlural} to start.`}
             action={
               canManage ? (
                 <Link
@@ -949,7 +954,7 @@ function DiagnosisAlert({
           {email ? (
             <>
               <strong className="font-semibold [overflow-wrap:anywhere]">
-                {email}
+                <EmailWithBreak email={email} />
               </strong>{" "}
               is still connected, but it is
             </>
