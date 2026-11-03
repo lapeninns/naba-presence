@@ -227,7 +227,7 @@ describe("browsing the library (p4-F01)", () => {
     expect(screen.getByText("No photos yet")).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Google has no photos for this listing yet. Refresh from Google if someone added them on Google directly."
+        "Google has no photos for this listing."
       )
     ).toBeInTheDocument()
     expect(screen.queryByText(/Use Add photos/)).toBeNull()
@@ -323,9 +323,8 @@ describe("adding photos (p4-F02)", () => {
     await openAddWith(user, [jpeg("bar.jpg")])
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
 
-    expect(
-      await screen.findByText("Not confirmed: check Google")
-    ).toBeInTheDocument()
+    const unsure = await screen.findByText("Not confirmed: check Google")
+    expect(unsure.closest("[data-tone]")).toHaveAttribute("data-tone", "warn")
     // It may be on Google: the library is re-read so the page can say so.
     await waitFor(() => expect(fetchMediaMock).toHaveBeenCalled())
     expect(
@@ -349,6 +348,27 @@ describe("adding photos (p4-F02)", () => {
       firstForm.get("category")
     )
     expect(await screen.findByText("On Google")).toBeInTheDocument()
+  })
+
+  it("draws an upload as Sending…, then as sent and waiting, amber when unsure", async () => {
+    const user = userEvent.setup()
+    fetchMediaMock.mockResolvedValue(makeMedia())
+    let answer: (value: unknown) => void = () => {}
+    uploadMediaFileMock.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve))
+    )
+    loaded(makeMedia())
+    renderTab()
+    await openAddWith(user, [jpeg("bar.jpg")])
+    await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(await within(dialog).findByText("Sending…")).toBeInTheDocument()
+    expect(within(dialog).getByText(/^Sending to Google \d+%$/)).toBeInTheDocument()
+    answer({ id: "a1", status: "pending", idempotent: false })
+    expect(
+      await within(dialog).findByText("Sent, waiting for Google")
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText(/Uploading/)).toBeNull()
   })
 
   it("retries a definite failure as a new upload", async () => {
