@@ -234,10 +234,13 @@ export function clientHealth(input: ClientHealthInput): ClientHealth {
 export type HealthTone =
   "healthy" | "attention" | "at-risk" | "pending" | "neutral"
 
+// Tone says who acts next (DIRECTION §6.1). Blue is Google or the system
+// working, so edits only saved here (waiting on nobody until someone
+// publishes) stay neutral.
 const TONES: Record<ClientHealth, HealthTone> = {
   unchecked: "neutral",
   partially_checked: "neutral",
-  unpublished: "pending",
+  unpublished: "neutral",
   healthy: "healthy",
   syncing: "pending",
   attention: "attention",
@@ -339,7 +342,7 @@ export function summariseHealth(
     return { tone: "neutral", label: "Not connected yet" }
   }
   if (healths.some((health) => health === "unpublished"))
-    return { tone: "pending", label: "Changes to publish" }
+    return { tone: "neutral", label: "Changes to publish" }
   const unchecked = healths.filter(
     (health) =>
       health === "unchecked" ||
