@@ -231,7 +231,7 @@ describe("publish outcome", () => {
       await result.current.publish()
     })
     const toasts = screen.getByRole("region", { name: "Notifications" })
-    expect(await within(toasts).findByText("Live on Google")).toBeVisible()
+    expect(await within(toasts).findByText("Confirmed on Google")).toBeVisible()
     expect(within(toasts).queryByText("Sent to Google")).toBeNull()
   })
 })
@@ -365,9 +365,9 @@ describe("ReviewChangesSheet", () => {
       "confirmed_applied",
       "sent",
     ])
-    expect(rows[1]).toHaveTextContent("Live on Google")
+    expect(rows[1]).toHaveTextContent("On Google")
     expect(rows[2]).toHaveTextContent("Sent to Google")
-    expect(rows[2]).not.toHaveTextContent("Live on Google")
+    expect(rows[2]).not.toHaveTextContent("On Google")
   })
 
   it("publishes a plain change without asking for anything", async () => {

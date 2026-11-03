@@ -27,7 +27,7 @@ export function unconfirmedReceiptId(error: unknown): string | null {
  * The live outcome of one write the app could not confirm, read from its
  * receipt (`GET /api/mutations/{id}`) and asked again while it is still
  * `sent` or `uncertain`, so the notice moves on by itself when the recovery
- * job settles it ("Live on Google" only once the receipt says
+ * job settles it ("On Google" only once the receipt says
  * `confirmed_applied`). Words and roles come from OperationOutcomeNotice
  * (components/ui/operation-outcome.tsx), a polite status region.
  *

@@ -462,9 +462,9 @@ describe("deriveReplyStatus — what counts as published", () => {
   // Rule (a): only a confirmed `published` publish_status may read as
   // published. `accepted` means Google took the request and has not yet said
   // what became of it, and a `publish_requested` review is still in flight.
-  it("says Live on Google only for a confirmed published publish_status", () => {
+  it("says On Google only for a confirmed published publish_status", () => {
     expect(deriveReplyStatus(settledReview("published"))).toMatchObject({
-      text: "Live on Google",
+      text: "On Google",
       short: "Replied",
     })
   })
@@ -507,7 +507,7 @@ describe("deriveReplyStatus — what counts as published", () => {
     expect(status.note).toBeUndefined()
   })
 
-  it("says Live on Google once Google has approved the reply", () => {
+  it("says On Google once Google has approved the reply", () => {
     const state = settledReview("published")
     for (const googleReplyState of ["APPROVED", null]) {
       expect(
@@ -515,7 +515,7 @@ describe("deriveReplyStatus — what counts as published", () => {
           ...state,
           reply: { ...state.reply!, googleReplyState },
         }).text
-      ).toBe("Live on Google")
+      ).toBe("On Google")
     }
   })
 
@@ -696,7 +696,7 @@ describe("status and action agree", () => {
       // exactly one shape: the reply is live and there is nothing newer to
       // send. Anything else would be claiming a state the button denies.
       if (
-        status.text === "Live on Google" ||
+        status.text === "On Google" ||
         status.text === "Sent to Google"
       ) {
         expect(action.settled).toBe(true)

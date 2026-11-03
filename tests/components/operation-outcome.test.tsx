@@ -23,7 +23,12 @@ import {
 } from "@/lib/contracts/mutation-operations"
 import {
   describeOutcome,
+  describeStatus,
+  LIFECYCLE_ONLY_STATES,
   OUTCOME_PRESENTATION,
+  STATUS_KEYS,
+  STATUS_VOCABULARY,
+  statusText,
   outcomeToast,
   successToastFields,
 } from "@/lib/editors/outcome"
@@ -33,7 +38,7 @@ const EXPECTED = {
   awaiting_approval: { label: "Awaiting approval", toast: "info" },
   sent: { label: "Sent to Google", toast: "info" },
   awaiting_confirmation: { label: "Waiting for Google", toast: "info" },
-  confirmed_applied: { label: "Live on Google", toast: "success" },
+  confirmed_applied: { label: "On Google", toast: "success" },
   rejected: { label: "Rejected by Google", toast: "error" },
   failed: { label: "Failed", toast: "error" },
   uncertain: { label: "Not confirmed", toast: "warning" },
@@ -42,8 +47,10 @@ const EXPECTED = {
 describe("operation outcome vocabulary", () => {
   it("has exactly the eight shared states, each with copy", () => {
     expect(OPERATION_OUTCOMES).toEqual(Object.keys(EXPECTED))
+    // The eight operation outcomes plus the lifecycle states that are not
+    // operation outcomes (DIRECTION §6.2), all in the one map.
     expect(Object.keys(OUTCOME_PRESENTATION).sort()).toEqual(
-      [...OPERATION_OUTCOMES].sort()
+      [...OPERATION_OUTCOMES, ...LIFECYCLE_ONLY_STATES].sort()
     )
     expect(operationOutcomeSchema.safeParse("live").success).toBe(false)
     expect(operationOutcomeSchema.safeParse("sent").success).toBe(true)
@@ -63,9 +70,38 @@ describe("operation outcome vocabulary", () => {
       const words = `${label} ${title} ${description}`
       const confirmed = outcome === "confirmed_applied"
       expect(live).toBe(confirmed)
-      expect(/live on google/i.test(words)).toBe(confirmed)
+      expect(label === "On Google" || /confirmed on google/i.test(title)).toBe(
+        confirmed
+      )
+      expect(words).not.toMatch(/\blive\b/i)
       if (!confirmed) expect(words).not.toMatch(/published/i)
     }
+  })
+
+  it("words every lifecycle-only state from the vocabulary, never as on Google", () => {
+    for (const state of LIFECYCLE_ONLY_STATES) {
+      const presentation = describeOutcome(state)
+      expect(presentation.live).toBe(false)
+      expect(presentation.tone).not.toBe("healthy")
+      expect(presentation.toast).not.toBe("success")
+      expect(`${presentation.title} ${presentation.description}`).not.toMatch(
+        /published|\blive\b|confirmed on google/i
+      )
+    }
+    expect(describeOutcome("blocked").label).toBe("Blocked by checks")
+    expect(describeOutcome("changes").label).toBe("Sent back")
+    expect(describeOutcome("conflict").label).toBe("Changed on Google")
+  })
+
+  it("links each operation outcome to its vocabulary state", () => {
+    expect(describeOutcome("saved_locally").status).toBe("draft")
+    expect(describeOutcome("awaiting_approval").status).toBe("approval")
+    expect(describeOutcome("sent").status).toBe("sending")
+    expect(describeOutcome("awaiting_confirmation").status).toBe("waiting")
+    expect(describeOutcome("confirmed_applied").status).toBe("live")
+    expect(describeOutcome("uncertain").status).toBe("uncertain")
+    // Amber: a person approves next (DIRECTION §6.3 #8).
+    expect(describeOutcome("awaiting_approval").tone).toBe("attention")
   })
 
   it("never lets an override turn a sent write into a success toast", () => {
@@ -113,7 +149,7 @@ describe("OperationOutcomeNotice", () => {
 })
 
 describe("PublishSteps with outcome states", () => {
-  it("shows each outcome's word and 'Live on Google' only for a confirmed step", () => {
+  it("shows each outcome's word and 'On Google' only for a confirmed step", () => {
     render(
       <PublishSteps
         aria-label="Results"
@@ -129,7 +165,7 @@ describe("PublishSteps with outcome states", () => {
       const row = list.querySelector(`[data-state=${outcome}]`) as HTMLElement
       expect(row).toHaveTextContent(EXPECTED[outcome].label)
     }
-    expect(within(list).getAllByText("Live on Google")).toHaveLength(1)
+    expect(within(list).getAllByText("On Google")).toHaveLength(1)
   })
 })
 
@@ -163,7 +199,7 @@ describe("OperationReceiptNotice", () => {
     expect(notice).toHaveAttribute("data-outcome", "uncertain")
     expect(notice).toHaveTextContent("Couldn’t confirm with Google")
     expect(notice).toHaveTextContent("checking again automatically")
-    expect(notice).not.toHaveTextContent("Live on Google")
+    expect(notice).not.toHaveTextContent("On Google")
   })
 
   it.each(["awaiting_confirmation", "uncertain", "sent"] as const)(
@@ -182,7 +218,7 @@ describe("OperationReceiptNotice", () => {
       expect(screen.getByRole("status")).toHaveTextContent(
         describeOutcome(outcome).title
       )
-      expect(screen.queryByText(/Live on Google/)).toBeNull()
+      expect(screen.queryByText(/^On Google$|Confirmed on Google/)).toBeNull()
     }
   )
 
@@ -209,7 +245,7 @@ describe("OperationReceiptNotice", () => {
         "confirmed_applied"
       )
     )
-    expect(screen.getByRole("status")).toHaveTextContent("Live on Google")
+    expect(screen.getByRole("status")).toHaveTextContent("Confirmed on Google")
     expect(onSettled).toHaveBeenCalledTimes(1)
     expect(onSettled).toHaveBeenCalledWith("confirmed_applied")
     // Settled: no more asking.
@@ -247,5 +283,61 @@ describe("OperationReceiptNotice", () => {
         new ApiClientError(502, "google_mutation_ambiguous", "x")
       )
     ).toBeNull()
+  })
+})
+
+describe("status vocabulary (DIRECTION §6.1)", () => {
+  it("has one entry per lifecycle state", () => {
+    expect(Object.keys(STATUS_VOCABULARY)).toEqual([...STATUS_KEYS])
+    expect(STATUS_KEYS).toHaveLength(18)
+  })
+
+  it("says On Google only for live, green only for live, and never published", () => {
+    for (const key of STATUS_KEYS) {
+      const { label, long, tone, track } = describeStatus(key)
+      expect(`${label} ${long}`).not.toMatch(/published|\blive\b/i)
+      const live = key === "live"
+      expect(tone === "healthy").toBe(live)
+      expect(label === "On Google").toBe(live)
+      expect(Boolean(track?.reached)).toBe(live)
+    }
+    expect(describeStatus("live").long).toBe("Confirmed on Google")
+    expect(describeStatus("waiting").label).toBe("Sent, waiting for Google")
+  })
+
+  it("gives each tone family its own glyph shapes, so state never relies on hue", () => {
+    const glyphsByTone = new Map<string, Set<string>>()
+    for (const key of STATUS_KEYS) {
+      const { tone, glyph } = describeStatus(key)
+      if (!glyphsByTone.has(tone)) glyphsByTone.set(tone, new Set())
+      glyphsByTone.get(tone)!.add(glyph)
+    }
+    const owners = new Map<string, string>()
+    for (const [tone, glyphs] of glyphsByTone) {
+      for (const glyph of glyphs) {
+        // circle-check is shared by the amber "Approved" only; no glyph
+        // means two different tones.
+        expect(owners.get(glyph) ?? tone).toBe(tone)
+        owners.set(glyph, tone)
+      }
+    }
+  })
+
+  it("fills the long forms' slots, and drops them gracefully", () => {
+    expect(statusText(describeStatus("unsaved").long, { n: 2 })).toBe(
+      "2 unsaved changes"
+    )
+    expect(statusText(describeStatus("unsaved").long, { n: 1 })).toBe(
+      "1 unsaved change"
+    )
+    expect(statusText(describeStatus("unsaved").long)).toBe("Unsaved changes")
+    expect(statusText(describeStatus("retrying").label, { time: "10:42" })).toBe(
+      "Will retry at 10:42"
+    )
+    expect(statusText(describeStatus("retrying").label)).toBe("Will retry later")
+    expect(statusText(describeStatus("changes").long, { name: "Priya" })).toBe(
+      "Sent back by Priya"
+    )
+    expect(statusText(describeStatus("changes").long)).toBe("Sent back")
   })
 })

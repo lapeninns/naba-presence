@@ -100,7 +100,7 @@ describe("shownDraft", () => {
 describe("describeReplyState", () => {
   it("names each publish status rather than calling them all published", () => {
     expect(describeReplyState("published")).toMatchObject({
-      label: "Live on Google",
+      label: "On Google",
     })
     expect(describeReplyState("awaiting_approval")).toMatchObject({
       label: "Waiting for approval",

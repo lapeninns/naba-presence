@@ -701,7 +701,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await expect(
           page.getByText(/^Receipt [0-9a-f-]{36}$/).first()
         ).toBeVisible()
-        await expect(page.getByText("Live on Google").first()).toBeVisible()
+        await expect(page.getByText("On Google").first()).toBeVisible()
         await capture(page, info, "bulk-receipt")
       })
 

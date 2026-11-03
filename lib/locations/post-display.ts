@@ -49,7 +49,7 @@ const OUTCOME_POST_TONE: Record<OperationOutcome, PostTone> = {
  * The post's state in words. A post nothing has been sent for says where it
  * is (draft, awaiting approval); every other post says its publish outcome
  * in the shared words (lib/editors/outcome.ts) via `localPostOutcome`, so
- * "Live on Google" appears only when Google's own state for the post says
+ * "On Google" appears only when Google's own state for the post says
  * LIVE. Google still reviewing it (PROCESSING), or not having reported on it
  * yet, is "Waiting for Google"; REJECTED is "Rejected by Google".
  */

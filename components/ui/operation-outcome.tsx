@@ -76,7 +76,7 @@ export function outcomeGlyph(outcome: OperationOutcome): React.ReactNode {
 
 /**
  * The inline result of one write, in the shared outcome words
- * (lib/editors/outcome.ts): "Saved here", "Sent to Google", "Live on Google"
+ * (lib/editors/outcome.ts): "Saved here", "Sent to Google", "On Google"
  * only with confirmation, and so on.
  *
  * Always a polite live region, whatever the tone: the notice reports a

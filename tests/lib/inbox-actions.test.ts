@@ -84,7 +84,7 @@ describe("describeOutcomeToast", () => {
     expect(describeOutcomeToast("published")).toEqual({
       kind: "google",
       title: "Reply published",
-      description: "Live on Google.",
+      description: "On Google.",
       type: "success",
     })
   })
@@ -98,7 +98,7 @@ describe("describeOutcomeToast", () => {
     expect(toast).toEqual({
       kind: "google",
       title: "Reply published",
-      description: "Live on Google.",
+      description: "On Google.",
       type: "success",
       link: { href: "https://search.google.com/local/reviews?r=1" },
     })
@@ -148,7 +148,7 @@ describe("describeOutcomeToast", () => {
       cancelled: "local",
     })
   })
-  it("does not say Live on Google while Google is still checking the reply", () => {
+  it("does not say On Google while Google is still checking the reply", () => {
     const toast = describeOutcomeToast("published", {
       googleReplyState: "PENDING",
     })

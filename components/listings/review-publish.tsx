@@ -524,7 +524,7 @@ function ReviewPublishBody({
     outcome === "confirmed_applied"
       ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
       : sentOutcomes.size > 1
-        ? "Not every change is live on Google yet. Each step above says where it stands."
+        ? "Not every change is confirmed on Google yet. Each step above says where it stands."
         : presentation.description
   const doneSettled = nothingSent || presentation.live
   const doneTone =

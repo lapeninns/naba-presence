@@ -325,7 +325,7 @@ const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
  * The ordering is "what stops me acting, soonest first". Two rules are load
  * bearing and neither may be relaxed for a tidier ladder:
  *
- *  1. "Live on Google" is reachable ONLY from `publish_status = 'published'`
+ *  1. "On Google" is reachable ONLY from `publish_status = 'published'`
  *     (via `replyWork`'s stricter sibling below). A queued or `accepted`
  *     provider request is in flight, not confirmed, and says so.
  *  2. Nothing here infers a state from the availability of an action. Being

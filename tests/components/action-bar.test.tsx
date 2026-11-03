@@ -981,7 +981,7 @@ describe("ActionBar", () => {
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
     expect(await screen.findByText("Reply published")).toBeInTheDocument()
-    expect(screen.getByText("Live on Google.")).toBeInTheDocument()
+    expect(screen.getByText("On Google.")).toBeInTheDocument()
     // A real link into a new tab that is told nothing, not a button.
     // The primitive tells a screen reader the link opens a new tab.
     const view = screen.getByRole("link", {

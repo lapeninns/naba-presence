@@ -101,7 +101,7 @@ function checkOutcomeTitle(state: PostsState, postId: string) {
   if (state.reconciliationError)
     return "We couldn’t reach Google just now. Try again shortly."
   const checked = state.posts.find((row) => row.id === postId)
-  if (checked?.status === "published") return "This post is live on Google."
+  if (checked?.status === "published") return "This post is on Google."
   if (checked?.status === "failed")
     return "Google doesn’t have this post, so you can publish it again."
   return "Google’s copy of this post is still unclear."

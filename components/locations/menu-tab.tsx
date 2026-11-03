@@ -196,7 +196,7 @@ function MenuForm({
       outcome,
       title:
         outcome === "confirmed_applied"
-          ? "Menu live on Google"
+          ? "Menu confirmed on Google"
           : "Menu sent to Google",
     }),
     onSuccess: () => {

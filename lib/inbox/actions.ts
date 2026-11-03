@@ -198,7 +198,7 @@ export function describeOutcomeToast(
       return {
         kind: "google",
         title: "Reply published",
-        description: "Live on Google.",
+        description: "On Google.",
         type: "success",
         ...(url ? { link: { href: url } } : {}),
       }
@@ -237,7 +237,7 @@ export function describeOutcomeToast(
       return {
         kind: "local",
         title: "Draft reply removed",
-        description: "Nothing was live on Google.",
+        description: "Nothing was on Google.",
         type: "success",
       }
     case "pending":

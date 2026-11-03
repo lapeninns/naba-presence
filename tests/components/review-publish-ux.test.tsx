@@ -154,9 +154,10 @@ describe("the done state says only what the server answered", () => {
     expect(result).toHaveTextContent(
       "Nothing has gone to Google yet. Another publisher needs to approve this change first."
     )
-    expect(result).toHaveAttribute("data-tone", "neutral")
+    // Amber: a person (the approver) acts next (DIRECTION §6.3 #8).
+    expect(result).toHaveAttribute("data-tone", "warn")
     expect(screen.queryByText(/Google accepted every change/)).toBeNull()
-    expect(screen.queryByText(/Live on Google/)).toBeNull()
+    expect(screen.queryByText(/^On Google$|Confirmed on Google/)).toBeNull()
   })
 
   it("a write the server only says was sent says so", async () => {
@@ -188,7 +189,7 @@ describe("the done state says only what the server answered", () => {
     await userEvent.setup().click(publishButton())
     expect(
       await screen.findByText(
-        "Not every change is live on Google yet. Each step above says where it stands."
+        "Not every change is confirmed on Google yet. Each step above says where it stands."
       )
     ).toBeVisible()
     expect(screen.queryByText(/Google accepted every change/)).toBeNull()
@@ -200,8 +201,8 @@ describe("the done state says only what the server answered", () => {
     } as Awaited<ReturnType<typeof menuApi.publishFoodMenus>>)
     renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
     await userEvent.setup().click(publishButton())
-    await waitFor(() => expect(pageHeading("Live on Google")).toBeTruthy())
-    const result = pageHeading("Live on Google")!.closest(
+    await waitFor(() => expect(pageHeading("Confirmed on Google")).toBeTruthy())
+    const result = pageHeading("Confirmed on Google")!.closest(
       '[data-slot="empty"]'
     ) as HTMLElement
     expect(result).toHaveTextContent(
@@ -210,7 +211,7 @@ describe("the done state says only what the server answered", () => {
     expect(result).toHaveAttribute("data-tone", "ok")
     // Focus is on the result, not left on <body> after the bar unmounts.
     await waitFor(() =>
-      expect(document.activeElement).toHaveTextContent("Live on Google")
+      expect(document.activeElement).toHaveTextContent("Confirmed on Google")
     )
     expect(document.activeElement).not.toBe(document.body)
     expect(document.activeElement).toContainElement(

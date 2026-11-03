@@ -173,7 +173,7 @@ function stepView(
 /**
  * Per-row results: each change in the sheet with the outcome of the steps
  * that carry it. A row carried by a save and then a publish shows the
- * furthest point it reached ("Saved here", then "Live on Google"); a failure
+ * furthest point it reached ("Saved here", then "On Google"); a failure
  * shows on every row it stopped. Steps that carry no row (a publish that
  * found nothing to send) appear only when they did something or failed, so
  * nothing is hidden.

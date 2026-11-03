@@ -223,7 +223,7 @@ describe("post outcomes", () => {
 
   it("words the posts tab pill in the shared outcome words", () => {
     expect(postStatus({ status: "published", googleState: "LIVE" })).toEqual({
-      label: "Live on Google",
+      label: "On Google",
       tone: "ok",
     })
     expect(
@@ -259,14 +259,14 @@ describe("post outcomes", () => {
 
 describe("inbox status pills", () => {
   it("names reply publish states in the shared words", () => {
-    expect(describeReplyState("published").label).toBe("Live on Google")
+    expect(describeReplyState("published").label).toBe("On Google")
     expect(describeReplyState("accepted").label).toBe("Sent to Google")
   })
 
   it("takes the live pill's tone from the outcome, not from the words", () => {
     expect(
       replyStatusPill({
-        text: "Live on Google",
+        text: "On Google",
         short: "Replied",
         tone: "neutral",
         icon: "check-circle",
@@ -274,7 +274,7 @@ describe("inbox status pills", () => {
     ).toEqual({ tone: "neutral", dashed: false })
     expect(
       replyStatusPill({
-        text: "Live on Google",
+        text: "On Google",
         short: "Replied",
         tone: "neutral",
         icon: "check-circle",

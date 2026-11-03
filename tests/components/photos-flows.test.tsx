@@ -346,7 +346,7 @@ describe("adding photos (p4-F02)", () => {
     expect((retryForm as FormData).get("category")).toBe(
       firstForm.get("category")
     )
-    expect(await screen.findByText("Live on Google")).toBeInTheDocument()
+    expect(await screen.findByText("On Google")).toBeInTheDocument()
   })
 
   it("retries a definite failure as a new upload", async () => {

@@ -202,7 +202,7 @@ const PRINCIPLES: Array<[string, string]> = [
   ],
   [
     "Nothing claims success before Google confirms",
-    "“Sent to Google” comes before “Live on Google”.",
+    "“Sent to Google” comes before “On Google”.",
   ],
   [
     "One primary action per surface",
@@ -452,7 +452,7 @@ function ThemeSampler() {
         <Button variant="send">Publish to Google</Button>
         <Button>Save draft</Button>
         <Button variant="danger-outline">Discard</Button>
-        <StatusPill tone="ok">Live on Google</StatusPill>
+        <StatusPill tone="ok">On Google</StatusPill>
         <StatusPill tone="warn">Awaiting approval</StatusPill>
         <StatusPill tone="bad">Publish failed</StatusPill>
       </div>
@@ -854,7 +854,7 @@ export default function Page() {
               note="Pills always carry a word. Tone is a second cue, never the only one."
             >
               <Demo>
-                <StatusPill tone="ok">Live on Google</StatusPill>
+                <StatusPill tone="ok">On Google</StatusPill>
                 <StatusPill tone="info">Publishing</StatusPill>
                 <StatusPill tone="warn">Awaiting approval</StatusPill>
                 <StatusPill tone="bad">Publish failed</StatusPill>
@@ -909,7 +909,7 @@ export default function Page() {
                   </AlertDescription>
                 </Alert>
                 <Alert variant="success">
-                  <AlertTitle>Live on Google</AlertTitle>
+                  <AlertTitle>Confirmed on Google</AlertTitle>
                   <AlertDescription>
                     Google confirmed the reply.
                   </AlertDescription>

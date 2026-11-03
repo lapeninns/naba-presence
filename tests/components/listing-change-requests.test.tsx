@@ -89,7 +89,7 @@ describe("ListingChangeRequests", () => {
       change().id,
       { decision: "approve", payloadHash: "b".repeat(64) },
     ])
-    expect(await screen.findByText("Live on Google")).toBeInTheDocument()
+    expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
   })
 
   it("shows the approver every value the request sends before they approve it", async () => {

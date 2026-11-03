@@ -481,7 +481,7 @@ describe("PrivacyRequestsPanel", () => {
       await within(dialog).findByRole("button", { name: "Erase 1 review" })
     )
     expect(
-      await screen.findByText("Erased here; a reply is still live on Google")
+      await screen.findByText("Erased here; a reply is still on Google")
     ).toBeInTheDocument()
     // The toast is announced in a dialog of its own; the fulfil dialog,
     // with its note field, is what has to go.

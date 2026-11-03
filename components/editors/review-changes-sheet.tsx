@@ -324,7 +324,7 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
       }
     // The outcome words (lib/editors/outcome.ts) say the rest: a local
     // save is "Saved here"; a Google write is what the server answered
-    // (stepOutcome): "Live on Google" only when Google was read back holding
+    // (stepOutcome): "On Google" only when Google was read back holding
     // it, "Waiting for Google" or "Sent to Google" when it was not.
     if (step.status === "done")
       return {
