@@ -109,8 +109,8 @@ export default async function ClientLayout({
             title={`${client.name} is archived`}
             description={
               canRestore
-                ? "It’s hidden from lists and filters. Any listings it had were unfiled, and are still under Listings with their reviews. Restore it from the archived clients to work on it again, then file its listings again from its settings."
-                : "It’s hidden from lists and filters. Any listings it had were unfiled, and are still under Listings with their reviews. An owner or admin can restore it."
+                ? "Restore it from the archived clients."
+                : "An owner or admin can restore it."
             }
             action={
               <Link
