@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 function ListingSkeleton() {
   return (
     <div
-      className="flex flex-col gap-2 px-5 pt-6 md:gap-3 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)"
+      className="flex flex-col gap-2 px-5 pt-3 md:gap-3 md:px-(--np-page-pad-x) md:pt-(--np-page-pad-y)"
       role="status"
       aria-busy="true"
     >
@@ -27,10 +27,12 @@ function ListingSkeleton() {
         </div>
         <Skeleton className="mt-1 hidden h-3.5 w-80 max-w-full md:mt-0 md:block" />
       </div>
+      {/* The tab row: six areas and "More areas". */}
       <div className="hidden gap-4 border-b border-line pb-3 lg:flex">
-        {[0, 1, 2, 3, 4].map((index) => (
+        {[0, 1, 2, 3, 4, 5].map((index) => (
           <Skeleton key={index} className="h-4 w-20 shrink-0" />
         ))}
+        <Skeleton className="h-4 w-24 shrink-0" />
       </div>
       <Skeleton className="mt-4 h-40 w-full rounded-(--np-radius-card)" />
     </div>
