@@ -589,11 +589,14 @@ describe("BulkActionBar", () => {
     const user = userEvent.setup()
     renderBar([row("a"), row("b")], ["a", "b"])
     await user.click(await screen.findByRole("button", { name: "Approve 2" }))
-    expect(
-      screen.getByRole("alertdialog", {
-        name: "Approve and publish 2 replies to Google?",
-      })
-    ).toBeInTheDocument()
+    const confirm = screen.getByRole("alertdialog", {
+      name: "Approve and publish 2 replies to Google?",
+    })
+    // It promises the send, not that Google shows it: that is On Google.
+    expect(confirm).toHaveTextContent(
+      "It reads On Google once Google confirms it."
+    )
+    expect(confirm).not.toHaveTextContent(/appears on the business/)
     await user.click(screen.getByRole("button", { name: "Cancel" }))
     expect(mutateAsync).not.toHaveBeenCalled()
   })

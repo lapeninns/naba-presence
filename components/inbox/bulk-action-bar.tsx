@@ -802,8 +802,8 @@ function BulkActionBar({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {bulkEngine
-              ? "Each approved reply is sent to Google in the background, one after another, and appears on the business’s profile under its name. You can close this tab; the batch page shows each result."
-              : "Each approved reply is sent to Google straight away and appears on the business’s profile under its name."}
+              ? "Each approved reply is sent to Google in the background, one after another, under the business’s name. It reads On Google once Google confirms it. You can close this tab; the batch page shows each result."
+              : "Each approved reply is sent to Google straight away, under the business’s name. It reads On Google once Google confirms it."}
             {approvable.length < chosen.length
               ? ` The other ${chosen.length - approvable.length} selected are not ready for your approval and are left as they are.`
               : ""}
