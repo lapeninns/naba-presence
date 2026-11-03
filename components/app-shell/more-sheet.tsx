@@ -76,6 +76,7 @@ function MoreSheet({
   onOpenChange,
   context,
   session,
+  organisationName = null,
   onOpenPalette,
   onOpenClientScope,
   finalFocus,
@@ -84,6 +85,11 @@ function MoreSheet({
   onOpenChange: (open: boolean) => void
   context: NavigationContext
   session: ShellSession | null
+  /**
+   * The organisation's live name (the shell reads the session query, so a
+   * rename shows at once), which a business's scope row reads.
+   */
+  organisationName?: string | null
   onOpenPalette: () => void
   onOpenClientScope: () => void
   /** Where focus goes when the sheet closes (the shell decides). */
@@ -117,6 +123,7 @@ function MoreSheet({
                 destinations={destinations}
                 context={context}
                 session={session}
+                organisationName={organisationName}
                 onClose={() => onOpenChange(false)}
                 onOpenPalette={onOpenPalette}
                 onOpenClientScope={onOpenClientScope}
@@ -133,6 +140,7 @@ function MoreSheetContent({
   destinations,
   context,
   session,
+  organisationName,
   onClose,
   onOpenPalette,
   onOpenClientScope,
@@ -140,6 +148,7 @@ function MoreSheetContent({
   destinations: Destination[]
   context: NavigationContext
   session: ShellSession | null
+  organisationName: string | null
   onClose: () => void
   onOpenPalette: () => void
   onOpenClientScope: () => void
@@ -147,7 +156,7 @@ function MoreSheetContent({
   const pathname = navigationPath(usePathname(), context.mode)
   const unread = useUnreadNotificationCount()
   const health = useContextHealth()
-  const scope = useScopeControl(context.mode, session?.organisationName ?? null)
+  const scope = useScopeControl(context.mode, organisationName)
   const agency = context.mode === "agency"
   const healthDetailId = React.useId()
 
@@ -179,7 +188,8 @@ function MoreSheetContent({
               <button
                 type="button"
                 aria-haspopup="dialog"
-                aria-label={scope.name}
+                // The visible action word stays in the name (WCAG 2.5.3).
+                aria-label={`${scope.name}, Change`}
                 onClick={onOpenClientScope}
                 data-slot="more-scope"
                 data-tone={scope.tone}

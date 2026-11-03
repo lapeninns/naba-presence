@@ -283,7 +283,7 @@ describe("More sheet contents", () => {
     // One name with the scope control's words: the scope, its listings
     // and its health, so the dot never says it alone (DIRECTION D8).
     const row = await sheet.findByRole("button", {
-      name: "Working on All clients, 2 listings · 1 client needs action",
+      name: "Working on All clients, 2 listings · 1 client needs action, Change",
     })
     expect(row).toHaveAttribute("aria-haspopup", "dialog")
     expect(row).toHaveAttribute("data-slot", "more-scope")

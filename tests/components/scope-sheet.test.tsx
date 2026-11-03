@@ -216,6 +216,18 @@ describe("business mode", () => {
     expect(trigger).toHaveAttribute("data-variant", "chip")
     expect(trigger).toHaveAttribute("data-mode", "business")
     expect(trigger.getAttribute("aria-label")).not.toMatch(/client/i)
+    // The phone chip shows the location, not only the business, so a
+    // narrowed scope is seen as well as heard.
+    expect(trigger).toHaveTextContent("The Bell")
+    expect(trigger).not.toHaveTextContent("Bell Inns")
+  })
+
+  it("shows All locations on the chip when no location is in scope", () => {
+    renderScope({ mode: "business", directory: [BELL, CROWN] })
+    const trigger = screen.getByRole("button", {
+      name: /^Working on Bell Inns, All locations/,
+    })
+    expect(trigger).toHaveTextContent("All locations")
   })
 
   it("carries the location's status words in its name", () => {

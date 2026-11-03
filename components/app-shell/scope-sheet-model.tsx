@@ -434,6 +434,12 @@ export type ScopeControl = {
    * business's own name (business: never "client").
    */
   title: string
+  /**
+   * The phone chip's one visible line: the client or All clients (agency),
+   * the location or All locations (business), so a narrowed scope is seen
+   * and not only heard. Always part of `name`.
+   */
+  chipLabel: string
   /** The client in scope, for its mark. */
   client: ClientSummary | null
   /** The one location the address narrows to. */
@@ -516,6 +522,7 @@ export function useScopeControl(
     ready: scope.ready,
     switchable: scope.visible,
     title,
+    chipLabel: scope.label,
     client: scope.client,
     location: scope.location,
     detail,

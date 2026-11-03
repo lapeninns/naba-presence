@@ -210,10 +210,10 @@ function ScopeFace({
       ) : (
         <span aria-hidden className="flex min-w-0 flex-1 items-center gap-2">
           <span
-            title={control.title}
+            title={variant === "chip" ? control.chipLabel : control.title}
             className="min-w-0 shrink truncate text-ui font-medium text-ink"
           >
-            {control.title}
+            {variant === "chip" ? control.chipLabel : control.title}
           </span>
           {control.detail ? <ToneDot tone={control.tone} /> : null}
           {variant === "pill" && control.detail ? (
@@ -296,7 +296,8 @@ function ScopeStatic({
       data-static="true"
       className={cn(
         TRIGGER_CLASS[variant],
-        "border-transparent bg-transparent",
+        // Inert: no border, fill or hover, so it never looks pressable.
+        "border-transparent bg-transparent hover-fine:hover:border-transparent",
         className
       )}
     >

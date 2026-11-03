@@ -470,6 +470,7 @@ function ShellFrame({
             onOpenChange={(open) => (open ? openMore() : setMoreOpen(false))}
             context={context}
             session={session}
+            organisationName={organisationName}
             finalFocus={!moreHandoff}
             onOpenPalette={() => handOff(() => palette.setOpen(true))}
             onOpenClientScope={() => handOff(() => setClientSheetOpen(true))}

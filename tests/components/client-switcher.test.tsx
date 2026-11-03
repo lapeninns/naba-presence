@@ -704,6 +704,8 @@ describe("ScopeControlView", () => {
     expect(control).toHaveTextContent(
       "Working on All clients, 1 listing · All clients in sync"
     )
+    // Inert: nothing suggests it can be pressed.
+    expect(control).toHaveClass("hover-fine:hover:border-transparent")
   })
 
   it.each(["/team", "/settings", "/settings/billing"])(
