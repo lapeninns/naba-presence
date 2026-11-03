@@ -34,8 +34,12 @@ function pageWindow(page: number, pageCount: number): Array<number | null> {
  * buttons. Lists that grow in place keep `LoadMore` ("Load more reviews");
  * this is for tables that turn a page.
  *
- * - The whole pager is a `<nav aria-label="Pagination">`, and the status line
- *   is polite, so turning a page says the new count without moving focus.
+ * - The whole pager is a `<nav>` named "Pagination" (or `aria-label` when a
+ *   view has two pagers), and the status line is polite and ends with an
+ *   sr-only "page 2 of 3", so every page turn is announced, even when the
+ *   count is unchanged, without moving focus.
+ * - `page` is clamped to the pages there are, so a stale page after a filter
+ *   never reads "page 5 of 2" or enables a Next past the end.
  * - The buttons are named "Previous page" and "Next page": the name starts
  *   with the visible word, so voice control still finds them. At either end
  *   the button stays in place, drawn disabled (never faded), focusable, with
@@ -54,10 +58,11 @@ export function Pagination({
   total,
   noun,
   sortLabel,
-  page,
-  pageCount,
+  page: requestedPage,
+  pageCount: requestedPageCount,
   onPageChange,
   pageNumbers = false,
+  "aria-label": ariaLabel = "Pagination",
   className,
 }: {
   /** The rows on this page. */
@@ -74,8 +79,12 @@ export function Pagination({
   onPageChange: (page: number) => void
   /** Numbered pages on desk tables with more than five pages. */
   pageNumbers?: boolean
+  /** The nav's name; give each pager its own when a view has two. */
+  "aria-label"?: string
   className?: string
 }) {
+  const pageCount = Math.max(1, Math.floor(requestedPageCount) || 1)
+  const page = Math.min(pageCount, Math.max(1, Math.floor(requestedPage) || 1))
   const word =
     typeof noun === "function" ? noun(total) : total === 1 ? noun[0] : noun[1]
   const count =
@@ -88,7 +97,7 @@ export function Pagination({
 
   return (
     <nav
-      aria-label="Pagination"
+      aria-label={ariaLabel}
       data-slot="pagination"
       className={cn(
         "flex flex-wrap items-center justify-between gap-2",
@@ -102,6 +111,9 @@ export function Pagination({
       >
         {count}
         {sortLabel ? ` · sorted by ${sortLabel}` : null}
+        <span className="sr-only">
+          {` · page ${formatNumber(page)} of ${formatNumber(pageCount)}`}
+        </span>
       </p>
       <div className="flex items-center gap-1.5">
         <Button

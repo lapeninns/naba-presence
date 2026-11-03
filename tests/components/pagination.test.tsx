@@ -140,4 +140,60 @@ describe("Pagination", () => {
     )
     expect(document.querySelector('[data-slot="pagination-pages"]')).toBeNull()
   })
+
+  it("announces every page turn, even when the count is unchanged", () => {
+    const props = {
+      shown: 5,
+      total: 15,
+      noun: LISTINGS,
+      pageCount: 3,
+      onPageChange: () => {},
+    }
+    const { rerender } = render(<Pagination {...props} page={1} />)
+    const status = document.querySelector('[data-slot="pagination-status"]')
+    expect(status).toHaveTextContent("Showing 5 of 15 listings · page 1 of 3")
+    rerender(<Pagination {...props} page={2} />)
+    expect(status).toHaveTextContent("Showing 5 of 15 listings · page 2 of 3")
+  })
+
+  it("clamps an out-of-range page to the pages there are", async () => {
+    const onPageChange = vi.fn()
+    const props = {
+      shown: 5,
+      total: 9,
+      noun: LISTINGS,
+      pageCount: 2,
+      onPageChange,
+    }
+    const { rerender } = render(<Pagination {...props} page={5} />)
+    const status = document.querySelector('[data-slot="pagination-status"]')
+    expect(status).toHaveTextContent("page 2 of 2")
+    const next = screen.getByRole("button", { name: "Next page" })
+    expect(next).toHaveAccessibleDescription("This is the last page")
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Previous page" }))
+    expect(onPageChange).toHaveBeenCalledWith(1)
+
+    rerender(<Pagination {...props} page={0} pageCount={0} />)
+    expect(status).toHaveTextContent("page 1 of 1")
+  })
+
+  it("takes its own name when a view has two pagers", () => {
+    render(
+      <Pagination
+        shown={5}
+        total={9}
+        noun={LISTINGS}
+        page={1}
+        pageCount={2}
+        onPageChange={() => {}}
+        aria-label="Reviews pages"
+      />
+    )
+    expect(
+      screen.getByRole("navigation", { name: "Reviews pages" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("navigation", { name: "Pagination" })).toBeNull()
+  })
 })
