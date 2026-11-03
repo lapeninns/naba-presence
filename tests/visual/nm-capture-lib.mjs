@@ -218,6 +218,7 @@ export const DEFAULT_ROUTES = [
   "/clients/{client}/settings",
   "/reports",
   "/notifications",
+  "/outbox",
   "/team",
   "/setup",
   "/settings",
@@ -227,6 +228,7 @@ export const DEFAULT_ROUTES = [
   "anon:/share/report/nm-capture-invalid-token",
   // Permission-restricted states (INVENTORY.md §2 page-level restrictions).
   "viewer:/inbox",
+  "viewer:/outbox",
   "viewer:/listings/{loc}/profile",
   "viewer:/listings/bulk",
   "viewer:/team",
