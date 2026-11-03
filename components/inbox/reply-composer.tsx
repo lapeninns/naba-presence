@@ -93,6 +93,34 @@ function isAiNotConfigured(error: unknown): boolean {
   return error instanceof ApiClientError && error.code === "ai_not_configured"
 }
 
+/**
+ * The generate toast's words, from the checks' verdict on the new text: a
+ * reply that failed or has not been checked is written, not ready.
+ */
+export function generatedToast(verdict: string | null): {
+  title: string
+  description: string
+  type: "success" | "info" | "warning"
+} {
+  if (verdict === "pass" || verdict === "warn")
+    return {
+      title: "Reply ready",
+      description: "A fresh reply was written and checked.",
+      type: "success",
+    }
+  if (verdict === "fail")
+    return {
+      title: "Reply written, needs a correction",
+      description: "A check failed. Fix the reply before you publish it.",
+      type: "warning",
+    }
+  return {
+    title: "Reply written, not checked yet",
+    description: "It is checked when you save or publish it.",
+    type: "info",
+  }
+}
+
 function ReplyComposer({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
   const review = detail.data?.review
@@ -381,11 +409,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       const restorable =
         previous.trim() !== "" && previous !== result.body ? previous : null
       const toastId = toasts.add({
-        title: "Reply ready",
-        description: restorable
-          ? "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit."
-          : "A fresh reply was written and checked.",
-        type: "success",
+        ...generatedToast(result.verification?.verdict ?? null),
+        ...(restorable
+          ? {
+              description:
+                "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit.",
+            }
+          : {}),
         ...(restorable
           ? {
               actionProps: {

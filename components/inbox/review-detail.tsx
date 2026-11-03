@@ -969,7 +969,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
   if (!reply?.body || reply.body === inComposer) return null
 
   const state = describeReplyState(reply.publishStatus)
-  // Google is still moderating it: say so, not "Live on Google".
+  // Google is still moderating it: say so, not "On Google".
   const checking = isAwaitingGoogleCheck(
     reply.publishStatus,
     reply.googleReplyState

@@ -56,7 +56,7 @@ export function publishOutcome(result: {
   if (result.status === "rejected" || outcome === "rejected")
     return { outcome: "rejected", title: "Google rejected this post." }
   if (outcome === "confirmed_applied")
-    return { outcome, title: "Post live on Google" }
+    return { outcome, title: "Post confirmed on Google" }
   if (outcome === "awaiting_confirmation")
     return {
       outcome,

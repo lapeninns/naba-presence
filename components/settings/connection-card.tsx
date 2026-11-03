@@ -69,16 +69,17 @@ const STATUS: Record<string, { label: string; tone: StatusTone | PillTone }> = {
   disconnected: { label: "Disconnected", tone: "neutral" },
   revoked: { label: "Access revoked", tone: "warn" },
   expired: { label: "Access expired", tone: "warn" },
+  error: { label: "Connection problem", tone: "bad" },
 }
 
-function connectionStatus(connection: ConnectionSummary): {
+export function connectionStatus(connection: ConnectionSummary): {
   label: string
   tone: StatusTone | PillTone
 } {
   if (connection.reconnectRequired)
     return { label: "Needs reconnecting", tone: "bad" }
   return (
-    STATUS[connection.status] ?? { label: connection.status, tone: "neutral" }
+    STATUS[connection.status] ?? { label: "Status unknown", tone: "neutral" }
   )
 }
 

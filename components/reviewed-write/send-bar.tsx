@@ -19,6 +19,7 @@ export function SendBar({
 }) {
   return (
     <ActionBar
+      tone="charcoal"
       sticky={false}
       safeArea={false}
       label={label}

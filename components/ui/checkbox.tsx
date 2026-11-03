@@ -71,7 +71,7 @@ function Checkbox({
       aria-labelledby={hasLabel ? `${id}-label` : undefined}
       aria-describedby={description ? `${id}-desc` : undefined}
       className={cn(
-        "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
+        "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-sm border-[1.5px] border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
         "transition-[background-color,border-color] duration-(--np-duration-fast) ease-spring-snappy",
         hasLabel
           ? "after:absolute after:inset-[calc((100%-var(--np-touch-min))/2)] after:content-['']"

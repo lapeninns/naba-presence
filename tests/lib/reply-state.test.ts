@@ -264,7 +264,7 @@ describe("derivePrimaryAction — availability and reasons", () => {
     expect(action).toMatchObject({
       enabled: false,
       reason: undefined,
-      pendingLabel: "Publishing…",
+      pendingLabel: "Sending…",
     })
   })
 
@@ -299,7 +299,7 @@ describe("deriveReplyStatus", () => {
   })
 
   it.each([
-    ["publish", "Publishing reply", "Publishing"],
+    ["publish", "Sending to Google", "Sending"],
     ["submit", "Submitting for approval", "Submitting"],
     ["approve", "Recording your approval", "Approving"],
     ["reject", "Sending the reply back", "Sending back"],
@@ -319,9 +319,10 @@ describe("deriveReplyStatus", () => {
   )
 
   it.each([
-    ["publish_requested", "Publishing reply", "Publishing", "neutral"],
-    ["failed", "Publish failed", "Publish failed", "attention"],
-    ["rejected", "Sent back for changes", "Sent back", "caution"],
+    ["publish_requested", "Sending to Google", "Sending", "neutral"],
+    ["failed", "Failed: retry", "Failed", "attention"],
+    // Google refused it: not the approver's "Sent back" (DIRECTION §6.3 #2).
+    ["rejected", "Rejected by Google", "Rejected", "attention"],
   ])(
     "lets the %s workflow state outrank the draft in hand",
     (workflowStatus, text, short, tone) => {
@@ -462,29 +463,30 @@ describe("deriveReplyStatus — what counts as published", () => {
   // Rule (a): only a confirmed `published` publish_status may read as
   // published. `accepted` means Google took the request and has not yet said
   // what became of it, and a `publish_requested` review is still in flight.
-  it("says Live on Google only for a confirmed published publish_status", () => {
+  it("says On Google only for a confirmed published publish_status", () => {
     expect(deriveReplyStatus(settledReview("published"))).toMatchObject({
-      text: "Live on Google",
+      text: "On Google",
       short: "Replied",
     })
   })
 
-  it("says Sent to Google for an accepted reply, not published", () => {
+  it("says Sent, waiting for Google for an accepted reply, not published", () => {
     const status = deriveReplyStatus(settledReview("accepted"))
     expect(status).toMatchObject({
-      text: "Sent to Google",
+      text: "Sent, waiting for Google",
       short: "Sent",
-      note: "not live until Google confirms",
+      outcome: "awaiting_confirmation",
     })
+    expect(status.note).toBeUndefined()
     expect(status.text).not.toMatch(/published/i)
   })
 
-  it("says Publishing reply while the publish is requested", () => {
+  it("says Sending to Google while the publish is requested", () => {
     const status = deriveReplyStatus({
       ...settledReview("accepted"),
       workflowStatus: "publish_requested",
     })
-    expect(status.text).toBe("Publishing reply")
+    expect(status.text).toBe("Sending to Google")
     expect(status.text).not.toMatch(/published/i)
   })
 
@@ -497,9 +499,9 @@ describe("deriveReplyStatus — what counts as published", () => {
       reply: { ...state.reply!, googleReplyState: "PENDING" },
     })
     expect(status).toMatchObject({
-      text: "Sent · waiting for Google\u2019s check",
+      text: "Sent, waiting for Google",
       short: "Sent",
-      outcome: "sent",
+      outcome: "awaiting_confirmation",
     })
     expect(status.text).not.toMatch(/live/i)
     // The sentence already says it is waiting, so no note follows it: on a
@@ -507,7 +509,7 @@ describe("deriveReplyStatus — what counts as published", () => {
     expect(status.note).toBeUndefined()
   })
 
-  it("says Live on Google once Google has approved the reply", () => {
+  it("says On Google once Google has approved the reply", () => {
     const state = settledReview("published")
     for (const googleReplyState of ["APPROVED", null]) {
       expect(
@@ -515,7 +517,7 @@ describe("deriveReplyStatus — what counts as published", () => {
           ...state,
           reply: { ...state.reply!, googleReplyState },
         }).text
-      ).toBe("Live on Google")
+      ).toBe("On Google")
     }
   })
 
@@ -582,7 +584,7 @@ describe("deriveReplyStatus — approval scope", () => {
       expect(
         deriveReplyStatus(input({ ...awaiting, approvalScope: scope }))
       ).toMatchObject({
-        text: "Waiting for approval",
+        text: "Awaiting approval",
         short: "Awaiting approval",
       })
     }
@@ -601,7 +603,7 @@ describe("deriveReplyStatus — approval scope", () => {
           },
         })
       ).text
-    ).toBe("Waiting for approval")
+    ).toBe("Awaiting approval")
   })
 })
 
@@ -695,10 +697,7 @@ describe("status and action agree", () => {
       // A published or sent status over a disabled button is legitimate in
       // exactly one shape: the reply is live and there is nothing newer to
       // send. Anything else would be claiming a state the button denies.
-      if (
-        status.text === "Live on Google" ||
-        status.text === "Sent to Google"
-      ) {
+      if (status.text === "On Google" || status.text === "Sent to Google") {
         expect(action.settled).toBe(true)
       }
     }
@@ -775,7 +774,7 @@ describe("replyStateFromRow", () => {
           "approval"
         )
       ).text
-    ).toBe("Waiting for approval")
+    ).toBe("Awaiting approval")
   })
 
   it("gives the list row the same answer the detail pane would give", () => {

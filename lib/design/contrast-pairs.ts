@@ -167,7 +167,19 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
     fg: "--np-ink-inverse",
     bg: "--np-ink",
     kind: "text",
-    note: "text on an inverted surface",
+    note: "ink (primary) button label, and text on an inverted surface",
+  },
+  {
+    fg: "--np-ink-inverse",
+    bg: "--np-ink-hover",
+    kind: "text",
+    note: "ink (primary) button label, hovered",
+  },
+  {
+    fg: "--np-ink-inverse",
+    bg: "--np-ink-active",
+    kind: "text",
+    note: "ink (primary) button label, pressed or menu open",
   },
   // DECORATIVE ONLY: separators and inert icons. Gated at the non-text
   // threshold precisely because it is not allowed to carry words — anything
@@ -221,6 +233,38 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
     bg: "--np-fill",
     kind: "text",
     note: "tinted action inside a grey control",
+  },
+  // The neutral status tone (nobody acts next) and the status inks on the
+  // neutral fill, which is also the current place and the selected row.
+  {
+    fg: "--np-ink-secondary",
+    bg: "--np-fill",
+    kind: "text",
+    note: "neutral status pill (Draft saved, Withdrawn) on its fill",
+  },
+  {
+    fg: "--np-success-ink",
+    bg: "--np-fill",
+    kind: "text",
+    note: "status text in a selected row (neutral fill)",
+  },
+  {
+    fg: "--np-warning-ink",
+    bg: "--np-fill",
+    kind: "text",
+    note: "attention text in a selected row (neutral fill)",
+  },
+  {
+    fg: "--np-danger-ink",
+    bg: "--np-fill",
+    kind: "text",
+    note: "danger text in a selected row (neutral fill)",
+  },
+  {
+    fg: "--np-info-ink",
+    bg: "--np-fill",
+    kind: "text",
+    note: "pending text in a selected row (neutral fill)",
   },
 
   // The third surface step and the counter surfaces.
@@ -296,6 +340,38 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
     kind: "graphic",
     note: "quiet button edge and the sign-in panel's icon ring on charcoal",
   },
+  // The dispatch bar's status glyph and state label, in the tone of who acts
+  // next. Text, which also covers the glyph's 3:1.
+  {
+    fg: "--np-success-on-charcoal",
+    bg: "--np-charcoal",
+    kind: "text",
+    note: "On Google glyph and label on the dispatch bar",
+  },
+  {
+    fg: "--np-warning-on-charcoal",
+    bg: "--np-charcoal",
+    kind: "text",
+    note: "awaiting-a-person glyph and label on the dispatch bar",
+  },
+  {
+    fg: "--np-danger-on-charcoal",
+    bg: "--np-charcoal",
+    kind: "text",
+    note: "failed or blocked glyph and label on the dispatch bar",
+  },
+  {
+    fg: "--np-info-on-charcoal",
+    bg: "--np-charcoal",
+    kind: "text",
+    note: "sending or waiting-for-Google glyph and label on the dispatch bar",
+  },
+  {
+    fg: "--np-disabled-on-charcoal-ink",
+    bg: "--np-disabled-on-charcoal-bg",
+    kind: "text",
+    note: "disabled send button on the dispatch bar (drawn, not faded)",
+  },
 
   // Materials, measured against their opaque twins: the translucent value
   // composites over content and cannot be measured, so the twin is the floor.
@@ -336,30 +412,24 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
     note: "menu item shortcut hint",
   },
 
-  // Accent.
+  // Accent: the send button (the green fill is only for a write to Google).
   {
     fg: "--np-ink-on-accent",
     bg: "--np-accent",
     kind: "text",
-    note: "primary button label",
+    note: "send button label",
   },
   {
     fg: "--np-ink-on-accent",
     bg: "--np-accent-hover",
     kind: "text",
-    note: "primary button label, hovered",
+    note: "send button label, hovered",
   },
   {
     fg: "--np-ink-on-accent",
     bg: "--np-accent-active",
     kind: "text",
-    note: "primary button label, pressed",
-  },
-  {
-    fg: "--np-ink-on-accent",
-    bg: "--np-accent-active",
-    kind: "text",
-    note: "primary button label, pressed",
+    note: "send button label, pressed",
   },
   {
     fg: "--np-accent-ink",
@@ -749,7 +819,7 @@ export function auditTokens(parsed: ParsedTokens): AuditReport {
   // overlay and form-control geometry, and the field rings, whose colour comes
   // from a themed role).
   const themeIndependent =
-    /^--np-(radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|appbar|tabbar|actionbar|page|gap|card|panel|row|cell|control|list|field-h|field-pad|field-ring|pill|menu|overlay|dialog|sheet|drawer|selection|segment|avatar-list|settings-row|chip-h|material-blur|material-saturate|measure|form-rail|focus-halo|text-|safe-|keyboard-inset|dock-bottom|z-)/
+    /^--np-(edge-current|dispatch-pad|changes-panel|settings-nav|radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|appbar|tabbar|actionbar|page|gap|card|panel|row|cell|control|list|field-h|field-pad|field-ring|pill|menu|overlay|dialog|sheet|drawer|selection|segment|avatar-list|settings-row|chip-h|material-blur|material-saturate|measure|form-rail|focus-halo|text-|safe-|keyboard-inset|dock-bottom|z-)/
   const lightNames = semanticTokenNames(parsed.light)
   const darkOwn = new Set(
     Object.keys(parsed.dark).filter(

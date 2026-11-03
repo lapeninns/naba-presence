@@ -113,7 +113,7 @@ describe("aggregate menu review", () => {
     expect(
       await screen.findByText("Sent to Google — waiting for the answer")
     ).toBeInTheDocument()
-    expect(screen.queryByText("Live on Google")).toBeNull()
+    expect(screen.queryByText("On Google")).toBeNull()
 
     answer({ status: "published" })
     const finished = () =>
@@ -124,13 +124,13 @@ describe("aggregate menu review", () => {
       expect(finished()).toHaveAttribute("data-state", "confirmed_applied")
     )
     const step = finished()
-    expect(step).toHaveTextContent("Live on Google")
+    expect(step).toHaveTextContent("On Google")
     const toasts = screen.getByRole("region", { name: "Notifications" })
-    expect(await within(toasts).findByText("Live on Google")).toBeVisible()
+    expect(await within(toasts).findByText("Confirmed on Google")).toBeVisible()
     // The page's own result heading, not only the toast's.
     expect(
       screen
-        .getAllByRole("heading", { level: 2, name: "Live on Google" })
+        .getAllByRole("heading", { level: 2, name: "Confirmed on Google" })
         .some((heading) => !toasts.contains(heading))
     ).toBe(true)
     expect(screen.queryByText("Accepted by Google")).toBeNull()

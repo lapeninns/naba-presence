@@ -1585,6 +1585,7 @@ function ListingsBoard({
           under the board on a desk. Only there while something is
           selected, so there is one bottom bar at a time. */}
       <ActionBar
+        tone="surface"
         dock
         visible={canSelect && selected.size > 0}
         label="Bulk change selection"
@@ -1619,7 +1620,7 @@ function ListingsBoard({
         actions={
           <>
             <Button
-              variant="ghost-dark"
+              variant="ghost"
               size="sm"
               onClick={() => {
                 setSelected(new Set())

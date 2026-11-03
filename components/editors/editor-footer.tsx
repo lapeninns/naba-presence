@@ -150,6 +150,7 @@ function EditorFooter({
   if (readOnlyReason) {
     return (
       <ActionBar
+        tone="charcoal"
         data-slot="editor-footer"
         sticky={false}
         safeArea={false}
@@ -218,11 +219,16 @@ function EditorFooter({
     })
   }
   const primary = isDirty ? (
-    <Button onClick={onReview} disabled={Boolean(disabledReason)}>
+    <Button
+      variant="on-dark"
+      onClick={onReview}
+      disabled={Boolean(disabledReason)}
+    >
       {reviewLabel}
     </Button>
   ) : canSave ? (
     <Button
+      variant="on-dark"
       onClick={saveAction.onClick}
       pending={saving}
       pendingLabel="Saving…"
@@ -235,6 +241,7 @@ function EditorFooter({
 
   return (
     <ActionBar
+      tone="charcoal"
       data-slot="editor-footer"
       // Docked on a phone: fixed to the bottom edge, riding the keyboard,
       // the tab bar stepping aside (the primitive's docking contract). One

@@ -1,5 +1,6 @@
 "use client"
 
+import { activityMaskLabels } from "@/lib/listings/activity-outcome"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { Button } from "@/components/ui/button"
@@ -121,7 +122,7 @@ export function ListingChangeRequests({
                 <div className="flex min-w-0 flex-col gap-2 pt-1">
                   <p className="text-ui text-ink-secondary">
                     {change.fieldMask.length > 0
-                      ? `To change ${change.fieldMask.join(", ")}. `
+                      ? `Changes: ${activityMaskLabels(change.fieldMask).join(", ")}. `
                       : ""}
                     Nothing has gone to Google yet.{" "}
                     {change.isOwn
@@ -149,6 +150,7 @@ export function ListingChangeRequests({
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       {change.canDecide ? (
                         <Button
+                          variant="send"
                           disabled={decide.isPending}
                           aria-busy={
                             busy && decide.variables?.decision === "approve"

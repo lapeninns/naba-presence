@@ -813,6 +813,7 @@ function BulkActionBar({
               Cancel
             </AlertDialogClose>
             <Button
+              variant="send"
               disabled={bulk.isPending}
               onClick={() => {
                 setConfirmApprove(false)

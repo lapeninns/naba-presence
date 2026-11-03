@@ -25,8 +25,10 @@ const EVENT_LABEL: Record<string, string> = {
   "review.approval.requested": "Sent for approval",
   "review.approval.approved": "Reply approved",
   "review.approval.rejected": "Sent back",
-  "review.reply.publish_requested": "Publishing started",
-  "review.reply.published": "Reply published",
+  "review.reply.publish_requested": "Sending to Google",
+  // Written when Google took the reply, which may still be moderating it,
+  // so it says sent rather than published or on Google.
+  "review.reply.published": "Reply sent to Google",
   "review.reply.publish_failed": "Reply could not be sent",
   "review.reply.delete_requested": "Deletion started",
   "review.reply.deleted": "Reply deleted",
@@ -56,8 +58,9 @@ function eventTone(action: string): TimelineTone {
   if (a.includes("reject") || a.includes("delete")) return "danger"
   if (a.includes("escalat")) return "warning"
   if (a.includes("verif")) return "info"
-  if (a.includes("publish") && a.includes("request")) return "info"
-  if (a.includes("publish")) return "success"
+  // A send is Google's to confirm: blue, never green (DIRECTION §6.1).
+  if (a.includes("publish") && a.includes("fail")) return "danger"
+  if (a.includes("publish")) return "info"
   if (a.includes("approv")) return "success"
   return "neutral"
 }

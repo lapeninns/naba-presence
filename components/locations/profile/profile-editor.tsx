@@ -901,7 +901,7 @@ function ProfileEditor({
       outcome,
       title:
         outcome === "confirmed_applied"
-          ? "Business profile live on Google"
+          ? "Business profile confirmed on Google"
           : "Business profile sent to Google",
     }),
     onSuccess: () => {

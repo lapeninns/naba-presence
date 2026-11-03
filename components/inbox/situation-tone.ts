@@ -24,7 +24,7 @@ export const SITUATION_TONE_ICON: Record<
  *
  * There is no tint or capsule map any more. The Inbox spends strong colour on
  * the primary action and on the two exception tones; an ordinary status — "No
- * reply yet", "Ready to publish", "Live on Google" — is quiet ink, so the
+ * reply yet", "Ready to publish", "On Google" — is quiet ink, so the
  * three rows on screen that do need attention are the ones that get it.
  */
 export const SITUATION_TONE_INK: Record<SituationTone, string> = {

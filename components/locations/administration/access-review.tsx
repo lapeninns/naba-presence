@@ -207,7 +207,7 @@ export function AccessReview({
           </ConsentSlot>
           <SendBar label="Approved access request actions" status={sendStatus}>
             <Button
-              variant={destructive ? "danger" : "default"}
+              variant={destructive ? "danger" : "send"}
               disabled={sendLocked || !confirmed || !nameMatches}
               pending={busy}
               onClick={onExecute}

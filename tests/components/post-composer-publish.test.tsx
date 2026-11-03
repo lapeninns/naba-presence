@@ -148,7 +148,9 @@ describe("PostComposerSheet publishing", () => {
       api.publishPost.mock.invocationCallOrder[0]
     )
     expect(screen.queryByRole("alertdialog")).toBeNull()
-    expect(await screen.findByText("Post live on Google")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Post confirmed on Google")
+    ).toBeInTheDocument()
   })
 
   it("draws the consent line whenever Publish to Google is on screen", async () => {

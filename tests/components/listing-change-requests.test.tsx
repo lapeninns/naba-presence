@@ -89,7 +89,7 @@ describe("ListingChangeRequests", () => {
       change().id,
       { decision: "approve", payloadHash: "b".repeat(64) },
     ])
-    expect(await screen.findByText("Live on Google")).toBeInTheDocument()
+    expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
   })
 
   it("shows the approver every value the request sends before they approve it", async () => {
@@ -211,7 +211,7 @@ describe("usePublishFlow with a parked step", () => {
       status: "done",
       outcome: "awaiting_approval",
     })
-    expect(await screen.findByText("Sent for approval")).toBeInTheDocument()
+    expect(await screen.findByText("Awaiting approval")).toBeInTheDocument()
     expect(screen.queryByText("Opening hours sent to Google")).toBeNull()
   })
 })

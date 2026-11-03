@@ -203,6 +203,7 @@ export function VerificationStartReview({
             }
           >
             <Button
+              variant="send"
               disabled={busy || blocked || !confirmed || uncertain}
               onClick={onExecute}
             >

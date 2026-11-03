@@ -1402,6 +1402,7 @@ export function PostComposerSheet({
           </Button>
           {gate ? (
             <Button
+              variant={gate.requestApproval ? "default" : "send"}
               onClick={submitPublish}
               disabled={disabled || (!post && !isDirty) || create.isPending}
               disabledReason={gate.reason ?? undefined}

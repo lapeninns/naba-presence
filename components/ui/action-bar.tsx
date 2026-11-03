@@ -57,9 +57,15 @@ export type ActionBarAction = {
  *              from `md`; one "More actions" overflow menu on a phone.
  *   actions    free-form buttons, drawn as given at every width (the
  *              original API; prefer `primary` + `secondaryActions`).
- *   tone       "charcoal" (default): the one dark bar per screen, for the
- *              action that reaches Google. "surface": the light bar, for a
- *              local save or a selection — every other bar.
+ *   tone       "surface" (default): the SAVE BAR, white with a 1px line,
+ *              for a local save or a selection: its primary is an ink
+ *              `default` button. "charcoal": the DISPATCH BAR, the one dark
+ *              bar per screen, only when its subject is a change bound for
+ *              Google (its status line carries a lifecycle state); its
+ *              primary, if any, is `variant="send"`, and it may carry only
+ *              `on-charcoal` secondaries ("Withdraw", "View on Google"). An
+ *              ink button never sits on charcoal (1.05:1). Prefer the
+ *              `DispatchBar` and `SaveBar` wrappers, which fix the tone.
  *   dock       on a phone (below `md`), fix the bar to the bottom edge of
  *              the screen (see "Docking" below). Ignored from `md`, where the
  *              bar is inline or `sticky` as before.
@@ -99,7 +105,7 @@ function ActionBar({
   primary,
   secondaryActions,
   overflowLabel = "More actions",
-  tone = "charcoal",
+  tone = "surface",
   dock = false,
   statusRow = false,
   visible = true,
