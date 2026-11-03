@@ -18,18 +18,26 @@ import {
   PageChromeProvider,
 } from "@/components/app-shell/page-chrome"
 import type { ClientSummary } from "@/lib/contracts/clients"
+import type { DirectoryEntry } from "@/lib/locations/directory"
 import { queryKeys } from "@/lib/queries/keys"
 import * as clientsHook from "@/lib/queries/use-clients"
 import * as locationsHook from "@/lib/queries/use-locations"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 // The phone app bar: leading, a labelled back control on a deep page
-// (derived from the trail, or a page's <PageChrome back> override),
-// otherwise the workspace's name; the echoed title with the view's count;
-// trailing, at most two controls, the scope chip (agency, more than one
-// client) being one of them.
+// (derived from the trail, or a page's <PageChrome back> override); on a
+// top-level page that follows the scope, the scope chip ("Working on ...",
+// health words in its name); on an organisation-wide page, or before the
+// scope is known, the workspace's name cross-fading with the echoed title
+// and the view's count. Trailing: the page action once scrolled away,
+// search (not on the Inbox) and the bell, which shows only while a bar is
+// docked (it lives in More otherwise).
 
-function client(id: string, name: string): ClientSummary {
+function client(
+  id: string,
+  name: string,
+  health: ClientSummary["health"] = "healthy"
+): ClientSummary {
   return {
     id,
     name,
@@ -42,7 +50,7 @@ function client(id: string, name: string): ClientSummary {
     locationCount: 1,
     linkedCount: 1,
     verifiedCount: 1,
-    health: "healthy",
+    health,
     connections: [],
     openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
     backfill: { running: 0, failed: 0, succeeded: 1, notStarted: 0 },
@@ -51,6 +59,26 @@ function client(id: string, name: string): ClientSummary {
 }
 
 let clientList: ClientSummary[] = []
+
+// The chrome contract's selector (globals.css): a bar docked to the bottom
+// anywhere on the page hides the tab bar.
+const DOCKED = "[body:has([data-docked=bottom])_&]"
+
+// A business's scope reads the location directory the dashboard layout
+// hydrates into the query cache (an owner's is the management one).
+const BUSINESS_DIRECTORY = [
+  { id: "l1", name: "Old Crown Girton", clientId: "c1", linked: true },
+  { id: "l2", name: "The Bell", clientId: "c1", linked: true },
+] as unknown as DirectoryEntry[]
+
+function clientsLoading() {
+  vi.spyOn(clientsHook, "useClients").mockImplementation(
+    () =>
+      ({ data: undefined, isPending: true }) as unknown as ReturnType<
+        typeof clientsHook.useClients
+      >
+  )
+}
 
 beforeEach(() => {
   clientList = [client("c1", "Old Crown Group")]
@@ -90,6 +118,7 @@ function renderBar({
   needsReply,
   awaitingMyApproval = 0,
   unread,
+  directory,
 }: {
   mode?: WorkspaceMode
   page?: React.ReactNode
@@ -97,6 +126,7 @@ function renderBar({
   needsReply?: number
   awaitingMyApproval?: number
   unread?: number
+  directory?: DirectoryEntry[]
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -116,6 +146,9 @@ function renderBar({
     queryClient.setQueryData(queryKeys.notifications("badge"), {
       unreadCount: unread,
     })
+  }
+  if (directory) {
+    queryClient.setQueryData(queryKeys.locationsManagement, directory)
   }
   render(
     <QueryClientProvider client={queryClient}>
@@ -140,6 +173,14 @@ function renderBar({
   return { bar, within: within(bar) }
 }
 
+function lead(bar: HTMLElement) {
+  return bar.querySelector<HTMLElement>('[data-slot="app-bar-lead"]')!
+}
+
+function scopeControl(bar: HTMLElement) {
+  return bar.querySelector<HTMLElement>('[data-slot="scope-control"]')
+}
+
 describe("AppBar leading control", () => {
   it("shows a labelled back control on a deep page", async () => {
     pathname.current = "/listings/l1"
@@ -149,6 +190,24 @@ describe("AppBar leading control", () => {
     // The visible label is the destination; "Back to" is for the name.
     expect(back).toHaveTextContent("Listings")
     expect(bar.queryByText("Lapen Inns Agency")).not.toBeInTheDocument()
+  })
+
+  it("draws the back link in ink, not the accent", async () => {
+    pathname.current = "/listings/l1"
+    const { within: bar } = renderBar()
+    const back = await bar.findByRole("link", { name: "Back to Listings" })
+    const classes = back.className.split(" ")
+    expect(classes).toContain("text-ink")
+    expect(classes.some((name) => /accent/.test(name))).toBe(false)
+  })
+
+  it("has no scope chip beside a deep page's back control", async () => {
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    pathname.current = "/listings/l1"
+    const { bar, within: inBar } = renderBar()
+    await inBar.findByRole("link", { name: "Back to Listings" })
+    expect(scopeControl(bar)).toBeNull()
+    expect(inBar.queryByRole("button", { name: /^Working on/ })).toBeNull()
   })
 
   it("names a listing area's parent listing by what it is, not its name", async () => {
@@ -162,38 +221,83 @@ describe("AppBar leading control", () => {
     expect(back).toHaveAttribute("title", "Old Crown Girton")
   })
 
-  it("names the workspace on a top-level page with nothing to switch", () => {
-    const { within: bar } = renderBar()
-    expect(bar.getByText("Lapen Inns Agency")).toBeInTheDocument()
-    expect(bar.queryByRole("link", { name: /^Back to/ })).toBeNull()
-    expect(bar.queryByRole("button", { name: /^Client:/ })).toBeNull()
+  it("shows the scope, inert, on a top-level page with nothing to switch", () => {
+    const { bar, within: inBar } = renderBar()
+    const scope = scopeControl(bar)!
+    expect(lead(bar)).toContainElement(scope)
+    // One client: it still says what is in scope and how it is, but it is
+    // not a button.
+    expect(scope).toHaveAttribute("data-static", "true")
+    expect(scope).toHaveAttribute("data-variant", "chip")
+    expect(scope.tagName).not.toBe("BUTTON")
+    expect(scope).toHaveTextContent(
+      "Working on All clients, 1 listing · All clients in sync"
+    )
+    expect(inBar.queryByRole("button", { name: /^Working on/ })).toBeNull()
+    expect(inBar.queryByRole("link", { name: /^Back to/ })).toBeNull()
+    expect(bar.querySelector('[data-slot="workspace-name"]')).toBeNull()
   })
 
-  it("puts the client chip in the trailing slot for an agency with more than one client", async () => {
-    // F1 Notion Mail header: the scope trigger moved from leading to
-    // trailing (the NM account avatar), so the workspace name now stays
-    // leading beside it.
+  it("leads with the scope chip for an agency with more than one client", async () => {
+    // The scope chip took the workspace name's place in the leading slot;
+    // the trailing slot no longer carries it.
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
     const onOpenClientScope = vi.fn()
     const { bar, within: inBar } = renderBar({ onOpenClientScope })
-    const chip = inBar.getByRole("button", { name: "Client: All clients" })
+    const chip = inBar.getByRole("button", {
+      name: "Working on All clients, 2 listings · All clients in sync",
+    })
+    expect(chip).toHaveAttribute("data-slot", "scope-control")
+    expect(chip).toHaveAttribute("data-variant", "chip")
     expect(chip).toHaveAttribute("aria-haspopup", "dialog")
     await userEvent.click(chip)
     expect(onOpenClientScope).toHaveBeenCalledTimes(1)
-    const actions = bar.querySelector('[data-slot="app-bar-actions"]')!
-    expect(actions).toContainElement(chip)
-    expect(actions.lastElementChild).toBe(chip)
-    expect(inBar.getByText("Lapen Inns Agency")).toHaveAttribute(
-      "data-slot",
-      "workspace-name"
+    expect(lead(bar)).toContainElement(chip)
+    expect(
+      bar.querySelector('[data-slot="app-bar-actions"]')
+    ).not.toContainElement(chip)
+    // No workspace name and no title echo beside it.
+    expect(bar.querySelector('[data-slot="workspace-name"]')).toBeNull()
+    expect(bar.querySelector('[data-slot="app-bar-title"]')).toBeNull()
+  })
+
+  it("puts the scope's health in words in the chip's accessible name", () => {
+    clientList = [
+      client("c1", "Old Crown Group"),
+      client("c2", "Harbour", "attention"),
+    ]
+    const { within: inBar } = renderBar()
+    const chip = inBar.getByRole("button", { name: /^Working on/ })
+    expect(chip).toHaveAccessibleName(
+      "Working on All clients, 2 listings · 1 client needs attention"
     )
+    expect(chip).toHaveAttribute("data-tone", "attention")
+    // The visible face is the name only; the words are in the name.
+    expect(chip).toHaveTextContent(/^All clients$/)
   })
 
   it("never shows the client chip to a business", () => {
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
-    const { within: bar } = renderBar({ mode: "business" })
-    expect(bar.queryByRole("button", { name: /^Client:/ })).toBeNull()
-    expect(bar.getByText("Lapen Inns Agency")).toBeInTheDocument()
+    const { within: bar } = renderBar({
+      mode: "business",
+      directory: BUSINESS_DIRECTORY,
+    })
+    // A business reads its own name with All locations, never "client".
+    const chip = bar.getByRole("button", { name: /^Working on/ })
+    expect(chip).toHaveAccessibleName(
+      "Working on Lapen Inns Agency, All locations · All in sync"
+    )
+    expect(chip).toHaveAttribute("data-mode", "business")
+    expect(bar.queryByRole("button", { name: /client/i })).toBeNull()
+  })
+
+  it("names the workspace while a business's locations are unknown", () => {
+    const { bar, within: inBar } = renderBar({ mode: "business" })
+    expect(scopeControl(bar)).toBeNull()
+    expect(inBar.getByText("Lapen Inns Agency")).toHaveAttribute(
+      "data-slot",
+      "workspace-name"
+    )
   })
 
   it("leaves the palette button out on the Inbox, which has its own search", () => {
@@ -213,6 +317,8 @@ describe("AppBar leading control", () => {
   })
 
   it("keeps the compact title out of the accessibility tree", () => {
+    // An organisation-wide page: no scope chip, so the title echo is there.
+    pathname.current = "/team"
     const { bar } = renderBar()
     const title = bar.querySelector('[data-slot="app-bar-title"]')!
     expect(title).toHaveAttribute("aria-hidden", "true")
@@ -333,12 +439,18 @@ describe("PageChrome overrides", () => {
 
   it("removes the back control with back={null}", async () => {
     pathname.current = "/listings/l1"
-    const { within: bar } = renderBar({ page: <PageChrome back={null} /> })
-    expect(await bar.findByText("Lapen Inns Agency")).toBeInTheDocument()
-    expect(bar.queryByRole("link", { name: /^Back to/ })).toBeNull()
+    const { bar, within: inBar } = renderBar({
+      page: <PageChrome back={null} />,
+    })
+    // With no way up, the bar leads as a top-level page does: the scope.
+    await vi.waitFor(() =>
+      expect(lead(bar)).toContainElement(scopeControl(bar))
+    )
+    expect(inBar.queryByRole("link", { name: /^Back to/ })).toBeNull()
   })
 
   it("lets the page shorten the compact title", async () => {
+    pathname.current = "/team"
     const { bar } = renderBar({ page: <PageChrome title="Short" /> })
     const title = bar.querySelector('[data-slot="app-bar-title"]')!
     await screen.findByText("Short", {
@@ -386,6 +498,7 @@ describe("PageChrome overrides", () => {
 
 describe("AppBar view count", () => {
   it("follows the echoed title with the count a page registered", async () => {
+    pathname.current = "/team"
     const { bar } = renderBar({
       page: <PageChrome title="Posts" count={7} countLabel="scheduled" />,
     })
@@ -410,8 +523,11 @@ describe("AppBar view count", () => {
     expect(bar.querySelector('[data-slot="app-bar-count"]')).toBeNull()
   })
 
+  // On the Inbox the scope chip takes the leading slot once the client list
+  // is known, so the echo (and its count) only shows before then.
   it("falls back to the needs-reply count on the Inbox", async () => {
     pathname.current = "/inbox"
+    clientsLoading()
     renderBar({ needsReply: 12 })
     expect(
       await screen.findByText("12", { selector: '[data-slot="app-bar-count"]' })
@@ -420,6 +536,7 @@ describe("AppBar view count", () => {
 
   it("adds the replies awaiting this person's approval to the Inbox count (R03)", async () => {
     pathname.current = "/inbox"
+    clientsLoading()
     renderBar({ needsReply: 12, awaitingMyApproval: 3 })
     expect(
       await screen.findByText("15", { selector: '[data-slot="app-bar-count"]' })
@@ -428,6 +545,7 @@ describe("AppBar view count", () => {
 
   it("prefers the page's count to the Inbox fallback", async () => {
     pathname.current = "/inbox"
+    clientsLoading()
     renderBar({ needsReply: 12, page: <PageChrome count={3} /> })
     expect(
       await screen.findByText("3", { selector: '[data-slot="app-bar-count"]' })
@@ -447,7 +565,20 @@ describe("AppBar view count", () => {
 
   it("hides the Inbox count at zero", () => {
     pathname.current = "/inbox"
+    clientsLoading()
     const { bar } = renderBar({ needsReply: 0 })
+    expect(bar.querySelector('[data-slot="app-bar-title"]')).not.toBeNull()
+    expect(bar.querySelector('[data-slot="app-bar-count"]')).toBeNull()
+  })
+
+  it("gives the Inbox's leading slot to the scope chip once the scope is known", async () => {
+    pathname.current = "/inbox"
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    const { bar, within: inBar } = renderBar({ needsReply: 12 })
+    expect(
+      inBar.getByRole("button", { name: /^Working on All clients/ })
+    ).toBeInTheDocument()
+    expect(bar.querySelector('[data-slot="app-bar-title"]')).toBeNull()
     expect(bar.querySelector('[data-slot="app-bar-count"]')).toBeNull()
   })
 })
@@ -458,39 +589,42 @@ describe("AppBar trailing slot", () => {
     return Array.from(actions.querySelectorAll("a, button"))
   }
 
-  // The chrome contract's selector (globals.css): a bar docked to the bottom
-  // anywhere on the page hides the tab bar.
-  const DOCKED = "[body:has([data-docked=bottom])_&]"
-
-  it("is search then the scope chip on a page with a scope switcher", () => {
+  it("is search then the bell held for the docked case on a page with a scope switcher", () => {
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
     const { bar } = renderBar()
     const items = controls(bar)
-    // Search, the bell held for the docked case, then the chip.
-    expect(items).toHaveLength(3)
+    // The scope chip leads; the trailing slot is search and the bell.
+    expect(items).toHaveLength(2)
     expect(items[0]).toHaveAccessibleName(
       "Search clients, listings, pages and actions"
     )
-    expect(items[2]).toHaveAccessibleName("Client: All clients")
-    // At rest the bell moves into More: it is not displayed in the bar.
     expect(items[1]).toHaveAccessibleName("Notifications")
+    // At rest the bell moves into More: it is not displayed in the bar.
     expect(items[1].className.split(" ")).toContain("hidden")
-    expect(items[2].className.split(" ")).not.toContain("hidden")
+    expect(scopeControl(bar)!.className.split(" ")).not.toContain("hidden")
   })
 
-  it("swaps the scope chip for the bell and its count while a bar is docked", async () => {
+  it("shows the bell only while a bar is docked on a phone", () => {
+    const { within: inBar } = renderBar()
+    const bell = inBar.getByRole("link", { name: "Notifications" })
+    const classes = bell.className.split(" ")
+    expect(classes).toContain("hidden")
+    expect(classes).toContain(`${DOCKED}:grid`)
+  })
+
+  it("brings the bell and its count in while a bar is docked, keeping the chip", async () => {
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
     const { bar } = renderBar({ unread: 4 })
     const bell = await screen.findByRole("link", {
       name: "Notifications, 4 unread",
     })
-    const chip = screen.getByRole("button", { name: "Client: All clients" })
+    const chip = screen.getByRole("button", { name: /^Working on/ })
     expect(bar).toContainElement(bell)
-    // Docked: the tab bar (and More's badge) steps aside, the bell shows in
-    // the chip's place with its count, and the chip hides. Same selector as
-    // the tab bar's, so nothing reads the dock in JS (hydration-safe).
+    // Docked: the tab bar (and More's badge) steps aside and the bell shows
+    // with its count. Same selector as the tab bar's, so nothing reads the
+    // dock in JS (hydration-safe). The leading chip is not swapped.
     expect(bell.className.split(" ")).toContain(`${DOCKED}:grid`)
-    expect(chip.className.split(" ")).toContain(`${DOCKED}:hidden`)
+    expect(chip.className).not.toContain(DOCKED)
     expect(
       bell.querySelector('[data-slot="notifications-count"]')
     ).toHaveTextContent("4")
@@ -500,24 +634,28 @@ describe("AppBar trailing slot", () => {
     )
   })
 
-  it("keeps the chip when docked on a page whose bell already shows", () => {
+  it("keeps the chip when docked on the Inbox", () => {
     pathname.current = "/inbox"
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
     const { bar } = renderBar()
     const items = controls(bar)
-    expect(items).toHaveLength(2)
+    expect(items).toHaveLength(1)
     expect(items[0]).toHaveAccessibleName("Notifications")
-    expect(items[1].className).not.toContain(DOCKED)
+    expect(scopeControl(bar)!.className).not.toContain(DOCKED)
   })
 
-  it("is notifications then the scope chip on the Inbox", () => {
+  it("is the bell alone, with the scope chip leading, on the Inbox", () => {
     pathname.current = "/inbox"
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
-    const { bar } = renderBar()
+    const { bar, within: inBar } = renderBar()
     const items = controls(bar)
-    expect(items).toHaveLength(2)
+    expect(items).toHaveLength(1)
     expect(items[0]).toHaveAccessibleName("Notifications")
-    expect(items[1]).toHaveAccessibleName("Client: All clients")
+    expect(lead(bar)).toContainElement(
+      inBar.getByRole("button", {
+        name: "Working on All clients, 2 listings · All clients in sync",
+      })
+    )
   })
 
   it("is search and notifications with nothing to switch", () => {
@@ -538,45 +676,41 @@ describe("AppBar trailing slot", () => {
     expect(items[0]).toHaveAccessibleName("Notifications")
   })
 
-  it("holds the slot blank, never the bell, while the clients load", () => {
-    vi.spyOn(clientsHook, "useClients").mockImplementation(
-      () =>
-        ({ data: undefined, isPending: true }) as unknown as ReturnType<
-          typeof clientsHook.useClients
-        >
-    )
+  it("names the workspace, and never shows the bell at rest, while the clients load", () => {
+    clientsLoading()
     const { bar, within: inBar } = renderBar()
-    // The bell would be swapped for the scope chip a moment later.
-    expect(inBar.queryByRole("link", { name: /^Notifications/ })).toBeNull()
-    expect(inBar.queryByRole("button", { name: /^Client:/ })).toBeNull()
-    const pending = bar.querySelector('[data-slot="app-bar-scope-pending"]')
-    expect(pending).toHaveAttribute("aria-hidden", "true")
-    expect(pending).toHaveClass("size-11")
-    expect(controls(bar)).toHaveLength(1)
+    // No scope chip until the list that decides it is known.
+    expect(scopeControl(bar)).toBeNull()
+    expect(inBar.queryByRole("button", { name: /^Working on/ })).toBeNull()
+    expect(inBar.getByText("Lapen Inns Agency")).toHaveAttribute(
+      "data-slot",
+      "workspace-name"
+    )
+    // The trailing slot does not change shape when the list arrives.
+    const items = controls(bar)
+    expect(items).toHaveLength(2)
+    expect(items[1]).toHaveAccessibleName("Notifications")
+    expect(items[1].className.split(" ")).toContain("hidden")
   })
 
-  it("holds the slot blank while a business's locations load", () => {
+  it("names the workspace while a business's locations load", () => {
     vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
       data: undefined,
       isPending: true,
     } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
     const { bar, within: inBar } = renderBar({ mode: "business" })
-    expect(inBar.queryByRole("link", { name: /^Notifications/ })).toBeNull()
+    expect(scopeControl(bar)).toBeNull()
+    expect(inBar.getByText("Lapen Inns Agency")).toBeInTheDocument()
     expect(
-      bar.querySelector('[data-slot="app-bar-scope-pending"]')
-    ).not.toBeNull()
+      inBar.getByRole("link", { name: /^Notifications/ }).className.split(" ")
+    ).toContain("hidden")
   })
 
   it("holds nothing on the Inbox while loading: its bell is already there", () => {
     pathname.current = "/inbox"
-    vi.spyOn(clientsHook, "useClients").mockImplementation(
-      () =>
-        ({ data: undefined, isPending: true }) as unknown as ReturnType<
-          typeof clientsHook.useClients
-        >
-    )
+    clientsLoading()
     const { bar } = renderBar()
-    expect(bar.querySelector('[data-slot="app-bar-scope-pending"]')).toBeNull()
+    expect(scopeControl(bar)).toBeNull()
     const items = controls(bar)
     expect(items).toHaveLength(1)
     expect(items[0]).toHaveAccessibleName("Notifications")
@@ -586,9 +720,15 @@ describe("AppBar trailing slot", () => {
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
     for (const path of ["/listings", "/inbox", "/listings/l1"]) {
       pathname.current = path
-      const { bar } = renderBar({ mode: "business" })
+      const { bar } = renderBar({
+        mode: "business",
+        directory: BUSINESS_DIRECTORY,
+      })
       expect(bar.textContent ?? "").not.toMatch(/client/i)
-      for (const control of controls(bar)) {
+      for (const control of [
+        ...controls(bar),
+        ...lead(bar).querySelectorAll("a, button"),
+      ]) {
         expect(control.getAttribute("aria-label") ?? "").not.toMatch(/client/i)
       }
       expect(controls(bar).length).toBeLessThanOrEqual(2)
@@ -649,6 +789,11 @@ function stubScrolledHeading() {
 }
 
 describe("AppBar one title at a time", () => {
+  // On an organisation-wide page, where no scope chip leads.
+  beforeEach(() => {
+    pathname.current = "/team"
+  })
+
   it("shows the workspace name until the h1 scrolls away, then the page title", async () => {
     const heading = stubScrolledHeading()
     const { bar } = renderBar()
@@ -992,15 +1137,18 @@ describe("AppBar organisation-wide pages", () => {
       pathname.current = path
       clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
       const { bar, within: inBar } = renderBar()
-      expect(inBar.queryByRole("button", { name: /^Client:/ })).toBeNull()
+      expect(inBar.queryByRole("button", { name: /^Working on/ })).toBeNull()
+      expect(scopeControl(bar)).toBeNull()
       const items = controls(bar)
       expect(items).toHaveLength(2)
       expect(items[0]).toHaveAccessibleName(
         "Search clients, listings, pages and actions"
       )
       expect(items[1]).toHaveAccessibleName("Notifications")
-      // The bell is in the bar, not held back for the docked case.
-      expect(items[1].className.split(" ")).not.toContain("hidden")
+      // The bell lives in More here too: shown only while a bar is docked.
+      expect(items[1].className.split(" ")).toEqual(
+        expect.arrayContaining(["hidden", `${DOCKED}:grid`])
+      )
     }
   )
 
@@ -1013,14 +1161,18 @@ describe("AppBar organisation-wide pages", () => {
         >
     )
     const { bar } = renderBar()
-    expect(bar.querySelector('[data-slot="app-bar-scope-pending"]')).toBeNull()
+    expect(scopeControl(bar)).toBeNull()
+    expect(bar.querySelector('[data-slot="workspace-name"]')).not.toBeNull()
     expect(controls(bar)).toHaveLength(2)
   })
 
   it("shows search and the bell to a business on Settings, too", () => {
     pathname.current = "/settings"
-    const { bar, within: inBar } = renderBar({ mode: "business" })
-    expect(inBar.queryByRole("button", { name: /^Location:/ })).toBeNull()
+    const { bar, within: inBar } = renderBar({
+      mode: "business",
+      directory: BUSINESS_DIRECTORY,
+    })
+    expect(inBar.queryByRole("button", { name: /^Working on/ })).toBeNull()
     expect(controls(bar)).toHaveLength(2)
   })
 
@@ -1028,10 +1180,12 @@ describe("AppBar organisation-wide pages", () => {
     for (const path of ["/inbox", "/listings", "/reports", "/clients"]) {
       pathname.current = path
       clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
-      const { within: inBar } = renderBar()
-      expect(
-        inBar.getByRole("button", { name: "Client: All clients" })
-      ).toBeInTheDocument()
+      const { bar, within: inBar } = renderBar()
+      expect(lead(bar)).toContainElement(
+        inBar.getByRole("button", {
+          name: "Working on All clients, 2 listings · All clients in sync",
+        })
+      )
       document.body.innerHTML = ""
     }
   })
@@ -1042,49 +1196,27 @@ describe("AppBar scope chip on a client's own page", () => {
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
   })
 
-  it("shows only the client's mark, with the name in its accessible name", () => {
+  // The mark-only chip (on /clients/<id> and its deeper pages) and the
+  // chip that dropped its name beside an echoed title are retired: a
+  // client's page is a deep page, so it leads with "‹ Clients" and the
+  // scope chip only stands on top-level pages that follow the scope.
+  it("leads with the way up, not the chip, on a client's page", async () => {
     pathname.current = "/clients/c1"
-    const { within: bar } = renderBar()
-    const chip = bar.getByRole("button", { name: "Client: Old Crown Group" })
-    // The mark (the avatar's initials), no name beside it.
-    expect(chip).toHaveTextContent(/^OC$/)
-    expect(chip.querySelector("span[title]")).toBeNull()
-    expect(chip.className.split(" ")).toContain("px-1.5")
-  })
-
-  it("keeps the mark-only chip on the client's deeper pages", () => {
-    pathname.current = "/clients/c1/settings"
-    const { within: bar } = renderBar()
-    const chip = bar.getByRole("button", { name: "Client: Old Crown Group" })
-    expect(chip.querySelector("span[title]")).toBeNull()
+    const { bar, within: inBar } = renderBar()
+    expect(
+      await inBar.findByRole("link", { name: "Back to Clients" })
+    ).toHaveAttribute("href", "/clients")
+    expect(scopeControl(bar)).toBeNull()
   })
 
   it("shows the name on the pages that follow the scope, with the full value in title", () => {
     pathname.current = "/listings"
     const { within: bar } = renderBar()
-    const chip = bar.getByRole("button", { name: "Client: All clients" })
+    const chip = bar.getByRole("button", { name: /^Working on All clients/ })
     expect(chip).toHaveTextContent("All clients")
     expect(chip.querySelector("span[title]")).toHaveAttribute(
       "title",
       "All clients"
-    )
-  })
-
-  it("drops the name on a deep page while its title is echoed", async () => {
-    pathname.current = "/listings/l1/hours"
-    const heading = stubScrolledHeading()
-    const { within: bar } = renderBar()
-    const chip = await bar.findByRole("button", { name: /^Client:/ })
-    expect(chip.querySelector("span[title]")).not.toBeNull()
-
-    heading.scrollAway()
-
-    await vi.waitFor(() =>
-      expect(
-        bar
-          .getByRole("button", { name: /^Client:/ })
-          .querySelector("span[title]")
-      ).toBeNull()
     )
   })
 })

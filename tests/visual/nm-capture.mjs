@@ -265,8 +265,13 @@ export const STATES = [
     "/inbox",
     null,
     async (page) => {
+      // The scope control at whatever size the width draws ("Working on
+      // <scope>, <listings> · <health>"): the sidebar's button, the tablet
+      // pill or the phone app bar's chip (which opens the "Working on"
+      // sheet).
       await page
-        .getByRole("button", { name: /^(Client:|Switch client)/ })
+        .getByRole("button", { name: /^Working on / })
+        .locator("visible=true")
         .first()
         .click({ timeout: 5_000 })
       await page

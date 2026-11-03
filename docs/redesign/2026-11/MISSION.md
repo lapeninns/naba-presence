@@ -1,6 +1,6 @@
 # NabaPresence redesign 2026-11 — Mission
 
-Status: **phase A in progress.** This skeleton was written by worker `a-inventory` on 2026-11-03. Integration branch: `redesign-2026-11/integration` (one bundled PR). Base: `origin/main` `367719b3`.
+Status (2026-11-03 08:05, orchestrator): **A and B merged; C2 shell merged; C1 system partly done (branch `redesign-2026-11/c-system`, WIP head `910e3afc`); D-G not started.** Skeleton written by worker `a-inventory`. Integration branch: `redesign-2026-11/integration` (one bundled PR). Base: `origin/main` `367719b3`.
 
 ## Scope
 
@@ -38,9 +38,9 @@ Every result names its engine, input and theme.
 
 | Phase | Goal | Owner (worker slug) | Exit evidence | Status |
 | --- | --- | --- | --- | --- |
-| A | Baseline, inventory, before-evidence | `a-inventory` | `BASELINE.md`, `INVENTORY.md` with `check-inventory.mjs` passing, before-captures at 3 viewports, agentic run recorded | docs done; **captures and agentic blocked** (BASELINE §2) |
-| B | Direction: IA, navigation model, design language | `b-direction` | `DIRECTION.md`, `concepts/` | not run |
-| C | System: tokens, primitives, shell, state patterns | (tbd) | `SYSTEM.md`; primitives and shell implemented; unit/component tests | not run |
+| A | Baseline, inventory, before-evidence | `a-inventory` | `BASELINE.md`, `INVENTORY.md` with `check-inventory.mjs` passing, before-captures at 3 viewports, agentic run recorded | docs merged (`f6ed8b3d`); before-captures pending (orchestrator run); agentic runner blocked (version mismatch, see O01) |
+| B | Direction: IA, navigation model, design language | `b-direction` | `DIRECTION.md`, `concepts/` | merged (`ab36cbb9`); concepts rendered with satori, not Playwright |
+| C | System: tokens, primitives, shell, state patterns | `c-system`, `c-shell` | `SYSTEM.md`; primitives and shell implemented; unit/component tests | shell merged (`dd1d209a`): install/typecheck/lint/build exit 0; rendered (Chromium) at the shell matrix, 2 shell defects S1-S2 open; system 3 of ~6 steps committed, vocabulary WIP unverified |
 | D | Journeys: per-journey flows and states | (tbd) | `JOURNEYS-*.md` | not run |
 | E | Implementation route by route, keyed by INVENTORY ids | (tbd) | coverage table "implemented" filled | not run |
 | F | Verification: viewport matrix captures, a11y, agentic e2e, `pnpm verify`, `pnpm verify:release` | (tbd) | after-captures, before/after report, e2e reports, gate receipts | not run |
@@ -240,6 +240,18 @@ A row is done only when every applicable column is `done`.
 | M04 | 2026-11-03 | Phase-A evidence and handoff kept in the worktree (`test-results/a-inventory/`) instead of the durable folder | wait for write access | Durable folder is read-only from the worker sandbox; orchestrator copies | a-inventory | yes |
 | M05 | 2026-11-03 | Build and `pnpm verify` ran without `with-lock.sh` | wait on the lock | The lock dir cannot be created from the sandbox (with-lock would wait forever); the lock was not held at the time | a-inventory | yes |
 
+| M06 | 2026-11-03 | DIRECTION §9 D1-D9, D11-D14 accepted as proposed | accept / revise | Coherent with identity specs; reversible token/label changes | orchestrator | yes |
+| M07 | 2026-11-03 | D10 = (b): readback mismatch stays Failed; no backend behaviour change in this redesign | (a) Not confirmed | Mission preserves provider-write/readback behaviour; backend change needs the owner | orchestrator | yes |
+| M08 | 2026-11-03 | Outbox nav gated by a route-existence constant (`lib/navigation/outbox.ts`, `false` until the page lands) | org feature flag; env flag | No client env-flag pattern; one-line flip with the page | c-shell | yes |
+| M09 | 2026-11-03 | Rendering, captures and e2e run by the orchestrator; workers do code and docs | workers render | Worker sandbox denies port binding and browser launch | orchestrator | no |
+
+## Operational blockers
+
+| # | Blocker | Effect | Next step |
+| --- | --- | --- | --- |
+| O01 | Machine e2e runner mismatch: `@e2e-dev/web@0.11.2` imports `rejectUnknownOptions`, absent from installed `e2e@0.15.2` (`CONFIG_LOAD_FAILED`) | Agentic journeys (`tests/agentic`) cannot run | Machine-level reinstall of a matching pair in `~/node_modules` (outside repo; owner's install). Playwright suite unaffected |
+| O02 | 2026-11-03 07:56-07:58: two worker starts (team8, team2) returned "delivery not confirmed"; no worktree or branch was created | c-system completion and later slices not delegated | Not retried further; re-check scheduler, then one start per slot |
+
 ## Open defects
 
 Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix and the after-evidence.
@@ -247,6 +259,8 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | Defect | Route (INVENTORY id) | Severity | Status |
 | --- | --- | --- | --- |
 | D01–D30 | see BASELINE §5.1 | 2 high, 14 medium, 14 low | open (code-verified at 367719b3) |
+| S1 | Shell rail at 844x390 landscape cuts off Team/Settings (no rail scroll) | medium | open (`evidence/controller/shell-matrix-dd1d209a/w844x390/inbox.png`) |
+| S2 | Tablet scope pill truncates "All clients" at 768 despite free width (`max-w-[45vw]`) | low | open (`.../w768x1024/listings.png`) |
 | BASELINE §5.2 render items (13) | see BASELINE §5.2 | 3 high claimed | needs render |
 
 ## Evidence index
@@ -258,4 +272,5 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | Before-captures 367719b3 (phone/tablet/desktop light, desktop/phone dark) | `2026-11-redesign/evidence/a-inventory/before-367719b3/` via `tests/visual/nm-capture-before.sh` | **blocked** (port binding) |
 | Curated before webp (34) | `docs/redesign/2026-11/evidence/before/` (list: `tests/visual/nm-capture-before.curated.txt`) | **blocked** |
 | Agentic journeys desktop and mobile at 367719b3 | `before-367719b3/agentic-{desktop,mobile}/` | **blocked** (port binding; e2e runner `CONFIG_LOAD_FAILED`) |
+| After-captures integration `dd1d209a` (A+B+C2): shell matrix 17 sizes x 6 shots; every route phone/tablet/desktop light (225 shots); phone/desktop dark | `2026-11-redesign/evidence/controller/{shell-matrix,after,after-dd1d209a-dark}-dd1d209a/` + manifests; script `evidence/controller/capture-integration.sh` | done (Chromium, touch <1024, mouse >=1024; states not reached: client-switcher (1 client), share-report dialog, disconnect dialog; More sheet at >=768 expected absent) |
 | Prior captures (not current: 2026-10-14, pre #262/#264) | `notion-mail-ledger/evidence/after-52b237ba/` etc. | reference only |

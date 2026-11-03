@@ -1,7 +1,7 @@
 // AMA-145: the remembered client must not squeeze the tablet toolbar's
 // Back link beneath its real 44px hit target. The journey seeds one extra
-// client because the ordinary journey tenant has only one and therefore
-// hides the client switcher. All navigation and data stay on the local
+// client because the ordinary journey tenant has only one, and then the
+// scope control is inert rather than a button. All navigation and data stay on the local
 // throwaway harness; the extra client is removed in finally.
 import { randomUUID } from "node:crypto"
 
@@ -13,6 +13,9 @@ import postgres from "postgres"
 import { pathPattern, readJourneyState } from "./support.ts"
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"])
+
+/** A regular expression that matches `text` literally. */
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 function localHarnessUrl(value: string | undefined, database = false) {
   let url: URL
@@ -129,9 +132,10 @@ describe("tablet back navigation", { tags: ["tablet", "navigation"] }, () => {
         await expect(
           screen.getByRole("heading", { name: state.clientName, level: 1 })
         ).toBeVisible({ timeout: 30_000 })
+        // The tablet toolbar's scope pill (768 to 1180): "Working on
+        // <client>, <listings> · <health>".
         const selected = screen.getByRole("button", {
-          name: `Client: ${state.clientName}`,
-          exact: true,
+          name: new RegExp(`^Working on ${literal(state.clientName)}, `),
           visible: true,
         })
         await expect(selected).toBeVisible()
@@ -151,19 +155,23 @@ describe("tablet back navigation", { tags: ["tablet", "navigation"] }, () => {
             heading: "New client",
             label: "Clients",
             destination: "/clients",
+            scoped: true,
           },
           {
             path: "/settings/connections",
             heading: "Google connections",
             label: "Settings",
             destination: "/settings",
+            scoped: false,
           },
         ]) {
           await app.open(route.path)
           await expect(
             screen.getByRole("heading", { name: route.heading, level: 1 })
           ).toBeVisible({ timeout: 30_000 })
-          await expect(selected).toBeVisible()
+          // Organisation-wide pages (Settings) show no scope control at all.
+          if (route.scoped) await expect(selected).toBeVisible()
+          else await expect(selected).toBeHidden()
           const back = screen.getByRole("link", {
             name: `Back to ${route.label}`,
             exact: true,
@@ -171,9 +179,17 @@ describe("tablet back navigation", { tags: ["tablet", "navigation"] }, () => {
           })
           await expect(back).toBeVisible()
           await expect(back).toHaveAttribute("href", route.destination)
-          await expect(
-            browser.locator('[data-slot="toolbar"] [data-slot="health-chip"]')
-          ).toBeVisible()
+          // The scope's health words are in the pill (the separate health
+          // chip is retired, DIRECTION D8); it shares the row with Back.
+          const pill = browser.locator(
+            '[data-slot="toolbar"] [data-slot="scope-control"]'
+          )
+          if (route.scoped) {
+            await expect(pill).toBeVisible()
+            await expect(pill).toHaveAttribute("data-variant", "pill")
+          } else {
+            await expect(pill).toHaveCount(0)
+          }
           await assertBackHitTarget(browser)
           await app.screenshot(`tablet-back-${route.label.toLowerCase()}`)
           await agent.act(

@@ -1,63 +1,122 @@
-import { render, screen } from "@testing-library/react"
-import type { ComponentProps } from "react"
+import { render, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { scope } = vi.hoisted(() => ({
-  scope: { clientId: null as string | null },
+const { scope, query } = vi.hoisted(() => ({
+  scope: { clientId: null as string | null, mode: "agency" as string },
+  query: {
+    isPending: false,
+    isError: false,
+    org: { tone: "attention", label: "2 clients need checking" },
+  },
 }))
 
-vi.mock("@/components/app-shell/shell-link", () => ({
-  ShellLink: ({ href, children, ...rest }: ComponentProps<"a">) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}))
 vi.mock("@/components/app-shell/client-context", () => ({
   useClientScope: () => scope.clientId,
 }))
 vi.mock("@/lib/workspace/mode", () => ({
-  useWorkspaceMode: () => "agency",
+  useWorkspaceMode: () => scope.mode,
 }))
 vi.mock("@/lib/queries/use-clients", () => ({
   useClients: () => ({
-    isPending: false,
-    isError: false,
+    isPending: query.isPending,
+    isError: query.isError,
     data: {
       items: [
         { id: "c1", name: "Journey Hospitality", health: "partially_checked" },
       ],
     },
   }),
-  useOrgHealth: () => ({ tone: "attention", label: "2 clients need checking" }),
+  useOrgHealth: () => query.org,
 }))
 
-import { ContextHealthChip } from "@/components/app-shell/context-health-chip"
+import {
+  ShellHealthAnnouncer,
+  useContextHealth,
+} from "@/components/app-shell/context-health-chip"
 
-describe("ContextHealthChip", () => {
+// The toolbar's ContextHealthChip was retired (DIRECTION D8): the scope
+// control carries the scope's health in words now. What remains is the
+// hook (the More sheet's Connections row) and the shell's live announcer.
+describe("useContextHealth", () => {
   beforeEach(() => {
     scope.clientId = null
+    scope.mode = "agency"
+    query.isPending = false
+    query.isError = false
+    query.org = { tone: "attention", label: "2 clients need checking" }
   })
 
-  // DSK-05: the chip may shrink and truncate its words, so the full words
-  // stay readable as the link's title.
-  it("titles the chip with the organisation's full words", () => {
-    render(<ContextHealthChip />)
-    const chip = screen.getByRole("link", { name: "2 clients need checking" })
-    expect(chip).toHaveAttribute("title", "2 clients need checking")
-    expect(chip).toHaveAttribute("href", "/clients")
-  })
-
-  it("titles a client's chip with its name and health", () => {
-    scope.clientId = "c1"
-    render(<ContextHealthChip />)
-    const chip = screen.getByRole("link", {
-      name: "Journey Hospitality: Some listings not checked yet",
+  it("reports the organisation's words and links to Clients", () => {
+    const { result } = renderHook(() => useContextHealth())
+    expect(result.current).toMatchObject({
+      tone: "attention",
+      label: "2 clients need checking",
+      href: "/clients",
+      scopedName: null,
     })
-    expect(chip).toHaveAttribute(
-      "title",
-      "Journey Hospitality: Some listings not checked yet"
+  })
+
+  it("reports a client's own health and links to it", () => {
+    scope.clientId = "c1"
+    const { result } = renderHook(() => useContextHealth())
+    expect(result.current).toMatchObject({
+      label: "Some listings not checked yet",
+      href: "/clients/c1",
+      scopedName: "Journey Hospitality",
+    })
+  })
+
+  it("says the data may be stale after a failed refetch", () => {
+    scope.clientId = "c1"
+    query.isError = true
+    const { result } = renderHook(() => useContextHealth())
+    expect(result.current).toMatchObject({
+      tone: "attention",
+      label: "Data may be stale",
+      scopedName: null,
+    })
+  })
+
+  it("reports the whole business and links to Listings in business mode", () => {
+    scope.mode = "business"
+    scope.clientId = "c1"
+    query.org = { tone: "neutral", label: "All connected" }
+    const { result } = renderHook(() => useContextHealth())
+    expect(result.current).toMatchObject({
+      label: "All connected",
+      href: "/listings",
+      scopedName: null,
+    })
+  })
+})
+
+describe("ShellHealthAnnouncer", () => {
+  beforeEach(() => {
+    scope.clientId = null
+    scope.mode = "agency"
+    query.isPending = false
+    query.isError = false
+    query.org = { tone: "attention", label: "2 clients need checking" }
+  })
+
+  it("stays silent on the first value and announces a change", () => {
+    const { container, rerender } = render(<ShellHealthAnnouncer />)
+    const region = container.querySelector("[aria-live='polite']")
+    expect(region).toHaveTextContent("")
+    query.org = { tone: "critical", label: "3 clients need checking" }
+    rerender(<ShellHealthAnnouncer />)
+    expect(region).toHaveTextContent(
+      "Connection status: 3 clients need checking"
     )
-    expect(chip).toHaveAttribute("href", "/clients/c1")
+  })
+
+  it("says nothing while the list is pending", () => {
+    query.isPending = true
+    const { container, rerender } = render(<ShellHealthAnnouncer />)
+    query.org = { tone: "critical", label: "3 clients need checking" }
+    rerender(<ShellHealthAnnouncer />)
+    expect(container.querySelector("[aria-live='polite']")).toHaveTextContent(
+      ""
+    )
   })
 })

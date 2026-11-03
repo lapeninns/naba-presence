@@ -134,6 +134,42 @@ describe("TabBar", () => {
     expect(current[0]).toHaveTextContent("Listings")
   })
 
+  // DIRECTION D4: one neutral current-place grammar. An ink icon with a
+  // heavier stroke on a fill pill and a semibold ink label; no accent.
+  it("draws the current tab in the neutral grammar, not the accent", () => {
+    pathname.current = "/listings"
+    const { tabs, bar } = renderTabBar()
+    const current = tabs.getByRole("link", { name: "Listings" })
+    expect(current).toHaveAttribute("aria-current", "page")
+    expect(current).toHaveClass(
+      "aria-[current=page]:text-ink",
+      "aria-[current=page]:font-semibold"
+    )
+    const pill = current.querySelector("[data-slot='tab-pill']")
+    expect(pill).toHaveClass("group-aria-[current=page]:bg-fill")
+    expect(pill?.querySelector("svg")).toHaveAttribute("stroke-width", "2")
+    const other = tabs.getByRole("link", { name: "Reports" })
+    expect(other.querySelector("[data-slot='tab-pill'] svg")).toHaveAttribute(
+      "stroke-width",
+      "1.75"
+    )
+    expect(bar.innerHTML).not.toMatch(/accent/)
+  })
+
+  it("draws More in the same grammar when it holds the current page", () => {
+    pathname.current = "/settings"
+    const { tabs } = renderTabBar()
+    const more = tabs.getByRole("button", { name: "More" })
+    expect(more).toHaveAttribute("data-current", "true")
+    expect(more).toHaveClass(
+      "data-[current=true]:text-ink",
+      "data-[current=true]:font-semibold"
+    )
+    const pill = more.querySelector("[data-slot='tab-pill']")
+    expect(pill).toHaveClass("group-data-[current=true]:bg-fill")
+    expect(pill?.querySelector("svg")).toHaveAttribute("stroke-width", "2")
+  })
+
   it("marks the tab Setup lives under", () => {
     pathname.current = "/setup"
     const agency = renderTabBar()

@@ -5,7 +5,7 @@ import { CLIENT_SCOPE_COOKIE } from "../../lib/clients/scope"
 import { clientCreateSchema } from "../../lib/contracts/clients"
 import { createTestTenant, destroyTenants } from "../integration/helpers/tenant"
 
-// The switcher is absent for a one-client tenant. Use two real clients and
+// The scope control is inert (not a button) for a one-client tenant. Use two real clients and
 // the longest permitted selected name, rather than relying on the shared
 // journey tenant or putting clientId on an organisation-wide page's URL.
 const LONG_CLIENT_NAME = clientCreateSchema.parse({
@@ -122,9 +122,11 @@ async function measureBack(back: Locator) {
       return pixels
     }
     const centreOwned = owns(cx, cy)
-    const health = element
+    // The tablet toolbar's scope pill, which now carries the health words
+    // the retired health chip did (DIRECTION D8), shares the row.
+    const scope = element
       .closest("header")
-      ?.querySelector('[data-slot="health-chip"]')
+      ?.querySelector('[data-slot="scope-control"]')
       ?.getBoundingClientRect()
     const chevron = element.querySelector("svg")?.getBoundingClientRect()
     return {
@@ -150,12 +152,12 @@ async function measureBack(back: Locator) {
         chevron.top >= rect.top &&
         chevron.bottom <= rect.bottom
       ),
-      overlapsHealth: Boolean(
-        health &&
-        rect.left < health.right &&
-        rect.right > health.left &&
-        rect.top < health.bottom &&
-        rect.bottom > health.top
+      overlapsScope: Boolean(
+        scope &&
+        rect.left < scope.right &&
+        rect.right > scope.left &&
+        rect.top < scope.bottom &&
+        rect.bottom > scope.top
       ),
       horizontalOverflow:
         document.documentElement.scrollWidth > window.innerWidth + 1,
@@ -163,18 +165,26 @@ async function measureBack(back: Locator) {
   })
 }
 
+/** A regular expression that matches `text` literally. */
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+// `scoped`: whether the page follows the client scope, so the tablet
+// toolbar's scope pill shows on it (organisation-wide pages, Settings among
+// them, show no scope control at any size).
 const routes = [
   {
     path: "/clients/new",
     heading: "New client",
     label: "Clients",
     destination: "/clients",
+    scoped: true,
   },
   {
     path: "/settings/connections",
     heading: "Google connections",
     label: "Settings",
     destination: "/settings",
+    scoped: false,
   },
 ] as const
 
@@ -239,16 +249,22 @@ for (const width of [390, 767, 768, 1024]) {
                   )
                 ).toBe(coarse)
 
-                if (width >= 768) {
-                  await expect(
-                    page.getByRole("button", {
-                      name: `Client: ${LONG_CLIENT_NAME}`,
-                      exact: true,
-                    })
-                  ).toBeVisible()
-                  await expect(
-                    page.locator('[data-slot="health-chip"]:visible')
-                  ).toBeVisible()
+                // The tablet toolbar's pill (768 to 1180) names the
+                // remembered client with its health in words; there is no
+                // separate health chip any more.
+                const pill = page.locator(
+                  'header[data-slot="toolbar"] [data-slot="scope-control"]'
+                )
+                if (width >= 768 && route.scoped) {
+                  await expect(pill).toBeVisible()
+                  await expect(pill).toHaveAttribute("data-variant", "pill")
+                  await expect(pill).toHaveAccessibleName(
+                    new RegExp(`^Working on ${literal(LONG_CLIENT_NAME)}, `)
+                  )
+                } else {
+                  // Below 768 the toolbar is not drawn (and a deep page's
+                  // app bar leads with the way up, not the scope chip).
+                  await expect(pill).toBeHidden()
                 }
                 const back = page.locator('[data-slot="back-control"]:visible')
                 await expect(back).toHaveCount(1)
@@ -279,7 +295,7 @@ for (const width of [390, 767, 768, 1024]) {
                 expect(geometry.hitWidth).toBeGreaterThanOrEqual(44)
                 expect(geometry.hitHeight).toBeGreaterThanOrEqual(44)
                 expect(geometry.chevronContained).toBe(true)
-                expect(geometry.overlapsHealth).toBe(false)
+                expect(geometry.overlapsScope).toBe(false)
                 expect(geometry.horizontalOverflow).toBe(false)
 
                 // WebKit's default Tab order skips links; Option-Tab includes

@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarDays,
   Inbox,
+  Send,
   Settings,
   Store,
   Users,
@@ -36,6 +37,7 @@ export type DestinationId =
   | "clients"
   | "calendar"
   | "reports"
+  | "outbox"
   | "notifications"
   | "team"
   | "settings"
@@ -76,6 +78,18 @@ export type Destination = {
    * server-side and passes `hideCalendar`.
    */
   needsPostScheduling?: true
+  /**
+   * Only for people who can send something to Google (owners, admins and
+   * members): a viewer can't send, so the page would always be empty for
+   * them (DIRECTION §7.1). Hidden while the role is unknown.
+   */
+  sendersOnly?: true
+  /**
+   * Shown only while `NavigationContext.showOutbox` is on: the Outbox page
+   * ships after its destination, so the link stays out of every list until
+   * the route exists rather than leading to a 404 (lib/navigation/outbox.ts).
+   */
+  needsOutbox?: true
   /**
    * The page has its own search field (the Inbox's "Search reviews"), so
    * the phone app bar leaves its palette button out there rather than show
@@ -141,11 +155,25 @@ export const DESTINATIONS: readonly Destination[] = [
     label: "Reports",
     icon: BarChart3,
     description: {
-      agency: "Ratings, reply times and profile views by client",
+      agency:
+        "Ratings, reply times and profile views for the clients you work on",
       business: "Ratings, reply times and profile views by location",
     },
     group: "primary",
     scoped: true,
+  },
+  {
+    id: "outbox",
+    href: "/outbox",
+    label: "Outbox",
+    icon: Send,
+    description: {
+      agency: "Changes on their way to Google, and any that failed",
+      business: "Changes on their way to Google, and any that failed",
+    },
+    group: "primary",
+    sendersOnly: true,
+    needsOutbox: true,
   },
   {
     id: "notifications",
@@ -192,15 +220,23 @@ export type NavigationContext = {
   mode: WorkspaceMode
   /** The organisation's `post_scheduling` feature is off. */
   hideCalendar?: boolean
+  /** The Outbox route exists and is switched on (lib/navigation/outbox.ts). */
+  showOutbox?: boolean
 }
+
+/** The roles that can send a change to Google (everyone but a viewer). */
+const SENDER_ROLES: ReadonlySet<string> = new Set(["owner", "admin", "member"])
 
 /** Whether this session may see a destination at all. */
 export function isDestinationVisible(
   destination: Destination,
-  { role, mode, hideCalendar = false }: NavigationContext
+  { role, mode, hideCalendar = false, showOutbox = false }: NavigationContext
 ): boolean {
   if (destination.agencyOnly && mode === "business") return false
   if (destination.needsPostScheduling && hideCalendar) return false
+  if (destination.needsOutbox && !showOutbox) return false
+  if (destination.sendersOnly && !(role !== null && SENDER_ROLES.has(role)))
+    return false
   if (destination.managersOnly && !settingsGatingFromRole(role).canManageTeam)
     return false
   return true
@@ -259,12 +295,31 @@ export function tabDestinations(context: NavigationContext): Destination[] {
 }
 
 /**
+ * The More sheet's order (DIRECTION §7.2): Outbox first, because it is where
+ * a failed send is recovered, then Calendar (agency), Notifications, Team
+ * and Settings.
+ */
+const MORE_ORDER: readonly DestinationId[] = [
+  "outbox",
+  "inbox",
+  "listings",
+  "clients",
+  "calendar",
+  "reports",
+  "notifications",
+  "team",
+  "settings",
+]
+
+/**
  * Everything the tab bar has no room for, in the order the More sheet lists
- * it: Calendar (agency), Notifications, Team (owners and admins), Settings.
+ * it: Outbox (senders), Calendar (agency), Notifications, Team (owners and
+ * admins), Settings.
  */
 export function moreDestinations(context: NavigationContext): Destination[] {
   const tabs = new Set(tabDestinations(context).map((d) => d.id))
-  return visibleDestinations(context).filter((d) => !tabs.has(d.id))
+  const held = visibleDestinations(context).filter((d) => !tabs.has(d.id))
+  return MORE_ORDER.flatMap((id) => held.filter((d) => d.id === id))
 }
 
 /**
@@ -307,8 +362,7 @@ export function isActivePath(pathname: string | null, href: string): boolean {
 /**
  * The one href a list of navigation rows marks as the current page: the
  * longest of them that is the path or an ancestor of it, so a nested row
- * (a pinned client under Clients) wins over its parent and only one row is
- * ever `aria-current`.
+ * wins over its parent and only one row is ever `aria-current`.
  */
 export function currentHref(
   pathname: string | null,

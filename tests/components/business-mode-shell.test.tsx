@@ -25,7 +25,7 @@ vi.mock("next/link", () => ({
 import { Toaster } from "@/components/ui/toast"
 import { AgencyNameForm } from "@/components/settings/agency-name-form"
 import { MoreSheet } from "@/components/app-shell/more-sheet"
-import { Nav, navItemsFor, type NavClient } from "@/components/app-shell/nav"
+import { Nav, navItemsFor } from "@/components/app-shell/nav"
 import {
   PALETTE_ACTIONS,
   PALETTE_GO_TO,
@@ -34,10 +34,6 @@ import {
 import type { SessionResponse, WorkspaceMode } from "@/lib/contracts/session"
 import { queryKeys } from "@/lib/queries/keys"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
-
-const clients: NavClient[] = [
-  { id: "c1", name: "The Barley Mow", health: "healthy" },
-]
 
 beforeEach(() => {
   window.sessionStorage.clear()
@@ -88,7 +84,7 @@ describe("navigation registry per mode", () => {
 
   it("renders Inbox, Listings, Calendar, Reports, Team and Settings and nothing about clients", async () => {
     const { container } = render(
-      <Nav role="owner" mode="business" clients={clients} scopeClientId="c1" />
+      <Nav role="owner" mode="business" scopeClientId="c1" />
     )
     const links = screen.getAllByRole("link")
     expect(links.map((link) => link.textContent)).toEqual([
@@ -112,12 +108,11 @@ describe("navigation registry per mode", () => {
     expect(container.textContent).not.toMatch(/client|agency/i)
   })
 
-  it("keeps the agency navigation, with pinned clients, in agency mode", () => {
-    render(<Nav mode="agency" clients={clients} scopeClientId="c1" />)
+  // Clients are no longer pinned beneath Clients (DIRECTION D8); the
+  // sidebar's "Working on" control lists them instead.
+  it("keeps the agency navigation, and its client scope, in agency mode", () => {
+    render(<Nav mode="agency" scopeClientId="c1" />)
     expect(screen.getByRole("link", { name: "Clients" })).toBeInTheDocument()
-    expect(
-      screen.getByRole("link", { name: /The Barley Mow/ })
-    ).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
       "href",
       "/inbox?clientId=c1"
@@ -241,7 +236,7 @@ describe("the phone More sheet in business mode", () => {
   it("describes itself without client or agency words to a screen reader", () => {
     const sheet = renderSheet("business")
     expect(sheet).toHaveAccessibleDescription(
-      "Search, the rest of NabaPresence and your account."
+      "Search, the location you are working on, the rest of NabaPresence and your account."
     )
     expect(sheet.textContent).not.toMatch(/client|agency/i)
   })

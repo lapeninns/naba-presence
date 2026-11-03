@@ -80,12 +80,21 @@ function place(
 const OLD_CROWN = client("c1", "Old Crown", 2)
 const HARBOUR = client("c2", "Harbour Kitchen", 1)
 
-function stubClients(items: ClientSummary[] | undefined) {
+function stubClients(
+  items: ClientSummary[] | undefined,
+  { stale = false }: { stale?: boolean } = {}
+) {
   vi.spyOn(clientsHook, "useClients").mockReturnValue({
     data: items ? { items, unassignedLocationCount: 0 } : undefined,
     isPending: items === undefined,
+    // A refetch that failed after an earlier success.
+    isError: stale,
   } as unknown as ReturnType<typeof clientsHook.useClients>)
 }
+
+/** A business's one home client, behind the scenes. */
+const HOME = client("home", "Bell Inns", 2)
+const ORGANISATION = "Bell Inns"
 
 /** A query client already holding the session and the directory, as the
  *  dashboard layout hydrates them; never fetches. */
@@ -100,11 +109,23 @@ function queryClientWith(directory: DirectoryEntry[]) {
   return queryClient
 }
 
-function PhoneScope({ mode }: { mode?: WorkspaceMode }) {
-  const [open, setOpen] = React.useState(false)
+function PhoneScope({
+  mode,
+  organisationName = null,
+  defaultOpen = false,
+}: {
+  mode?: WorkspaceMode
+  organisationName?: string | null
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = React.useState(defaultOpen)
   return (
     <>
-      <ClientScopeChip mode={mode} onOpen={() => setOpen(true)} />
+      <ClientScopeChip
+        mode={mode}
+        organisationName={organisationName}
+        onOpen={() => setOpen(true)}
+      />
       <ClientScopeSheet mode={mode} open={open} onOpenChange={setOpen} />
     </>
   )
@@ -114,16 +135,28 @@ function renderScope({
   mode,
   directory,
   children,
+  rememberedClientId = null,
+  defaultOpen = false,
 }: {
   mode?: WorkspaceMode
   directory: DirectoryEntry[]
   children?: React.ReactNode
+  rememberedClientId?: string | null
+  /**
+   * Start with the sheet open: on an org-wide page (Team, Settings,
+   * Notifications) there is no chip to open it from.
+   */
+  defaultOpen?: boolean
 }) {
   return render(
     <QueryClientProvider client={queryClientWith(directory)}>
-      <ClientScopeRoot rememberedClientId={null}>
+      <ClientScopeRoot rememberedClientId={rememberedClientId}>
         <React.Suspense fallback={null}>
-          <PhoneScope mode={mode} />
+          <PhoneScope
+            mode={mode}
+            organisationName={mode === "business" ? ORGANISATION : null}
+            defaultOpen={defaultOpen}
+          />
         </React.Suspense>
         {children}
       </ClientScopeRoot>
@@ -135,6 +168,17 @@ async function openSheet(name: string) {
   await userEvent.click(screen.getByRole("button", { name }))
   return screen.findByRole("dialog", { name: "Working on" })
 }
+
+/** The sheet as rendered already open (`defaultOpen`). */
+function openedSheet() {
+  return screen.findByRole("dialog", { name: "Working on" })
+}
+
+// The chip's accessible names: "Working on <title>, <listings · health>".
+const ALL_CLIENTS = "Working on All clients, 3 listings · All clients in sync"
+const OLD_CROWN_CHIP = "Working on Old Crown, 2 listings · In sync"
+const ALL_LOCATIONS = "Working on Bell Inns, All locations · All in sync"
+const THE_BELL = "Working on Bell Inns, The Bell"
 
 let toastAdd: MockInstance<typeof toastModule.toast.add>
 
@@ -161,31 +205,69 @@ describe("business mode", () => {
   const BELL = place("l1", "The Bell")
   const CROWN = place("l2", "The Crown", null, { linked: false })
 
-  it("names the location in scope, never a client", () => {
+  beforeEach(() => stubClients([HOME]))
+
+  it("names the business and the location in scope, never a client", () => {
     location.search = "locationId=l1"
     renderScope({ mode: "business", directory: [BELL, CROWN] })
-    const trigger = screen.getByRole("button", { name: "Location: The Bell" })
+    const trigger = screen.getByRole("button", { name: THE_BELL })
     expect(trigger).toHaveAttribute("aria-haspopup", "dialog")
-    expect(trigger).toHaveAttribute("data-slot", "client-scope-chip")
-    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    expect(trigger).toHaveAttribute("data-slot", "scope-control")
+    expect(trigger).toHaveAttribute("data-variant", "chip")
+    expect(trigger).toHaveAttribute("data-mode", "business")
+    expect(trigger.getAttribute("aria-label")).not.toMatch(/client/i)
+    // The phone chip shows the location, not only the business, so a
+    // narrowed scope is seen as well as heard.
+    expect(trigger).toHaveTextContent("The Bell")
+    expect(trigger).not.toHaveTextContent("Bell Inns")
   })
 
-  it("is hidden with one location", () => {
+  it("shows All locations on the chip when no location is in scope", () => {
+    renderScope({ mode: "business", directory: [BELL, CROWN] })
+    const trigger = screen.getByRole("button", {
+      name: /^Working on Bell Inns, All locations/,
+    })
+    expect(trigger).toHaveTextContent("All locations")
+  })
+
+  it("carries the location's status words in its name", () => {
+    location.search = "locationId=l2"
+    renderScope({ mode: "business", directory: [BELL, CROWN] })
+    const trigger = screen.getByRole("button", {
+      name: "Working on Bell Inns, The Crown · Not linked",
+    })
+    expect(trigger).toHaveAttribute("data-tone", "attention")
+  })
+
+  it("carries the business's health in words with All locations, never a client", () => {
+    stubClients([{ ...HOME, health: "attention" }])
+    renderScope({ mode: "business", directory: [BELL, CROWN] })
+    const trigger = screen.getByRole("button", {
+      name: "Working on Bell Inns, All locations · Needs attention",
+    })
+    expect(trigger.getAttribute("aria-label")).not.toMatch(/client/i)
+  })
+
+  it("says the scope without a button with one location", () => {
     renderScope({ mode: "business", directory: [BELL] })
-    expect(screen.queryByRole("button", { name: /^Location:/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
+    const control = document.querySelector('[data-slot="scope-control"]')
+    expect(control).toHaveAttribute("data-static", "true")
+    expect(control).toHaveTextContent(ALL_LOCATIONS)
   })
 
   it("lists All locations and every location, with what the directory says", async () => {
     location.search = "locationId=l1"
     renderScope({ mode: "business", directory: [BELL, CROWN] })
-    const sheet = await openSheet("Location: The Bell")
+    const sheet = await openSheet(THE_BELL)
     const group = within(sheet).getByRole("listbox", { name: "Location" })
     const options = within(group).getAllByRole("option")
     expect(options.map((option) => option.textContent)).toEqual([
-      "All locations",
+      "All locations2 listings",
       "The Bell",
       "The CrownNot linked",
     ])
+    expect(options[0]).toHaveAccessibleDescription("2 listings")
     expect(options[1]).toHaveAttribute("aria-selected", "true")
     expect(options[2]).toHaveAccessibleDescription("Not linked")
     expect(sheet.textContent).not.toMatch(/client|agency/i)
@@ -195,7 +277,7 @@ describe("business mode", () => {
   it("narrows the Inbox to the chosen location and names it in a toast", async () => {
     location.search = "queue=failed&selected=r1"
     renderScope({ mode: "business", directory: [BELL, CROWN] })
-    const sheet = await openSheet("Location: All locations")
+    const sheet = await openSheet(ALL_LOCATIONS)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "The Crown" })
     )
@@ -213,7 +295,7 @@ describe("business mode", () => {
     location.pathname = "/reports"
     location.search = "tab=google&locationId=l1"
     renderScope({ mode: "business", directory: [BELL, CROWN] })
-    const sheet = await openSheet("Location: The Bell")
+    const sheet = await openSheet(THE_BELL)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "All locations" })
     )
@@ -225,8 +307,14 @@ describe("business mode", () => {
 
   it("does nothing, and says nothing, when the choice is already the scope", async () => {
     location.pathname = "/settings"
-    renderScope({ mode: "business", directory: [BELL, CROWN] })
-    const sheet = await openSheet("Location: All locations")
+    renderScope({
+      mode: "business",
+      directory: [BELL, CROWN],
+      defaultOpen: true,
+    })
+    const sheet = await openedSheet()
+    // Settings ignores the scope, so the app bar shows no chip there.
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
     await userEvent.click(
       within(sheet).getByRole("option", { name: "All locations" })
     )
@@ -237,8 +325,12 @@ describe("business mode", () => {
 
   it("opens the location's listing from any other page", async () => {
     location.pathname = "/settings"
-    renderScope({ mode: "business", directory: [BELL, CROWN] })
-    const sheet = await openSheet("Location: All locations")
+    renderScope({
+      mode: "business",
+      directory: [BELL, CROWN],
+      defaultOpen: true,
+    })
+    const sheet = await openedSheet()
     await userEvent.click(
       within(sheet).getByRole("option", { name: "The Bell" })
     )
@@ -251,7 +343,7 @@ describe("business mode", () => {
   it("asks the leave guard first, and stays quiet when it declines", async () => {
     vi.spyOn(leaveGuard, "guardNavigation").mockImplementation(() => {})
     renderScope({ mode: "business", directory: [BELL, CROWN] })
-    const sheet = await openSheet("Location: All locations")
+    const sheet = await openSheet(ALL_LOCATIONS)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "The Bell" })
     )
@@ -266,7 +358,7 @@ describe("business mode", () => {
     )
     const user = userEvent.setup()
     renderScope({ mode: "business", directory: many })
-    const sheet = await openSheet("Location: All locations")
+    const sheet = await openSheet(ALL_LOCATIONS)
     const search = within(sheet).getByRole("searchbox", {
       name: "Search locations",
     })
@@ -279,9 +371,101 @@ describe("business mode", () => {
         .map((option) => option.textContent)
     ).toEqual(["Venue C"])
     await user.clear(search)
+    await user.type(search, "all")
+    expect(
+      within(sheet)
+        .getAllByRole("option")
+        .map((option) => option.textContent)
+    ).toEqual(["All locations9 listings"])
+    await user.clear(search)
     await user.type(search, "zzz")
     expect(within(sheet).queryAllByRole("option")).toHaveLength(0)
     expect(within(sheet).getByText("No location matches that.")).toBeVisible()
+  })
+})
+
+describe("agency mode: the scope chip", () => {
+  it("names the client in scope with its listings and health in words", () => {
+    stubClients([{ ...OLD_CROWN, health: "attention" }, HARBOUR])
+    location.search = "clientId=c1"
+    renderScope({ directory: [] })
+    const trigger = screen.getByRole("button", {
+      name: "Working on Old Crown, 2 listings · Needs attention",
+    })
+    expect(trigger).toHaveAttribute("aria-haspopup", "dialog")
+    expect(trigger).toHaveAttribute("data-slot", "scope-control")
+    expect(trigger).toHaveAttribute("data-variant", "chip")
+    expect(trigger).toHaveAttribute("data-mode", "agency")
+    expect(trigger).toHaveAttribute("data-tone", "attention")
+  })
+
+  it("sums every client's listings and rolls up their health for All clients", () => {
+    stubClients([
+      OLD_CROWN,
+      { ...HARBOUR, health: "disconnected" },
+      client("c3", "Quay Bar", 4),
+    ])
+    renderScope({ directory: [] })
+    expect(
+      screen.getByRole("button", {
+        name: "Working on All clients, 7 listings · 1 client needs action",
+      })
+    ).toHaveAttribute("data-tone", "at-risk")
+  })
+
+  it("says the data may be stale when a refetch failed", () => {
+    stubClients([OLD_CROWN, HARBOUR], { stale: true })
+    location.search = "clientId=c1"
+    renderScope({ directory: [] })
+    expect(
+      screen.getByRole("button", {
+        name: "Working on Old Crown, 2 listings · Data may be stale",
+      })
+    ).toHaveAttribute("data-tone", "attention")
+  })
+
+  it("follows a deep link's ?clientId= over the remembered client", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "clientId=c1"
+    renderScope({ directory: [], rememberedClientId: "c2" })
+    expect(
+      screen.queryByRole("button", { name: /^Working on Harbour Kitchen/ })
+    ).toBeNull()
+    const sheet = await openSheet(OLD_CROWN_CHIP)
+    expect(
+      within(sheet).getByRole("option", { name: "Old Crown" })
+    ).toHaveAttribute("aria-selected", "true")
+    expect(
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
+    ).toHaveAttribute("aria-selected", "false")
+  })
+
+  it("says the scope without a button with one client", () => {
+    stubClients([OLD_CROWN])
+    renderScope({ directory: [] })
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
+    const control = document.querySelector('[data-slot="scope-control"]')
+    expect(control).toHaveAttribute("data-static", "true")
+    expect(control).toHaveTextContent(
+      "Working on All clients, 2 listings · All clients in sync"
+    )
+  })
+
+  it("words each client row with its listings and health, and All clients with the sum", async () => {
+    stubClients([OLD_CROWN, { ...HARBOUR, health: "attention" }])
+    renderScope({ directory: [] })
+    const sheet = await openSheet(
+      "Working on All clients, 3 listings · 1 client needs attention"
+    )
+    expect(
+      within(sheet).getByRole("option", { name: "All clients" })
+    ).toHaveAccessibleDescription("3 listings")
+    expect(
+      within(sheet).getByRole("option", { name: "Old Crown" })
+    ).toHaveAccessibleDescription("2 listings · In sync")
+    expect(
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
+    ).toHaveAccessibleDescription("1 listing · Needs attention")
   })
 })
 
@@ -294,7 +478,7 @@ describe("agency mode: a client's locations", () => {
   it("offers each client's locations as a separate 44px control", async () => {
     stubClients([OLD_CROWN, HARBOUR, client("c3", "Empty Co", 0)])
     renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: All clients")
+    const sheet = await openSheet(ALL_CLIENTS)
     // The options keep their names; the chevron is its own button.
     expect(
       within(sheet).getByRole("option", { name: "Old Crown" })
@@ -320,7 +504,7 @@ describe("agency mode: a client's locations", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c1"
     renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
@@ -355,7 +539,7 @@ describe("agency mode: a client's locations", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c1"
     renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
@@ -383,7 +567,7 @@ describe("agency mode: a client's locations", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c1&locationId=l2"
     renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
@@ -400,7 +584,7 @@ describe("agency mode: a client's locations", () => {
     location.pathname = "/reports"
     location.search = "tab=google&selected=x"
     renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: All clients")
+    const sheet = await openSheet(ALL_CLIENTS)
     await userEvent.click(
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
@@ -417,8 +601,10 @@ describe("agency mode: a client's locations", () => {
   it("opens the listing from a page with no location scope", async () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.pathname = "/team"
-    renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: All clients")
+    renderScope({ directory: DIRECTORY, defaultOpen: true })
+    const sheet = await openedSheet()
+    // Team ignores the scope, so the app bar shows no chip there.
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
     await userEvent.click(
       within(sheet).getByRole("button", {
         name: "Locations of Harbour Kitchen",
@@ -433,7 +619,7 @@ describe("agency mode: a client's locations", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c1&locationId=l2&selected=r1"
     renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
@@ -453,7 +639,7 @@ describe("agency mode: a client's locations", () => {
     stubClients([OLD_CROWN, HARBOUR])
     const user = userEvent.setup()
     renderScope({ directory: many })
-    const sheet = await openSheet("Client: All clients")
+    const sheet = await openSheet(ALL_CLIENTS)
     // Two clients: no search on the first view.
     expect(within(sheet).queryByRole("searchbox")).toBeNull()
     await user.click(
@@ -474,7 +660,7 @@ describe("agency mode: a client's locations", () => {
     const user = userEvent.setup()
     stubClients([OLD_CROWN, HARBOUR])
     renderScope({ directory: DIRECTORY })
-    const sheet = await openSheet("Client: All clients")
+    const sheet = await openSheet(ALL_CLIENTS)
     within(sheet).getByRole("option", { name: "All clients" }).focus()
     await user.keyboard("{ArrowDown}")
     expect(
@@ -497,7 +683,7 @@ describe("the switch toast", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c1"
     renderScope({ directory: [] })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
@@ -509,7 +695,7 @@ describe("the switch toast", () => {
     location.pathname = "/listings"
     location.search = "clientId=c1"
     renderScope({ directory: [] })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "All clients" })
     )
@@ -521,7 +707,7 @@ describe("the switch toast", () => {
     location.pathname = "/reports"
     location.search = "tab=google&clientId=c1&locationId=l1"
     renderScope({ directory: [place("l1", "The Bell", "c1")] })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "All clients" })
     )
@@ -535,7 +721,7 @@ describe("the switch toast", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c1"
     renderScope({ directory: [] })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "Old Crown" })
     )
@@ -547,7 +733,7 @@ describe("the switch toast", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.pathname = "/clients/c1/settings"
     renderScope({ directory: [] })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
@@ -564,7 +750,7 @@ describe("the switch toast", () => {
       return null
     }
     renderScope({ directory: [], children: <Page /> })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_CHIP)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
@@ -580,9 +766,7 @@ describe("the switch toast", () => {
         <ClientSwitcher />
       </ClientScopeRoot>
     )
-    await userEvent.click(
-      screen.getByRole("button", { name: "Client: Old Crown" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: OLD_CROWN_CHIP }))
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /Harbour Kitchen/ })
     )

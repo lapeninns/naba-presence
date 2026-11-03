@@ -522,9 +522,9 @@ test.describe("dirty draft: one question per way out", () => {
       await (await replyBox(page)).fill(UNSAVED)
       const opens = await countDiscardPrompts(page)
 
-      // Exact: a pinned client is a link in the same navigation, named
-      // "<client>, <health>", and "Some listings not checked yet" contains
-      // "listings". Left by an earlier spec, it made this match two links.
+      // Exact: the navigation's link is "Listings", and nothing that merely
+      // contains the word (a count, or health words such as "Some listings
+      // not checked yet") may match it too.
       await page
         .getByRole("navigation", { name: "Primary" })
         .getByRole("link", { name: "Listings", exact: true })
