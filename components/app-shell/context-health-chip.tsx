@@ -2,8 +2,8 @@
 
 import * as React from "react"
 
-import { healthLabel, healthTone } from "@/lib/clients/health"
-import { useClients, useOrgHealth } from "@/lib/queries/use-clients"
+import { scopeHealthWords } from "@/lib/clients/scope-words"
+import { useClients } from "@/lib/queries/use-clients"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { useClientScope } from "./client-context"
@@ -29,7 +29,6 @@ function useContextHealth() {
   // business and links to Listings.
   const clientId = useClientScope()
   const clients = useClients()
-  const org = useOrgHealth(business ? "business" : "agency")
 
   const scoped =
     clientId && !business
@@ -42,16 +41,17 @@ function useContextHealth() {
   // reach, and an operator acting on stale counts would double-reply.
   const stale = clients.isError && clients.data !== undefined
 
-  const tone = stale
-    ? "attention"
-    : scoped
-      ? healthTone(scoped.health)
-      : org.tone
-  const label = stale
-    ? "Data may be stale"
-    : scoped
-      ? healthLabel(scoped.health)
-      : org.label
+  // The same words as the scope control (lib/clients/scope-words.ts), so
+  // the More sheet and the announcer never disagree with the sidebar.
+  const { tone, words } = scopeHealthWords({
+    mode: business ? "business" : "agency",
+    client: scoped ?? null,
+    healths: clients.data
+      ? clients.data.items.map((client) => client.health)
+      : null,
+    stale,
+  })
+  const label = words ?? ""
   const href = business
     ? "/listings"
     : clientId

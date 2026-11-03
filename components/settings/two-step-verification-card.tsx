@@ -150,8 +150,9 @@ function AuthenticatorSetup({ enrollment }: { enrollment: MfaEnrollResponse }) {
         <a
           href={appHref}
           className={cn(
-            // Tinted, not solid: "Turn on" below stays the one primary.
-            buttonVariants({ variant: "tinted", size: "lg" }),
+            // Secondary, not solid: "Turn on" below stays the one primary,
+            // and no green tint, since nothing here goes to Google.
+            buttonVariants({ variant: "secondary", size: "lg" }),
             "w-full desk:order-2 desk:w-fit"
           )}
         >

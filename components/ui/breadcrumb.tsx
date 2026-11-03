@@ -46,7 +46,7 @@ function Breadcrumbs({
               className="flex min-w-0 items-center gap-1.5"
             >
               {index > 0 ? (
-                <span aria-hidden className="text-ink-faint">
+                <span aria-hidden className="text-ink-muted">
                   /
                 </span>
               ) : null}
@@ -63,7 +63,7 @@ function Breadcrumbs({
               ) : (
                 <Link
                   href={crumb.href}
-                  className="inline-flex min-h-6 items-center truncate rounded-(--np-radius-tag) whitespace-nowrap text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink hover:underline hover:underline-offset-3"
+                  className="inline-flex min-h-6 items-center truncate rounded-(--np-radius-tag) whitespace-nowrap text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-press hover:text-ink hover:underline hover:underline-offset-3"
                 >
                   {crumb.label}
                 </Link>

@@ -27,6 +27,7 @@ import { NmListDemo } from "@/app/design-system/nm-list-demo"
 import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
 import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
+import { PaginationDemo } from "@/app/design-system/pagination-demo"
 import { SettingsPatternsDemo } from "@/app/design-system/settings-patterns-demo"
 import { UxP02Demo } from "@/app/design-system/ux-p02-demo"
 import { UxP03Demo } from "@/app/design-system/ux-p03-demo"
@@ -65,6 +66,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { ChangeTrack } from "@/components/ui/change-track"
 import { ChartDataTable, ChartLegend } from "@/components/ui/chart"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ChipRow, FilterChip } from "@/components/ui/chip"
@@ -233,10 +235,11 @@ const SWATCH_GROUPS: Array<[string, Array<[string, string, string]>]> = [
   [
     "Accent",
     [
-      ["primary", "bg-primary", "Primary button, current marker"],
-      ["accent-hover", "bg-accent-hover", "Primary hover"],
-      ["accent-ink", "bg-accent-ink", "Selected text, links"],
-      ["accent-tint", "bg-accent-tint", "Selected background"],
+      ["primary", "bg-primary", "Primary button (ink), selection controls"],
+      ["send", "bg-send", "Send button: writes to Google"],
+      ["accent-hover", "bg-accent-hover", "Send hover"],
+      ["accent-ink", "bg-accent-ink", "Inline links"],
+      ["accent-tint", "bg-accent-tint", "Accent tag, selection tile"],
     ],
   ],
   [
@@ -680,10 +683,11 @@ export default function Page() {
           <div id="ds-controls" className="flex scroll-mt-4 flex-col gap-6">
             <Specimen
               title="Buttons"
-              note="One primary per surface. Pending keeps a readable label."
+              note="One primary per surface: ink saves here, green sends to Google. Pending keeps a readable label."
             >
               <Demo>
-                <Button>Publish to Google</Button>
+                <Button variant="send">Publish to Google</Button>
+                <Button>Save</Button>
                 <Button variant="secondary">Save draft</Button>
                 <Button variant="ghost">Cancel</Button>
                 <Button variant="danger">Delete from Google</Button>
@@ -702,13 +706,16 @@ export default function Page() {
                 <Button>Default</Button>
                 <Button size="lg">Large</Button>
                 <Button disabled>Disabled</Button>
+                <Button variant="send" disabled>
+                  Send disabled
+                </Button>
                 <Button
                   variant="secondary"
                   disabledReason="Save a draft that passes every check first."
                 >
                   Not ready (explains why)
                 </Button>
-                <Button variant="secondary" pending pendingLabel="Publishing…">
+                <Button variant="send" pending pendingLabel="Sending…">
                   Publish
                 </Button>
                 <PendingButtonDemo />
@@ -965,7 +972,7 @@ export default function Page() {
           <div id="ds-data" className="flex scroll-mt-4 flex-col gap-4">
             <Specimen
               title="Tables"
-              note="Labelled rows below 48rem of the table’s own width. Figures are mono and right-aligned."
+              note="A flat header with no band; the selected row is the neutral fill and a 3px ink edge. Figures are sans tabular and right-aligned. Labelled rows below 48rem of the table’s own width."
             >
               <Table surface responsive>
                 <caption className="sr-only">Locations, sample</caption>
@@ -1044,6 +1051,13 @@ export default function Page() {
                   )}
                 </TableBody>
               </Table>
+            </Specimen>
+
+            <Specimen
+              title="Pagination"
+              note="A paged table’s footer: the count and sort in words, then Previous and Next. Numbered pages only on desk tables past five pages. Lists that grow in place use Load more."
+            >
+              <PaginationDemo />
             </Specimen>
 
             <Specimen
@@ -1293,6 +1307,38 @@ export default function Page() {
                   ring. Under 520px of its own width the lifecycle turns
                   vertical.
                 </p>
+              </Demo>
+            </Specimen>
+            <Specimen
+              title="Change track"
+              note="Where a Google-bound change is: Saved here, Approved, Sent, On Google. Green only once Google confirms; compact form for table cells."
+            >
+              <Demo column>
+                {(
+                  [
+                    ["saved_locally", "Saved here"],
+                    ["awaiting_approval", "Awaiting approval"],
+                    ["awaiting_confirmation", "Waiting for Google"],
+                    ["failed", "Failed to send"],
+                    ["confirmed_applied", "On Google"],
+                  ] as const
+                ).map(([state, name]) => (
+                  <ChangeTrack
+                    key={state}
+                    state={state}
+                    aria-label={`Change track, ${name}`}
+                  />
+                ))}
+                <ChangeTrack
+                  state="sent"
+                  approval="skipped"
+                  aria-label="Change track, sent without approval"
+                />
+                <ChangeTrack
+                  state="awaiting_confirmation"
+                  compact
+                  aria-label="Change track, compact"
+                />
               </Demo>
             </Specimen>
             <Specimen

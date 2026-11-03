@@ -809,7 +809,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                           aria-hidden
                           className="flex size-3.5 shrink-0 items-center justify-center"
                         >
-                          <span className="size-1 rounded-(--np-radius-pill) bg-ink-faint" />
+                          <span className="size-1 rounded-(--np-radius-pill) bg-ink-muted" />
                         </span>
                       )}
                       {item.label}

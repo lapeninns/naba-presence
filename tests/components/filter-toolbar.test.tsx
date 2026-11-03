@@ -225,8 +225,9 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
       "rounded-(--np-radius-pill)",
       "size-(--np-control-h)"
     )
-    expect(button.querySelector("svg")).toHaveClass("text-accent-ink")
+    expect(button.querySelector("svg")).not.toHaveClass("text-accent-ink")
     const badge = button.querySelector('[data-slot="filter-button-count"]')
+    expect(badge).toHaveClass("bg-ink", "text-ink-inverse")
     expect(badge).toHaveAttribute("aria-hidden", "true")
     expect(badge).toHaveTextContent("1")
     expect(badge).toHaveClass("text-count", "tabular-nums")

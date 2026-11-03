@@ -1,6 +1,6 @@
 # NabaPresence redesign 2026-11 — Mission
 
-Status (2026-11-03 08:05, orchestrator): **A and B merged; C2 shell merged; C1 system partly done (branch `redesign-2026-11/c-system`, WIP head `910e3afc`); D-G not started.** Skeleton written by worker `a-inventory`. Integration branch: `redesign-2026-11/integration` (one bundled PR). Base: `origin/main` `367719b3`.
+Status (2026-11-03 10:10, orchestrator): **A, B, C2 shell and the vocabulary fixes merged (`c281ba68`). Resumed on the repaired pool: worker `c-system` (branch `redesign-2026-11/c-system-3` from `cacce14b`, primitives) and worker `d-outbox` (branch `redesign-2026-11/d-outbox-2` from `70f67ab7`, Outbox read model/API/page). Screen slices (E) follow once primitives land.**A and B merged; C2 shell merged; C1 system partly done (branch `redesign-2026-11/c-system`, WIP head `910e3afc`); D-G not started.** Skeleton written by worker `a-inventory`. Integration branch: `redesign-2026-11/integration` (one bundled PR). Base: `origin/main` `367719b3`.
 
 ## Scope
 
@@ -255,6 +255,7 @@ A row is done only when every applicable column is `done`.
 | O03 | Fixture tenant has one client and no reachable share-report / disconnect dialog states in nm-capture | 3 interaction states uncaptured before and after | Add a second fixture client and fix the capture state scripts in a QA slice |
 | O04 | 2026-11-03 08:3x: Outbox agent (session 6a624bb7) failed twice with `model_request_rejected` from the model provider | Outbox page/API unfinished; WIP committed on `redesign-2026-11/d-outbox`; S1/S2 fix committed `6f269f47` (unrendered) | Owner checks provider/account; then resume the same agent. Not retried further |
 | O05 | 2026-11-03 ~08:50: design-system agent (session 6de2e253) also failed with `model_request_rejected` | Primitives (StatusPill, ChangeTrack, ActionBar split) and remaining SYSTEM waves unfinished; verified commits `59c74a09`, `a5bbe239` (vocabulary, 13/14 fixes, pnpm test 10203 pass); WIP `wip(ui)` on `redesign-2026-11/c-system-2` unverified | Same as O04: owner checks provider; resume same agent |
+| O06 | 2026-11-03 10:10: repaired supervised pool accepted both starts (team3 `worker-1d911ad5`, team4 `worker-19a4541b`) | O02/O04/O05 superseded for these two tasks | Monitor; one worker per slot |
 | O02 | 2026-11-03 07:56-07:58: two worker starts (team8, team2) returned "delivery not confirmed"; no worktree or branch was created | c-system completion and later slices not delegated | Not retried further; re-check scheduler, then one start per slot |
 
 ## Open defects
@@ -264,7 +265,7 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | Defect | Route (INVENTORY id) | Severity | Status |
 | --- | --- | --- | --- |
 | D01–D30 | see BASELINE §5.1 | 2 high, 14 medium, 14 low | open (code-verified at 367719b3) |
-| S1 | Shell rail at 844x390 landscape cuts off Team/Settings | medium | fix merged `6f269f47`; at `c281ba68` account stays visible but Settings is still clipped in the static shot. Scroll reachability not yet verified (needs an interaction check) |
+| S1 | Shell rail at 844x390 landscape cuts off Team/Settings | medium | fix merged `6f269f47`; at `c281ba68` account stays visible but Settings is still clipped in the static shot. **Resolved:** interaction check at `c281ba68` (Chromium, touch) scrolls Settings into view and navigates to /settings at 844x390, 1024x600, 768x500 (`evidence/controller/rail-reach-c281ba68/rail-reach.json`, script `check-rail-reach.mjs`) |
 | S2 | Tablet scope pill truncates "All clients" at 768 despite free width | low | fixed, verified in render `shell-matrix-c281ba68/w768x1024/listings.png` |
 | S3 | Scope health words differ by size: tablet pill "Some clients need checking", desktop sidebar "1 client needs attention" for the same data | low | open (`shell-matrix-c281ba68/w768x1024`, `after-c281ba68/desktop/state--inbox-selected`) |
 | T1 | `tests/components/sign-in-recovery.test.tsx` "clears the last answer on a new attempt" failed once in full `pnpm test` at `c281ba68`; passed 3/3 in isolation; files untouched by the redesign | low (flaky) | open, watch in final gate |
@@ -277,7 +278,7 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | Base checks (install, verify, build, design ratchet) | BASELINE §1; logs `test-results/a-inventory/*.log` in the a-inventory worktree (to be copied to `2026-11-redesign/evidence/a-inventory/`) | done |
 | Inventory sweep parts and audit re-check JSON | `test-results/a-inventory/parts/` (same) | done |
 | Before-captures 367719b3 (phone/tablet/desktop light 225 shots, phone/desktop dark 298 incl. light pairs, shell matrix 95) | `2026-11-redesign/evidence/controller/{after-before,after-before-367719b3-dark,shell-matrix-before}-367719b3/` + manifests (orchestrator, detached worktree `before-wt`, Chromium) | done; states not reached: share-report dialog, disconnect dialog, client switcher (fixture has 1 client) |
-| Curated before webp (34) | `docs/redesign/2026-11/evidence/before/` (list: `tests/visual/nm-capture-before.curated.txt`) | **blocked** |
+| Curated before webp (34) | `docs/redesign/2026-11/evidence/before/<viewport>--<shot>.webp` (list: `tests/visual/nm-capture-before.curated.txt`; from the 367719b3 captures, cropped to 1800-2400px tall) | done; `desktop--state--share-report-dialog` shows the page only (state not reached, O03) |
 | Agentic journeys desktop and mobile at 367719b3 | `before-367719b3/agentic-{desktop,mobile}/` | **blocked** (port binding; e2e runner `CONFIG_LOAD_FAILED`) |
 | After-captures integration `dd1d209a` (A+B+C2): shell matrix 17 sizes x 6 shots; every route phone/tablet/desktop light (225 shots); phone/desktop dark | `2026-11-redesign/evidence/controller/{shell-matrix,after,after-dd1d209a-dark}-dd1d209a/` + manifests; script `evidence/controller/capture-integration.sh` | done (Chromium, touch <1024, mouse >=1024; states not reached: client-switcher (1 client), share-report dialog, disconnect dialog; More sheet at >=768 expected absent) |
 | Integration `c281ba68` (A+B+C2 + vocabulary + S1/S2 fixes): static checks all exit 0; `pnpm test` 10206 pass / 1 fail (T1); captures 95 + 225 + 298 shots, console errors only on the deliberate 404/invalid-code routes | `2026-11-redesign/evidence/controller/*-c281ba68*` | done (Chromium) |

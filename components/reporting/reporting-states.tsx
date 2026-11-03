@@ -79,7 +79,6 @@ export function ReportingPanel({
   action,
   titleAs = "p",
   placement = "inline",
-  illustration,
 }: {
   variant: PanelVariant
   title?: string
@@ -110,12 +109,6 @@ export function ReportingPanel({
    * `inline`.
    */
   placement?: "inline" | "page"
-  /**
-   * A line drawing in place of the glyph (`<EmptyIllustration … />`), only
-   * where the drawing names the real reason (a filter or lookup that found
-   * nothing draws "search").
-   */
-  illustration?: React.ReactNode
 }) {
   if (variant === "loading") {
     // The shared pending state: a named, announced wait when a caller says
@@ -150,7 +143,6 @@ export function ReportingPanel({
       description={description ?? copy.description}
       action={action}
       placement={placement}
-      illustration={illustration}
     />
   )
   if (!framed) return empty

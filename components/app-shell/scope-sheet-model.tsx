@@ -5,18 +5,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { toast } from "@/components/ui/toast"
-import {
-  healthLabel,
-  healthTone,
-  summariseHealth,
-  type HealthTone,
-} from "@/lib/clients/health"
+import { healthLabel, type HealthTone } from "@/lib/clients/health"
 import {
   clientPageKind,
   clientSwitchTarget,
   currentClientId,
 } from "@/lib/clients/scope"
-import { listingCountWords } from "@/lib/clients/scope-words"
+import { listingCountWords, scopeHealthWords } from "@/lib/clients/scope-words"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import type { SessionResponse } from "@/lib/contracts/session"
 import { guardNavigation } from "@/lib/editors/use-leave-guard"
@@ -482,27 +477,20 @@ export function useScopeControl(
   const items = clients.data?.items ?? []
   const stale = clients.isError && clients.data !== undefined
   const business = mode === "business"
-  const roll = summariseHealth(
-    items.map((client) => client.health),
-    business ? "business" : "agency"
-  )
+  const shared = scopeHealthWords({
+    mode,
+    client: scope.client,
+    healths: clients.data ? items.map((client) => client.health) : null,
+    stale,
+  })
 
-  let tone: HealthTone
-  let health: string | null
-  if (business && scope.location) {
+  let tone: HealthTone = shared.tone
+  let health: string | null = shared.words
+  // A business narrowed to one location says that location's own state.
+  if (business && scope.location && !stale) {
     const words = locationStatusWords(scope.location)
     tone = words ? "attention" : "neutral"
     health = words
-  } else if (scope.client) {
-    tone = healthTone(scope.client.health)
-    health = healthLabel(scope.client.health)
-  } else {
-    tone = roll.tone
-    health = clients.data ? roll.label : null
-  }
-  if (stale) {
-    tone = "attention"
-    health = "Data may be stale"
   }
 
   const title = business ? (organisationName ?? "All locations") : scope.label

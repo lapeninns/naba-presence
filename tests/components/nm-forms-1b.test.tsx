@@ -67,10 +67,15 @@ describe("Progress status word", () => {
     expect(bar).toHaveAttribute("aria-valuetext", "Waiting for Google")
     expect(bar).not.toHaveAttribute("aria-valuenow")
     expect(bar).toHaveAttribute("data-indeterminate")
-    // The travelling highlight stops under reduced motion.
-    expect(bar.querySelector(".animate-shimmer")?.className).toContain(
+    // No travelling highlight: the fill pulses, and stills under reduced
+    // motion (SYSTEM §12).
+    const fill = bar.querySelector('[data-slot="progress-indicator"]')
+    expect(fill).toHaveClass(
+      "w-full",
+      "motion-safe:animate-pulse",
       "motion-reduce:animate-none"
     )
+    expect(bar.innerHTML).not.toMatch(/shimmer/)
   })
 
   it("keeps the old markup when there is no status", () => {
@@ -127,9 +132,7 @@ describe("ValidationSummary onNavigate", () => {
     render(<Demo />)
     expect(screen.queryByLabelText("Opens at")).toBeNull()
     fireEvent.click(screen.getByRole("link", { name: "Add an opening time" }))
-    await waitFor(() =>
-      expect(screen.getByLabelText("Opens at")).toHaveFocus()
-    )
+    await waitFor(() => expect(screen.getByLabelText("Opens at")).toHaveFocus())
     expect(calls).toEqual(["late"])
   })
 

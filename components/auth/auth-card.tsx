@@ -242,7 +242,7 @@ function AuthCard({
             {mark ? (
               <span
                 aria-hidden
-                className="mb-1 grid size-11 place-items-center rounded-lg bg-accent-tint text-accent-ink [&_svg]:size-5"
+                className="mb-1 grid size-11 place-items-center rounded-lg bg-fill text-ink [&_svg]:size-5"
               >
                 {mark}
               </span>

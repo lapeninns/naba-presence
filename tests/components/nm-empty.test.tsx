@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
 import { Button } from "@/components/ui/button"
-import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { Empty } from "@/components/ui/empty"
 
 const root = (container: HTMLElement) =>
   container.querySelector('[data-slot="empty"]') as HTMLElement
@@ -27,44 +27,20 @@ describe("Empty (NM restyle)", () => {
     expect(description.className).toContain("text-ink-muted")
   })
 
-  it("draws an illustration in place of the glyph, hidden from assistive tech", () => {
+  it("has no illustration slot: the glyph is the only mark (SYSTEM §12)", () => {
     const { container } = render(
-      <Empty
-        variant="error"
-        title="Nothing matched"
-        illustration={<EmptyIllustration name="search" />}
-      />
+      <Empty variant="error" title="Nothing matched" />
     )
-    const slot = container.querySelector(
-      '[data-slot="empty-illustration"]'
-    ) as HTMLElement
-    expect(slot).toHaveAttribute("aria-hidden")
-    // 112px (inside the 96–120px band), in the ink.
-    expect(slot.className).toContain("size-28")
-    expect(slot.className).toContain("text-ink")
-    // The illustration replaces the variant's glyph mark.
-    expect(root(container).querySelector(".lucide-circle-alert")).toBeNull()
+    expect(
+      container.querySelector('[data-slot="empty-illustration"]')
+    ).toBeNull()
+    // One bare glyph, at 20px, not a 112px drawing.
+    const icon = container.querySelector('[data-slot="empty-icon"]')
+    expect(icon?.className).toContain("[&_svg]:size-5")
+    expect(root(container).querySelector(".lucide-circle-alert")).not.toBeNull()
   })
 
-  it.each(["inbox-zero", "search"] as const)(
-    "draws the %s illustration as 1.5 currentColor strokes, no fills",
-    (name) => {
-      const { container } = render(<EmptyIllustration name={name} />)
-      const svg = container.querySelector("svg")!
-      expect(svg).toHaveAttribute("data-name", name)
-      expect(svg).toHaveAttribute("aria-hidden")
-      expect(svg).toHaveAttribute("stroke", "currentColor")
-      expect(svg).toHaveAttribute("stroke-width", "1.5")
-      expect(svg).toHaveAttribute("fill", "none")
-      // No literal colour anywhere in the drawing.
-      expect(svg.outerHTML).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(/i)
-      for (const shape of svg.querySelectorAll("path, circle")) {
-        expect(shape).toHaveAttribute("vector-effect", "non-scaling-stroke")
-      }
-    }
-  )
-
-  it("still draws a variant's glyph mark without an illustration", () => {
+  it("draws a variant's glyph mark", () => {
     const { container } = render(<Empty variant="forbidden" title="Hidden" />)
     expect(root(container).querySelector(".lucide-lock")).not.toBeNull()
     expect(

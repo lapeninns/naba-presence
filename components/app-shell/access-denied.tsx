@@ -41,11 +41,19 @@ import { roleExplanation, ROLE_LABEL } from "./account-menu"
 function AccessDenied({
   area,
   whoCanHelp = "an owner or admin",
+  whoCanOpen = whoCanHelp,
   whoCanGrant = "Owners and admins",
 }: {
   /** What they tried to reach, in the product's own words. */
   area: string
+  /** Who to ask for access: "Ask {whoCanHelp} in your agency". */
   whoCanHelp?: string
+  /**
+   * Who can open the page, when that is wider than who can grant it: Outbox
+   * is open to "an owner, admin or member", yet only "an owner or admin"
+   * can help. Defaults to `whoCanHelp`.
+   */
+  whoCanOpen?: string
   /**
    * Who can change your role so you can open it (opt-in; the default suits
    * any page an admin can open). Billing passes "Owners": only an owner can
@@ -64,12 +72,12 @@ function AccessDenied({
         placement="inline"
         icon={<Lock />}
         title="You don’t have access to this page"
-        description={`${area} is limited to ${whoCanHelp}. Ask ${whoCanHelp} in your ${orgLower} if you need it.`}
+        description={`${area} is limited to ${whoCanOpen}. Ask ${whoCanHelp} in your ${orgLower} if you need it.`}
         action={<AccessActions area={area} whoCanHelp={whoCanHelp} />}
       />
       <SignedInAccess
         area={area}
-        whoCanHelp={whoCanHelp}
+        whoCanOpen={whoCanOpen}
         whoCanGrant={whoCanGrant}
       />
       <AccessSupportDetails />
@@ -214,7 +222,7 @@ function AccessSupportDetails() {
  */
 function SignedInAccess(props: {
   area: string
-  whoCanHelp: string
+  whoCanOpen: string
   whoCanGrant: string
 }) {
   const client = React.useContext(QueryClientContext)
@@ -224,11 +232,11 @@ function SignedInAccess(props: {
 
 function SignedInAccessCards({
   area,
-  whoCanHelp,
+  whoCanOpen,
   whoCanGrant,
 }: {
   area: string
-  whoCanHelp: string
+  whoCanOpen: string
   whoCanGrant: string
 }) {
   const session = useSession().data?.session
@@ -244,7 +252,7 @@ function SignedInAccessCards({
             { term: "Page you asked for", value: area },
             {
               term: "Who can open it",
-              value: whoCanHelp
+              value: whoCanOpen
                 .replace(/^an? /, "")
                 .replace(/^\w/, (c) => c.toUpperCase()),
             },

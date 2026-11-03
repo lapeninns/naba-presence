@@ -22,8 +22,9 @@ import { cn } from "@/lib/utils"
  * cmdk owns the listbox semantics, the filtering and the arrow-key roving
  * focus; this file supplies the chrome (reference `.palette`): a 620px
  * panel 12vh from the top, a borderless title-size search row over a
- * hairline, sentence-case group labels (D8), rows that take the accent tint
- * when selected, and an optional footer of key hints (`footer` /
+ * hairline, sentence-case group labels (D8), rows that take the menu's
+ * `bg-fill` highlight when selected (not the accent tint: a highlight is
+ * where the keys are, not a choice), and an optional footer of key hints (`footer` /
  * `CommandFooter`). The dialog keeps a real title and description, visually
  * hidden — a dialog with no accessible name is announced as an unnamed
  * region, which is precisely the state a keyboard user lands in when they
@@ -287,10 +288,11 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "flex min-h-9 cursor-default items-center gap-2.5 rounded-(--np-radius-control) px-3 py-2 text-body text-ink outline-none select-none pointer-coarse:min-h-(--np-touch) [&_svg]:text-ink-muted data-[selected=true]:[&_svg]:text-accent-ink",
-        "transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy",
-        "data-[selected=true]:bg-accent-tint data-[selected=true]:text-accent-ink",
-        "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
+        "flex min-h-9 cursor-default items-center gap-2.5 rounded-(--np-radius-control) px-3 py-2 text-body text-ink outline-none select-none pointer-coarse:min-h-(--np-touch) [&_svg]:text-ink-muted data-[selected=true]:[&_svg]:text-ink",
+        "transition-[background-color,color] duration-(--np-duration-fast) ease-press",
+        "data-[selected=true]:bg-fill data-[selected=true]:text-ink",
+        // Disabled is drawn in the disabled ink, never faded.
+        "data-[disabled=true]:pointer-events-none data-[disabled=true]:text-disabled-ink",
         "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}

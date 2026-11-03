@@ -185,7 +185,11 @@ function GroupedListItem({
           aria-hidden
           className={cn(
             "flex size-5 shrink-0 items-center justify-center [&_svg]:size-4 [&_svg]:[stroke-width:1.75]",
-            tone === "danger" ? "text-danger-ink" : "text-ink-muted"
+            disabled
+              ? "text-disabled-ink"
+              : tone === "danger"
+                ? "text-danger-ink"
+                : "text-ink-muted"
           )}
         >
           {icon}
@@ -195,7 +199,11 @@ function GroupedListItem({
         <span
           className={cn(
             "text-body [overflow-wrap:anywhere]",
-            tone === "danger" ? "text-danger-ink" : "text-ink"
+            disabled
+              ? "text-disabled-ink"
+              : tone === "danger"
+                ? "text-danger-ink"
+                : "text-ink"
           )}
         >
           {label}
@@ -216,7 +224,7 @@ function GroupedListItem({
         <ChevronRight
           aria-hidden
           strokeWidth={1.75}
-          className="size-4 shrink-0 text-ink-faint"
+          className="size-4 shrink-0 text-ink-muted"
         />
       ) : null}
     </>
@@ -225,8 +233,10 @@ function GroupedListItem({
   const rowClass = cn(
     "flex min-h-(--np-row-h) w-full items-center gap-3 px-(--np-card-pad) py-2 text-left max-sm:flex-wrap",
     interactive &&
-      "focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none active:bg-fill hover-fine:hover:bg-surface-alt",
-    disabled && "pointer-events-none opacity-50",
+      "focus-ring-inset transition-colors duration-(--np-duration-fast) ease-press outline-none active:bg-fill hover-fine:hover:bg-surface-alt",
+    // Disabled is drawn, never faded: the label and icon take the disabled
+    // ink (above); the description and value are already muted.
+    disabled && "pointer-events-none",
     className
   )
 

@@ -12,7 +12,7 @@ import { pageWorkspaceMode } from "./helpers/workspace-mode"
  * name ("Working on <scope>, <listings> · <health>") and the More sheet.
  */
 const HEALTH_WORDS =
-  /All (?:clients )?in sync|clients? needs? (?:action|attention)|Some (?:clients|listings) need checking|Changes to publish|Importing(?: reviews)?|No clients yet|Not connected yet|Needs action|Needs attention|In sync|Not checked|Some listings not checked yet|Can’t reach Google|Not set up|Not linked|Not verified|Data may be stale/
+  /All (?:clients )?in sync|clients? needs? (?:action|attention|checking)|Some listings need checking|Changes to publish|Importing(?: reviews)?|No clients yet|Not connected yet|Needs action|Needs attention|In sync|Not checked|Some listings not checked yet|Can’t reach Google|Not set up|Not linked|Not verified|Data may be stale/
 
 /** The scope control's accessible name, with its health words after the scope. */
 const SCOPE_NAME = new RegExp(`^Working on .+, .*(?:${HEALTH_WORDS.source})`)

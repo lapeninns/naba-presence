@@ -67,8 +67,14 @@ describe("buttonVariants", () => {
     for (const variant of variants) {
       const classes = buttonVariants({ variant }).split(" ")
       expect(classes.some((c) => c.includes("opacity"))).toBe(false)
-      if (variant === "ghost-dark") {
-        expect(classes).toContain(`${DISABLED}text-ink-muted-on-charcoal`)
+      if (variant === "ghost-dark" || variant === "on-dark") {
+        // The charcoal-bar variants are drawn on the lifted charcoal, like a
+        // disabled send there; no alpha edge.
+        expect(classes).toContain(`${DISABLED}bg-disabled-on-charcoal`)
+        expect(classes).toContain(`${DISABLED}text-disabled-on-charcoal-ink`)
+        expect(classes.some((c) => /^drawn-disabled:.*\/\d+$/.test(c))).toBe(
+          false
+        )
       } else {
         expect(classes).toContain(`${DISABLED}text-disabled-ink`)
       }
@@ -80,7 +86,6 @@ describe("buttonVariants", () => {
       "default",
       "tinted",
       "danger",
-      "on-dark",
       "secondary",
       "outline",
       "danger-outline",

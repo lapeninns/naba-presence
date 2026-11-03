@@ -99,8 +99,8 @@ const segmentedItemClassName = cn(
   // whole track height is tappable, at the desk as on touch. It stays inside the
   // track's padding box, so the scroll container never clips it.
   "after:absolute after:inset-x-0 after:-inset-y-(--np-segment-inset)",
-  "transition-[color,background-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
-  "hover:text-ink",
+  "transition-[color,background-color,box-shadow] duration-(--np-duration-fast) ease-press",
+  "hover-fine:hover:text-ink",
   // Written out in full, not built from a helper: Tailwind only generates
   // classes it can read literally in the source.
   // Selected: the thumb (the non-colour cue) and 600 ink.
@@ -108,7 +108,9 @@ const segmentedItemClassName = cn(
   "data-active:bg-surface data-active:font-semibold data-active:text-ink data-active:shadow-np-raised",
   "data-checked:bg-surface data-checked:font-semibold data-checked:text-ink data-checked:shadow-np-raised",
   "data-pressed:bg-surface data-pressed:font-semibold data-pressed:text-ink data-pressed:shadow-np-raised",
-  "disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50",
+  // Disabled: the disabled ink, never faded. A selected segment keeps its
+  // thumb, so a locked value still reads as the chosen one.
+  "disabled:pointer-events-none data-disabled:pointer-events-none drawn-disabled:text-disabled-ink",
   "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
 )
 

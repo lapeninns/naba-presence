@@ -984,6 +984,8 @@ function AddLinkForm({
         visible={uri.trim() !== "" && (!disabled || workflow.busy)}
         status="Ready to review. Nothing is sent to Google yet."
         actions={
+          // Preparing the review writes nothing to Google, so it is the light
+          // on-charcoal button; the send fill waits for the approved send.
           <Button
             type="submit"
             variant="on-dark"

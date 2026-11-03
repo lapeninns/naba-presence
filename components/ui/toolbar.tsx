@@ -300,8 +300,8 @@ function Toolbar({
 
 /**
  * The Filter button: a 44px circle (36px on a desk) on `fill-secondary`.
- * With filters active the icon turns `accent-ink`, a count badge appears,
- * and the name says how many ("Filters, 3 active"), so the state is never
+ * With filters active an ink count badge appears (as the nav counts; the
+ * accent is kept for sending), and the name says how many ("Filters, 3 active"), so the state is never
  * colour alone. Pass it as a sheet trigger's `render` element to open the
  * filter sheet.
  */
@@ -332,15 +332,12 @@ function FilterButton({
       )}
       {...props}
     >
-      <ListFilterIcon
-        aria-hidden
-        className={cn("size-5", active ? "text-accent-ink" : "text-ink")}
-      />
+      <ListFilterIcon aria-hidden className="size-5 text-ink" />
       {active ? (
         <span
           aria-hidden
           data-slot="filter-button-count"
-          className="absolute -end-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-(--np-radius-pill) bg-accent-solid px-1 text-count leading-none font-semibold text-ink-on-accent tabular-nums"
+          className="absolute -end-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-(--np-radius-pill) bg-ink px-1 text-count leading-none font-semibold text-ink-inverse tabular-nums"
         >
           {count}
         </span>

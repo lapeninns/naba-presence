@@ -30,13 +30,16 @@ function RadioGroup<Value>({
 /**
  * The 18px ring (reference `.radio`): selected, the ring thickens to 5px
  * accent. Positioned, so a caller can hang a hit area on it; the bare ring
- * has none (ChoiceCard and labelled radios are targets already).
+ * has none (ChoiceCard and labelled radios are targets already). Disabled
+ * is drawn, never faded: the ring sinks to the disabled fill and edge, and a
+ * selected one keeps its thick ring in the disabled ink, so it still reads
+ * as the choice.
  */
 export const radioClassName = cn(
   "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-(--np-radius-pill) border-[1.5px] border-line-strong bg-(--np-field-bg) focus-halo",
-  "transition-[border-color,border-width] duration-(--np-duration-fast) ease-spring-snappy",
+  "transition-[border-color,border-width] duration-(--np-duration-fast) ease-press",
   "data-checked:border-[5px] data-checked:border-primary",
-  "data-disabled:cursor-not-allowed data-disabled:opacity-50",
+  "data-disabled:cursor-not-allowed data-disabled:border-disabled-line data-disabled:bg-disabled data-disabled:data-checked:border-disabled-ink",
   "aria-invalid:border-danger-ink"
 )
 

@@ -286,7 +286,7 @@ function SignInForm({
         <div className="flex flex-col gap-2">
           <span
             aria-hidden
-            className="mb-1 grid size-11 place-items-center rounded-lg bg-accent-tint text-accent-ink"
+            className="mb-1 grid size-11 place-items-center rounded-lg bg-fill text-ink"
           >
             <Mail className="size-5" strokeWidth={1.75} />
           </span>
