@@ -185,14 +185,18 @@ describe("FilterButton", () => {
     expect(onClick).toHaveBeenCalled()
   })
 
-  it("says how many filters are active and tints the icon", () => {
+  it("says how many filters are active with an ink count, never the accent", () => {
     render(<FilterButton count={3} />)
     const button = screen.getByRole("button", { name: "Filters, 3 active" })
     expect(button).toHaveAttribute("data-active")
     expect(button.querySelector("svg")!.getAttribute("class")).toContain(
-      "text-accent-ink"
+      "text-ink"
+    )
+    expect(button.querySelector("svg")!.getAttribute("class")).not.toContain(
+      "accent"
     )
     const badge = button.querySelector('[data-slot="filter-button-count"]')!
+    expect(badge).toHaveClass("bg-ink", "text-ink-inverse")
     expect(badge).toHaveTextContent("3")
     expect(badge).toHaveAttribute("aria-hidden", "true")
   })

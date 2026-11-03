@@ -560,9 +560,10 @@ describe("PolicyForm", () => {
       })
     )
     await chooseRetention("7 days")
-    expect(
-      screen.getByRole("region", { name: "Save reply policy" })
-    ).toHaveTextContent("2 unsaved changes · Second approver, Review text")
+    // The save bar: the count as its headline, the change list below it.
+    const bar = screen.getByRole("region", { name: "Save reply policy" })
+    expect(bar).toHaveTextContent("2 unsaved changes")
+    expect(bar).toHaveTextContent("Second approver, Review text")
   })
 
   describe("while billing holds the workspace read-only", () => {
@@ -827,7 +828,8 @@ describe("PolicyForm", () => {
       expect(nameField()).toHaveValue("Acme Reviews")
       fireEvent.change(nameField(), { target: { value: "  Acme Local " } })
       const bar = screen.getByRole("region", { name: "Save reply policy" })
-      expect(bar).toHaveTextContent("1 unsaved change · Agency name")
+      expect(bar).toHaveTextContent("1 unsaved change")
+      expect(bar).toHaveTextContent("Agency name")
       fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
       await waitFor(() => expect(renameMock).toHaveBeenCalledWith("Acme Local"))
       expect(saveSettingsMock).not.toHaveBeenCalled()
@@ -849,9 +851,9 @@ describe("PolicyForm", () => {
       renderForm("owner")
       fireEvent.change(nameField(), { target: { value: "Acme Local" } })
       await chooseRetention("7 days")
-      expect(
-        screen.getByRole("region", { name: "Save reply policy" })
-      ).toHaveTextContent("2 unsaved changes · Agency name, Review text")
+      const bar = screen.getByRole("region", { name: "Save reply policy" })
+      expect(bar).toHaveTextContent("2 unsaved changes")
+      expect(bar).toHaveTextContent("Agency name, Review text")
       fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
       await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledTimes(1))
       expect(saveSettingsMock.mock.calls[0][0]).toEqual({

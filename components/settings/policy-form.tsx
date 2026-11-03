@@ -24,12 +24,12 @@
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CircleAlert, Eye, PenLine } from "lucide-react"
+import { Eye } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { z } from "zod"
 
-import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
+import { SaveBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -830,7 +830,9 @@ export function PolicyForm({ role }: { role: string | null }) {
         </Field>
       </SettingsSection>
 
-      <ActionBar
+      {/* A local save that never reaches Google: the surface save bar, as
+          Client details has it. */}
+      <SaveBar
         label="Save reply policy"
         // Only while there is something to save, a save on its way or a
         // refused save (`showBar`). Docked to a phone's bottom edge (the
@@ -838,9 +840,6 @@ export function PolicyForm({ role }: { role: string | null }) {
         // riding above the on-screen keyboard; stuck to the foot of the
         // form on a desk.
         dock
-        // A local save that never reaches Google: the light bar, as Client
-        // details and the setup wizard have it.
-        tone="surface"
         // The status (what changed, a reason Save is disabled, or why a
         // save was refused) gets its own row on a phone rather than being
         // clamped beside the buttons, where "1 unsaved change · Agency
@@ -848,38 +847,11 @@ export function PolicyForm({ role }: { role: string | null }) {
         statusRow
         visible={showBar}
         offset="md:bottom-3"
-        status={
-          barError && !saving ? (
-            <>
-              <CircleAlert aria-hidden />
-              <span>
-                <strong className="font-semibold">Not saved</strong> ·{" "}
-                <ActionBarMuted>
-                  {barError} Your edits are still here.
-                </ActionBarMuted>
-              </span>
-            </>
-          ) : (
-            <>
-              <PenLine aria-hidden />
-              <span>
-                <strong className="font-semibold">
-                  {saving
-                    ? "Saving"
-                    : `${changed.length} unsaved ${changed.length === 1 ? "change" : "changes"}`}
-                </strong>
-                {changed.length > 0 ? (
-                  <>
-                    {" "}
-                    ·{" "}
-                    <ActionBarMuted>
-                      {saveBlockedReason ?? changed.join(", ")}
-                    </ActionBarMuted>
-                  </>
-                ) : null}
-              </span>
-            </>
-          )
+        count={changed.length}
+        saving={saving}
+        error={barError ? `${barError} Your edits are still here.` : undefined}
+        detail={
+          changed.length > 0 ? (saveBlockedReason ?? changed.join(", ")) : null
         }
         actions={
           <>

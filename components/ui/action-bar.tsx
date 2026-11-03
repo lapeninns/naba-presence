@@ -239,7 +239,7 @@ function warnInkOnCharcoal(primary: React.ReactNode) {
   const variant = primary.props.variant ?? "default"
   if (variant === "default")
     console.error(
-      "ActionBar: an ink (default) button cannot be the primary of a charcoal dispatch bar. Use variant=\"send\" for a Google write, or a surface SaveBar for a local save."
+      'ActionBar: an ink (default) button cannot be the primary of a charcoal dispatch bar. Use variant="send" for a Google write, or a surface SaveBar for a local save.'
     )
 }
 
@@ -315,33 +315,53 @@ function DispatchBar({
  *   count    unsaved changes, for "N unsaved changes"; omit for "Unsaved
  *            changes".
  *   title    overrides the headline.
- *   detail   overrides the sub-line ("Saved in NabaPresence only").
+ *   detail   overrides the sub-line ("Saving keeps them in NabaPresence
+ *            only"): what changed, or why Save is unavailable.
+ *   saving   a save is on its way: the headline reads "Saving…".
+ *   error    a refused save, in words: the headline reads "Not saved" with
+ *            the danger glyph, and this is the sub-line.
  */
 function SaveBar({
   count,
   title,
   detail = "Saving keeps them in NabaPresence only",
+  saving = false,
+  error,
   label = "Save changes",
   ...props
 }: BarProps & {
   count?: number
   title?: React.ReactNode
   detail?: React.ReactNode
+  saving?: boolean
+  error?: React.ReactNode
 }) {
   const unsaved = describeOutcome("unsaved")
+  const failed = Boolean(error) && !saving
   return (
     <ActionBar
       tone="surface"
       label={label}
-      data-state="unsaved"
+      data-state={failed ? "failed" : "unsaved"}
       status={
         <>
-          <StatusGlyph glyph={unsaved.glyph} className="text-ink-muted" />
+          <StatusGlyph
+            glyph={failed ? "triangle-alert" : unsaved.glyph}
+            className={failed ? "text-danger-ink" : "text-ink-muted"}
+          />
           <span className="flex min-w-0 flex-col">
             <span className="font-semibold">
-              {title ?? statusText(unsaved.title, { n: count })}
+              {failed
+                ? "Not saved"
+                : saving
+                  ? "Saving…"
+                  : (title ?? statusText(unsaved.title, { n: count }))}
             </span>
-            {detail ? <ActionBarMuted>{detail}</ActionBarMuted> : null}
+            {failed ? (
+              <ActionBarMuted>{error}</ActionBarMuted>
+            ) : detail ? (
+              <ActionBarMuted>{detail}</ActionBarMuted>
+            ) : null}
           </span>
         </>
       }
