@@ -10,7 +10,8 @@ import {
   SERVICE_UNAVAILABLE_COPY,
 } from "@/lib/errors/action-errors"
 
-const api = (status: number, code: string) => new ApiClientError(status, code, "raw server message")
+const api = (status: number, code: string) =>
+  new ApiClientError(status, code, "raw server message")
 
 /** Every code in the table maps to plain copy that never echoes the code. */
 function expectMapped(cases: Array<[string, number, RegExp]>) {
@@ -32,16 +33,18 @@ describe("describeActionError — merged map", () => {
   })
 
   it("switches the two approval codes to post wording with context: post", () => {
-    expect(describeActionError(api(403, "second_approver_required"), { context: "post" })).toBe(
-      "A different authorised user must approve this post."
-    )
-    expect(describeActionError(api(409, "approval_not_pending"), { context: "post" })).toBe(
-      "This post is no longer awaiting approval."
-    )
+    expect(
+      describeActionError(api(403, "second_approver_required"), {
+        context: "post",
+      })
+    ).toBe("A different authorised user must approve this post.")
+    expect(
+      describeActionError(api(409, "approval_not_pending"), { context: "post" })
+    ).toBe("This post is no longer awaiting approval.")
     // context only affects the approval pair
-    expect(describeActionError(api(503, "publishing_paused"), { context: "post" })).toBe(
-      describeActionError(api(503, "publishing_paused"))
-    )
+    expect(
+      describeActionError(api(503, "publishing_paused"), { context: "post" })
+    ).toBe(describeActionError(api(503, "publishing_paused")))
   })
 
   it("maps ambiguous provider outcomes without leaking the code", () => {
@@ -126,7 +129,11 @@ describe("describeActionError — merged map", () => {
 
   it("maps the AI provider codes (lib/server/ai.ts) to plain copy", () => {
     expectMapped([
-      ["ai_not_configured", 503, /ai assistance.*not available|isn’t available/i],
+      [
+        "ai_not_configured",
+        503,
+        /ai assistance.*not available|isn’t available/i,
+      ],
       ["ai_timeout", 502, /too long/i],
       ["ai_provider_error", 502, /ai provider/i],
       ["ai_empty_response", 502, /returned nothing/i],
@@ -137,7 +144,10 @@ describe("describeActionError — merged map", () => {
   // vaguer than the truth, it points the operator at the wrong action, so the
   // assertions below pin the correction rather than just "some copy exists".
   it("maps the in-progress 409s without telling the user to refresh", () => {
-    for (const code of ["post_publish_in_progress", "gbp_mutation_in_progress"]) {
+    for (const code of [
+      "post_publish_in_progress",
+      "gbp_mutation_in_progress",
+    ]) {
       const copy = describeActionError(api(409, code))
       expect(copy, code).toMatch(/wait a moment/i)
       expect(copy, code).not.toMatch(/refresh/i)
@@ -222,7 +232,9 @@ describe("describeActionError — merged map", () => {
     const transient = describeActionError(api(503, "google_token_unavailable"))
     expect(transient).not.toBe(SERVICE_UNAVAILABLE_COPY)
     expect(transient).toMatch(/no need to reconnect/i)
-    expect(describeActionError(api(401, "google_reconnect_required"))).toMatch(/reconnect this account/i)
+    expect(describeActionError(api(401, "google_reconnect_required"))).toMatch(
+      /reconnect this account/i
+    )
   })
 
   it("says an unconfirmed write may have landed, not that Google is down", () => {
@@ -245,31 +257,49 @@ describe("describeActionError — merged map", () => {
 
 describe("describeActionError — status fallbacks", () => {
   it("treats an unmapped 401 as an expired session, not a generic failure", () => {
-    expect(describeActionError(api(401, "unheard_of"))).toMatch(/session has expired/i)
-    expect(describeActionError(api(401, "http_error"))).toMatch(/sign in again/i)
+    expect(describeActionError(api(401, "unheard_of"))).toMatch(
+      /session has expired/i
+    )
+    expect(describeActionError(api(401, "http_error"))).toMatch(
+      /sign in again/i
+    )
   })
 
   it("maps unmapped 403 / 404 / 409 / 413 / 429 by status", () => {
     expect(describeActionError(api(403, "unheard_of"))).toMatch(/permission/i)
-    expect(describeActionError(api(404, "unheard_of"))).toMatch(/could not be found/i)
-    expect(describeActionError(api(409, "unheard_of"))).toMatch(/refresh and try again/i)
+    expect(describeActionError(api(404, "unheard_of"))).toMatch(
+      /could not be found/i
+    )
+    expect(describeActionError(api(409, "unheard_of"))).toMatch(
+      /refresh and try again/i
+    )
     expect(describeActionError(api(413, "unheard_of"))).toMatch(/too large/i)
-    expect(describeActionError(api(429, "unheard_of"))).toMatch(/too many requests/i)
+    expect(describeActionError(api(429, "unheard_of"))).toMatch(
+      /too many requests/i
+    )
   })
 
   it("treats every unmapped 5xx as temporarily unavailable", () => {
     for (const status of [500, 502, 503, 504]) {
-      expect(describeActionError(api(status, "unheard_of"))).toBe(SERVICE_UNAVAILABLE_COPY)
+      expect(describeActionError(api(status, "unheard_of"))).toBe(
+        SERVICE_UNAVAILABLE_COPY
+      )
     }
   })
 
   it("prefers a mapped code over its status fallback", () => {
-    expect(describeActionError(api(503, "sync_paused"))).not.toBe(SERVICE_UNAVAILABLE_COPY)
-    expect(describeActionError(api(401, "google_reconnect_required"))).toMatch(/reconnect/i)
+    expect(describeActionError(api(503, "sync_paused"))).not.toBe(
+      SERVICE_UNAVAILABLE_COPY
+    )
+    expect(describeActionError(api(401, "google_reconnect_required"))).toMatch(
+      /reconnect/i
+    )
   })
 
   it("describes fetch network failures and falls back generically otherwise", () => {
-    expect(describeActionError(new TypeError("Failed to fetch"))).toBe(NETWORK_ERROR_COPY)
+    expect(describeActionError(new TypeError("Failed to fetch"))).toBe(
+      NETWORK_ERROR_COPY
+    )
     expect(describeActionError(new Error("boom"))).toBe(GENERIC_ERROR_COPY)
     expect(describeActionError(api(400, "unheard_of"))).toBe(GENERIC_ERROR_COPY)
     expect(describeActionError(undefined)).toBe(GENERIC_ERROR_COPY)
@@ -287,5 +317,7 @@ describe("predicates", () => {
 })
 
 it("keeps direct single-action permission copy separate from publication flows", () => {
-  expect(describeActionError(api(403, "PERMISSION_DENIED"))).toContain("Nothing was changed.")
+  expect(describeActionError(api(403, "PERMISSION_DENIED"))).toContain(
+    "Nothing was changed."
+  )
 })

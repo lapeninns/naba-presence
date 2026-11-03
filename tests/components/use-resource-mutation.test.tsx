@@ -98,7 +98,9 @@ describe("useResourceMutation", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }))
 
-    expect(await screen.findByText("Saved here")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Saved here, not on Google")
+    ).toBeInTheDocument()
     expect(
       screen.getByText(/isn’t on Google until you publish it/)
     ).toBeInTheDocument()

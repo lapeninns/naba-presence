@@ -570,7 +570,9 @@ describe("PostsActionBar", () => {
       })
       renderBar()
       await publishFromDialog()
-      expect(await screen.findByText("Post confirmed on Google")).toBeInTheDocument()
+      expect(
+        await screen.findByText("Post confirmed on Google")
+      ).toBeInTheDocument()
     })
 
     it("does not say live while Google is still reviewing the post", async () => {

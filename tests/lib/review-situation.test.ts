@@ -103,12 +103,12 @@ describe("describeReplyState", () => {
       label: "On Google",
     })
     expect(describeReplyState("awaiting_approval")).toMatchObject({
-      label: "Waiting for approval",
+      label: "Awaiting approval",
     })
     expect(describeReplyState("failed")).toMatchObject({ tone: "attention" })
-    expect(describeReplyState(null)).toMatchObject({ label: "Not published" })
+    expect(describeReplyState(null)).toMatchObject({ label: "Not on Google" })
     expect(describeReplyState("something_new")).toMatchObject({
-      label: "Not published",
+      label: "Not on Google",
     })
   })
 })

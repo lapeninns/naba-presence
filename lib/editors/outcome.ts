@@ -4,46 +4,13 @@ import type { StatusTone } from "@/lib/ui/status-tone"
 export type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 
 /**
- * The status vocabulary for every change that can reach Google
- * (docs/redesign/2026-11/DIRECTION.md §6.1, "Proof desk"): one label per
- * state, used on pills, change-track stops, dispatch-bar status lines, list
- * rows, toasts and notifications. Sentence case. A state label never says
- * "published" or "live"; only `live` says "On Google", and only when Google
- * has confirmed it by readback or by its own state.
- *
- * The tone says who acts next: neutral nobody, amber (`attention`) a person,
- * blue (`pending`) Google or our system, green (`healthy`) confirmed on
- * Google, red (`at-risk`) broken. Each tone family has its own glyph shapes
- * (lucide names below), so a state never relies on hue.
+ * The lucide glyph per state, drawn by components/ui/status-glyph.tsx. Each
+ * tone family has its own shapes, so a state never relies on hue.
  */
-export const STATUS_KEYS = [
-  "unsaved",
-  "draft",
-  "blocked",
-  "needsReply",
-  "approval",
-  "changes",
-  "approved",
-  "sending",
-  "retrying",
-  "waiting",
-  "live",
-  "uncertain",
-  "rejected",
-  "failed",
-  "conflict",
-  "withdrawn",
-  "expired",
-  "replaced",
-] as const
-export type StatusKey = (typeof STATUS_KEYS)[number]
-
-/** The lucide glyph per state (rendered by components/ui/status-pill.tsx). */
 export type StatusGlyph =
   | "circle-dashed"
   | "hard-drive"
   | "octagon-x"
-  | "message-circle"
   | "user-check"
   | "undo-2"
   | "circle-check"
@@ -61,7 +28,10 @@ export type StatusGlyph =
 export const TRACK_STOPS = ["saved", "approved", "sent", "google"] as const
 export type TrackStop = (typeof TRACK_STOPS)[number]
 
-/** Where a state sits on the change track; `null` is not a Google step. */
+/**
+ * Where a state sits on the change track (components/ui/change-track.tsx);
+ * `null` for a state that is not a step towards Google.
+ */
 export type TrackPosition = {
   /** The stop that is current (or failed); earlier stops are done. */
   stop: TrackStop
@@ -71,157 +41,262 @@ export type TrackPosition = {
   reached?: boolean
 } | null
 
-export type StatusVocabulary = {
+/**
+ * One mapping from a change's state to the words, tone, glyph and track
+ * position every surface uses for it: status pills, change-track stops,
+ * dispatch-bar status lines, list rows, toasts and the inline outcome notice
+ * (components/ui/operation-outcome.tsx). The words are the "Proof desk"
+ * vocabulary (docs/redesign/2026-11/DIRECTION.md §6.1), verbatim.
+ *
+ * The rule the copy follows: only `confirmed_applied` may say "On Google",
+ * and no state label says "published" or "live". A request that left the
+ * app is "sending"; a request Google took but has not shown applied is
+ * "waiting"; an answer the app cannot read is "not confirmed", never
+ * "failed", because a retry could then apply the change twice.
+ *
+ * The tone says who acts next: neutral nobody, amber (`attention`) a person,
+ * blue (`pending`) Google or our system, green (`healthy`) confirmed on
+ * Google, red (`at-risk`) broken.
+ *
+ * Beside the eight operation outcomes the map carries the lifecycle states
+ * that are not operation outcomes (`LIFECYCLE_ONLY_STATES`), so a surface
+ * reads every state from this one map.
+ *
+ * Pure and client-safe, so tests and server components can read it.
+ */
+export type OutcomePresentation = {
   /** The pill label: short, sentence case ("Sent, waiting for Google"). */
   label: string
   /**
-   * The long form for a dispatch-bar status line or a toast title, with
-   * `{n}`, `{time}` or `{name}` where a caller fills in specifics.
+   * The long form for a toast title or a dispatch-bar status line. It may
+   * hold `{n}`, `{time}` or `{name}` slots; fill them with `statusText`.
    */
-  long: string
+  title: string
+  /** One sentence on what it means and what to do next. */
+  description: string
   tone: StatusTone
+  /** The toast kind that matches the tone. */
+  toast: "success" | "info" | "warning" | "error"
+  /** True only when evidence shows Google holds the change. */
+  live: boolean
   glyph: StatusGlyph
   track: TrackPosition
 }
 
-export const STATUS_VOCABULARY: Record<StatusKey, StatusVocabulary> = {
-  unsaved: {
-    label: "Unsaved changes",
-    long: "{n} unsaved changes",
-    tone: "neutral",
-    glyph: "circle-dashed",
-    track: null,
-  },
-  draft: {
-    label: "Draft saved",
-    long: "Saved here, not on Google",
-    tone: "neutral",
-    glyph: "hard-drive",
-    track: { stop: "saved" },
-  },
-  blocked: {
-    label: "Blocked by checks",
-    long: "Blocked: fix the reply to publish",
-    tone: "at-risk",
-    glyph: "octagon-x",
-    track: { stop: "approved", failed: true },
-  },
-  needsReply: {
-    label: "Needs reply",
-    long: "Needs reply",
-    tone: "neutral",
-    glyph: "message-circle",
-    track: null,
-  },
-  approval: {
-    label: "Awaiting approval",
-    long: "Awaiting approval",
-    tone: "attention",
-    glyph: "user-check",
-    track: { stop: "approved" },
-  },
-  changes: {
-    label: "Sent back",
-    long: "Sent back by {name}",
-    tone: "attention",
-    glyph: "undo-2",
-    track: { stop: "saved" },
-  },
-  approved: {
-    label: "Approved, ready to send",
-    long: "Approved by {name}. Publish when ready.",
-    tone: "attention",
-    glyph: "circle-check",
-    track: { stop: "sent" },
-  },
-  sending: {
-    label: "Sending to Google",
-    long: "Sending to Google…",
-    tone: "pending",
-    glyph: "send",
-    track: { stop: "sent" },
-  },
-  retrying: {
-    label: "Will retry at {time}",
-    long: "Google is busy. We’ll retry at {time}.",
-    tone: "pending",
-    glyph: "refresh-cw",
-    track: { stop: "sent" },
-  },
-  waiting: {
-    label: "Sent, waiting for Google",
-    long: "Sent, waiting for Google to confirm",
-    tone: "pending",
-    glyph: "hourglass",
-    track: { stop: "google" },
-  },
-  live: {
-    label: "On Google",
-    long: "Confirmed on Google",
-    tone: "healthy",
-    glyph: "badge-check",
-    track: { stop: "google", reached: true },
-  },
-  uncertain: {
-    label: "Not confirmed: check Google",
-    long: "We can’t tell whether Google applied it",
-    tone: "attention",
-    glyph: "circle-help",
-    track: { stop: "sent" },
-  },
-  rejected: {
-    label: "Rejected by Google",
-    long: "Google refused it. Nothing changed on Google.",
-    tone: "at-risk",
-    glyph: "ban",
-    track: { stop: "sent", failed: true },
-  },
-  failed: {
-    label: "Failed: retry",
-    long: "It didn’t go through. Nothing changed on Google.",
-    tone: "at-risk",
-    glyph: "triangle-alert",
-    track: { stop: "sent", failed: true },
-  },
-  conflict: {
-    label: "Changed on Google",
-    long: "Google changed this since you saved it",
-    tone: "attention",
-    glyph: "git-compare",
-    track: null,
-  },
-  withdrawn: {
-    label: "Withdrawn",
-    long: "Withdrawn. Nothing was sent to Google.",
-    tone: "neutral",
-    glyph: "circle-minus",
-    track: null,
-  },
-  expired: {
-    label: "Expired, not sent",
-    long: "Expired. Nothing was sent to Google.",
-    tone: "neutral",
-    glyph: "circle-minus",
-    track: null,
-  },
-  replaced: {
-    label: "Replaced",
-    long: "Replaced by a newer change. Nothing was sent to Google.",
-    tone: "neutral",
-    glyph: "circle-minus",
-    track: null,
-  },
-}
+/** The lifecycle states that are not operation outcomes (DIRECTION §6.2). */
+export const LIFECYCLE_ONLY_STATES = [
+  "unsaved",
+  "blocked",
+  "changes",
+  "approved",
+  "retrying",
+  "conflict",
+  "withdrawn",
+  "expired",
+  "replaced",
+] as const
+export type LifecycleOnlyState = (typeof LIFECYCLE_ONLY_STATES)[number]
 
-/** The vocabulary entry for one state. */
-export function describeStatus(key: StatusKey): StatusVocabulary {
-  return STATUS_VOCABULARY[key]
-}
+/** Every state OUTCOME_PRESENTATION words. */
+export type PresentedState = OperationOutcome | LifecycleOnlyState
 
 /**
- * Fills a label or long form's `{n}`, `{time}` and `{name}` slots. A slot
- * with no value is dropped with the words that only make sense beside it
- * ("Sent back by {name}" without a name reads "Sent back").
+ * The Inbox queue label for a review with no reply yet. Rows in that queue
+ * carry no pill, so it is a label rather than a presented state.
+ */
+export const NEEDS_REPLY_LABEL = "Needs reply"
+
+export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
+  {
+    saved_locally: {
+      label: "Draft saved",
+      title: "Saved here, not on Google",
+      description:
+        "NabaPresence’s copy is saved. It isn’t on Google until you publish it.",
+      tone: "neutral",
+      toast: "success",
+      live: false,
+      glyph: "hard-drive",
+      track: { stop: "saved" },
+    },
+    awaiting_approval: {
+      label: "Awaiting approval",
+      title: "Awaiting approval",
+      description:
+        "Nothing has gone to Google yet. Another publisher needs to approve this change first.",
+      // Amber: a person acts next, the same tone on every surface.
+      tone: "attention",
+      toast: "info",
+      live: false,
+      glyph: "user-check",
+      track: { stop: "approved" },
+    },
+    // While a write is unsettled it is still on its way; once Google answers
+    // without proof it settles as `awaiting_confirmation`.
+    sent: {
+      label: "Sending to Google",
+      title: "Sending to Google…",
+      description:
+        "The change left NabaPresence. Google hasn’t confirmed it yet.",
+      tone: "pending",
+      toast: "info",
+      live: false,
+      glyph: "send",
+      track: { stop: "sent" },
+    },
+    awaiting_confirmation: {
+      label: "Sent, waiting for Google",
+      title: "Sent, waiting for Google to confirm",
+      description:
+        "Google accepted the request but hasn’t shown the change yet. We’ll check again.",
+      tone: "pending",
+      toast: "info",
+      live: false,
+      glyph: "hourglass",
+      track: { stop: "google" },
+    },
+    confirmed_applied: {
+      label: "On Google",
+      title: "Confirmed on Google",
+      description:
+        "Google confirmed the change. It can take a few minutes to show on Maps and Search.",
+      tone: "healthy",
+      toast: "success",
+      live: true,
+      glyph: "badge-check",
+      track: { stop: "google", reached: true },
+    },
+    rejected: {
+      label: "Rejected by Google",
+      title: "Google refused it. Nothing changed on Google.",
+      description: "Your saved copy is kept. Edit it before you send it again.",
+      tone: "at-risk",
+      toast: "error",
+      live: false,
+      glyph: "ban",
+      track: { stop: "sent", failed: true },
+    },
+    failed: {
+      label: "Failed: retry",
+      title: "It didn’t go through. Nothing changed on Google.",
+      description:
+        "The request didn’t complete and nothing shows it reached Google. Your saved copy is kept.",
+      tone: "at-risk",
+      toast: "error",
+      live: false,
+      glyph: "triangle-alert",
+      track: { stop: "sent", failed: true },
+    },
+    uncertain: {
+      label: "Not confirmed: check Google",
+      title: "We can’t tell whether Google applied it",
+      description: "Check Google before trying again.",
+      tone: "attention",
+      toast: "warning",
+      live: false,
+      glyph: "circle-help",
+      track: { stop: "sent" },
+    },
+    unsaved: {
+      label: "Unsaved changes",
+      title: "{n} unsaved changes",
+      description: "Only in this browser tab. Save to keep them.",
+      tone: "neutral",
+      toast: "info",
+      live: false,
+      glyph: "circle-dashed",
+      track: null,
+    },
+    blocked: {
+      label: "Blocked by checks",
+      title: "Blocked: fix the reply to publish",
+      description:
+        "A check failed, so publishing is blocked. Nothing has gone to Google.",
+      tone: "at-risk",
+      toast: "error",
+      live: false,
+      glyph: "octagon-x",
+      track: { stop: "approved", failed: true },
+    },
+    changes: {
+      label: "Sent back",
+      title: "Sent back by {name}",
+      description:
+        "The approver sent it back to the author. Nothing has gone to Google.",
+      tone: "attention",
+      toast: "warning",
+      live: false,
+      glyph: "undo-2",
+      track: { stop: "saved" },
+    },
+    approved: {
+      label: "Approved, ready to send",
+      title: "Approved by {name}. Publish when ready.",
+      description: "Approved, but not sent yet. Nothing has gone to Google.",
+      tone: "attention",
+      toast: "info",
+      live: false,
+      glyph: "circle-check",
+      track: { stop: "sent" },
+    },
+    retrying: {
+      label: "Will retry at {time}",
+      title: "Google is busy. We’ll retry at {time}.",
+      description:
+        "We’ll send it again automatically. Nothing has changed on Google yet.",
+      tone: "pending",
+      toast: "info",
+      live: false,
+      glyph: "refresh-cw",
+      track: { stop: "sent" },
+    },
+    conflict: {
+      label: "Changed on Google",
+      title: "Google changed this since you saved it",
+      description:
+        "Google’s copy changed after you saved yours. Compare them before you send.",
+      tone: "attention",
+      toast: "warning",
+      live: false,
+      glyph: "git-compare",
+      track: null,
+    },
+    withdrawn: {
+      label: "Withdrawn",
+      title: "Withdrawn. Nothing was sent to Google.",
+      description: "The change was withdrawn before it was sent.",
+      tone: "neutral",
+      toast: "info",
+      live: false,
+      glyph: "circle-minus",
+      track: null,
+    },
+    expired: {
+      label: "Expired, not sent",
+      title: "Expired. Nothing was sent to Google.",
+      description: "The change waited too long and was not sent.",
+      tone: "neutral",
+      toast: "info",
+      live: false,
+      glyph: "circle-minus",
+      track: null,
+    },
+    replaced: {
+      label: "Replaced",
+      title: "Replaced. Nothing was sent to Google.",
+      description: "A newer change took its place before it was sent.",
+      tone: "neutral",
+      toast: "info",
+      live: false,
+      glyph: "circle-minus",
+      track: null,
+    },
+  }
+
+/**
+ * Fills a label or title's `{n}`, `{time}` and `{name}` slots. A slot with
+ * no value is dropped with the words that only make sense beside it ("Sent
+ * back by {name}" without a name reads "Sent back").
  */
 export function statusText(
   template: string,
@@ -237,208 +312,6 @@ export function statusText(
     if (values.n === 1) text = text.replace("changes", "change")
   } else text = text.replace("{n} unsaved changes", "Unsaved changes")
   return text
-}
-
-/**
- * One mapping from an operation's outcome to the words, tone and toast kind
- * every surface uses for it: toasts, publish steps, status pills and the
- * inline outcome notice (components/ui/operation-outcome.tsx).
- *
- * The rule the copy follows: only `confirmed_applied` may say "On Google",
- * and nothing short of it may say "published" or "live". A request that left
- * the app is "sent"; a request Google took but has not shown applied is
- * "waiting"; an answer the app cannot read is "not confirmed", never
- * "failed", because a retry could then apply the change twice.
- *
- * Beside the eight operation outcomes it carries the lifecycle states that
- * are not operation outcomes (`unsaved`, `blocked`, `changes`, `approved`,
- * `retrying`, `conflict`, `withdrawn`), worded from STATUS_VOCABULARY, so a
- * surface reads every state from this one map.
- *
- * Pure and client-safe, so tests and server components can read it.
- */
-export type OutcomePresentation = {
-  /** The short state word for a pill or a step ("Sent to Google"). */
-  label: string
-  /** A headline for a toast or a notice. */
-  title: string
-  /** One sentence on what it means and what to do next. */
-  description: string
-  tone: StatusTone
-  /** The toast kind that matches the tone. */
-  toast: "success" | "info" | "warning" | "error"
-  /** True only when evidence shows Google holds the change. */
-  live: boolean
-  /** The vocabulary state that draws its glyph and change-track position. */
-  status: StatusKey
-}
-
-/** The lifecycle states that are not operation outcomes. */
-export const LIFECYCLE_ONLY_STATES = [
-  "unsaved",
-  "blocked",
-  "changes",
-  "approved",
-  "retrying",
-  "conflict",
-  "withdrawn",
-] as const
-export type LifecycleOnlyState = (typeof LIFECYCLE_ONLY_STATES)[number]
-
-/** Every state OUTCOME_PRESENTATION words. */
-export type PresentedState = OperationOutcome | LifecycleOnlyState
-
-export const OUTCOME_PRESENTATION: Record<
-  PresentedState,
-  OutcomePresentation
-> = {
-  saved_locally: {
-    label: "Saved here",
-    title: "Saved here",
-    description:
-      "NabaPresence’s copy is saved. It isn’t on Google until you publish it.",
-    tone: "neutral",
-    toast: "success",
-    live: false,
-    status: "draft",
-  },
-  awaiting_approval: {
-    label: "Awaiting approval",
-    title: "Sent for approval",
-    description:
-      "Nothing has gone to Google yet. Another publisher needs to approve this change first.",
-    // Amber: a person acts next (DIRECTION §6.3 #8, one tone everywhere).
-    tone: "attention",
-    toast: "info",
-    live: false,
-    status: "approval",
-  },
-  sent: {
-    label: "Sent to Google",
-    title: "Sent to Google",
-    description:
-      "The change left NabaPresence. Google hasn’t confirmed it yet.",
-    tone: "pending",
-    toast: "info",
-    live: false,
-    status: "sending",
-  },
-  awaiting_confirmation: {
-    label: "Waiting for Google",
-    title: "Waiting for Google to confirm",
-    description:
-      "Google accepted the request but hasn’t shown the change yet. We’ll check again.",
-    tone: "pending",
-    toast: "info",
-    live: false,
-    status: "waiting",
-  },
-  confirmed_applied: {
-    label: STATUS_VOCABULARY.live.label,
-    title: STATUS_VOCABULARY.live.long,
-    description:
-      "Google confirmed the change. It can take a few minutes to show on Maps and Search.",
-    tone: "healthy",
-    toast: "success",
-    live: true,
-    status: "live",
-  },
-  rejected: {
-    label: "Rejected by Google",
-    title: "Google rejected the change",
-    description: "Google refused it, so nothing changed on Google.",
-    tone: "at-risk",
-    toast: "error",
-    live: false,
-    status: "rejected",
-  },
-  failed: {
-    label: "Failed",
-    title: "The change didn’t go through",
-    description:
-      "The request didn’t complete and nothing shows it reached Google. Your saved copy is kept.",
-    tone: "at-risk",
-    toast: "error",
-    live: false,
-    status: "failed",
-  },
-  uncertain: {
-    label: "Not confirmed",
-    title: "Couldn’t confirm with Google",
-    description:
-      "We can’t tell whether Google applied it. Check Google before trying again.",
-    tone: "attention",
-    toast: "warning",
-    live: false,
-    status: "uncertain",
-  },
-  unsaved: {
-    label: STATUS_VOCABULARY.unsaved.label,
-    title: STATUS_VOCABULARY.unsaved.label,
-    description: "Only in this browser tab. Save to keep them.",
-    tone: "neutral",
-    toast: "info",
-    live: false,
-    status: "unsaved",
-  },
-  blocked: {
-    label: STATUS_VOCABULARY.blocked.label,
-    title: STATUS_VOCABULARY.blocked.long,
-    description:
-      "A check failed, so publishing is blocked. Nothing has gone to Google.",
-    tone: "at-risk",
-    toast: "error",
-    live: false,
-    status: "blocked",
-  },
-  changes: {
-    label: STATUS_VOCABULARY.changes.label,
-    title: STATUS_VOCABULARY.changes.label,
-    description:
-      "The approver sent it back to the author. Nothing has gone to Google.",
-    tone: "attention",
-    toast: "warning",
-    live: false,
-    status: "changes",
-  },
-  approved: {
-    label: STATUS_VOCABULARY.approved.label,
-    title: "Approved. Publish when ready.",
-    description: "Approved, but not sent yet. Nothing has gone to Google.",
-    tone: "attention",
-    toast: "info",
-    live: false,
-    status: "approved",
-  },
-  retrying: {
-    label: "Will retry",
-    title: "Google is busy. We’ll retry.",
-    description:
-      "Google asked us to wait. We’ll send it again automatically; nothing has changed on Google yet.",
-    tone: "pending",
-    toast: "info",
-    live: false,
-    status: "retrying",
-  },
-  conflict: {
-    label: STATUS_VOCABULARY.conflict.label,
-    title: STATUS_VOCABULARY.conflict.long,
-    description:
-      "Google’s copy changed after you saved yours. Compare them before you send.",
-    tone: "attention",
-    toast: "warning",
-    live: false,
-    status: "conflict",
-  },
-  withdrawn: {
-    label: STATUS_VOCABULARY.withdrawn.label,
-    title: STATUS_VOCABULARY.withdrawn.long,
-    description: "The change was withdrawn before it was sent.",
-    tone: "neutral",
-    toast: "info",
-    live: false,
-    status: "withdrawn",
-  },
 }
 
 /**
@@ -458,9 +331,7 @@ export function answerOutcome(answer: {
 }
 
 /** The presentation for one outcome or lifecycle state. */
-export function describeOutcome(
-  outcome: PresentedState
-): OutcomePresentation {
+export function describeOutcome(outcome: PresentedState): OutcomePresentation {
   return OUTCOME_PRESENTATION[outcome]
 }
 

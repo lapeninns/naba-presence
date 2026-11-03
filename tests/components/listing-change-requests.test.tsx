@@ -211,7 +211,7 @@ describe("usePublishFlow with a parked step", () => {
       status: "done",
       outcome: "awaiting_approval",
     })
-    expect(await screen.findByText("Sent for approval")).toBeInTheDocument()
+    expect(await screen.findByText("Awaiting approval")).toBeInTheDocument()
     expect(screen.queryByText("Opening hours sent to Google")).toBeNull()
   })
 })

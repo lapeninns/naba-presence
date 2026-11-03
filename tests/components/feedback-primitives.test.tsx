@@ -127,7 +127,9 @@ describe("buttonVariants", () => {
     expect(ghost).toContain(
       "hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary"
     )
-    expect(ghost).toContain("active:not-data-disabled:not-aria-disabled:bg-fill")
+    expect(ghost).toContain(
+      "active:not-data-disabled:not-aria-disabled:bg-fill"
+    )
     expect(ghost.some((c) => c.includes("bg-ink/"))).toBe(false)
     // Ink saves: the default primary hovers and presses on the ink ladder,
     // never the send green.

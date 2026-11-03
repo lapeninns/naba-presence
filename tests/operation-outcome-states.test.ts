@@ -229,11 +229,11 @@ describe("post outcomes", () => {
     expect(
       postStatus({ status: "published", googleState: "PROCESSING" })
     ).toEqual({
-      label: "Waiting for Google",
+      label: "Sent, waiting for Google",
       tone: "info",
     })
     expect(postStatus({ status: "published", googleState: null })).toEqual({
-      label: "Waiting for Google",
+      label: "Sent, waiting for Google",
       tone: "info",
     })
     expect(
@@ -243,11 +243,11 @@ describe("post outcomes", () => {
       tone: "bad",
     })
     expect(postStatus({ status: "publishing", googleState: null })).toEqual({
-      label: "Sent to Google",
+      label: "Sending to Google",
       tone: "info",
     })
     expect(postStatus({ status: "ambiguous", googleState: null })).toEqual({
-      label: "Not confirmed",
+      label: "Not confirmed: check Google",
       tone: "warn",
     })
     expect(postStatus({ status: "draft", googleState: null })).toEqual({
@@ -260,7 +260,9 @@ describe("post outcomes", () => {
 describe("inbox status pills", () => {
   it("names reply publish states in the shared words", () => {
     expect(describeReplyState("published").label).toBe("On Google")
-    expect(describeReplyState("accepted").label).toBe("Sent to Google")
+    expect(describeReplyState("accepted").label).toBe(
+      "Sent, waiting for Google"
+    )
   })
 
   it("takes the live pill's tone from the outcome, not from the words", () => {

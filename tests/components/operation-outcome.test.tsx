@@ -23,25 +23,23 @@ import {
 } from "@/lib/contracts/mutation-operations"
 import {
   describeOutcome,
-  describeStatus,
   LIFECYCLE_ONLY_STATES,
   OUTCOME_PRESENTATION,
-  STATUS_KEYS,
-  STATUS_VOCABULARY,
+  type PresentedState,
   statusText,
   outcomeToast,
   successToastFields,
 } from "@/lib/editors/outcome"
 
 const EXPECTED = {
-  saved_locally: { label: "Saved here", toast: "success" },
+  saved_locally: { label: "Draft saved", toast: "success" },
   awaiting_approval: { label: "Awaiting approval", toast: "info" },
-  sent: { label: "Sent to Google", toast: "info" },
-  awaiting_confirmation: { label: "Waiting for Google", toast: "info" },
+  sent: { label: "Sending to Google", toast: "info" },
+  awaiting_confirmation: { label: "Sent, waiting for Google", toast: "info" },
   confirmed_applied: { label: "On Google", toast: "success" },
   rejected: { label: "Rejected by Google", toast: "error" },
-  failed: { label: "Failed", toast: "error" },
-  uncertain: { label: "Not confirmed", toast: "warning" },
+  failed: { label: "Failed: retry", toast: "error" },
+  uncertain: { label: "Not confirmed: check Google", toast: "warning" },
 } as const
 
 describe("operation outcome vocabulary", () => {
@@ -93,13 +91,24 @@ describe("operation outcome vocabulary", () => {
     expect(describeOutcome("conflict").label).toBe("Changed on Google")
   })
 
-  it("links each operation outcome to its vocabulary state", () => {
-    expect(describeOutcome("saved_locally").status).toBe("draft")
-    expect(describeOutcome("awaiting_approval").status).toBe("approval")
-    expect(describeOutcome("sent").status).toBe("sending")
-    expect(describeOutcome("awaiting_confirmation").status).toBe("waiting")
-    expect(describeOutcome("confirmed_applied").status).toBe("live")
-    expect(describeOutcome("uncertain").status).toBe("uncertain")
+  it("places each state on the change track as DIRECTION §6.1 says", () => {
+    expect(describeOutcome("saved_locally").track).toEqual({ stop: "saved" })
+    expect(describeOutcome("awaiting_approval").track).toEqual({
+      stop: "approved",
+    })
+    expect(describeOutcome("sent").track).toEqual({ stop: "sent" })
+    expect(describeOutcome("awaiting_confirmation").track).toEqual({
+      stop: "google",
+    })
+    expect(describeOutcome("confirmed_applied").track).toEqual({
+      stop: "google",
+      reached: true,
+    })
+    expect(describeOutcome("failed").track).toEqual({
+      stop: "sent",
+      failed: true,
+    })
+    expect(describeOutcome("conflict").track).toBeNull()
     // Amber: a person approves next (DIRECTION §6.3 #8).
     expect(describeOutcome("awaiting_approval").tone).toBe("attention")
   })
@@ -197,7 +206,7 @@ describe("OperationReceiptNotice", () => {
     renderWithProviders(<OperationReceiptNotice receiptId="op-1" />)
     const notice = screen.getByRole("status")
     expect(notice).toHaveAttribute("data-outcome", "uncertain")
-    expect(notice).toHaveTextContent("Couldn’t confirm with Google")
+    expect(notice).toHaveTextContent("We can’t tell whether Google applied it")
     expect(notice).toHaveTextContent("checking again automatically")
     expect(notice).not.toHaveTextContent("On Google")
   })
@@ -287,57 +296,41 @@ describe("OperationReceiptNotice", () => {
 })
 
 describe("status vocabulary (DIRECTION §6.1)", () => {
-  it("has one entry per lifecycle state", () => {
-    expect(Object.keys(STATUS_VOCABULARY)).toEqual([...STATUS_KEYS])
-    expect(STATUS_KEYS).toHaveLength(18)
-  })
+  const STATES = Object.keys(OUTCOME_PRESENTATION) as PresentedState[]
 
-  it("says On Google only for live, green only for live, and never published", () => {
-    for (const key of STATUS_KEYS) {
-      const { label, long, tone, track } = describeStatus(key)
-      expect(`${label} ${long}`).not.toMatch(/published|\blive\b/i)
-      const live = key === "live"
+  it("says On Google only for confirmed_applied, green only there, never published", () => {
+    for (const state of STATES) {
+      const { label, title, tone, track } = describeOutcome(state)
+      expect(`${label} ${title}`).not.toMatch(/published|\blive\b/i)
+      const live = state === "confirmed_applied"
       expect(tone === "healthy").toBe(live)
       expect(label === "On Google").toBe(live)
       expect(Boolean(track?.reached)).toBe(live)
     }
-    expect(describeStatus("live").long).toBe("Confirmed on Google")
-    expect(describeStatus("waiting").label).toBe("Sent, waiting for Google")
+    expect(describeOutcome("confirmed_applied").title).toBe(
+      "Confirmed on Google"
+    )
   })
 
   it("gives each tone family its own glyph shapes, so state never relies on hue", () => {
-    const glyphsByTone = new Map<string, Set<string>>()
-    for (const key of STATUS_KEYS) {
-      const { tone, glyph } = describeStatus(key)
-      if (!glyphsByTone.has(tone)) glyphsByTone.set(tone, new Set())
-      glyphsByTone.get(tone)!.add(glyph)
-    }
     const owners = new Map<string, string>()
-    for (const [tone, glyphs] of glyphsByTone) {
-      for (const glyph of glyphs) {
-        // circle-check is shared by the amber "Approved" only; no glyph
-        // means two different tones.
-        expect(owners.get(glyph) ?? tone).toBe(tone)
-        owners.set(glyph, tone)
-      }
+    for (const state of STATES) {
+      const { tone, glyph } = describeOutcome(state)
+      expect(owners.get(glyph) ?? tone).toBe(tone)
+      owners.set(glyph, tone)
     }
   })
 
   it("fills the long forms' slots, and drops them gracefully", () => {
-    expect(statusText(describeStatus("unsaved").long, { n: 2 })).toBe(
-      "2 unsaved changes"
-    )
-    expect(statusText(describeStatus("unsaved").long, { n: 1 })).toBe(
-      "1 unsaved change"
-    )
-    expect(statusText(describeStatus("unsaved").long)).toBe("Unsaved changes")
-    expect(statusText(describeStatus("retrying").label, { time: "10:42" })).toBe(
-      "Will retry at 10:42"
-    )
-    expect(statusText(describeStatus("retrying").label)).toBe("Will retry later")
-    expect(statusText(describeStatus("changes").long, { name: "Priya" })).toBe(
-      "Sent back by Priya"
-    )
-    expect(statusText(describeStatus("changes").long)).toBe("Sent back")
+    const unsaved = describeOutcome("unsaved").title
+    expect(statusText(unsaved, { n: 2 })).toBe("2 unsaved changes")
+    expect(statusText(unsaved, { n: 1 })).toBe("1 unsaved change")
+    expect(statusText(unsaved)).toBe("Unsaved changes")
+    const retrying = describeOutcome("retrying").label
+    expect(statusText(retrying, { time: "10:42" })).toBe("Will retry at 10:42")
+    expect(statusText(retrying)).toBe("Will retry later")
+    const changes = describeOutcome("changes").title
+    expect(statusText(changes, { name: "Priya" })).toBe("Sent back by Priya")
+    expect(statusText(changes)).toBe("Sent back")
   })
 })

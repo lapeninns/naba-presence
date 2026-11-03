@@ -425,12 +425,12 @@ describe("ReviewDetail", () => {
     const disclosure = screen.getByRole("button", {
       name: /differs from the reply below/,
     })
-    expect(disclosure).toHaveTextContent(/waiting for Google.s check/)
+    expect(disclosure).toHaveTextContent("Sent, waiting for Google")
     expect(disclosure).not.toHaveTextContent(/On Google/)
     expect(
       container.querySelector('[data-slot="reply-heading"] + p')
     ).toHaveTextContent(
-      /waiting for Google.s check · your newer draft is not published yet/
+      "Sent, waiting for Google · your newer draft is not published yet"
     )
   })
 
@@ -463,7 +463,7 @@ describe("ReviewDetail", () => {
       within(replySection).getByRole("button", {
         name: /differs from the reply below/,
       })
-    ).toHaveTextContent("Waiting for approval")
+    ).toHaveTextContent("Awaiting approval")
     // "On Google" is `describeReplyState`'s label for a confirmed
     // publication and nothing else; a reply still waiting on an approver has
     // no business wearing it anywhere in the reply area.
@@ -492,9 +492,7 @@ describe("ReviewDetail", () => {
     renderPane(<ReviewDetail reviewId="rev-1" />)
 
     const strip = screen.getByRole("status")
-    expect(strip).toHaveTextContent(
-      "Sent to Google · not live until Google confirms"
-    )
+    expect(strip).toHaveTextContent("Sent, waiting for Google")
     expect(strip).not.toHaveTextContent("On Google")
   })
 
@@ -1081,7 +1079,7 @@ describe("ReviewDetail", () => {
     expect(exception).not.toBeNull()
     expect(exception).toHaveAttribute("data-tone", "attention")
     expect(within(exception!).getByText("Publish failed")).toBeInTheDocument()
-    expect(screen.getByRole("status")).toHaveTextContent("Publish failed")
+    expect(screen.getByRole("status")).toHaveTextContent("Failed: retry")
     expect(
       screen.queryByRole("list", { name: "Reply lifecycle" })
     ).not.toBeInTheDocument()
@@ -1726,7 +1724,7 @@ describe("ReviewDetail — the bar says what to do next", () => {
         <ReviewDetail reviewId="rev-1" actions={<span />} />
       )
       expect(statusStrip(container)).toHaveTextContent(
-        `Publish failed · ${note}`
+        `Failed: retry · ${note}`
       )
     }
   )
@@ -1819,7 +1817,7 @@ describe("ReviewDetail — the bar says what to do next", () => {
       <ReviewDetail reviewId="rev-1" actions={<span />} />
     )
     expect(statusStrip(container)).toHaveTextContent(
-      "Publish failed · submit it for approval again"
+      "Failed: retry · submit it for approval again"
     )
   })
 })

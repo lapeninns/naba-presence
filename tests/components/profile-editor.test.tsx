@@ -1926,7 +1926,7 @@ describe("ProfileTab one review sheet (L14)", () => {
     expect(
       await within(
         screen.getByRole("region", { name: "Notifications" })
-      ).findByText("Sent for approval")
+      ).findByText("Awaiting approval")
     ).toBeVisible()
     await userEvent.click(done)
     await waitFor(() =>

@@ -147,8 +147,8 @@ describe("the done state says only what the server answered", () => {
     )
     renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
     await userEvent.setup().click(publishButton())
-    await waitFor(() => expect(pageHeading("Sent for approval")).toBeTruthy())
-    const result = pageHeading("Sent for approval")!.closest(
+    await waitFor(() => expect(pageHeading("Awaiting approval")).toBeTruthy())
+    const result = pageHeading("Awaiting approval")!.closest(
       '[data-slot="empty"]'
     ) as HTMLElement
     expect(result).toHaveTextContent(
@@ -167,9 +167,9 @@ describe("the done state says only what the server answered", () => {
     } as Awaited<ReturnType<typeof menuApi.publishFoodMenus>>)
     renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
     await userEvent.setup().click(publishButton())
-    await waitFor(() => expect(pageHeading("Sent to Google")).toBeTruthy())
+    await waitFor(() => expect(pageHeading("Sending to Google…")).toBeTruthy())
     expect(
-      pageHeading("Sent to Google")!.closest('[data-slot="empty"]')
+      pageHeading("Sending to Google…")!.closest('[data-slot="empty"]')
     ).toHaveTextContent(
       "The change left NabaPresence. Google hasn’t confirmed it yet."
     )

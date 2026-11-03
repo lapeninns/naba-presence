@@ -77,7 +77,9 @@ const SegmentedContext = createContext<SegmentedContextValue>({
  * an adopter no longer has to remember to add it. `segmentedThumbClassName`
  * stays exported for the ones that still do; adding it twice is harmless.
  */
-const segmentedThumbClassName = cn("rounded-(--np-radius-thumb) bg-surface shadow-np-raised")
+const segmentedThumbClassName = cn(
+  "rounded-(--np-radius-thumb) bg-surface shadow-np-raised"
+)
 
 const segmentedItemClassName = cn(
   // On touch every segment is itself a 44px target (`--np-touch`), so the
