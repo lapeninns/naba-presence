@@ -171,6 +171,7 @@ export function PlaceActionApprovalSheet({
             </>
           ) : review.changeSet.approvedBy ? (
             <Button
+              variant="send"
               disabled={blocked || !consent}
               pending={sending}
               pendingLabel="Sending…"

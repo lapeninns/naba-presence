@@ -30,7 +30,13 @@ import { googleRelationshipSchema } from "@/lib/domain/google-relationships"
 import { onboardingRelationshipReviewRows } from "@/lib/locations/onboarding-relationships"
 import { ApiClientError } from "@/lib/api/client"
 import { ShareSetupLink } from "./share-setup-link"
-import { googleOnboardingMoreHoursSchema, googleOnboardingRegularHoursSchema, googleOnboardingSpecialHoursSchema, googleHoursPeriodLabel, googleSpecialHoursPeriodLabel } from "@/lib/domain/google-onboarding-hours"
+import {
+  googleOnboardingMoreHoursSchema,
+  googleOnboardingRegularHoursSchema,
+  googleOnboardingSpecialHoursSchema,
+  googleHoursPeriodLabel,
+  googleSpecialHoursPeriodLabel,
+} from "@/lib/domain/google-onboarding-hours"
 
 function detailRows(
   value: unknown,
@@ -39,23 +45,41 @@ function detailRows(
   if (value === undefined || value === null) return []
   if (path === "more Hours") {
     const hours = googleOnboardingMoreHoursSchema.safeParse(value)
-    if (hours.success) return hours.data.flatMap((schedule, scheduleIndex) => schedule.periods.map((period, index) => ({ label: `Service hours ${scheduleIndex + 1} / period ${index + 1}`, value: `${schedule.hoursTypeId}: ${googleHoursPeriodLabel(period)}` })))
+    if (hours.success)
+      return hours.data.flatMap((schedule, scheduleIndex) =>
+        schedule.periods.map((period, index) => ({
+          label: `Service hours ${scheduleIndex + 1} / period ${index + 1}`,
+          value: `${schedule.hoursTypeId}: ${googleHoursPeriodLabel(period)}`,
+        }))
+      )
   }
   if (path === "regular Hours") {
     const hours = googleOnboardingRegularHoursSchema.safeParse(value)
-    if (hours.success) return hours.data.periods.map((period, index) => ({ label: `Regular hours ${index + 1}`, value: googleHoursPeriodLabel(period) }))
+    if (hours.success)
+      return hours.data.periods.map((period, index) => ({
+        label: `Regular hours ${index + 1}`,
+        value: googleHoursPeriodLabel(period),
+      }))
   }
   if (path === "special Hours") {
     const hours = googleOnboardingSpecialHoursSchema.safeParse(value)
-    if (hours.success) return hours.data.specialHourPeriods.map((period, index) => ({ label: `Special hours ${index + 1}`, value: googleSpecialHoursPeriodLabel(period) }))
+    if (hours.success)
+      return hours.data.specialHourPeriods.map((period, index) => ({
+        label: `Special hours ${index + 1}`,
+        value: googleSpecialHoursPeriodLabel(period),
+      }))
   }
   if (path === "relationship Data") {
     const relationship = googleRelationshipSchema.safeParse(value)
-    if (relationship.success) return onboardingRelationshipReviewRows(relationship.data)
+    if (relationship.success)
+      return onboardingRelationshipReviewRows(relationship.data)
   }
   if (path === "service Items") {
     const services = googleServiceItemsSchema.safeParse(value)
-    if (services.success) return services.data.length ? onboardingServiceReviewRows(services.data) : [{ label: "Services", value: "None" }]
+    if (services.success)
+      return services.data.length
+        ? onboardingServiceReviewRows(services.data)
+        : [{ label: "Services", value: "None" }]
   }
   if (path === "open Info / opening Date") {
     const date = googleOpeningDateSchema.safeParse(value)
@@ -359,7 +383,8 @@ export function OnboardingReview({
               )}
             />
             <p className="text-body break-words whitespace-pre-wrap">
-              <strong className="font-semibold">Reason:</strong> {review.data.decision.reason}
+              <strong className="font-semibold">Reason:</strong>{" "}
+              {review.data.decision.reason}
             </p>
             <p className="text-caption text-ink-muted tabular-nums">
               {review.data.decision.acknowledgedMatchNames.length} potential
@@ -400,6 +425,7 @@ export function OnboardingReview({
                   onCheckedChange={setConfirmCreate}
                 />
                 <Button
+                  variant="send"
                   className="self-stretch sm:self-start"
                   pending={submit.isPending}
                   pendingLabel="Submitting creation…"

@@ -121,7 +121,7 @@ function lifecycle(post: Post): LifecycleStage[] {
             ? "Rejected"
             : status === "failed"
               ? "Not accepted"
-              : "Not confirmed"
+              : describeOutcome("uncertain").label
           : undefined,
     },
     {

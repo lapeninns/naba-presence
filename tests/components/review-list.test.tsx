@@ -403,7 +403,7 @@ describe("ReviewList", () => {
     expect(
       screen.getByLabelText("Draft checked · Ready to publish")
     ).toHaveTextContent("Ready to publish")
-    expect(screen.getByLabelText("Live on Google")).toHaveTextContent("Replied")
+    expect(screen.getByLabelText("On Google")).toHaveTextContent("Replied")
 
     for (const review of reviews) {
       const expected = deriveReplyStatus(replyStateFromRow(review))
@@ -1030,7 +1030,7 @@ describe("ReviewList row anatomy", () => {
     expect(screen.getByLabelText("No reply yet")).toHaveTextContent(
       "Needs reply"
     )
-    expect(screen.getByLabelText("Live on Google")).toHaveTextContent("Replied")
+    expect(screen.getByLabelText("On Google")).toHaveTextContent("Replied")
   })
 
   // A row in Done that is not published is there only because someone

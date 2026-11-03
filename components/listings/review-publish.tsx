@@ -524,7 +524,7 @@ function ReviewPublishBody({
     outcome === "confirmed_applied"
       ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
       : sentOutcomes.size > 1
-        ? "Not every change is live on Google yet. Each step above says where it stands."
+        ? "Not every change is confirmed on Google yet. Each step above says where it stands."
         : presentation.description
   const doneSettled = nothingSent || presentation.live
   const doneTone =
@@ -809,6 +809,7 @@ function ReviewPublishBody({
                   (the `controls` variant), and is inline on short screens. */}
           {readOnly ? null : (
             <ActionBar
+              tone="charcoal"
               dock
               statusRow
               sticky={false}
@@ -847,6 +848,7 @@ function ReviewPublishBody({
               }
               primary={
                 <Button
+                  variant="send"
                   onClick={publish}
                   pending={flow.isPublishing}
                   pendingLabel="Publishing…"

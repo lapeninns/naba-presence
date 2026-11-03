@@ -24,19 +24,26 @@ export type SituationTone = "neutral" | "positive" | "caution" | "attention"
 // The pane used to label every one of these "Your published reply", which is
 // wrong for five of the six.
 // The two that are Google outcomes take the shared outcome words
-// (lib/editors/outcome.ts), so "Live on Google" means the same here as on
+// (lib/editors/outcome.ts), so "On Google" means the same here as on
 // every other surface.
 const REPLY_STATE: Record<string, { label: string; tone: SituationTone }> = {
   published: {
     label: describeOutcome("confirmed_applied").label,
     tone: "positive",
   },
-  accepted: { label: describeOutcome("sent").label, tone: "neutral" },
-  awaiting_approval: { label: "Waiting for approval", tone: "caution" },
-  rejected: { label: "Rejected", tone: "attention" },
-  failed: { label: "Failed to publish", tone: "attention" },
+  // Google took it and has not said what became of it (DIRECTION §6.2).
+  accepted: {
+    label: describeOutcome("awaiting_confirmation").label,
+    tone: "neutral",
+  },
+  awaiting_approval: {
+    label: describeOutcome("awaiting_approval").label,
+    tone: "caution",
+  },
+  rejected: { label: describeOutcome("rejected").label, tone: "attention" },
+  failed: { label: describeOutcome("failed").label, tone: "attention" },
   deleted: { label: "Deleted", tone: "neutral" },
-  not_published: { label: "Not published", tone: "neutral" },
+  not_published: { label: "Not on Google", tone: "neutral" },
 }
 
 export function describeReplyState(publishStatus: string | null): {
@@ -44,9 +51,7 @@ export function describeReplyState(publishStatus: string | null): {
   tone: SituationTone
 } {
   if (!publishStatus) return REPLY_STATE.not_published
-  return (
-    REPLY_STATE[publishStatus] ?? { label: "Not published", tone: "neutral" }
-  )
+  return REPLY_STATE[publishStatus] ?? REPLY_STATE.not_published
 }
 
 /** The only status that means the reply is actually visible on Google. */

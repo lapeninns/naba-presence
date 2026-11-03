@@ -29,7 +29,7 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a&]:hover:bg-accent-hover",
+        default: "bg-primary text-primary-foreground [a&]:hover:bg-ink-hover",
         tinted: "bg-accent-tint text-accent-ink",
         secondary: "bg-fill text-ink-secondary [a&]:hover:bg-fill-secondary",
         destructive: tone("at-risk"),

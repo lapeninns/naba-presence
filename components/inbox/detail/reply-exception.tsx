@@ -299,7 +299,7 @@ function ReplyException({
         {exception.description}
         {exception.title === "Publish failed" ||
         exception.title === "Google declined this reply"
-          ? " Nothing new is live on Google."
+          ? " Nothing new is on Google."
           : ""}
       </AlertDescription>
       {connectionLink ? (

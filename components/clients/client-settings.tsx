@@ -648,6 +648,7 @@ function SettingsBody({
                     under the list on a desk. Only there while something is
                     picked. */}
                 <ActionBar
+                  tone="surface"
                   dock
                   visible={selected.size > 0}
                   label="Unfiled listing actions"
@@ -656,7 +657,7 @@ function SettingsBody({
                   actions={
                     <>
                       <Button
-                        variant="ghost-dark"
+                        variant="ghost"
                         size="sm"
                         disabled={assignLocations.isPending}
                         onClick={() => setSelected(new Set())}

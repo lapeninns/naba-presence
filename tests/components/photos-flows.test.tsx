@@ -323,7 +323,9 @@ describe("adding photos (p4-F02)", () => {
     await openAddWith(user, [jpeg("bar.jpg")])
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
 
-    expect(await screen.findByText("Not confirmed")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Not confirmed: check Google")
+    ).toBeInTheDocument()
     // It may be on Google: the library is re-read so the page can say so.
     await waitFor(() => expect(fetchMediaMock).toHaveBeenCalled())
     expect(
@@ -346,7 +348,7 @@ describe("adding photos (p4-F02)", () => {
     expect((retryForm as FormData).get("category")).toBe(
       firstForm.get("category")
     )
-    expect(await screen.findByText("Live on Google")).toBeInTheDocument()
+    expect(await screen.findByText("On Google")).toBeInTheDocument()
   })
 
   it("retries a definite failure as a new upload", async () => {
@@ -364,7 +366,7 @@ describe("adding photos (p4-F02)", () => {
     renderTab()
     await openAddWith(user, [jpeg("bar.jpg")])
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
-    expect(await screen.findByText("Failed")).toBeInTheDocument()
+    expect(await screen.findByText("Failed: retry")).toBeInTheDocument()
     // Nothing may have landed, so nothing is re-read.
     expect(fetchMediaMock).not.toHaveBeenCalled()
 
@@ -387,7 +389,9 @@ describe("adding photos (p4-F02)", () => {
     renderTab()
     await openAddWith(user, [jpeg("bar.jpg")])
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
-    expect(await screen.findByText("Not confirmed")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Not confirmed: check Google")
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Try again to upload bar.jpg" })
     ).toBeNull()

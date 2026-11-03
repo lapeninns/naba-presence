@@ -8,6 +8,7 @@ import {
   type OperationOutcome,
 } from "@/lib/contracts/mutation-operations"
 import {
+  NOTHING_TO_SEND_TITLE,
   successToastFields,
   type SuccessToastCopy,
 } from "@/lib/editors/outcome"
@@ -146,6 +147,20 @@ export function publishOutcome(
     if (outcome && outcome !== "confirmed_applied") return outcome
   }
   return "confirmed_applied"
+}
+
+/**
+ * True when the publish wrote nothing to Google: it had Google steps, and
+ * every one found Google already matching.
+ */
+export function sentNothingToGoogle(
+  results: readonly PublishStepResult[]
+): boolean {
+  const google = results.filter((step) => step.kind !== "local")
+  return (
+    google.length > 0 &&
+    google.every((step) => step.status === "done" && step.noop === true)
+  )
 }
 
 /**
@@ -333,6 +348,9 @@ export function usePublishFlow({
     // A parked step is the news: the surface's own "sent to Google" or
     // "live" words would claim a write that has not happened.
     if (parked) toasts.add(successToastFields({ outcome: "awaiting_approval" }))
+    // Nothing was written, so no outcome toast may claim a confirmation.
+    else if (sentNothingToGoogle(running))
+      toasts.add({ title: NOTHING_TO_SEND_TITLE, type: "info" })
     else if (successToast)
       toasts.add(
         successToastFields(

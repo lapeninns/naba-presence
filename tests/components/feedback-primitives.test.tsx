@@ -122,16 +122,37 @@ describe("buttonVariants", () => {
     expect(secondary).toContain(
       "active:not-data-disabled:not-aria-disabled:bg-fill"
     )
-    // Ghost has no fill at rest, so it draws relative to the surface under
-    // it: a ladder step would match the surface-alt dialog footer.
+    // Ghost reads the fill ladder too, never an alpha of ink (SYSTEM §9.1).
     const ghost = buttonVariants({ variant: "ghost" }).split(" ")
     expect(ghost).toContain(
-      "hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink/6"
+      "hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary"
     )
     expect(ghost).toContain(
-      "active:not-data-disabled:not-aria-disabled:bg-ink/10"
+      "active:not-data-disabled:not-aria-disabled:bg-fill"
     )
-    expect(ghost.some((c) => /bg-fill(-secondary)?$/.test(c))).toBe(false)
+    expect(ghost.some((c) => c.includes("bg-ink/"))).toBe(false)
+    // Ink saves: the default primary hovers and presses on the ink ladder,
+    // never the send green.
+    const ink = buttonVariants().split(" ")
+    expect(ink).toContain("bg-primary")
+    expect(ink).toContain(
+      "hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-hover"
+    )
+    expect(ink).toContain(
+      "active:not-data-disabled:not-aria-disabled:bg-ink-active"
+    )
+    expect(ink.some((c) => c.includes("accent"))).toBe(false)
+    // Green sends: the send variant keeps the accent ladder.
+    const send = buttonVariants({ variant: "send" }).split(" ")
+    expect(send).toContain("bg-send")
+    expect(send).toContain("text-send-foreground")
+    expect(send).toContain(
+      "hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-accent-hover"
+    )
+    expect(send).toContain(
+      "active:not-data-disabled:not-aria-disabled:bg-accent-active"
+    )
+    expect(send).not.toContain("bg-primary")
     const base = buttonVariants().split(" ")
     expect(base).toContain(
       "motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px"
@@ -337,9 +358,20 @@ describe("ActionBar", () => {
     expect(region().className).not.toMatch(/\bz-20\b|\bz-50\b/)
   })
 
-  it("draws charcoal by default and the light surface on request", () => {
+  it("draws the surface save bar by default and the charcoal dispatch bar on request", () => {
     const { rerender } = render(
       <ActionBar status={<ActionBarMuted>muted</ActionBarMuted>} />
+    )
+    expect(screen.getByRole("region")).toHaveAttribute(
+      "data-bar-tone",
+      "surface"
+    )
+    expect(screen.getByRole("region").className).not.toContain("on-charcoal")
+    rerender(
+      <ActionBar
+        tone="charcoal"
+        status={<ActionBarMuted>muted</ActionBarMuted>}
+      />
     )
     expect(screen.getByRole("region")).toHaveAttribute(
       "data-bar-tone",

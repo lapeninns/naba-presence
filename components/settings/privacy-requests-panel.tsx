@@ -313,7 +313,7 @@ function ResolveDialog({
         if (error.code === "privacy_reply_withdraw_failed") {
           await refresh()
           toast.add({
-            title: "Erased here; a reply is still live on Google",
+            title: "Erased here; a reply is still on Google",
             description:
               "The request stays open while the withdrawal is retried automatically.",
             type: "warning",

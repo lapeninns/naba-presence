@@ -502,6 +502,7 @@ function TemplateReplyDialog({
               nothing to stop, and the footer is not left empty. */}
           {phase === "setup" || phase === "starting" ? (
             <Button
+              variant={bulkEngine ? "send" : "default"}
               pending={phase === "starting"}
               pendingLabel="Queuing…"
               disabled={eligible.length === 0}
@@ -536,6 +537,7 @@ function TemplateReplyDialog({
                 Leave as drafts
               </Button>
               <Button
+                variant={publishers.length > 0 ? "send" : "default"}
                 disabled={readyRows.length === 0}
                 disabledReason={
                   readyRows.length === 0

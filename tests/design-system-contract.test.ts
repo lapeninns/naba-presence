@@ -191,6 +191,12 @@ describe("NabaPresence design tokens", () => {
     ]) {
       expect(tokens.light[contractToken]).toMatch(/^var\(--np-/)
     }
+    // Ink saves, green sends (DIRECTION D1): the primary is ink, the one
+    // green fill is the send alias.
+    expect(tokens.light["--primary"]).toBe("var(--np-ink)")
+    expect(tokens.light["--primary-foreground"]).toBe("var(--np-ink-inverse)")
+    expect(tokens.light["--send"]).toBe("var(--np-accent)")
+    expect(tokens.light["--send-foreground"]).toBe("var(--np-ink-on-accent)")
   })
 
   it("collapses all animation under prefers-reduced-motion", () => {

@@ -86,7 +86,8 @@ export function scheduleBadge(
   const missed = MISSED_REASONS.has(schedule.statusReason ?? "")
   switch (schedule.status) {
     case "awaiting_approval":
-      return { label: "Awaiting approval", tone: "info" }
+      // Amber: a person approves next, the same tone on every surface.
+      return { label: "Awaiting approval", tone: "warn" }
     case "active":
       return { label: "Active", tone: "ok" }
     case "paused":

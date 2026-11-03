@@ -65,6 +65,7 @@ export function VerificationPinField({
   const submit = (
     <Button
       type="submit"
+      variant={reentry ? "send" : "default"}
       className="self-start"
       disabled={!parsed.success || blocked || busy || !consented}
       pending={busy}

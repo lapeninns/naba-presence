@@ -1,5 +1,6 @@
 "use client"
 
+import { describeOutcome } from "@/lib/editors/outcome"
 import * as React from "react"
 
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
@@ -295,6 +296,7 @@ function ReviewChangesSheet({
             </Button>
           ) : null}
           <Button
+            variant="send"
             onClick={() => void onPublish()}
             disabled={blocked}
             pending={publishing}
@@ -323,7 +325,7 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
       }
     // The outcome words (lib/editors/outcome.ts) say the rest: a local
     // save is "Saved here"; a Google write is what the server answered
-    // (stepOutcome): "Live on Google" only when Google was read back holding
+    // (stepOutcome): "On Google" only when Google was read back holding
     // it, "Waiting for Google" or "Sent to Google" when it was not.
     if (step.status === "done")
       return {
@@ -348,7 +350,7 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         state: stepOutcome(step) ?? "failed",
         stateLabel:
           step.code === "google_confirmation_required"
-            ? "Not confirmed"
+            ? describeOutcome("uncertain").label
             : undefined,
         detail: step.message,
         errorCode: step.code,

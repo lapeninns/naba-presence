@@ -570,7 +570,9 @@ describe("PostsActionBar", () => {
       })
       renderBar()
       await publishFromDialog()
-      expect(await screen.findByText("Post live on Google")).toBeInTheDocument()
+      expect(
+        await screen.findByText("Post confirmed on Google")
+      ).toBeInTheDocument()
     })
 
     it("does not say live while Google is still reviewing the post", async () => {
@@ -583,7 +585,7 @@ describe("PostsActionBar", () => {
       renderBar()
       await publishFromDialog()
       expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
-      expect(screen.queryByText(/live on Google/i)).toBeNull()
+      expect(screen.queryByText(/^On Google$|confirmed on Google/i)).toBeNull()
     })
 
     it("follows the receipt of an ambiguous publish, and resends its intent on retry", async () => {
@@ -620,7 +622,7 @@ describe("PostsActionBar", () => {
       await publishFromDialog()
       const notice = await screen.findByRole("status")
       expect(notice).toHaveAttribute("data-outcome", "uncertain")
-      expect(notice).not.toHaveTextContent("Live on Google")
+      expect(notice).not.toHaveTextContent("On Google")
       await waitFor(() =>
         expect(receipts.fetchMutationReceipt).toHaveBeenCalledWith(
           intentIds[0],

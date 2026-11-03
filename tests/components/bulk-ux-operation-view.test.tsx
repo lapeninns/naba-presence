@@ -76,7 +76,7 @@ const running = (): Operation => ({
   dispatchExpiresAt: "2099-10-03T00:00:00.000Z",
   counts: { succeeded: 1, running: 1, queued: 2 },
   children: [
-    child(1, { status: "succeeded" }),
+    child(1, { status: "succeeded", confirmationState: "confirmed" }),
     child(2, { status: "running" }),
     child(3, { status: "queued" }),
     child(4, { status: "queued" }),

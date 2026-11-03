@@ -1,5 +1,6 @@
 "use client"
 
+import { localPostOutcome } from "@/lib/domain/post-outcome"
 import {
   CalendarClock,
   ExternalLink,
@@ -97,11 +98,15 @@ export { publishOutcome }
 // What the Check Google round-trip found. `reconciliationError` is the only
 // honest answer when Google could not be reached: the post's state is exactly
 // as unknown as it was before the check.
-function checkOutcomeTitle(state: PostsState, postId: string) {
+export function checkOutcomeTitle(state: PostsState, postId: string) {
   if (state.reconciliationError)
     return "We couldn’t reach Google just now. Try again shortly."
   const checked = state.posts.find((row) => row.id === postId)
-  if (checked?.status === "published") return "This post is live on Google."
+  const outcome = checked ? localPostOutcome(checked) : null
+  if (outcome === "confirmed_applied") return "This post is on Google."
+  if (outcome === "awaiting_confirmation")
+    return "Google has this post but hasn’t shown it yet."
+  if (outcome === "rejected") return "Google refused this post."
   if (checked?.status === "failed")
     return "Google doesn’t have this post, so you can publish it again."
   return "Google’s copy of this post is still unclear."
@@ -631,6 +636,7 @@ export function PostsActionBar({
               render={<Button variant="ghost">Not yet</Button>}
             />
             <Button
+              variant="send"
               onClick={() => publish.mutate()}
               pending={publish.isPending}
               pendingLabel="Publishing…"
@@ -669,6 +675,7 @@ export function PostsActionBar({
               render={<Button variant="ghost">Not yet</Button>}
             />
             <Button
+              variant="send"
               onClick={() =>
                 decide.mutate("approve", {
                   // Warnings to acknowledge keep the dialog open, beside them.

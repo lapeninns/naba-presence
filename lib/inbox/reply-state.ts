@@ -1,5 +1,9 @@
 import type { LatestVerification } from "@/lib/api/reviews"
-import { describeOutcome, type OperationOutcome } from "@/lib/editors/outcome"
+import {
+  describeOutcome,
+  NEEDS_REPLY_LABEL,
+  type OperationOutcome,
+} from "@/lib/editors/outcome"
 import {
   evaluateApproval,
   evaluatePublish,
@@ -112,7 +116,7 @@ const ACTION_LABELS: Record<PrimaryActionKind, string> = {
 }
 
 const PENDING_ACTION_LABELS: Partial<Record<ReplyPendingKind, string>> = {
-  publish: "Publishing…",
+  publish: "Sending…",
   submit: "Submitting…",
   approve: "Approving…",
   reject: "Sending back…",
@@ -297,7 +301,9 @@ function readyText(kind: PrimaryActionKind): string {
 }
 
 /** The one sentence for a reply Google has taken but not yet approved. */
-export const WAITING_FOR_GOOGLE_CHECK = "Sent · waiting for Google\u2019s check"
+export const WAITING_FOR_GOOGLE_CHECK = describeOutcome(
+  "awaiting_confirmation"
+).label
 
 /**
  * A confirmed publish that Google is still moderating. The reply is on its way
@@ -311,7 +317,7 @@ export function isAwaitingGoogleCheck(
 }
 
 const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
-  publish: ["Publishing reply", "Publishing"],
+  publish: [describeOutcome("sent").label, "Sending"],
   submit: ["Submitting for approval", "Submitting"],
   approve: ["Recording your approval", "Approving"],
   reject: ["Sending the reply back", "Sending back"],
@@ -325,7 +331,7 @@ const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
  * The ordering is "what stops me acting, soonest first". Two rules are load
  * bearing and neither may be relaxed for a tidier ladder:
  *
- *  1. "Live on Google" is reachable ONLY from `publish_status = 'published'`
+ *  1. "On Google" is reachable ONLY from `publish_status = 'published'`
  *     (via `replyWork`'s stricter sibling below). A queued or `accepted`
  *     provider request is in flight, not confirmed, and says so.
  *  2. Nothing here infers a state from the availability of an action. Being
@@ -344,7 +350,7 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   // In-flight state outranks everything: whatever the composer holds, nobody
   // can act while a publish is on its way to Google.
   if (input.workflowStatus === "publish_requested") {
-    return status("Publishing reply", "Publishing", "neutral", "cloud")
+    return status(describeOutcome("sent").label, "Sending", "neutral", "cloud")
   }
 
   // Approval outranks unsaved edits, because the action on offer is Approve and
@@ -355,7 +361,7 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
     const scope = resolveApprovalScope(input)
     if (scope === "unknown") {
       return status(
-        "Waiting for approval",
+        describeOutcome("awaiting_approval").label,
         "Awaiting approval",
         "caution",
         "clock"
@@ -399,10 +405,29 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   }
 
   if (input.workflowStatus === "failed") {
-    return status("Publish failed", "Publish failed", "attention", "alert")
+    return {
+      ...status(
+        describeOutcome("failed").label,
+        "Failed",
+        "attention",
+        "alert"
+      ),
+      outcome: "failed",
+    }
   }
+  // `rejected` is Google refusing the reply (publishing/settle.ts). An
+  // approver's send-back returns the review to `drafted` instead
+  // (review-approval.ts), so it never reaches this branch.
   if (input.workflowStatus === "rejected") {
-    return status("Sent back for changes", "Sent back", "caution", "pen")
+    return {
+      ...status(
+        describeOutcome("rejected").label,
+        "Rejected",
+        "attention",
+        "alert"
+      ),
+      outcome: "rejected",
+    }
   }
 
   // Confirmed publication only. `accepted` means Google took the request and
@@ -416,7 +441,7 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
       // the docked bar clipped it to "Sent · waiting…" behind a longer line.
       return {
         ...status(WAITING_FOR_GOOGLE_CHECK, "Sent", "neutral", "cloud"),
-        outcome: "sent",
+        outcome: "awaiting_confirmation",
       }
     }
     return publishStatus === "published"
@@ -431,18 +456,17 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
         }
       : {
           ...status(
-            describeOutcome("sent").label,
+            describeOutcome("awaiting_confirmation").label,
             "Sent",
             "neutral",
-            "cloud",
-            "not live until Google confirms"
+            "cloud"
           ),
-          outcome: "sent",
+          outcome: "awaiting_confirmation",
         }
   }
 
   if (work.draftBody === null && work.liveBody === null) {
-    return status("No reply yet", "Needs reply")
+    return status("No reply yet", NEEDS_REPLY_LABEL)
   }
 
   const verdict = input.verification?.verdict

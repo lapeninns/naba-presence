@@ -1152,11 +1152,11 @@ for (const theme of themes) {
 
         // One status surface, from lib/inbox/reply-state.ts: a confirmed
         // `published` reply with nothing newer in the composer is the only
-        // state that reads "Live on Google". Asserting the strip by its slot
+        // state that reads "On Google". Asserting the strip by its slot
         // keeps this pointed at the one place the pane answers the question.
         await expect(
           selectedReview.locator('[data-slot="reply-status-strip"]')
-        ).toHaveText("Live on Google")
+        ).toHaveText("On Google")
 
         // The editor is always open: the live words, editable in place.
         await expect(

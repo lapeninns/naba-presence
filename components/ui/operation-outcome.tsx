@@ -1,12 +1,3 @@
-import {
-  Check,
-  CircleAlert,
-  CircleHelp,
-  HardDrive,
-  Hourglass,
-  Send,
-  UserCheck,
-} from "lucide-react"
 import * as React from "react"
 
 import {
@@ -15,49 +6,44 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
-import { describeOutcome, type OperationOutcome } from "@/lib/editors/outcome"
+import { STATUS_GLYPH_ICON } from "@/components/ui/status-glyph"
+import {
+  describeOutcome,
+  OUTCOME_PRESENTATION,
+  type OperationOutcome,
+} from "@/lib/editors/outcome"
+import { OPERATION_OUTCOMES } from "@/lib/contracts/mutation-operations"
+import { TONE_CLASSES } from "@/lib/ui/status-tone"
 
 /**
  * The glyph and the small round mark for each outcome: the ONE map, read by
  * this notice, the publish step list and OutcomeSummary, so a state looks
- * the same wherever it appears (prim-20: the notice used to draw a clock
- * where the steps drew an hourglass).
+ * the same wherever it appears. Both come from the outcome's presentation
+ * (lib/editors/outcome.ts), so the notice, the pill and the change track
+ * cannot disagree on a shape or a tone.
  */
-export const OUTCOME_VISUAL: Record<
-  OperationOutcome,
-  { icon: React.ReactNode; mark: string }
-> = {
-  saved_locally: {
-    icon: <HardDrive />,
-    mark: "bg-fill text-ink-secondary",
-  },
-  awaiting_approval: {
-    icon: <UserCheck />,
-    mark: "bg-info-tint text-info-ink",
-  },
-  sent: { icon: <Send />, mark: "bg-info-tint text-info-ink" },
-  awaiting_confirmation: {
-    icon: <Hourglass />,
-    mark: "bg-info-tint text-info-ink",
-  },
-  confirmed_applied: {
-    icon: <Check strokeWidth={2.25} />,
-    mark: "bg-success-tint text-success-ink",
-  },
-  rejected: { icon: <CircleAlert />, mark: "bg-danger-tint text-danger-ink" },
-  failed: { icon: <CircleAlert />, mark: "bg-danger-tint text-danger-ink" },
-  uncertain: {
-    icon: <CircleHelp />,
-    mark: "bg-warning-tint text-warning-ink",
-  },
-}
+export const OUTCOME_VISUAL = Object.fromEntries(
+  OPERATION_OUTCOMES.map((outcome) => {
+    const { glyph, tone } = OUTCOME_PRESENTATION[outcome]
+    const Icon = STATUS_GLYPH_ICON[glyph]
+    const classes = TONE_CLASSES[tone]
+    return [
+      outcome,
+      {
+        icon: <Icon strokeWidth={2} />,
+        mark: `${classes.tint} ${classes.text}`,
+      },
+    ]
+  })
+) as Record<OperationOutcome, { icon: React.ReactNode; mark: string }>
 
 const ALERT_VARIANT: Record<
   OperationOutcome,
   "default" | "info" | "success" | "warning" | "destructive"
 > = {
   saved_locally: "default",
-  awaiting_approval: "info",
+  // Amber: a person approves next, the same tone on every surface.
+  awaiting_approval: "warning",
   sent: "info",
   awaiting_confirmation: "info",
   confirmed_applied: "success",
@@ -76,7 +62,7 @@ export function outcomeGlyph(outcome: OperationOutcome): React.ReactNode {
 
 /**
  * The inline result of one write, in the shared outcome words
- * (lib/editors/outcome.ts): "Saved here", "Sent to Google", "Live on Google"
+ * (lib/editors/outcome.ts): "Draft saved", "Sending to Google", "On Google"
  * only with confirmation, and so on.
  *
  * Always a polite live region, whatever the tone: the notice reports a

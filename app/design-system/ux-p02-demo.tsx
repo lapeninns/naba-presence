@@ -33,6 +33,7 @@ export function UxP02Demo() {
           ActionBar: status, primary, overflow
         </h3>
         <ActionBar
+          tone="charcoal"
           sticky={false}
           safeArea={false}
           label="Action bar with an overflow, sample"
@@ -55,7 +56,7 @@ export function UxP02Demo() {
             },
           ]}
           primary={
-            <Button onClick={() => setLog("Review changes")}>
+            <Button variant="on-dark" onClick={() => setLog("Review changes")}>
               Review changes
             </Button>
           }

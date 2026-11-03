@@ -1227,7 +1227,7 @@ describe("ProfileTab save and review boundaries", () => {
     const wifiRow = rows.find((row) => row.textContent?.includes("Wi-Fi"))
     // Business information compares its readback before success, so the
     // finished row says live.
-    expect(storeRow).toHaveTextContent("Live on Google")
+    expect(storeRow).toHaveTextContent("On Google")
     // Google's own 403 refusal is its verdict, so the row says so rather
     // than a bare "Failed" (lib/errors/action-errors.ts errorOutcome).
     expect(wifiRow).toHaveTextContent("Rejected by Google")
@@ -1917,7 +1917,7 @@ describe("ProfileTab one review sheet (L14)", () => {
     // The server's answer, not a client guess: held for approval, not sent.
     expect(rows[0]).toHaveTextContent("Business name")
     expect(rows[0]).toHaveTextContent("Awaiting approval")
-    expect(rows[0]).not.toHaveTextContent(/Sent to Google|Live on Google/)
+    expect(rows[0]).not.toHaveTextContent(/Sent to Google|On Google/)
     expect(
       calls.filter(
         ({ method, url }) => method === "POST" && url.includes("/profile")
@@ -1926,7 +1926,7 @@ describe("ProfileTab one review sheet (L14)", () => {
     expect(
       await within(
         screen.getByRole("region", { name: "Notifications" })
-      ).findByText("Sent for approval")
+      ).findByText("Awaiting approval")
     ).toBeVisible()
     await userEvent.click(done)
     await waitFor(() =>

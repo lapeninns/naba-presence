@@ -1,5 +1,6 @@
 "use client"
 
+import { describeOutcome } from "@/lib/editors/outcome"
 import { CheckIcon, RefreshCwIcon, Undo2Icon } from "lucide-react"
 import Link from "next/link"
 import { useId, useRef, useState } from "react"
@@ -103,7 +104,7 @@ function outcomeToast(
 }
 
 const SENT = {
-  label: "Sent to Google, waiting for Google to confirm",
+  label: describeOutcome("awaiting_confirmation").title,
   detail: "Ours was sent. This row updates after the next check with Google.",
   tone: "pending" as const,
 }
@@ -123,11 +124,11 @@ function revertState(change: GoogleChange, now: number) {
     }
     if (!revert.changeSet.approvedBy) {
       return {
-        label: "Waiting for approval",
+        label: describeOutcome("awaiting_approval").label,
         detail: revert.changeSet.requiresSecondApprover
           ? "Prepared for review. A second owner or admin approves it, then it can be published. Nothing is on Google yet."
           : "Prepared for review. Approve it, then publish it. Nothing is on Google yet.",
-        tone: "pending" as const,
+        tone: "attention" as const,
       }
     }
     return {
@@ -142,7 +143,7 @@ function revertState(change: GoogleChange, now: number) {
         label: "Waiting for a second approval",
         detail:
           "Ours goes back on Google once a second owner or admin approves it in the hours editor.",
-        tone: "pending" as const,
+        tone: "attention" as const,
       }
     }
     if (revert.outcome === "failed" || revert.outcome === "rejected") {
@@ -479,6 +480,7 @@ export function GoogleChangesPanel({
                         !revert.dispatched ? (
                           <div>
                             <Button
+                              variant="send"
                               disabled={busy}
                               disabledReason={gateReason}
                               pending={
