@@ -498,10 +498,11 @@ function ExistingLinks({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.clientReportShares(clientId),
       })
+      // Neutral, not the success green: green is kept for what is
+      // confirmed on Google, and revoking only changes NabaPresence.
       toast.add({
         title: "Link revoked",
         description: "Anyone who opens it now sees that it isn’t available.",
-        type: "success",
       })
     },
     onError: (cause) =>
