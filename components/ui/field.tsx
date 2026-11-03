@@ -538,16 +538,19 @@ const fieldFrameClassName = cn(
  * focus shows on `:focus`, not only `:focus-visible`, because a field
  * clicked into is where the typing goes and must say so. Read-only draws
  * like disabled (it cannot be changed) but still takes the focus halo, since
- * it can be focused to select and copy. Exported so a control outside this
+ * it can be focused to select and copy. `:focus-within` repeats the halo
+ * because a native date or time input on desktop Chromium gives its
+ * calendar button a Tab stop of its own, where the input loses `:focus`.
+ * Exported so a control outside this
  * file (a date input, a number field) can look like an Input without copying
  * the recipe.
  */
 export const fieldChromeClassName = cn(
   fieldFrameClassName,
   "placeholder:text-ink-muted",
-  "hover-fine:hover:not-focus:not-disabled:not-read-only:not-aria-invalid:border-ink-muted",
-  "focus:border-accent-solid focus:shadow-(--np-focus-halo) forced-colors:focus-halo",
-  "aria-invalid:border-danger-ink aria-invalid:focus:border-danger-ink aria-invalid:focus:shadow-np-focus-danger",
+  "hover-fine:hover:not-focus-within:not-disabled:not-read-only:not-aria-invalid:border-ink-muted",
+  "focus-within:border-accent-solid focus-within:shadow-(--np-focus-halo) focus:border-accent-solid focus:shadow-(--np-focus-halo) forced-colors:focus-halo",
+  "aria-invalid:border-danger-ink aria-invalid:focus-within:border-danger-ink aria-invalid:focus-within:shadow-np-focus-danger aria-invalid:focus:border-danger-ink aria-invalid:focus:shadow-np-focus-danger",
   "read-only:border-disabled-line read-only:bg-disabled read-only:text-disabled-ink",
   "disabled:cursor-not-allowed disabled:border-disabled-line disabled:bg-disabled disabled:text-disabled-ink"
 )
