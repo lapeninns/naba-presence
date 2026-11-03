@@ -160,6 +160,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // then the persisted review.latestVerification stands.
   const [mutationVerification, setMutationVerification] =
     useState<LatestVerification | null>(null)
+  // The text that verification was produced for.
+  const [checkedBody, setCheckedBody] = useState<string | null>(null)
   // The checks' verdict is about the text that was checked. Typing makes it
   // stale, so the message under the editor goes until the next check.
   const [verdictStale, setVerdictStale] = useState(false)
@@ -200,6 +202,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     setRestoredBody(null)
     setDiscardedBody(null)
     setMutationVerification(null)
+    setCheckedBody(null)
     setVerdictStale(false)
   } else if (
     // A newer draft for the review already on screen: someone else saved
@@ -405,6 +408,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       if (!mounted.current) return
       setBody(result.body)
       setMutationVerification(result.verification)
+      setCheckedBody(result.body)
       setVerdictStale(false)
       const restorable =
         previous.trim() !== "" && previous !== result.body ? previous : null
@@ -473,6 +477,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     try {
       const result = await generateOrSave.mutateAsync({ body, tone })
       setMutationVerification(result.verification)
+      setCheckedBody(body)
       setVerdictStale(false)
       if (result.verification.verdict === "fail") focusEditor()
       return { draftId: result.draftId, verification: result.verification }
@@ -505,7 +510,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const verification = verdictStale
     ? null
     : (mutationVerification ?? review.latestVerification)
-  const showFail = verification?.verdict === "fail"
+  // A verdict speaks for the saved text only: once the words differ from it,
+  // no card (pass, note or fail) may vouch for or against what is typed.
+  const checkedText = mutationVerification ? checkedBody : draftBody
+  const savedVerification = body === checkedText ? verification : null
+  const showFail = savedVerification?.verdict === "fail"
   const empty = body.trim() === ""
   // Credits are for Generate: with no AI to spend them on, they are noise.
   const showCredits = Boolean(aiCredits.data) && editable && !aiUnavailable
@@ -875,11 +884,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       </div>
 
       <ReplyChecks
-        verification={
-          verification?.verdict === "pass" && (isDirty || draftBody === null)
-            ? null
-            : verification
-        }
+        verification={savedVerification}
         problemId={`${fieldId}-problem`}
       />
     </div>
