@@ -19,16 +19,32 @@ type Item = {
   kind: string
   state: string
   title: string
-  locationId: string
+  detail: string | null
+  locationId: string | null
   clientId: string | null
   clientName: string | null
   href: string
 }
+type Page = {
+  items: Item[]
+  nextCursor: string | null
+  truncated: boolean
+  unavailable: string[]
+  paused: string[]
+}
+
+const GROUPS: Record<string, string[]> = {
+  person: ["approval", "changes", "approved"],
+  google: ["sending", "retrying", "waiting", "uncertain"],
+  failed: ["rejected", "failed"],
+  live: ["live"],
+}
 
 /**
  * GET /api/outbox and /api/outbox/counts (lib/server/outbox.ts): a
- * read-only union of replies, listing change receipts and posts, narrowed to
- * the listings the session can see. Each tenant here is its own, so the
+ * read-only union of replies, listing change receipts, posts and bulk
+ * listing changes, narrowed to the listings the session can see and then
+ * to the client or listing asked for. Each tenant here is its own, so the
  * isolation cases prove absence rather than filter a shared fixture.
  */
 describeDatabase("GET /api/outbox", () => {
@@ -38,6 +54,7 @@ describeDatabase("GET /api/outbox", () => {
 
   let owner: Awaited<ReturnType<typeof createTestTenant>>
   let other: Awaited<ReturnType<typeof createTestTenant>>
+  // `first` is filed under the client; `second` is unfiled.
   let first: { reviewId: string; locationId: string }
   let second: { reviewId: string; locationId: string }
   let clientId: string
@@ -95,19 +112,21 @@ describeDatabase("GET /api/outbox", () => {
       errorCode?: string | null
       updatedAt?: string
       intentId?: string
-      changeRequest?: object | null
-      receipt?: object | null
+      approvalRef?: string | null
+      changeRequest?: Record<string, unknown> | null
+      receipt?: Record<string, string> | null
     }) => {
       const [row] = await admin<{ id: string }[]>`
         insert into mutation_operation (
           organisation_id, intent_id, surface, action, location_id,
-          payload_hash, state, error_code, change_request, receipt,
-          created_at, updated_at
+          payload_hash, state, error_code, approval_ref, change_request,
+          receipt, created_at, updated_at
         ) values (
           ${input.organisationId ?? org}, ${input.intentId ?? randomUUID()},
           ${input.surface}, 'publish', ${input.locationId},
           ${"h".repeat(32)}, ${input.state}, ${input.errorCode ?? null},
-          ${input.changeRequest ? admin.json(input.changeRequest) : null},
+          ${input.approvalRef ?? null},
+          ${input.changeRequest ? admin.json(input.changeRequest as never) : null},
           ${input.receipt ? admin.json(input.receipt) : null},
           now() - interval '1 hour',
           coalesce(${input.updatedAt ?? null}::timestamptz, now())
@@ -127,6 +146,11 @@ describeDatabase("GET /api/outbox", () => {
       locationId: second.locationId,
       surface: "profile",
       state: "awaiting_confirmation",
+    })
+    ids.mediaUncertain = await receipt({
+      locationId: second.locationId,
+      surface: "media",
+      state: "uncertain",
     })
     ids.menuLive = await receipt({
       locationId: first.locationId,
@@ -169,7 +193,7 @@ describeDatabase("GET /api/outbox", () => {
       intentId: dispatchIntentId,
     })
     // Not a listing editor's surface.
-    ids.bulk = await receipt({
+    ids.reviewBulk = await receipt({
       locationId: first.locationId,
       surface: "review_bulk",
       state: "failed",
@@ -181,37 +205,110 @@ describeDatabase("GET /api/outbox", () => {
       state: "failed",
     })
 
-    // A post Google has not shown yet: sent, never "On Google".
+    // Posts: one sent from here that Google has not shown yet (sent, never
+    // "On Google"), and one synced in from Google (no attempt: not ours).
     const [{ externalLocationId }] = await admin<
       { externalLocationId: string }[]
     >`
       select external_location_id::text as "externalLocationId"
       from review where id = ${second.reviewId}
     `
-    const [post] = await admin<{ id: string }[]>`
-      insert into gbp_local_post (
-        organisation_id, location_id, external_location_id, topic_type,
-        summary, status, google_state
+    const post = async (status: string, googleState: string | null) => {
+      const [row] = await admin<{ id: string }[]>`
+        insert into gbp_local_post (
+          organisation_id, location_id, external_location_id, topic_type,
+          summary, status, google_state
+        ) values (
+          ${org}, ${second.locationId}, ${externalLocationId}, 'STANDARD',
+          'Autumn menu launches on Friday', ${status}, ${googleState}
+        )
+        returning id::text as id
+      `
+      return row.id
+    }
+    ids.post = await post("published", "PROCESSING")
+    ids.importedPost = await post("published", "LIVE")
+    await admin`
+      insert into gbp_local_post_attempt (
+        organisation_id, post_id, actor_user_id, operation, status,
+        idempotency_key, intended_payload
       ) values (
-        ${org}, ${second.locationId}, ${externalLocationId}, 'STANDARD',
-        'Autumn menu launches on Friday', 'published', 'PROCESSING'
+        ${org}, ${ids.post}, ${owner.userId}, 'create', 'succeeded',
+        ${randomUUID()}, '{}'::jsonb
+      )
+    `
+
+    // A running bulk hours change over both listings: one listing failed,
+    // the other still queued. Its own hours receipt is the bulk row's.
+    await admin`
+      insert into organisation_feature (organisation_id, feature, enabled, changed_by)
+      values (${org}, 'bulk_actions', true, 'test')
+      on conflict (organisation_id, feature) do update set enabled = true
+    `
+    const [bulk] = await admin<{ id: string }[]>`
+      insert into bulk_listing_operation (
+        organisation_id, operation, input, items, target_location_ids,
+        preview_hash, requested_by, require_two_person_approval,
+        status, approved_by, approved_at, dispatch_expires_at,
+        execute_requested_at
+      ) values (
+        ${org}, 'regular_hours', ${admin.json({})}, ${admin.json([{}])},
+        ${[first.locationId, second.locationId]}::uuid[], ${"b".repeat(64)},
+        ${owner.userId}, false, 'running', ${owner.userId}, now(),
+        now() + interval '1 day', now()
       )
       returning id::text as id
     `
-    ids.post = post.id
+    ids.bulk = bulk.id
+    const child = (locationId: string, status: string) => admin`
+      insert into bulk_listing_child (
+        organisation_id, operation_id, location_id, eligibility, status,
+        resource_key, seq, item_key, input, started_at, finished_at
+      ) values (
+        ${org}, ${bulk.id}, ${locationId}, 'eligible', ${status}, 'hours', 0,
+        '0:regular_hours', ${admin.json({})}, now(),
+        ${status === "failed" ? new Date() : null}
+      )
+    `
+    await child(first.locationId, "failed")
+    await child(second.locationId, "queued")
+    // On the other listing, so it is not also a later write that settles
+    // `hoursFailed`.
+    ids.bulkReceipt = await receipt({
+      locationId: second.locationId,
+      surface: "hours",
+      state: "sent",
+      approvalRef: `bulk_listing_operation:${bulk.id}`,
+    })
   })
 
   afterAll(async () => {
-    await server.stop()
+    await server?.stop()
     await destroyTenants(admin, organisations)
     await admin.end()
   })
 
-  async function read(cookie: string, path = "/api/outbox") {
+  async function read<T = Page>(cookie: string, path = "/api/outbox") {
     const response = await fetch(`${server.baseUrl}${path}`, {
       headers: { cookie },
     })
-    return { status: response.status, body: await response.json() }
+    return { status: response.status, body: (await response.json()) as T }
+  }
+
+  /** Every row, following the cursor to the end. */
+  async function readAll(cookie: string, query = "") {
+    const items: Item[] = []
+    let cursor: string | null = null
+    for (let guard = 0; guard < 20; guard += 1) {
+      const params = new URLSearchParams(query)
+      if (cursor) params.set("cursor", cursor)
+      const { status, body } = await read(cookie, `/api/outbox?${params}`)
+      expect(status).toBe(200)
+      items.push(...body.items)
+      cursor = body.nextCursor
+      if (!cursor) break
+    }
+    return items
   }
 
   const byId = (items: Item[]) => new Map(items.map((item) => [item.id, item]))
@@ -219,8 +316,10 @@ describeDatabase("GET /api/outbox", () => {
   it("lists each write once, in its Outbox state, for an owner", async () => {
     const { status, body } = await read(owner.cookie)
     expect(status).toBe(200)
-    const items = byId(body.items as Item[])
+    expect(body.unavailable).toEqual([])
+    const items = byId(body.items)
 
+    // Waiting for a person
     expect(items.get(`reply:${first.reviewId}`)).toMatchObject({
       kind: "reply",
       state: "approval",
@@ -228,6 +327,27 @@ describeDatabase("GET /api/outbox", () => {
       clientName: "Journey Hospitality",
       href: `/inbox?queue=approval&selected=${first.reviewId}`,
     })
+    expect(items.get(`listing_change:${ids.sentBack}`)?.state).toBe("changes")
+    // With Google
+    expect(items.get(`listing_change:${ids.request}`)?.state).toBe("sending")
+    expect(items.get(`listing_change:${ids.profileWaiting}`)?.state).toBe(
+      "waiting"
+    )
+    expect(items.get(`listing_change:${ids.mediaUncertain}`)?.state).toBe(
+      "uncertain"
+    )
+    expect(items.get(`post:${ids.post}`)).toMatchObject({
+      state: "waiting",
+      title: "Post",
+      href: `/listings/${second.locationId}/posts`,
+    })
+    expect(items.get(`bulk:${ids.bulk}:sending`)).toMatchObject({
+      kind: "bulk",
+      locationId: second.locationId,
+      detail: "1 of 2 listings",
+      href: `/listings/bulk/${ids.bulk}`,
+    })
+    // Failed
     expect(items.get(`reply:${second.reviewId}`)).toMatchObject({
       state: "failed",
       clientId: null,
@@ -238,49 +358,125 @@ describeDatabase("GET /api/outbox", () => {
       title: "Opening hours",
       href: `/listings/${first.locationId}/hours`,
     })
-    expect(items.get(`listing_change:${ids.profileWaiting}`)?.state).toBe(
-      "waiting"
-    )
-    expect(items.get(`listing_change:${ids.menuLive}`)?.state).toBe("live")
-    expect(items.get(`listing_change:${ids.sentBack}`)?.state).toBe("changes")
-    expect(items.get(`listing_change:${ids.request}`)?.state).toBe("sending")
-    expect(items.get(`post:${ids.post}`)).toMatchObject({
-      state: "waiting",
-      title: "Post",
-      href: `/listings/${second.locationId}/posts`,
+    expect(items.get(`bulk:${ids.bulk}:failed`)).toMatchObject({
+      state: "failed",
+      locationId: first.locationId,
+      clientId,
     })
+    // Confirmed today
+    expect(items.get(`listing_change:${ids.menuLive}`)?.state).toBe("live")
 
     // Left out: confirmed more than a day ago, a withdrawn request, the
-    // dispatch twin of an approved request, a non-listing surface, and
-    // another tenant's rows.
+    // dispatch twin of an approved request, a non-listing surface, a bulk
+    // child's own receipt, a post synced in from Google, and another
+    // tenant's rows.
     for (const id of [
       `listing_change:${ids.oldLive}`,
       `listing_change:${ids.withdrawn}`,
       `listing_change:${ids.dispatch}`,
-      `listing_change:${ids.bulk}`,
+      `listing_change:${ids.reviewBulk}`,
+      `listing_change:${ids.bulkReceipt}`,
       `listing_change:${ids.foreign}`,
+      `post:${ids.importedPost}`,
     ])
       expect(items.has(id)).toBe(false)
     // Only confirmed rows may be On Google.
     expect(
-      [...items.values()].filter((item) => item.state === "live").map((i) => i.id)
+      body.items.filter((item) => item.state === "live").map((i) => i.id)
     ).toEqual([`listing_change:${ids.menuLive}`])
+    // Groups in reading order: person, google, failed, live.
+    const ranks = body.items.map((item) =>
+      Object.keys(GROUPS).findIndex((g) => GROUPS[g].includes(item.state))
+    )
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
   })
 
   it("counts the same rows by group", async () => {
     const list = await read(owner.cookie)
-    const { status, body } = await read(owner.cookie, "/api/outbox/counts")
+    const { status, body } = await read<Record<string, number | boolean>>(
+      owner.cookie,
+      "/api/outbox/counts"
+    )
     expect(status).toBe(200)
-    const states = (list.body.items as Item[]).map((item) => item.state)
+    const states = list.body.items.map((item) => item.state)
     const inGroup = (group: string[]) =>
       states.filter((state) => group.includes(state)).length
     expect(body).toEqual({
-      person: inGroup(["approval", "changes", "approved"]),
-      google: inGroup(["sending", "retrying", "waiting", "uncertain"]),
-      failed: inGroup(["rejected", "failed"]),
-      live: inGroup(["live"]),
+      person: inGroup(GROUPS.person),
+      google: inGroup(GROUPS.google),
+      failed: inGroup(GROUPS.failed),
+      live: inGroup(GROUPS.live),
+      partial: false,
     })
-    expect(body.failed).toBe(2)
+    expect(body.failed).toBe(3)
+  })
+
+  it("filters to one group", async () => {
+    const { body } = await read(owner.cookie, "/api/outbox?group=failed")
+    expect(body.items.length).toBe(3)
+    expect(body.items.every((item) => GROUPS.failed.includes(item.state))).toBe(
+      true
+    )
+  })
+
+  it("pages through every row exactly once", async () => {
+    const whole = (await read(owner.cookie, "/api/outbox?limit=100")).body
+    expect(whole.nextCursor).toBeNull()
+    const first = await read(owner.cookie, "/api/outbox?limit=3")
+    expect(first.body.items).toHaveLength(3)
+    expect(first.body.nextCursor).toBeTruthy()
+    const paged = await readAll(owner.cookie, "limit=3")
+    expect(paged.map((item) => item.id)).toEqual(
+      whole.items.map((item) => item.id)
+    )
+  })
+
+  it("refuses a malformed cursor, id or page size", async () => {
+    for (const query of [
+      "cursor=not-a-cursor",
+      "client_id=nope",
+      "group=everything",
+      "limit=1000",
+    ])
+      expect((await read(owner.cookie, `/api/outbox?${query}`)).status).toBe(
+        400
+      )
+  })
+
+  it("narrows to a client or a listing", async () => {
+    const forClient = await readAll(owner.cookie, `client_id=${clientId}`)
+    expect(forClient.length).toBeGreaterThan(0)
+    expect(new Set(forClient.map((item) => item.locationId))).toEqual(
+      new Set([first.locationId])
+    )
+    expect(forClient.every((item) => item.clientId === clientId)).toBe(true)
+
+    const forListing = await readAll(
+      owner.cookie,
+      `location_id=${second.locationId}`
+    )
+    expect(new Set(forListing.map((item) => item.locationId))).toEqual(
+      new Set([second.locationId])
+    )
+
+    const counts = await read<Record<string, number>>(
+      owner.cookie,
+      `/api/outbox/counts?client_id=${clientId}`
+    )
+    expect(counts.body.failed).toBe(2)
+
+    // Another tenant's client reads as empty, never as its rows.
+    const [foreignClient] = await admin<{ id: string }[]>`
+      insert into client (organisation_id, name, slug)
+      values (${other.organisationId}, 'Elsewhere', ${`elsewhere-${randomUUID().slice(0, 8)}`})
+      returning id::text as id
+    `
+    const foreignRead = await read(
+      owner.cookie,
+      `/api/outbox?client_id=${foreignClient.id}`
+    )
+    expect(foreignRead.status).toBe(200)
+    expect(foreignRead.body.items).toEqual([])
   })
 
   it("shows a member only the listings they are granted", async () => {
@@ -290,25 +486,37 @@ describeDatabase("GET /api/outbox", () => {
       canPublish: true,
       assignLocationId: first.locationId,
     })
-    const { status, body } = await read(member.cookie)
-    expect(status).toBe(200)
-    const items = body.items as Item[]
+    const items = await readAll(member.cookie)
     expect(items.length).toBeGreaterThan(0)
     expect(new Set(items.map((item) => item.locationId))).toEqual(
       new Set([first.locationId])
     )
-    expect(byId(items).has(`reply:${second.reviewId}`)).toBe(false)
-    expect(byId(items).has(`post:${ids.post}`)).toBe(false)
-    const counts = await read(member.cookie, "/api/outbox/counts")
+    const seen = byId(items)
+    expect(seen.has(`reply:${second.reviewId}`)).toBe(false)
+    expect(seen.has(`post:${ids.post}`)).toBe(false)
+    // A bulk batch is the requester's and the managers': not this member's.
+    expect(items.some((item) => item.kind === "bulk")).toBe(false)
+
+    // Narrowing to a hidden listing reads as empty.
+    const hidden = await read(
+      member.cookie,
+      `/api/outbox?location_id=${second.locationId}`
+    )
+    expect(hidden.status).toBe(200)
+    expect(hidden.body.items).toEqual([])
+
+    const counts = await read<Record<string, number>>(
+      member.cookie,
+      "/api/outbox/counts"
+    )
     expect(counts.body.failed).toBe(1)
   })
 
   it("shows another tenant none of this tenant's work", async () => {
-    const { status, body } = await read(other.cookie)
-    expect(status).toBe(200)
-    const items = body.items as Item[]
+    const items = await readAll(other.cookie)
     const ownIds = new Set([first.locationId, second.locationId])
-    expect(items.some((item) => ownIds.has(item.locationId))).toBe(false)
+    expect(items.some((item) => ownIds.has(item.locationId ?? ""))).toBe(false)
+    expect(items.some((item) => item.id.includes(ids.bulk))).toBe(false)
     expect(items.map((item) => item.id)).toContain(
       `listing_change:${ids.foreign}`
     )
@@ -324,7 +532,9 @@ describeDatabase("GET /api/outbox", () => {
   })
 
   it("needs a session", async () => {
-    const response = await fetch(`${server.baseUrl}/api/outbox`)
-    expect(response.status).toBe(401)
+    expect((await fetch(`${server.baseUrl}/api/outbox`)).status).toBe(401)
+    expect((await fetch(`${server.baseUrl}/api/outbox/counts`)).status).toBe(
+      401
+    )
   })
 })
