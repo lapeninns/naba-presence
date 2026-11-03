@@ -654,8 +654,8 @@ function InboxViewInner({
           ? (inboxWaiting(countsQuery.data)?.awaitingMyApproval ?? 0)
           : 0
       // What matched nothing, and where. A search runs inside the queue on
-      // screen, so the queue is named ("All reviews" is not a queue to name).
-      const shownQueue = current ? state.queue : undefined
+      // screen, so the queue is named ("All" is not a queue to name).
+      const shownQueue = current && current !== "all" ? state.queue : undefined
       const filtered = {
         search: state.search || undefined,
         searchOnly:
@@ -1000,7 +1000,7 @@ function InboxViewInner({
         >
           {narrowsList(state)
             ? "That’s every review that matches."
-            : visibleQueue(state.queue)
+            : visibleQueue(state.queue) && state.queue !== "all"
               ? `That’s every review in ${REVIEW_QUEUE_LABELS[state.queue]}.`
               : "That’s every review."}
         </p>

@@ -213,6 +213,12 @@ export type ListRowProps = Omit<
   subtitle?: React.ReactNode
   /** Trailing L2: a status pill. Shares the line with `subtitle`. */
   trailing?: React.ReactNode
+  /**
+   * Where `trailing` sits. `"line"` (default): at the end of the subtitle
+   * line everywhere. `"adaptive"`: there on a desk, and under the preview on
+   * touch, where the subtitle line is too narrow to share.
+   */
+  trailingPlacement?: "line" | "adaptive"
   /** The snippet: 2 lines on touch, 1 on a desk (1 when tags are shown). */
   preview?: React.ReactNode
   /** Tag pills (`ListRowTag`), the last line. */
@@ -317,6 +323,7 @@ function ListRow({
   meta,
   subtitle,
   trailing,
+  trailingPlacement = "line",
   preview,
   tags,
   emphasis = "read",
@@ -389,6 +396,7 @@ function ListRow({
   const hasFooter = footer != null && footer !== false
   const hasDetails = details != null && details !== false
   const hasLeading = leading != null || leadingControl != null
+  const adaptive = trailingPlacement === "adaptive"
   const isLink = href !== undefined
   const detailsId = React.useId()
   const [uncontrolledOpen, setUncontrolledOpen] =
@@ -472,11 +480,19 @@ function ListRow({
           ) : null}
         </TitleBox>
         {subtitle != null || trailing != null ? (
-          <span className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "flex min-w-0 items-center gap-2",
+              // On touch the line dissolves into the column, so `order`
+              // can drop the pill under the preview without a second copy.
+              adaptive && "not-desk:contents"
+            )}
+          >
             <span
               data-slot="list-row-subtitle"
               className={cn(
-                "min-w-0 flex-1 text-ui",
+                "min-w-0 text-ui",
+                adaptive ? "desk:flex-1" : "flex-1",
                 wrap ? "wrap-anywhere" : "truncate",
                 emphasis === "read" ? "text-ink-secondary" : "text-ink"
               )}
@@ -486,7 +502,11 @@ function ListRow({
             {trailing != null ? (
               <span
                 data-slot="list-row-trailing"
-                className="flex shrink-0 items-center gap-1.5"
+                data-placement={trailingPlacement}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5",
+                  adaptive && "not-desk:order-1 not-desk:mt-1"
+                )}
               >
                 {trailing}
               </span>
@@ -507,7 +527,10 @@ function ListRow({
         {tags != null ? (
           <span
             data-slot="list-row-tags"
-            className="mt-1 flex min-w-0 flex-wrap gap-1.5"
+            className={cn(
+              "mt-1 flex min-w-0 flex-wrap gap-1.5",
+              adaptive && "not-desk:order-2"
+            )}
           >
             {tags}
           </span>
