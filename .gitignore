@@ -79,3 +79,6 @@ next-env.d.ts
 # by sha256 and commits a copy beside its receipt. See
 # docs/release/receipts/README.md.
 /docs/release/receipts/local/
+
+# Vitest caches written beside nested test projects
+/tests/**/node_modules/
