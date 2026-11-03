@@ -17,6 +17,7 @@ import {
   Layers,
   Lightbulb,
   RefreshCw,
+  Search,
   Settings2Icon,
   Star,
   Undo2,
@@ -30,7 +31,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { PageChrome } from "@/components/app-shell/page-chrome"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { Empty } from "@/components/ui/empty"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { RelativeTime } from "@/components/ui/relative-time"
@@ -448,7 +449,7 @@ export function NotificationsView({
             <Empty
               titleAs="h2"
               placement="page"
-              illustration={<EmptyIllustration name="inbox-zero" />}
+              icon={<Search />}
               title="Nothing matches this filter"
               description={FILTERED_EMPTY[filter]}
               action={
