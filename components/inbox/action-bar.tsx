@@ -610,8 +610,17 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           finalFocus={() => {
             if (!deletedRef.current) return menuTriggerRef.current ?? true
             deletedRef.current = false
-            return document.querySelector<HTMLElement>(
-              '[data-slot="reply-editor"] textarea'
+            // The ⋯ trigger unmounts with the published reply, and the empty
+            // editor may only mount after the refetch; the review heading is
+            // always there, so focus never falls to the page.
+            return (
+              document.querySelector<HTMLElement>(
+                '[data-slot="reply-editor"] textarea'
+              ) ??
+              document.querySelector<HTMLElement>(
+                '[data-slot="review-heading"]'
+              ) ??
+              true
             )
           }}
         >

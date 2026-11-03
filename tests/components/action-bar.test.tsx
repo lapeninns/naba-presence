@@ -1206,6 +1206,25 @@ describe("ActionBar", () => {
     ).not.toBeInTheDocument()
   })
 
+  // With the editor not mounted yet, focus lands on the review heading, never
+  // on <body>.
+  it.each(["deleted", "cancelled"] as const)(
+    "returns focus to the review heading after a %s delete",
+    async (status) => {
+      const heading = document.createElement("h2")
+      heading.tabIndex = -1
+      heading.dataset.slot = "review-heading"
+      heading.textContent = "Ana P."
+      document.body.append(heading)
+      try {
+        await deleteReply(status)
+        await waitFor(() => expect(heading).toHaveFocus())
+      } finally {
+        heading.remove()
+      }
+    }
+  )
+
   // F04 C4: a failed delete is said inside the confirm that asked for it,
   // where focus is, and the dialog stays open to retry or keep the reply.
   it("says a failed delete inside the dialog, not in a toast", async () => {
