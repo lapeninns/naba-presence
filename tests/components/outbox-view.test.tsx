@@ -224,6 +224,33 @@ describe("OutboxView", () => {
     expect(replace).toHaveBeenCalledWith("/outbox", { scroll: false })
   })
 
+  it("says it is loading, and claims no rows or counts, until the first answer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {}))
+    )
+    const { container } = render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <OutboxView />
+      </QueryClientProvider>
+    )
+    const status = await screen.findByRole("status")
+    expect(status).toHaveTextContent("Loading the Outbox")
+    expect(status).toHaveAttribute("aria-busy", "true")
+    const failed = container.querySelector('[data-group="failed"]')!
+    expect(failed).toHaveAttribute("aria-label", "Failed")
+    expect(failed.querySelector('[data-slot="skeleton"]')).not.toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(
+      screen.queryByRole("heading", { name: "Nothing on its way to Google" })
+    ).toBeNull()
+    expect(screen.queryByRole("link", { name: /Reply to/ })).toBeNull()
+  })
+
   it("shows a failed load as an error with a retry", async () => {
     renderView(() => json({ error: { code: "internal" } }, 500))
     expect(await screen.findByRole("alert")).toHaveTextContent(
