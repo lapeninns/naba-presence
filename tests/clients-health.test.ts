@@ -282,6 +282,20 @@ describe("summariseHealth", () => {
     })
   })
 
+  it("counts the clients still to check, never 'some' for one", () => {
+    expect(summariseHealth(["healthy", "partially_checked"])).toEqual({
+      tone: "neutral",
+      label: "1 client needs checking",
+    })
+    expect(
+      summariseHealth(["unchecked", "partially_checked", "healthy"]).label
+    ).toBe("2 clients need checking")
+    // A business has no client layer to count.
+    expect(summariseHealth(["partially_checked"], "business").label).toBe(
+      "Some listings need checking"
+    )
+  })
+
   it("reports the calm states plainly", () => {
     expect(summariseHealth(["healthy", "healthy"])).toEqual({
       tone: "healthy",

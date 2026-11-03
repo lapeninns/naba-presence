@@ -340,19 +340,22 @@ export function summariseHealth(
   }
   if (healths.some((health) => health === "unpublished"))
     return { tone: "pending", label: "Changes to publish" }
-  if (
-    healths.some(
-      (health) =>
-        health === "unchecked" ||
-        health === "partially_checked" ||
-        health === "not_connected"
-    )
-  )
+  const unchecked = healths.filter(
+    (health) =>
+      health === "unchecked" ||
+      health === "partially_checked" ||
+      health === "not_connected"
+  ).length
+  if (unchecked > 0)
     return {
       tone: "neutral",
+      // Counted like attention and action: "Some clients" for one client
+      // sent an agency looking for more than there were.
       label: business
         ? "Some listings need checking"
-        : "Some clients need checking",
+        : unchecked === 1
+          ? "1 client needs checking"
+          : `${unchecked} clients need checking`,
     }
   return {
     tone: "healthy",

@@ -30,6 +30,16 @@ describe("scopeHealthWords", () => {
     })
   })
 
+  it("counts the clients to check in the roll-up", () => {
+    expect(
+      scopeHealthWords({
+        mode: "agency",
+        client: null,
+        healths: ["partially_checked"],
+      })
+    ).toEqual({ tone: "neutral", words: "1 client needs checking" })
+  })
+
   it("never names clients in a business", () => {
     expect(
       scopeHealthWords({
