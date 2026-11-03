@@ -163,7 +163,9 @@ function ActionBar({
         sticky && !dock && STICKY_ABOVE_TAB_BAR,
         safeArea && "pb-[max(--spacing(3),var(--np-safe-bottom))]",
         dock && DOCKED_CLASS,
-        dock && statusRow && "max-md:flex-wrap max-md:gap-y-2",
+        // Docked, the bar wraps only when the status can't keep its room
+        // (statusRow, or the min-w-28 below on a narrow phone).
+        dock && "max-md:flex-wrap max-md:gap-y-2",
         className
       )}
       {...props}
@@ -181,10 +183,22 @@ function ActionBar({
             // wraps to more rows is still covered: DockSpacer measures it.)
             // The clamp is visual only; the full words stay in the
             // accessibility tree and in the polite announcement.
+            //
+            // A headline + sub-line status (DispatchBar, SaveBar) clamps the
+            // headline alone: clamping their shared wrapper would draw it as
+            // one -webkit-box and run the two together. The two lines are
+            // the headline's, so the sub-line is for assistive tech there.
+            // Under 7rem beside the buttons (a phone narrower than 360px)
+            // the status wraps to its own row rather than clamp to a word.
             dock &&
               (statusRow
                 ? "max-md:basis-full"
-                : "max-md:basis-0 max-md:[&>:not(svg)]:line-clamp-2")
+                : cn(
+                    "max-md:min-w-28 max-md:basis-0",
+                    "max-md:[&>:not(svg):not([data-slot=action-bar-status-text])]:line-clamp-2",
+                    "max-md:[&_[data-slot=action-bar-status-title]]:line-clamp-2",
+                    "max-md:[&_[data-slot=action-bar-status-detail]]:sr-only"
+                  ))
           )}
         >
           {status}
@@ -293,11 +307,18 @@ function DispatchBar({
             glyph={presentation.glyph}
             className={ON_CHARCOAL_TONE[presentation.tone]}
           />
-          <span className="flex min-w-0 flex-col">
-            <span className="font-semibold">
+          <span
+            data-slot="action-bar-status-text"
+            className="flex min-w-0 flex-col"
+          >
+            <span data-slot="action-bar-status-title" className="font-semibold">
               {title ?? statusText(presentation.title, values)}
             </span>
-            {detail ? <ActionBarMuted>{detail}</ActionBarMuted> : null}
+            {detail ? (
+              <ActionBarMuted data-slot="action-bar-status-detail">
+                {detail}
+              </ActionBarMuted>
+            ) : null}
           </span>
         </>
       }
@@ -349,8 +370,11 @@ function SaveBar({
             glyph={failed ? "triangle-alert" : unsaved.glyph}
             className={failed ? "text-danger-ink" : "text-ink-muted"}
           />
-          <span className="flex min-w-0 flex-col">
-            <span className="font-semibold">
+          <span
+            data-slot="action-bar-status-text"
+            className="flex min-w-0 flex-col"
+          >
+            <span data-slot="action-bar-status-title" className="font-semibold">
               {failed
                 ? "Not saved"
                 : saving
@@ -358,9 +382,14 @@ function SaveBar({
                   : (title ?? statusText(unsaved.title, { n: count }))}
             </span>
             {failed ? (
-              <ActionBarMuted>{error}</ActionBarMuted>
+              // Why the save failed stays on screen, even if the bar grows.
+              <ActionBarMuted data-slot="action-bar-status-error">
+                {error}
+              </ActionBarMuted>
             ) : detail ? (
-              <ActionBarMuted>{detail}</ActionBarMuted>
+              <ActionBarMuted data-slot="action-bar-status-detail">
+                {detail}
+              </ActionBarMuted>
             ) : null}
           </span>
         </>

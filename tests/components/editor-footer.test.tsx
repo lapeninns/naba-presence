@@ -34,9 +34,9 @@ describe("EditorFooter", () => {
     expect(bar.className).toMatch(/max-md:fixed/)
     // One row while the status keeps its two-line room beside the buttons
     // (a 360px phone and up); only narrower does it wrap to its own row.
-    expect(bar.className).toContain(
-      "max-md:[&>[data-slot=action-bar-status]]:min-w-28"
-    )
+    expect(
+      bar.querySelector('[data-slot="action-bar-status"]')?.className
+    ).toContain("max-md:min-w-28")
     // The ActionBar's dock: an in-flow spacer keeps the last field
     // reachable above the fixed bar.
     expect(
@@ -315,18 +315,34 @@ describe("EditorFooter", () => {
   it("keeps a docked phone status to its headline, the sub-line for assistive tech", () => {
     render(footer({ status: "edited", isDirty: true, changeCount: 1 }))
     const bar = screen.getByRole("region", { name: "Editor actions" })
+    const status = bar.querySelector<HTMLElement>(
+      '[data-slot="action-bar-status"]'
+    )!
     const detail = screen.getByText(
       "Nothing changes on Google until you publish."
     )
-    // The phone clamp draws the status as one box: a visible sub-line would
-    // run straight on from the headline.
-    expect(detail).toHaveClass("max-md:sr-only")
+    expect(detail).toHaveAttribute("data-slot", "action-bar-status-detail")
+    expect(status).toContainElement(detail)
+    // The headline clamps alone; the shared wrapper is never one box.
+    expect(status.className).toContain(
+      "max-md:[&_[data-slot=action-bar-status-title]]:line-clamp-2"
+    )
+    expect(status.className).toContain(
+      "max-md:[&_[data-slot=action-bar-status-detail]]:sr-only"
+    )
+    expect(status.className).not.toMatch(/\[&>:not\(svg\)\]:line-clamp/)
+  })
+
+  it("keeps the conflict bar's headline and sub-line apart on a phone", () => {
+    render(footer({ status: "conflict", isDirty: false }))
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveAttribute("data-state", "conflict")
     expect(
-      bar.querySelector('[data-slot="action-bar-status"]')
-    ).toContainElement(detail)
-    // Narrower than its room beside the buttons, the status wraps to its
-    // own row instead of clamping to a word.
-    expect(bar.className).toMatch(/max-md:flex-wrap/)
+      bar.querySelector('[data-slot="action-bar-status-text"]')
+    ).not.toBeNull()
+    expect(
+      bar.querySelector('[data-slot="action-bar-status-detail"]')
+    ).not.toBeNull()
   })
 
   it("keeps the view-only bar inline, with the reason in words", () => {

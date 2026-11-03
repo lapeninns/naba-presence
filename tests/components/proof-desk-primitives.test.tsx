@@ -187,6 +187,66 @@ describe("DispatchBar and SaveBar", () => {
     expect(bar).toHaveTextContent("Saving keeps them in NabaPresence only")
   })
 
+  it("keeps a docked bar's headline and sub-line apart on a phone", () => {
+    const docked = (statusRow: boolean) =>
+      render(
+        <DispatchBar
+          dock
+          statusRow={statusRow}
+          state="saved_locally"
+          detail="Nothing changes on Google until you publish."
+          primary={<Button variant="on-dark">Review changes</Button>}
+        />
+      )
+    const { unmount } = docked(false)
+    const bar = screen.getByRole("region", { name: "Send to Google" })
+    const status = bar.querySelector<HTMLElement>(
+      '[data-slot="action-bar-status"]'
+    )!
+    // Clamping the shared wrapper drew it as one -webkit-box and ran the
+    // two lines together; the headline clamps alone.
+    expect(status.className).not.toMatch(/\[&>:not\(svg\)\]:line-clamp/)
+    expect(status.className).toContain(
+      "max-md:[&>:not(svg):not([data-slot=action-bar-status-text])]:line-clamp-2"
+    )
+    expect(status.className).toContain(
+      "max-md:[&_[data-slot=action-bar-status-title]]:line-clamp-2"
+    )
+    // The sub-line is still read out, and a narrow phone wraps the status
+    // to its own row rather than clamp it to a word.
+    expect(
+      within(status).getByText("Nothing changes on Google until you publish.")
+    ).toHaveAttribute("data-slot", "action-bar-status-detail")
+    expect(status.className).toContain(
+      "max-md:[&_[data-slot=action-bar-status-detail]]:sr-only"
+    )
+    expect(status.className).toContain("max-md:min-w-28")
+    expect(bar.className).toMatch(/max-md:flex-wrap/)
+    unmount()
+    // With its own row the status has room: no clamp, sub-line shown.
+    docked(true)
+    const row = screen
+      .getByRole("region", { name: "Send to Google" })
+      .querySelector<HTMLElement>('[data-slot="action-bar-status"]')!
+    expect(row.className).toContain("max-md:basis-full")
+    expect(row.className).not.toMatch(/line-clamp|sr-only/)
+  })
+
+  it("keeps a failed save's reason on screen in a docked save bar", () => {
+    render(
+      <SaveBar
+        dock
+        count={1}
+        error="The server didn't answer."
+        primary={<Button>Save</Button>}
+      />
+    )
+    expect(screen.getByText("The server didn't answer.")).toHaveAttribute(
+      "data-slot",
+      "action-bar-status-error"
+    )
+  })
+
   it("fails loudly when an ink button is the charcoal bar's primary", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     render(<ActionBar tone="charcoal" primary={<Button>Save</Button>} />)
