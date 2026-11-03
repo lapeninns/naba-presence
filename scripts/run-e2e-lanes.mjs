@@ -1,10 +1,18 @@
 // After `pnpm build`, run this under the shared `with-lock.sh e2e` lock.
-// Set NABA_E2E_DB_WRAPPER to the ledger's with-e2e-db.sh on the Factory host.
+// The Factory ledger is detected on this Mac; set NABA_E2E_DB_WRAPPER to use
+// a ledger at a different location.
 // Each lane retains one Playwright worker and gets its own disposable fixtures.
 import { execFileSync, spawn } from "node:child_process"
-import { existsSync, mkdtempSync, readdirSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs"
 import { cp, mkdir, open, rm } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { homedir } from "node:os"
+import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { childEnv, parseExports } from "./release/verify-local.mjs"
@@ -12,10 +20,54 @@ import { SIGNAL_EXIT_CODES } from "./run-test-command.mjs"
 
 const root = fileURLToPath(new URL("../", import.meta.url))
 const count = process.env.NABA_E2E_LANES ?? "4"
-const dbWrapper = process.env.NABA_E2E_DB_WRAPPER
 const args = process.argv.slice(2)
 const standalone = join(root, ".next", "standalone")
 const env = { ...childEnv(process.env), CI: "1", NABA_TEST_DB: "throwaway" }
+
+function factoryDbWrapper() {
+  const installed = join(
+    homedir(),
+    "LapenInns Project",
+    "platform",
+    "naba-presence-redesign",
+    "notion-mail-ledger"
+  )
+  const configured = process.env.NABA_E2E_DB_WRAPPER
+  const ledger = existsSync(installed)
+    ? installed
+    : configured && dirname(dirname(realpathSync(configured)))
+  if (!ledger) return
+
+  const withLock = join(ledger, "scripts", "with-lock.sh")
+  const wrapper = realpathSync(join(ledger, "scripts", "with-e2e-db.sh"))
+  if (
+    !existsSync(withLock) ||
+    (configured && realpathSync(configured) !== wrapper)
+  ) {
+    throw new Error(
+      "Use the Factory ledger's paired lock and database wrappers."
+    )
+  }
+
+  // A lock held by an unrelated live process does not cover this run.
+  const pidFile = join(ledger, "locks", "e2e.lock", "pid")
+  if (existsSync(pidFile)) {
+    const holder = Number(readFileSync(pidFile, "utf8").trim())
+    for (let pid = process.ppid; pid > 1;) {
+      if (pid === holder) return wrapper
+      const parent = Number(
+        execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], {
+          encoding: "utf8",
+        }).trim()
+      )
+      if (!Number.isInteger(parent) || parent === pid) break
+      pid = parent
+    }
+  }
+  throw new Error(`Run this command under the Factory e2e lock at ${withLock}.`)
+}
+
+const dbWrapper = factoryDbWrapper()
 
 if (!/^[1-4]$/.test(count)) throw new Error("NABA_E2E_LANES must be 1–4.")
 if (
@@ -54,7 +106,9 @@ for (const signal of Object.keys(SIGNAL_EXIT_CODES)) {
     for (const child of children) {
       if (!child.pid) continue
       try {
-        process.kill(-child.pid, signal)
+        // Playwright handles SIGINT and closes its separately spawned server.
+        // Keep the caller's original signal for this runner's exit status.
+        process.kill(-child.pid, "SIGINT")
       } catch (error) {
         if (error.code !== "ESRCH") console.error(error)
       }
