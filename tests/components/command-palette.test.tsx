@@ -181,6 +181,7 @@ describe("CommandPalette Go to", () => {
       "Clients",
       "Calendar",
       "Reports",
+      "Outbox",
       "Notifications",
       "Team",
       "Settings",
@@ -194,6 +195,7 @@ describe("CommandPalette Go to", () => {
       "Listings",
       "Calendar",
       "Reports",
+      "Outbox",
       "Notifications",
       "Settings",
     ])
