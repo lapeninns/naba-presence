@@ -179,6 +179,24 @@ export type OutcomeToastContext = {
 // reached (or is on its way to) Google, which can never offer Undo, and
 // "local" for workflow-only outcomes (sent back, an unpublished draft
 // removed).
+/**
+ * The answer to deleting a live reply. Only an ambiguous answer differs
+ * from a publish's: the reply was live, so the honest line is that it may
+ * still be there.
+ */
+export function describeDeleteToast(status: string): OutcomeToastOptions {
+  if (status === "ambiguous") {
+    return {
+      kind: "google",
+      title: describeOutcome("uncertain").title,
+      description:
+        "Your reply may still be on Google. This review updates once we check again.",
+      type: "warning",
+    }
+  }
+  return describeOutcomeToast(status)
+}
+
 export function describeOutcomeToast(
   status: string,
   context: OutcomeToastContext = {}

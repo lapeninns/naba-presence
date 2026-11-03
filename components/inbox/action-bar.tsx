@@ -33,7 +33,11 @@ import {
 import { useOutcomeToast, useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
-import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
+import {
+  describeDeleteToast,
+  describeOutcomeToast,
+  evaluateDelete,
+} from "@/lib/inbox/actions"
 import {
   derivePrimaryAction,
   publishableDraft,
@@ -99,6 +103,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   // A failed delete is said in the dialog that asked for it, where focus is.
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Where focus lands when the delete confirm closes: the ⋯ that opened it,
+  // or, once the reply is gone (and the ⋯ with it), the box where the next
+  // reply is written.
+  const menuTriggerRef = useRef<HTMLButtonElement>(null)
+  const deletedRef = useRef(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectNote, setRejectNote] = useState("")
 
@@ -315,7 +324,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     setDeleteError(null)
     try {
       const result = await remove.mutateAsync()
-      outcomeToast.show(describeOutcomeToast(result.status))
+      outcomeToast.show(describeDeleteToast(result.status))
+      deletedRef.current = result.status !== "ambiguous"
       setDeleteOpen(false)
     } catch (error) {
       setDeleteError(describeActionError(error))
@@ -513,6 +523,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <DropdownMenuTrigger
               render={
                 <Button
+                  ref={menuTriggerRef}
                   variant="ghost-dark"
                   size="icon"
                   aria-label="Review actions"
@@ -586,7 +597,16 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           if (!open) setDeleteError(null)
         }}
       >
-        <AlertDialogContent aria-label="Delete published reply?">
+        <AlertDialogContent
+          aria-label="Delete published reply?"
+          finalFocus={() => {
+            if (!deletedRef.current) return menuTriggerRef.current ?? true
+            deletedRef.current = false
+            return document.querySelector<HTMLElement>(
+              '[data-slot="reply-editor"] textarea'
+            )
+          }}
+        >
           <AlertDialogTitle>Delete published reply?</AlertDialogTitle>
           <AlertDialogDescription>
             This removes your reply from Google. You can write a new one
@@ -605,12 +625,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <AlertDialogClose render={<Button variant="secondary" />}>
               Keep reply
             </AlertDialogClose>
+            {/* Pending, not disabled, so focus stays in the dialog. */}
             <Button
               variant="danger"
-              disabled={remove.isPending}
+              pending={remove.isPending}
+              pendingLabel="Deleting…"
               onClick={() => void onDelete()}
             >
-              {remove.isPending ? "Deleting…" : "Delete reply"}
+              Delete reply
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

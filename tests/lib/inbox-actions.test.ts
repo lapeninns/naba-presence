@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  describeDeleteToast,
   describeOutcomeToast,
   evaluateApproval,
   evaluateDelete,
@@ -215,6 +216,19 @@ describe("describeOutcomeToast", () => {
     })
     expect(String(toast.description)).toMatch(/Check Google/)
     expect(String(toast.title)).not.toMatch(/published|submitted|sent/i)
+  })
+  it("says an ambiguous delete may have left the reply on Google", () => {
+    expect(describeDeleteToast("ambiguous")).toMatchObject({
+      kind: "google",
+      title: "We can’t tell whether Google applied it",
+      type: "warning",
+    })
+    expect(String(describeDeleteToast("ambiguous").description)).toMatch(
+      /may still be on Google/
+    )
+    expect(describeDeleteToast("deleted")).toEqual(
+      describeOutcomeToast("deleted")
+    )
   })
   it("never claims 'published' for an unknown status", () => {
     const toast = describeOutcomeToast("something_new")

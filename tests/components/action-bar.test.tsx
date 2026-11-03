@@ -1166,7 +1166,7 @@ describe("ActionBar", () => {
   // ("cancelled") gets honest copy distinct from an actually-live one
   // ("deleted"), and neither falls to the default "status will update
   // shortly" copy.
-  async function deleteReply(status: "deleted" | "cancelled") {
+  async function deleteReply(status: "deleted" | "cancelled" | "ambiguous") {
     const user = userEvent.setup()
     const del = mutation(vi.fn().mockResolvedValue({ status }))
     stubHooks(
@@ -1246,6 +1246,67 @@ describe("ActionBar", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Google may have applied the change. Check its status before retrying."
     )
+  })
+
+  it("says a delete Google did not answer may have left the reply live", async () => {
+    await deleteReply("ambiguous")
+    await waitFor(() =>
+      expect(
+        screen.getByText("We can’t tell whether Google applied it")
+      ).toBeInTheDocument()
+    )
+    expect(
+      screen.getByText(/Your reply may still be on Google/)
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Reply deleted")).not.toBeInTheDocument()
+  })
+
+  const liveReply = {
+    reply: {
+      id: "reply-1",
+      body: "Thanks for the feedback!",
+      publishStatus: "published",
+      googleReplyState: "APPROVED",
+      googlePolicyViolation: null,
+      googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+    },
+  } as const
+
+  it("keeps focus on Deleting… inside the dialog while the delete runs", async () => {
+    const user = userEvent.setup()
+    stubHooks(detailWith(liveReply), mutation(), mutation(), {
+      ...mutation(),
+      isPending: true,
+    } as unknown as ReturnType<typeof mutation>)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Review actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Delete published reply" })
+    )
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Delete published reply?",
+    })
+    const pending = within(dialog).getByRole("button", { name: /Deleting…/ })
+    expect(pending).toHaveAttribute("aria-busy", "true")
+    expect(pending).not.toBeDisabled()
+  })
+
+  it("returns focus to the review actions when the delete is kept", async () => {
+    const user = userEvent.setup()
+    stubHooks(detailWith(liveReply))
+    renderActionBar()
+    const trigger = screen.getByRole("button", { name: "Review actions" })
+    await user.click(trigger)
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Delete published reply" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Keep reply" }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("alertdialog", { name: "Delete published reply?" })
+      ).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(trigger).toHaveFocus())
   })
 
   it("shows 'Draft reply removed' when the delete resolves a never-live reply", async () => {
