@@ -480,8 +480,20 @@ describe("deriveReplyStatus", () => {
     expect(deriveReplyStatus({ ...sentBack, isDirty: true }).short).toBe(
       "Unsaved changes"
     )
-    // Saved, it sits on the track as a draft: nothing has gone to Google.
-    expect(replyTrackState(sentBack)).toBe("saved_locally")
+    // Saved, it sits on the track at Saved here, as Sent back: nothing has
+    // gone to Google.
+    expect(replyTrackState(sentBack)).toBe("changes")
+  })
+
+  it("keeps the track on Sent back when the sent-back draft also fails its checks", () => {
+    const sentBack = {
+      ...readyToPublish(),
+      workflowStatus: "drafted",
+      sentBack: true,
+      verification: { verdict: "fail" as const, reasons: [] },
+    }
+    expect(deriveReplyStatus(sentBack).short).toBe("Sent back")
+    expect(replyTrackState(sentBack)).toBe("changes")
   })
 })
 
