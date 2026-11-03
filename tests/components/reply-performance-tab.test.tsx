@@ -23,7 +23,8 @@ function locationRow(id: string, name: string) {
 
 function stubOverview(
   locations: ReturnType<typeof locationRow>[],
-  reviewVolume = 4
+  reviewVolume = 4,
+  timezone = "Europe/London"
 ) {
   vi.stubGlobal(
     "fetch",
@@ -33,7 +34,7 @@ function stubOverview(
           JSON.stringify({
             from: "2026-01-01T00:00:00.000Z",
             to: "2026-01-31T00:00:00.000Z",
-            timezone: "Europe/London",
+            timezone,
             summary: {
               reviewVolume,
               averageRating: 4.5,
@@ -259,5 +260,26 @@ describe("ReplyLocationsTable nulls-last honest-null (spec §8)", () => {
     expect(within(rows[0]).getByText("Bravo")).toBeInTheDocument() // non-null response rate first
     expect(within(rows[1]).getByText("Alpha")).toBeInTheDocument() // null last
     expect(within(rows[1]).getAllByText("—").length).toBeGreaterThan(0)
+  })
+})
+
+describe("ReplyPerformanceTab period", () => {
+  it("states its dates once, in the zone the figures were counted in", async () => {
+    // 22:46 on 3 Nov in London is already 4 Nov in Kathmandu: the line must
+    // not tell a London date beside figures counted in the organisation's.
+    stubOverview([locationRow("a", "Alpha")], 4, "Asia/Kathmandu")
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <ReplyPerformanceTab windowNow="2026-11-03T22:46:00.000Z" />
+      </QueryClientProvider>
+    )
+    await screen.findByRole("heading", { name: "Review volume" })
+    expect(
+      container.querySelector("[data-slot=report-period]")
+    ).toHaveTextContent("7 Oct – 4 Nov")
+    expect(screen.queryByText(/^As at/)).not.toBeInTheDocument()
   })
 })

@@ -3,7 +3,6 @@
 import { useMemo, useSyncExternalStore } from "react"
 
 import { SectionHeader } from "@/components/ui/section-header"
-import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReplyFigures } from "@/components/reporting/reply-figures"
 import {
   ReportActionsMenu,
@@ -117,8 +116,8 @@ export function ReplyPerformanceTab({
     REPLY_RANGES.find((option) => option.id === rangeId)?.label ?? "This period"
   const period = formatPeriod(current, now.data?.timezone ?? "Europe/London")
 
-  // The period is the page's (period strip, toolbar); the tab's head is the
-  // "as at" line and the report's actions menu.
+  // The period is chosen by the page (period strip, toolbar); the tab's head
+  // states its dates and holds the report's actions menu.
   const head = (caption: React.ReactNode) =>
     caption || share ? (
       <ReportTabHead
@@ -198,10 +197,17 @@ export function ReplyPerformanceTab({
       <div className="@container/report flex flex-col gap-(--np-gap-section)">
         {/* Leading h2 keeps the heading order valid: page h1 -> tab h2 -> card h3 (REV-2). */}
         <h2 className="sr-only">Reply performance</h2>
-        {/* No "as at" line while there are no figures to date. */}
+        {/* The report's one statement of its dates, told in the zone the
+            figures were counted in. No line while there are no figures to
+            date. */}
         {head(
           waiting ? null : (
-            <FetchedAtCaption iso={now.data.to} timezone={timezone} />
+            <p
+              data-slot="report-period"
+              className="text-caption text-ink-muted tabular-nums"
+            >
+              {period}
+            </p>
           )
         )}
 

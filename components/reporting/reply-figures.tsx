@@ -311,8 +311,9 @@ export function ReplyFigures({
                 unitNote={BIN_TOTALS_NOTE[unit]}
                 data={bins}
                 series={[
-                  { key: "reviewCount", label: "Reviews", color: 1 },
-                  { key: "replies", label: "Replies", color: 2 },
+                  // Reviews are the context the replies are read against.
+                  { key: "reviewCount", label: "Reviews", color: 3 },
+                  { key: "replies", label: "Replies", color: 1 },
                 ]}
               />
             ) : !agrees ? (
