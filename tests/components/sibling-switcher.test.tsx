@@ -1,12 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const followed = vi.hoisted(() => vi.fn())
 const hardNavigate = vi.hoisted(() => vi.fn())
+const push = vi.hoisted(() => vi.fn())
 vi.mock("next/navigation", () => ({
   usePathname: () => "/listings/l1/hours",
+  useRouter: () => ({ push }),
 }))
 vi.mock("next/link", () => ({
   default: ({ href, children, onClick, ...props }: ComponentProps<"a">) => (
@@ -15,6 +17,8 @@ vi.mock("next/link", () => ({
       href={href}
       onClick={(event) => {
         onClick?.(event)
+        // As next/link: a click someone already prevented does not navigate.
+        if (event.defaultPrevented) return
         followed(href)
         event.preventDefault()
       }}
@@ -93,7 +97,13 @@ describe("SiblingSwitcher", () => {
     )
     expect(followed).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Leave and discard" }))
-    expect(followed).toHaveBeenCalledExactlyOnceWith("/listings/l2/hours")
+    // The menu closed with the choice, so its link may be gone: the router
+    // then makes the same client-side move.
+    await waitFor(() =>
+      expect([...followed.mock.calls, ...push.mock.calls]).toEqual([
+        ["/listings/l2/hours"],
+      ])
+    )
     expect(hardNavigate).not.toHaveBeenCalled()
   })
 

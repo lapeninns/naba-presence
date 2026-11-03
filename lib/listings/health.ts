@@ -204,13 +204,17 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
   return "healthy"
 }
 
+// Tone says who acts next (DIRECTION §6.1). Blue is Google or the system
+// working ("Sent, waiting for Google"), so it never marks edits that are only
+// saved here: those wait on nobody until someone publishes. Verification
+// waits on a person at the business to complete Google's check: amber.
 const TONES: Record<ListingHealth, StatusTone> = {
   unchecked: "neutral",
   partially_checked: "neutral",
   healthy: "healthy",
-  unpublished: "pending",
+  unpublished: "neutral",
   attention: "attention",
-  pending_verification: "pending",
+  pending_verification: "attention",
   disconnected: "at-risk",
   access_lost: "at-risk",
   not_linked: "neutral",
@@ -281,7 +285,7 @@ export function syncStatusTone(status: SyncStatus): StatusTone {
     case "in_sync":
       return "healthy"
     case "core_dirty":
-      return "pending"
+      return "neutral"
     case "google_dirty":
       return "attention"
     case "conflict":

@@ -93,7 +93,7 @@ describe("areaState", () => {
       })
     )
     expect(state).toMatchObject({
-      tone: "pending",
+      tone: "neutral",
       label: "3 changes not on Google",
       line: "3 fields not yet on Google",
     })

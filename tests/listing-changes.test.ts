@@ -215,9 +215,38 @@ describe("deciding a listing change", () => {
       })
     ).toEqual([
       expect.objectContaining({ label: "Publishes" }),
-      { label: "Saved version", value: "4" },
       { label: "Overwrite changes made on Google", value: "No" },
     ])
+  })
+
+  it("shows an hours selection without its baselines", () => {
+    const rows = describeListingChange({
+      kind: "hours_publish",
+      target: null,
+      body: {
+        confirmation: "publish_nabapresence_hours_to_google",
+        expectedCanonicalRevision: 7,
+        expectedGoogleHash: "a".repeat(64),
+        selection: {
+          regularDays: [1, 3],
+          specialDates: ["2026-12-25"],
+          expectedGoogleParts: {
+            "regular:1": "b".repeat(64),
+            "regular:3": null,
+            "special:2026-12-25": null,
+          },
+        },
+        confirmOverwriteGoogleChanges: false,
+      },
+    })
+    expect(rows).toEqual([
+      expect.objectContaining({ label: "Publishes" }),
+      { label: "Selection › Regular days", value: "Monday, Wednesday" },
+      { label: "Selection › Special dates", value: "2026-12-25" },
+      { label: "Overwrite changes made on Google", value: "No" },
+    ])
+    // Baselines are checked at dispatch; none of them is content.
+    expect(JSON.stringify(rows)).not.toMatch(/expected|[0-9a-f]{64}|regular:/i)
   })
 })
 

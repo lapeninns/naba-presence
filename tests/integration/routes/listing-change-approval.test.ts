@@ -674,10 +674,10 @@ describeDatabase("listing writes - two-person change approval", () => {
     })
     expect(parked.status, await parked.clone().text()).toBe(202)
     const change = (await parked.json()).changeRequest
-    expect(change.details).toContainEqual({
-      label: "Saved version",
-      value: "1",
-    })
+    // The baselines (revision, hashes) are checked at dispatch, not shown.
+    expect(
+      change.details.map((row: { label: string }) => row.label)
+    ).not.toContain("Saved version")
 
     // A member publisher may not make this write, so may not approve it.
     const list = await (

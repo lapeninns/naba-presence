@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { ListRow, ListRows } from "@/components/ui/list-row"
 import { RelativeTime } from "@/components/ui/relative-time"
+import { StatusPill } from "@/components/ui/status-pill"
 import {
   decideListingChangeRequest,
   type ListingChangeRequest,
@@ -85,10 +86,13 @@ export function ListingChangeRequests({
   if (pending.length === 0) return null
 
   return (
+    // shrink-0: a clipping box's automatic minimum height is zero, so in the
+    // desk editor's height-bound column the card shrank to its border and
+    // hid the request (and its still-focusable buttons) from the approver.
     <section
       data-testid="listing-change-requests"
       aria-label="Changes waiting for approval"
-      className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+      className="shrink-0 overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
     >
       <p role="status" className="sr-only">
         {pending.length === 1
@@ -108,7 +112,14 @@ export function ListingChangeRequests({
               wrapperProps={{ "data-slot": "listing-change-request" }}
               wrapperClassName="px-(--np-card-pad)"
               flush
-              title={<>{change.label}: waiting for approval</>}
+              title={change.label}
+              // The shared lifecycle pill (amber: a person acts next); the
+              // one who can decide reads it as their turn.
+              meta={
+                <StatusPill state="awaiting_approval">
+                  {change.canDecide ? "Waiting for your approval" : undefined}
+                </StatusPill>
+              }
               subtitle={
                 <span className="text-caption text-ink-muted">
                   {change.isOwn
@@ -132,14 +143,21 @@ export function ListingChangeRequests({
                         : "A publisher other than its author needs to approve it."}
                   </p>
                   {change.details.length > 0 ? (
+                    // An auto label column took a long path label's full
+                    // width ("Selection › Regular days › …") and left the
+                    // values one letter wide: phones stack label over value,
+                    // wider screens cap the label column.
                     <dl
-                      className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-ui"
+                      data-slot="listing-change-details"
+                      className="grid grid-cols-1 gap-x-3 text-ui sm:grid-cols-[fit-content(40%)_minmax(0,1fr)] sm:gap-y-1"
                       aria-label={`What this change sends: ${change.label}`}
                     >
                       {change.details.map((detail, index) => (
                         <div key={index} className="contents">
-                          <dt className="text-ink-muted">{detail.label}</dt>
-                          <dd className="min-w-0 break-words text-ink">
+                          <dt className="min-w-0 break-words text-ink-muted">
+                            {detail.label}
+                          </dt>
+                          <dd className="min-w-0 break-words text-ink max-sm:mb-2">
                             {detail.value}
                           </dd>
                         </div>
