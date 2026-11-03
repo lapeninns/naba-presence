@@ -218,8 +218,8 @@ function pendingStatus(run: PendingRun, bulkEngine: boolean) {
     case "approve":
       if (bulkEngine) return `Approving ${replies(run.count)}…`
       return run.count === 1
-        ? "Approving and publishing 1 reply to Google…"
-        : `Approving and publishing ${replies(run.count)} to Google, one after another. This can take a minute or two.`
+        ? "Approving and sending 1 reply to Google…"
+        : `Approving and sending ${replies(run.count)} to Google, one after another. This can take a minute or two.`
     case "assign":
       return `${run.unassign ? "Unassigning" : "Assigning"} ${reviews(run.count)}…`
     case "mark_reviewed":
@@ -524,7 +524,7 @@ function BulkActionBar({
       setPending(null)
     }
     if (!result) return
-    if (summariseBulkOutcome(result).allOk) {
+    if (summariseBulkOutcome(result, action).allOk) {
       // Every row done: the batch is over, so select mode ends with it
       // (which also clears). A batch the engine queued keeps its link.
       if (result.operationId) {

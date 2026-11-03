@@ -294,7 +294,7 @@ describe("BulkActionBar", () => {
       await screen.findByRole("button", { name: "Approving…" })
     ).toBeInTheDocument()
     const words =
-      "Approving and publishing 2 replies to Google, one after another. This can take a minute or two."
+      "Approving and sending 2 replies to Google, one after another. This can take a minute or two."
     // Spoken by an always-present status region, and shown in the bar.
     const status = document.querySelector("[data-slot=bulk-action-status]")
     expect(status).toHaveAttribute("role", "status")
@@ -730,14 +730,12 @@ describe("BulkActionBar", () => {
     await user.click(
       screen.getByRole("button", { name: "Approve and publish 2" })
     )
-    expect(
-      await screen.findByText("Approved, not published")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Approved, not sent")).toBeInTheDocument()
     expect(screen.getByText("Check on Google")).toBeInTheDocument()
     expect(screen.queryByText("Skipped")).not.toBeInTheDocument()
     expect(
       await screen.findByText(
-        "1 approved but not published, 1 may have reached Google"
+        "1 approved but not sent, 1 may have reached Google"
       )
     ).toBeInTheDocument()
   })
