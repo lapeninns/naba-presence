@@ -554,6 +554,17 @@ describe("BookingTab", () => {
     expect(
       within(bar).getByRole("button", { name: "Review booking link" })
     ).toBeEnabled()
+    // A Google-bound change: the charcoal dispatch bar in lifecycle words,
+    // its review button on-dark (the send fill waits for the approved send).
+    expect(bar).toHaveAttribute("data-bar-tone", "charcoal")
+    expect(bar).toHaveAttribute("data-state", "unsaved")
+    expect(bar).toHaveTextContent("Unsaved booking link")
+    expect(bar).toHaveTextContent(
+      "Nothing changes on Google until it is approved and sent."
+    )
+    expect(
+      within(bar).getByRole("button", { name: "Review booking link" })
+    ).toHaveAttribute("data-variant", "on-dark")
   })
 
   // The focused button used to unmount while the review was prepared, so

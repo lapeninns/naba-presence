@@ -38,7 +38,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
-import { ActionBar } from "@/components/ui/action-bar"
+import { DispatchBar } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -972,8 +972,10 @@ function AddLinkForm({
       </SettingsGroup>
       {/* The action appears once there is a link to review, docked on a
           phone so the thumb reaches it. */}
-      <ActionBar
-        tone="charcoal"
+      {/* Bound for Google, so the charcoal dispatch bar: the new link lives
+          only in this tab until its review is prepared. */}
+      <DispatchBar
+        state="unsaved"
         dock
         sticky={false}
         safeArea={false}
@@ -982,7 +984,8 @@ function AddLinkForm({
         // reads "Preparing review…"): unmounting the focused button dropped
         // focus to the page, and a failed review left it there.
         visible={uri.trim() !== "" && (!disabled || workflow.busy)}
-        status="Ready to review. Nothing is sent to Google yet."
+        title="Unsaved booking link"
+        detail="Nothing changes on Google until it is approved and sent."
         actions={
           // Preparing the review writes nothing to Google, so it is the light
           // on-charcoal button; the send fill waits for the approved send.

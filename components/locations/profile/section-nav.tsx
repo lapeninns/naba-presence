@@ -1,12 +1,23 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
+import { ChevronLeft } from "lucide-react"
+
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import {
   tabItemClassName,
   tabsRowClassName,
   useScrollFade,
 } from "@/components/ui/tabs"
+import { pushUrl } from "@/lib/navigation/shallow-url"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 
 export type SectionNavEntry = {
@@ -19,6 +30,8 @@ export type SectionNavEntry = {
 
 /** The element that holds every block the nav can index (see ProfileTab). */
 export const PROFILE_PAGE_SLOT = "profile-page"
+
+const PHONE_INDEX_ID = "profile-section-index"
 
 /**
  * Scrolls a section to the top of the pane (under the sticky chrome, via
@@ -36,6 +49,97 @@ export function jumpToSection(id: string) {
   heading.focus({ preventScroll: true })
 }
 
+/**
+ * The phone's section index (under 48rem): the profile is a list of its
+ * sections, and choosing one shows that section alone. Which one is open
+ * lives in the address (`?section=contact`), so the phone's Back button
+ * returns to the list and a reload keeps the place. Wider screens ignore it.
+ */
+const SECTION_PARAM = "section"
+const SECTION_PREFIX = "section-"
+
+const sectionListeners = new Set<() => void>()
+
+function subscribeSection(listener: () => void) {
+  sectionListeners.add(listener)
+  window.addEventListener("popstate", listener)
+  return () => {
+    sectionListeners.delete(listener)
+    window.removeEventListener("popstate", listener)
+  }
+}
+
+function readSection(): string | null {
+  const slug = new URLSearchParams(window.location.search).get(SECTION_PARAM)
+  return slug ? `${SECTION_PREFIX}${slug}` : null
+}
+
+/**
+ * The section a phone shows alone, or null for the index. Null on the
+ * server, so the first paint is the same everywhere.
+ */
+export function usePhoneSection(): string | null {
+  return useSyncExternalStore(subscribeSection, readSection, () => null)
+}
+
+/**
+ * On a phone, the class that hides a block while another section (or the
+ * index) is showing. The block stays mounted, so its edits are kept.
+ */
+export function phoneSectionClass(id: string, open: string | null) {
+  return open === id ? undefined : "max-md:hidden"
+}
+
+/** Under `md`, where the `max-md:` classes above hide the other sections. */
+function isPhone() {
+  return (
+    typeof window.matchMedia === "function" &&
+    !window.matchMedia(mediaQuery("md")).matches
+  )
+}
+
+/**
+ * Show one section (or, with null, the index) on a phone. Both directions
+ * are new history entries: going back through history is the leave guard's
+ * gesture, and stepping back onto its sentinel would ask about leaving a
+ * page that stays open.
+ */
+export function setPhoneSection(id: string | null) {
+  const url = new URL(window.location.href)
+  if (id)
+    url.searchParams.set(
+      SECTION_PARAM,
+      id.startsWith(SECTION_PREFIX) ? id.slice(SECTION_PREFIX.length) : id
+    )
+  else url.searchParams.delete(SECTION_PARAM)
+  url.hash = ""
+  pushUrl(url.pathname + url.search)
+  sectionListeners.forEach((listener) => listener())
+}
+
+/**
+ * A validation link's field may sit in a section the phone is not showing:
+ * open that section and wait until the field can take focus. Elsewhere this
+ * does nothing.
+ */
+export async function revealPhoneSectionOf(target: HTMLElement) {
+  if (!isPhone() || target.getClientRects().length > 0) return
+  // The outermost one: a section can hold a card with an id of its own.
+  let section: HTMLElement | null = null
+  for (
+    let node = target.parentElement;
+    node && node !== document.body;
+    node = node.parentElement
+  )
+    if (node.id.startsWith(SECTION_PREFIX)) section = node
+  if (!section) return
+  setPhoneSection(section.id)
+  for (let frame = 0; frame < 20; frame++) {
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    if (target.getClientRects().length > 0) return
+  }
+}
+
 function sameIds(a: readonly string[], b: readonly string[]) {
   return a.length === b.length && a.every((id, index) => id === b[index])
 }
@@ -46,16 +150,19 @@ function sameIds(a: readonly string[], b: readonly string[]) {
  * sections render themselves only when they have something to show), in
  * page order.
  *
- * On a phone it is a sticky strip of text tabs under the app bar that
- * scrolls sideways (the shared tab drawing: muted labels over a hairline,
- * the current one in ink, semibold and underlined, so the cue is never
- * colour alone), with a faded edge where more tabs sit past it. On a desk it
- * is a sticky rail of calm rows beside the form, the current row filled.
- * Either way the section in view is marked `aria-current="location"`
- * (scroll-spy), its tab is kept in view, and choosing one jumps to the
- * section and focuses its heading. A section with edits that differ from
- * Google says "Changed" in words on the rail; the strip has no room for the
- * word, so it shows a dot, and both say "(changed)" to a screen reader.
+ * On a phone (under 48rem) it is the section index: a list of the sections,
+ * each opening on its own screen with an "All sections" link back (D9), so
+ * the profile is never one 15,000px page. On a touch tablet it is a sticky
+ * strip of text tabs that scrolls sideways (the shared tab drawing: muted
+ * labels over a hairline, the current one in ink, semibold and underlined,
+ * so the cue is never colour alone), with a faded edge where more tabs sit
+ * past it. On a desk it is a sticky rail of calm rows beside the form, the
+ * current row filled. Strip and rail mark the section in view
+ * `aria-current="location"` (scroll-spy), keep its tab in view, and jump to
+ * the section and focus its heading. A section with edits that differ from
+ * Google says "Edited" in ink on the index and the rail (the strip has room
+ * only for an ink dot, and says "(edited)" to a screen reader). Ink, not
+ * blue: nothing has gone to Google yet.
  */
 export function SectionNav({
   entries,
@@ -77,6 +184,9 @@ export function SectionNav({
   // until the person scrolls or types themselves.
   const pinned = useRef<string | null>(null)
   const wanted = entries.map((entry) => entry.id).join(" ")
+  const open = usePhoneSection()
+  const indexRef = useRef<HTMLDivElement>(null)
+  const lastOpen = useRef<string | null>(open)
 
   // Which entries are on the page, in document order. Self-gating blocks
   // (saved work, lodging, the catalogue handoff) mount after their data
@@ -208,9 +318,28 @@ export function SectionNav({
     listRef.current?.dispatchEvent(new Event("scroll"))
   }, [present])
 
+  // Opening a section on a phone lands on its heading; coming back to the
+  // index lands on the row it was opened from. The first render (a reload
+  // or a shared address) moves nothing.
+  useEffect(() => {
+    const previous = lastOpen.current
+    lastOpen.current = open
+    if (previous === open || !isPhone()) return
+    if (open) {
+      window.scrollTo({ top: 0 })
+      jumpToSection(open)
+      return
+    }
+    window.scrollTo({ top: 0 })
+    indexRef.current
+      ?.querySelector<HTMLElement>(`[data-section="${previous}"]`)
+      ?.focus({ preventScroll: true })
+  }, [open])
+
   const shown = present
     .map((id) => entries.find((entry) => entry.id === id))
     .filter((entry): entry is SectionNavEntry => entry !== undefined)
+  const openEntry = open ? shown.find((entry) => entry.id === open) : undefined
   return (
     <nav
       ref={navRef}
@@ -226,16 +355,57 @@ export function SectionNav({
         // stick to the top of that pane. A short phone (or one held
         // sideways) keeps the strip in the page: the app bar, the strip and
         // the tab bar together would take nearly half of its height.
-        "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky bg-canvas md:top-0 max-md:short:static",
+        // A phone has the index instead, which scrolls with the page.
+        "z-sticky bg-canvas md:sticky md:top-0",
         "desk:bg-transparent",
         className
       )}
     >
+      <div ref={indexRef} className="md:hidden">
+        {openEntry ? (
+          <div className="flex flex-col items-start gap-1">
+            <a
+              href={`#${PHONE_INDEX_ID}`}
+              onClick={(event) => {
+                event.preventDefault()
+                setPhoneSection(null)
+              }}
+              className="-ml-1 inline-flex min-h-11 items-center gap-0.5 rounded-(--np-radius-control) px-1 text-ui font-medium text-ink focus-halo"
+            >
+              <ChevronLeft aria-hidden className="size-4" strokeWidth={1.75} />
+              All sections
+            </a>
+            {/* The section's own heading stays for assistive tech (and
+                takes focus); this is its visible title on a phone. */}
+            <p aria-hidden className="text-title font-semibold text-ink">
+              {openEntry.label}
+            </p>
+          </div>
+        ) : (
+          <GroupedList id={PHONE_INDEX_ID}>
+            {shown.map((entry) => (
+              <GroupedListItem
+                key={entry.id}
+                data-section={entry.id}
+                label={entry.label}
+                trailing={
+                  entry.changed ? (
+                    <span className="text-caption font-medium text-ink">
+                      Edited
+                    </span>
+                  ) : undefined
+                }
+                onClick={() => setPhoneSection(entry.id)}
+              />
+            ))}
+          </GroupedList>
+        )}
+      </div>
       <ol
         ref={listRef}
         className={cn(
           tabsRowClassName,
-          "list-none",
+          "list-none max-md:hidden",
           // The desk rail: a column of rows, no hairline under it.
           "desk:flex-col desk:items-stretch desk:gap-0.5 desk:overflow-visible desk:border-b-0"
         )}
@@ -267,15 +437,15 @@ export function SectionNav({
                 <>
                   <span
                     aria-hidden
-                    className="size-1.5 shrink-0 rounded-full bg-info-solid desk:hidden"
+                    className="size-1.5 shrink-0 rounded-full bg-ink desk:hidden"
                   />
                   <span
                     aria-hidden
-                    className="ml-auto hidden text-caption font-medium text-info-ink desk:inline"
+                    className="ml-auto hidden text-caption font-medium text-ink desk:inline"
                   >
-                    Changed
+                    Edited
                   </span>
-                  <span className="sr-only"> (changed)</span>
+                  <span className="sr-only"> (edited)</span>
                 </>
               ) : null}
             </a>

@@ -94,7 +94,7 @@ describe("ContactSection", () => {
 
   it("marks only the field that changed, and is read-only when disabled", () => {
     setup({}, true, { phone: true, website: false })
-    expect(screen.getAllByText("Changed").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Edited").length).toBeGreaterThan(0)
     expect(screen.getByLabelText("Phone")).toBeDisabled()
     expect(screen.getByLabelText("Website")).toBeDisabled()
   })

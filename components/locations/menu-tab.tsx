@@ -70,7 +70,7 @@ export function MenuTab({ locationId }: { locationId: string }) {
             icon={<UtensilsCrossed aria-hidden />}
             titleAs="h2"
             title="This location can’t have a food menu"
-            description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
+            description="Google doesn’t allow a menu for this listing."
           />
         )
       }

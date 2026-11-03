@@ -77,7 +77,7 @@ export function ContactSection({
   marks,
 }: ValuesProps & {
   changed: { phone: boolean; website: boolean }
-  /** Whose change each row's word names; falls back to "Changed". */
+  /** Whose change each row's word names; falls back to "Edited". */
   marks?: { phone?: string; website?: string }
 }) {
   return (
@@ -90,7 +90,7 @@ export function ContactSection({
       <SettingsRow
         label="Phone"
         controlId={PROFILE_FIELD_IDS.phone}
-        changed={changed.phone ? (marks?.phone ?? "Changed") : undefined}
+        changed={changed.phone ? (marks?.phone ?? "Edited") : undefined}
         control={
           <Field error={errors.phone}>
             <Input
@@ -112,7 +112,7 @@ export function ContactSection({
       <SettingsRow
         label="Website"
         controlId={PROFILE_FIELD_IDS.website}
-        changed={changed.website ? (marks?.website ?? "Changed") : undefined}
+        changed={changed.website ? (marks?.website ?? "Edited") : undefined}
         control={
           <Field error={errors.website}>
             <Input
@@ -195,7 +195,7 @@ export function AddressSection({
       <SettingsRow
         label="Address lines"
         controlId={PROFILE_FIELD_IDS.address}
-        changed={changed.lines ? "Changed" : undefined}
+        changed={changed.lines ? "Edited" : undefined}
         control={
           <Field error={issues.addressLines}>
             <Textarea
@@ -218,7 +218,7 @@ export function AddressSection({
       <SettingsRow
         label="Town or city"
         controlId="profile-locality"
-        changed={changed.locality ? "Changed" : undefined}
+        changed={changed.locality ? "Edited" : undefined}
         control={
           <Field>
             <Input
@@ -236,7 +236,7 @@ export function AddressSection({
       <SettingsRow
         label="Postcode"
         controlId="profile-postal-code"
-        changed={changed.postalCode ? "Changed" : undefined}
+        changed={changed.postalCode ? "Edited" : undefined}
         control={
           <Field>
             <Input
@@ -254,7 +254,7 @@ export function AddressSection({
       <SettingsRow
         label="District or neighbourhood (optional)"
         controlId="profile-sublocality"
-        changed={changed.sublocality ? "Changed" : undefined}
+        changed={changed.sublocality ? "Edited" : undefined}
         control={
           <Field error={issues.sublocality}>
             <Input
@@ -281,7 +281,7 @@ export function AddressSection({
       <SettingsRow
         label="County or region (optional)"
         controlId="profile-administrative-area"
-        changed={changed.administrativeArea ? "Changed" : undefined}
+        changed={changed.administrativeArea ? "Edited" : undefined}
         control={
           <Field error={issues.administrativeArea}>
             <Input
@@ -327,7 +327,7 @@ export function DescriptionSection({
   mark,
 }: ValuesProps & {
   changed: boolean
-  /** Whose change the row's word names; falls back to "Changed". */
+  /** Whose change the row's word names; falls back to "Edited". */
   mark?: string
 }) {
   const length = values.description.length
@@ -342,7 +342,7 @@ export function DescriptionSection({
       <SettingsRow
         label="Description"
         controlId={PROFILE_FIELD_IDS.description}
-        changed={changed ? (mark ?? "Changed") : undefined}
+        changed={changed ? (mark ?? "Edited") : undefined}
         // The count describes the field and is read on focus. Read on
         // every keystroke it was noise; only crossing the limit is news.
         description={
@@ -485,7 +485,7 @@ export function OpeningSection({
         <div ref={rowRef} className="min-w-0">
           <SettingsRow
             label="Open status"
-            changed={statusChanged ? "Changed" : undefined}
+            changed={statusChanged ? "Edited" : undefined}
             value={openStatusLabel(draft.openStatus)}
             disabled={disabled}
             onClick={() => setPicking(true)}

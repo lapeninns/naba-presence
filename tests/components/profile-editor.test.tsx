@@ -2067,10 +2067,10 @@ describe("ProfileTab field marks", () => {
     expect(markOf("profile-name")).toHaveTextContent("Changed on Google")
     expect(markOf("profile-phone")).toHaveTextContent("Not on Google yet")
     expect(markOf("profile-website")).not.toHaveTextContent(
-      /Changed|Not on Google/
+      /Changed|Edited|Not on Google/
     )
     await userEvent.type(name, "s")
-    expect(markOf("profile-name")).toHaveTextContent("Changed")
+    expect(markOf("profile-name")).toHaveTextContent("Edited")
     expect(markOf("profile-name")).not.toHaveTextContent("Changed on Google")
   })
 })
