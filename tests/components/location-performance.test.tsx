@@ -4,24 +4,108 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { LocationPerformance } from "@/components/performance/location-performance"
 
-const ZERO_TOTALS = { BUSINESS_IMPRESSIONS_DESKTOP_MAPS: 0, BUSINESS_IMPRESSIONS_DESKTOP_SEARCH: 0, BUSINESS_IMPRESSIONS_MOBILE_MAPS: 0, BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 0, CALL_CLICKS: 0, WEBSITE_CLICKS: 0, BUSINESS_DIRECTION_REQUESTS: 0, BUSINESS_CONVERSATIONS: 0, BUSINESS_BOOKINGS: 0, BUSINESS_FOOD_ORDERS: 0, BUSINESS_FOOD_MENU_CLICKS: 0 }
+const ZERO_TOTALS = {
+  BUSINESS_IMPRESSIONS_DESKTOP_MAPS: 0,
+  BUSINESS_IMPRESSIONS_DESKTOP_SEARCH: 0,
+  BUSINESS_IMPRESSIONS_MOBILE_MAPS: 0,
+  BUSINESS_IMPRESSIONS_MOBILE_SEARCH: 0,
+  CALL_CLICKS: 0,
+  WEBSITE_CLICKS: 0,
+  BUSINESS_DIRECTION_REQUESTS: 0,
+  BUSINESS_CONVERSATIONS: 0,
+  BUSINESS_BOOKINGS: 0,
+  BUSINESS_FOOD_ORDERS: 0,
+  BUSINESS_FOOD_MENU_CLICKS: 0,
+}
 
 function routeBody(url: string) {
   if (url.startsWith("/api/analytics/overview")) {
-    return { from: "a", to: "b", timezone: "Europe/London", summary: { reviewVolume: 0, averageRating: null, responseRate: null, unresolvedComplaints: 0, verificationFailures: 0, verificationRejectionRate: null, medianFirstResponseSeconds: null, p95FirstResponseSeconds: null, medianLatestEditSeconds: null }, series: [], locations: [{ id: "loc-1", name: "Riverside", reviews: 12, averageRating: 4.5, responseRate: 88, medianFirstResponseSeconds: 3600, p95FirstResponseSeconds: null, medianLatestEditSeconds: null, unresolvedComplaints: 1, verificationRejectionRate: null }], providerTotals: { averageRating: null, totalReviewCount: null, localReviewCount: 0, divergence: false } }
+    return {
+      from: "a",
+      to: "b",
+      timezone: "Europe/London",
+      summary: {
+        reviewVolume: 0,
+        averageRating: null,
+        responseRate: null,
+        unresolvedComplaints: 0,
+        verificationFailures: 0,
+        verificationRejectionRate: null,
+        medianFirstResponseSeconds: null,
+        p95FirstResponseSeconds: null,
+        medianLatestEditSeconds: null,
+      },
+      series: [],
+      locations: [
+        {
+          id: "loc-1",
+          name: "Riverside",
+          reviews: 12,
+          averageRating: 4.5,
+          responseRate: 88,
+          medianFirstResponseSeconds: 3600,
+          p95FirstResponseSeconds: null,
+          medianLatestEditSeconds: null,
+          unresolvedComplaints: 1,
+          verificationRejectionRate: null,
+        },
+      ],
+      providerTotals: {
+        averageRating: null,
+        totalReviewCount: null,
+        localReviewCount: 0,
+        divergence: false,
+      },
+    }
   }
   if (url.startsWith("/api/analytics/presence/keywords")) {
-    return { range: "6m", from: "2026-03-01", state: "empty", locations: [{ id: "loc-1", name: "Riverside" }], keywords: [], unavailableReasons: [] }
+    return {
+      range: "6m",
+      from: "2026-03-01",
+      state: "empty",
+      locations: [{ id: "loc-1", name: "Riverside" }],
+      keywords: [],
+      unavailableReasons: [],
+    }
   }
-  return { range: "28d", from: "a", to: "b", state: "empty", freshThrough: null, locations: [{ id: "loc-1", name: "Riverside" }], totals: ZERO_TOTALS, series: [], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true }
+  return {
+    range: "28d",
+    from: "a",
+    to: "b",
+    state: "empty",
+    freshThrough: null,
+    locations: [{ id: "loc-1", name: "Riverside" }],
+    totals: ZERO_TOTALS,
+    series: [],
+    unavailableReasons: [],
+    keywordsEnabled: false,
+    ingestionEnabled: true,
+  }
 }
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 function renderPerf() {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(routeBody(url)), { headers: { "content-type": "application/json" } })))
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}><LocationPerformance locationId="loc-1" /></QueryClientProvider>)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async (url: string) =>
+        new Response(JSON.stringify(routeBody(url)), {
+          headers: { "content-type": "application/json" },
+        })
+    )
+  )
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={client}>
+      <LocationPerformance locationId="loc-1" />
+    </QueryClientProvider>
+  )
 }
 
 describe("LocationPerformance", () => {
@@ -36,28 +120,132 @@ describe("LocationPerformance", () => {
   })
 
   it("reads the reply window from the page's range", async () => {
-    const fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify(routeBody(url)), { headers: { "content-type": "application/json" } }))
+    const fetchMock = vi.fn(
+      async (url: string) =>
+        new Response(JSON.stringify(routeBody(url)), {
+          headers: { "content-type": "application/json" },
+        })
+    )
     vi.stubGlobal("fetch", fetchMock)
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={client}><LocationPerformance locationId="loc-1" rangeId="90d" /></QueryClientProvider>)
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <LocationPerformance locationId="loc-1" rangeId="90d" />
+      </QueryClientProvider>
+    )
     expect(await screen.findByText("12")).toBeInTheDocument()
     const urls = fetchMock.mock.calls.map(([url]) => String(url))
-    expect(urls.some((url) => url.startsWith("/api/analytics/overview") && url.includes("granularity=week"))).toBe(true)
-    expect(urls.some((url) => url.startsWith("/api/analytics/presence?") && url.includes("range=90d"))).toBe(true)
+    expect(
+      urls.some(
+        (url) =>
+          url.startsWith("/api/analytics/overview") &&
+          url.includes("granularity=week")
+      )
+    ).toBe(true)
+    expect(
+      urls.some(
+        (url) =>
+          url.startsWith("/api/analytics/presence?") &&
+          url.includes("range=90d")
+      )
+    ).toBe(true)
   })
 
   it("shows an honest no-activity panel when the listing is absent from overview", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      const body = url.startsWith("/api/analytics/overview")
-        ? { from: "a", to: "b", timezone: "Europe/London", summary: { reviewVolume: 0, averageRating: null, responseRate: null, unresolvedComplaints: 0, verificationFailures: 0, verificationRejectionRate: null, medianFirstResponseSeconds: null, p95FirstResponseSeconds: null, medianLatestEditSeconds: null }, series: [], locations: [], providerTotals: { averageRating: null, totalReviewCount: null, localReviewCount: 0, divergence: false } }
-        : routeBody(url)
-      return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
-    }))
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={client}><LocationPerformance locationId="loc-1" /></QueryClientProvider>)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const body = url.startsWith("/api/analytics/overview")
+          ? {
+              from: "a",
+              to: "b",
+              timezone: "Europe/London",
+              summary: {
+                reviewVolume: 0,
+                averageRating: null,
+                responseRate: null,
+                unresolvedComplaints: 0,
+                verificationFailures: 0,
+                verificationRejectionRate: null,
+                medianFirstResponseSeconds: null,
+                p95FirstResponseSeconds: null,
+                medianLatestEditSeconds: null,
+              },
+              series: [],
+              locations: [],
+              providerTotals: {
+                averageRating: null,
+                totalReviewCount: null,
+                localReviewCount: 0,
+                divergence: false,
+              },
+            }
+          : routeBody(url)
+        return new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        })
+      })
+    )
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <LocationPerformance locationId="loc-1" />
+      </QueryClientProvider>
+    )
     expect(
       await screen.findByText("No reviews in this period yet")
     ).toBeInTheDocument()
-    expect(screen.getByText(/for this listing in the last 28 days/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/for this listing in the last 28 days/)
+    ).toBeInTheDocument()
+  })
+})
+
+describe("LocationPerformance period line", () => {
+  it("states the dates only once the figures say which zone they were counted in", async () => {
+    const waiting: Array<(response: Response) => void> = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url.startsWith("/api/analytics/overview")
+          ? new Promise<Response>((resolve) => {
+              waiting.push(resolve)
+            })
+          : Promise.resolve(
+              new Response(JSON.stringify(routeBody(url)), {
+                headers: { "content-type": "application/json" },
+              })
+            )
+      )
+    )
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <LocationPerformance locationId="loc-1" />
+      </QueryClientProvider>
+    )
+    // While the figures load, the period by name only: no dates told in a
+    // guessed zone that would change when they arrive.
+    expect(
+      await screen.findByText("Loading review activity…")
+    ).toBeInTheDocument()
+    expect(screen.getAllByText("Last 28 days").length).toBeGreaterThan(0)
+    expect(screen.queryByText(/^Last 28 days · /)).not.toBeInTheDocument()
+    // The period and the one before it.
+    for (const answer of waiting)
+      answer(
+        new Response(JSON.stringify(routeBody("/api/analytics/overview")), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+    expect(
+      await screen.findByText(/^Last 28 days · \d{1,2} [A-Z][a-z]{2} – /)
+    ).toBeInTheDocument()
   })
 })

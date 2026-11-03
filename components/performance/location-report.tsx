@@ -7,11 +7,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useScopeLabel } from "@/components/app-shell/client-switcher"
 import { LocationPerformance } from "@/components/performance/location-performance"
 import { LocationSelect } from "@/components/performance/location-select"
-import { RangeSelect } from "@/components/performance/range-select"
 import { NotInDirectory } from "@/components/performance/report-scope"
 import { ReportExportScope } from "@/components/reporting/csv-download-button"
 import { ReportActionsMenu } from "@/components/reporting/report-actions-menu"
 import {
+  ReportPeriodSegments,
   ReportPeriodStrip,
   ReportToolbar,
   reportToolbarFieldProps,
@@ -24,9 +24,7 @@ import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import {
   DEFAULT_RANGES,
-  formatPeriod,
   REPLY_RANGES,
-  resolvedPeriod,
   type ReplyRangeId,
 } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
@@ -66,10 +64,6 @@ function LocationReport({
   const business = mode === "business"
   const scope = useScopeLabel(mode)
   const location = directory.data?.find((entry) => entry.id === locationId)
-  const periodDates = formatPeriod(
-    resolvedPeriod("reply", rangeId),
-    "Europe/London"
-  )
 
   // The figures start from `locationId` alone, in parallel with the
   // directory; only the name and the sibling picker wait for it.
@@ -174,11 +168,18 @@ function LocationReport({
             !business && scope.ready && !scope.visible && siblings.length > 1
           }
           summary={[location.name, periodLabel]}
-          meta={periodDates}
+          // No dates here: each section states its own, from its figures.
           fields={() => {
             const field = reportToolbarFieldProps()
             return (
               <>
+                {onRangeChange ? (
+                  <ReportPeriodSegments
+                    value={rangeId}
+                    options={REPLY_RANGES}
+                    onChange={(next) => onRangeChange(next as ReplyRangeId)}
+                  />
+                ) : null}
                 <LocationSelect
                   {...field}
                   locations={siblings}
@@ -195,15 +196,6 @@ function LocationReport({
                     })
                   }}
                 />
-                {onRangeChange ? (
-                  <RangeSelect
-                    {...field}
-                    className="w-44 max-md:hidden"
-                    value={rangeId}
-                    onChange={onRangeChange}
-                    options={REPLY_RANGES}
-                  />
-                ) : null}
               </>
             )
           }}

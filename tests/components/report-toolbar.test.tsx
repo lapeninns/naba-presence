@@ -319,6 +319,22 @@ describe("LocationReport period", () => {
     ).toBeInTheDocument()
   })
 
+  it("offers the period as one segmented choice from md and states no dates of its own", async () => {
+    stubDirectory()
+    search = "locationId=l1&range=90d"
+    renderView()
+    const toolbar = await screen.findByRole("region", { name: "Report scope" })
+    const segments = within(toolbar).getByRole("radiogroup", {
+      name: "Period",
+    })
+    expect(
+      within(segments).getByRole("radio", { name: "Last 90 days" })
+    ).toHaveAttribute("aria-checked", "true")
+    // The sections state their dates from their own figures; a London-told
+    // range up here could disagree with them by a day.
+    expect(toolbar).not.toHaveTextContent(/\d{1,2} [A-Z][a-z]{2} – /)
+  })
+
   it("names the scoped location in words at every width", async () => {
     stubDirectory()
     search = "locationId=l1"
