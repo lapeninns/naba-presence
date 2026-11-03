@@ -24,7 +24,9 @@ export default async function OutboxPage({
 }) {
   const session = await getSession()
   if (session?.role === "viewer") {
-    return <AccessDeniedPage area="Outbox" />
+    return (
+      <AccessDeniedPage area="Outbox" whoCanHelp="an owner, admin or member" />
+    )
   }
 
   const params = await searchParams
