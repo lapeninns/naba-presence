@@ -114,7 +114,7 @@ test.describe("listings", () => {
     // own status), and one card per area, each with its own way in.
     const google = page.getByRole("region", { name: "Google", exact: true })
     await expect(google.getByText("Google connection")).toBeVisible()
-    await expect(google.getByText("Last published")).toBeVisible()
+    await expect(google.getByText("Last sent to Google")).toBeVisible()
     await expect(google.getByText("Verification", { exact: true })).toHaveCount(
       0
     )

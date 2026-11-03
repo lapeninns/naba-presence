@@ -309,7 +309,9 @@ describe("ListingOverview", () => {
     })
     render(<ListingOverview locationId="l1" role="owner" />)
     const alert = document.querySelector('[data-slot="alert"]') as HTMLElement
-    expect(alert).toHaveTextContent(/The last food menu publish failed/)
+    expect(alert).toHaveTextContent(
+      /The last food menu change didn’t go through/
+    )
     // Present on load, so it is page content, not an interruption.
     expect(alert).not.toHaveAttribute("role")
     expect(alert).toHaveTextContent(
@@ -317,7 +319,7 @@ describe("ListingOverview", () => {
     )
     // The Google row uses the same words, not the summary's key.
     expect(screen.getByRole("region", { name: "Google" })).toHaveTextContent(
-      "The last food menu publish failed"
+      "The last food menu change didn’t go through"
     )
     expect(screen.queryByRole("alert")).toBeNull()
   })
@@ -367,7 +369,7 @@ describe("ListingOverview", () => {
     expect(rows[0]).toHaveTextContent("Google connection")
     expect(rows[0]).toHaveTextContent("Up to date")
     expect(rows[0]).toHaveTextContent("owner@example.com")
-    expect(rows[1]).toHaveTextContent("Last published")
+    expect(rows[1]).toHaveTextContent("Last sent to Google")
     expect(rows[1]).toHaveTextContent("Last change: opening hours")
     expect(within(google).queryByText("Verification")).toBeNull()
     expect(within(google).queryByText("Sync with Google")).toBeNull()
@@ -513,12 +515,20 @@ describe("ListingOverview", () => {
       }),
     })
     render(<ListingOverview locationId="l1" role="member" />)
-    expect(
-      screen.getByText(/Google hasn’t confirmed the last opening hours publish/)
-    ).toBeInTheDocument()
+    const alert = document.querySelector('[data-slot="alert"]') as HTMLElement
+    expect(alert).toHaveTextContent(
+      /Google hasn’t confirmed the last opening hours change/
+    )
+    // Never a blind retry of something Google may already hold.
+    expect(alert).toHaveTextContent(/don’t send it again blindly/)
     expect(
       screen.getByRole("link", { name: "Check opening hours" })
     ).toHaveAttribute("href", "/listings/l1/hours")
+    // The Google row: the lifecycle pill, never "published".
+    const google = screen.getByRole("region", { name: "Google" })
+    expect(google).toHaveTextContent("Last sent to Google")
+    expect(google).toHaveTextContent("Not confirmed: check Google")
+    expect(google).not.toHaveTextContent(/published/i)
   })
 
   it("marks an area tab this listing can't use", () => {

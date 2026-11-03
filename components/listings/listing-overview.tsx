@@ -14,6 +14,7 @@ import { FileUnderClient } from "@/components/listings/file-under-client"
 import { GoogleChangesBadge } from "@/components/listings/google-changes-badge"
 import {
   HealthStrip,
+  lastSentDescription,
   publishAreaName,
 } from "@/components/listings/health-strip"
 import { ListingGate } from "@/components/listings/listing-gate"
@@ -194,17 +195,16 @@ function OverviewAlerts({
       // no assertive announcement (see `AlertLive`).
       <Alert key="failed" variant="destructive" live={false}>
         <AlertTitle>
-          {failed.status === "ambiguous"
-            ? "Google hasn’t confirmed the last"
-            : "The last"}{" "}
-          {publishAreaName(failed.area)}{" "}
-          {failed.status === "ambiguous" ? "publish" : "publish failed"} ·{" "}
+          {lastSentDescription(failed.status, publishAreaName(failed.area))} ·{" "}
           <RelativeTime iso={failed.at} />
         </AlertTitle>
         <AlertDescription>
-          Some changes may already be on Google. The saved copy here is kept.
-          Open the area to compare the current Google listing before trying
-          again. Activity, at the top of this page, has the attempt details.
+          {failed.status === "ambiguous"
+            ? "We can’t tell whether Google applied it, so don’t send it again blindly."
+            : "Some changes may already be on Google."}{" "}
+          The saved copy here is kept. Open the area to compare the current
+          Google listing before trying again. Activity, at the top of this page,
+          has the attempt details.
         </AlertDescription>
         {failedArea ? (
           <AlertActions>
@@ -299,7 +299,8 @@ function ListingOverview({
         const disconnected = health === "disconnected"
         const mapsUrl = summary.data?.mapsUrl ?? null
         return (
-          <PageFrame width="wide">
+          // As on an area page, a phone's header starts high (LST-06).
+          <PageFrame width="wide" className="max-md:gap-3 max-md:pt-3">
             <ListingAreaHeader
               entry={entry}
               role={role}

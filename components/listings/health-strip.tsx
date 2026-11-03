@@ -6,7 +6,11 @@ import { RelativeTime } from "@/components/ui/relative-time"
 import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
-import type { ListingSummary } from "@/lib/contracts/location-summary"
+import type {
+  LastPublish,
+  ListingSummary,
+} from "@/lib/contracts/location-summary"
+import type { PresentedState } from "@/lib/editors/outcome"
 import { areaForSegment } from "@/lib/listings/areas"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
@@ -17,6 +21,35 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  */
 function publishAreaName(area: string): string {
   return areaForSegment(area)?.label.toLowerCase() ?? area
+}
+
+/** "Last sent", not "last published": a send is not proof Google shows it. */
+const LAST_SENT_LABEL = "Last sent to Google"
+
+const LAST_SENT_STATE = {
+  failed: "failed",
+  ambiguous: "uncertain",
+  in_progress: "sent",
+} as const satisfies Record<
+  Exclude<LastPublish["status"], "succeeded">,
+  PresentedState
+>
+
+/** The last send in words, shared by the overview's alert and its row. */
+function lastSentDescription(
+  status: LastPublish["status"],
+  area: string
+): string {
+  switch (status) {
+    case "failed":
+      return `The last ${area} change didn’t go through`
+    case "ambiguous":
+      return `Google hasn’t confirmed the last ${area} change`
+    case "in_progress":
+      return `A ${area} change is being sent to Google`
+    case "succeeded":
+      return `Last change: ${area}`
+  }
 }
 
 /**
@@ -64,7 +97,7 @@ function HealthStrip({
   if (!summary && summaryFailed) {
     return group(
       <>
-        {["Google connection", "Last published"].map((label) => (
+        {["Google connection", LAST_SENT_LABEL].map((label) => (
           <SettingsRow
             key={label}
             label={label}
@@ -160,24 +193,19 @@ function HealthStrip({
         }
       />
       <SettingsRow
-        label="Last published"
+        label={LAST_SENT_LABEL}
         value={
           last ? (
             <>
               <RelativeTime iso={last.at} casing="sentence" />
-              {last.status === "failed" ? (
-                <StatusPill tone="at-risk" className="ms-2">
-                  Failed
-                </StatusPill>
-              ) : last.status === "ambiguous" ? (
-                <StatusPill tone="attention" className="ms-2">
-                  Outcome unclear
-                </StatusPill>
-              ) : last.status === "in_progress" ? (
-                <StatusPill tone="pending" className="ms-2">
-                  In progress
-                </StatusPill>
-              ) : null}
+              {/* A state, in the lifecycle words; a send that went through
+                  carries none, since the summary can't say Google shows it. */}
+              {last.status === "succeeded" ? null : (
+                <StatusPill
+                  state={LAST_SENT_STATE[last.status]}
+                  className="ms-2"
+                />
+              )}
             </>
           ) : (
             "Never"
@@ -185,14 +213,8 @@ function HealthStrip({
         }
         description={
           last
-            ? last.status === "failed"
-              ? `The last ${publishAreaName(last.area)} publish failed`
-              : last.status === "in_progress"
-                ? `A ${publishAreaName(last.area)} publish is in progress`
-                : last.status === "ambiguous"
-                  ? `Google didn’t confirm the last ${publishAreaName(last.area)} publish`
-                  : `Last change: ${publishAreaName(last.area)}`
-            : "Nothing has been published from here yet"
+            ? lastSentDescription(last.status, publishAreaName(last.area))
+            : "Nothing has been sent to Google from here yet"
         }
       />
       {showVerification ? (
@@ -206,4 +228,4 @@ function HealthStrip({
   )
 }
 
-export { HealthStrip, publishAreaName }
+export { HealthStrip, lastSentDescription, publishAreaName }
