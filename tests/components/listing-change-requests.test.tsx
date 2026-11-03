@@ -129,6 +129,11 @@ describe("ListingChangeRequests", () => {
       "sm:grid-cols-[fit-content(40%)_minmax(0,1fr)]"
     )
     expect(list.className).not.toMatch(/minmax\(0,auto\)/)
+    // The clipping card never shrinks below its content in a flex column.
+    expect(
+      screen.getByRole("region", { name: "Changes waiting for approval" })
+        .className
+    ).toMatch(/(^|\s)shrink-0(\s|$)/)
     expect(
       screen.getByRole("button", { name: "Approve and send" })
     ).toBeInTheDocument()

@@ -86,10 +86,13 @@ export function ListingChangeRequests({
   if (pending.length === 0) return null
 
   return (
+    // shrink-0: a clipping box's automatic minimum height is zero, so in the
+    // desk editor's height-bound column the card shrank to its border and
+    // hid the request (and its still-focusable buttons) from the approver.
     <section
       data-testid="listing-change-requests"
       aria-label="Changes waiting for approval"
-      className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+      className="shrink-0 overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
     >
       <p role="status" className="sr-only">
         {pending.length === 1
