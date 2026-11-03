@@ -140,22 +140,14 @@ function ClientSettings({ clientId }: { clientId: string }) {
               titleAs="h2"
               icon={<ArchiveIcon />}
               title="This client isn’t available"
-              description="It may have been archived. Archived clients can be restored from Clients › Archived."
+              description="It may have been archived."
               action={
-                <>
-                  <Link
-                    href="/clients?view=archived"
-                    className={cn(buttonVariants({ variant: "secondary" }))}
-                  >
-                    Archived clients
-                  </Link>
-                  <Link
-                    href="/clients"
-                    className={cn(buttonVariants({ variant: "ghost" }))}
-                  >
-                    All clients
-                  </Link>
-                </>
+                <Link
+                  href="/clients?view=archived"
+                  className={cn(buttonVariants({ variant: "secondary" }))}
+                >
+                  Archived clients
+                </Link>
               }
             />
           </Card>
@@ -382,7 +374,7 @@ function SettingsBody({
               <a
                 key={section.id}
                 href={`#${section.id}`}
-                className="flex min-h-(--np-control-h) items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill"
+                className="flex min-h-(--np-control-h) items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover-fine:hover:bg-fill"
               >
                 {section.label}
               </a>
@@ -557,8 +549,8 @@ function SettingsBody({
                   title="No listings filed here"
                   description={
                     unassigned.length > 0
-                      ? "Pick one from Unfiled listings below, or bring new ones in from Google."
-                      : "There are no unfiled listings to add. Bring this client’s listings in from Google."
+                      ? "Pick one from Unfiled listings below."
+                      : "Bring its listings in from Google first."
                   }
                 />
               </Card>
@@ -894,6 +886,8 @@ function ArchiveSection({
   // Its own, not the shared update mutation's: a details save must not
   // relabel this button "Archiving…".
   const [archiving, setArchiving] = React.useState(false)
+  const [confirming, setConfirming] = React.useState(false)
+  const unfiles = attached?.length ?? 0
 
   const archive = async () => {
     setError(null)
@@ -935,14 +929,15 @@ function ArchiveSection({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          {/* One step: archiving is reversible, so it acts at once and the
-              toast carries the Undo. */}
+          {/* An empty client archives at once, with Undo in the toast: a
+              restore from Archived brings all of it back. With listings it
+              asks first, since only that Undo files them back again. */}
           <SettingsDestructiveAction
             // A long client name wraps instead of pushing the card wider;
             // the negative start margin lines its label up with the text.
             className="-ms-4 h-auto justify-start py-2 text-start [overflow-wrap:anywhere]"
             disabled={attached === null || busy || archiving}
-            onClick={() => void archive()}
+            onClick={() => (unfiles > 0 ? setConfirming(true) : void archive())}
             footnote={
               attached === null ? (
                 listingsFailed ? (
@@ -967,6 +962,46 @@ function ArchiveSection({
           >
             {archiving ? "Archiving…" : `Archive ${client.name}`}
           </SettingsDestructiveAction>
+          <AlertDialog
+            open={confirming}
+            onOpenChange={(open) => {
+              if (!archiving) setConfirming(open)
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogTitle className="[overflow-wrap:anywhere]">
+                Archive {client.name}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {unfiles === 1
+                  ? "Its listing is unfiled. It keeps its Google link and reviews."
+                  : `Its ${formatNumber(unfiles)} listings are unfiled. They keep their Google link and reviews.`}{" "}
+                Undo, straight after, files {unfiles === 1 ? "it" : "them"}{" "}
+                back; a later restore from Archived does not. Nothing changes on
+                Google.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogClose
+                  render={
+                    <Button variant="ghost" disabled={archiving}>
+                      Cancel
+                    </Button>
+                  }
+                />
+                <Button
+                  variant="danger"
+                  pending={archiving}
+                  pendingLabel="Archiving…"
+                  onClick={async () => {
+                    await archive()
+                    setConfirming(false)
+                  }}
+                >
+                  Archive and unfile
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
     </section>
