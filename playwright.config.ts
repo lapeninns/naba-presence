@@ -70,7 +70,9 @@ export default defineConfig({
     suite === "isolated"
       ? undefined
       : {
-          command: appDir ? "node server.js" : `PORT=${port} pnpm start`,
+          command: appDir
+            ? "node --require ./lane-pid.cjs server.js"
+            : `PORT=${port} pnpm start`,
           ...(appDir ? { cwd: appDir } : {}),
           url: baseURL,
           env: {

@@ -8,11 +8,13 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
 } from "node:fs"
-import { cp, mkdir, open, rm } from "node:fs/promises"
+import { cp, mkdir, open, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename, dirname, join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 
 import { childEnv, parseExports } from "./release/verify-local.mjs"
@@ -135,6 +137,53 @@ function portPair() {
   )
 }
 
+function ownsAppPid(pid, appDir) {
+  try {
+    if (process.platform === "linux")
+      return readlinkSync(`/proc/${pid}/cwd`) === appDir
+    const cwd = execFileSync(
+      "lsof",
+      ["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
+      {
+        encoding: "utf8",
+      }
+    )
+    return cwd.split("\n").includes(`n${appDir}`)
+  } catch (error) {
+    if (error.code === "ENOENT" && process.platform === "linux") return false
+    if (error.status === 1 && !error.stderr?.length) return false
+    throw error
+  }
+}
+
+async function stopLaneApp(appDir) {
+  const pidFile = join(appDir, "lane-app.pid")
+  if (!existsSync(pidFile)) return
+  const pid = Number(readFileSync(pidFile, "utf8").trim())
+  if (!Number.isInteger(pid) || pid < 2)
+    throw new Error(`Invalid app PID in ${pidFile}`)
+
+  // Playwright's webServer has a detached process group. On cancellation it
+  // can outlive the test command, so check the PID's private cwd before acting.
+  const cwd = realpathSync(appDir)
+  for (const signal of ["SIGTERM", "SIGKILL"]) {
+    if (!ownsAppPid(pid, cwd)) return
+    try {
+      process.kill(pid, signal)
+    } catch (error) {
+      if (error.code === "ESRCH") return
+      throw error
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await delay(100)
+      if (!ownsAppPid(pid, cwd)) return
+    }
+  }
+  throw new Error(
+    `Lane app ${pid} did not stop. Preserved its build at ${cwd}.`
+  )
+}
+
 async function runLane(index, port) {
   const name = `lane-${index}`
   const dir = join(output, name)
@@ -145,6 +194,11 @@ async function runLane(index, port) {
   try {
     // Servers can write to their Next build tree (e.g. the image cache).
     await cp(standalone, appDir, { recursive: true, verbatimSymlinks: true })
+    await writeFile(
+      join(appDir, "lane-pid.cjs"),
+      'require("node:fs").writeFileSync("lane-app.pid", String(process.pid), { mode: 0o600 })\n',
+      { flag: "wx", mode: 0o600 }
+    )
     if (interrupted) return SIGNAL_EXIT_CODES[interrupted]
     console.log(`[${name}] app ${port}, Google stub ${port + 1}, ${dir}`)
     const child = spawn(
@@ -188,6 +242,7 @@ async function runLane(index, port) {
   } finally {
     await log.close()
     await rm(state, { force: true })
+    await stopLaneApp(appDir)
     await rm(appDir, { recursive: true, force: true })
   }
 }
