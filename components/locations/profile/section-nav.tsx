@@ -17,6 +17,7 @@ import {
   useScrollFade,
 } from "@/components/ui/tabs"
 import { pushUrl } from "@/lib/navigation/shallow-url"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 
 export type SectionNavEntry = {
@@ -56,7 +57,6 @@ export function jumpToSection(id: string) {
  */
 const SECTION_PARAM = "section"
 const SECTION_PREFIX = "section-"
-const PHONE_QUERY = "(max-width: 47.99rem)"
 
 const sectionListeners = new Set<() => void>()
 
@@ -90,10 +90,11 @@ export function phoneSectionClass(id: string, open: string | null) {
   return open === id ? undefined : "max-md:hidden"
 }
 
+/** Under `md`, where the `max-md:` classes above hide the other sections. */
 function isPhone() {
   return (
     typeof window.matchMedia === "function" &&
-    window.matchMedia(PHONE_QUERY).matches
+    !window.matchMedia(mediaQuery("md")).matches
   )
 }
 

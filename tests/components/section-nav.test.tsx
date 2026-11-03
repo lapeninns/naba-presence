@@ -194,7 +194,8 @@ describe("SectionNav on a phone (section index)", () => {
       "matchMedia",
       (query: string) =>
         ({
-          matches: query.includes("max-width"),
+          // A phone: under every min-width breakpoint.
+          matches: !query.includes("min-width"),
           media: query,
           addEventListener() {},
           removeEventListener() {},
