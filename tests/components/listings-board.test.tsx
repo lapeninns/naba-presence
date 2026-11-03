@@ -238,6 +238,89 @@ describe("ListingsBoard", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("wears each waiting item's lifecycle state: saved here is neutral, approval amber, a failed send red", () => {
+    stub({
+      entries,
+      summaries: [
+        summary({
+          locationId: "l1",
+          profile: { status: "core_dirty", dirtyCount: 2, observedAt: null },
+          posts: {
+            ...emptyListingSummary({
+              locationId: "l1",
+              linked: true,
+              verified: true,
+            }).posts,
+            awaitingApproval: 1,
+            failed: 1,
+          },
+        }),
+        summary({
+          locationId: "l2",
+          suggestions: { profile: 1, foodMenus: 0 },
+        }),
+        summary({ locationId: "l3" }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    const pill = (row: HTMLElement, text: string) =>
+      within(row).getByText(text).closest("[data-slot=status-pill]")
+    expect(pill(crown, "2 changes to publish")).toHaveAttribute(
+      "data-state",
+      "saved_locally"
+    )
+    expect(pill(crown, "1 post awaiting approval")).toHaveAttribute(
+      "data-tone",
+      "attention"
+    )
+    // Once in the desk pills and once in the phone row's figure.
+    for (const failed of within(crown).getAllByText("Failed: retry"))
+      expect(failed.closest("[data-slot=status-pill]")).toHaveAttribute(
+        "data-tone",
+        "at-risk"
+      )
+    const harbour = screen.getByRole("row", { name: /Harbour View/ })
+    expect(pill(harbour, "1 Google change")).toHaveAttribute(
+      "data-state",
+      "conflict"
+    )
+  })
+
+  it("dates the last write as sent to Google, and says when it did not land", () => {
+    const at = "2026-09-01T10:00:00Z"
+    stub({
+      entries,
+      summaries: [
+        summary({
+          locationId: "l1",
+          lastPublish: { at, status: "succeeded", area: "hours" },
+        }),
+        summary({
+          locationId: "l2",
+          lastPublish: { at, status: "ambiguous", area: "hours" },
+        }),
+        summary({
+          locationId: "l3",
+          lastPublish: { at, status: "in_progress", area: "profile" },
+        }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByRole("columnheader", { name: "Last sent to Google" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/published/i)).toBeNull()
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    expect(within(crown).queryByText("On Google")).toBeNull()
+    const harbour = screen.getByRole("row", { name: /Harbour View/ })
+    expect(
+      within(harbour).getByText("Not confirmed: check Google")
+    ).toBeInTheDocument()
+    const pier = screen.getByRole("row", { name: /Pier Cafe/ })
+    expect(within(pier).getByText("Sending to Google")).toBeInTheDocument()
+  })
+
   it("orders worst health first across clients, or groups by client", async () => {
     stub({
       entries,

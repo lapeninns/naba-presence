@@ -283,17 +283,51 @@ function WaitingFigure({ summary }: { summary: ListingSummary | undefined }) {
       ) : failed ? null : (
         <span className="text-ink-muted">Nothing waiting</span>
       )}
-      {failed ? <StatusPill tone="at-risk">Failed publish</StatusPill> : null}
+      {failed ? <StatusPill state="failed" /> : null}
     </span>
   )
 }
 
+/**
+ * The last write sent to Google for this listing. A succeeded attempt is
+ * one Google accepted, not one confirmed on the profile, so it is dated as
+ * sent; anything else carries its lifecycle words beside the time.
+ */
+function LastSent({ summary }: { summary: ListingSummary | undefined }) {
+  // No summary means we don't know, not that it never happened.
+  if (!summary) return <span className="text-ink-muted">—</span>
+  const last = summary.lastPublish
+  if (!last) return <span className="text-ink-muted">Never</span>
+  const state = LAST_SENT_STATE[last.status]
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <span className="text-ink-muted tabular-nums">
+        <RelativeTime iso={last.at} />
+      </span>
+      {state ? <StatusPill state={state} /> : null}
+    </span>
+  )
+}
+
+const LAST_SENT_STATE = {
+  succeeded: null,
+  failed: "failed",
+  ambiguous: "uncertain",
+  in_progress: "sent",
+} as const satisfies Record<
+  NonNullable<ListingSummary["lastPublish"]>["status"],
+  "failed" | "uncertain" | "sent" | null
+>
+
 function PendingChips({ summary }: { summary: ListingSummary | undefined }) {
   if (!summary) return <span className="text-ink-muted">—</span>
+  // Each pill wears its lifecycle state's tone and glyph: a change saved
+  // here is neutral (nothing has gone to Google), approval is amber, a
+  // failed send is red. None of them is ever the blue of a sent change.
   const parts: {
     key: string
-    label: string
-    tone: "pending" | "attention" | "at-risk"
+    label?: string
+    state: "saved_locally" | "conflict" | "awaiting_approval" | "failed"
   }[] = []
   const unpublished = unpublishedCount(summary)
   if (unpublished > 0)
@@ -303,7 +337,7 @@ function PendingChips({ summary }: { summary: ListingSummary | undefined }) {
         unpublished === 1
           ? "1 change to publish"
           : `${formatNumber(unpublished)} changes to publish`,
-      tone: "pending",
+      state: "saved_locally",
     })
   const changed = googleChangedCount(summary)
   if (changed > 0)
@@ -313,7 +347,7 @@ function PendingChips({ summary }: { summary: ListingSummary | undefined }) {
         changed === 1
           ? "1 Google change"
           : `${formatNumber(changed)} Google changes`,
-      tone: "attention",
+      state: "conflict",
     })
   if (summary.posts.awaitingApproval > 0)
     parts.push({
@@ -322,16 +356,16 @@ function PendingChips({ summary }: { summary: ListingSummary | undefined }) {
         summary.posts.awaitingApproval === 1
           ? "1 post awaiting approval"
           : `${formatNumber(summary.posts.awaitingApproval)} posts awaiting approval`,
-      tone: "pending",
+      state: "awaiting_approval",
     })
   if (summary.lastPublish?.status === "failed" || summary.posts.failed > 0)
-    parts.push({ key: "failed", label: "Failed publish", tone: "at-risk" })
+    parts.push({ key: "failed", state: "failed" })
   if (parts.length === 0)
     return <span className="text-ink-muted">Nothing waiting</span>
   return (
     <span className="flex flex-wrap gap-1.5">
       {parts.map((part) => (
-        <StatusPill key={part.key} tone={part.tone}>
+        <StatusPill key={part.key} state={part.state}>
           {part.label}
         </StatusPill>
       ))}
@@ -470,24 +504,8 @@ function ListingQuickLook({
               <FreshnessLine summary={summary} />
             </QuickLookFact>
           ) : null}
-          <QuickLookFact label="Last published">
-            <span className="text-ink-muted tabular-nums">
-              {!summary ? (
-                "—"
-              ) : summary.lastPublish ? (
-                <RelativeTime iso={summary.lastPublish.at} />
-              ) : (
-                "Never"
-              )}
-            </span>
-            {/* The listing page's words for a publish that did not land. */}
-            {summary?.lastPublish?.status === "failed" ? (
-              <StatusPill tone="at-risk">Failed</StatusPill>
-            ) : summary?.lastPublish?.status === "ambiguous" ? (
-              <StatusPill tone="attention">Outcome unclear</StatusPill>
-            ) : summary?.lastPublish?.status === "in_progress" ? (
-              <StatusPill tone="pending">In progress</StatusPill>
-            ) : null}
+          <QuickLookFact label="Last sent to Google">
+            <LastSent summary={summary} />
           </QuickLookFact>
         </QuickLookFacts>
       </QuickLookSection>
@@ -629,7 +647,7 @@ const COLUMNS = [
   "Completeness",
   "Waiting",
   "Verification",
-  "Last published",
+  "Last sent to Google",
 ] as const
 
 /** A business has no client layer, so its board has no Client column. */
@@ -646,7 +664,7 @@ function columnsFor(business: boolean) {
  *            n waiting
  *            Client: File under…   (unfiled rows only)
  *
- * The verification and last-published columns step aside (desk-only; they
+ * The verification and last-sent columns step aside (desk-only; they
  * are one tap away on the listing). These classes only show or hide content
  * INSIDE a cell, so none of them has to fight the table's own rules.
  */
@@ -1289,15 +1307,8 @@ function ListingsBoard({
           {summaries.isPending ? (
             <Skeleton className="h-3.5 w-20" />
           ) : (
-            <span className="text-caption text-ink-muted tabular-nums">
-              {/* No summary means we don't know, not that it never happened. */}
-              {!row.summary ? (
-                "—"
-              ) : row.summary.lastPublish ? (
-                <RelativeTime iso={row.summary.lastPublish.at} />
-              ) : (
-                "Never"
-              )}
+            <span className="text-caption">
+              <LastSent summary={row.summary} />
             </span>
           )}
         </TableCell>
