@@ -135,6 +135,16 @@ describe("ChangeTrack", () => {
       "On Google, not sent yet",
     ])
   })
+
+  it("draws to-do stops in ink-muted, readable without their labels", () => {
+    const { container } = render(<ChangeTrack state="saved_locally" compact />)
+    const todo = container.querySelectorAll('[data-glyph="todo"]')
+    expect(todo).toHaveLength(3)
+    for (const glyph of todo) {
+      expect(glyph).toHaveClass("text-ink-muted")
+      expect(glyph).not.toHaveClass("text-ink-quaternary")
+    }
+  })
 })
 
 describe("DispatchBar and SaveBar", () => {

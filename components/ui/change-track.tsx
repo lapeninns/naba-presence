@@ -57,14 +57,15 @@ const STOP_GLYPH: Record<ChangeTrackStopState, LucideIcon> = {
 
 /**
  * Stop tones (SYSTEM §10): done is an ink-secondary tick, current the ink
- * dot, to-do a quiet ring (decorative; the label carries the meaning),
- * failed the danger triangle, skipped a muted minus, and the reached
+ * dot, to-do a muted ring (ink-muted, not decorative: `compact` hides the
+ * labels and is not always beside a status pill, so the ring must read on
+ * its own), failed the danger triangle, skipped a muted minus, and the reached
  * On Google stop the only green on the track.
  */
 const STOP_GLYPH_TONE: Record<ChangeTrackStopState, string> = {
   done: "text-ink-secondary",
   current: "text-ink",
-  todo: "text-ink-quaternary",
+  todo: "text-ink-muted",
   failed: "text-danger-ink",
   skipped: "text-ink-muted",
   reached: "text-success-ink",
