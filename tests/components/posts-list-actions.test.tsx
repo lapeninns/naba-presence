@@ -72,7 +72,7 @@ function renderRow(props: Partial<BarProps> = {}) {
           id={row.id}
           title="Open late tonight"
           summary=""
-          status="Draft"
+          status="Draft saved"
           tone="neutral"
           actions={
             <PostsActionBar
@@ -126,6 +126,23 @@ describe("publish consent", () => {
         expectedRevision: 3,
       })
     )
+  })
+})
+
+describe("the row's actions speak the lifecycle", () => {
+  it("draws Publish as the send it opens and Request approval as a local step", () => {
+    renderRow()
+    expect(screen.getByRole("button", { name: "Publish" })).toHaveAttribute(
+      "data-variant",
+      "send"
+    )
+  })
+
+  it("keeps Request approval off the send fill: it sends nothing to Google", () => {
+    renderRow({ caps: MEMBER })
+    expect(
+      screen.getByRole("button", { name: "Request approval" })
+    ).not.toHaveAttribute("data-variant", "send")
   })
 })
 

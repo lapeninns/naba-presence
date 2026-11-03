@@ -103,7 +103,7 @@ export function PostCard({
           <h3
             id={headingId}
             tabIndex={-1}
-            className="min-w-0 rounded-sm text-body font-semibold break-words text-ink focus-halo"
+            className="min-w-0 rounded-(--np-radius-tag) text-body font-semibold break-words text-ink focus-halo"
           >
             {title}
           </h3>
@@ -152,7 +152,7 @@ export function PostCard({
 
         {lifecycle && lifecycle.length > 0 ? (
           <details className="group/lc">
-            <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 rounded-sm text-caption text-ink-muted focus-halo pointer-coarse:min-h-(--np-touch) [&::-webkit-details-marker]:hidden">
+            <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 rounded-(--np-radius-tag) text-caption text-ink-muted focus-halo pointer-coarse:min-h-(--np-touch) [&::-webkit-details-marker]:hidden">
               <ChevronRightIcon
                 aria-hidden
                 className="size-3.5 transition-transform group-open/lc:rotate-90 motion-reduce:transition-none"

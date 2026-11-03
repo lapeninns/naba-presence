@@ -60,7 +60,7 @@ export function postStatus(
   label: string
   tone: PostTone
 } {
-  if (post.status === "draft") return { label: "Draft", tone: "neutral" }
+  if (post.status === "draft") return { label: "Draft saved", tone: "neutral" }
   if (post.status === "awaiting_approval")
     return { label: "Awaiting approval", tone: "warn" }
   const outcome = localPostOutcome(post) ?? "failed"

@@ -420,15 +420,15 @@ export function PostsActionBar({
       {editable ? (
         <Button
           size="sm"
-          variant="secondary"
           // A request for approval sends nothing to Google, so it goes
           // straight through; a publish shows the post first.
+          variant={offerRequestApproval ? "secondary" : "send"}
           onClick={() =>
             offerRequestApproval ? publish.mutate() : setPublishOpen(true)
           }
           disabled={Boolean(primaryReason)}
           pending={publish.isPending}
-          pendingLabel={offerRequestApproval ? "Requesting…" : "Publishing…"}
+          pendingLabel={offerRequestApproval ? "Requesting…" : "Sending…"}
         >
           {post.status === "failed" && !offerRequestApproval ? (
             <RefreshCwIcon aria-hidden />
@@ -453,7 +453,7 @@ export function PostsActionBar({
       {awaiting && !waitingForApprover ? (
         <Button
           size="sm"
-          variant="secondary"
+          variant="send"
           onClick={() => setApproveOpen(true)}
           disabled={Boolean(approveReason) || decide.isPending}
           pending={decide.isPending && decide.variables === "approve"}
@@ -639,7 +639,7 @@ export function PostsActionBar({
               variant="send"
               onClick={() => publish.mutate()}
               pending={publish.isPending}
-              pendingLabel="Publishing…"
+              pendingLabel="Sending…"
             >
               <UploadIcon aria-hidden />
               Publish to Google
@@ -690,7 +690,7 @@ export function PostsActionBar({
                   : undefined
               }
               pending={decide.isPending && decide.variables === "approve"}
-              pendingLabel="Publishing…"
+              pendingLabel="Sending…"
             >
               <UploadIcon aria-hidden />
               Approve and publish

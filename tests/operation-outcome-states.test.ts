@@ -251,7 +251,7 @@ describe("post outcomes", () => {
       tone: "warn",
     })
     expect(postStatus({ status: "draft", googleState: null })).toEqual({
-      label: "Draft",
+      label: "Draft saved",
       tone: "neutral",
     })
   })

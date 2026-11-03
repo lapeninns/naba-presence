@@ -94,7 +94,7 @@ function lifecycle(post: Post): LifecycleStage[] {
           ? "done"
           : "todo"
   return [
-    { id: "drafted", label: "Drafted", state: "done" },
+    { id: "drafted", label: "Saved here", state: "done" },
     {
       id: "approved",
       label: "Approved",
@@ -113,7 +113,7 @@ function lifecycle(post: Post): LifecycleStage[] {
     },
     {
       id: "sent",
-      label: "Sent to Google",
+      label: "Sent",
       state: sentState,
       meta:
         sentState === "failed"
@@ -432,8 +432,8 @@ function PostsList({
           description={
             // Why it is empty, then the next step, or why there is none.
             composeReason || editReason
-              ? "A post is a short update, event or offer that shows on the listing on Google for about a week. The note above says why new posts can’t be written right now."
-              : "A post is a short update, event or offer that shows on the listing on Google for about a week. Nothing reaches Google until you publish it."
+              ? "The note above says why you can’t post."
+              : "Posts show on Google for about a week."
           }
           action={composer}
         />
