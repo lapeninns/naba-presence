@@ -241,6 +241,25 @@ export function describeOutcomeToast(
         description: "Nothing was on Google.",
         type: "success",
       }
+    case "failed":
+      // Settled as failed: Google did not apply it. The exception under the
+      // reply says why and whether a retry can help.
+      return {
+        kind: "google",
+        title: describeOutcome("failed").title,
+        description: "The reply says what went wrong and what to do next.",
+        type: "error",
+      }
+    case "ambiguous":
+      // Google's answer was lost: the write may or may not have landed, so
+      // say neither, and point at Google rather than a blind retry.
+      return {
+        kind: "google",
+        title: describeOutcome("uncertain").title,
+        description:
+          "This review updates once we hear from Google. Check Google before trying again.",
+        type: "warning",
+      }
     case "pending":
       // Google has the reply and has not said what became of it: "sent",
       // the word the status line and the inbox's announcement use, never

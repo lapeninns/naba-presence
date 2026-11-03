@@ -199,6 +199,23 @@ describe("describeOutcomeToast", () => {
       type: "info",
     })
   })
+  it("says a settled failed publish did not reach Google", () => {
+    expect(describeOutcomeToast("failed")).toMatchObject({
+      kind: "google",
+      title: "It didn’t go through. Nothing changed on Google.",
+      type: "error",
+    })
+  })
+  it("says neither sent nor failed when Google's answer was lost", () => {
+    const toast = describeOutcomeToast("ambiguous")
+    expect(toast).toMatchObject({
+      kind: "google",
+      title: "We can’t tell whether Google applied it",
+      type: "warning",
+    })
+    expect(String(toast.description)).toMatch(/Check Google/)
+    expect(String(toast.title)).not.toMatch(/published|submitted|sent/i)
+  })
   it("never claims 'published' for an unknown status", () => {
     const toast = describeOutcomeToast("something_new")
     expect(toast.title).not.toMatch(/published/i)

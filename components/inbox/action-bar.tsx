@@ -223,7 +223,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       )
       // `pending` moves on too: Google has the reply, nothing more can be
       // done to it here, and waiting on it left the operator parked on a
-      // review whose only button read "Publishing…".
+      // review whose only button read "Sending…".
       if (isAdvancingOutcome(result.status)) {
         announceOutcome(result.status, result.googleReplyState)
       }
@@ -411,8 +411,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     <div className="flex min-w-0 items-center justify-end">
       <div className="flex items-center justify-end gap-2">
         {inFlight ? (
-          <Button variant="ghost-dark" pending pendingLabel="Publishing…">
-            Publishing…
+          <Button variant="ghost-dark" pending pendingLabel="Sending…">
+            Sending…
           </Button>
         ) : editingParked ? (
           <Button
@@ -487,7 +487,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             variant="send"
             disabled={!sendEnabled}
             pending={sending}
-            pendingLabel={checking ? "Checking…" : "Publishing…"}
+            pendingLabel={checking ? "Checking…" : "Sending…"}
             onClick={() => void onPublish()}
           >
             {retry ? (
@@ -503,7 +503,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                 data-icon="inline-start"
               />
             )}
-            {retry ? "Retry publish" : primary.label}
+            {retry ? "Retry sending" : primary.label}
             {shortcutHint}
           </Button>
         )}

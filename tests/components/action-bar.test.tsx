@@ -247,7 +247,9 @@ describe("ActionBar", () => {
 
   // Sending refused words again unchanged is not a retry.
   it.each([
-    ["google_timeout", "Retry publish"],
+    ["google_timeout", "Retry sending"],
+    // A readback that did not match stays a plain failure (M07): retry.
+    ["google_readback_mismatch", "Retry sending"],
     ["INVALID_ARGUMENT", "Publish reply"],
   ])(
     "names the failed-publish button by its cause (%s)",
