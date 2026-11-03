@@ -196,6 +196,21 @@ describe("EmptyState", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument()
   })
 
+  it("tells someone without access who can give it, with no action of theirs", () => {
+    render(<EmptyState reason="no_access" />)
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "No reviews are shared with you.",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByText(/give you access to a client/)).toBeInTheDocument()
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+    // Never the all-caught-up or no-reviews-yet claims.
+    expect(screen.queryByText(/caught up|No reviews yet/)).toBeNull()
+  })
+
   it("clears filters on request", async () => {
     const user = userEvent.setup()
     const onClear = vi.fn()
@@ -330,6 +345,7 @@ describe("EmptyState", () => {
     ["queue_empty", "done"],
     ["checked", undefined],
     ["no_clients", undefined],
+    ["no_access", undefined],
     ["disconnected", undefined],
     ["not_connected", undefined],
     ["never_imported", undefined],

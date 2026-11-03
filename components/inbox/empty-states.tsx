@@ -8,6 +8,7 @@ import {
   FilterIcon,
   InboxIcon,
   LoaderIcon,
+  LockIcon,
   PlugIcon,
   UnlinkIcon,
 } from "lucide-react"
@@ -190,6 +191,15 @@ function content(
             description:
               "Ask an owner or admin to add a client and link its Google listings. Their reviews will arrive here.",
           }
+    // Said for both "none shared" and "the server refused": either way the
+    // fix is someone else's, so there is no action to offer.
+    case "no_access":
+      return {
+        title: "No reviews are shared with you.",
+        description: business
+          ? "Ask an owner or admin to give you access to a listing. Its reviews will appear here."
+          : "Ask an owner or admin to give you access to a client. Its reviews will appear here.",
+      }
     // This state carries the whole message, headline and action included. It
     // used to defer to the shell's ReconnectBanner, but that banner is now
     // client-scoped and the inbox is organisation-wide, so on this screen
@@ -320,6 +330,7 @@ const ICONS: Record<EmptyReason, React.ReactNode> = {
   filtered: <FilterIcon />,
   queue_empty: <CheckIcon />,
   no_clients: <InboxIcon />,
+  no_access: <LockIcon />,
   disconnected: <UnlinkIcon />,
   not_connected: <PlugIcon />,
   importing: <LoaderIcon />,

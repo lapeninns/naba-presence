@@ -31,6 +31,7 @@ import {
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 import * as reviewsHook from "@/lib/queries/use-reviews"
+import { ApiClientError } from "@/lib/api/client"
 import * as countsHook from "@/lib/queries/use-review-counts"
 import * as connHealthHook from "@/lib/queries/use-connection-health"
 import * as locationsApi from "@/lib/api/locations"
@@ -513,6 +514,31 @@ describe("InboxView — list fetch failure", () => {
     expect(screen.queryByText("No reviews yet")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Try again" }))
     expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("says a refused list is about access, not a load to retry", () => {
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: undefined,
+      error: new ApiClientError(403, "forbidden", "Forbidden"),
+      isPending: false,
+      isError: true,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+
+    renderInbox()
+
+    expect(
+      screen.getByRole("heading", { name: "No reviews are shared with you." })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("We could not load your reviews.")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Try again" })
+    ).not.toBeInTheDocument()
   })
 })
 

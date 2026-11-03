@@ -41,6 +41,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
 import { Spinner } from "@/components/ui/spinner"
+import { ApiClientError } from "@/lib/api/client"
 import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
 import { useClients } from "@/lib/queries/use-clients"
 import {
@@ -239,6 +240,7 @@ function InboxViewInner({
   // and writing the raw `{locations: […]}` envelope here while the hook writes
   // a mapped array meant whichever mounted last corrupted the other.
   const role = useSessionRole()
+  const canManageClients = role === "owner" || role === "admin"
   const locationsQuery = useLocationDirectory(role)
   // A viewer cannot assign, mark or approve, so the bulk tools — the tick
   // boxes and the bar they raise — are not offered (reference: the bulk bar
@@ -600,7 +602,19 @@ function InboxViewInner({
     // A failed fetch is NOT "no reviews yet" (the empty-state copy for a
     // genuinely empty queue) -- that would silently mask a real error with no
     // way to retry. QueryStates renders the retry alert; the queue-specific
-    // empty states stay in renderLoadedList.
+    // empty states stay in renderLoadedList. A refusal is not a failure to
+    // retry: it is about access, and says who can change it.
+    if (
+      listStatus === "error" &&
+      reviewsQuery.error instanceof ApiClientError &&
+      reviewsQuery.error.status === 403
+    ) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col justify-center">
+          <EmptyState reason="no_access" />
+        </div>
+      )
+    }
     return (
       <QueryStates
         status={listStatus}
@@ -640,6 +654,12 @@ function InboxViewInner({
         noClients:
           clientsQuery.isSuccess &&
           (clientsQuery.data?.items ?? []).length === 0,
+        // Only once the role is known: a loading role is not "can't manage".
+        noAccess:
+          clientsQuery.isSuccess &&
+          (clientsQuery.data?.items ?? []).length === 0 &&
+          role !== null &&
+          !canManageClients,
       }
       // From an empty queue, the first other queue that has work in it.
       const current = visibleQueue(state.queue)
@@ -696,7 +716,7 @@ function InboxViewInner({
                   }
                 : undefined
             }
-            canManageClients={role === "owner" || role === "admin"}
+            canManageClients={canManageClients}
           />
         </div>
       )
