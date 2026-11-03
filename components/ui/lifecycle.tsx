@@ -22,7 +22,7 @@ export type LifecycleStage = {
 const STATE_WORD: Record<LifecycleState, string> = {
   done: "done",
   current: "current step",
-  todo: "not started",
+  todo: "not sent yet",
   failed: "failed",
   skipped: "skipped",
 }
