@@ -2,44 +2,91 @@
 
 import { useId, useRef } from "react"
 
-import { CircleAlert, CircleCheck, Clock, Eye, Save } from "lucide-react"
+import { Eye, Save } from "lucide-react"
 
 import { useReportEditorStatus } from "@/components/editors/editor-status"
 import {
   ActionBar,
   ActionBarMuted,
+  DispatchBar,
+  SaveBar,
   type ActionBarAction,
 } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
+import { StatusGlyph } from "@/components/ui/status-glyph"
+import { describeOutcome, statusText } from "@/lib/editors/outcome"
 import { useReturnFocus } from "@/lib/editors/use-return-focus"
-import { syncStatusLabel } from "@/lib/listings/health"
 import { cn } from "@/lib/utils"
 
 export type EditorStatus =
   "in_sync" | "edited" | "unpublished" | "google_dirty" | "conflict"
 
-/** The status words when no change count is given. */
-const STATUS_WORDS: Record<EditorStatus, string> = {
-  in_sync: syncStatusLabel("in_sync"),
-  edited: "Changes not on Google",
-  // Saved here, never sent. "Edited" read as "you just changed something",
-  // which is wrong when the difference has been sitting there for a week.
-  unpublished: "Not on Google yet",
-  google_dirty: "Changed on Google",
-  conflict: "Conflict with Google",
-}
-
 const DEFAULT_REVIEW_LABEL = "Review changes"
 
-function countWords(count: number) {
-  return `${count} ${count === 1 ? "change" : "changes"} not on Google`
+/** The dispatch bar's sub-line: nothing has left NabaPresence yet. */
+const NOT_SENT_YET = "Nothing changes on Google until you publish."
+
+/**
+ * A docked phone bar clamps its status to two lines as one -webkit-box, which
+ * runs the headline and sub-line together ("1 unsaved changeNothing…"). On
+ * phones the sub-line stays for assistive tech only; the headline is the
+ * status there.
+ */
+function subLine(text: React.ReactNode) {
+  return <span className="max-md:sr-only">{text}</span>
+}
+
+/**
+ * The status keeps room for "1 unsaved change" on two lines (7rem). The
+ * docked bar is one row while that fits beside the buttons, down to a 360px
+ * phone; narrower, the status wraps to its own row above them rather than
+ * clamping to a word's width ("1 unsa…").
+ */
+const STATUS_KEEPS_ROOM =
+  "max-md:flex-wrap max-md:[&>[data-slot=action-bar-status]]:min-w-28"
+
+/**
+ * The dispatch bar's lifecycle state and headline, in the shared words
+ * (DIRECTION §6.1): edits only in this tab are "unsaved", a difference
+ * NabaPresence already holds is a "draft saved" here, and a copy Google
+ * changed meanwhile is "changed on Google".
+ */
+function dispatchState({
+  status,
+  localEdits,
+  changeCount,
+}: {
+  status: EditorStatus
+  localEdits: boolean
+  changeCount?: number
+}) {
+  const n =
+    typeof changeCount === "number" && changeCount > 0 ? changeCount : undefined
+  if (status === "conflict" || status === "google_dirty")
+    return {
+      state: "conflict" as const,
+      title: describeOutcome("conflict").label,
+      detail: describeOutcome("conflict").title,
+    }
+  if (localEdits)
+    return {
+      state: "unsaved" as const,
+      title: statusText(describeOutcome("unsaved").title, { n }),
+    }
+  return {
+    state: "saved_locally" as const,
+    title: n
+      ? statusText("{n} changes saved here, not on Google", { n })
+      : describeOutcome("saved_locally").title,
+  }
 }
 
 /**
  * The one footer every location editor ends with. With something to
  * publish it is the charcoal DISPATCH BAR (reference `.actionbar.editor-foot`),
- * the single charcoal surface on the screen, whose `send` primary leads to
- * Google; with local edits only it is the surface SAVE BAR.
+ * the single charcoal surface on the screen, whose on-dark "Review changes"
+ * leads to the sheet's `send` publish; with local edits that already match
+ * Google it is the surface SAVE BAR.
  *
  * A clean editor draws NO bar, at any width (the area header's pill already
  * says where the area stands); the bar arrives with the first change.
@@ -54,8 +101,10 @@ function countWords(count: number) {
  * the primary. A secondary with nothing to act on, or that can't run (its
  * reason is the bar's note), is left out, not greyed. When the edits leave
  * nothing to publish (they match Google), there is no "Review changes" and
- * "Save here" is the primary. The status line says which of the two has
- * happened: "unsaved edits" or "saved here"; while a save runs it leads with
+ * "Save here" is the primary. The status line is the lifecycle state in the
+ * shared words: "N unsaved changes" (only in this tab), "N changes saved
+ * here, not on Google" or "Google changed this since you saved it", each with
+ * its glyph; while a save runs it leads with
  * "Saving…", since the phone's button is in a closed menu. After a save,
  * focus returns to the bar (or the editor) rather than falling to the page.
  *
@@ -174,23 +223,6 @@ function EditorFooter({
   // Nothing to save, publish or resolve: no bar, at any width.
   if (!isDirty && !localEdits && status !== "conflict") return null
 
-  // Nothing differs from Google (local edits only): say so, not "changes not
-  // on Google", and offer no Review (there is nothing to publish).
-  const headline =
-    status === "conflict"
-      ? STATUS_WORDS.conflict
-      : !isDirty
-        ? "No changes to publish"
-        : typeof changeCount === "number" && changeCount > 0
-          ? countWords(changeCount)
-          : STATUS_WORDS[status === "in_sync" ? "edited" : status]
-  const where = localEdits
-    ? "unsaved edits"
-    : status === "unpublished" || (onSave && isDirty)
-      ? "saved here"
-      : null
-  const StatusIcon =
-    status === "conflict" ? CircleAlert : isDirty ? Clock : CircleCheck
   const reason =
     (isDirty && disabledReason) || (localEdits && saveDisabledReason)
   // A save that can't run is left out, not greyed: the note row says why.
@@ -220,86 +252,35 @@ function EditorFooter({
       destructive: true,
     })
   }
-  // "Review changes" only opens the review sheet and writes nothing to Google,
-  // so it is the light on-charcoal button; the send fill waits for the
-  // sheet's approved publish.
-  const primary = isDirty ? (
-    <Button
-      variant="on-dark"
-      onClick={onReview}
-      disabled={Boolean(disabledReason)}
-    >
-      {reviewLabel}
-    </Button>
-  ) : canSave ? (
-    <Button
-      onClick={saveAction.onClick}
-      pending={saving}
-      pendingLabel="Saving…"
-      aria-describedby={saveAction.describedBy}
-    >
-      <Save aria-hidden />
-      Save here
-    </Button>
-  ) : undefined
 
-  // Charcoal (the dispatch bar) only while there is something to publish;
-  // local edits that match Google, or a conflict with nothing to send, are
-  // the surface save bar, whose primary is the ink "Save here". (An ink
-  // button on charcoal is 1.05:1.)
-  return (
-    <ActionBar
-      tone={isDirty ? "charcoal" : "surface"}
-      data-slot="editor-footer"
-      // Docked on a phone: fixed to the bottom edge, riding the keyboard,
-      // the tab bar stepping aside (the primitive's docking contract). One
-      // row: status, "Review changes", the overflow. The ActionBar's spacer
-      // and the document's scroll padding follow its measured height, and
-      // useKeepFocusClear measures the bar itself, so neither the last field
-      // nor a focused one is left under it. Inline from `md`.
-      dock
-      sticky={false}
-      safeArea={false}
-      label="Editor actions"
-      ref={regionRef}
-      tabIndex={-1}
-      // A long primary label ("Review lodging draft") would leave the status
-      // no room beside it: it takes its own row then.
-      statusRow={reviewLabel.length > DEFAULT_REVIEW_LABEL.length}
-      // A reason the primary or Save here is blocked takes its own row under
-      // the buttons, so a phone's bar is two rows only while it has one.
-      className={cn(
-        reason && "max-md:flex-wrap",
-        "focus-visible:outline-none",
-        railClass,
-        className
-      )}
-      status={
-        <>
-          <StatusIcon aria-hidden />
-          <span className="min-w-0">
-            {/* Saving goes first so a clamped status can never cut it. */}
-            {saving ? (
-              <>
-                <strong className="font-medium">Saving…</strong>
-                <ActionBarMuted> · {headline}</ActionBarMuted>
-              </>
-            ) : (
-              <>
-                <strong className="font-medium">{headline}</strong>
-                {where ? <ActionBarMuted> · {where}</ActionBarMuted> : null}
-              </>
-            )}
-            <span className="sr-only">
-              {" "}
-              Nothing changes on Google until you publish.
-            </span>
-          </span>
-        </>
-      }
-      secondaryActions={secondaryActions}
-      primary={primary}
-    >
+  const shared = {
+    "data-slot": "editor-footer",
+    // Docked on a phone: fixed to the bottom edge, riding the keyboard,
+    // the tab bar stepping aside (the primitive's docking contract). One
+    // row: status, the primary, the overflow. The ActionBar's spacer and
+    // the document's scroll padding follow its measured height, and
+    // useKeepFocusClear measures the bar itself, so neither the last field
+    // nor a focused one is left under it. Inline from `md`.
+    dock: true,
+    sticky: false,
+    safeArea: false,
+    label: "Editor actions",
+    ref: regionRef,
+    tabIndex: -1,
+    secondaryActions,
+    // A reason the primary or Save here is blocked takes its own row under
+    // the buttons, so a phone's bar is two rows only while it has one.
+    className: cn(
+      reason && "max-md:flex-wrap",
+      STATUS_KEEPS_ROOM,
+      "focus-visible:outline-none",
+      railClass,
+      className
+    ),
+  }
+
+  const notes = (
+    <>
       {/* What a partial save covers. The area header already says it as its
           model note, so here it only describes the button. */}
       {canSave && saveDescription ? (
@@ -316,6 +297,92 @@ function EditorFooter({
           {reason}
         </p>
       ) : null}
+    </>
+  )
+
+  if (isDirty) {
+    // The dispatch bar: something here is bound for Google. "Review
+    // changes" only opens the review sheet and writes nothing, so it is the
+    // light on-charcoal button; the send fill waits for the sheet's publish.
+    const dispatch = dispatchState({ status, localEdits, changeCount })
+    return (
+      <DispatchBar
+        {...shared}
+        state={dispatch.state}
+        // Saving goes first so a clamped status can never cut it.
+        title={saving ? "Saving…" : dispatch.title}
+        detail={subLine(
+          saving
+            ? dispatch.title
+            : "detail" in dispatch
+              ? dispatch.detail
+              : NOT_SENT_YET
+        )}
+        // A long primary label ("Review lodging draft") would leave the
+        // status no room beside it: it takes its own row then.
+        statusRow={reviewLabel.length > DEFAULT_REVIEW_LABEL.length}
+        primary={
+          <Button
+            variant="on-dark"
+            onClick={onReview}
+            disabled={Boolean(disabledReason)}
+          >
+            {reviewLabel}
+          </Button>
+        }
+      >
+        {notes}
+      </DispatchBar>
+    )
+  }
+
+  const primary = canSave ? (
+    <Button
+      onClick={saveAction.onClick}
+      pending={saving}
+      pendingLabel="Saving…"
+      aria-describedby={saveAction.describedBy}
+    >
+      <Save aria-hidden />
+      Save here
+    </Button>
+  ) : undefined
+
+  if (localEdits) {
+    // Local edits that already match Google: a save keeps them here, and
+    // there is nothing to publish, so this is the surface save bar.
+    return (
+      <SaveBar
+        {...shared}
+        saving={saving}
+        detail={subLine("No changes to publish: they match Google.")}
+        primary={primary}
+      >
+        {notes}
+      </SaveBar>
+    )
+  }
+
+  // A conflict with nothing here to send: Google changed its copy since
+  // this one was saved. A read, not a send, so a surface bar.
+  const conflict = describeOutcome("conflict")
+  return (
+    <ActionBar
+      {...shared}
+      tone="surface"
+      data-state="conflict"
+      status={
+        <>
+          <StatusGlyph glyph={conflict.glyph} className="text-warning-ink" />
+          <span className="flex min-w-0 flex-col">
+            <span className="font-semibold">{conflict.label}</span>
+            <ActionBarMuted>{conflict.title}</ActionBarMuted>
+          </span>
+        </>
+      }
+      primary={primary}
+    >
+      {notes}
     </ActionBar>
   )
 }

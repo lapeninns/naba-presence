@@ -37,6 +37,44 @@ export type ListingAreaNavItem = {
   countNoun: string
 }
 
+/**
+ * One area's changes saved here and not on Google, counted as
+ * `unpublishedCount` counts the listing's: an area held locally or in
+ * conflict counts its differing fields, at least one. Areas the summary does
+ * not track count 0.
+ */
+export function areaPendingCount(
+  summary: ListingSummary,
+  area: ListingAreaKey
+): number {
+  const state =
+    area === "profile" || area === "hours" || area === "menu"
+      ? summary[area]
+      : null
+  if (!state || (state.status !== "core_dirty" && state.status !== "conflict"))
+    return 0
+  return Math.max(state.dirtyCount, 1)
+}
+
+/**
+ * The pages the desk's tab row shows first, and at most (DIRECTION §7.4):
+ * the rest follow, in "More areas" there and after these in the phone's
+ * area list, so both read in one order.
+ */
+export const PRIMARY_LISTING_PAGES: readonly ListingPageKey[] = [
+  "overview",
+  "profile",
+  "hours",
+  "photos",
+  "posts",
+  "menu",
+]
+
+function primaryRank(key: ListingPageKey) {
+  const index = PRIMARY_LISTING_PAGES.indexOf(key)
+  return index === -1 ? PRIMARY_LISTING_PAGES.length : index
+}
+
 /** Blocked only because this role may not publish: the area still opens. */
 const ROLE_LIMITS = new Set(["publish_not_allowed", "publishing_paused"])
 
@@ -121,17 +159,25 @@ export function listingAreaNavItems({
       count: 0,
       countNoun: "",
     },
-    ...visibleListingAreas(canManageConsoles).map(
-      (area): ListingAreaNavItem => ({
+    ...visibleListingAreas(canManageConsoles)
+      // Stable: the primary areas lead, the rest keep their own order.
+      .sort((a, b) => primaryRank(a.key) - primaryRank(b.key))
+      .map((area): ListingAreaNavItem => ({
         key: area.key,
         href: listingHref(locationId, area.segment),
         label: area.label,
         current: area.key === current,
         unavailableReason: areaUnavailableReason(caps, linked, area.capability),
-        count: area.key === "suggestions" ? waiting : 0,
-        countNoun: "waiting",
-      })
-    ),
+        ...(area.key === "suggestions"
+          ? { count: waiting, countNoun: "waiting" }
+          : {
+              count:
+                summary && !googleUnreachable(summary)
+                  ? areaPendingCount(summary, area.key)
+                  : 0,
+              countNoun: "to publish",
+            }),
+      })),
     // A role that can neither edit nor publish has nothing to review or send,
     // so the step is left out (a direct link still opens, and stays marked).
     ...(current !== "changes" && !canReviewChanges(caps)

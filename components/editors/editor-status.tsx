@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { describeOutcome, type PresentedState } from "@/lib/editors/outcome"
 import { syncStatusLabel } from "@/lib/listings/health"
 import type { StatusTone } from "@/lib/ui/status-tone"
 
@@ -123,25 +124,40 @@ function changesWords(count: number) {
   return `${count} ${count === 1 ? "change" : "changes"} not on Google`
 }
 
+export type EditorStatusPill = {
+  tone: StatusTone
+  label: string
+  /** The lifecycle state the pill reports, so it draws that state's glyph. */
+  state?: PresentedState
+}
+
+function lifecyclePill(state: PresentedState): EditorStatusPill {
+  const { tone, label } = describeOutcome(state)
+  return { tone, label, state }
+}
+
 /**
  * The header pill for an editor's state, or null when the editor has nothing
  * to add and the DB summary should speak (a clean editor that never compared
  * with Google must not be promoted to "In sync").
+ *
+ * The words are the lifecycle labels the footer's bar uses (DIRECTION §6.1):
+ * edits only in this tab are "Unsaved changes", a difference NabaPresence
+ * holds is "Draft saved", a copy Google changed is "Changed on Google". None
+ * of them is blue: nothing has been sent, so Google is not the one to act.
  */
 function editorStatusPill(
   report: EditorStatusReport | null
-): { tone: StatusTone; label: string } | null {
+): EditorStatusPill | null {
   if (!report) return null
-  if (report.status === "conflict")
-    return { tone: "attention", label: "Conflict with Google" }
-  if (report.localEdits) return { tone: "pending", label: "Unsaved edits" }
+  if (report.status === "conflict") return lifecyclePill("conflict")
+  if (report.localEdits) return lifecyclePill("unsaved")
   if (report.isDirty) {
-    if (report.status === "google_dirty")
-      return { tone: "attention", label: "Changed on Google" }
+    if (report.status === "google_dirty") return lifecyclePill("conflict")
     if (report.savesHere || report.status === "unpublished")
-      return { tone: "pending", label: "Saved here, not on Google" }
+      return lifecyclePill("saved_locally")
     return {
-      tone: "pending",
+      tone: "neutral",
       label:
         typeof report.changeCount === "number" && report.changeCount > 0
           ? changesWords(report.changeCount)

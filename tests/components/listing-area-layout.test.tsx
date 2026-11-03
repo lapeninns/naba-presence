@@ -84,5 +84,11 @@ describe("the listing's loading state", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Loading this listing…"
     )
+    // A phone's header starts where the loaded page's does (12px, LST-06).
+    expect(screen.getByRole("status")).toHaveClass("pt-3")
+    expect(screen.getByRole("status")).not.toHaveClass("pt-6")
+    // The tab row's shape: six areas and "More areas".
+    const row = screen.getByRole("status").querySelector(".lg\\:flex")
+    expect(row?.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(7)
   })
 })

@@ -494,7 +494,8 @@ type StripLayout = {
  */
 function fitTabs(
   { widths, gap, more, available }: StripLayout,
-  current: number
+  current: number,
+  max = Infinity
 ): boolean[] {
   const span = (sum: number, count: number) =>
     sum + gap * Math.max(0, count - 1)
@@ -503,12 +504,14 @@ function fitTabs(
     widths.length
   )
   // Not measured (a hidden or unlaid-out row) or it all fits.
-  if (available <= 0 || total <= available + 0.5) return widths.map(() => true)
+  if (available <= 0 || (widths.length <= max && total <= available + 0.5))
+    return widths.map(() => true)
   const room = available - more - gap
   const visible = widths.map(() => false)
   let sum = 0
   let count = 0
   const take = (index: number) => {
+    if (count >= max) return false
     if (span(sum + widths[index], count + 1) > room) return false
     visible[index] = true
     sum += widths[index]
@@ -566,11 +569,13 @@ function TabNavMoreRow({
   itemClassName,
   variant,
   moreLabel,
+  maxVisible,
 }: {
   items: TabNavItem[]
   itemClassName: string
   variant: TabsVariant
   moreLabel: string
+  maxVisible?: number
 }) {
   const rowRef = React.useRef<HTMLUListElement>(null)
   const ghostRef = React.useRef<HTMLUListElement>(null)
@@ -602,7 +607,7 @@ function TabNavMoreRow({
   const currentIndex = items.findIndex((item) => item.current)
   const fits =
     layout && layout.widths.length === items.length
-      ? fitTabs(layout, currentIndex)
+      ? fitTabs(layout, currentIndex, maxVisible)
       : null
   const shown = items.filter((_, index) => fits?.[index] ?? true)
   const overflow = items.filter((_, index) => fits !== null && !fits[index])
@@ -753,10 +758,16 @@ function TabNav({
   variant = "line",
   overflow = "scroll",
   moreLabel = "More",
+  maxVisible,
   prefetch = "viewport",
   className,
   ...props
 }: Omit<React.ComponentProps<"nav">, "children"> & {
+  /**
+   * With `overflow="more"`: at most this many tabs in the desk row, even
+   * when more would fit; the rest go in the menu. The current tab counts.
+   */
+  maxVisible?: number
   items: TabNavItem[]
   /** `text`: Notion Mail text tabs (see `textTabItemClassName`). */
   variant?: TabsVariant
@@ -787,6 +798,7 @@ function TabNav({
             itemClassName={itemClassName}
             variant={variant}
             moreLabel={moreLabel}
+            maxVisible={maxVisible}
           />
         ) : (
           <TabNavScrollRow
@@ -811,6 +823,7 @@ function TextTabs(props: Omit<React.ComponentProps<typeof TabNav>, "variant">) {
 }
 
 export {
+  fitTabs,
   Tabs,
   TabsList,
   TabsTab,

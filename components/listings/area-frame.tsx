@@ -26,6 +26,7 @@ import { useQueryClient } from "@tanstack/react-query"
 
 import { ActivityDrawer } from "@/components/editors/activity-drawer"
 import {
+  freshnessIsStale,
   GoogleFreshnessFailure,
   GoogleFreshnessLine,
   GoogleFreshnessSlot,
@@ -62,6 +63,7 @@ import { formatNumber } from "@/lib/format"
 import {
   canReviewChanges,
   listingAreaNavItems,
+  PRIMARY_LISTING_PAGES,
   listingPageLabel,
   type ListingAreaNavItem,
   type ListingPageKey,
@@ -94,8 +96,8 @@ import { useNow } from "@/lib/time/server-now"
  * would otherwise clip that bleed. Only where the pane scrolls (md and up);
  * a phone's footer is docked to the screen edge, outside the flow.
  */
-/** Where the editor pane is a scroller (matches its md + 620px tall classes). */
-const PANE_SCROLLS_QUERY = `${mediaQuery("md")} and (min-height: 620px)`
+/** Where the editor pane is a scroller (matches its `md:tall:` classes). */
+const PANE_SCROLLS_QUERY = `${mediaQuery("md")} and ${mediaQuery("tall")}`
 
 const PANE_BLEED =
   "-mx-5 -mb-6 px-5 pb-6 md:-mx-(--np-page-pad-x) md:-mb-(--np-page-pad-y) md:px-(--np-page-pad-x) md:pb-(--np-page-pad-y)"
@@ -140,8 +142,16 @@ export type ListingHeaderLink = {
  */
 function NavCount({ item }: { item: ListingAreaNavItem }) {
   if (item.count <= 0) return null
+  // Edits saved here are neutral ink (nobody else is waiting on them);
+  // suggestions wait on a person, in amber.
+  const variant =
+    item.key === "changes"
+      ? "secondary"
+      : item.key === "suggestions"
+        ? "warning"
+        : "default"
   return (
-    <Badge variant={item.key === "changes" ? "secondary" : "warning"} count>
+    <Badge variant={variant} count>
       <span aria-hidden>{formatNumber(item.count)}</span>
       <span className="sr-only">
         , {formatNumber(item.count)} {item.countNoun}
@@ -165,6 +175,7 @@ function ListingAreaTabs({ items }: { items: ListingAreaNavItem[] }) {
       aria-label="Listing areas"
       overflow="more"
       moreLabel="More areas"
+      maxVisible={PRIMARY_LISTING_PAGES.length}
       // On every page of the listing: viewport prefetch fetched each area's
       // route on each load (MEA-04). Intent only, as the shell's links do.
       prefetch="intent"
@@ -771,15 +782,18 @@ function AreaFrameBody({
   const summary = useListingSummary(locationId)
   const caps = useLocationCapabilities(locationId)
   const editor = useEditorStatus()
+  const freshness = useGoogleFreshnessReport()
+  const now = useNow()
   // The pane scrolls from md and 620px tall (the classes below).
   const paneScrolls = useMediaQuery(PANE_SCROLLS_QUERY)
   // An editor's "In sync" is a claim about Google; while Google can't be
-  // reached for this listing the summary's "Unknown" speaks instead.
+  // reached for this listing, or the editor's last look at Google is too
+  // old to stand on, the summary's own words speak instead.
   const reported = editorStatusPill(editor)
   const editorPill =
     reported &&
     (reported.tone === "healthy" || editor?.emptyOnGoogle === reported.label) &&
-    googleUnreachable(summary.data)
+    (googleUnreachable(summary.data) || freshnessIsStale(freshness, now))
       ? null
       : reported
 
@@ -817,7 +831,11 @@ function AreaFrameBody({
       areaKey === "verification" ||
       // The review link's page draws its own Live / Switched off.
       areaKey === "reviewLink" ? null : editorPill ? (
-      <StatusPill tone={editorPill.tone} data-slot="area-editor-status">
+      <StatusPill
+        tone={editorPill.tone}
+        state={editorPill.state}
+        data-slot="area-editor-status"
+      >
         {editorPill.label}
       </StatusPill>
     ) : summary.data ? (
@@ -860,7 +878,7 @@ function AreaFrameBody({
             aria-label={listingPageLabel(areaKey)}
             tabIndex={paneScrolls ? 0 : undefined}
             className={cn(
-              "flex flex-col gap-6 rounded-(--np-radius-card) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:flex-1 md:[@media(min-height:620px)]:overflow-y-auto",
+              "flex flex-col gap-6 rounded-(--np-radius-card) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset md:tall:min-h-0 md:tall:flex-1 md:tall:overflow-y-auto",
               PANE_BLEED
             )}
           >
