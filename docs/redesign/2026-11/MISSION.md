@@ -124,16 +124,16 @@ A row is done only when every applicable column is `done`.
 | R57 | surface: breadcrumbs (on every dashboard route, wide desk) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R58 | surface: access-denied page component (on role-gated routes) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R59 | surface: theme provider (app-wide, from app/layout.tsx) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R60 | /inbox | page | not run | not run | not run | not run | not run | not run | not run |
-| R61 | /inbox | loading | not run | not run | not run | not run | not run | not run | not run |
-| R62 | /inbox | error | not run | not run | not run | not run | not run | not run | not run |
-| R63 | surface: review list (on /inbox) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R64 | surface: review detail (on /inbox?selected=<id>) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R65 | surface: reply composer (on /inbox?selected=<id>) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R66 | surface: AI generate / verify panel (on /inbox?selected=<id>) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R67 | surface: approval request / approve flow (on /inbox?selected=<id>, queue=approval) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R68 | surface: publish confirmation + provider readback states (on /inbox?selected=<id>) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R69 | surface: delete published reply (on /inbox?selected=<id>) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R60 | /inbox | page | done (DIRECTION/SYSTEM) | done (2cc31076) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (axe 0, keyboard; eb5fe28e) | not run |
+| R61 | /inbox | loading | done (DIRECTION/SYSTEM) | done (2cc31076) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (axe 0, keyboard; eb5fe28e) | not run |
+| R62 | /inbox | error | done (DIRECTION/SYSTEM) | done (2cc31076) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (axe 0, keyboard; eb5fe28e) | not run |
+| R63 | surface: review list (on /inbox) | surface | done (DIRECTION/SYSTEM) | done (2cc31076) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (`evidence/e-inbox/captures` @ eb5fe28e) | done (axe 0, keyboard; eb5fe28e) | not run |
+| R64 | surface: review detail (on /inbox?selected=<id>) | surface | done (DIRECTION/SYSTEM) | done (44d9e485) | done (`evidence/e-inbox/captures` @ 30b45583) | done (`evidence/e-inbox/captures` @ 30b45583) | done (`evidence/e-inbox/captures` @ 30b45583) | done (axe 0, keyboard; 30b45583) | not run |
+| R65 | surface: reply composer (on /inbox?selected=<id>) | surface | done (DIRECTION/SYSTEM) | done (44d9e485) | done (`evidence/e-inbox/captures` @ 30b45583) | done (`evidence/e-inbox/captures` @ 30b45583) | done (`evidence/e-inbox/captures` @ 30b45583) | done (axe 0, keyboard; 30b45583) | not run |
+| R66 | surface: AI generate / verify panel (on /inbox?selected=<id>) | surface | done (DIRECTION/SYSTEM) | done (44d9e485) | done (`evidence/e-inbox/captures` @ 30b45583) | done (`evidence/e-inbox/captures` @ 30b45583) | done (`evidence/e-inbox/captures` @ 30b45583) | done (axe 0, keyboard; 30b45583) | not run |
+| R67 | surface: approval request / approve flow (on /inbox?selected=<id>, queue=approval) | surface | done (DIRECTION/SYSTEM) | done (868caf9d) | done (`evidence/e-inbox/captures` @ fa136722) | done (`evidence/e-inbox/captures` @ fa136722) | done (`evidence/e-inbox/captures` @ fa136722) | done (axe 0, keyboard; fa136722) | not run |
+| R68 | surface: publish confirmation + provider readback states (on /inbox?selected=<id>) | surface | done (DIRECTION/SYSTEM) | done (868caf9d) | done (`evidence/e-inbox/captures` @ fa136722) | done (`evidence/e-inbox/captures` @ fa136722) | done (`evidence/e-inbox/captures` @ fa136722) | done (axe 0, keyboard; fa136722) | not run |
+| R69 | surface: delete published reply (on /inbox?selected=<id>) | surface | done (DIRECTION/SYSTEM) | done (868caf9d) | done (`evidence/e-inbox/captures` @ fa136722) | done (`evidence/e-inbox/captures` @ fa136722) | done (`evidence/e-inbox/captures` @ fa136722) | done (axe 0, keyboard; fa136722) | not run |
 | R70 | surface: filters dialog (on /inbox) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R71 | surface: bulk select SelectionBar + bulk approve (on /inbox) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R72 | surface: bulk template reply / compose (on /inbox) | surface | not run | not run | not run | not run | not run | not run | not run |
