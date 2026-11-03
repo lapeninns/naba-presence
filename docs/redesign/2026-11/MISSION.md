@@ -155,7 +155,7 @@ A row is done only when every applicable column is `done`.
 | R88 | surface: listing header and area sub-navigation (on /listings/[id] and /listings/[id]/*) | surface | done (DIRECTION/SYSTEM) | done (db9cd607) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (axe 0, keyboard; b6c8846f) | not run |
 | R89 | /listings/[id]/booking | page | not run | not run | not run | not run | not run | not run | not run |
 | R90 | /listings/[id]/changes | page | not run | not run | not run | not run | not run | not run | not run |
-| R91 | /listings/[id]/hours | page | not run | not run | not run | not run | not run | not run | not run |
+| R91 | /listings/[id]/hours | page | done (DIRECTION/SYSTEM) | done (c477ae81) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (axe 0, keyboard; ffa57a64) | not run |
 | R92 | /listings/[id]/menu | page | not run | not run | not run | not run | not run | not run | not run |
 | R93 | /listings/[id]/people | page | not run | not run | not run | not run | not run | not run | not run |
 | R94 | /listings/[id]/photos | page | not run | not run | not run | not run | not run | not run | not run |
@@ -164,17 +164,17 @@ A row is done only when every applicable column is `done`.
 | R97 | /listings/[id]/review-link | page | not run | not run | not run | not run | not run | not run | not run |
 | R98 | /listings/[id]/suggestions | page | not run | not run | not run | not run | not run | not run | not run |
 | R99 | /listings/[id]/verification | page | not run | not run | not run | not run | not run | not run | not run |
-| R100 | surface: Review changes sheet (on /listings/[id]/hours, /listings/[id]/menu, profile saved reviews) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R101 | surface: Discard / Leave without saving? dialog (on every /listings/[id]/* editor) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R100 | surface: Review changes sheet (on /listings/[id]/hours, /listings/[id]/menu, profile saved reviews) | surface | done (DIRECTION/SYSTEM) | done (c477ae81) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (axe 0, keyboard; ffa57a64) | not run |
+| R101 | surface: Discard / Leave without saving? dialog (on every /listings/[id]/* editor) | surface | done (DIRECTION/SYSTEM) | done (c477ae81) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (axe 0, keyboard; ffa57a64) | not run |
 | R102 | surface: Activity drawer (on every /listings/[id]/* area header) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R103 | surface: Add photos (upload) dialog (on /listings/[id]/photos) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R104 | surface: Photo lightbox (on /listings/[id]/photos) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R105 | surface: Post composer sheet (on /listings/[id]/posts) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R106 | surface: Schedule post sheet (on /listings/[id]/posts) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R107 | surface: Menu editor and item sheet (on /listings/[id]/menu) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R108 | surface: Special hours editor (on /listings/[id]/hours) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R108 | surface: Special hours editor (on /listings/[id]/hours) | surface | done (DIRECTION/SYSTEM) | done (c477ae81) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done except w320 target-size under sticky app bar (L04) | not run |
 | R109 | surface: Editor shell - frame, footer, status pill, capability banner, freshness (on every /listings/[id]/* area) | surface | done (DIRECTION/SYSTEM) | done (db9cd607) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (axe 0, keyboard); reconnect/verification/retired banners unreachable (L01) | not run |
-| R110 | surface: Listing change requests (two-person approval) (on /listings/[id]/hours, /profile, /menu, /photos) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R110 | surface: Listing change requests (two-person approval) (on /listings/[id]/hours, /profile, /menu, /photos) | surface | done (DIRECTION/SYSTEM) | done (c477ae81) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (`evidence/e-listings/l2` @ 5c879320/ffa57a64) | done (axe 0, keyboard; ffa57a64) | not run |
 | R111 | /calendar | page | not run | not run | not run | not run | not run | not run | not run |
 | R112 | /clients | page | not run | not run | not run | not run | not run | not run | not run |
 | R113 | /clients | loading | not run | not run | not run | not run | not run | not run | not run |
@@ -279,8 +279,8 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | S2 | Tablet scope pill truncates "All clients" at 768 despite free width | low | fixed, verified in render `shell-matrix-c281ba68/w768x1024/listings.png` |
 | S3 | Scope health words differ by size: tablet pill "Some clients need checking", desktop sidebar "1 client needs attention" for the same data | low | **fixed** `a8647e7d` + count-aware wording `8c80c552`; one fixture, tablet and desktop read the same words (`evidence/c-system-3/probe-scope-5bbd4b98.json`) |
 | L01 | Editor gate banners for reconnect / verification / retired capability never fire: `lib/server/capabilities.ts` `buildResources` never sets those `reasonCode`s, so a disconnected Google login shows no banner until publish fails | R109 | medium | open, pre-existing server gap; needs owner decision (server capabilities change) |
-| L02 | `lib/listings/health.ts` tones "Changes to publish" (unpublished) and pending verification as `pending` (blue = "Sent, waiting for Google") | R77, R81 | low | open; assigned to listings L2 |
-| L03 | `components/ui/action-bar.tsx` `line-clamp-2` on a flex-col status merges title and detail in docked DispatchBar/SaveBar (worked around in editor-footer `b6c8846f`) | R109 | low | open; assigned to listings L2 |
+| L02 | `lib/listings/health.ts` tones "Changes to publish" (unpublished) and pending verification as `pending` (blue = "Sent, waiting for Google") | R77, R81 | low | fixed `b537fa18` |
+| L03 | `components/ui/action-bar.tsx` `line-clamp-2` on a flex-col status merges title and detail in docked DispatchBar/SaveBar (worked around in editor-footer `b6c8846f`) | R109 | low | fixed `e5b16fa9` |
 | L04 | At 320px the sticky app bar's scope chip partly covers an 18px row checkbox scrolled under it (axe target-size, R84 selected-many); focused control stays clear | R84, app shell | low | open; owner app-shell / checkbox primitive |
 | L05 | `lib/clients/health.ts:240` maps client "unpublished" to pending/blue, same defect as L02 at client level | clients | low | open; assign with clients slice |
 | L06 | `components/ui/field.tsx:549-550` draws the field focus halo on `focus:` only; on desktop Chromium a date/time input's calendar button takes its own Tab stop and the halo disappears (17 date/time inputs). Fixed locally for bulk (`0a1fd2f9`) | shared field | medium (WCAG 2.4.7) | open; add `focus-within:` variants in fieldChromeClassName |
