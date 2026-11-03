@@ -478,14 +478,29 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
             ? `${OPERATION_LABEL[op.operation]} across ${listings} ${listings === 1 ? "listing" : "listings"}`
             : "Bulk change"
         }
-        description="Each listing is read from Google, changed once and confirmed by reading it back. Listings are independent: one failing does not undo another."
+        description={
+          op && isBulkReviewOperation(op.operation)
+            ? "Each reply is sent to Google on its own, then checked there. One failing does not undo another."
+            : "Each listing is read from Google, changed once, then read back to check Google shows it. Listings are independent: one failing does not undo another."
+        }
         actions={
-          <Link
-            href="/listings"
-            className={buttonVariants({ variant: "secondary" })}
-          >
-            Back to listings
-          </Link>
+          // A batch of review replies is started from the inbox; back goes
+          // where it came from.
+          op && isBulkReviewOperation(op.operation) ? (
+            <Link
+              href="/inbox"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to inbox
+            </Link>
+          ) : (
+            <Link
+              href="/listings"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to listings
+            </Link>
+          )
         }
       />
       {/* A failed refresh keeps the last batch the server sent on screen

@@ -423,6 +423,16 @@ describe("who may stop or retry (p4-F14 C6)", () => {
     ],
   })
 
+  it("goes back to the inbox from a review batch, and never promises a confirmation", async () => {
+    serve(() => json({ operation: review(ME) }))
+    renderWithProviders(<BulkOperationView operationId={base.id} />)
+    expect(
+      await screen.findByRole("link", { name: "Back to inbox" })
+    ).toHaveAttribute("href", "/inbox")
+    expect(screen.queryByRole("link", { name: "Back to listings" })).toBeNull()
+    expect(screen.queryByText(/confirmed by reading it back/)).toBeNull()
+  })
+
   it("lets the member who started a review batch retry it, as the server does", async () => {
     session.role = "member"
     serve(() => json({ operation: review(ME) }))
