@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronsUpDown } from "lucide-react"
+import { ChevronDown, ChevronsUpDown } from "lucide-react"
 import dynamic from "next/dynamic"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
@@ -19,8 +19,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { healthLabel } from "@/lib/clients/health"
 import { syncClientScope } from "@/lib/clients/scope"
+import { destinationForPath } from "@/lib/navigation/destinations"
+import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { useClients } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
@@ -31,15 +32,16 @@ import {
   AllClientsMark,
   AllClientsOption,
   ClientOption,
-  HealthDot,
 } from "./client-scope-rows"
-import { LocationMark, ScopeSheet } from "./scope-sheet"
+import { BusinessScopeList, LocationMark, ScopeSheet } from "./scope-sheet"
 import {
   SEARCH_THRESHOLD,
   announceSwitch,
   useClientScopeLabel,
   useClientSwitch,
+  useScopeControl,
   useScopeLabel,
+  type ScopeControl,
   type ScopeLabel,
 } from "./scope-sheet-model"
 
@@ -108,75 +110,350 @@ function ClientScopeSync() {
   return null
 }
 
+/** The three sizes of the one scope control (DIRECTION §7.3). */
+type ScopeVariant = "sidebar" | "pill" | "chip"
+
+const TRIGGER_CLASS: Record<ScopeVariant, string> = {
+  // The desk sidebar's "Working on" button: two lines, full width.
+  sidebar: cn(
+    "flex min-h-14 w-full min-w-0 items-center gap-2.5 rounded-(--np-radius-control) border border-line bg-surface p-2 text-left",
+    "transition-colors duration-(--np-duration-fast) hover-fine:hover:border-line-strong aria-expanded:bg-fill"
+  ),
+  // The tablet top bar's pill: one line, the words after the name.
+  pill: cn(
+    "flex h-11 max-w-[45vw] min-w-0 shrink items-center gap-2 rounded-(--np-radius-pill) border border-line bg-surface pr-3 pl-1.5 text-left desk:h-9 lg:max-w-md",
+    "transition-colors duration-(--np-duration-fast) hover-fine:hover:border-line-strong aria-expanded:bg-fill"
+  ),
+  // The phone app bar's chip: the name only; the words are in its name.
+  chip: cn(
+    "flex min-h-11 max-w-full min-w-11 shrink items-center gap-1.5 rounded-(--np-radius-pill) border border-line bg-surface py-1 pr-2 pl-1 text-left",
+    "transition-colors duration-(--np-duration-fast) active:bg-fill aria-expanded:bg-fill"
+  ),
+}
+
+/** The scope's mark: the client's avatar, a location pin, or "everything". */
+function ScopeMark({
+  control,
+  size = "sm",
+}: {
+  control: ScopeControl
+  size?: "xs" | "sm"
+}) {
+  const box = size === "xs" ? "size-6" : "size-8"
+  if (control.mode === "agency" && control.client) {
+    return (
+      <ClientAvatar
+        name={control.client.name}
+        colour={control.client.colour}
+        size={size}
+      />
+    )
+  }
+  if (control.mode === "business" && control.location) {
+    return <LocationMark className={box} />
+  }
+  return (
+    <AllClientsMark
+      className={cn(box, "rounded-(--np-radius-control) text-ink-muted")}
+    />
+  )
+}
+
+/** The tone dot that repeats the words beside it. Never alone. */
+function ToneDot({ tone }: { tone: ScopeControl["tone"] }) {
+  return (
+    <span
+      aria-hidden
+      data-slot="scope-health-dot"
+      className={cn("size-2 shrink-0 rounded-full", TONE_CLASSES[tone].dot)}
+    />
+  )
+}
+
 /**
- * The desk trigger: the current client's mark, name and health dot, or All
- * clients. 34px where a cursor drives it, 44px on a coarse pointer (a
- * tablet). Below md it hides itself in CSS (`max-md:hidden`): a phone gets
- * `ClientScopeChip` in the app bar and `ClientScopeSheet` instead, and
- * choosing by CSS rather than a JS media query keeps the server render
- * right on every width. The accessible name always says "Client: …".
+ * What the control draws, at its size. The words are drawn for the eye and
+ * hidden from assistive technology: the control's accessible name already
+ * carries them (`control.name`), so they are heard once.
  */
-const ClientSwitcherTrigger = React.forwardRef<
+function ScopeFace({
+  control,
+  variant,
+  interactive,
+}: {
+  control: ScopeControl
+  variant: ScopeVariant
+  interactive: boolean
+}) {
+  const Chevron = variant === "sidebar" ? ChevronsUpDown : ChevronDown
+  return (
+    <>
+      <ScopeMark control={control} size={variant === "pill" ? "xs" : "sm"} />
+      {variant === "sidebar" ? (
+        <span aria-hidden className="flex min-w-0 flex-1 flex-col">
+          <span
+            title={control.title}
+            className="truncate text-ui font-semibold text-ink"
+          >
+            {control.title}
+          </span>
+          {control.detail ? (
+            <span className="flex min-w-0 items-start gap-1.5 text-caption text-ink-muted">
+              <span className="flex h-(--np-text-caption-lh) items-center">
+                <ToneDot tone={control.tone} />
+              </span>
+              <span data-slot="scope-detail" className="line-clamp-2">
+                {control.detail}
+              </span>
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        <span aria-hidden className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            title={control.title}
+            className="min-w-0 shrink truncate text-ui font-medium text-ink"
+          >
+            {control.title}
+          </span>
+          {control.detail ? <ToneDot tone={control.tone} /> : null}
+          {variant === "pill" && control.detail ? (
+            <span
+              data-slot="scope-detail"
+              title={control.detail}
+              className="min-w-0 shrink-2 truncate text-caption text-ink-muted"
+            >
+              {control.detail}
+            </span>
+          ) : null}
+        </span>
+      )}
+      {interactive ? (
+        <Chevron
+          aria-hidden
+          className="size-4 shrink-0 text-ink-muted"
+          strokeWidth={1.75}
+        />
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * The control as a button: it opens the shared picker (a menu or a
+ * searchable list on a desk or tablet, the "Working on" sheet on a phone).
+ * Its accessible name is `control.name`, which starts "Working on" and
+ * carries the health words.
+ */
+const ScopeTrigger = React.forwardRef<
   HTMLButtonElement,
-  React.ComponentProps<"button"> & { client: ClientSummary | null }
->(function ClientSwitcherTrigger({ client, className, ...props }, ref) {
-  const healthId = React.useId()
+  React.ComponentProps<"button"> & {
+    control: ScopeControl
+    variant: ScopeVariant
+  }
+>(function ScopeTrigger({ control, variant, className, ...props }, ref) {
   return (
     <button
       ref={ref}
       type="button"
-      aria-label={`Client: ${client ? client.name : "All clients"}`}
-      aria-describedby={client ? healthId : undefined}
-      data-slot="client-switcher"
+      aria-label={control.name}
+      data-slot="scope-control"
+      data-variant={variant}
+      data-mode={control.mode}
+      data-tone={control.tone}
       className={cn(
-        "flex h-[34px] max-w-[min(16rem,32vw)] min-w-0 shrink-0 items-center gap-2 rounded-md border border-line bg-surface pr-2 pl-1.5 text-ui font-medium text-ink",
-        "transition-colors duration-(--np-duration-fast) hover:border-line-strong",
+        TRIGGER_CLASS[variant],
         "focus-halo focus-visible:outline-none",
-        "max-md:hidden pointer-coarse:h-11",
         className
       )}
       {...props}
     >
-      {client ? (
-        <ClientAvatar name={client.name} colour={client.colour} size="xs" />
-      ) : (
-        <AllClientsMark className="text-ink-muted" />
-      )}
-      <span aria-hidden className="min-w-0 truncate">
-        {client ? client.name : "All clients"}
-      </span>
-      {client ? (
-        <>
-          <HealthDot client={client} />
-          <span id={healthId} hidden>
-            {healthLabel(client.health)}
-          </span>
-        </>
-      ) : null}
-      <ChevronsUpDown
-        aria-hidden
-        className="size-3.5 shrink-0 text-ink-muted"
-        strokeWidth={1.75}
-      />
+      <ScopeFace control={control} variant={variant} interactive />
     </button>
   )
 })
 
 /**
- * The top bar's client switcher: which client the operator is working, on
- * every page, and the one place to change it. Inbox, Listings and Reports
- * follow it through their `?clientId=`; a client's pages switch to the same
- * page of the other client; everywhere else it sets the client the sidebar
- * links carry. See lib/clients/scope.ts for the rules.
- *
- * Hidden while the session sees one client or none: there is nothing to
- * switch. A short list is a menu of radio items; a long one is a searchable
- * list, because scanning forty names by arrow key is not choosing.
- *
- * Desk only (md and up); phones use `ClientScopeChip` + `ClientScopeSheet`.
+ * The control when there is nothing to switch (one client, one location):
+ * it still says what is in scope and how it is, but it is not a button.
  */
-function ClientSwitcher({ className }: { className?: string }) {
+function ScopeStatic({
+  control,
+  variant,
+  className,
+}: {
+  control: ScopeControl
+  variant: ScopeVariant
+  className?: string
+}) {
+  return (
+    <div
+      data-slot="scope-control"
+      data-variant={variant}
+      data-mode={control.mode}
+      data-tone={control.tone}
+      data-static="true"
+      className={cn(
+        TRIGGER_CLASS[variant],
+        "border-transparent bg-transparent",
+        className
+      )}
+    >
+      <span className="sr-only">{control.name}</span>
+      <ScopeFace control={control} variant={variant} interactive={false} />
+    </div>
+  )
+}
+
+/**
+ * Whether the page ignores the scope (`scoped: false` in the destination
+ * registry: Notifications, Team, Settings). Those pages show no scope
+ * control at any size (DIRECTION §4), so nothing suggests the page follows
+ * it.
+ */
+function useOrgWidePage(): boolean {
+  return destinationForPath(usePathname())?.scoped === false
+}
+
+/**
+ * The one scope control, at one of its three sizes (DIRECTION §7.3, D8):
+ *
+ * - `sidebar`: the desk sidebar's "Working on" button (from `wide`): the
+ *   scope's mark, its name, and its listings and health in words beneath,
+ *   with the tone dot. It opens a menu, or a searchable list past eight.
+ * - `pill`: the tablet top bar's pill (768 to 1180): the same on one line.
+ * - `chip`: the phone app bar's chip: the mark and the name; the words are
+ *   in its accessible name and in the "Working on" sheet it opens.
+ *
+ * An agency chooses a client (then, on a phone, a location); a business
+ * reads its own name with All locations or one location, never "client".
+ * Every size names the scope with its health in words, which is what the
+ * retired health chip said. Hidden on organisation-wide pages and while
+ * the list that decides it is unknown; drawn but inert when there is
+ * nothing to switch.
+ */
+function ScopeControlView({
+  variant,
+  mode,
+  organisationName,
+  onOpenSheet,
+  className,
+}: {
+  variant: ScopeVariant
+  mode: WorkspaceMode
+  organisationName: string | null
+  /** The phone chip opens the "Working on" sheet the shell owns. */
+  onOpenSheet?: () => void
+  className?: string
+}) {
+  const control = useScopeControl(mode, organisationName)
+  const orgWide = useOrgWidePage()
+  if (orgWide || !control.ready) return null
+  const inner = !control.switchable ? (
+    <ScopeStatic
+      control={control}
+      variant={variant}
+      className={variant === "sidebar" ? undefined : className}
+    />
+  ) : variant === "chip" ? (
+    <ScopeTrigger
+      control={control}
+      variant="chip"
+      aria-haspopup="dialog"
+      onClick={onOpenSheet}
+      className={className}
+    />
+  ) : mode === "business" ? (
+    <BusinessScopePopover
+      control={control}
+      variant={variant}
+      className={variant === "sidebar" ? undefined : className}
+    />
+  ) : (
+    <ClientSwitcher
+      control={control}
+      variant={variant}
+      className={variant === "sidebar" ? undefined : className}
+    />
+  )
+  if (variant !== "sidebar") return inner
+  // The sidebar says what the button is above it, as the concept does;
+  // the words are already the start of the button's accessible name.
+  return (
+    <div data-slot="sidebar-scope" className={cn("flex flex-col", className)}>
+      <span
+        aria-hidden
+        className="px-1 pb-1 text-caption font-medium text-ink-muted"
+      >
+        Working on
+      </span>
+      {inner}
+    </div>
+  )
+}
+
+/**
+ * A business's desk picker: the same list the phone sheet shows (All
+ * locations and each location, a search field past eight), in a popover
+ * under the control.
+ */
+function BusinessScopePopover({
+  control,
+  variant,
+  className,
+}: {
+  control: ScopeControl
+  variant: ScopeVariant
+  className?: string
+}) {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <ScopeTrigger
+            control={control}
+            variant={variant}
+            aria-haspopup="dialog"
+            className={className}
+          />
+        }
+      />
+      <PopoverContent
+        align="start"
+        aria-label="Working on"
+        className="flex max-h-[min(70vh,--spacing(120))] w-80 flex-col gap-2 overflow-y-auto p-2"
+      >
+        <BusinessScopeList open={open} onDone={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/**
+ * An agency's desk picker: which client the operator is working, on every
+ * scoped page, and the one place to change it. Inbox, Listings and Reports
+ * follow it through their `?clientId=`; a client's pages switch to the same
+ * page of the other client; everywhere else it sets the client the
+ * navigation links carry. See lib/clients/scope.ts for the rules (the
+ * address always wins).
+ *
+ * A short list is a menu of radio items; a long one is a searchable list,
+ * because scanning forty names by arrow key is not choosing. With no
+ * `control` (tests, older callers) it draws the pill and reads the scope
+ * itself.
+ */
+function ClientSwitcher({
+  className,
+  control: given,
+  variant = "pill",
+}: {
+  className?: string
+  control?: ScopeControl
+  variant?: ScopeVariant
+}) {
   const { clients, current, select } = useClientSwitch()
+  const own = useScopeControl("agency", null)
+  const control = given ?? own
   if (!clients || clients.length <= 1) return null
   const client = clients.find((entry) => entry.id === current) ?? null
   // The toast names the new scope once the switch has happened (not when a
@@ -187,20 +464,18 @@ function ClientSwitcher({ className }: { className?: string }) {
       : "All clients"
     return select(next, () => announceSwitch(name))
   }
+  const props = {
+    clients,
+    client,
+    onSelect,
+    className,
+    control,
+    variant,
+  }
   return clients.length > SEARCH_THRESHOLD ? (
-    <SearchableSwitcher
-      clients={clients}
-      client={client}
-      onSelect={onSelect}
-      className={className}
-    />
+    <SearchableSwitcher {...props} />
   ) : (
-    <MenuSwitcher
-      clients={clients}
-      client={client}
-      onSelect={onSelect}
-      className={className}
-    />
+    <MenuSwitcher {...props} />
   )
 }
 
@@ -209,15 +484,30 @@ type SwitcherProps = {
   client: ClientSummary | null
   onSelect: (clientId: string | null) => Promise<void>
   className?: string
+  control: ScopeControl
+  variant: ScopeVariant
 }
 
-function MenuSwitcher({ clients, client, onSelect, className }: SwitcherProps) {
+function MenuSwitcher({
+  clients,
+  client,
+  onSelect,
+  className,
+  control,
+  variant,
+}: SwitcherProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<ClientSwitcherTrigger client={client} className={className} />}
+        render={
+          <ScopeTrigger
+            control={control}
+            variant={variant}
+            className={className}
+          />
+        }
       />
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent align="start" className="w-80">
         <DropdownMenuRadioGroup
           value={client?.id ?? ALL}
           onValueChange={(value: string) =>
@@ -275,6 +565,8 @@ function SearchableSwitcher({
   client,
   onSelect,
   className,
+  control,
+  variant,
 }: SwitcherProps) {
   const [open, setOpen] = React.useState(false)
   const choose = (next: string | null) => {
@@ -285,8 +577,9 @@ function SearchableSwitcher({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <ClientSwitcherTrigger
-            client={client}
+          <ScopeTrigger
+            control={control}
+            variant={variant}
             className={className}
             aria-haspopup="dialog"
             onPointerEnter={warmClientSearch}
@@ -297,7 +590,7 @@ function SearchableSwitcher({
       <PopoverContent
         align="start"
         aria-label="Switch client"
-        className="w-[min(320px,calc(100vw-24px))] p-0"
+        className="w-[min(--spacing(80),calc(100vw-var(--np-overlay-gutter)*2))] p-0"
       >
         <ClientSearchList
           clients={clients}
@@ -310,76 +603,29 @@ function SearchableSwitcher({
 }
 
 /**
- * The phone app bar's scope trigger, after Notion Mail's trailing account
- * avatar: the scope's mark (the client's avatar, a location pin, or the
- * neutral "everything" mark) in a 44px hit area, with the scope's name
- * beside it, truncated with the full name in `title` (`labelled={false}`
- * leaves only the mark: the app bar does that on a client's own page, where
- * the title already says which client). Opens `ClientScopeSheet`.
- *
- * Hidden when there is nothing to switch: agency, one client or none (or the
- * list unknown); business, one location or none. The accessible name says
- * what it holds: "Client: Harbour Kitchen", or in business mode "Location:
- * The Bell" (a business never sees "client"). No health dot: health is
- * spelled out in the sheet, never a colour alone in a 52px bar.
+ * The phone app bar's scope chip (`ScopeControlView` at `chip` size), kept
+ * under the name the app bar and the tests import. Opens the "Working on"
+ * sheet (`ClientScopeSheet`).
  */
 function ClientScopeChip({
   onOpen,
   className,
   mode = "agency",
-  labelled = true,
+  organisationName = null,
 }: {
   onOpen: () => void
   className?: string
   mode?: WorkspaceMode
-  labelled?: boolean
+  organisationName?: string | null
 }) {
-  const scope = useScopeLabel(mode)
-  if (!scope.visible) return null
-  const noun = mode === "business" ? "Location" : "Client"
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={`${noun}: ${scope.label}`}
-      aria-haspopup="dialog"
-      data-slot="client-scope-chip"
-      data-mode={mode}
-      className={cn(
-        "flex min-h-11 max-w-[60vw] min-w-11 shrink items-center justify-center gap-2 rounded-(--np-radius-pill) text-ui font-medium text-ink",
-        labelled ? "pr-2 pl-1.5" : "px-1.5",
-        "transition-colors duration-(--np-duration-fast) hover:bg-fill active:bg-fill",
-        "focus-halo focus-visible:outline-none",
-        className
-      )}
-    >
-      <ScopeMark scope={scope} />
-      {labelled ? (
-        <span
-          aria-hidden
-          title={scope.label}
-          className="max-w-28 min-w-0 truncate"
-        >
-          {scope.label}
-        </span>
-      ) : null}
-    </button>
-  )
-}
-
-/** The trigger's 32px mark for whatever is in scope. */
-function ScopeMark({ scope }: { scope: ScopeLabel }) {
-  if (scope.mode === "business") {
-    return scope.location ? (
-      <LocationMark />
-    ) : (
-      <AllClientsMark className="size-8 rounded-(--np-radius-control) text-ink-muted" />
-    )
-  }
-  return scope.client ? (
-    <ClientAvatar name={scope.client.name} colour={scope.client.colour} />
-  ) : (
-    <AllClientsMark className="size-8 rounded-(--np-radius-control) text-ink-muted" />
+    <ScopeControlView
+      variant="chip"
+      mode={mode}
+      organisationName={organisationName}
+      onOpenSheet={onOpen}
+      className={className}
+    />
   )
 }
 
@@ -409,8 +655,10 @@ export {
   ClientScopeSheet,
   ClientScopeSync,
   ClientSwitcher,
+  ScopeControlView,
+  useOrgWidePage,
   useClientScopeLabel,
   useClientSwitch,
   useScopeLabel,
 }
-export type { ScopeLabel }
+export type { ScopeControl, ScopeLabel, ScopeVariant }

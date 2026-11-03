@@ -25,15 +25,24 @@ import { inboxName, useInboxWaiting } from "./use-needs-reply-count"
 
 /**
  * A tab: the icon above a visible label, the whole 56px cell the target.
- * The current tab takes the accent and a heavier label, so it reads in
- * greyscale too; forced-colours mode keeps the label weight.
+ * The current tab uses the shell's one neutral current-place grammar
+ * (DIRECTION D4, SYSTEM §10): an ink icon with a heavier stroke on a 56×28
+ * fill pill, and a semibold ink label. No accent: green is for sends. The
+ * weight survives greyscale and forced colours.
  */
 const TAB_CLASS = cn(
-  "relative flex h-full min-h-11 w-full flex-col items-center justify-center gap-0.5 rounded-md px-0.5 text-caption font-medium text-ink-muted",
-  "transition-colors duration-(--np-duration-fast) hover:text-ink",
+  "group relative flex h-full min-h-11 w-full flex-col items-center justify-center gap-0.5 rounded-md px-0.5 text-caption font-medium text-ink-muted",
+  "transition-colors duration-(--np-duration-fast) hover-fine:hover:text-ink",
   "focus-halo focus-visible:outline-none focus-visible:ring-inset",
-  "aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink",
-  "data-[current=true]:font-semibold data-[current=true]:text-accent-ink"
+  "aria-[current=page]:font-semibold aria-[current=page]:text-ink",
+  "data-[current=true]:font-semibold data-[current=true]:text-ink"
+)
+
+/** The pill behind the icon; filled on the current tab. */
+const PILL_CLASS = cn(
+  "relative flex h-7 w-14 items-center justify-center rounded-(--np-radius-pill)",
+  "transition-colors duration-(--np-duration-fast)",
+  "group-aria-[current=page]:bg-fill group-data-[current=true]:bg-fill"
 )
 
 /**
@@ -41,8 +50,9 @@ const TAB_CLASS = cn(
  *
  * Four destinations from the registry (lib/navigation/destinations.ts
  * `tabDestinations`: agency Inbox, Listings, Clients, Reports; business
- * Inbox, Listings, Calendar, Reports) and More, which opens the More sheet
- * holding the rest and the account. Settings and Team are two taps away.
+ * Inbox, Listings, Calendar (or Notifications), Reports) and More, which
+ * opens the More sheet holding the rest (Outbox first) and the account.
+ * Settings and Team are two taps away.
  *
  * Fixed to the bottom edge, padded for the home indicator. It renders
  * `data-slot="tab-bar"`, the chrome contract globals.css keys on: while a
@@ -129,14 +139,18 @@ function TabBar({
                 aria-label={nameFor(destination)}
                 className={TAB_CLASS}
               >
-                <span className="relative flex">
-                  <Icon className="size-6" strokeWidth={1.75} aria-hidden />
+                <span data-slot="tab-pill" className={PILL_CLASS}>
+                  <Icon
+                    className="size-6"
+                    strokeWidth={active ? 2 : 1.75}
+                    aria-hidden
+                  />
                   {count > 0 ? (
                     // 4px right of the 24px icon's centre.
                     <CountBadge
                       count={count}
                       slot="tab-count"
-                      className="absolute -top-1.5 left-4"
+                      className="absolute -top-1.5 left-8"
                     />
                   ) : null}
                 </span>
@@ -156,17 +170,17 @@ function TabBar({
             onClick={onOpenMore}
             className={TAB_CLASS}
           >
-            <span className="relative flex">
+            <span data-slot="tab-pill" className={PILL_CLASS}>
               <MoreHorizontal
                 className="size-6"
-                strokeWidth={1.75}
+                strokeWidth={moreCurrent ? 2 : 1.75}
                 aria-hidden
               />
               {moreUnread > 0 ? (
                 <CountBadge
                   count={moreUnread}
                   slot="more-count"
-                  className="absolute -top-1.5 left-4"
+                  className="absolute -top-1.5 left-8"
                 />
               ) : null}
             </span>

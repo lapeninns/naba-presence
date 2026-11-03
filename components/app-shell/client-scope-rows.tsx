@@ -3,7 +3,8 @@
 import { Building2, CheckIcon } from "lucide-react"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
-import { healthLabel, healthTone } from "@/lib/clients/health"
+import { healthTone } from "@/lib/clients/health"
+import { clientScopeWords } from "@/lib/clients/scope-words"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
@@ -30,22 +31,25 @@ function HealthDot({ client }: { client: ClientSummary }) {
 
 /**
  * One row of the desk list, in the scope sheet's look: the client's mark,
- * its name, and its health as muted words with the tone dot. The visible
- * words are hidden from the accessibility tree and read once, after the
- * name, from the `sr-only` copy ("Old Crown, In sync").
+ * its name, and beneath it its listings and health as muted words with the
+ * tone dot ("9 listings · 1 needs attention"). The visible words are hidden
+ * from the accessibility tree and read once, after the name, from the
+ * `sr-only` copy ("Old Crown, 3 listings · In sync").
  */
 function ClientOption({ client }: { client: ClientSummary }) {
-  const words = healthLabel(client.health)
+  const words = clientScopeWords(client)
   return (
     <>
       <ClientAvatar name={client.name} colour={client.colour} size="xs" />
-      <span className="min-w-0 flex-1 truncate">{client.name}</span>
-      <span
-        aria-hidden
-        className="flex shrink-0 items-center gap-1.5 text-caption font-normal text-ink-muted"
-      >
-        <HealthDot client={client} />
-        {words}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{client.name}</span>
+        <span
+          aria-hidden
+          className="flex min-w-0 items-center gap-1.5 text-caption font-normal text-ink-muted"
+        >
+          <HealthDot client={client} />
+          <span className="truncate">{words}</span>
+        </span>
       </span>
       <span className="sr-only">, {words}</span>
     </>
@@ -78,7 +82,8 @@ function AllClientsOption() {
 
 /**
  * The menu's check column, for the lists that are not radio menus
- * (aria-current or aria-checked says it; the mark is for the eye).
+ * (aria-current or aria-checked says it; the mark is for the eye). Ink, not
+ * accent: the current place is neutral (DIRECTION D4).
  */
 function CurrentMark({ current }: { current: boolean }) {
   return (
@@ -86,7 +91,7 @@ function CurrentMark({ current }: { current: boolean }) {
       aria-hidden
       strokeWidth={2}
       className={cn(
-        "size-4 shrink-0 text-accent-ink!",
+        "size-4 shrink-0 text-ink!",
         !current && "invisible"
       )}
     />

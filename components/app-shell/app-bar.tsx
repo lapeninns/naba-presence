@@ -5,21 +5,17 @@ import { usePathname } from "next/navigation"
 import * as React from "react"
 
 import type { BackTarget } from "@/lib/navigation/back-target"
-import { clientPageKind } from "@/lib/clients/scope"
 import {
   destinationForPath,
   entityBackLabel,
   listingAreaParent,
   shortBackLabel,
 } from "@/lib/navigation/destinations"
-import { useClients } from "@/lib/queries/use-clients"
-import { useLocationDirectory } from "@/lib/queries/use-locations"
-import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 import { useShellBack } from "./breadcrumbs-context"
-import { ClientScopeChip, useScopeLabel } from "./client-switcher"
+import { ClientScopeChip } from "./client-switcher"
 import { CommandPaletteButton } from "./command-palette"
 import { NotificationsLink } from "./notifications-link"
 import {
@@ -27,6 +23,7 @@ import {
   type ShellAction,
   usePageChromeOverride,
 } from "./page-chrome"
+import { useScopeControl } from "./scope-sheet-model"
 import { ShellLink } from "./shell-link"
 import { useNeedsReplyCount } from "./use-needs-reply-count"
 
@@ -34,7 +31,9 @@ import { useNeedsReplyCount } from "./use-needs-reply-count"
  * The labelled way up from a deep page: "‹ Listings". Its name is "Back to
  * Listings", which starts with nothing the eye can't see but keeps the
  * visible label inside it (WCAG 2.5.3). The phone app bar and the tablet
- * toolbar share it.
+ * toolbar share it. Drawn in ink, not the accent (DIRECTION D12): a back
+ * link is chrome, and green is for sends. It goes up, not back in history
+ * (lib/navigation/back-target.ts).
  *
  * When the page declared its own way back (`<PageChrome onBack>`, the
  * Inbox's pushed review), a plain click or Enter runs that instead of
@@ -83,7 +82,7 @@ function ShellBackLink({
           : undefined
       }
       className={cn(
-        "flex h-11 max-w-full min-w-11 items-center gap-0.5 rounded-md pr-2 pl-1 text-ui font-medium text-accent-ink",
+        "flex h-11 max-w-full min-w-11 items-center gap-0.5 rounded-md pr-2 pl-1 text-ui font-medium text-ink",
         "transition-colors duration-(--np-duration-fast) hover:bg-fill",
         "focus-halo focus-visible:outline-none",
         className
@@ -265,36 +264,32 @@ const INBOX_HREF = "/inbox"
 
 /**
  * The phone's top bar (below 768px), the Notion Mail header: sticky, 52px
- * plus the top safe area, on the canvas with the edge shadow below.
+ * plus the top safe area, on the canvas with the edge shadow below
+ * (DIRECTION §7.2).
  *
- * - Leading: the labelled back control on a deep page.
- * - One title at a time, from the first row's left edge to the trailing
- *   controls: the workspace's name while the page's h1 is on screen, then,
- *   once the h1 has scrolled under the bar, the page title in the h1's own
- *   words (the name fades out as the title fades in, a plain swap under
- *   reduced motion), with the view's count after it in muted figures. On a
- *   deep page the back label shortens to "‹ Listing" beside the title.
- * - Trailing: two 44px controls (a third, the page's own action, joins
- *   them below). With a scope switcher to show:
- *   one action (search, or notifications where the page has its own
- *   search, the Inbox) then the scope trigger; the bell moves into More,
- *   whose tab carries its badge. Without one: search (left out on the
- *   Inbox, so one magnifier means one thing) and notifications. An
- *   organisation-wide page (`scoped: false` in the destination registry:
- *   Team, Settings, Notifications) always gets search and notifications,
- *   never the scope trigger it would ignore.
- *
+ * - Leading, on a top-level page: the scope chip (which client, or which
+ *   of the business's locations, you are working on; its health words are
+ *   in its accessible name), which opens the "Working on" sheet. Where the
+ *   page ignores the scope (`scoped: false`: Team, Settings,
+ *   Notifications) the workspace's name stands there instead, and once the
+ *   page's h1 has scrolled under the bar it cross-fades to the page title in
+ *   the h1's own words, with the view's count after it.
+ * - Leading, on a deep page: the labelled way up ("‹ Listings", up and not
+ *   back in history), and the echoed title once the h1 has scrolled away;
+ *   the back label then shortens ("‹ Listing").
+ * - Trailing: search (left out where the page has its own search field,
+ *   the Inbox, so one magnifier means one thing). The bell lives in More on
+ *   a phone, whose tab carries its unread badge; while a task's bar is
+ *   docked the tab bar steps aside and the bell joins the bar instead, so
+ *   the count is never out of sight.
  * - A page's primary action (`<PageChrome action>`) joins the trailing
- *   controls as a third, in front of them, once the page header's own
- *   actions have scrolled under the bar (the h1, for a header with none):
- *   the header button is gone from view, so the bar takes over and the two
- *   are never on screen together (SET-25).
+ *   controls, in front of them, once the page header's own actions have
+ *   scrolled under the bar (the h1, for a header with none): the header
+ *   button is gone from view, so the bar takes over and the two are never
+ *   on screen together (SET-25).
  *
  * Every label that can still truncate carries its full value in `title`
  * (the back control, the workspace name, the title, the scope's name).
- *
- * Connection health is not here as a dot: it is a labelled row in the More
- * sheet and words beside every client in the client sheet.
  */
 function AppBar({
   mode,
@@ -315,7 +310,6 @@ function AppBar({
   const actionsAway = useHeaderActionsAway(Boolean(override.action))
   const destination = destinationForPath(pathname)
   const ownSearch = destination?.ownSearch === true
-  const orgWide = destination?.scoped === false
   const count = useViewCount({ pathname, override, enabled: sessionReady })
 
   return (
@@ -331,9 +325,11 @@ function AppBar({
           {sessionReady ? (
             <React.Suspense fallback={null}>
               <AppBarLeading
+                mode={mode}
                 organisationName={organisationName}
                 title={title}
                 count={count}
+                onOpenClientScope={onOpenClientScope}
               />
             </React.Suspense>
           ) : null}
@@ -341,9 +337,7 @@ function AppBar({
         {sessionReady ? (
           <div
             data-slot="app-bar-actions"
-            // Shrinks so a long scope name truncates rather than pushing the
-            // row past a 320px screen; each control keeps its 44px.
-            className="flex min-w-0 shrink items-center"
+            className="flex shrink-0 items-center"
           >
             {/* The page's primary action, only once the header's own actions
                 have scrolled away (the h1, for a header with none); see
@@ -351,35 +345,14 @@ function AppBar({
             {override.action && (actionsAway ?? title.visible) ? (
               <AppBarAction action={override.action} />
             ) : null}
-            {orgWide ? (
-              <>
-                <CommandPaletteButton onClick={onOpenPalette} />
-                <NotificationsLink />
-              </>
-            ) : (
-              <>
-                {ownSearch ? (
-                  <NotificationsLink />
-                ) : (
-                  <CommandPaletteButton onClick={onOpenPalette} />
-                )}
-                {/* The scope reads the address (useSearchParams); the
-                    boundary keeps a prerendered page from bailing the whole
-                    bar out to client rendering. Until it resolves the slot
-                    is held blank, never the bell that the scope chip would
-                    then replace. */}
-                <React.Suspense
-                  fallback={ownSearch ? null : <AppBarScopePending />}
-                >
-                  <AppBarScopeSlot
-                    mode={mode}
-                    ownSearch={ownSearch}
-                    titleVisible={title.visible}
-                    onOpenClientScope={onOpenClientScope}
-                  />
-                </React.Suspense>
-              </>
+            {ownSearch ? null : (
+              <CommandPaletteButton onClick={onOpenPalette} />
             )}
+            {/* The chrome contract (globals.css) hides the tab bar, and More's
+                unread badge with it, while a task's bar is docked: the bell
+                takes its place here. No JS reads the dock, so the server and
+                the first client render agree. */}
+            <NotificationsLink className="hidden [body:has([data-docked=bottom])_&]:grid" />
           </div>
         ) : null}
       </div>
@@ -401,7 +374,7 @@ function AppBarAction({ action }: { action: ShellAction }) {
   const name =
     pending && action.pendingLabel ? action.pendingLabel : action.label
   const className = cn(
-    "grid h-11 min-w-11 shrink-0 place-items-center rounded-md text-accent-ink",
+    "grid h-11 min-w-11 shrink-0 place-items-center rounded-md text-ink",
     "transition-colors duration-(--np-duration-fast) hover:bg-fill",
     "focus-halo focus-visible:outline-none aria-busy:cursor-progress aria-disabled:opacity-50",
     Icon ? "w-11" : "px-2 text-ui font-medium whitespace-nowrap"
@@ -441,107 +414,42 @@ function AppBarAction({ action }: { action: ShellAction }) {
 }
 
 /**
- * The trailing slot's second control: the scope trigger when there is a
- * scope to switch, otherwise the bell (unless the first control already is
- * the bell, on a page with its own search).
- *
- * The trigger drops its name and keeps the mark where the name would only
- * repeat or squeeze: on a client's own page (the title and the back label
- * already say which client) and on a deep page while its title is echoed
- * (the name would leave the title a few letters). The name stays in the
- * accessible name, and in the scope sheet.
- */
-function AppBarScopeSlot({
-  mode,
-  ownSearch,
-  titleVisible,
-  onOpenClientScope,
-}: {
-  mode: WorkspaceMode
-  ownSearch: boolean
-  titleVisible: boolean
-  onOpenClientScope: () => void
-}) {
-  const pathname = usePathname()
-  const back = useShellBack()
-  // A business switches location, an agency client (then location); the
-  // chip hides itself when there is nothing to switch.
-  const scope = useScopeLabel(mode)
-  // Whether there is anything to switch is unknown until the list that
-  // decides it (an agency's clients, a business's locations) has loaded.
-  // Same query keys as the switcher's, so nothing extra is fetched. The
-  // server and the first client render agree on "pending".
-  const clients = useClients({ enabled: mode === "agency" })
-  const directory = useLocationDirectory(useSessionRole())
-  const pending = mode === "agency" ? clients.isPending : directory.isPending
-  if (scope.visible) {
-    const markOnly =
-      (clientPageKind(pathname) === "client" && scope.client !== null) ||
-      (back !== null && titleVisible)
-    // Room for the title too: the chip gives way first.
-    if (ownSearch) {
-      return (
-        <ClientScopeChip
-          mode={mode}
-          onOpen={onOpenClientScope}
-          labelled={!markOnly}
-          className="max-w-[40vw]"
-        />
-      )
-    }
-    // While a task's ActionBar or SelectionBar is docked the tab bar steps
-    // aside, taking More's unread badge with it, so the bell (and its count)
-    // takes the chip's place. The same CSS chrome contract that hides the tab
-    // bar (globals.css) swaps them: no JS reads the dock, so the server and
-    // the first client render agree.
-    return (
-      <>
-        <NotificationsLink className="hidden [body:has([data-docked=bottom])_&]:grid" />
-        <ClientScopeChip
-          mode={mode}
-          onOpen={onOpenClientScope}
-          labelled={!markOnly}
-          className="max-w-[40vw] [body:has([data-docked=bottom])_&]:hidden"
-        />
-      </>
-    )
-  }
-  if (ownSearch) return null
-  return pending ? <AppBarScopePending /> : <NotificationsLink />
-}
-
-/** The trailing slot held at one control's width while the scope loads. */
-function AppBarScopePending() {
-  return (
-    <span
-      aria-hidden
-      data-slot="app-bar-scope-pending"
-      className="size-11 shrink-0"
-    />
-  )
-}
-
-/**
- * The bar's leading half: the back control (a deep page) and the one title
- * beside it. On a top-level page the workspace's name and the page's title
- * echo share one cell and cross-fade, so the name never sits beside a
- * squeezed title. Both are `visibility`-switched with the fade, so the one
- * that is faded out is also out of the tab order and the accessibility
- * tree; under reduced motion (the global rule shortens the transition) it
- * is a plain swap.
+ * The bar's leading half. On a deep page: the back control and the title
+ * echo beside it. On a top-level page: the scope chip, or, where there is
+ * no scope to show (an organisation-wide page, or before the scope is
+ * known), the workspace's name and the page's title echo, sharing one cell
+ * and cross-fading so the name never sits beside a squeezed title. Both are
+ * `visibility`-switched with the fade, so the one that is faded out is also
+ * out of the tab order and the accessibility tree; under reduced motion
+ * (the global rule shortens the transition) it is a plain swap.
  */
 function AppBarLeading({
+  mode,
   organisationName,
   title,
   count,
+  onOpenClientScope,
 }: {
+  mode: WorkspaceMode
   organisationName: string | null
   title: { text: string; visible: boolean }
   count: number | undefined
+  onOpenClientScope: () => void
 }) {
   const back = useShellBack()
   const pathname = usePathname()
+  const scope = useScopeControl(mode, organisationName)
+  const orgWide = destinationForPath(pathname)?.scoped === false
   const name = organisationName ?? "NabaPresence"
+  if (!back && !orgWide && scope.ready) {
+    return (
+      <ClientScopeChip
+        mode={mode}
+        organisationName={organisationName}
+        onOpen={onOpenClientScope}
+      />
+    )
+  }
   // A listing area's header row already names the listing, so its back
   // control says what it goes back to ("‹ Listing") from the start, even
   // for a short name; elsewhere the full label stays until the title echo

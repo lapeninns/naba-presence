@@ -14,9 +14,9 @@ import {
   isActivePath,
   type NavigationContext,
 } from "@/lib/navigation/destinations"
+import { OUTBOX_ROUTE_READY } from "@/lib/navigation/outbox"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
-import { useClients } from "@/lib/queries/use-clients"
 import { useShellStatus } from "@/lib/queries/use-shell-status"
 import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
@@ -26,7 +26,11 @@ import { AccountMenu } from "./account-menu"
 import { AppBar } from "./app-bar"
 import { BillingBanner } from "./billing-banner"
 import { ClientScopeRoot, useRememberedClient } from "./client-context"
-import { ClientScopeSheet, ClientScopeSync } from "./client-switcher"
+import {
+  ClientScopeSheet,
+  ClientScopeSync,
+  ScopeControlView,
+} from "./client-switcher"
 import { CommandPalette, useCommandPalette } from "./command-palette"
 import { ShellHealthAnnouncer } from "./context-health-chip"
 import { ImpersonationBanner } from "./impersonation-banner"
@@ -87,17 +91,18 @@ function useSessionReady(session: ShellSession | null) {
   return ready
 }
 
-/** Reads the client list the sidebar pins beneath Clients. */
+/** The navigation with the Inbox's waiting count and the remembered client. */
 function SidebarNav({
   role,
   mode,
   hideCalendar,
+  showOutbox,
 }: {
   role: string | null
   mode: WorkspaceMode
   hideCalendar: boolean
+  showOutbox: boolean
 }) {
-  const clients = useClients()
   const waiting = useInboxWaiting()
   const { remembered } = useRememberedClient()
   return (
@@ -105,25 +110,21 @@ function SidebarNav({
       role={role}
       mode={mode}
       hideCalendar={hideCalendar}
+      showOutbox={showOutbox}
       scopeClientId={mode === "business" ? null : remembered}
       waiting={waiting}
-      clients={
-        clients.data?.items.map((client) => ({
-          id: client.id,
-          name: client.name,
-          health: client.health,
-        })) ?? []
-      }
     />
   )
 }
 
 /**
- * The persistent column from 768px: the organisation at the top, the
- * navigation that scrolls, the account row at the bottom. One markup draws
- * both widths: the full 240px sidebar from 1180px (`wide`) and the
- * labelled rail from 768 to 1180, restyled by CSS so the first paint is
- * right on every device.
+ * The persistent column from 768px (DIRECTION §7.2): the organisation at
+ * the top, then (sidebar only) the "Working on" scope button, the
+ * navigation that scrolls with its Workspace group, and the account at the
+ * foot. One markup draws both widths: the full 240px sidebar from 1180px
+ * (`wide`) and the 72px labelled rail from 768 to 1180, restyled by CSS so
+ * the first paint is right on every device. The rail has no scope button:
+ * the tablet's scope is the pill at the start of the top bar.
  */
 function SidebarBody({
   session,
@@ -132,6 +133,7 @@ function SidebarBody({
   role,
   mode,
   hideCalendar,
+  showOutbox,
 }: {
   session: ShellSession | null
   sessionReady: boolean
@@ -139,6 +141,7 @@ function SidebarBody({
   role: string | null
   mode: WorkspaceMode
   hideCalendar: boolean
+  showOutbox: boolean
 }) {
   const { remembered } = useRememberedClient()
   return (
@@ -168,9 +171,27 @@ function SidebarBody({
         />
       </Link>
 
+      {sessionReady ? (
+        // Reads the address; the boundary keeps a prerendered page from
+        // bailing the whole sidebar out to client rendering.
+        <Suspense fallback={null}>
+          <ScopeControlView
+            variant="sidebar"
+            mode={mode}
+            organisationName={organisationName}
+            className="hidden shrink-0 px-2 pb-3 wide:flex"
+          />
+        </Suspense>
+      ) : null}
+
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-3 md:max-wide:px-1">
         {sessionReady ? (
-          <SidebarNav role={role} mode={mode} hideCalendar={hideCalendar} />
+          <SidebarNav
+            role={role}
+            mode={mode}
+            hideCalendar={hideCalendar}
+            showOutbox={showOutbox}
+          />
         ) : null}
       </div>
 
@@ -268,7 +289,12 @@ function AppShell({
   const onCalendar = isActivePath(usePathname(), "/calendar")
   const hideCalendarFromNav = hideCalendar && !onCalendar
   const context = useMemo<NavigationContext>(
-    () => ({ role, mode, hideCalendar: hideCalendarFromNav }),
+    () => ({
+      role,
+      mode,
+      hideCalendar: hideCalendarFromNav,
+      showOutbox: OUTBOX_ROUTE_READY,
+    }),
     [role, mode, hideCalendarFromNav]
   )
 
@@ -307,7 +333,7 @@ function ShellFrame({
   context: NavigationContext
   children: React.ReactNode
 }) {
-  const { role, mode, hideCalendar = false } = context
+  const { role, mode, hideCalendar = false, showOutbox = false } = context
   const agency = mode === "agency"
   const pathname = usePathname()
   const palette = useCommandPalette()
@@ -367,6 +393,7 @@ function ShellFrame({
           role={role}
           mode={mode}
           hideCalendar={hideCalendar}
+          showOutbox={showOutbox}
         />
       </aside>
 
@@ -387,6 +414,7 @@ function ShellFrame({
         />
         <Toolbar
           sessionReady={sessionReady}
+          organisationName={organisationName}
           onOpenPalette={() => palette.setOpen(true)}
           className="sticky top-0 z-chrome print:hidden"
         />
@@ -419,7 +447,7 @@ function ShellFrame({
           className={cn(
             "flex flex-1 flex-col outline-none",
             "max-md:pb-[calc(var(--np-tabbar-h)+var(--np-safe-bottom))] max-md:[body:has([data-docked=bottom])_&]:pb-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))]",
-            "md:[@media(min-height:620px)]:has-[[data-width=workspace]]:min-h-0"
+            "md:tall:has-[[data-width=workspace]]:min-h-0"
           )}
         >
           {sessionReady ? children : null}
