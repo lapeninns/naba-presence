@@ -307,7 +307,7 @@ describe("deriveReplyStatus", () => {
   it.each([
     ["publish", "Sending to Google", "Sending"],
     ["submit", "Submitting for approval", "Submitting"],
-    ["approve", "Recording your approval", "Approving"],
+    ["approve", "Sending to Google", "Sending"],
     ["reject", "Sending the reply back", "Sending back"],
     ["save", "Saving and checking the draft", "Saving draft"],
     ["generate", "Generating a draft", "Generating"],
@@ -462,6 +462,26 @@ describe("deriveReplyStatus", () => {
     expect(
       deriveReplyStatus({ ...readyToPublish(), workflowStatus: "new" })
     ).toMatchObject({ text: "Cannot be sent yet", short: "Not ready" })
+  })
+
+  it("says a reply an approver sent back is Sent back, waiting on its author", () => {
+    const sentBack = {
+      ...readyToPublish(),
+      workflowStatus: "drafted",
+      sentBack: true,
+    }
+    expect(deriveReplyStatus(sentBack)).toMatchObject({
+      text: "Sent back",
+      short: "Sent back",
+      tone: "caution",
+      note: "edit the reply, then send it again",
+    })
+    // Editing it speaks about the edit instead.
+    expect(deriveReplyStatus({ ...sentBack, isDirty: true }).short).toBe(
+      "Unsaved changes"
+    )
+    // Saved, it sits on the track as a draft: nothing has gone to Google.
+    expect(replyTrackState(sentBack)).toBe("saved_locally")
   })
 })
 

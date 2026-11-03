@@ -79,6 +79,12 @@ export type ReplyStateInput = {
   isDirty: boolean
   pending?: ReplyPendingKind | null
   /**
+   * An approver sent the saved reply back (the detail's `lastRejection`):
+   * it is a draft again, waiting on its author, not a reply that merely
+   * cannot be sent. Absent on list rows.
+   */
+  sentBack?: boolean
+  /**
    * Who an `awaiting_approval` reply is waiting on, when the caller knows it
    * authoritatively — which today means the server put the row in a queue that
    * says so.
@@ -320,7 +326,8 @@ export function isAwaitingGoogleCheck(
 const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
   publish: [describeOutcome("sent").label, "Sending"],
   submit: ["Submitting for approval", "Submitting"],
-  approve: ["Recording your approval", "Approving"],
+  // Approving publishes in the same request, so it reads as a send.
+  approve: [describeOutcome("sent").label, "Sending"],
   reject: ["Sending the reply back", "Sending back"],
   save: ["Saving and checking the draft", "Saving draft"],
   generate: ["Generating a draft", "Generating"],
@@ -468,6 +475,18 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
 
   if (work.draftBody === null && work.liveBody === null) {
     return status("No reply yet", NEEDS_REPLY_LABEL)
+  }
+
+  // Unsaved edits returned earlier: once the author is editing, the line
+  // speaks about the edit instead.
+  if (input.sentBack) {
+    return status(
+      describeOutcome("changes").label,
+      describeOutcome("changes").label,
+      "caution",
+      "pen",
+      "edit the reply, then send it again"
+    )
   }
 
   const verdict = input.verification?.verdict
