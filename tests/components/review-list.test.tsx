@@ -1125,8 +1125,8 @@ describe("ReviewList row anatomy", () => {
     expect(venue.contains(status)).toBe(false)
     const trailing = status.closest('[data-slot="list-row-trailing"]')!
     expect(trailing).toHaveAttribute("data-placement", "adaptive")
-    expect(trailing).toHaveClass("not-desk:order-1", "shrink-0")
-    expect(subtitle.parentElement).toHaveClass("not-desk:contents")
+    expect(trailing).toHaveClass("order-1", "desk:order-none", "shrink-0")
+    expect(subtitle.parentElement).toHaveClass("contents", "desk:flex")
     expect(pill).toHaveClass("bg-transparent", "border-0")
     const location = button.querySelector('[data-slot="review-row-location"]')!
     expect(

@@ -12,8 +12,9 @@ describe("ListRow", () => {
     const trailing = () =>
       document.querySelector('[data-slot="list-row-trailing"]')!
     expect(trailing()).toHaveAttribute("data-placement", "line")
-    expect(trailing().className).not.toMatch(/not-desk:/)
-    expect(trailing().parentElement?.className).not.toMatch(/not-desk:/)
+    expect(trailing().className).not.toMatch(/order-/)
+    expect(trailing().parentElement).toHaveClass("flex")
+    expect(trailing().parentElement).not.toHaveClass("contents")
 
     // Adaptive: the line dissolves on touch and the pill is ordered under
     // the preview, still one element, so nothing is announced twice.
@@ -28,10 +29,11 @@ describe("ListRow", () => {
       />
     )
     expect(trailing()).toHaveAttribute("data-placement", "adaptive")
-    expect(trailing()).toHaveClass("not-desk:order-1")
-    expect(trailing().parentElement).toHaveClass("not-desk:contents")
+    expect(trailing()).toHaveClass("order-1", "desk:order-none")
+    expect(trailing().parentElement).toHaveClass("contents", "desk:flex")
     expect(document.querySelector('[data-slot="list-row-tags"]')).toHaveClass(
-      "not-desk:order-2"
+      "order-2",
+      "desk:order-none"
     )
     expect(
       document.querySelector('[data-slot="list-row-subtitle"]')

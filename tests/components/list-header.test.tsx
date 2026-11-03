@@ -110,7 +110,7 @@ describe("freshness", () => {
     const user = userEvent.setup()
     renderHeader()
     await user.click(screen.getByRole("button", { name: "Select" }))
-    expect(screen.getByTestId("freshness")).toHaveClass("not-desk:hidden")
+    expect(screen.getByTestId("freshness")).toHaveClass("hidden", "desk:block")
   })
 })
 

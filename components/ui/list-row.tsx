@@ -482,10 +482,12 @@ function ListRow({
         {subtitle != null || trailing != null ? (
           <span
             className={cn(
-              "flex min-w-0 items-center gap-2",
+              "min-w-0 items-center gap-2",
               // On touch the line dissolves into the column, so `order`
               // can drop the pill under the preview without a second copy.
-              adaptive && "not-desk:contents"
+              // Written as touch-first plus `desk:` because a negated
+              // `desk` query (`not (a) and (b)`) is invalid media syntax.
+              adaptive ? "contents desk:flex" : "flex"
             )}
           >
             <span
@@ -505,7 +507,7 @@ function ListRow({
                 data-placement={trailingPlacement}
                 className={cn(
                   "flex shrink-0 items-center gap-1.5",
-                  adaptive && "not-desk:order-1 not-desk:mt-1"
+                  adaptive && "order-1 mt-1 desk:order-none desk:mt-0"
                 )}
               >
                 {trailing}
@@ -529,7 +531,7 @@ function ListRow({
             data-slot="list-row-tags"
             className={cn(
               "mt-1 flex min-w-0 flex-wrap gap-1.5",
-              adaptive && "not-desk:order-2"
+              adaptive && "order-2 desk:order-none"
             )}
           >
             {tags}
