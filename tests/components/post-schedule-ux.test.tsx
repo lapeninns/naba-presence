@@ -300,7 +300,7 @@ describe("the schedule sheet", () => {
       })
     )
     expect(
-      await screen.findByText("Schedule sent for approval")
+      await screen.findByText("Schedule saved, awaiting approval")
     ).toBeInTheDocument()
     expect(
       calls.filter(
