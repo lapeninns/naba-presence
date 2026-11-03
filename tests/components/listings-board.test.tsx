@@ -687,6 +687,52 @@ describe("ListingsBoard", () => {
     ).toBeInTheDocument()
   })
 
+  it("reads a health and order it does not know as the whole board, worst first", () => {
+    search = "health=bogus&order=bogus"
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    for (const name of ["Old Crown Girton", "Harbour View", "Pier Cafe"])
+      expect(screen.getByRole("link", { name })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole("group", { name: "Filter by health" })).getByRole(
+        "button",
+        { name: /^All/ }
+      )
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      screen.getByRole("button", { name: /^Order listings:/ })
+    ).toHaveAccessibleName(/Worst first/)
+  })
+
+  it("says a deep link filtered to nothing is filtered, and Clear filters brings the board back", async () => {
+    search = "health=attention"
+    window.history.replaceState(null, "", `/listings?${search}`)
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(screen.getByText("No listings match")).toBeInTheDocument()
+    expect(
+      screen.getByText("No listing is in “Needs attention” right now.")
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Harbour View" })).toBeNull()
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }))
+    expect(
+      screen.getByRole("link", { name: "Harbour View" })
+    ).toBeInTheDocument()
+    expect(replace.mock.lastCall?.[0]).not.toMatch(/health=|clientId=|q=/)
+    await waitFor(() =>
+      expect(
+        screen.getByRole("searchbox", { name: "Search listings" })
+      ).toHaveFocus()
+    )
+  })
+
   it("selects every listing shown from the table header's select-all bar, and docks the selection bar", async () => {
     stub({
       entries,
