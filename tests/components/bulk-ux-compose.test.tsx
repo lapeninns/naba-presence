@@ -93,6 +93,15 @@ const pickDate = (value = "2026-12-25") =>
   })
 
 describe("BulkCompose first run (p4-F13 C1, C2)", () => {
+  it("keeps the date field's focus halo while its calendar button has focus", () => {
+    renderWithProviders(<BulkCompose />)
+    const date = screen.getByLabelText("Date", { exact: true })
+    expect(date).toHaveClass(
+      "focus-within:shadow-(--np-focus-halo)",
+      "focus-within:border-accent-solid"
+    )
+  })
+
   it("asks for the date as the next step, never the contract's ISO wording", () => {
     renderWithProviders(<BulkCompose />)
     expect(screen.queryByText(/Invalid ISO date/)).toBeNull()
@@ -154,6 +163,28 @@ describe("BulkCompose with no listings (p4-F13 C3)", () => {
     search = "ids=not-a-listing"
     renderWithProviders(<BulkCompose />)
     expect(screen.getByText("Choose listings first")).toBeInTheDocument()
+  })
+
+  it("keeps the empty state to one short sentence", () => {
+    search = ""
+    renderWithProviders(<BulkCompose />)
+    const line = screen.getByText("Tick them on the Listings board first.")
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+  })
+
+  it("offers a way back to the board when the selection is over the listing cap", () => {
+    search = `ids=${Array.from(
+      { length: 51 },
+      (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`
+    ).join(",")}`
+    renderWithProviders(<BulkCompose />)
+    expect(
+      screen.getAllByText(/covers at most 50 listings; this selection has 51/)
+        .length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getByRole("link", { name: "Choose listings" })
+    ).toHaveAttribute("href", "/listings")
   })
 })
 
@@ -233,12 +264,19 @@ describe("BulkCompose preview failures (p4-F13 C5)", () => {
 })
 
 describe("BulkCompose batch copy (p4-F13 C6)", () => {
+  it("never says the preview sends, or that anything is published", () => {
+    renderWithProviders(<BulkCompose />)
+    const form = document.body.textContent ?? ""
+    expect(form).not.toMatch(/preview sends/i)
+    expect(form).not.toMatch(/published|live on Google/i)
+  })
+
   it("speaks of one batch, before and after a change is added", async () => {
     const user = userEvent.setup()
     renderWithProviders(<BulkCompose />)
     expect(
       screen.getByText(
-        /Preview sends the change above on its own\. To send more than one change to each listing, add each one to the batch\./
+        /With nothing in the batch, the preview covers the change above on its own\. To make more than one change to each listing, add each one to the batch\./
       )
     ).toBeInTheDocument()
     pickDate()

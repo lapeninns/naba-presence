@@ -606,7 +606,9 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       await page
         .getByRole("button", { name: "Start bulk change", exact: true })
         .click()
-      await expect(page.getByText(/Running\./)).toBeVisible()
+      await expect(
+        page.getByText(/Sending to Google\. This page updates/)
+      ).toBeVisible()
       await backend.tick()
       await page.reload()
       await expect(
@@ -677,7 +679,9 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         ).toBeVisible()
         await page.locator("body").focus()
         await tabToAndPress(page, "Start bulk change")
-        await expect(page.getByText(/Running\./)).toBeVisible()
+        await expect(
+          page.getByText(/Sending to Google\. This page updates/)
+        ).toBeVisible()
         // Each listing's two changes run in order, one at a time per listing.
         for (let tick = 0; tick < 4; tick += 1) {
           await backend.tick()

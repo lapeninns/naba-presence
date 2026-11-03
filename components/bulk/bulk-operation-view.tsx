@@ -58,15 +58,15 @@ import { describeChildChange, maskLabel } from "./bulk-change-summary"
 const CHILD: Record<BulkChild["status"], { label: string; tone: PillTone }> = {
   previewed: { label: "Ready", tone: "info" },
   skipped: { label: "Skipped", tone: "outline" },
-  queued: { label: "Queued", tone: "info" },
-  running: { label: "Sending", tone: "info" },
+  queued: { label: "Sending to Google", tone: "info" },
+  running: { label: "Sending to Google", tone: "info" },
   // `succeeded` is only "sent": whether Google holds it is the child's
   // confirmationState (childPill below).
   succeeded: { label: "Sent", tone: "info" },
   failed: { label: describeOutcome("failed").label, tone: "bad" },
   conflict: { label: describeOutcome("conflict").label, tone: "warn" },
   ambiguous: { label: describeOutcome("uncertain").label, tone: "warn" },
-  cancelled: { label: "Cancelled", tone: "outline" },
+  cancelled: { label: "Withdrawn", tone: "outline" },
   expired: { label: "Expired, not sent", tone: "outline" },
 }
 /**
@@ -394,7 +394,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 mutate.mutate("retry")
               }}
             >
-              Retry {retryable} unconfirmed {unit(retryable)}
+              Retry sending to {retryable} {unit(retryable)}
             </Button>
           ) : null,
           canRepreview && repreview ? (
@@ -478,14 +478,29 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
             ? `${OPERATION_LABEL[op.operation]} across ${listings} ${listings === 1 ? "listing" : "listings"}`
             : "Bulk change"
         }
-        description="Each listing is read from Google, changed once and confirmed by reading it back. Listings are independent: one failing does not undo another."
+        description={
+          op && isBulkReviewOperation(op.operation)
+            ? "Each reply is sent to Google on its own, then checked there. One failing does not undo another."
+            : "Each listing is read from Google, changed once, then read back to check Google shows it. Listings are independent: one failing does not undo another."
+        }
         actions={
-          <Link
-            href="/listings"
-            className={buttonVariants({ variant: "secondary" })}
-          >
-            Back to listings
-          </Link>
+          // A batch of review replies is started from the inbox; back goes
+          // where it came from.
+          op && isBulkReviewOperation(op.operation) ? (
+            <Link
+              href="/inbox"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to inbox
+            </Link>
+          ) : (
+            <Link
+              href="/listings"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to listings
+            </Link>
+          )
         }
       />
       {/* A failed refresh keeps the last batch the server sent on screen
@@ -529,20 +544,15 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                   : op.status === "approved"
                     ? "Approved. Start it to queue each listing."
                     : op.status === "running"
-                      ? "Running. This page updates on its own; you can leave it."
+                      ? "Sending to Google. This page updates on its own; you can leave it."
                       : op.status === "completed"
                         ? "Every eligible listing was sent. Each one below says whether Google confirmed it."
                         : op.status === "completed_with_failures"
-                          ? "Finished with some listings not changed."
+                          ? "Finished. Some listings didn’t go through or aren’t confirmed; each one below says which."
                           : op.status === "cancelled"
-                            ? "Cancelled. Listings already confirmed keep their change."
+                            ? "Stopped. Listings already sent keep their change; nothing else is sent."
                             : "This change expired. Nothing more will be sent; prepare a new preview."}{" "}
-                {Object.entries(op.counts)
-                  .map(
-                    ([status, count]) =>
-                      `${count} ${CHILD[status as BulkChild["status"]]?.label.toLowerCase() ?? status}`
-                  )
-                  .join(" · ")}
+                {countLine(op.counts)}
               </p>
               {showProgress && total > 0 ? (
                 <div className="flex flex-col gap-1.5">
@@ -794,6 +804,25 @@ const clockTime = (ms: number) => {
  * running, or a listing in it is queued or still sending (a cancelled
  * batch's in-flight listing finishes; the runner does not reopen it).
  */
+/**
+ * The server's counts in pill words, one entry per word ("queued" and
+ * "running" are both Sending to Google). Only the first letter is lowered,
+ * so "Google" keeps its capital.
+ */
+export function countLine(counts: Operation["counts"]) {
+  const byLabel = new Map<string, number>()
+  for (const [status, count] of Object.entries(counts)) {
+    if (!count) continue
+    const label = CHILD[status as BulkChild["status"]]?.label ?? status
+    byLabel.set(label, (byLabel.get(label) ?? 0) + count)
+  }
+  return [...byLabel]
+    .map(
+      ([label, count]) => `${count} ${label[0]!.toLowerCase()}${label.slice(1)}`
+    )
+    .join(" · ")
+}
+
 function moving(operation: Operation | undefined) {
   return Boolean(
     operation &&
