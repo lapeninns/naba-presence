@@ -504,9 +504,7 @@ export function PostComposerSheet({
       return saved
     },
     invalidate: [queryKeys.locationPosts(locationId)],
-    successToast: post
-      ? "Draft updated. Google is not affected."
-      : "Draft saved. Google is not affected.",
+    successToast: { outcome: "saved_locally" },
     errorContext: "post",
     errorToast: saveErrorCopy,
     // Shown beside the buttons with the acknowledgement, not as a failure.
@@ -653,7 +651,7 @@ export function PostComposerSheet({
   const publishLabel = gate?.requestApproval
     ? "Request approval"
     : post?.status === "failed"
-      ? "Retry publish"
+      ? "Retry sending"
       : "Publish to Google"
   // Adding a new photo goes through the library's own flow, which writes to
   // Google; choosing one Google already has does not.
@@ -1419,7 +1417,7 @@ export function PostComposerSheet({
                 .join(" ")}
               pending={publish.isPending}
               pendingLabel={
-                gate.requestApproval ? "Requesting…" : "Publishing…"
+                gate.requestApproval ? "Requesting…" : "Sending…"
               }
             >
               {gate.requestApproval ? null : <UploadIcon aria-hidden />}

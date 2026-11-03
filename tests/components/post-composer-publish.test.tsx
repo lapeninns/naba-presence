@@ -149,8 +149,20 @@ describe("PostComposerSheet publishing", () => {
     )
     expect(screen.queryByRole("alertdialog")).toBeNull()
     expect(
-      await screen.findByText("Post confirmed on Google")
+      await screen.findByText("Confirmed on Google")
     ).toBeInTheDocument()
+  })
+
+  it("says Sending… while the post goes to Google, never Publishing…", async () => {
+    const user = userEvent.setup()
+    api.publishPost.mockImplementation(() => new Promise(() => {}))
+    renderComposer()
+    const sheet = await openAndWrite(user)
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    expect(await within(sheet).findByText("Sending…")).toBeInTheDocument()
+    expect(within(sheet).queryByText("Publishing…")).toBeNull()
   })
 
   it("draws the consent line whenever Publish to Google is on screen", async () => {
@@ -222,7 +234,7 @@ describe("PostComposerSheet publishing", () => {
     )
     await waitFor(() => expect(api.publishPost).toHaveBeenCalledOnce())
     expect(
-      await screen.findByText("Post submitted for approval.")
+      await screen.findByText("Awaiting approval")
     ).toBeInTheDocument()
   })
 
@@ -316,7 +328,7 @@ describe("PostComposerSheet publishing", () => {
       " tonight"
     )
     await user.click(
-      within(sheet).getByRole("button", { name: "Retry publish" })
+      within(sheet).getByRole("button", { name: "Retry sending" })
     )
     await waitFor(() => expect(api.updatePost).toHaveBeenCalledOnce())
     expect(api.publishPost).not.toHaveBeenCalled()
@@ -340,15 +352,15 @@ describe("PostComposerSheet publishing", () => {
     expect(api.createPost).not.toHaveBeenCalled()
   })
 
-  it("names Retry publish in the consent line for a failed post", async () => {
+  it("names Retry sending in the consent line for a failed post", async () => {
     const user = userEvent.setup()
     renderComposer({ post: savedPost({ status: "failed" }) })
     await user.click(screen.getByRole("button", { name: "Edit" }))
     const sheet = await screen.findByRole("dialog")
     expect(
-      within(sheet).getByRole("button", { name: "Retry publish" })
+      within(sheet).getByRole("button", { name: "Retry sending" })
     ).toBeEnabled()
-    expect(within(sheet).getByText(/^Retry publish sends this/)).toBeVisible()
+    expect(within(sheet).getByText(/^Retry sending sends this/)).toBeVisible()
   })
 
   it("explains why Publish is off, on the button itself, when publishing is paused", async () => {

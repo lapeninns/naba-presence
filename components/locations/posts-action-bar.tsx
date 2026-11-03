@@ -401,7 +401,7 @@ export function PostsActionBar({
   const publishLabel = offerRequestApproval
     ? "Request approval"
     : post.status === "failed"
-      ? "Retry publish"
+      ? "Retry sending"
       : scheduling
         ? "Publish now"
         : "Publish"

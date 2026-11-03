@@ -108,7 +108,7 @@ describe("publish consent", () => {
   it("asks to publish a failed post again and says a retry adds no second post", async () => {
     api.publishPost.mockResolvedValue({ status: "published", postId: "p1" })
     renderRow({ post: post({ status: "failed" }) })
-    await userEvent.click(screen.getByRole("button", { name: "Retry publish" }))
+    await userEvent.click(screen.getByRole("button", { name: "Retry sending" }))
     const dialog = await screen.findByRole("alertdialog")
     expect(dialog).toHaveAccessibleName("Publish this post to Google again?")
     expect(
