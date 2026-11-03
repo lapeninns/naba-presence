@@ -33,7 +33,7 @@ export function AttributesSection({
 }: {
   metadata: readonly AttributeMetadata[]
   draft: Record<string, GoogleAttribute>
-  /** What Google holds, for the per-row "Changed" marks. */
+  /** What Google holds, for the per-row "Edited" marks. */
   initial?: Record<string, GoogleAttribute>
   onChange: (next: GoogleAttribute) => void
   onClear?: (name: string) => void
