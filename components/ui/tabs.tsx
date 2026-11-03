@@ -172,7 +172,7 @@ function useCurrentInView(
  * to a section of the same page, e.g. a profile's section nav).
  */
 const tabItemClassName = cn(
-  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
+  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-press disabled:pointer-events-none drawn-disabled:text-disabled-ink hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
@@ -190,7 +190,7 @@ const tabItemClassName = cn(
  * a faded, clipped edge rather than squeezing a label.
  */
 const textTabItemClassName = cn(
-  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
+  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-press disabled:pointer-events-none drawn-disabled:text-disabled-ink hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
@@ -366,9 +366,9 @@ export type TabNavItem = {
   disabled?: boolean
 }
 
-/** A disabled tab: muted, no pointer feedback. */
+/** A disabled tab: the disabled ink (never faded), no pointer feedback. */
 const disabledTabClassName =
-  "cursor-not-allowed font-normal opacity-60 hover-fine:hover:text-ink-muted"
+  "cursor-not-allowed font-normal text-disabled-ink hover-fine:hover:text-disabled-ink"
 
 /** The label, reason and count inside a tab, shared by every drawing of it. */
 function TabNavContent({ item }: { item: TabNavItem }) {

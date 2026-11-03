@@ -75,6 +75,7 @@ export function ChartLegend({
  * Visually hidden by default (the chart carries `aria-hidden` or a short
  * label); `visible` shows it as a compact table for a "Show values"
  * toggle, which is also how a touch user reads every figure without hover.
+ * Its header is flat like every table's (D5): no band, medium muted labels.
  * Figures are mono tabular and right-aligned. A visible table with many
  * series can be wider than a phone: wrap it in a box with `overflow-x-auto`
  * (report-bar-chart.tsx does) rather than letting it widen the page.
@@ -102,7 +103,7 @@ export function ChartDataTable({
       data-slot="chart-data-table"
       className={cn(
         visible
-          ? "w-full border-collapse text-ui [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-line [&_th]:bg-surface-alt [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-caption [&_th]:font-semibold [&_th]:text-ink-muted"
+          ? "w-full border-collapse text-ui [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-line [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-caption [&_th]:font-medium [&_th]:text-ink-muted"
           : "sr-only",
         className
       )}

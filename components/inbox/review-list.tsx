@@ -416,15 +416,10 @@ function ReviewList({
               actionsLabel={`Actions for ${displayName}`}
               emphasis={needsReply ? "unread" : "read"}
               unreadLabel={pillSpokenByTitle ? status.text : "Needs reply"}
-              // The non-colour half of the selection cue beside the fill
-              // (the primitive has none): an ink bar down the leading edge
-              // (reference `.q-item[aria-selected]`), the accent staying
-              // reserved for the one action that publishes.
-              wrapperClassName={cn(
-                "group/review-row",
-                selected &&
-                  "before:absolute before:inset-y-2 before:start-0 before:z-raised before:w-0.75 before:rounded-e-full before:bg-ink before:content-['']"
-              )}
+              // The ink edge beside the fill is the primitive's own
+              // selected state (`shadow-np-edge-select`), so the inbox draws
+              // no second bar of its own.
+              wrapperClassName="group/review-row"
               leading={
                 selection?.selectMode && showControl ? null : (
                   <ReviewAvatar
@@ -449,7 +444,9 @@ function ReviewList({
                   <span
                     data-slot="review-row-select"
                     className={cn(
-                      "size-full items-center justify-center bg-surface",
+                      // On the row's own ground, so a selected row's fill
+                      // runs under the box rather than a white square.
+                      "size-full items-center justify-center bg-surface group-data-selected/review-row:bg-(--np-selection-bg)",
                       selection.selectMode || selection.selected.has(review.id)
                         ? "flex"
                         : "hidden desk:flex desk:opacity-0 desk:group-focus-within/review-row:opacity-100 desk:group-hover/review-row:opacity-100"

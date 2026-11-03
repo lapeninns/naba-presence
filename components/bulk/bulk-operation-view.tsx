@@ -384,9 +384,10 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
           ) : null,
           retryable &&
           ["running", "completed_with_failures"].includes(op.status) ? (
+            // Retrying sends to Google again, so it takes the send fill.
             <Button
               key="retry"
-              variant="ghost-dark"
+              variant="send"
               disabled={mutate.isPending}
               onClick={() => {
                 setFailure(null)

@@ -4,6 +4,7 @@ import {
   ChevronDownIcon,
   CircleAlertIcon,
   RefreshCwIcon,
+  SearchIcon,
   StoreIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -29,7 +30,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { Empty } from "@/components/ui/empty"
 import {
   QuickLookFact,
   QuickLookFacts,
@@ -1465,7 +1466,7 @@ function ListingsBoard({
       {visible.length === 0 ? (
         <Empty
           framed
-          illustration={<EmptyIllustration name="search" />}
+          icon={<SearchIcon />}
           title={
             needle
               ? `No listings match “${search.trim()}”`

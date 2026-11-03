@@ -16,7 +16,11 @@ function TooltipProvider({
   ...props
 }: TooltipPrimitive.Provider.Props) {
   return (
-    <TooltipPrimitive.Provider delay={delay} closeDelay={closeDelay} {...props} />
+    <TooltipPrimitive.Provider
+      delay={delay}
+      closeDelay={closeDelay}
+      {...props}
+    />
   )
 }
 
@@ -93,7 +97,7 @@ function TooltipContent({
           data-slot="tooltip-content"
           className={cn(
             "max-w-xs origin-(--transform-origin) rounded-(--np-radius-control) bg-charcoal px-2 py-1 text-caption font-medium text-balance text-ink-on-charcoal outline-none",
-            "transition-[opacity,scale] duration-(--np-duration-fast) ease-spring data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-instant:duration-0",
+            "transition-[opacity,scale] duration-(--np-duration-fast) ease-emphasis data-ending-style:scale-96 data-ending-style:opacity-0 data-instant:duration-0 data-starting-style:scale-96 data-starting-style:opacity-0",
             className
           )}
           {...props}

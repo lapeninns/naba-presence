@@ -5,7 +5,6 @@ import {
   CircleAlertIcon,
   Link2Icon,
   MapPinIcon,
-  PenLineIcon,
   RefreshCwIcon,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -15,7 +14,7 @@ import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientColourField } from "@/components/clients/client-colour-field"
-import { ActionBar } from "@/components/ui/action-bar"
+import { ActionBar, SaveBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -1149,18 +1148,12 @@ function ClientDetailsForm({
       {/* Only once there is something to save. Docked to a phone's bottom
           edge (the tab bar steps aside and the bar rides the keyboard);
           stuck to the foot of the form on a desk. */}
-      <ActionBar
+      <SaveBar
         dock
-        tone="surface"
         visible={dirty}
         offset="md:bottom-3"
         label="Save client details"
-        status={
-          <>
-            <PenLineIcon aria-hidden />
-            <span>{pending ? "Saving…" : "Unsaved changes"}</span>
-          </>
-        }
+        saving={pending}
         actions={
           <>
             <Button

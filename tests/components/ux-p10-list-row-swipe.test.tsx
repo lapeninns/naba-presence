@@ -211,9 +211,11 @@ describe("ListRow swipeActions", () => {
     const danger = screen.getByRole("button", { name: "Delete" })
     expect(danger.className).toContain("bg-danger-solid")
     expect(danger.className).toContain("text-danger-on-solid")
-    expect(screen.getByRole("button", { name: "Archive" }).className).toContain(
-      "bg-accent-solid"
-    )
+    // A triage action writes nothing to Google, so it is ink, not the
+    // send green.
+    const archive = screen.getByRole("button", { name: "Archive" })
+    expect(archive.className).toContain("bg-ink")
+    expect(archive.className).not.toContain("accent")
   })
 
   describe("the visible button alternative", () => {

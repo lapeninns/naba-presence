@@ -133,7 +133,7 @@ function ComboboxInput({
       <ComboboxPrimitive.Trigger
         data-slot="combobox-trigger"
         aria-label="Show options"
-        className="absolute top-1/2 right-0 inline-flex size-(--np-touch) -translate-y-1/2 items-center justify-center rounded-(--np-radius-field) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink data-disabled:pointer-events-none data-disabled:text-disabled-ink desk:right-1 desk:size-6 desk:rounded-(--np-radius-tag)"
+        className="absolute top-1/2 right-0 inline-flex size-(--np-touch) -translate-y-1/2 items-center justify-center rounded-(--np-radius-field) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-press data-disabled:pointer-events-none data-disabled:text-disabled-ink hover-fine:hover:bg-fill hover-fine:hover:text-ink desk:right-1 desk:size-6 desk:rounded-(--np-radius-tag)"
       >
         <ChevronsUpDownIcon className="size-4" strokeWidth={1.75} aria-hidden />
       </ComboboxPrimitive.Trigger>

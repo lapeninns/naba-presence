@@ -1,10 +1,11 @@
 "use client"
 
+import { SearchIcon } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 
 import { buttonVariants } from "@/components/ui/button"
-import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { Empty } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { LISTING_TERMS } from "@/lib/workspace/terms"
@@ -42,7 +43,7 @@ export function NotInDirectory({ kind }: { kind: "client" | "location" }) {
       <Empty
         titleAs="h2"
         placement="page"
-        illustration={<EmptyIllustration name="search" />}
+        icon={<SearchIcon />}
         title={
           kind === "client"
             ? "We can’t find this client"

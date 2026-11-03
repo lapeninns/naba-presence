@@ -280,6 +280,27 @@ describe("AccessDenied", () => {
     )
   })
 
+  it("names who can open it apart from who to ask, when they differ", () => {
+    renderWithSession("Outbox", {
+      whoCanOpen: "an owner, admin or member",
+    })
+    expect(
+      screen.getByText(
+        "Outbox is limited to an owner, admin or member. Ask an owner or admin in your agency if you need it."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText("Owner, admin or member")).toBeInTheDocument()
+  })
+
+  it("says who can open it with whoCanHelp when whoCanOpen is not given", () => {
+    render(<AccessDenied area="Billing" whoCanHelp="the owner" />)
+    expect(
+      screen.getByText(
+        "Billing is limited to the owner. Ask the owner in your agency if you need it."
+      )
+    ).toBeInTheDocument()
+  })
+
   it("names who can grant access, defaulting to owners and admins", () => {
     const { unmount } = renderWithSession()
     expect(

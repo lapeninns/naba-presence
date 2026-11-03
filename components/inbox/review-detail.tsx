@@ -785,7 +785,7 @@ function ReviewMedia({
                 aria-label={`Open ${label}`}
                 aria-describedby={unavailableText}
                 onClick={() => setActiveIndex(index)}
-                className="relative block w-full overflow-hidden rounded-(--np-radius-control) bg-fill focus-halo hairline transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:scale-[0.98]"
+                className="relative block w-full overflow-hidden rounded-(--np-radius-control) bg-fill focus-halo hairline transition duration-(--np-duration-fast) ease-press focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:scale-[0.98]"
               >
                 {item.thumbnailUrl && !unavailable ? (
                   // Remote Google CDN thumbnails, not project assets — next/image
@@ -985,13 +985,13 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-control) px-3 py-2 text-left text-caption focus-halo transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill focus-visible:outline-none pointer-coarse:min-h-(--np-touch)"
+          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-control) px-3 py-2 text-left text-caption focus-halo transition duration-(--np-duration-fast) ease-press hover:bg-fill focus-visible:outline-none pointer-coarse:min-h-(--np-touch)"
         >
           <ChevronRightIcon
             aria-hidden
             strokeWidth={1.75}
             className={cn(
-              "size-3.5 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) ease-spring-snappy",
+              "size-3.5 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) ease-press",
               open && "rotate-90"
             )}
           />
@@ -1177,7 +1177,7 @@ function ReplyStatusStrip({
       data-slot="reply-status-strip"
       data-pulse={pulse ? "true" : undefined}
       className={cn(
-        "flex min-h-8 min-w-0 items-center rounded-(--np-radius-control) transition-[box-shadow] duration-(--np-duration-deliberate) ease-spring motion-reduce:transition-none",
+        "flex min-h-8 min-w-0 items-center rounded-(--np-radius-control) transition-[box-shadow] duration-(--np-duration-deliberate) ease-emphasis motion-reduce:transition-none",
         pulse && "px-2 ring-2 ring-success-solid ring-inset"
       )}
     >

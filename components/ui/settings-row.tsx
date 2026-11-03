@@ -699,8 +699,10 @@ function SettingsDestructiveAction({
     <button
       type={type}
       className={cn(
-        "inline-flex min-h-(--np-touch) items-center justify-center rounded-(--np-radius-control) px-4 text-body font-medium text-danger-ink focus-halo hover-fine:hover:bg-danger-tint desk:min-h-(--np-control-h)",
-        "disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex min-h-(--np-touch) items-center justify-center rounded-(--np-radius-control) px-4 text-body font-medium text-danger-ink focus-halo hover-fine:hover:enabled:bg-danger-tint desk:min-h-(--np-control-h)",
+        // Disabled is drawn in the disabled ink, never faded, and takes no
+        // hover fill.
+        "disabled:cursor-not-allowed disabled:text-disabled-ink",
         className
       )}
       {...props}

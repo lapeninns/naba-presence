@@ -29,20 +29,24 @@ export const selectionHitAreaClassName = cn(
  * shrinks back to 24px here — the row already is the target, and a 44px halo
  * would reach into the row above.
  *
- * Disabled is drawn once: the control fades, the words turn muted. Fading
- * the row as well multiplied the two (0.5 × 0.6 = 0.3) and left the label
- * unreadable.
+ * Disabled is drawn, never faded: the control takes the disabled roles and
+ * the words the disabled ink. Fading the row (and the control in it) left
+ * the label at about 0.3 opacity, unreadable.
  */
 export const selectionRowClassName = cn(
   "flex min-h-(--np-touch) cursor-pointer items-start gap-2.5 py-2.5 text-body text-ink select-none",
   "desk:min-h-6 desk:py-0",
-  "has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:text-ink-muted"
+  "has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:text-disabled-ink"
 )
 
 /**
  * Reference `.check`: an 18px box, 5px radius, a 1.5px `line-strong` edge on
  * the surface; checked or indeterminate it fills with the accent solid and
  * draws the mark in the on-accent ink.
+ *
+ * Disabled, the box sinks to the disabled fill with the quiet disabled edge;
+ * checked or indeterminate it keeps its mark, drawn with its edge in the
+ * disabled ink, so a disabled tick is still told apart from an empty box.
  *
  * Optional `label` and `description` wrap the box in a native `<label>` so
  * the words are the click target and the accessible name (reference
@@ -72,12 +76,14 @@ function Checkbox({
       aria-describedby={description ? `${id}-desc` : undefined}
       className={cn(
         "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-sm border-[1.5px] border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
-        "transition-[background-color,border-color] duration-(--np-duration-fast) ease-spring-snappy",
+        "transition-[background-color,border-color] duration-(--np-duration-fast) ease-press",
         hasLabel
           ? "after:absolute after:inset-[calc((100%-var(--np-touch-min))/2)] after:content-['']"
           : selectionHitAreaClassName,
         "data-indeterminate:border-primary data-indeterminate:bg-primary data-checked:border-primary data-checked:bg-primary",
-        "data-disabled:cursor-not-allowed data-disabled:opacity-50",
+        "data-disabled:cursor-not-allowed data-disabled:border-disabled-line data-disabled:bg-disabled",
+        "data-disabled:data-checked:border-disabled-ink data-disabled:data-checked:bg-disabled data-disabled:data-checked:text-disabled-ink",
+        "data-disabled:data-indeterminate:border-disabled-ink data-disabled:data-indeterminate:bg-disabled data-disabled:data-indeterminate:text-disabled-ink",
         "aria-invalid:border-danger-ink",
         className
       )}
@@ -85,7 +91,7 @@ function Checkbox({
     >
       <CheckboxPrimitive.Indicator
         className={cn(
-          "flex transition-[transform,opacity] duration-(--np-duration-fast) ease-spring",
+          "flex transition-[transform,opacity] duration-(--np-duration-fast) ease-emphasis",
           "data-ending-style:scale-50 data-ending-style:opacity-0 data-starting-style:scale-50 data-starting-style:opacity-0"
         )}
       >

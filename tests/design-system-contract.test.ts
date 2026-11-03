@@ -50,12 +50,10 @@ const SEMANTIC_ROLES = [
   "--np-surface-overlay",
   "--np-ink",
   "--np-ink-muted",
-  "--np-ink-faint",
   "--np-ink-inverse",
   "--np-line-subtle",
   "--np-line",
   "--np-line-strong",
-  "--np-line-focus",
   "--np-accent",
   "--np-accent-hover",
   "--np-accent-active",
@@ -85,8 +83,8 @@ const SEMANTIC_ROLES = [
   "--np-duration-standard",
   "--np-duration-overlay",
   "--np-ease-standard",
-  "--np-ease-spring",
-  "--np-ease-spring-snappy",
+  "--np-ease-press",
+  "--np-ease-emphasis",
   "--np-sidebar-width",
   "--np-toolbar-h",
   "--np-page-pad-x",
@@ -203,6 +201,37 @@ describe("NabaPresence design tokens", () => {
     expect(globals).toMatch(
       /prefers-reduced-motion: reduce[\s\S]*animation-duration: 0\.01ms/
     )
+    // The duration tokens collapse too (SYSTEM §13 keeps both rules).
+    expect(globals).toMatch(
+      /prefers-reduced-motion: reduce\)\s*\{\s*:root\s*\{\s*--np-duration-fast: 1ms;/
+    )
+  })
+
+  it("keeps no entrance or shimmer keyframes (SYSTEM §12, §13)", () => {
+    // Screens arrive at their final frame and loading only pulses.
+    for (const name of [
+      "shimmer",
+      "np-rise",
+      "np-rise-lg",
+      "np-slide-in",
+      "np-fade",
+    ]) {
+      expect(globals).not.toMatch(new RegExp(`@keyframes ${name}\\b`))
+    }
+    expect(globals).not.toContain("enter-stagger")
+  })
+
+  it("keeps no retired roles (SYSTEM §2.1)", () => {
+    // ink-faint equalled ink-muted in both themes; the focus line and field
+    // rings had no consumer.
+    for (const role of [
+      "--np-ink-faint",
+      "--color-ink-faint",
+      "--np-line-focus",
+      "--np-field-ring",
+    ]) {
+      expect(globals).not.toContain(role)
+    }
   })
 
   it("does not import the prototype runtime", () => {
@@ -218,11 +247,15 @@ describe("NabaPresence design tokens", () => {
   })
 
   it("encodes motion as a strong ease-out, never a spring", () => {
-    // The spring names survive for the utilities that read them, but they
-    // resolve to a cubic-bezier that settles without overshoot.
-    expect(globals).toMatch(/--np-ease-spring:\s*cubic-bezier\(/)
-    expect(globals).toMatch(/--np-ease-spring-snappy:\s*cubic-bezier\(/)
-    expect(globals).not.toMatch(/--np-ease-spring(-snappy)?:\s*linear\(/)
+    // The curves are named for what they do (SYSTEM §13), press and
+    // emphasis, and resolve to a cubic-bezier that settles without
+    // overshoot. The old spring names are gone, aliases and utilities alike.
+    expect(globals).toMatch(/--np-ease-press:\s*cubic-bezier\(/)
+    expect(globals).toMatch(/--np-ease-emphasis:\s*cubic-bezier\(/)
+    expect(globals).not.toMatch(/--np-ease-(press|emphasis):\s*linear\(/)
+    expect(globals).toMatch(/--ease-press:\s*var\(--np-ease-press\)/)
+    expect(globals).toMatch(/--ease-emphasis:\s*var\(--np-ease-emphasis\)/)
+    expect(globals).not.toMatch(/ease-spring/)
     expect(globals).toMatch(
       /--np-ease-out:\s*cubic-bezier\(0\.16, 1, 0\.3, 1\)/
     )

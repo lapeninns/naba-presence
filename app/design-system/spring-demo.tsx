@@ -6,23 +6,24 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 
 /**
- * The two spring curves beside the standard curve, driven by the same
- * tokens the product uses. A client component because the demo needs a
+ * The emphasis and press curves beside the standard curve, driven by the
+ * same tokens the product uses. A client component because the demo needs a
  * click to replay and a switch to slow it down; the curves themselves are
- * read from CSS, so a retuned `linear()` in globals.css shows up here.
+ * read from CSS, so a retuned curve in globals.css shows up here. Neither is
+ * a spring (SYSTEM §13): both settle without overshoot.
  */
 const CURVES = [
   {
-    id: "spring",
-    label: "Spring",
-    token: "--np-ease-spring",
-    note: "Overlays entering, switch thumbs, the tab indicator. One gentle overshoot, then it settles.",
+    id: "emphasis",
+    label: "Emphasis",
+    token: "--np-ease-emphasis",
+    note: "Overlays entering, switch thumbs, the tab indicator. A strong ease-out that settles without overshoot.",
   },
   {
-    id: "spring-snappy",
-    label: "Spring, snappy",
-    token: "--np-ease-spring-snappy",
-    note: "Hover, press and the segmented thumb. Quick, with almost no overshoot.",
+    id: "press",
+    label: "Press",
+    token: "--np-ease-press",
+    note: "Hover, press and the segmented thumb. Quick, with no overshoot.",
   },
   {
     id: "standard",
@@ -104,18 +105,18 @@ export function SpringDemo() {
                   scale: at ? "1" : "0.96",
                   transitionDuration: at ? duration : "var(--np-duration-fast)",
                   transitionTimingFunction: at
-                    ? "var(--np-ease-spring)"
+                    ? "var(--np-ease-emphasis)"
                     : "var(--np-ease-standard)",
                 }}
               >
                 Reply published
                 <span className="mt-0.5 block text-caption text-ink-muted">
-                  Grows from its anchor on the spring, leaves fast.
+                  Grows from its anchor on the emphasis curve, leaves fast.
                 </span>
               </div>
             </div>
             <p className="text-caption text-ink-muted">
-              Menus, popovers and dialogs enter on the spring over
+              Menus, popovers and dialogs enter on the emphasis curve over
               --np-duration-overlay and exit on the standard curve over
               --np-duration-fast.
             </p>

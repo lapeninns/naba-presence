@@ -36,9 +36,10 @@ function countWords(count: number) {
 }
 
 /**
- * The one footer every location editor ends with: the dark action bar
- * (reference `.actionbar.editor-foot`), the single charcoal surface on the
- * screen, holding the action that reaches Google.
+ * The one footer every location editor ends with. With something to
+ * publish it is the charcoal DISPATCH BAR (reference `.actionbar.editor-foot`),
+ * the single charcoal surface on the screen, whose `send` primary leads to
+ * Google; with local edits only it is the surface SAVE BAR.
  *
  * A clean editor draws NO bar, at any width (the area header's pill already
  * says where the area stands); the bar arrives with the first change.
@@ -148,9 +149,10 @@ function EditorFooter({
   )
 
   if (readOnlyReason) {
+    // Nothing here is bound for Google, so it is a surface bar.
     return (
       <ActionBar
-        tone="charcoal"
+        tone="surface"
         data-slot="editor-footer"
         sticky={false}
         safeArea={false}
@@ -218,6 +220,9 @@ function EditorFooter({
       destructive: true,
     })
   }
+  // "Review changes" only opens the review sheet and writes nothing to Google,
+  // so it is the light on-charcoal button; the send fill waits for the
+  // sheet's approved publish.
   const primary = isDirty ? (
     <Button
       variant="on-dark"
@@ -228,7 +233,6 @@ function EditorFooter({
     </Button>
   ) : canSave ? (
     <Button
-      variant="on-dark"
       onClick={saveAction.onClick}
       pending={saving}
       pendingLabel="Saving…"
@@ -239,9 +243,13 @@ function EditorFooter({
     </Button>
   ) : undefined
 
+  // Charcoal (the dispatch bar) only while there is something to publish;
+  // local edits that match Google, or a conflict with nothing to send, are
+  // the surface save bar, whose primary is the ink "Save here". (An ink
+  // button on charcoal is 1.05:1.)
   return (
     <ActionBar
-      tone="charcoal"
+      tone={isDirty ? "charcoal" : "surface"}
       data-slot="editor-footer"
       // Docked on a phone: fixed to the bottom edge, riding the keyboard,
       // the tab bar stepping aside (the primitive's docking contract). One
@@ -303,7 +311,7 @@ function EditorFooter({
       {reason ? (
         <p
           role="note"
-          className="order-last w-full text-caption text-ink-muted-on-charcoal"
+          className="order-last w-full text-caption text-ink-muted-on-charcoal in-data-[bar-tone=surface]:text-ink-muted"
         >
           {reason}
         </p>

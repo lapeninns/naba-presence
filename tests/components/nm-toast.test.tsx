@@ -40,7 +40,7 @@ afterEach(() => {
 })
 
 describe("Toast look", () => {
-  it("is a charcoal 12px-radius toast at least 52px tall, in body text", () => {
+  it("is a charcoal toast on the toast radius, at least 52px tall, in body text", () => {
     const manager = setup()
     act(() => {
       showToast({ title: "Review marked done" }, manager)
@@ -49,7 +49,9 @@ describe("Toast look", () => {
     expect(root.className).toContain("rounded-toast")
     expect(root.className).toContain("bg-charcoal")
     expect(root.className).toContain("text-ink-on-charcoal")
-    expect(root.className).toContain("shadow-np-float")
+    // SYSTEM §7.3: pop is the toast's shadow; float is for menus.
+    expect(root.className).toContain("shadow-np-pop")
+    expect(root.className).not.toContain("shadow-np-float")
     expect(root).toHaveClass(
       "focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
       "forced-colors:focus-ring-inset"

@@ -47,8 +47,10 @@ import { cn } from "@/lib/utils"
  * `bg-disabled` fill with `text-disabled-ink`, and every filled or outlined
  * variant takes the quiet `border-disabled-line`, so a disabled button keeps
  * its shape on `surface-alt` (the dialog footer), which is the same step as
- * `bg-disabled` in light mode; `ghost` and `link` only change ink; and
- * `ghost-dark` keeps a readable muted drawing on the charcoal bar. The rule
+ * `bg-disabled` in light mode; `ghost` and `link` only change ink; and the
+ * charcoal-bar variants (`on-dark`, `ghost-dark`) are drawn on the lifted
+ * charcoal (`--np-disabled-on-charcoal-bg/-ink`, 6.3:1), like a disabled
+ * `send` there, rather than in a faded edge or the surface's light fill. The rule
  * matches every way a button is disabled — the native attribute, Base UI's
  * `data-disabled` (also set when it stays focusable) and a hand-set
  * `aria-disabled="true"` — except a pending button (`aria-busy`): pending is
@@ -84,7 +86,7 @@ import { cn } from "@/lib/utils"
  * frame between disabled and enabled.
  */
 const buttonCva = cva(
-  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-none duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:transition-[background-color,border-color,color,box-shadow,transform] disabled:pointer-events-none aria-busy:cursor-progress aria-invalid:text-danger-ink motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px drawn-disabled:cursor-not-allowed drawn-disabled:transition-none hover-fine:hover:transition-[background-color,border-color,color,box-shadow,transform] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
+  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-none duration-(--np-duration-fast) ease-press select-none focus-visible:outline-none active:transition-[background-color,border-color,color,box-shadow,transform] disabled:pointer-events-none aria-busy:cursor-progress aria-invalid:text-danger-ink motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px drawn-disabled:cursor-not-allowed drawn-disabled:transition-none hover-fine:hover:transition-[background-color,border-color,color,box-shadow,transform] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -106,9 +108,9 @@ const buttonCva = cva(
         destructive:
           "border-danger-ink bg-surface text-danger-ink active:not-data-disabled:not-aria-disabled:bg-danger-tint drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-danger-tint",
         "on-dark":
-          "bg-ink-on-charcoal text-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal",
+          "bg-ink-on-charcoal text-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal drawn-disabled:border-transparent drawn-disabled:bg-disabled-on-charcoal drawn-disabled:text-disabled-on-charcoal-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal",
         "ghost-dark":
-          "border-ink-muted-on-charcoal bg-transparent text-ink-on-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/15 drawn-disabled:border-ink-muted-on-charcoal/40 drawn-disabled:text-ink-muted-on-charcoal hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/10",
+          "border-ink-muted-on-charcoal bg-transparent text-ink-on-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/15 drawn-disabled:border-transparent drawn-disabled:bg-disabled-on-charcoal drawn-disabled:text-disabled-on-charcoal-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/10",
         // The press offset is cancelled with the base's own variant chain,
         // so the merge drops the base class instead of both reaching CSS.
         link: "h-auto! border-0 px-0! font-medium text-accent-ink underline decoration-1 underline-offset-3 motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-0 drawn-disabled:text-disabled-ink hover-fine:hover:not-data-disabled:not-aria-disabled:decoration-2",

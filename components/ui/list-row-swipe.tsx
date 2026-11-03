@@ -60,8 +60,7 @@ const FALLBACK_ACTION_WIDTH = 80
 let closeOpenRow: (() => void) | null = null
 
 const TONE_CLASS = {
-  default:
-    "bg-accent-solid text-ink-on-accent focus-visible:ring-(--np-ink-on-accent)",
+  default: "bg-ink text-ink-inverse focus-visible:ring-(--np-ink-inverse)",
   danger:
     "bg-danger-solid text-danger-on-solid focus-visible:ring-(--np-danger-on-solid)",
 } as const
@@ -232,7 +231,7 @@ function ListRowSwipe({
         className={cn(
           "relative flex min-w-0 flex-1 translate-x-(--swipe-x) touch-pan-y flex-col",
           animates &&
-            "transition-transform duration-(--np-duration-fast) ease-spring-snappy motion-reduce:transition-none"
+            "transition-transform duration-(--np-duration-fast) ease-press motion-reduce:transition-none"
         )}
       >
         {control}
@@ -284,7 +283,7 @@ function ListRowSwipe({
         className={cn(
           "absolute inset-y-0 end-0 flex w-[calc(var(--swipe-x)*-1)] justify-end overflow-hidden",
           animates &&
-            "transition-[width] duration-(--np-duration-fast) ease-spring-snappy motion-reduce:transition-none"
+            "transition-[width] duration-(--np-duration-fast) ease-press motion-reduce:transition-none"
         )}
       >
         <div ref={actionsRef} className="flex shrink-0">
@@ -301,7 +300,7 @@ function ListRowSwipe({
                 action.onAction()
               }}
               className={cn(
-                "flex w-20 shrink-0 flex-col items-center justify-center gap-1 px-2 text-center text-caption font-semibold wrap-anywhere outline-none focus-visible:ring-2 focus-visible:ring-inset disabled:opacity-50 forced-colors:focus-ring-inset [&_svg]:size-5 [&_svg]:shrink-0",
+                "flex w-20 shrink-0 flex-col items-center justify-center gap-1 px-2 text-center text-caption font-semibold wrap-anywhere outline-none focus-visible:ring-2 focus-visible:ring-inset forced-colors:focus-ring-inset drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink [&_svg]:size-5 [&_svg]:shrink-0",
                 TONE_CLASS[action.tone ?? "default"]
               )}
             >

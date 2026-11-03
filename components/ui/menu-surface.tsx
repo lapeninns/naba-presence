@@ -30,26 +30,34 @@ import { cn } from "@/lib/utils"
 
 /**
  * The floating popup (Notion Mail's popover menu): an opaque surface (no
- * glass, D3), hairline edge, the menu radius, the soft float shadow, 6px
- * inset. Base UI's Select aligns the popup with the
- * trigger item by default (`data-side="none"`), in which case nothing
- * scales: the menu simply appears over the trigger.
+ * glass, D3), the menu radius, the soft float shadow and no edge of its own
+ * (SYSTEM §7.3: shadow only), 6px inset. Forced colours drop the shadow, so
+ * there the popup draws a 1px system-colour border to keep its edge.
+ *
+ * It opens with the shared menu motion (as DropdownMenu and Popover): a fade
+ * and a 0.98 scale from the anchor. Tailwind's `scale-*` writes the `scale`
+ * property, not `transform`, so the transition names `scale`; naming
+ * `transform` let the scale jump while only the fade eased, which was the
+ * snap the Select popup showed on open. Base UI's Select aligns the popup
+ * with the trigger item by default (`data-side="none"`): the popup then
+ * sits over the trigger's own text, so it only fades and never changes size
+ * on top of it. Reduced motion collapses the durations in globals.css.
  */
 export const menuPopupClassName = cn(
-  "rounded-menu border border-line bg-surface p-1.5 text-ink shadow-np-float outline-none",
-  "origin-(--transform-origin) transition-[transform,opacity] duration-(--np-duration-overlay) ease-spring",
-  "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
-  "data-[side=none]:data-starting-style:scale-100 data-[side=none]:data-starting-style:opacity-100 data-[side=none]:data-starting-style:transition-none"
+  "rounded-menu bg-surface p-1.5 text-ink shadow-np-float outline-none forced-colors:border",
+  "origin-(--transform-origin) transition-[opacity,scale] duration-(--np-duration-overlay) ease-emphasis",
+  "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:scale-[0.98] data-starting-style:opacity-0",
+  "data-[side=none]:data-ending-style:scale-100 data-[side=none]:data-starting-style:scale-100"
 )
 
 /**
  * A row: the menu-row height token (44px on touch, 32px on the desk), the
- * tag radius, the hover fill when highlighted, muted ink when disabled so a
- * reason under it can still be read.
+ * tag radius, the `bg-fill` highlight, the drawn disabled ink (never faded)
+ * so a reason under it can still be read.
  */
 export const menuRowClassName = cn(
   "group/item relative flex min-h-(--np-menu-item-h) cursor-default items-center gap-2.5 rounded-(--np-radius-tag) px-2.5 py-1 text-ui text-ink outline-none select-none",
-  "data-highlighted:bg-fill data-disabled:text-ink-muted",
+  "data-highlighted:bg-fill data-disabled:text-disabled-ink",
   "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
 )
 
@@ -81,7 +89,7 @@ export const menuSheetPositionerClassName =
   "fixed! inset-x-0! top-auto! bottom-0! z-popover transform-none! outline-none"
 
 /**
- * The sheet: full width up to 40rem, 20px top corners, at most three
+ * The sheet: full width up to 40rem, top corners on the sheet radius (`--np-radius-sheet`), at most three
  * quarters of the screen, rising on the sheet duration. Its bottom padding
  * clears the home indicator and, if a field inside has raised it, the
  * keyboard. The width, padding and height rules are `!important` so a

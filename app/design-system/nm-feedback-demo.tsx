@@ -4,6 +4,8 @@ import {
   ArchiveIcon,
   CheckIcon,
   EllipsisIcon,
+  InboxIcon,
+  SearchIcon,
   SendIcon,
   TagIcon,
   Trash2Icon,
@@ -17,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { Empty } from "@/components/ui/empty"
 import { SelectionBar, SelectionBarTile } from "@/components/ui/selection-bar"
 import { showToast, toastProgress } from "@/components/ui/toast"
 
@@ -168,23 +170,24 @@ function SelectionBarDemo() {
 
 /**
  * The Notion Mail feedback primitives on /design-system: the empty state
- * with and without its illustration, the SelectionBar, and toast phases.
+ * with its 20px line glyph, the SelectionBar, and toast phases.
  */
 export function NmFeedbackDemo() {
   return (
     <div className="flex flex-col gap-8">
-      <DemoSection title="Empty state · illustration">
+      <DemoSection title="Empty state · line icon">
         <div className="grid gap-4 md:grid-cols-2">
           <Empty
             framed
-            illustration={<EmptyIllustration name="inbox-zero" />}
+            icon={<InboxIcon />}
+            tone="ok"
             title="All caught up"
             description="No reviews need a reply. New ones sync every 15 min."
             action={<Button variant="secondary">Open all reviews</Button>}
           />
           <Empty
             framed
-            illustration={<EmptyIllustration name="search" />}
+            icon={<SearchIcon />}
             title="No reviews match “parking”"
             description="Try fewer words, or clear the filters."
           />
