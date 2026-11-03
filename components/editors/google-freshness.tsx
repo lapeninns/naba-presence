@@ -1,10 +1,12 @@
 "use client"
 
-import { RefreshCw } from "lucide-react"
+import { CircleHelp, RefreshCw } from "lucide-react"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "@/lib/format/date"
+import { COMPARISON_FRESHNESS_MS } from "@/lib/listings/health"
+import { useNow } from "@/lib/time/server-now"
 import { cn } from "@/lib/utils"
 
 /** What the header needs to draw an editor's freshness line. */
@@ -46,6 +48,20 @@ function useGoogleFreshnessReport(): GoogleFreshnessReport | null {
 }
 
 /**
+ * The editor's comparison is older than a check is good for (the same hour
+ * the overview's area cards use): Google may have changed since, so nothing
+ * on the page may read as a current match. An unparseable time is stale.
+ */
+function freshnessIsStale(
+  report: Pick<GoogleFreshnessReport, "observedAt"> | null,
+  now: number
+): boolean {
+  if (!report) return false
+  const observed = Date.parse(report.observedAt)
+  return !Number.isFinite(observed) || now - observed > COMPARISON_FRESHNESS_MS
+}
+
+/**
  * "Checked with Google 3 min ago. Check Google now", as one line. The
  * failure note is separate (`GoogleFreshnessFailure`) so a header can place
  * it where it shows at every width.
@@ -58,19 +74,38 @@ function GoogleFreshnessLine({
   className?: string
 }) {
   const relative = formatRelativeTime(report.observedAt)
+  const stale = freshnessIsStale(report, useNow())
   return (
     <span
       data-slot="google-freshness"
+      data-stale={stale ? "" : undefined}
       className={cn("inline-flex flex-wrap items-center gap-x-2", className)}
     >
-      <span>
-        Checked with Google{" "}
-        {/* Relative to the reader's clock, so the server's render may differ. */}
-        <time dateTime={report.observedAt} suppressHydrationWarning>
-          {relative === "Just now" ? "just now" : relative}
-        </time>
-        .
-      </span>
+      {stale ? (
+        <span className="inline-flex items-center gap-1.5 text-ink">
+          <CircleHelp
+            aria-hidden
+            strokeWidth={2}
+            className="size-3.5 shrink-0 text-warning-ink"
+          />
+          <span>
+            Last checked with Google{" "}
+            <time dateTime={report.observedAt} suppressHydrationWarning>
+              {relative}
+            </time>
+            . Google may have changed since.
+          </span>
+        </span>
+      ) : (
+        <span>
+          Checked with Google{" "}
+          {/* Relative to the reader's clock, so the server's render may differ. */}
+          <time dateTime={report.observedAt} suppressHydrationWarning>
+            {relative === "Just now" ? "just now" : relative}
+          </time>
+          .
+        </span>
+      )}
       <Button
         type="button"
         variant="link"
@@ -171,6 +206,7 @@ export function GoogleFreshness({
 }
 
 export {
+  freshnessIsStale,
   GoogleFreshnessFailure,
   GoogleFreshnessLine,
   GoogleFreshnessSlot,

@@ -388,7 +388,7 @@ describe("ProfileTab", () => {
     )
     const footer = screen.getByRole("region", { name: "Editor actions" })
     expect(
-      await within(footer).findByText("1 change not on Google")
+      await within(footer).findByText("1 unsaved change")
     ).toBeInTheDocument()
     // Lodging has its own review: Save here is left out, with the reason.
     expect(

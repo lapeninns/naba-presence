@@ -1,5 +1,8 @@
 import type { CapabilityTone } from "@/components/editors/capability-banner"
-import type { LocationCapabilities } from "@/lib/locations/gating"
+import {
+  reasonCodeMessage,
+  type LocationCapabilities,
+} from "@/lib/locations/gating"
 
 /**
  * The way forward for someone whose role lets them look but not change:
@@ -51,6 +54,17 @@ export function editorGate({
   savesHere: boolean
 }): EditorGate | null {
   const code = caps?.resources?.[resource]?.reasonCode ?? null
+  // A billing hold holds owners and admins too: not a role limit, and no
+  // "ask an owner or admin".
+  const billing = caps?.canWrite === false || code === "billing_read_only"
+  if (editReason && billing) {
+    return {
+      tone: "blocked",
+      title: `Changes to ${noun} are on hold for this workspace`,
+      description: editReason,
+      code: "billing_read_only",
+    }
+  }
   if (editReason) {
     const roleLimit =
       caps?.canWrite !== false && caps?.canEditCanonical === false
@@ -64,15 +78,38 @@ export function editorGate({
     }
   }
   if (!publishReason) return null
-  const paused = code === "publishing_paused"
+  // The installation's switch reaches an editor either as the resource's
+  // code or, for a resource with no capability row, only as the publish
+  // gate's sentence; both are the same switch.
+  const paused =
+    code === "publishing_paused" ||
+    (code === null && publishReason === reasonCodeMessage("publishing_paused"))
+  const notLinked = code === "google_location_not_linked"
+  const reconnect = code === "reconnect_required"
+  const verification = code === "verification_required"
+  const retired = code === "provider_capability_retired"
   return {
+    // Blocked: something outside this person's role stops every publish
+    // until it is fixed. A role limit or Google's own rule stays read-only.
     tone:
-      paused || code === "google_location_not_linked" ? "blocked" : "read_only",
+      paused || notLinked || reconnect || billing
+        ? "blocked"
+        : verification
+          ? "warning"
+          : "read_only",
     title: paused
       ? "Publishing to Google is switched off in NabaPresence"
-      : code === "google_location_not_linked"
+      : notLinked
         ? "This listing isn’t linked to Google"
-        : "You can’t publish this to Google",
+        : reconnect
+          ? "The Google login for this listing needs reconnecting"
+          : verification
+            ? "Google needs this listing verified first"
+            : retired
+              ? `Google no longer accepts changes to ${noun}`
+              : billing
+                ? "Publishing is on hold for this workspace"
+                : "You can’t publish this to Google",
     description: [
       paused
         ? "It’s off for every listing in this NabaPresence installation, not because of anything on Google or this listing. Whoever runs NabaPresence for your team can switch it back on."

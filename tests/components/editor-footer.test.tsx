@@ -140,9 +140,13 @@ describe("EditorFooter", () => {
   it("says what is true when local edits leave nothing to publish", () => {
     render(footer({ status: "in_sync", isDirty: false, canDiscard: true }))
     const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveTextContent("Unsaved changes")
     expect(bar).toHaveTextContent("No changes to publish")
-    expect(bar).toHaveTextContent("unsaved edits")
-    expect(bar).not.toHaveTextContent("Changes not on Google")
+    expect(bar).not.toHaveTextContent("not on Google")
+    // A local save never reaches Google: the surface save bar, dashed glyph.
+    expect(bar).toHaveAttribute("data-bar-tone", "surface")
+    expect(bar).toHaveAttribute("data-state", "unsaved")
+    expect(bar.querySelector('[data-glyph="circle-dashed"]')).not.toBeNull()
     // No greyed Review with no reason: Save here is the primary instead.
     expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
     const save = screen.getByRole("button", { name: "Save here" })
@@ -218,6 +222,51 @@ describe("EditorFooter", () => {
     rerender(<Harness clean />)
     expect(screen.queryByRole("region", { name: "Editor actions" })).toBeNull()
     expect(document.querySelector('[data-slot="editor-frame"]')).toHaveFocus()
+  })
+
+  it("words the dispatch bar in the lifecycle vocabulary", () => {
+    const { rerender } = render(
+      footer({
+        status: "edited",
+        isDirty: true,
+        canDiscard: true,
+        changeCount: 2,
+      })
+    )
+    const bar = () => screen.getByRole("region", { name: "Editor actions" })
+    // Edits only in this tab: unsaved, never "saved here".
+    expect(bar()).toHaveAttribute("data-bar-tone", "charcoal")
+    expect(bar()).toHaveAttribute("data-state", "unsaved")
+    expect(bar()).toHaveTextContent("2 unsaved changes")
+    expect(bar()).toHaveTextContent(
+      "Nothing changes on Google until you publish."
+    )
+    expect(bar()).not.toHaveTextContent(/published|On Google\b/)
+    expect(bar().querySelector('[data-glyph="circle-dashed"]')).not.toBeNull()
+
+    // A difference NabaPresence already holds: a draft saved here.
+    rerender(
+      footer({
+        status: "unpublished",
+        isDirty: true,
+        canDiscard: false,
+        changeCount: 1,
+      })
+    )
+    expect(bar()).toHaveAttribute("data-state", "saved_locally")
+    expect(bar()).toHaveTextContent("1 change saved here, not on Google")
+    expect(bar().querySelector('[data-glyph="hard-drive"]')).not.toBeNull()
+
+    // Google changed its copy meanwhile.
+    rerender(footer({ status: "google_dirty", isDirty: true }))
+    expect(bar()).toHaveAttribute("data-state", "conflict")
+    expect(bar()).toHaveTextContent("Google changed this since you saved it")
+
+    // Review changes opens the sheet; only the sheet's publish is green.
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toHaveAttribute("data-variant", "on-dark")
+    expect(bar().querySelector('[data-variant="send"]')).toBeNull()
   })
 
   it("says Saving… in the status while a save runs", () => {
