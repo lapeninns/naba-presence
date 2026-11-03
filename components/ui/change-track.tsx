@@ -84,6 +84,8 @@ export type ChangeTrackStop = {
   stop: TrackStop
   state: ChangeTrackStopState
   label: string
+  /** Spoken in place of the state's word, for a stop waiting on Google. */
+  spoken?: string
 }
 
 /**
@@ -129,7 +131,14 @@ export function trackStops(
         : stopState === "skipped"
           ? SKIPPED_STOP_LABEL
           : TRACK_STOP_LABEL[stop]
-    return { stop, state: stopState, label }
+    return stopState === "current" && position.waitingOn
+      ? {
+          stop,
+          state: stopState,
+          label,
+          spoken: `waiting for ${position.waitingOn}`,
+        }
+      : { stop, state: stopState, label }
   })
 }
 
@@ -176,7 +185,7 @@ function ChangeTrack({
       {stops.map((stop, index) => {
         const Glyph = STOP_GLYPH[stop.state]
         const isLast = index === stops.length - 1
-        const word = STOP_WORD[stop.state]
+        const word = stop.spoken ?? STOP_WORD[stop.state]
         return (
           <li
             key={stop.stop}

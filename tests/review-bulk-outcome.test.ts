@@ -19,12 +19,21 @@ describe("bulk review row outcomes", () => {
         "before_commit",
         ctx
       )
-    ).toEqual({ reviewId: "r1", status: "skipped", code: "approval_draft_changed" })
+    ).toEqual({
+      reviewId: "r1",
+      status: "skipped",
+      code: "approval_draft_changed",
+    })
   })
 
   it("fails a row on a server fault before commit", () => {
     expect(
-      rowFromError("r1", new ApiError(503, "db_unavailable", "x"), "before_commit", ctx)
+      rowFromError(
+        "r1",
+        new ApiError(503, "db_unavailable", "x"),
+        "before_commit",
+        ctx
+      )
     ).toEqual({ reviewId: "r1", status: "failed", code: "db_unavailable" })
   })
 
@@ -46,9 +55,18 @@ describe("bulk review row outcomes", () => {
 
   // Google may hold a reply (ours, a different one, or one still landing).
   it("reports a publish Google may hold as uncertain", () => {
-    for (const code of ["google_mutation_ambiguous", "reply_diverged", "publish_in_progress"]) {
+    for (const code of [
+      "google_mutation_ambiguous",
+      "reply_diverged",
+      "publish_in_progress",
+    ]) {
       expect(
-        rowFromError("r1", new ApiError(409, code, "maybe"), "after_approval", ctx)
+        rowFromError(
+          "r1",
+          new ApiError(409, code, "maybe"),
+          "after_approval",
+          ctx
+        )
       ).toEqual({ reviewId: "r1", status: "uncertain", code })
     }
   })
@@ -73,8 +91,14 @@ describe("bulk review row outcomes", () => {
   })
 
   it("counts only a reply Google took as ok", () => {
-    expect(rowFromApproval("r1", { status: "published" })).toEqual({ reviewId: "r1", status: "ok" })
-    expect(rowFromApproval("r1", { status: "pending" })).toEqual({ reviewId: "r1", status: "ok" })
+    expect(rowFromApproval("r1", { status: "published" })).toEqual({
+      reviewId: "r1",
+      status: "ok",
+    })
+    expect(rowFromApproval("r1", { status: "pending" })).toEqual({
+      reviewId: "r1",
+      status: "ok",
+    })
     expect(rowFromApproval("r1", { status: "rejected" })).toEqual({
       reviewId: "r1",
       status: "approved_not_published",
@@ -90,14 +114,18 @@ describe("bulk review row outcomes", () => {
   it("turns an unexpected error into this row's outcome instead of throwing", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
-      expect(rowFromError("r1", new TypeError("boom"), "before_commit", ctx)).toEqual({
+      expect(
+        rowFromError("r1", new TypeError("boom"), "before_commit", ctx)
+      ).toEqual({
         reviewId: "r1",
         status: "failed",
         code: "bulk_row_failed",
       })
       // After the approval committed the publish may already have reached
       // Google, so the honest answer is "unknown", not "failed".
-      expect(rowFromError("r1", new TypeError("boom"), "after_approval", ctx)).toEqual({
+      expect(
+        rowFromError("r1", new TypeError("boom"), "after_approval", ctx)
+      ).toEqual({
         reviewId: "r1",
         status: "uncertain",
         code: "publish_outcome_unknown",
@@ -117,7 +145,10 @@ describe("bulk review contract", () => {
   }
 
   it("requires approvals to name the draft and review version shown", () => {
-    expect(bulkReviewActionSchema.safeParse({ action: "approve", approvals: [item] }).success).toBe(true)
+    expect(
+      bulkReviewActionSchema.safeParse({ action: "approve", approvals: [item] })
+        .success
+    ).toBe(true)
     expect(
       bulkReviewActionSchema.safeParse({
         action: "approve",
@@ -127,21 +158,37 @@ describe("bulk review contract", () => {
     expect(
       bulkReviewActionSchema.safeParse({
         action: "approve",
-        approvals: [{ reviewId: item.reviewId, reviewUpdateTime: item.reviewUpdateTime }],
+        approvals: [
+          { reviewId: item.reviewId, reviewUpdateTime: item.reviewUpdateTime },
+        ],
       }).success
     ).toBe(false)
     // The old id-only shape cannot approve anything.
     expect(
-      bulkReviewActionSchema.safeParse({ action: "approve", reviewIds: [item.reviewId] }).success
+      bulkReviewActionSchema.safeParse({
+        action: "approve",
+        reviewIds: [item.reviewId],
+      }).success
     ).toBe(false)
   })
 
   it("makes an Undo name the mark it clears", () => {
-    const mark = { reviewId: item.reviewId, triagedAt: "2026-10-16T07:00:00.123456Z" }
-    expect(bulkReviewActionSchema.safeParse({ action: "mark_unreviewed", marks: [mark] }).success).toBe(true)
+    const mark = {
+      reviewId: item.reviewId,
+      triagedAt: "2026-10-16T07:00:00.123456Z",
+    }
+    expect(
+      bulkReviewActionSchema.safeParse({
+        action: "mark_unreviewed",
+        marks: [mark],
+      }).success
+    ).toBe(true)
     // The old id-only shape could clear a later mark, so it is refused.
     expect(
-      bulkReviewActionSchema.safeParse({ action: "mark_unreviewed", reviewIds: [item.reviewId] }).success
+      bulkReviewActionSchema.safeParse({
+        action: "mark_unreviewed",
+        reviewIds: [item.reviewId],
+      }).success
     ).toBe(false)
     expect(
       bulkReviewActionSchema.safeParse({
@@ -159,13 +206,19 @@ describe("bulk review contract", () => {
 
   it("refuses the same review twice in one approve batch", () => {
     expect(
-      bulkReviewActionSchema.safeParse({ action: "approve", approvals: [item, item] }).success
+      bulkReviewActionSchema.safeParse({
+        action: "approve",
+        approvals: [item, item],
+      }).success
     ).toBe(false)
   })
 
   it("still requires an explicit assignee (or null) to assign", () => {
     expect(
-      bulkReviewActionSchema.safeParse({ action: "assign", reviewIds: [item.reviewId] }).success
+      bulkReviewActionSchema.safeParse({
+        action: "assign",
+        reviewIds: [item.reviewId],
+      }).success
     ).toBe(false)
     expect(
       bulkReviewActionSchema.safeParse({
@@ -188,15 +241,23 @@ describe("bulk outcome summary", () => {
     const summary = summariseBulkOutcome({
       results: [
         { reviewId: "a", status: "ok" },
-        { reviewId: "b", status: "approved_not_published", code: "RESOURCE_EXHAUSTED" },
-        { reviewId: "c", status: "uncertain", code: "google_mutation_ambiguous" },
+        {
+          reviewId: "b",
+          status: "approved_not_published",
+          code: "RESOURCE_EXHAUSTED",
+        },
+        {
+          reviewId: "c",
+          status: "uncertain",
+          code: "google_mutation_ambiguous",
+        },
         { reviewId: "d", status: "skipped", code: "approval_draft_changed" },
         { reviewId: "e", status: "failed", code: "bulk_row_failed" },
       ],
     })
     expect(summary).toMatchObject({
       title:
-        "1 updated, 1 approved but not published, 1 may have reached Google, 1 skipped, 1 failed",
+        "1 updated, 1 approved but not sent, 1 may have reached Google, 1 skipped, 1 failed",
       tone: "error",
       allOk: false,
     })
@@ -212,5 +273,47 @@ describe("bulk outcome summary", () => {
         ],
       }).tone
     ).toBe("warning")
+  })
+
+  it("calls an approved batch sent to Google, never published or a success", () => {
+    const summary = summariseBulkOutcome(
+      {
+        results: [
+          { reviewId: "a", status: "ok" },
+          { reviewId: "b", status: "ok" },
+        ],
+      },
+      "approve"
+    )
+    expect(summary).toMatchObject({
+      title: "2 replies approved and sent to Google",
+      tone: "info",
+      allOk: true,
+    })
+    expect(`${summary.title} ${summary.description}`).not.toMatch(
+      /publish|live/i
+    )
+  })
+
+  it("keeps each row's outcome visible in a partly failed approve batch", () => {
+    const summary = summariseBulkOutcome(
+      {
+        results: [
+          { reviewId: "a", status: "ok" },
+          {
+            reviewId: "b",
+            status: "approved_not_published",
+            code: "RESOURCE_EXHAUSTED",
+          },
+          { reviewId: "c", status: "failed", code: "bulk_row_failed" },
+        ],
+      },
+      "approve"
+    )
+    expect(summary).toMatchObject({
+      title: "1 sent to Google, 1 approved but not sent, 1 failed",
+      tone: "error",
+      allOk: false,
+    })
   })
 })

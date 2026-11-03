@@ -573,6 +573,9 @@ export function replyTrackState(input: ReplyStateInput): PresentedState | null {
   }
   const work = replyWork({ reply: saved.reply, drafts: saved.drafts })
   if (work.draftBody === null && work.liveBody === null) return null
+  // Before the verdict, as in the status line: a sent-back reply that also
+  // fails its checks reads Sent back on both.
+  if (saved.sentBack) return "changes"
   return saved.verification?.verdict === "fail" ? "blocked" : "saved_locally"
 }
 

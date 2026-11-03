@@ -86,6 +86,22 @@ function ListHeader({
     ;(target ?? selectButtonRef.current)?.focus()
   }, [selecting, desk])
 
+  // The selection bar unmounts with the last tick (Escape, a bar action),
+  // and focus on it falls to the page. Catch it here, but never take it
+  // from wherever the operator has moved it.
+  const tickedCount = ticked.length
+  const hadTicks = useRef(false)
+  useEffect(() => {
+    const had = hadTicks.current
+    hadTicks.current = tickedCount > 0
+    if (!had || tickedCount > 0) return
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    const target =
+      desk === true ? selectAllRef.current : selectButtonRef.current
+    ;(target ?? selectButtonRef.current)?.focus()
+  }, [tickedCount, desk])
+
   return (
     <div
       data-slot="inbox-list-header"

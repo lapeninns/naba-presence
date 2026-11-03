@@ -309,6 +309,43 @@ describe("ReplyComposer — opening a review", () => {
     expect(dirtySeen.at(-1)).toBe(true)
   })
 
+  // The saved draft's verdict is not about the restored words.
+  it.each(["pass", "warn", "fail"] as const)(
+    "shows no %s verdict over restored unsaved text",
+    async (verdict) => {
+      stashDraft(
+        draftKey({
+          userId: null,
+          organisationId: null,
+          resource: "inbox-reply",
+          resourceId: "rev-1",
+          schemaVersion: 1,
+        }),
+        "My unsent words"
+      )
+      mountProbed(() =>
+        reviewWith({
+          ...EXISTING,
+          drafts: [draft({ verificationStatus: verdict })],
+          latestVerification: {
+            verdict,
+            reasons:
+              verdict === "pass"
+                ? []
+                : [{ code: "tone", severity: verdict, message: "Too stiff." }],
+          },
+        })
+      )
+      await waitFor(() => expect(textbox()).toHaveValue("My unsent words"))
+      expect(
+        document.querySelector(
+          '[data-slot="reply-note"], [data-slot="reply-problem"], [data-slot="reply-checks"]'
+        )
+      ).toBeNull()
+      expect(textbox()).not.toHaveAttribute("aria-invalid")
+    }
+  )
+
   // W2-07: the store's discard cleared the dirty flag, but the composer only
   // re-registered when its own dirtiness changed, and a composer still on
   // screen stays dirty. Edits made after that went unguarded.
@@ -1086,6 +1123,35 @@ describe("ReplyComposer — checks and length", () => {
     expect(note).toHaveTextContent("Checked with a note")
     expect(note).not.toHaveAttribute("role")
   })
+
+  it.each(["warn", "fail"] as const)(
+    "drops a %s verdict card while the text differs from the saved draft",
+    (verdict) => {
+      mount({
+        ...EXISTING,
+        drafts: [draft({ verificationStatus: verdict })],
+        latestVerification: {
+          verdict,
+          reasons: [{ code: "tone", severity: verdict, message: "Too stiff." }],
+        },
+      })
+      expect(
+        document.querySelector(
+          verdict === "fail"
+            ? '[data-slot="reply-problem"]'
+            : '[data-slot="reply-note"]'
+        )
+      ).toHaveTextContent("Too stiff.")
+      fireEvent.change(textbox(), { target: { value: "Changed words" } })
+      expect(
+        document.querySelector(
+          '[data-slot="reply-note"], [data-slot="reply-problem"], [data-slot="reply-checks"]'
+        )
+      ).toBeNull()
+      expect(screen.queryByText("Too stiff.")).not.toBeInTheDocument()
+      expect(textbox()).not.toHaveAttribute("aria-invalid")
+    }
+  )
 
   it("says nothing about length until the reply reaches 80% of Google's limit", () => {
     mount(EXISTING)

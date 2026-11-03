@@ -138,6 +138,7 @@ function FiltersSheet({
   const assigneeId = useId()
   const ageId = useId()
   const ownerId = useId()
+  const rangeErrorId = useId()
   const phone = usePhoneOverlay()
   const showRef = useRef<HTMLButtonElement>(null)
   // Clear is offered only when there is something for it to clear (the
@@ -300,6 +301,7 @@ function FiltersSheet({
                 <Input
                   type="date"
                   aria-invalid={rangeInverted || undefined}
+                  aria-describedby={rangeInverted ? rangeErrorId : undefined}
                   value={state.dateFrom ? state.dateFrom.slice(0, 10) : ""}
                   onChange={(event) =>
                     setDate({ dateFrom: toIso(event.target.value) })
@@ -313,6 +315,7 @@ function FiltersSheet({
                 <Input
                   type="date"
                   aria-invalid={rangeInverted || undefined}
+                  aria-describedby={rangeInverted ? rangeErrorId : undefined}
                   value={state.dateTo ? state.dateTo.slice(0, 10) : ""}
                   onChange={(event) =>
                     setDate({ dateTo: toIso(event.target.value) })
@@ -322,7 +325,7 @@ function FiltersSheet({
             </div>
             {/* Said, not just drawn red: an inverted range quietly matches
                 nothing, which reads as "no reviews" rather than a mistake. */}
-            <FormError>
+            <FormError id={rangeErrorId}>
               {rangeInverted
                 ? "The end date must be on or after the start date."
                 : null}

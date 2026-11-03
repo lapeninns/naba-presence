@@ -7,6 +7,11 @@ export type EmptyReason =
   | "queue_empty"
   /** The organisation has no clients at all: nothing to import from yet. */
   | "no_clients"
+  /**
+   * Nothing here is shared with this person: a member with no client or
+   * listing in reach, or a list the server refused (403).
+   */
+  | "no_access"
   /** A connection exists but needs reconnecting. */
   | "disconnected"
   /** No Google account is connected at all. */
@@ -38,6 +43,11 @@ export type EmptyFacts = {
    * run. Distinct from `clients: []`, which also means "not loaded yet".
    */
   noClients?: boolean
+  /**
+   * The person cannot add clients and none are in reach: an empty client
+   * list is then about their access, not the organisation's setup.
+   */
+  noAccess?: boolean
 }
 
 function sum(
@@ -79,6 +89,7 @@ export function emptyReason(facts: EmptyFacts): EmptyReason {
   if (facts.totalOutsideFilters > 0) {
     return facts.queue && facts.queue !== "all" ? "queue_empty" : "filtered"
   }
+  if (facts.noAccess) return "no_access"
   if (facts.noClients) return "no_clients"
   if (facts.connection === "disconnected") return "disconnected"
   if (facts.clients.length === 0) return "unknown"
@@ -107,10 +118,11 @@ export function emptyCounts(facts: EmptyFacts) {
     succeeded: sum(facts.clients, (b) => b.succeeded),
     notStarted: sum(facts.clients, (b) => b.notStarted),
     /** The most recent successful sync across the scope, or null. */
-    lastSyncAt: facts.clients
-      .map((client) => client.lastSyncAt)
-      .filter((value): value is string => Boolean(value))
-      .sort()
-      .at(-1) ?? null,
+    lastSyncAt:
+      facts.clients
+        .map((client) => client.lastSyncAt)
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1) ?? null,
   }
 }

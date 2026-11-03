@@ -87,7 +87,7 @@ export function useReviewTriage() {
   ): Promise<BulkReviewResult | null> => {
     try {
       const result = await bulk.mutateAsync(input)
-      const summary = summariseBulkOutcome(result)
+      const summary = summariseBulkOutcome(result, input.action)
       // The marks this press made, each as the server recorded it, so Undo
       // can name them: a review marked again since is then left alone.
       const marked =
@@ -146,7 +146,13 @@ export function useReviewTriage() {
         ? allOkTitle(input, result.results.length, context.assigneeLabel)
         : null
       if (okTitle) {
-        toast.add({ title: okTitle, type: "success" })
+        // An approved reply is sent, not yet confirmed: success is kept for
+        // a reply Google confirms.
+        toast.add(
+          input.action === "approve"
+            ? { title: okTitle, description: summary.description, type: "info" }
+            : { title: okTitle, type: "success" }
+        )
         return result
       }
       toast.add({

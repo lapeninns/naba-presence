@@ -39,6 +39,11 @@ export type TrackPosition = {
   failed?: boolean
   /** Every stop is done, and the reached On Google stop is green. */
   reached?: boolean
+  /**
+   * The current stop is not the change's next step but Google's: spoken as
+   * "waiting for Google", never "current step".
+   */
+  waitingOn?: "Google"
 } | null
 
 /**
@@ -153,7 +158,7 @@ export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
       toast: "info",
       live: false,
       glyph: "hourglass",
-      track: { stop: "google" },
+      track: { stop: "google", waitingOn: "Google" },
     },
     confirmed_applied: {
       label: "On Google",
