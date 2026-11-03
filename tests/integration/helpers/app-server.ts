@@ -2,8 +2,12 @@ import { spawn, type ChildProcess } from "node:child_process"
 import { once } from "node:events"
 import { existsSync } from "node:fs"
 import { createServer } from "node:net"
+import { join } from "node:path"
 
-const SERVER_ENTRY = ".next/standalone/server.js"
+const SERVER_ENTRY = join(
+  process.env.PLAYWRIGHT_APP_DIR ?? ".next/standalone",
+  "server.js"
+)
 
 /**
  * How long stop() lets the server drain. On SIGTERM Next stops accepting
