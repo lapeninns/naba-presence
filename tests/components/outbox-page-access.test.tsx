@@ -24,7 +24,7 @@ vi.mock("@/lib/server/outbox-prefetch", () => ({ outboxPrefetch: vi.fn() }))
 import OutboxPage from "@/app/(dashboard)/outbox/page"
 
 describe("/outbox for a viewer", () => {
-  it("names every role that has an Outbox and reads nothing", async () => {
+  it("names every role that has an Outbox, asks only those who can grant it, and reads nothing", async () => {
     const page = await OutboxPage({ searchParams: Promise.resolve({}) })
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -32,8 +32,11 @@ describe("/outbox for a viewer", () => {
       </QueryClientProvider>
     )
     expect(
-      screen.getByText(/Outbox is limited to an owner, admin or member\./)
+      screen.getByText(
+        /Outbox is limited to an owner, admin or member\. Ask an owner or admin in your/
+      )
     ).toBeInTheDocument()
+    expect(screen.queryByText(/Ask an owner, admin or member/)).toBeNull()
     expect(prefetch).not.toHaveBeenCalled()
   })
 })
