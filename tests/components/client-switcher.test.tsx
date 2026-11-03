@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import * as React from "react"
 import userEvent from "@testing-library/user-event"
@@ -23,9 +24,12 @@ import {
   ClientScopeSheet,
   ClientScopeSync,
   ClientSwitcher,
+  ScopeControlView,
   useClientScopeLabel,
 } from "@/components/app-shell/client-switcher"
 import type { ClientSummary } from "@/lib/contracts/clients"
+import type { DirectoryEntry } from "@/lib/locations/directory"
+import { queryKeys } from "@/lib/queries/keys"
 import * as clientsHook from "@/lib/queries/use-clients"
 
 function client(
@@ -55,6 +59,18 @@ function client(
 
 const OLD_CROWN = client("c1", "Old Crown")
 const HARBOUR = client("c2", "Harbour Kitchen", "disconnected")
+
+/**
+ * The scope control's accessible name: "Working on <scope>, <listings> ·
+ * <health in words>" (useScopeControl). All clients sums the listings and
+ * reads the agency roll-up.
+ */
+const ALL_NAME = "Working on All clients, 2 listings · 1 client needs action"
+const OLD_CROWN_NAME = "Working on Old Crown, 1 listing · In sync"
+const HARBOUR_NAME =
+  "Working on Harbour Kitchen, 1 listing · Can’t reach Google"
+/** Nine healthy clients of one listing each. */
+const MANY_ALL_NAME = "Working on All clients, 9 listings · All clients in sync"
 
 function stubClients(items: ClientSummary[] | undefined) {
   vi.spyOn(clientsHook, "useClients").mockReturnValue({
@@ -103,42 +119,41 @@ describe("ClientSwitcher", () => {
   it("is hidden when the session sees one client or none", () => {
     stubClients([OLD_CROWN])
     const { unmount } = renderSwitcher()
-    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
     unmount()
 
     stubClients([])
     renderSwitcher()
-    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
   })
 
   it("is hidden while the client list is loading", () => {
     stubClients(undefined)
     renderSwitcher()
-    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
   })
 
   it("lists All clients and every visible client, with their health", async () => {
     stubClients([OLD_CROWN, HARBOUR])
     renderSwitcher()
-    const trigger = screen.getByRole("button", { name: "Client: All clients" })
+    const trigger = screen.getByRole("button", { name: ALL_NAME })
     await userEvent.click(trigger)
     const options = await screen.findAllByRole("menuitemradio")
     expect(options).toHaveLength(3)
     expect(options[0]).toHaveAccessibleName("All clients")
     expect(options[0]).toHaveAttribute("aria-checked", "true")
-    // The mark is decoration; the health word is read after the name.
-    expect(options[1]).toHaveAccessibleName("Old Crown, In sync")
+    // The mark and the dot are decoration; the listings and health words
+    // are read once, after the name.
+    expect(options[1]).toHaveAccessibleName("Old Crown, 1 listing · In sync")
     expect(options[2]).toHaveAccessibleName(
-      "Harbour Kitchen, Can’t reach Google"
+      "Harbour Kitchen, 1 listing · Can’t reach Google"
     )
   })
 
   it("puts the tick at the end of each row, Notion Mail's switcher look", async () => {
     stubClients([OLD_CROWN, HARBOUR])
     renderSwitcher()
-    await userEvent.click(
-      screen.getByRole("button", { name: "Client: All clients" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: ALL_NAME }))
     const options = await screen.findAllByRole("menuitemradio")
     for (const option of options) {
       expect(option).toHaveAttribute("data-indicator-position", "end")
@@ -150,23 +165,23 @@ describe("ClientSwitcher", () => {
     }
   })
 
-  it("names the client in scope, with its health as the description", () => {
+  it("names the client in scope, with its listings and health in words", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c2&queue=failed"
     renderSwitcher()
-    const trigger = screen.getByRole("button", {
-      name: "Client: Harbour Kitchen",
-    })
-    expect(trigger).toHaveAccessibleDescription("Can’t reach Google")
+    const trigger = screen.getByRole("button", { name: HARBOUR_NAME })
+    // The pill by default, its tone repeating the words (never alone).
+    expect(trigger).toHaveAttribute("data-variant", "pill")
+    expect(trigger).toHaveAttribute("data-tone", "at-risk")
+    expect(trigger).toHaveTextContent("Harbour Kitchen")
+    expect(trigger).toHaveTextContent("1 listing · Can’t reach Google")
   })
 
   it("swaps the Inbox's client in place and remembers it", async () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "queue=failed&clientId=c1&selected=r1"
     renderSwitcher()
-    await userEvent.click(
-      screen.getByRole("button", { name: "Client: Old Crown" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: OLD_CROWN_NAME }))
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /Harbour Kitchen/ })
     )
@@ -185,9 +200,7 @@ describe("ClientSwitcher", () => {
     location.pathname = "/listings"
     location.search = "clientId=c1&order=client"
     renderSwitcher({ remembered: "c1" })
-    await userEvent.click(
-      screen.getByRole("button", { name: "Client: Old Crown" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: OLD_CROWN_NAME }))
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: "All clients" })
     )
@@ -201,9 +214,7 @@ describe("ClientSwitcher", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.pathname = "/clients/c1/settings"
     renderSwitcher()
-    await userEvent.click(
-      screen.getByRole("button", { name: "Client: Old Crown" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: OLD_CROWN_NAME }))
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /Harbour Kitchen/ })
     )
@@ -221,7 +232,7 @@ describe("ClientSwitcher", () => {
       ),
     })
     await userEvent.click(
-      await screen.findByRole("button", { name: "Client: Old Crown" })
+      await screen.findByRole("button", { name: OLD_CROWN_NAME })
     )
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /Harbour Kitchen/ })
@@ -233,9 +244,7 @@ describe("ClientSwitcher", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.pathname = "/team"
     renderSwitcher()
-    await userEvent.click(
-      screen.getByRole("button", { name: "Client: All clients" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: ALL_NAME }))
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /Old Crown/ })
     )
@@ -243,7 +252,7 @@ describe("ClientSwitcher", () => {
     expect(replace).not.toHaveBeenCalled()
     expect(cookie()).toBe("c1")
     expect(
-      screen.getByRole("button", { name: "Client: Old Crown" })
+      screen.getByRole("button", { name: OLD_CROWN_NAME })
     ).toBeInTheDocument()
   })
 
@@ -253,7 +262,7 @@ describe("ClientSwitcher", () => {
     location.pathname = "/reports"
     location.search = "tab=google"
     renderSwitcher()
-    screen.getByRole("button", { name: "Client: All clients" }).focus()
+    screen.getByRole("button", { name: ALL_NAME }).focus()
     await user.keyboard("{Enter}")
     await screen.findAllByRole("menuitemradio")
     await waitFor(() =>
@@ -277,9 +286,7 @@ describe("ClientSwitcher", () => {
       return null
     }
     renderSwitcher({ remembered: "c1", children: <Page /> })
-    await userEvent.click(
-      screen.getByRole("button", { name: "Client: Old Crown" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: OLD_CROWN_NAME }))
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /Harbour Kitchen/ })
     )
@@ -297,9 +304,7 @@ describe("ClientSwitcher", () => {
     stubClients(many)
     const user = userEvent.setup()
     renderSwitcher()
-    await user.click(
-      screen.getByRole("button", { name: "Client: All clients" })
-    )
+    await user.click(screen.getByRole("button", { name: MANY_ALL_NAME }))
     const search = await screen.findByRole("combobox", {
       name: "Search clients",
     })
@@ -310,7 +315,7 @@ describe("ClientSwitcher", () => {
     await user.type(search, "client e")
     const matches = screen.getAllByRole("option")
     expect(matches).toHaveLength(1)
-    expect(matches[0]).toHaveAccessibleName("Client E, In sync")
+    expect(matches[0]).toHaveAccessibleName("Client E, 1 listing · In sync")
     await user.keyboard("{Enter}")
     expect(replace).toHaveBeenLastCalledWith("/inbox?clientId=c5", {
       scroll: false,
@@ -355,32 +360,50 @@ async function openSheet(name: string) {
 }
 
 describe("ClientScopeChip", () => {
-  it("is hidden when there is nothing to switch, or the list is unknown", () => {
+  it("is inert when there is nothing to switch, and hidden while the list is unknown", () => {
     stubClients([OLD_CROWN])
-    const { unmount } = renderPhoneScope()
-    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    const { container, unmount } = renderPhoneScope()
+    // One client: the chip still says what is in scope, but is no button.
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
+    const inert = container.querySelector('[data-slot="scope-control"]')
+    expect(inert).toHaveAttribute("data-static", "true")
+    expect(inert).toHaveAttribute("data-variant", "chip")
+    expect(inert).toHaveTextContent(
+      "Working on All clients, 1 listing · All clients in sync"
+    )
     unmount()
 
     stubClients(undefined)
-    renderPhoneScope()
-    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    const { container: unknown } = renderPhoneScope()
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
+    expect(unknown.querySelector('[data-slot="scope-control"]')).toBeNull()
   })
 
   it("names the client in scope and opens a dialog", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c2"
     renderPhoneScope()
-    const chip = screen.getByRole("button", { name: "Client: Harbour Kitchen" })
+    const chip = screen.getByRole("button", { name: HARBOUR_NAME })
     expect(chip).toHaveAttribute("aria-haspopup", "dialog")
+    expect(chip).toHaveAttribute("data-variant", "chip")
+    // The chip draws the name only; the words are in its accessible name.
     expect(chip).toHaveTextContent("Harbour Kitchen")
+    expect(chip).not.toHaveTextContent("Can’t reach Google")
+  })
+
+  it("is hidden on organisation-wide pages", () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.pathname = "/notifications"
+    const { container } = renderPhoneScope()
+    expect(container.querySelector('[data-slot="scope-control"]')).toBeNull()
   })
 
   it("says All clients when no client is in scope", () => {
     stubClients([OLD_CROWN, HARBOUR])
     renderPhoneScope()
-    expect(
-      screen.getByRole("button", { name: "Client: All clients" })
-    ).toHaveTextContent("All clients")
+    expect(screen.getByRole("button", { name: ALL_NAME })).toHaveTextContent(
+      "All clients"
+    )
   })
 })
 
@@ -389,19 +412,24 @@ describe("ClientScopeSheet", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c2"
     renderPhoneScope()
-    const sheet = await openSheet("Client: Harbour Kitchen")
+    const sheet = await openSheet(HARBOUR_NAME)
     const group = within(sheet).getByRole("listbox", { name: "Client" })
     const options = within(group).getAllByRole("option")
     expect(options).toHaveLength(3)
     expect(options[0]).toHaveAccessibleName("All clients")
     expect(options[1]).toHaveAccessibleName("Old Crown")
-    // Health is printed as words in the row, not only announced.
-    expect(within(options[1]).getByText("In sync")).toBeVisible()
+    // Listings and health are printed as words in the row, not only
+    // announced; All clients sums the listings.
+    expect(within(options[0]).getByText("2 listings")).toBeVisible()
+    expect(within(options[1]).getByText("1 listing · In sync")).toBeVisible()
     expect(
-      within(options[2]).getByText("Can’t reach Google")
+      within(options[2]).getByText("1 listing · Can’t reach Google")
     ).toBeVisible()
-    expect(options[1]).toHaveAccessibleDescription("In sync")
-    expect(options[2]).toHaveAccessibleDescription("Can’t reach Google")
+    expect(options[0]).toHaveAccessibleDescription("2 listings")
+    expect(options[1]).toHaveAccessibleDescription("1 listing · In sync")
+    expect(options[2]).toHaveAccessibleDescription(
+      "1 listing · Can’t reach Google"
+    )
     expect(options[2]).toHaveAttribute("aria-selected", "true")
     expect(options[0]).toHaveAttribute("aria-selected", "false")
     // One Tab stop for the group: the checked row.
@@ -415,7 +443,7 @@ describe("ClientScopeSheet", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "queue=failed&clientId=c1&selected=r1"
     renderPhoneScope()
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_NAME)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
@@ -433,7 +461,7 @@ describe("ClientScopeSheet", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.pathname = "/clients/c1/settings"
     renderPhoneScope()
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_NAME)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
@@ -445,7 +473,7 @@ describe("ClientScopeSheet", () => {
     location.pathname = "/listings"
     location.search = "clientId=c1&order=client"
     renderPhoneScope({ remembered: "c1" })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_NAME)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "All clients" })
     )
@@ -464,7 +492,7 @@ describe("ClientScopeSheet", () => {
       return null
     }
     renderPhoneScope({ remembered: "c1", children: <Page /> })
-    const sheet = await openSheet("Client: Old Crown")
+    const sheet = await openSheet(OLD_CROWN_NAME)
     await userEvent.click(
       within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
@@ -479,7 +507,7 @@ describe("ClientScopeSheet", () => {
     const user = userEvent.setup()
     stubClients([OLD_CROWN, HARBOUR])
     renderPhoneScope()
-    const sheet = await openSheet("Client: All clients")
+    const sheet = await openSheet(ALL_NAME)
     const all = within(sheet).getByRole("option", { name: "All clients" })
     all.focus()
     await user.keyboard("{ArrowDown}")
@@ -500,7 +528,7 @@ describe("ClientScopeSheet", () => {
     stubClients(many)
     const user = userEvent.setup()
     renderPhoneScope()
-    const sheet = await openSheet("Client: All clients")
+    const sheet = await openSheet(MANY_ALL_NAME)
     const search = within(sheet).getByRole("searchbox", {
       name: "Search clients",
     })
@@ -527,7 +555,7 @@ describe("ClientScopeSheet", () => {
     stubClients(many)
     const user = userEvent.setup()
     renderPhoneScope()
-    const sheet = await openSheet("Client: All clients")
+    const sheet = await openSheet(MANY_ALL_NAME)
     await user.type(
       within(sheet).getByRole("searchbox", { name: "Search clients" }),
       "zzz"
@@ -605,9 +633,7 @@ describe("ClientScopeSync", () => {
     location.search = "clientId=gone&queue=failed"
     document.cookie = "np_client=gone; Path=/"
     renderSwitcher({ remembered: "gone" })
-    expect(
-      screen.getByRole("button", { name: "Client: All clients" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: ALL_NAME })).toBeInTheDocument()
     await waitFor(() =>
       expect(replace).toHaveBeenCalledWith("/inbox?queue=failed", {
         scroll: false,
@@ -621,10 +647,116 @@ describe("ClientScopeSync", () => {
     location.pathname = "/settings"
     document.cookie = "np_client=gone; Path=/"
     renderSwitcher({ remembered: "gone" })
-    expect(
-      screen.getByRole("button", { name: "Client: All clients" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: ALL_NAME })).toBeInTheDocument()
     await waitFor(() => expect(cookie()).toBeNull())
     expect(replace).not.toHaveBeenCalled()
+  })
+})
+
+describe("ScopeControlView", () => {
+  function renderControl({
+    variant,
+    mode = "agency",
+    organisationName = null,
+    directory,
+  }: {
+    variant: "sidebar" | "pill" | "chip"
+    mode?: "agency" | "business"
+    organisationName?: string | null
+    directory?: DirectoryEntry[]
+  }) {
+    const queryClient = new QueryClient()
+    if (directory) queryClient.setQueryData(queryKeys.locations, directory)
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ClientScopeRoot rememberedClientId={null}>
+          <ScopeControlView
+            variant={variant}
+            mode={mode}
+            organisationName={organisationName}
+          />
+        </ClientScopeRoot>
+      </QueryClientProvider>
+    )
+  }
+
+  it("names the sidebar's scope with its listings and health in words, under a Working on caption", () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "clientId=c1"
+    const { container } = renderControl({ variant: "sidebar" })
+    const wrapper = container.querySelector('[data-slot="sidebar-scope"]')
+    expect(wrapper).not.toBeNull()
+    expect(within(wrapper as HTMLElement).getByText("Working on")).toBeVisible()
+    const control = screen.getByRole("button", { name: OLD_CROWN_NAME })
+    expect(control).toHaveAttribute("data-variant", "sidebar")
+    expect(control).toHaveAttribute("data-mode", "agency")
+    expect(control).toHaveAttribute("data-tone", "healthy")
+    expect(control).toHaveTextContent("1 listing · In sync")
+  })
+
+  it("is drawn but not a button when there is only one client", () => {
+    stubClients([OLD_CROWN])
+    const { container } = renderControl({ variant: "sidebar" })
+    expect(screen.queryByRole("button")).toBeNull()
+    const control = container.querySelector('[data-slot="scope-control"]')
+    expect(control).toHaveAttribute("data-static", "true")
+    expect(control?.tagName).not.toBe("BUTTON")
+    expect(control).toHaveTextContent(
+      "Working on All clients, 1 listing · All clients in sync"
+    )
+  })
+
+  it.each(["/team", "/settings", "/settings/billing"])(
+    "is not drawn on %s, which ignores the scope",
+    (pathname) => {
+      stubClients([OLD_CROWN, HARBOUR])
+      location.pathname = pathname
+      const { container } = renderControl({ variant: "pill" })
+      expect(container.querySelector('[data-slot="scope-control"]')).toBeNull()
+      expect(container).toBeEmptyDOMElement()
+    }
+  )
+
+  it("shows a business its own name with All locations, never a client", () => {
+    stubClients([OLD_CROWN])
+    renderControl({
+      variant: "pill",
+      mode: "business",
+      organisationName: "The Crown Group",
+      directory: [
+        { id: "l1", name: "The Bell", linked: true },
+        { id: "l2", name: "The Swan", linked: true },
+      ],
+    })
+    const control = screen.getByRole("button", {
+      name: "Working on The Crown Group, All locations · All in sync",
+    })
+    expect(control).toHaveAttribute("data-variant", "pill")
+    expect(control).toHaveAttribute("data-mode", "business")
+    expect(control).toHaveAttribute("aria-haspopup", "dialog")
+    expect(control).toHaveTextContent("The Crown Group")
+    expect(control).toHaveTextContent("All locations")
+    expect(control).not.toHaveTextContent(/client/i)
+  })
+})
+
+describe("the scope control's slot", () => {
+  // Pages, the e2e suites and the shell's CSS find the control by
+  // `data-slot="scope-control"` at every size, switchable or not.
+  it("stays scope-control when the control opens the desk menu", () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    render(
+      <ClientScopeRoot rememberedClientId={null}>
+        <ScopeControlView
+          variant="sidebar"
+          mode="agency"
+          organisationName={null}
+        />
+      </ClientScopeRoot>
+    )
+    expect(screen.getByRole("button", { name: ALL_NAME })).toHaveAttribute(
+      "data-slot",
+      "scope-control"
+    )
   })
 })

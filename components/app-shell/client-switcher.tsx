@@ -252,7 +252,10 @@ const ScopeTrigger = React.forwardRef<
   }
 >(function ScopeTrigger({ control, variant, className, ...props }, ref) {
   return (
+    // The menu or popover trigger's props go first, so its own
+    // `data-slot` never replaces the control's.
     <button
+      {...props}
       ref={ref}
       type="button"
       aria-label={control.name}
@@ -265,7 +268,6 @@ const ScopeTrigger = React.forwardRef<
         "focus-halo focus-visible:outline-none",
         className
       )}
-      {...props}
     >
       <ScopeFace control={control} variant={variant} interactive />
     </button>

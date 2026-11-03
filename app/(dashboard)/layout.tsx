@@ -112,9 +112,10 @@ export default async function DashboardLayout({
       session: sessionSchema.parse(session),
     })
 
-    // The sidebar pins recent clients and the topbar chip reports their
-    // health, so the client list is shell furniture: hydrating it here is
-    // what keeps the first paint from showing an empty nav that fills in.
+    // The scope control (sidebar "Working on", tablet pill, phone chip)
+    // names the client in scope with its health in words, so the client
+    // list is shell furniture: hydrating it here is what keeps the first
+    // paint from drawing no scope and then filling it in.
     if (clients.status === "fulfilled") {
       queryClient.setQueryData(queryKeys.clients, clients.value)
       if (
