@@ -245,11 +245,14 @@ A row is done only when every applicable column is `done`.
 | M08 | 2026-11-03 | Outbox nav gated by a route-existence constant (`lib/navigation/outbox.ts`, `false` until the page lands) | org feature flag; env flag | No client env-flag pattern; one-line flip with the page | c-shell | yes |
 | M09 | 2026-11-03 | Rendering, captures and e2e run by the orchestrator; workers do code and docs | workers render | Worker sandbox denies port binding and browser launch | orchestrator | no |
 
+| M10 | 2026-11-03 | Continuation uses Workstream agents (SpawnAgent), not the supervised factory_worker path (owner instruction) | factory_worker | Owner restored the normal controller; supervised path is opt-in | orchestrator | no |
+
 ## Operational blockers
 
 | # | Blocker | Effect | Next step |
 | --- | --- | --- | --- |
 | O01 | Machine e2e runner mismatch: `@e2e-dev/web@0.11.2` imports `rejectUnknownOptions`, absent from installed `e2e@0.15.2` (`CONFIG_LOAD_FAILED`) | Agentic journeys (`tests/agentic`) cannot run | Machine-level reinstall of a matching pair in `~/node_modules` (outside repo; owner's install). Playwright suite unaffected |
+| O03 | Fixture tenant has one client and no reachable share-report / disconnect dialog states in nm-capture | 3 interaction states uncaptured before and after | Add a second fixture client and fix the capture state scripts in a QA slice |
 | O02 | 2026-11-03 07:56-07:58: two worker starts (team8, team2) returned "delivery not confirmed"; no worktree or branch was created | c-system completion and later slices not delegated | Not retried further; re-check scheduler, then one start per slot |
 
 ## Open defects
@@ -269,7 +272,7 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | --- | --- | --- |
 | Base checks (install, verify, build, design ratchet) | BASELINE §1; logs `test-results/a-inventory/*.log` in the a-inventory worktree (to be copied to `2026-11-redesign/evidence/a-inventory/`) | done |
 | Inventory sweep parts and audit re-check JSON | `test-results/a-inventory/parts/` (same) | done |
-| Before-captures 367719b3 (phone/tablet/desktop light, desktop/phone dark) | `2026-11-redesign/evidence/a-inventory/before-367719b3/` via `tests/visual/nm-capture-before.sh` | **blocked** (port binding) |
+| Before-captures 367719b3 (phone/tablet/desktop light 225 shots, phone/desktop dark 298 incl. light pairs, shell matrix 95) | `2026-11-redesign/evidence/controller/{after-before,after-before-367719b3-dark,shell-matrix-before}-367719b3/` + manifests (orchestrator, detached worktree `before-wt`, Chromium) | done; states not reached: share-report dialog, disconnect dialog, client switcher (fixture has 1 client) |
 | Curated before webp (34) | `docs/redesign/2026-11/evidence/before/` (list: `tests/visual/nm-capture-before.curated.txt`) | **blocked** |
 | Agentic journeys desktop and mobile at 367719b3 | `before-367719b3/agentic-{desktop,mobile}/` | **blocked** (port binding; e2e runner `CONFIG_LOAD_FAILED`) |
 | After-captures integration `dd1d209a` (A+B+C2): shell matrix 17 sizes x 6 shots; every route phone/tablet/desktop light (225 shots); phone/desktop dark | `2026-11-redesign/evidence/controller/{shell-matrix,after,after-dd1d209a-dark}-dd1d209a/` + manifests; script `evidence/controller/capture-integration.sh` | done (Chromium, touch <1024, mouse >=1024; states not reached: client-switcher (1 client), share-report dialog, disconnect dialog; More sheet at >=768 expected absent) |
