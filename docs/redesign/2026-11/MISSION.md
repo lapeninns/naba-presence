@@ -1,6 +1,6 @@
 # NabaPresence redesign 2026-11 — Mission
 
-Status (2026-11-03 10:10, orchestrator): **A, B, C2 shell and the vocabulary fixes merged (`c281ba68`). Resumed on the repaired pool: worker `c-system` (branch `redesign-2026-11/c-system-3` from `cacce14b`, primitives) and worker `d-outbox` (branch `redesign-2026-11/d-outbox-2` from `70f67ab7`, Outbox read model/API/page). Screen slices (E) follow once primitives land.**A and B merged; C2 shell merged; C1 system partly done (branch `redesign-2026-11/c-system`, WIP head `910e3afc`); D-G not started.** Skeleton written by worker `a-inventory`. Integration branch: `redesign-2026-11/integration` (one bundled PR). Base: `origin/main` `367719b3`.
+Status (2026-11-03 11:40, orchestrator, legacy-recovery Workstream): **A, B, C (system + shell) and the Outbox merged on integration `4704bc41`** (lane C `c-system-3` @ `9e5b8795` via `56648d84`; lane D `d-outbox-2` @ `104f5740`). `pnpm verify` on the identical tree: 686 files / 10350 tests pass, 1 skipped; design ratchet passes. Screen slices (E) started: inbox chunk 1 (R60–R63) on `redesign-2026-11/e-inbox`. Agents run in small chunks because sessions keep being rejected (O07). Integration branch: `redesign-2026-11/integration` (one bundled PR). Base: `origin/main` `367719b3`; main has since moved (rebase before final CI).
 
 ## Scope
 
@@ -40,7 +40,7 @@ Every result names its engine, input and theme.
 | --- | --- | --- | --- | --- |
 | A | Baseline, inventory, before-evidence | `a-inventory` | `BASELINE.md`, `INVENTORY.md` with `check-inventory.mjs` passing, before-captures at 3 viewports, agentic run recorded | docs merged (`f6ed8b3d`); before-captures pending (orchestrator run); agentic runner blocked (version mismatch, see O01) |
 | B | Direction: IA, navigation model, design language | `b-direction` | `DIRECTION.md`, `concepts/` | merged (`ab36cbb9`); concepts rendered with satori, not Playwright |
-| C | System: tokens, primitives, shell, state patterns | `c-system`, `c-shell` | `SYSTEM.md`; primitives and shell implemented; unit/component tests | shell merged (`dd1d209a`): install/typecheck/lint/build exit 0; rendered (Chromium) at the shell matrix, 2 shell defects S1-S2 open; system 3 of ~6 steps committed, vocabulary WIP unverified |
+| C | System: tokens, primitives, shell, state patterns | `c-system`, `c-shell` | `SYSTEM.md`; primitives and shell implemented; unit/component tests | **done** (`56648d84`): all SYSTEM waves (selected rows, flat headers, Pagination, overlays, dark theme, button-colour audit, /design-system showcase), S1–S3 fixed; independent review findings (1 major, 5 minor) fixed; verify, contrast 240/240, webpack build pass; /design-system axe-clean light+dark at 3 viewports (`evidence/c-system-3/`). Menus/sheets not opened in a browser |
 | D | Journeys: per-journey flows and states | (tbd) | `JOURNEYS-*.md` | not run |
 | E | Implementation route by route, keyed by INVENTORY ids | (tbd) | coverage table "implemented" filled | not run |
 | F | Verification: viewport matrix captures, a11y, agentic e2e, `pnpm verify`, `pnpm verify:release` | (tbd) | after-captures, before/after report, e2e reports, gate receipts | not run |
@@ -247,6 +247,15 @@ A row is done only when every applicable column is `done`.
 
 | M10 | 2026-11-03 | Continuation uses Workstream agents (SpawnAgent), not the supervised factory_worker path (owner instruction) | factory_worker | Owner restored the normal controller; supervised path is opt-in | orchestrator | no |
 
+| M11 | 2026-11-03 | Editor footer "Review changes" uses `on-dark`, not `send`; green only on the real publish in the review sheet | record a §10 exception | SYSTEM §9: send only for writes to Google (independent review major finding) | orchestrator | yes |
+| M12 | 2026-11-03 | Stepper done steps in secondary ink, vertical current step on bg-fill; swipe triage and filter count badge in ink | keep green/accent | "Green only for live/sends" | c-system-3 | yes |
+| M13 | 2026-11-03 | ChangeTrack to-do glyph in ink-muted | ink-quaternary | Compact track is not always paired with a status pill | c-system-3 | yes |
+| M14 | 2026-11-03 | `AccessDenied` gains optional `whoCanOpen`; Outbox: open to owner, admin or member, ask an owner or admin | single `whoCanHelp` | Members cannot grant access | orchestrator | yes |
+| M15 | 2026-11-03 | `/api/outbox` and `/api/outbox/counts` send `cache-control: private, no-store` | rely on Next default | Integration assertion found no header at all; matches audit-log route | d-outbox-2 | no |
+| M16 | 2026-11-03 | Outbox empty state has no illustration | keep a local illustration | Empty illustration slot retired by the system | orchestrator | yes |
+| M17 | 2026-11-03 | Outbox partial/loading/empty captures use DB levers on a throwaway PG17 (pause, revoked SELECT, lock, unassigned member); error uses an intercepted 500 | HTML/RSC tampering | Real states through the real stack | d-outbox-2 | yes |
+| M18 | 2026-11-03 | Remaining slices are run as small agent chunks (2–4 inventory rows, commit per row), replaced on rejection | long-lived lane agents; orchestrator-only | Owner choice after four `model_request_rejected` sessions (O07) | owner | no |
+
 ## Operational blockers
 
 | # | Blocker | Effect | Next step |
@@ -256,6 +265,7 @@ A row is done only when every applicable column is `done`.
 | O04 | 2026-11-03 08:3x: Outbox agent (session 6a624bb7) failed twice with `model_request_rejected` from the model provider | Outbox page/API unfinished; WIP committed on `redesign-2026-11/d-outbox`; S1/S2 fix committed `6f269f47` (unrendered) | Owner checks provider/account; then resume the same agent. Not retried further |
 | O05 | 2026-11-03 ~08:50: design-system agent (session 6de2e253) also failed with `model_request_rejected` | Primitives (StatusPill, ChangeTrack, ActionBar split) and remaining SYSTEM waves unfinished; verified commits `59c74a09`, `a5bbe239` (vocabulary, 13/14 fixes, pnpm test 10203 pass); WIP `wip(ui)` on `redesign-2026-11/c-system-2` unverified | Same as O04: owner checks provider; resume same agent |
 | O06 | 2026-11-03 10:10: repaired supervised pool accepted both starts (team3 `worker-1d911ad5`, team4 `worker-19a4541b`) | O02/O04/O05 superseded for these two tasks | Monitor; one worker per slot |
+| O07 | 2026-11-03 10:5x–11:3x (legacy-recovery Workstream): four agent sessions (C original + replacement, D original + replacement) ended with `model_request_rejected` after a period of work; one restart in the same session also failed. Orchestrator session unaffected | Lost turns only; trees were clean or committed each time. Orchestrator finished the Outbox prop + Empty fix (`b8064e9f`, `104f5740`) | Small chunks (M18); agents told to keep tool output small and never read session JSONL. Root cause unconfirmed (possibly the legacy bridge rejecting foreign session metadata) |
 | O02 | 2026-11-03 07:56-07:58: two worker starts (team8, team2) returned "delivery not confirmed"; no worktree or branch was created | c-system completion and later slices not delegated | Not retried further; re-check scheduler, then one start per slot |
 
 ## Open defects
@@ -267,7 +277,7 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | D01–D30 | see BASELINE §5.1 | 2 high, 14 medium, 14 low | open (code-verified at 367719b3) |
 | S1 | Shell rail at 844x390 landscape cuts off Team/Settings | medium | fix merged `6f269f47`; at `c281ba68` account stays visible but Settings is still clipped in the static shot. **Resolved:** interaction check at `c281ba68` (Chromium, touch) scrolls Settings into view and navigates to /settings at 844x390, 1024x600, 768x500 (`evidence/controller/rail-reach-c281ba68/rail-reach.json`, script `check-rail-reach.mjs`) |
 | S2 | Tablet scope pill truncates "All clients" at 768 despite free width | low | fixed, verified in render `shell-matrix-c281ba68/w768x1024/listings.png` |
-| S3 | Scope health words differ by size: tablet pill "Some clients need checking", desktop sidebar "1 client needs attention" for the same data | low | open (`shell-matrix-c281ba68/w768x1024`, `after-c281ba68/desktop/state--inbox-selected`) |
+| S3 | Scope health words differ by size: tablet pill "Some clients need checking", desktop sidebar "1 client needs attention" for the same data | low | **fixed** `a8647e7d` + count-aware wording `8c80c552`; one fixture, tablet and desktop read the same words (`evidence/c-system-3/probe-scope-5bbd4b98.json`) |
 | T1 | `tests/components/sign-in-recovery.test.tsx` "clears the last answer on a new attempt" failed once in full `pnpm test` at `c281ba68`; passed 3/3 in isolation; files untouched by the redesign | low (flaky) | open, watch in final gate |
 | BASELINE §5.2 render items (13) | see BASELINE §5.2 | 3 high claimed | needs render |
 
