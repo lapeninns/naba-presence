@@ -183,9 +183,13 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         0
       )
       await capture(page, info, "notification-preferences")
-      const [saved] =
-        await backend.admin`select mode from notification_preference where organisation_id = ${f.owner.organisationId} and event_kind = 'schedule_missed' and channel = 'in_app'`
-      expect(saved.mode).toBe("off")
+      await expect
+        .poll(async () => {
+          const [saved] =
+            await backend.admin`select mode from notification_preference where organisation_id = ${f.owner.organisationId} and event_kind = 'schedule_missed' and channel = 'in_app'`
+          return saved?.mode
+        })
+        .toBe("off")
     })
 
     test("shows operational health with guarded recovery only", async ({
@@ -299,6 +303,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
     test("schedules a post across a clock change, approves it and shows it in the calendar", async ({
       page,
     }, info) => {
+      test.slow() // After the autumn change, the next occurrence is nearly a year away.
       const f = await backend.fixture(page, 1)
       // Scheduling, and repeating schedules on top, are organisation
       // features that ship off (P08-R1).
