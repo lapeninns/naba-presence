@@ -1181,28 +1181,88 @@ function ClientDetailsForm({
   )
 }
 
+/**
+ * The settings body's loading shape: the section rail from @3xl, then the
+ * Details card (title, line, divider, three fields) and the Listings
+ * heading over its table. The route's own `loading.tsx` draws it under a
+ * header outline, so the hub-shaped skeleton never shows first. The
+ * loading words are for screen readers only, as in the hub's.
+ */
 function SettingsSkeleton() {
   return (
     <div className="flex flex-col gap-6" aria-busy="true">
-      <p role="status" className="text-ui text-ink-muted">
+      <p role="status" className="sr-only">
         Loading this client’s settings…
       </p>
-      <Card>
-        <CardContent className="flex flex-col gap-3.5">
-          <Skeleton className="h-4 w-1/4" />
-          <Skeleton className="h-9" />
-          <Skeleton className="h-24" />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="flex flex-col gap-3.5">
-          <Skeleton className="h-4 w-1/3" />
-          <Skeleton className="h-5" />
-          <Skeleton className="h-5" />
-        </CardContent>
-      </Card>
+      <div
+        aria-hidden
+        className="flex flex-col gap-6 @3xl:flex-row @3xl:items-start"
+      >
+        <div className="hidden @3xl:flex @3xl:w-52 @3xl:shrink-0 @3xl:flex-col @3xl:gap-0.5 @3xl:pt-4">
+          {["w-16", "w-20", "w-16"].map((width, index) => (
+            <div
+              key={index}
+              className="flex min-h-(--np-control-h) items-center px-2.5"
+            >
+              <Skeleton className={cn("h-4", width)} />
+            </div>
+          ))}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <Card flush>
+            <div className="flex flex-col gap-2 border-b border-line p-(--np-card-pad)">
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="h-4 w-72 max-w-full" />
+            </div>
+            <div className="flex flex-col gap-5 p-(--np-card-pad)">
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-(--np-field-h) rounded-(--np-radius-control) max-md:h-(--np-touch)" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-28" />
+                <div className="flex gap-2">
+                  {[0, 1, 2, 3, 4, 5, 6].map((index) => (
+                    <Skeleton
+                      key={index}
+                      className="size-8 shrink-0 rounded-(--np-radius-control) pointer-coarse:size-11"
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-24 rounded-(--np-radius-control)" />
+              </div>
+            </div>
+          </Card>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-6 w-24" />
+            <Skeleton className="h-4 w-64 max-w-full" />
+            <Skeleton className="h-32 rounded-(--np-radius-card)" />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
 
-export { ClientSettings }
+/**
+ * The settings header's outline for the route's `loading.tsx`, where the
+ * client's name is not known yet: eyebrow, title, description, and the
+ * desk's Back button.
+ */
+function SettingsHeaderSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 grow basis-90 flex-col gap-1">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-6 w-96 max-w-full" />
+      </div>
+      <Skeleton className="h-(--np-control-h) w-36 rounded-(--np-radius-control) max-md:hidden" />
+    </div>
+  )
+}
+
+export { ClientSettings, SettingsHeaderSkeleton, SettingsSkeleton }

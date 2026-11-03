@@ -1010,31 +1010,51 @@ function DiagnosisAlert({
 
 /**
  * The hub's loading shape, drawn by the route's `loading.tsx` and by the hub
- * while its query is pending: the same header, the same tile grid and the
- * same full-width listings table with the details cards under it, so the
- * swap to the real hub does not jump.
+ * while its query is pending: the same header, the actions row under it, the
+ * work heading over one KPI strip (four cells, two by two until the strip
+ * has 48rem), then the full-width listings table with the details cards
+ * under it, so the swap to the real hub does not jump. The loading words
+ * are for screen readers only: a visible line here has no counterpart in
+ * the loaded page and pushed everything under it down on swap.
  */
 function HubSkeleton() {
   return (
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
-      <div className="flex items-start gap-4">
+      <p role="status" className="sr-only">
+        Loading this client…
+      </p>
+      <div aria-hidden className="flex items-start gap-3 @md:gap-4">
         <Skeleton className="mt-1 size-11 rounded-(--np-radius-card) @md:size-12" />
         <div className="flex flex-1 flex-col gap-2 pt-1">
           <Skeleton className="h-3 w-12" />
           <Skeleton className="h-8 w-64 max-w-full" />
           <Skeleton className="h-4 w-80 max-w-full" />
+          <Skeleton className="h-4 w-56 max-w-full" />
         </div>
       </div>
-      <p role="status" className="text-ui text-ink-muted">
-        Loading this client…
-      </p>
-      <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
-        {[0, 1, 2, 3].map((index) => (
-          <Skeleton key={index} className="h-28 rounded-(--np-radius-card)" />
-        ))}
+      <div aria-hidden className="flex items-center gap-2">
+        <Skeleton className="h-(--np-control-h) w-32 rounded-(--np-radius-control) @max-md:flex-1" />
+        <Skeleton className="h-(--np-control-h) w-24 rounded-(--np-radius-control)" />
       </div>
-      <div className="flex flex-col gap-6">
-        <Skeleton className="h-48 min-w-0 rounded-(--np-radius-card)" />
+      <div aria-hidden className="flex flex-col gap-2.5">
+        <Skeleton className="h-6 w-44" />
+        <div className="@container/kpi overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
+          <div className="grid grid-cols-2 @[48rem]/kpi:grid-cols-4">
+            {[0, 1, 2, 3].map((index) => (
+              <div key={index} className="flex flex-col gap-2 p-4">
+                <Skeleton className="h-3.5 w-24" />
+                <Skeleton className="h-7 w-12" />
+                <Skeleton className="h-3.5 w-28 max-w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div aria-hidden className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2.5">
+          <Skeleton className="h-6 w-24" />
+          <Skeleton className="h-48 min-w-0 rounded-(--np-radius-card)" />
+        </div>
         <div className="grid gap-4 @3xl:grid-cols-2">
           <Skeleton className="h-28 rounded-(--np-radius-card)" />
           <Skeleton className="h-24 rounded-(--np-radius-card)" />
