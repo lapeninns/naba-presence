@@ -54,6 +54,7 @@ export function PhotoPreview({
   onUseAsLogo,
   writeReason,
   updating,
+  finalFocus,
 }: {
   item: MediaItem | null
   /** The items the lightbox steps through; defaults to the one item. */
@@ -68,6 +69,8 @@ export function PhotoPreview({
   /** Why this viewer cannot change photos; hides nothing, explains the lock. */
   writeReason?: string | null
   updating?: boolean
+  /** Where focus goes once the lightbox has closed (Base UI `finalFocus`). */
+  finalFocus?: () => HTMLElement | boolean | null
 }) {
   // The thumbnail link that failed (Google's expire); keyed by URL, so the
   // next photo, or a refreshed link, gets its own try.
@@ -103,6 +106,7 @@ export function PhotoPreview({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         size="wide"
+        finalFocus={finalFocus}
         onKeyDown={(event) => {
           if (event.key === "ArrowLeft" && previous && onNavigate) {
             event.preventDefault()

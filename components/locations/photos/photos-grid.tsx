@@ -116,6 +116,19 @@ export function PhotosGrid({
     return tile?.querySelector<HTMLElement>("button") ?? null
   }
 
+  // The lightbox steps through photos, so on close focus goes to the tile
+  // of the photo last shown, not the one that opened it. A close that hands
+  // over to the delete dialog leaves focus to that dialog.
+  const lastPreviewed = useRef<string | null>(null)
+  const handingToDelete = useRef(false)
+  const focusAfterPreview = (): HTMLElement | boolean | null => {
+    if (handingToDelete.current) {
+      handingToDelete.current = false
+      return false
+    }
+    return tileButton(lastPreviewed.current) ?? true
+  }
+
   const focusAfterDelete = (): HTMLElement | boolean | null => {
     const closed = closedDelete.current
     closedDelete.current = null
@@ -184,7 +197,10 @@ export function PhotosGrid({
                 disabled={disabled}
                 updating={updatingId === item.id}
                 patchCategories={patchCategories}
-                onOpen={() => setPreviewId(item.id)}
+                onOpen={() => {
+                  lastPreviewed.current = item.id
+                  setPreviewId(item.id)
+                }}
                 onCategoryChange={(next) => moveTo(item, next)}
                 onDelete={() => askDelete(item, "tile")}
               />
@@ -208,10 +224,15 @@ export function PhotosGrid({
         onOpenChange={(open) => {
           if (!open) setPreviewId(null)
         }}
-        onNavigate={(next) => setPreviewId(next.id)}
+        onNavigate={(next) => {
+          lastPreviewed.current = next.id
+          setPreviewId(next.id)
+        }}
+        finalFocus={focusAfterPreview}
         writeReason={writeReason}
         updating={previewItem ? updatingId === previewItem.id : false}
         onDelete={(item) => {
+          handingToDelete.current = true
           setPreviewId(null)
           askDelete(item, "preview")
         }}

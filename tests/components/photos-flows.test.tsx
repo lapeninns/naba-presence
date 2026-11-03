@@ -221,6 +221,21 @@ describe("browsing the library (p4-F01)", () => {
     expect(screen.getByText("1 of 12 loaded · 15 in all")).toBeInTheDocument()
   })
 
+  it("steps with the arrow keys and returns focus to the photo last shown", async () => {
+    const user = userEvent.setup()
+    loaded(makeMedia())
+    const { container } = renderTab()
+    const tile = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-media-id="${id}"] > button`)!
+    await user.click(tile("m0"))
+    expect(await screen.findByText("1 of 3")).toBeInTheDocument()
+    await user.keyboard("{ArrowRight}")
+    expect(await screen.findByText("2 of 3")).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(tile("m1")))
+  })
+
   it("names the empty library’s next step only to someone who can add", () => {
     loaded(makeMedia({ items: [], total: 0 }), { canPublish: false })
     renderTab()
