@@ -1117,6 +1117,46 @@ describe("ListingsBoard", () => {
       ).toHaveAttribute("href", link.getAttribute("href"))
     })
 
+    it("draws the row it shows as selected until Escape closes it, and dates a failed write as sent", async () => {
+      stubWidth(true)
+      stub({
+        entries,
+        summaries: [
+          summary({
+            locationId: "l1",
+            lastPublish: {
+              at: "2026-09-01T10:00:00Z",
+              status: "failed",
+              area: "hours",
+            },
+          }),
+          summary({ locationId: "l2" }),
+          summary({ locationId: "l3" }),
+        ],
+      })
+      const user = userEvent.setup()
+      render(<ListingsBoard role="member" />)
+      const row = screen.getByRole("row", { name: /Old Crown Girton/ })
+      const link = within(row).getByRole("link", { name: "Old Crown Girton" })
+      fireEvent.click(link, { detail: 1 })
+      const dialog = await screen.findByRole("dialog", {
+        name: "Old Crown Girton",
+      })
+      expect(row).toHaveAttribute("data-selected", "true")
+      expect(
+        // The modal panel hides the board from the accessibility tree.
+        screen.getByRole("row", { name: /Harbour View/, hidden: true })
+      ).not.toHaveAttribute("data-selected")
+      // The last write did not land: dated as sent, never as published.
+      expect(
+        within(dialog).getByText("Last sent to Google").parentElement
+      ).toHaveTextContent("Failed: retry")
+      expect(within(dialog).queryByText(/published/i)).toBeNull()
+      await user.keyboard("{Escape}")
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+      expect(row).not.toHaveAttribute("data-selected")
+    })
+
     it("uses the overview's words for each area", async () => {
       stubWidth(true)
       const recent = new Date().toISOString()

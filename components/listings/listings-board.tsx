@@ -1175,13 +1175,16 @@ function ListingsBoard({
     const clientInSubtitle = !business && !unfiledRow
     const ticked = canSelect && selected.has(row.entry.id)
     const capped = !ticked && selected.size >= BULK_MAX_TARGETS
+    const looked = quick.open && quick.item?.entry.id === row.entry.id
     return (
       <TableRow
         key={row.entry.id}
         interactive
-        // A ticked row is drawn selected (fill and ink edge), so the bar's
-        // count can be matched to rows by eye; the checkbox carries the state.
-        data-selected={ticked || undefined}
+        // A ticked row, and the row the quick look is showing, are drawn
+        // selected (fill and ink edge), so the bar's count and the panel can
+        // be matched to rows by eye. The checkbox and the dialog's name carry
+        // the state for assistive technology.
+        data-selected={ticked || looked || undefined}
         className="relative"
       >
         {canSelect ? (
