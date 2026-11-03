@@ -72,12 +72,15 @@ describe("ListingChangeRequests", () => {
       <ListingChangeRequests locationId={LOCATION} editor="hours" />
     )
 
-    expect(
-      await screen.findByText("Publish opening hours: waiting for approval")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Publish opening hours")).toBeInTheDocument()
     // Only this editor's requests: the photo request belongs to the photos tab.
     expect(screen.getAllByTestId("listing-change-requests")).toHaveLength(1)
     expect(screen.getByText(/Ada asked/)).toBeInTheDocument()
+    // The lifecycle pill, amber: the second publisher acts next.
+    const pill = document.querySelector('[data-slot="status-pill"]')!
+    expect(pill).toHaveAttribute("data-state", "awaiting_approval")
+    expect(pill).toHaveAttribute("data-tone", "attention")
+    expect(pill).toHaveTextContent("Waiting for your approval")
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument()
 
     await userEvent.click(
@@ -119,6 +122,13 @@ describe("ListingChangeRequests", () => {
     expect(list).toHaveTextContent("Source web address")
     expect(list).toHaveTextContent("https://cdn.example.com/bar.jpg")
     expect(list).toHaveTextContent("INTERIOR")
+    // A long path label never squeezes the values: stacked on a phone, a
+    // capped label column wider.
+    expect(list.className).toContain("grid-cols-1")
+    expect(list.className).toContain(
+      "sm:grid-cols-[fit-content(40%)_minmax(0,1fr)]"
+    )
+    expect(list.className).not.toMatch(/minmax\(0,auto\)/)
     expect(
       screen.getByRole("button", { name: "Approve and send" })
     ).toBeInTheDocument()
@@ -139,6 +149,9 @@ describe("ListingChangeRequests", () => {
       screen.queryByRole("button", { name: "Approve and send" })
     ).toBeNull()
     expect(screen.getByText(/You asked/)).toBeInTheDocument()
+    expect(
+      document.querySelector('[data-slot="status-pill"]')
+    ).toHaveTextContent("Awaiting approval")
   })
 
   it("asks for nothing where listing approval is off", async () => {
