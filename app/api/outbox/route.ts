@@ -1,8 +1,13 @@
+import { NextResponse } from "next/server"
+
 import { decodeOutboxQuery, type OutboxResponse } from "@/lib/outbox/contract"
 import { readOutbox } from "@/lib/server/outbox"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+
+/** One session's own work: never kept by a shared cache. */
+const PRIVATE = { "cache-control": "private, no-store" }
 
 /**
  * The Outbox (DIRECTION §7.1): writes waiting for a person, with Google,
@@ -14,6 +19,11 @@ export const runtime = "nodejs"
 export const GET = route({
   roles: ["owner", "admin", "member"],
   query: (params) => decodeOutboxQuery(params),
-  handler: async ({ session, query, tenant }): Promise<OutboxResponse> =>
-    tenant((sql) => readOutbox(sql, session, query)),
+  handler: async ({ session, query, tenant }) =>
+    NextResponse.json<OutboxResponse>(
+      await tenant((sql) => readOutbox(sql, session, query)),
+      {
+        headers: PRIVATE,
+      }
+    ),
 })

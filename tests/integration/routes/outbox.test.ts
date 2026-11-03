@@ -535,6 +535,18 @@ describeDatabase("GET /api/outbox", () => {
     expect((await read(viewer.cookie, "/api/outbox/counts")).status).toBe(403)
   })
 
+  it("is never kept by a shared cache", async () => {
+    for (const path of ["/api/outbox", "/api/outbox/counts"]) {
+      const response = await fetch(`${server.baseUrl}${path}`, {
+        headers: { cookie: owner.cookie },
+      })
+      expect(response.status).toBe(200)
+      const cacheControl = response.headers.get("cache-control") ?? ""
+      expect(cacheControl, path).toMatch(/\b(no-store|private)\b/)
+      expect(cacheControl, path).not.toMatch(/\b(public|s-maxage)\b/)
+    }
+  })
+
   it("needs a session", async () => {
     expect((await fetch(`${server.baseUrl}/api/outbox`)).status).toBe(401)
     expect((await fetch(`${server.baseUrl}/api/outbox/counts`)).status).toBe(
