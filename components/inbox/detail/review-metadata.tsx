@@ -87,7 +87,7 @@ function ReviewMetadata({
     })
   }
   if (approvedBy) rows.push({ term: "Approved by", value: approvedBy })
-  if (publishedBy) rows.push({ term: "Published by", value: publishedBy })
+  if (publishedBy) rows.push({ term: "Sent to Google by", value: publishedBy })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

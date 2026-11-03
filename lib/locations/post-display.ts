@@ -104,7 +104,9 @@ export function matchesPostFilter(
     case "awaiting":
       return post.status === "awaiting_approval"
     case "published":
-      return post.status === "published" || post.status === "publishing"
+      // "On Google": Google's own state says the post is live. A post on
+      // its way or still processing is not there yet.
+      return localPostOutcome(post) === "confirmed_applied"
     case "attention":
       return postNeedsAttention(post)
   }

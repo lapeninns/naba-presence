@@ -499,7 +499,7 @@ describe("GoogleChangesPanel", () => {
     renderPanel()
 
     const row = await rowFor("Business name")
-    expect(within(row).getByText("Waiting for approval")).toBeInTheDocument()
+    expect(within(row).getByText("Awaiting approval")).toBeInTheDocument()
     expect(
       within(row).queryByRole("button", { name: "Put ours back" })
     ).toBeNull()
@@ -610,7 +610,7 @@ describe("GoogleChangesPanel", () => {
 
     const row = await rowFor("Business name")
     expect(
-      within(row).getByText("Sent to Google, waiting for Google to confirm")
+      within(row).getByText("Sent, waiting for Google to confirm")
     ).toBeInTheDocument()
     expect(within(row).queryByRole("button")).toBeNull()
   })

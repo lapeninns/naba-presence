@@ -593,10 +593,10 @@ describe("ActionBar", () => {
       expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
     })
     await waitFor(() => {
-      expect(screen.getByText("Submitted for approval")).toBeInTheDocument()
+      expect(screen.getByText("Awaiting approval")).toBeInTheDocument()
       expect(
         screen.getByText(
-          "It goes live once someone with publishing rights approves it."
+          "It goes to Google once someone with publishing rights approves it."
         )
       ).toBeInTheDocument()
     })
@@ -786,7 +786,9 @@ describe("ActionBar", () => {
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
     await waitFor(() =>
-      expect(screen.getByText("Google declined this reply")).toBeInTheDocument()
+      expect(
+        screen.getByText("Google refused it. Nothing changed on Google.")
+      ).toBeInTheDocument()
     )
     expect(screen.queryByText("Reply published")).not.toBeInTheDocument()
   })
@@ -794,9 +796,9 @@ describe("ActionBar", () => {
   // Google has a `pending` reply and nothing more can be done to it here, so
   // the inbox moves on exactly as it does for `published`; `rejected` stays.
   it.each([
-    ["published", true, "Reply published"],
-    ["pending", true, "Reply sent"],
-    ["rejected", false, "Google declined this reply"],
+    ["published", true, "Confirmed on Google"],
+    ["pending", true, "Sent, waiting for Google to confirm"],
+    ["rejected", false, "Google refused it. Nothing changed on Google."],
   ])(
     "announces a %s outcome to the inbox: %s",
     async (status, advances, toast) => {
@@ -980,8 +982,8 @@ describe("ActionBar", () => {
     )
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
-    expect(await screen.findByText("Reply published")).toBeInTheDocument()
-    expect(screen.getByText("On Google.")).toBeInTheDocument()
+    expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
+    expect(screen.getByText("Your reply is on Google.")).toBeInTheDocument()
     // A real link into a new tab that is told nothing, not a button.
     // The primitive tells a screen reader the link opens a new tab.
     const view = screen.getByRole("link", {
@@ -1010,7 +1012,7 @@ describe("ActionBar", () => {
     stubHooks(detailWith({ googleReplyUrl: "javascript:alert(1)" }))
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
-    expect(await screen.findByText("Reply published")).toBeInTheDocument()
+    expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
     expect(
       screen.queryByRole("link", { name: /View on Google/ })
     ).not.toBeInTheDocument()
@@ -1262,7 +1264,7 @@ describe("ActionBar", () => {
       await waitFor(() =>
         expect(
           screen.getByText(
-            "It goes live once another person with publishing rights approves it."
+            "It goes to Google once another person with publishing rights approves it."
           )
         ).toBeInTheDocument()
       )

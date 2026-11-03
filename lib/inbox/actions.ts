@@ -1,3 +1,4 @@
+import { describeOutcome } from "@/lib/editors/outcome"
 import type { OutcomeToastOptions } from "@/components/ui/toast"
 import {
   isAllowedReviewTransition,
@@ -188,7 +189,7 @@ export function describeOutcomeToast(
       if (context.googleReplyState === "PENDING") {
         return {
           kind: "google",
-          title: "Reply sent",
+          title: describeOutcome("awaiting_confirmation").title,
           description:
             "Google is checking it. It is not public until Google approves it.",
           type: "info",
@@ -197,8 +198,8 @@ export function describeOutcomeToast(
       }
       return {
         kind: "google",
-        title: "Reply published",
-        description: "On Google.",
+        title: describeOutcome("confirmed_applied").title,
+        description: "Your reply is on Google.",
         type: "success",
         ...(url ? { link: { href: url } } : {}),
       }
@@ -206,23 +207,23 @@ export function describeOutcomeToast(
     case "awaiting_approval":
       return {
         kind: "google",
-        title: "Submitted for approval",
+        title: describeOutcome("awaiting_approval").title,
         description: context.requireTwoPersonApproval
-          ? "It goes live once another person with publishing rights approves it."
-          : "It goes live once someone with publishing rights approves it.",
+          ? "It goes to Google once another person with publishing rights approves it."
+          : "It goes to Google once someone with publishing rights approves it.",
         type: "info",
       }
     case "rejected":
       return {
         kind: "google",
-        title: "Google declined this reply",
+        title: describeOutcome("rejected").title,
         description: "Edit the reply, then publish it again.",
         type: "error",
       }
     case "returned_to_draft":
       return {
         kind: "local",
-        title: "Reply sent back for edits",
+        title: describeOutcome("changes").label,
         description: "Its author can revise it and submit it again.",
         type: "success",
       }
@@ -246,9 +247,8 @@ export function describeOutcomeToast(
       // "submitted" (the approval word) or "published".
       return {
         kind: "google",
-        title: "Reply sent",
-        description:
-          "Google hasn’t confirmed it yet. This review updates when it does.",
+        title: describeOutcome("awaiting_confirmation").title,
+        description: "This review updates when Google confirms it.",
         type: "info",
       }
     default:

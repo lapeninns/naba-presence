@@ -1,5 +1,6 @@
 "use client"
 
+import { describeOutcome } from "@/lib/editors/outcome"
 import * as React from "react"
 
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
@@ -123,7 +124,7 @@ function stepView(
       state: stepOutcome(step) ?? "failed",
       stateLabel:
         step.code === "google_confirmation_required"
-          ? "Not confirmed"
+          ? describeOutcome("uncertain").label
           : undefined,
       detail: [savedHere ? "Saved here." : null, step.message]
         .filter(Boolean)

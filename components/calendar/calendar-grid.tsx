@@ -32,16 +32,22 @@ import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { useViewerTimeZone } from "@/lib/hooks/use-viewer-time-zone"
 import { occurrenceReasonText } from "@/lib/locations/schedule-display"
 import { cn } from "@/lib/utils"
+import { describeOutcome } from "@/lib/editors/outcome"
 
-const STATUS: Record<
+export const OCCURRENCE_STATUS: Record<
   ScheduleOccurrence["status"],
   { label: string; tone: StatusTone | PillTone }
 > = {
   scheduled: { label: "Scheduled", tone: "pending" },
-  publishing: { label: "Publishing", tone: "pending" },
-  published: { label: "Published", tone: "healthy" },
-  rejected: { label: "Rejected", tone: "at-risk" },
-  ambiguous: { label: "Outcome unknown", tone: "attention" },
+  publishing: { label: describeOutcome("sent").label, tone: "pending" },
+  // The schedule settles a run as `published` while Google may still be
+  // confirming it, and records nothing that tells the two apart.
+  published: {
+    label: describeOutcome("awaiting_confirmation").label,
+    tone: "pending",
+  },
+  rejected: { label: describeOutcome("rejected").label, tone: "at-risk" },
+  ambiguous: { label: describeOutcome("uncertain").label, tone: "attention" },
   missed: { label: "Missed", tone: "attention" },
   cancelled: { label: "Cancelled", tone: "outline" },
 }
@@ -86,7 +92,7 @@ type ByDate = Map<string, ScheduleOccurrence[]>
  * that did not go out as planned. Lists use `DayEntries` (mail rows).
  */
 function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
-  const status = STATUS[occurrence.status]
+  const status = OCCURRENCE_STATUS[occurrence.status]
   const flagged = FLAGGED_INK[occurrence.status]
   return (
     <Link
@@ -148,7 +154,7 @@ function DayEntries({
   return (
     <ListRows bleed={!flush} className={className}>
       {entries.map((occurrence) => {
-        const status = STATUS[occurrence.status]
+        const status = OCCURRENCE_STATUS[occurrence.status]
         const meta = occurrenceMeta(occurrence, viewerZone)
         return (
           <ListRow

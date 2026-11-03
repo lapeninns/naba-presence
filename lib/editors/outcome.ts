@@ -294,6 +294,13 @@ export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
   }
 
 /**
+ * A publish whose every Google step found Google already matching and sent
+ * nothing. It is not an outcome: nothing was written, so nothing is
+ * confirmed.
+ */
+export const NOTHING_TO_SEND_TITLE = "Nothing to send. Already matches Google"
+
+/**
  * Fills a label or title's `{n}`, `{time}` and `{name}` slots. A slot with
  * no value is dropped with the words that only make sense beside it ("Sent
  * back by {name}" without a name reads "Sent back").

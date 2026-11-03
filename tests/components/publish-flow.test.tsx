@@ -309,7 +309,9 @@ describe("ReviewChangesSheet", () => {
       />
     )
     const sheet = await screen.findByRole("dialog")
-    expect(within(sheet).getByText("Not confirmed")).toBeInTheDocument()
+    expect(
+      within(sheet).getByText("Not confirmed: check Google")
+    ).toBeInTheDocument()
     expect(
       within(sheet).getByText("Not sent — an earlier step needs confirmation")
     ).toBeInTheDocument()

@@ -83,8 +83,8 @@ describe("describeOutcomeToast", () => {
   it("shows success copy for an actually-published outcome", () => {
     expect(describeOutcomeToast("published")).toEqual({
       kind: "google",
-      title: "Reply published",
-      description: "On Google.",
+      title: "Confirmed on Google",
+      description: "Your reply is on Google.",
       type: "success",
     })
   })
@@ -97,8 +97,8 @@ describe("describeOutcomeToast", () => {
     })
     expect(toast).toEqual({
       kind: "google",
-      title: "Reply published",
-      description: "On Google.",
+      title: "Confirmed on Google",
+      description: "Your reply is on Google.",
       type: "success",
       link: { href: "https://search.google.com/local/reviews?r=1" },
     })
@@ -154,7 +154,7 @@ describe("describeOutcomeToast", () => {
     })
     expect(toast).toEqual({
       kind: "google",
-      title: "Reply sent",
+      title: "Sent, waiting for Google to confirm",
       description:
         "Google is checking it. It is not public until Google approves it.",
       type: "info",
@@ -162,14 +162,14 @@ describe("describeOutcomeToast", () => {
     expect(JSON.stringify(toast)).not.toMatch(/live/i)
     expect(
       describeOutcomeToast("published", { googleReplyState: "APPROVED" }).title
-    ).toBe("Reply published")
+    ).toBe("Confirmed on Google")
   })
   it("shows the awaiting-approval copy, not success", () => {
     expect(describeOutcomeToast("awaiting_approval")).toEqual({
       kind: "google",
-      title: "Submitted for approval",
+      title: "Awaiting approval",
       description:
-        "It goes live once someone with publishing rights approves it.",
+        "It goes to Google once someone with publishing rights approves it.",
       type: "info",
     })
   })
@@ -181,7 +181,7 @@ describe("describeOutcomeToast", () => {
   it("shows success copy when a reject decision returns the reply to draft", () => {
     expect(describeOutcomeToast("returned_to_draft")).toEqual({
       kind: "local",
-      title: "Reply sent back for edits",
+      title: "Sent back",
       description: "Its author can revise it and submit it again.",
       type: "success",
     })
@@ -194,9 +194,8 @@ describe("describeOutcomeToast", () => {
   it("calls a resolved pending reply sent, never submitted or published", () => {
     expect(describeOutcomeToast("pending")).toEqual({
       kind: "google",
-      title: "Reply sent",
-      description:
-        "Google hasn’t confirmed it yet. This review updates when it does.",
+      title: "Sent, waiting for Google to confirm",
+      description: "This review updates when Google confirms it.",
       type: "info",
     })
   })

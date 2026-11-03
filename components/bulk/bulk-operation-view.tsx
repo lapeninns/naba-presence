@@ -47,6 +47,7 @@ import {
 } from "@/lib/domain/bulk-repreview"
 import { formatDateTime } from "@/lib/format"
 import { formatTimeOfDay } from "@/lib/format/time"
+import { describeOutcome } from "@/lib/editors/outcome"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -59,13 +60,32 @@ const CHILD: Record<BulkChild["status"], { label: string; tone: PillTone }> = {
   skipped: { label: "Skipped", tone: "outline" },
   queued: { label: "Queued", tone: "info" },
   running: { label: "Sending", tone: "info" },
-  succeeded: { label: "Confirmed", tone: "ok" },
-  failed: { label: "Failed", tone: "bad" },
-  conflict: { label: "Changed on Google", tone: "warn" },
-  ambiguous: { label: "Outcome unknown", tone: "warn" },
+  // `succeeded` is only "sent": whether Google holds it is the child's
+  // confirmationState (childPill below).
+  succeeded: { label: "Sent", tone: "info" },
+  failed: { label: describeOutcome("failed").label, tone: "bad" },
+  conflict: { label: describeOutcome("conflict").label, tone: "warn" },
+  ambiguous: { label: describeOutcome("uncertain").label, tone: "warn" },
   cancelled: { label: "Cancelled", tone: "outline" },
   expired: { label: "Expired, not sent", tone: "outline" },
 }
+/**
+ * A listing's pill. A sent change says On Google only once its write was
+ * confirmed; one parked for an approver says so (DIRECTION §6.3 #4).
+ */
+export function childPill(
+  child: Pick<BulkChild, "status" | "confirmationState" | "resultCode">
+): { label: string; tone: PillTone } {
+  if (child.status !== "succeeded") return CHILD[child.status]
+  if (child.resultCode === "submitted_for_approval")
+    return { label: describeOutcome("awaiting_approval").label, tone: "warn" }
+  if (child.confirmationState === "confirmed")
+    return { label: describeOutcome("confirmed_applied").label, tone: "ok" }
+  if (child.confirmationState === "unresolved")
+    return { label: describeOutcome("uncertain").label, tone: "warn" }
+  return { label: describeOutcome("awaiting_confirmation").label, tone: "info" }
+}
+
 const REASON: Record<string, string> = {
   already_applied: "Already shows this change",
   publish_not_allowed: "You can’t publish to this listing",
@@ -441,7 +461,11 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
   // Google has confirmed, from the same counts the status line reads. A
   // skipped listing is never sent, so it is not part of the total.
   const total = (op?.children.length ?? 0) - skipped
-  const confirmed = op?.counts.succeeded ?? 0
+  const confirmed =
+    op?.children.filter(
+      (child) =>
+        child.status === "succeeded" && child.confirmationState === "confirmed"
+    ).length ?? 0
   const showProgress =
     Boolean(op) && op?.status !== "previewed" && op?.status !== "expired"
 
@@ -500,13 +524,13 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
             >
               <p className="text-ui text-ink" role="status">
                 {op.status === "previewed"
-                  ? "Waiting for approval."
+                  ? `${describeOutcome("awaiting_approval").label}.`
                   : op.status === "approved"
                     ? "Approved. Start it to queue each listing."
                     : op.status === "running"
                       ? "Running. This page updates on its own; you can leave it."
                       : op.status === "completed"
-                        ? "Every eligible listing is confirmed."
+                        ? "Every eligible listing was sent. Each one below says whether Google confirmed it."
                         : op.status === "completed_with_failures"
                           ? "Finished with some listings not changed."
                           : op.status === "cancelled"
@@ -737,8 +761,8 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                       ) : undefined
                     }
                     trailing={
-                      <StatusPill tone={CHILD[child.status].tone}>
-                        {CHILD[child.status].label}
+                      <StatusPill tone={childPill(child).tone}>
+                        {childPill(child).label}
                       </StatusPill>
                     }
                   />
@@ -874,7 +898,10 @@ function ChildReceipt({
           <OperationReceiptNotice
             receiptId={child.mutationOperationId}
             fallback={
-              child.status === "succeeded" ? "confirmed_applied" : "sent"
+              child.status === "succeeded" &&
+              child.confirmationState === "confirmed"
+                ? "confirmed_applied"
+                : "sent"
             }
           />
           <span className="text-caption break-all text-ink-muted">
@@ -910,7 +937,9 @@ function ChildDetail({
   const note =
     reason(child.skipReason ?? child.resultCode) ??
     (waiting ? "Waits for the earlier changes to this listing" : null) ??
-    (child.status === "succeeded" ? "Google shows the change" : null)
+    (child.status === "succeeded" && child.confirmationState === "confirmed"
+      ? "Google shows the change"
+      : null)
   const rows = describeChildChange(child)
   const fields = child.updateMask.map(maskLabel)
   return (
