@@ -183,9 +183,15 @@ describe("ReviewList", () => {
     expect(screen.getByRole("button", { name: /First/ })).not.toHaveTextContent(
       "Selected review"
     )
-    // The selection tint ("you are here"), which a hover does not repaint.
-    expect(second).toHaveClass("bg-(--np-selection-bg)")
+    // The neutral fill and the primitive's ink edge ("you are here"), which
+    // a hover does not repaint; no accent tint and no second bar of its own.
+    expect(second).toHaveClass(
+      "bg-(--np-selection-bg)",
+      "shadow-np-edge-select"
+    )
     expect(second.className).not.toContain("bg-surface-alt")
+    expect(second.className).not.toContain("accent")
+    expect(second.closest("li")?.className).not.toContain("before:bg-ink")
 
     // And it follows the selection rather than being painted on once.
     rerender(
@@ -1404,9 +1410,10 @@ describe("ReviewList refresh bar", () => {
     expect(bar).toHaveAttribute("data-slot", "progress")
     expect(bar).toHaveAttribute("data-indeterminate", "true")
     expect(bar).not.toHaveAttribute("aria-valuenow")
-    // Its highlight stops under reduced motion (the one-off pulse did not),
-    // and the section is marked busy as before.
-    expect(bar.querySelector(".animate-shimmer")).toHaveClass(
+    // Its fill pulses only under motion-safe and stills under reduced
+    // motion, and the section is marked busy as before.
+    expect(bar.querySelector('[data-slot="progress-indicator"]')).toHaveClass(
+      "motion-safe:animate-pulse",
       "motion-reduce:animate-none"
     )
     expect(document.querySelector(".animate-pulse")).toBeNull()

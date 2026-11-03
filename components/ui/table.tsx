@@ -101,7 +101,7 @@ const RECORD_CLASS = cn(
   "@max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:order-2 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:ms-3 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:max-w-1/2 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:shrink-0 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:text-end",
   "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:static! @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:order-3 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:-my-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:ms-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:-me-1.5 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:shrink-0",
   "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions]):empty]:hidden",
-  "@max-3xl/table:[&_tbody>tr[data-interactive]]:after:order-3 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:ms-3 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:mt-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:size-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:shrink-0 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:rotate-45 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-e-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-t-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-ink-faint @max-3xl/table:[&_tbody>tr[data-interactive]]:after:content-['']",
+  "@max-3xl/table:[&_tbody>tr[data-interactive]]:after:order-3 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:ms-3 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:mt-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:size-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:shrink-0 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:rotate-45 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-e-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-t-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-ink-muted @max-3xl/table:[&_tbody>tr[data-interactive]]:after:content-['']",
 
   // secondary: a full-width muted subtitle.
   "@max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:order-5 @max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:basis-full @max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:text-caption @max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:text-ink-muted",
@@ -126,10 +126,6 @@ const RECORD_CLASS = cn(
 
   // desk-only: not on the card.
   "@max-3xl/table:[&_tbody>tr>td[data-priority=desk-only]]:hidden",
-
-  // A numeric cell is a table figure only in a table: on a card it is a
-  // label/value pair, set in sans like the caption beside it (D1).
-  "@max-3xl/table:[&_tbody>tr>td[data-numeric]]:font-sans",
 
   // A group-header row stays one full-width band.
   "@max-3xl/table:[&_tbody>tr[data-group]]:block @max-3xl/table:[&_tbody>tr[data-group]]:bg-surface-alt @max-3xl/table:[&_tbody>tr[data-group]]:py-2 @max-3xl/table:[&_tbody>tr[data-group]]:before:hidden"
@@ -290,9 +286,11 @@ function Table({
 }
 
 /**
- * The header row sits on the sunken surface (reference `thead th`): caption
- * medium muted labels in sentence case (D8; never mono uppercase). `sticky` pins it while a long table scrolls inside
- * its own scroll port.
+ * A flat header (D5): no band, only caption medium muted labels in sentence
+ * case (D8; never mono uppercase) over a 1px `line` rule. The cells still
+ * paint `--np-table-header-bg` (the surface), so `sticky`, which pins the
+ * header while a long table scrolls inside its own scroll port, never lets
+ * rows show through it.
  */
 function TableHeader({
   className,
@@ -321,8 +319,10 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
  * when `onRowClick` is given): pointer cursor, a pressed tint, a visible
  * focus outline (an outline, because a `tr` in a collapsed-border table does
  * not paint box-shadow consistently) and, as a record card, a chevron.
- * Selection (`data-selected`) is the accent tint. `group` draws a
- * group-header row (reference `tr.group-row`).
+ * Selection (`aria-selected` or `data-selected`) is the selected list row's:
+ * the neutral fill and a 3px ink edge, drawn on the first cell for the same
+ * reason, never the accent. `group` draws a group-header row (reference
+ * `tr.group-row`) on a quiet fill.
  */
 function TableRow({
   className,
@@ -336,8 +336,8 @@ function TableRow({
       data-interactive={interactive || undefined}
       data-group={group || undefined}
       className={cn(
-        "border-b border-line transition-colors duration-(--np-duration-fast) ease-spring-snappy last:border-0 hover-fine:hover:bg-surface-alt",
-        "aria-selected:bg-accent-tint data-[selected=true]:bg-accent-tint",
+        "border-b border-line transition-colors duration-(--np-duration-fast) ease-press last:border-0 hover-fine:hover:bg-surface-alt",
+        "aria-selected:bg-(--np-selection-bg) data-[selected=true]:bg-(--np-selection-bg) aria-selected:[&>td:first-child]:shadow-np-edge-select data-[selected=true]:[&>td:first-child]:shadow-np-edge-select",
         group &&
           "bg-surface-alt text-caption font-medium text-ink-muted hover-fine:hover:bg-surface-alt [&>td]:py-2",
         interactive &&
@@ -350,10 +350,9 @@ function TableRow({
 }
 
 /**
- * `numeric` right-aligns the column in mono tabular figures, so a column of
- * counts lines up. Set it on the head and every cell.
- * On a record card a numeric cell is a labelled value, so it drops mono
- * (tabular figures stay).
+ * `numeric` right-aligns the column in sans tabular figures, so a column of
+ * counts lines up without a second typeface. Set it on the head and every
+ * cell. On a record card a numeric cell is a labelled value, still tabular.
  */
 function TableHead({
   className,
@@ -434,7 +433,7 @@ function TableCell({
       data-numeric={numeric || undefined}
       className={cn(
         "px-(--np-cell-px) py-(--np-row-py) align-middle",
-        numeric && "text-right font-mono whitespace-nowrap tabular-nums",
+        numeric && "text-right whitespace-nowrap tabular-nums",
         className
       )}
       {...props}

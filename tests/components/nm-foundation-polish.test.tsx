@@ -188,8 +188,8 @@ describe("SelectionBar spacer slot (F2)", () => {
   })
 })
 
-describe("TableCell numeric on a record card (F5b)", () => {
-  it("marks numeric cells so a record card sets them in sans", () => {
+describe("TableCell numeric figures (F5b, SYSTEM §10)", () => {
+  it("sets numeric cells in sans tabular figures, in the table and the card", () => {
     render(
       <Table responsive aria-label="By location">
         <TableBody>
@@ -204,11 +204,10 @@ describe("TableCell numeric on a record card (F5b)", () => {
     )
     const cell = screen.getByText("1,204")
     expect(cell).toHaveAttribute("data-numeric")
-    // Mono stays for the table itself; the card drops it.
-    expect(cell.className).toContain("font-mono")
-    expect(screen.getByRole("table").className).toContain(
-      "@max-3xl/table:[&_tbody>tr>td[data-numeric]]:font-sans"
-    )
+    // Sans tabular in the table too (no mono column), so the card needs
+    // no override of its own.
+    expect(cell).toHaveClass("tabular-nums", "text-right")
+    expect(cell.className).not.toContain("font-mono")
     expect(screen.getByText("The Bell")).not.toHaveAttribute("data-numeric")
   })
 })
