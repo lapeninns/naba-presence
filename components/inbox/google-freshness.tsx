@@ -53,10 +53,14 @@ export function GoogleFreshness({
     : delayed
       ? " · delayed, retrying"
       : ""
-  const oldest = freshness
+  const checkedAt = freshness
     .map((entry) => entry.lastSuccessfulCheckAt)
     .filter((at): at is string => Boolean(at))
-    .sort()[0]
+  // A client with a listing never checked has no time. Taking the oldest of
+  // the others would date the whole scope by clients that were checked.
+  const oldest =
+    checkedAt.length === freshness.length ? checkedAt.sort()[0] : undefined
+  const someChecked = checkedAt.length > 0
   return (
     <span
       className={cn(
@@ -74,6 +78,8 @@ export function GoogleFreshness({
           prefix="Google checked "
           casing="mid-sentence"
         />
+      ) : someChecked ? (
+        "Google not checked for every listing yet"
       ) : (
         "Google not checked yet"
       )}
