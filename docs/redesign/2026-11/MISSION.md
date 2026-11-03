@@ -144,15 +144,15 @@ A row is done only when every applicable column is `done`.
 | R77 | /listings | page | not run | not run | not run | not run | not run | not run | not run |
 | R78 | /listings/bulk | page | not run | not run | not run | not run | not run | not run | not run |
 | R79 | /listings/bulk/[operationId] | page | not run | not run | not run | not run | not run | not run | not run |
-| R80 | /listings/[id] | layout | not run | not run | not run | not run | not run | not run | not run |
-| R81 | /listings/[id] | page | not run | not run | not run | not run | not run | not run | not run |
-| R82 | /listings/[id] | loading | not run | not run | not run | not run | not run | not run | not run |
+| R80 | /listings/[id] | layout | done (DIRECTION/SYSTEM) | done (db9cd607) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (axe 0, keyboard; b6c8846f) | not run |
+| R81 | /listings/[id] | page | done (DIRECTION/SYSTEM) | done (db9cd607) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (axe 0, keyboard; b6c8846f) | not run |
+| R82 | /listings/[id] | loading | done (DIRECTION/SYSTEM) | done (db9cd607) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (axe 0, keyboard; b6c8846f) | not run |
 | R83 | surface: listings board filters and search (on /listings) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R84 | surface: listings board selection and bulk action bar (on /listings) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R85 | surface: listing quick look panel (on /listings) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R86 | surface: bulk compose form (on /listings/bulk) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R87 | surface: bulk operation progress view (on /listings/bulk/[operationId]) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R88 | surface: listing header and area sub-navigation (on /listings/[id] and /listings/[id]/*) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R88 | surface: listing header and area sub-navigation (on /listings/[id] and /listings/[id]/*) | surface | done (DIRECTION/SYSTEM) | done (db9cd607) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (axe 0, keyboard; b6c8846f) | not run |
 | R89 | /listings/[id]/booking | page | not run | not run | not run | not run | not run | not run | not run |
 | R90 | /listings/[id]/changes | page | not run | not run | not run | not run | not run | not run | not run |
 | R91 | /listings/[id]/hours | page | not run | not run | not run | not run | not run | not run | not run |
@@ -173,7 +173,7 @@ A row is done only when every applicable column is `done`.
 | R106 | surface: Schedule post sheet (on /listings/[id]/posts) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R107 | surface: Menu editor and item sheet (on /listings/[id]/menu) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R108 | surface: Special hours editor (on /listings/[id]/hours) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R109 | surface: Editor shell - frame, footer, status pill, capability banner, freshness (on every /listings/[id]/* area) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R109 | surface: Editor shell - frame, footer, status pill, capability banner, freshness (on every /listings/[id]/* area) | surface | done (DIRECTION/SYSTEM) | done (db9cd607) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (`evidence/e-listings` @ b6c8846f) | done (axe 0, keyboard); reconnect/verification/retired banners unreachable (L01) | not run |
 | R110 | surface: Listing change requests (two-person approval) (on /listings/[id]/hours, /profile, /menu, /photos) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R111 | /calendar | page | not run | not run | not run | not run | not run | not run | not run |
 | R112 | /clients | page | not run | not run | not run | not run | not run | not run | not run |
@@ -278,6 +278,9 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | S1 | Shell rail at 844x390 landscape cuts off Team/Settings | medium | fix merged `6f269f47`; at `c281ba68` account stays visible but Settings is still clipped in the static shot. **Resolved:** interaction check at `c281ba68` (Chromium, touch) scrolls Settings into view and navigates to /settings at 844x390, 1024x600, 768x500 (`evidence/controller/rail-reach-c281ba68/rail-reach.json`, script `check-rail-reach.mjs`) |
 | S2 | Tablet scope pill truncates "All clients" at 768 despite free width | low | fixed, verified in render `shell-matrix-c281ba68/w768x1024/listings.png` |
 | S3 | Scope health words differ by size: tablet pill "Some clients need checking", desktop sidebar "1 client needs attention" for the same data | low | **fixed** `a8647e7d` + count-aware wording `8c80c552`; one fixture, tablet and desktop read the same words (`evidence/c-system-3/probe-scope-5bbd4b98.json`) |
+| L01 | Editor gate banners for reconnect / verification / retired capability never fire: `lib/server/capabilities.ts` `buildResources` never sets those `reasonCode`s, so a disconnected Google login shows no banner until publish fails | R109 | medium | open, pre-existing server gap; needs owner decision (server capabilities change) |
+| L02 | `lib/listings/health.ts` tones "Changes to publish" (unpublished) and pending verification as `pending` (blue = "Sent, waiting for Google") | R77, R81 | low | open; assigned to listings L2 |
+| L03 | `components/ui/action-bar.tsx` `line-clamp-2` on a flex-col status merges title and detail in docked DispatchBar/SaveBar (worked around in editor-footer `b6c8846f`) | R109 | low | open; assigned to listings L2 |
 | T1 | `tests/components/sign-in-recovery.test.tsx` "clears the last answer on a new attempt" failed once in full `pnpm test` at `c281ba68`; passed 3/3 in isolation; files untouched by the redesign | low (flaky) | open, watch in final gate |
 | BASELINE §5.2 render items (13) | see BASELINE §5.2 | 3 high claimed | needs render |
 
