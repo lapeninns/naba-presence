@@ -631,6 +631,7 @@ export function PostsActionBar({
               render={<Button variant="ghost">Not yet</Button>}
             />
             <Button
+              variant="send"
               onClick={() => publish.mutate()}
               pending={publish.isPending}
               pendingLabel="Publishing…"
@@ -669,6 +670,7 @@ export function PostsActionBar({
               render={<Button variant="ghost">Not yet</Button>}
             />
             <Button
+              variant="send"
               onClick={() =>
                 decide.mutate("approve", {
                   // Warnings to acknowledge keep the dialog open, beside them.

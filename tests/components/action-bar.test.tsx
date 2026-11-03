@@ -202,6 +202,8 @@ describe("ActionBar", () => {
     renderActionBar()
     const button = screen.getByRole("button", { name: "Publish reply" })
     expect(button).toBeEnabled()
+    // Publishing writes to Google: the green send, never the ink default.
+    expect(button).toHaveAttribute("data-variant", "send")
     await user.click(button)
     expect(publish.mutateAsync).toHaveBeenCalledWith({
       draftId: "d1",
@@ -948,9 +950,16 @@ describe("ActionBar", () => {
   it("draws its controls for the charcoal bar", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar()
+    // Approving publishes, so it is the one green send on the bar; an ink
+    // `default` button would be 1.05:1 on charcoal.
     expect(
       screen.getByRole("button", { name: "Approve reply" })
-    ).toHaveAttribute("data-variant", "default")
+    ).toHaveAttribute("data-variant", "send")
+    expect(
+      document.querySelector(
+        '.on-charcoal [data-slot="button"][data-variant="default"]'
+      )
+    ).toBeNull()
     expect(screen.getByRole("button", { name: "Send back" })).toHaveAttribute(
       "data-variant",
       "ghost-dark"

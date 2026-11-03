@@ -809,6 +809,7 @@ function ReviewPublishBody({
                   (the `controls` variant), and is inline on short screens. */}
           {readOnly ? null : (
             <ActionBar
+              tone="charcoal"
               dock
               statusRow
               sticky={false}
@@ -847,6 +848,7 @@ function ReviewPublishBody({
               }
               primary={
                 <Button
+                  variant="send"
                   onClick={publish}
                   pending={flow.isPublishing}
                   pendingLabel="Publishing…"

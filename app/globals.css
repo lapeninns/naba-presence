@@ -850,8 +850,10 @@
   --card-foreground: var(--np-ink);
   --popover: var(--np-surface-overlay);
   --popover-foreground: var(--np-ink);
-  --primary: var(--np-accent);
-  --primary-foreground: var(--np-ink-on-accent);
+  /* Ink saves, green sends (D1): the primary is the ink fill; the send
+     button below is the one green fill. */
+  --primary: var(--np-ink);
+  --primary-foreground: var(--np-ink-inverse);
   /* The send button: the one green fill, for an action that writes to
      Google (Button variant="send"). */
   --send: var(--np-accent);
@@ -884,8 +886,8 @@
 
   --sidebar: var(--np-material-sidebar-opaque);
   --sidebar-foreground: var(--np-ink);
-  --sidebar-primary: var(--np-accent);
-  --sidebar-primary-foreground: var(--np-ink-on-accent);
+  --sidebar-primary: var(--np-ink);
+  --sidebar-primary-foreground: var(--np-ink-inverse);
   --sidebar-accent: var(--np-accent-tint);
   --sidebar-accent-foreground: var(--np-accent-ink);
   --sidebar-border: var(--np-line);
@@ -1549,8 +1551,13 @@
   }
 }
 
-/* Controls on the charcoal counter-surface: ghost and grey buttons take
-   light ink and a translucent hover; the accent button keeps its own fill. */
+/* Controls on the charcoal dispatch bar: ghost and grey buttons take light
+   ink and a translucent hover; the `send` button keeps its green fill, and
+   disabled it is drawn on the lifted charcoal (--np-disabled-on-charcoal-*),
+   never faded. An ink `default` button would be 1.05:1 here, so the bar
+   never holds one (tests/components/action-bar.test.tsx fails if it does);
+   should one slip in, it is drawn as the light `on-dark` button rather than
+   vanishing. */
 @utility on-charcoal {
   background-color: var(--np-charcoal);
   color: var(--np-ink-on-charcoal);
@@ -1566,15 +1573,29 @@
   & [data-slot="button"][data-variant="outline"]:hover {
     background-color: oklch(1 0 0 / 0.16);
   }
+  & [data-slot="button"][data-variant="default"] {
+    color: var(--np-charcoal);
+    background-color: var(--np-ink-on-charcoal);
+  }
   & [data-slot="button"][data-variant="ghost"]:focus-visible,
   & [data-slot="button"][data-variant="secondary"]:focus-visible,
+  & [data-slot="button"][data-variant="outline"]:focus-visible,
+  & [data-slot="button"][data-variant="send"]:focus-visible,
+  & [data-slot="button"][data-variant="on-dark"]:focus-visible,
+  & [data-slot="button"][data-variant="ghost-dark"]:focus-visible,
   & [data-slot="button"][data-variant="default"]:focus-visible {
     box-shadow:
       0 0 0 2px var(--np-charcoal),
       0 0 0 4px var(--np-ink-on-charcoal);
   }
-  & [data-slot="button"][data-variant="default"]:disabled {
-    opacity: 0.45;
+  & [data-slot="button"][data-variant="send"]:is(
+      :disabled,
+      [data-disabled],
+      [aria-disabled="true"]
+    ):not([aria-busy="true"]) {
+    color: var(--np-disabled-on-charcoal-ink);
+    background-color: var(--np-disabled-on-charcoal-bg);
+    border-color: transparent;
   }
 }
 

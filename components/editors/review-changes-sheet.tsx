@@ -295,6 +295,7 @@ function ReviewChangesSheet({
             </Button>
           ) : null}
           <Button
+            variant="send"
             onClick={() => void onPublish()}
             disabled={blocked}
             pending={publishing}

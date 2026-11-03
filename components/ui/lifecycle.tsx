@@ -83,7 +83,7 @@ function Lifecycle({
                   stage.state === "done" &&
                     "border-success-solid bg-success-solid",
                   stage.state === "current" &&
-                    "border-primary ring-3 ring-accent-tint",
+                    "border-ink ring-3 ring-fill",
                   stage.state === "failed" &&
                     "border-danger-solid bg-danger-solid",
                   stage.state === "skipped" &&

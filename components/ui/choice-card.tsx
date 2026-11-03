@@ -42,7 +42,7 @@ function ChoiceCard<Value>({
       data-slot="choice-card"
       className={cn(
         "relative flex min-h-(--np-touch) cursor-pointer gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3.5 transition-[border-color,background-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-line-strong",
-        "has-data-checked:border-primary has-data-checked:bg-accent-tint has-data-checked:shadow-[inset_0_0_0_1px_var(--np-accent)]",
+        "has-data-checked:border-ink has-data-checked:bg-fill-tertiary has-data-checked:shadow-[inset_0_0_0_1px_var(--np-ink)]",
         "has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-(--np-focus-ring)",
         "has-data-disabled:cursor-not-allowed has-data-disabled:opacity-55",
         className

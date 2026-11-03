@@ -415,6 +415,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : editingParked ? (
           <Button
             ref={primaryRef}
+            variant="on-dark"
             disabled={composerSave.blockedReason !== null}
             pending={checking}
             pendingLabel="Saving…"
@@ -444,6 +445,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             {offerApprove ? (
               <Button
                 ref={primaryRef}
+                variant="send"
                 disabled={!primary.enabled || approval.isPending}
                 onClick={() => void onDecision("approve")}
               >
@@ -459,6 +461,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : nothingToSubmit ? null : offerRequestApproval ? (
           <Button
             ref={primaryRef}
+            variant="on-dark"
             disabled={!sendEnabled}
             pending={sending}
             pendingLabel={checking ? "Checking…" : "Submitting…"}
@@ -475,6 +478,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : (
           <Button
             ref={primaryRef}
+            variant="send"
             disabled={!sendEnabled}
             pending={sending}
             pendingLabel={checking ? "Checking…" : "Publishing…"}

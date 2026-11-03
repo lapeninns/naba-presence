@@ -288,6 +288,7 @@ export function InviteSheet({
               </Button>
               {cannotSend ? null : approved ? (
                 <Button
+                  variant="send"
                   disabled={sendLocked || !consent}
                   pending={action.busy && pending === "send"}
                   onClick={act("send", action.execute)}

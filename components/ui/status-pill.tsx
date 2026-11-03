@@ -55,7 +55,7 @@ const EXTRA_TONE = {
   accent: {
     text: "text-accent-ink",
     tint: "bg-accent-tint",
-    dot: "bg-primary",
+    dot: "bg-accent-solid",
   },
   outline: {
     text: "text-ink-secondary",

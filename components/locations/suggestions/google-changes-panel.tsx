@@ -479,6 +479,7 @@ export function GoogleChangesPanel({
                         !revert.dispatched ? (
                           <div>
                             <Button
+                              variant="send"
                               disabled={busy}
                               disabledReason={gateReason}
                               pending={

@@ -449,8 +449,8 @@ function ThemeSampler() {
   return (
     <div className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-canvas p-4 text-ink">
       <div className="flex flex-wrap items-center gap-2">
-        <Button>Publish to Google</Button>
-        <Button variant="secondary">Save draft</Button>
+        <Button variant="send">Publish to Google</Button>
+        <Button>Save draft</Button>
         <Button variant="danger-outline">Discard</Button>
         <StatusPill tone="ok">Live on Google</StatusPill>
         <StatusPill tone="warn">Awaiting approval</StatusPill>
@@ -461,6 +461,7 @@ function ThemeSampler() {
         <Input defaultValue="The Bell" />
       </Field>
       <ActionBar
+        tone="charcoal"
         sticky={false}
         safeArea={false}
         label="Sample action bar"
@@ -475,7 +476,9 @@ function ThemeSampler() {
             <Button variant="ghost-dark" size="sm">
               Discard
             </Button>
-            <Button size="sm">Review changes</Button>
+            <Button variant="on-dark" size="sm">
+              Review changes
+            </Button>
           </>
         }
       />
@@ -1614,6 +1617,7 @@ export default function Page() {
             ]}
           />
           <ActionBar
+            tone="charcoal"
             sticky={false}
             safeArea={false}
             label="Editor actions, sample"
@@ -1629,7 +1633,7 @@ export default function Page() {
             actions={
               <>
                 <Button variant="ghost-dark">Discard</Button>
-                <Button>Review changes</Button>
+                <Button variant="on-dark">Review changes</Button>
               </>
             }
           />

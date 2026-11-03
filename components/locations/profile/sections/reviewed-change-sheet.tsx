@@ -158,6 +158,7 @@ export function ReviewedChangeSheet({
             </>
           ) : review.approvedBy ? (
             <Button
+              variant="send"
               disabled={blocked || !consent}
               pending={sending}
               pendingLabel="Sending…"

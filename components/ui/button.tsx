@@ -8,7 +8,13 @@ import { cn } from "@/lib/utils"
 /**
  * The operator's-desk button set (reference np.css `.btn`).
  *
- *   `default`        primary: the accent solid. Once per surface.
+ *   `default`        primary: the ink fill ("ink saves"). Once per surface:
+ *                    Save, Invite, Apply, Create.
+ *   `send`           the green fill ("green sends"): ONLY an action that
+ *                    writes to Google (Publish reply, Approve and publish,
+ *                    Publish N changes, Retry sending). Reads such as
+ *                    "Check Google" are secondaries. On the charcoal
+ *                    dispatch bar it is the one filled button.
  *   `secondary`      white with the 3:1 control edge; the workhorse.
  *   `outline`        the same drawing as secondary (kept for old callers).
  *   `ghost`          no chrome until hover.
@@ -16,8 +22,10 @@ import { cn } from "@/lib/utils"
  *   `danger`         the filled red, for the consequence a dialog confirms.
  *   `danger-outline` red ink on white with a red edge ("Discard edits").
  *   `destructive`    kept for existing callers; drawn as `danger-outline`.
- *   `on-dark`        the light button on the charcoal action bar.
- *   `ghost-dark`     the quiet button on the charcoal action bar.
+ *   `on-dark`        the light button on the charcoal dispatch bar, for a
+ *                    primary there that does not write to Google ("Review
+ *                    changes"); documented as `on-charcoal`.
+ *   `ghost-dark`     the quiet button on the charcoal dispatch bar.
  *   `link`           inline text action.
  *
  * Every hover and pressed colour is a token. Hover only draws under a fine
@@ -25,11 +33,12 @@ import { cn } from "@/lib/utils"
  * the pressed fill (`active:`) is the feedback a thumb gets, one step stronger
  * than hover where the ladder has a step: `secondary`/`outline` hover on
  * `--np-fill-secondary` and press on `--np-fill`. `ghost` has no fill at rest,
- * so it draws relative to whatever surface it sits on (`ink` at 6% hover, 10%
- * pressed, as `ghost-dark` does on charcoal) — a ladder step would vanish on
- * the `surface-alt` dialog footer, which is the same step as `fill-secondary`.
- * The other filled and tinted variants press on the same fill as hover until
- * the token ladder gains an active step. The 1px press is motion-safe only. Transitions name
+ * and hovers on `--np-fill-secondary` and presses on `--np-fill` like the
+ * others (SYSTEM §9.1: no alpha fills). The ink `default` hovers on
+ * `--np-ink-hover` and presses (or holds its menu open) on `--np-ink-active`;
+ * `send` keeps the accent ladder (`accent-hover`, `accent-active`). The other
+ * filled and tinted variants press on the same fill as hover until the token
+ * ladder gains an active step. The 1px press is motion-safe only. Transitions name
  * their properties (colour, edge, shadow, transform), never `all`, at
  * `--np-duration-fast`. Focus is the `focus-halo` utility.
  *
@@ -80,7 +89,8 @@ const buttonCva = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground active:not-data-disabled:not-aria-disabled:bg-(--np-accent-active) aria-expanded:bg-accent-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-accent-hover",
+          "bg-primary text-primary-foreground active:not-data-disabled:not-aria-disabled:bg-ink-active aria-expanded:bg-ink-active drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-hover",
+        send: "bg-send text-send-foreground active:not-data-disabled:not-aria-disabled:bg-accent-active aria-expanded:bg-accent-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-accent-hover",
         tinted:
           "bg-accent-tint text-accent-ink active:not-data-disabled:not-aria-disabled:bg-(--np-accent-tint-strong) aria-expanded:bg-(--np-accent-tint-strong) drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-(--np-accent-tint-strong)",
         secondary:
@@ -88,7 +98,7 @@ const buttonCva = cva(
         outline:
           "border-line-strong bg-surface text-ink active:not-data-disabled:not-aria-disabled:bg-fill aria-expanded:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary",
         ghost:
-          "bg-transparent text-ink active:not-data-disabled:not-aria-disabled:bg-ink/10 aria-expanded:bg-ink/10 drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink/6",
+          "bg-transparent text-ink active:not-data-disabled:not-aria-disabled:bg-fill aria-expanded:bg-fill drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary",
         danger:
           "bg-danger-solid text-(--np-ink-on-accent) active:not-data-disabled:not-aria-disabled:bg-danger-ink dark:text-(--np-danger-on-solid) drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-danger-ink",
         "danger-outline":
@@ -195,7 +205,10 @@ type ButtonBaseProps = Omit<React.ComponentProps<"button">, "size"> &
      * so focus is not thrown to the body mid-action.
      */
     pending?: boolean
-    /** The label shown while pending ("Publishing…"). Defaults to children. */
+    /**
+     * The label shown while pending. Defaults to children. Every `send` says
+     * "Sending…" (DIRECTION §6.1).
+     */
     pendingLabel?: React.ReactNode
     /**
      * Why the button cannot be used right now. Disables it but keeps it

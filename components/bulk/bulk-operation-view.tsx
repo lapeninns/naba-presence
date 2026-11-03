@@ -381,7 +381,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
               key="repreview"
               variant={
                 previewClosed || op.status === "expired"
-                  ? "default"
+                  ? "on-dark"
                   : "ghost-dark"
               }
               pending={prepare.isPending}
@@ -399,7 +399,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
           manager && op.status === "previewed" ? (
             <Button
               key="approve"
-              variant={previewClosed ? "ghost-dark" : "default"}
+              variant={previewClosed ? "ghost-dark" : "on-dark"}
               disabledReason={approveBlocked}
               pending={mutate.isPending}
               onClick={() => {
@@ -413,6 +413,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
           manager && op.status === "approved" ? (
             <Button
               key="start"
+              variant="send"
               pending={mutate.isPending}
               onClick={() => {
                 setFailure(null)
@@ -595,6 +596,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
               // `statusRow`: the status is a sentence, too long to share a
               // row with the buttons there.
               <ActionBar
+                tone="charcoal"
                 dock
                 statusRow
                 label="Bulk change actions"

@@ -973,6 +973,7 @@ function AddLinkForm({
       {/* The action appears once there is a link to review, docked on a
           phone so the thumb reaches it. */}
       <ActionBar
+        tone="charcoal"
         dock
         sticky={false}
         safeArea={false}
@@ -985,6 +986,7 @@ function AddLinkForm({
         actions={
           <Button
             type="submit"
+            variant="on-dark"
             pending={workflow.busy}
             pendingLabel="Preparing review…"
           >

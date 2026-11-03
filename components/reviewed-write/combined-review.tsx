@@ -346,6 +346,7 @@ export function CombinedReviewSheet({
           </Button>
           {finished ? null : (
             <Button
+              variant="send"
               onClick={() => void onPublish()}
               disabled={blocked}
               pending={publishing}

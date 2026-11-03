@@ -400,6 +400,7 @@ export function OnboardingReview({
                   onCheckedChange={setConfirmCreate}
                 />
                 <Button
+                  variant="send"
                   className="self-stretch sm:self-start"
                   pending={submit.isPending}
                   pendingLabel="Submitting creation…"

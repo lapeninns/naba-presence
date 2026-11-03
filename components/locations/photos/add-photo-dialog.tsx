@@ -784,7 +784,7 @@ export function AddPhotoDialog({
           {/* One button whatever it says, so focus stays on it when the
               run ends and it turns into Done. */}
           <Button
-            variant={finished ? "secondary" : "default"}
+            variant={finished ? "secondary" : "send"}
             onClick={finished ? close : () => void upload(ready)}
             pending={uploading}
             pendingLabel="Uploading…"

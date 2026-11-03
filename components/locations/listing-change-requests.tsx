@@ -149,6 +149,7 @@ export function ListingChangeRequests({
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       {change.canDecide ? (
                         <Button
+                          variant="send"
                           disabled={decide.isPending}
                           aria-busy={
                             busy && decide.variables?.decision === "approve"
