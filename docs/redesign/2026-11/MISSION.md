@@ -180,17 +180,17 @@ A row is done only when every applicable column is `done`.
 | R113 | /clients | loading | done (DIRECTION/SYSTEM) | done (5b73b4e1) | done (`evidence/e-clients/captures-final` @ 5eb5ed2d) | partial: route-loading after sidebar nav not caught on tablet/desktop; query-loading captured | partial: route-loading after sidebar nav not caught on tablet/desktop; query-loading captured | done (axe 0, keyboard; 5eb5ed2d) | not run |
 | R114 | /clients | error | done (DIRECTION/SYSTEM) | done (5b73b4e1) | done (`evidence/e-clients/captures-final` @ 5eb5ed2d) | done (`evidence/e-clients/captures-final` @ 5eb5ed2d) | done (`evidence/e-clients/captures-final` @ 5eb5ed2d) | done (axe 0, keyboard; 5eb5ed2d) | not run |
 | R115 | /clients/new | page | done (DIRECTION/SYSTEM) | done (5b73b4e1) | done (`evidence/e-clients/captures-final` @ 5eb5ed2d) | done (`evidence/e-clients/captures-final` @ 5eb5ed2d) | done (`evidence/e-clients/captures-final` @ 5eb5ed2d) | done (axe 0, keyboard; 5eb5ed2d) | not run |
-| R116 | /clients/[clientId] | layout | not run | not run | not run | not run | not run | not run | not run |
-| R117 | /clients/[clientId] | page | not run | not run | not run | not run | not run | not run | not run |
-| R118 | /clients/[clientId] | loading | not run | not run | not run | not run | not run | not run | not run |
-| R119 | /clients/[clientId]/settings | page | not run | not run | not run | not run | not run | not run | not run |
+| R116 | /clients/[clientId] | layout | done (DIRECTION/SYSTEM) | done (767cd141) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (axe 0, keyboard; b4e4353b) | not run |
+| R117 | /clients/[clientId] | page | done (DIRECTION/SYSTEM) | done (767cd141) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (axe 0, keyboard; b4e4353b) | not run |
+| R118 | /clients/[clientId] | loading | done (DIRECTION/SYSTEM) | done (767cd141) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (axe 0, keyboard; b4e4353b) | not run |
+| R119 | /clients/[clientId]/settings | page | done (DIRECTION/SYSTEM) | done (767cd141) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (axe 0, keyboard; b4e4353b) | not run |
 | R120 | /reports | page | not run | not run | not run | not run | not run | not run | not run |
 | R121 | /reports | loading | not run | not run | not run | not run | not run | not run | not run |
 | R122 | /reports | error | not run | not run | not run | not run | not run | not run | not run |
-| R123 | surface: share-report dialog (on /clients/[clientId] and /reports) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R123 | surface: share-report dialog (on /clients/[clientId] and /reports) | surface | done (DIRECTION/SYSTEM) | done (767cd141) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (axe 0, keyboard; b4e4353b) | not run |
 | R124 | surface: client form (on /clients/new) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R125 | surface: health filter (on /clients) | surface | not run | not run | not run | not run | not run | not run | not run |
-| R126 | surface: client colour field (on /clients/new and /clients/[clientId]/settings) | surface | not run | not run | not run | not run | not run | not run | not run |
+| R126 | surface: client colour field (on /clients/new and /clients/[clientId]/settings) | surface | done (DIRECTION/SYSTEM) | done (767cd141) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (`evidence/e-clients-2/captures-final` @ b4e4353b) | done (axe 0, keyboard; b4e4353b) | not run |
 | R127 | surface: publication calendar grid (on /calendar) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R128 | surface: archived clients view (on /clients?view=archived) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R129 | surface: client quick look (on /clients, lg+) | surface | not run | not run | not run | not run | not run | not run | not run |
