@@ -232,16 +232,21 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         before !== undefined && after !== undefined
           ? Math.max(0, after - before)
           : null
+      // A listing that could not be checked may hold new reviews, so the
+      // title never says "up to date" or "synced" for the whole scope then.
+      const unfinished = Boolean(failure && someChecked)
       const found: { title: string; description: string | undefined } =
         added === null
           ? partialNote
             ? { title: "Reviews partly synced", description: partialNote }
-            : { title: "Reviews synced", description: undefined }
+            : unfinished
+              ? { title: "Reviews partly synced", description: undefined }
+              : { title: "Reviews synced", description: undefined }
           : added === 0
             ? partialNote
               ? { title: "No new reviews so far", description: partialNote }
               : {
-                  title: "Up to date",
+                  title: unfinished ? "No new reviews so far" : "Up to date",
                   description:
                     "Google has no newer reviews for the listings checked.",
                 }

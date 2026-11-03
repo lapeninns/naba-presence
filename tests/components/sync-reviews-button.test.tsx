@@ -319,7 +319,9 @@ describe("SyncReviewsButton", () => {
     )
     renderButton(true, 12)
     await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
-    expect(await screen.findByText("Up to date")).toBeInTheDocument()
+    // Not "Up to date": the listing that was not checked may have new ones.
+    expect(await screen.findByText("No new reviews so far")).toBeInTheDocument()
+    expect(screen.queryByText("Up to date")).toBeNull()
     expect(
       screen.getByText(
         "Google has no newer reviews for the listings checked. 1 of 2 listings couldn’t be checked. Google hasn’t verified a listing yet."
