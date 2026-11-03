@@ -257,6 +257,15 @@ export function __resetLeaveGuardForTests() {
  *
  * Spread the result into a `<DiscardDialog />`.
  */
+/** The app router, or null outside one (a component test without Next). */
+function useOptionalRouter(): ReturnType<typeof useRouter> | null {
+  try {
+    return useRouter()
+  } catch {
+    return null
+  }
+}
+
 export function useLeaveGuard({
   when,
   onLeave,
@@ -265,6 +274,7 @@ export function useLeaveGuard({
   onLeave?: () => void
 }): LeavePrompt {
   const [pending, setPending] = useState<LeaveRequest | null>(null)
+  const router = useOptionalRouter()
   const bypass = useRef(false)
   // Set by `onConfirm`, so the close that follows it doesn't count as Stay.
   const confirmed = useRef(false)
@@ -286,7 +296,11 @@ export function useLeaveGuard({
       const link = guardedHref(event)
       if (!link) return
       event.preventDefault()
-      event.stopImmediatePropagation()
+      // A link that is a menu item still reaches its menu, so the menu
+      // closes: left open, a phone's menu sheet sits over the prompt and
+      // takes every tap. preventDefault alone keeps <Link> from navigating.
+      if (!link.anchor.closest('[role="menu"]'))
+        event.stopImmediatePropagation()
       request({ kind: "link", ...link })
     }
     document.addEventListener("click", handler, true)
@@ -343,11 +357,15 @@ export function useLeaveGuard({
         } finally {
           bypass.current = false
         }
+      } else if (router) {
+        // The link left the page while the prompt was open (a menu closes
+        // when its item is chosen): the same move, still client-side.
+        router.push(href)
       } else {
         window.location.assign(href)
       }
     }
-  }, [pending])
+  }, [pending, router])
 
   return { open: pending !== null, onOpenChange, onConfirm }
 }
