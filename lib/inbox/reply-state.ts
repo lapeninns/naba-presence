@@ -3,6 +3,7 @@ import {
   describeOutcome,
   NEEDS_REPLY_LABEL,
   type OperationOutcome,
+  type PresentedState,
 } from "@/lib/editors/outcome"
 import {
   evaluateApproval,
@@ -472,8 +473,8 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   const verdict = input.verification?.verdict
   if (verdict === "fail") {
     return status(
-      "Draft needs a correction",
-      "Check needed",
+      describeOutcome("blocked").title,
+      describeOutcome("blocked").label,
       "attention",
       "alert"
     )
@@ -529,6 +530,58 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
     "neutral",
     "check"
   )
+}
+
+/**
+ * Where the saved reply sits on the change track (DIRECTION §6.1), read from
+ * the same inputs and in the same order as `deriveReplyStatus`, so the track
+ * and the status line beside it cannot disagree. Unsaved typing does not move
+ * it: the track says where the saved reply is. Null while there is no reply.
+ */
+export function replyTrackState(input: ReplyStateInput): PresentedState | null {
+  const saved = { ...input, isDirty: false, pending: null }
+  if (saved.workflowStatus === "publish_requested") return "sent"
+  if (saved.workflowStatus === "awaiting_approval") return "awaiting_approval"
+  if (saved.workflowStatus === "failed") return "failed"
+  // Google refusing the reply; an approver's send-back is a draft again.
+  if (saved.workflowStatus === "rejected") return "rejected"
+  const publishStatus = saved.reply?.publishStatus ?? null
+  if (derivePrimaryAction(saved).settled) {
+    return publishStatus === "published" &&
+      !isAwaitingGoogleCheck(publishStatus, saved.reply?.googleReplyState)
+      ? "confirmed_applied"
+      : "awaiting_confirmation"
+  }
+  const work = replyWork({ reply: saved.reply, drafts: saved.drafts })
+  if (work.draftBody === null && work.liveBody === null) return null
+  return saved.verification?.verdict === "fail" ? "blocked" : "saved_locally"
+}
+
+/**
+ * Whether the reply that was last sent went through an approval, read from
+ * the review's history (newest first): an approval newer than the edit that
+ * wrote the sent text. An approval and its send are written together and
+ * can share a timestamp, so their order is not relied on. A send with no
+ * approval says "Not needed" on the track rather than ticking one nobody gave.
+ */
+export function replyApprovalStop(
+  timeline: readonly { action: string }[]
+): "needed" | "skipped" {
+  const sent = timeline.findIndex(
+    (event) => event.action === "review.reply.publish_requested"
+  )
+  if (sent === -1) return "needed"
+  const written = timeline.findIndex(
+    (event, index) =>
+      index > sent &&
+      (event.action === "review.draft.edited" ||
+        event.action === "review.draft.generated")
+  )
+  return timeline
+    .slice(0, written === -1 ? undefined : written)
+    .some((event) => event.action === "review.approval.approved")
+    ? "needed"
+    : "skipped"
 }
 
 // --- List rows --------------------------------------------------------------

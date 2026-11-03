@@ -264,7 +264,7 @@ describe("ReviewDetail", () => {
   // The pane used to answer "where has this reply got to" three times over.
   // The footer status is the one spoken surface. The five-stage lifecycle
   // is not drawn on the reply pane.
-  it("keeps one status surface and does not draw a lifecycle", () => {
+  it("keeps one status surface; the change track beside it is a list", () => {
     fakeDetail({ isPending: false, isError: false, data: readyToPublish })
     const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
     expect(
@@ -273,7 +273,53 @@ describe("ReviewDetail", () => {
     expect(
       screen.queryByRole("list", { name: "Reply lifecycle" })
     ).not.toBeInTheDocument()
+    const track = screen.getByRole("list", { name: "Where this reply is" })
+    expect(track).toHaveAttribute("data-state", "saved_locally")
+    expect(within(track).getAllByRole("listitem")).toHaveLength(4)
     expect(screen.getAllByRole("status")).toHaveLength(1)
+  })
+
+  it("marks the failed stop on the track in the bar's words", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        workflowStatus: "failed",
+        reply: {
+          id: "reply-1",
+          body: "We are sorry to hear that.",
+          publishStatus: "failed",
+          googleReplyState: null,
+          googlePolicyViolation: null,
+          googleReplyUpdatedAt: null,
+        },
+        timeline: [
+          {
+            action: "review.reply.publish_requested",
+            createdAt: "2026-11-01T10:00:00Z",
+            actorName: "Asha",
+            metadataSummary: null,
+          },
+          {
+            action: "review.draft.edited",
+            createdAt: "2026-11-01T09:59:00Z",
+            actorName: "Asha",
+            metadataSummary: null,
+          },
+        ],
+      }),
+    })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    const track = screen.getByRole("list", { name: "Where this reply is" })
+    const stops = within(track)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent)
+    // Sent straight from the draft: the approval it never needed is not ticked.
+    expect(stops[1]).toContain("Not needed")
+    expect(stops[2]).toContain("Failed: retry")
+    expect(
+      within(track).getByText("Failed: retry").closest("li")
+    ).toHaveAttribute("aria-current", "step")
   })
 
   // The status belongs on the action bar beside the action it explains
@@ -466,8 +512,21 @@ describe("ReviewDetail", () => {
     ).toHaveTextContent("Awaiting approval")
     // "On Google" is `describeReplyState`'s label for a confirmed
     // publication and nothing else; a reply still waiting on an approver has
-    // no business wearing it anywhere in the reply area.
-    expect(within(replySection).queryByText("On Google")).toBeNull()
+    // no business wearing it anywhere in the reply area. The change track
+    // names it only as the stop still to come.
+    const track = within(replySection).getByRole("list", {
+      name: "Where this reply is",
+    })
+    expect(track.querySelector('[data-stop="google"]')).toHaveAttribute(
+      "data-state",
+      "todo"
+    )
+    expect(track.querySelector('[data-stop="approved"]')).toHaveAttribute(
+      "aria-current",
+      "step"
+    )
+    for (const match of within(replySection).queryAllByText("On Google"))
+      expect(track).toContainElement(match)
   })
 
   // `accepted` means Google took the request and has not yet said what became
@@ -1177,6 +1236,9 @@ describe("ReviewDetail", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No reply yet")
     expect(
       screen.queryByRole("list", { name: "Reply lifecycle" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("list", { name: "Where this reply is" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("heading", { name: "Verification" })

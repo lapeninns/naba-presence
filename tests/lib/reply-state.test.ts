@@ -5,7 +5,9 @@ import {
   deriveReplyStatus,
   hasVerifiedDraft,
   publishableDraft,
+  replyApprovalStop,
   replyStateFromRow,
+  replyTrackState,
   type ReplyPendingKind,
   type ReplyStateInput,
 } from "@/lib/inbox/reply-state"
@@ -369,7 +371,7 @@ describe("deriveReplyStatus", () => {
     })
   })
 
-  it("asks for a correction when the verdict failed", () => {
+  it("says the checks block it when the verdict failed", () => {
     expect(
       deriveReplyStatus(
         input({
@@ -382,8 +384,8 @@ describe("deriveReplyStatus", () => {
         })
       )
     ).toMatchObject({
-      text: "Draft needs a correction",
-      short: "Check needed",
+      text: "Blocked: fix the reply to publish",
+      short: "Blocked by checks",
       tone: "attention",
     })
   })
@@ -941,5 +943,136 @@ describe("two-person approval wording (R01b)", () => {
     })
     expect(deriveReplyStatus(state).text).toBe("Waiting for your approval")
     expect(derivePrimaryAction(state).enabled).toBe(true)
+  })
+})
+
+// The change track reads the same inputs as the status line, so a stop can
+// never claim more than the sentence beside it.
+describe("replyTrackState", () => {
+  const sentReply = (
+    publishStatus: string,
+    googleReplyState: string | null
+  ) => ({
+    body: "Thanks",
+    publishStatus,
+    googleReplyState,
+  })
+
+  it("has no track before there is a reply", () => {
+    expect(replyTrackState(input())).toBeNull()
+  })
+
+  it("puts a saved draft on Saved here, and a failed check on Blocked", () => {
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "drafted", drafts: [draft("Hi")] })
+      )
+    ).toBe("saved_locally")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "drafted",
+          drafts: [draft("Hi", "fail")],
+          verification: {
+            verdict: "fail",
+            reasons: [{ code: "c", severity: "fail", message: "m" }],
+          },
+        })
+      )
+    ).toBe("blocked")
+  })
+
+  it("does not move for unsaved typing or a press in flight", () => {
+    const saved = input({ workflowStatus: "drafted", drafts: [draft("Hi")] })
+    expect(
+      replyTrackState({ ...saved, isDirty: true, pending: "publish" })
+    ).toBe("saved_locally")
+  })
+
+  it("follows the reply to Google and only says On Google when Google shows it", () => {
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "awaiting_approval", drafts: [draft("Hi")] })
+      )
+    ).toBe("awaiting_approval")
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "publish_requested", drafts: [draft("Hi")] })
+      )
+    ).toBe("sent")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "published",
+          reply: sentReply("published", "PENDING"),
+        })
+      )
+    ).toBe("awaiting_confirmation")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "published",
+          reply: sentReply("accepted", null),
+        })
+      )
+    ).toBe("awaiting_confirmation")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "published",
+          reply: sentReply("published", "APPROVED"),
+        })
+      )
+    ).toBe("confirmed_applied")
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "failed", reply: sentReply("failed", null) })
+      )
+    ).toBe("failed")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "rejected",
+          reply: sentReply("failed", "REJECTED"),
+        })
+      )
+    ).toBe("rejected")
+  })
+})
+
+describe("replyApprovalStop", () => {
+  const event = (action: string) => ({ action })
+
+  it("ticks Approved only when an approval came after the sent text was written", () => {
+    expect(
+      replyApprovalStop([
+        event("review.reply.publish_requested"),
+        event("review.approval.approved"),
+        event("review.approval.requested"),
+        event("review.draft.edited"),
+      ])
+    ).toBe("needed")
+    // Written in one transaction, the approval may sort above the send.
+    expect(
+      replyApprovalStop([
+        event("review.approval.approved"),
+        event("review.reply.publish_requested"),
+        event("review.draft.generated"),
+      ])
+    ).toBe("needed")
+  })
+
+  it("says Not needed for a send with no approval, even with an older one", () => {
+    expect(
+      replyApprovalStop([
+        event("review.reply.publish_requested"),
+        event("review.draft.edited"),
+        event("review.approval.approved"),
+      ])
+    ).toBe("skipped")
+  })
+
+  it("leaves the stop to come when nothing was sent", () => {
+    expect(replyApprovalStop([event("review.draft.generated")])).toBe("needed")
   })
 })

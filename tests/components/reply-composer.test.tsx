@@ -1022,10 +1022,11 @@ describe("ReplyComposer — checks and length", () => {
     mount(FAILED)
     const problem = screen.getByRole("alert")
     expect(problem).toHaveTextContent(
-      "Can’t publish yet. It promises a refund nobody offered. Edit the reply and try again."
+      "Blocked by checks It promises a refund nobody offered. Edit the reply and try again."
     )
+    expect(problem).toHaveAttribute("data-verdict", "fail")
     expect(textbox()).toHaveAttribute("aria-invalid", "true")
-    expect(textbox()).toHaveAccessibleDescription(/Can’t publish yet/)
+    expect(textbox()).toHaveAccessibleDescription(/^Blocked by checks/)
   })
 
   it("clears the failed check on the next input", async () => {
@@ -1050,6 +1051,40 @@ describe("ReplyComposer — checks and length", () => {
     expect(screen.getByText("Reads a little stiff.")).toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(textbox()).not.toHaveAttribute("aria-invalid")
+  })
+
+  it("says the checks passed for the saved text, in ink, and drops it on typing", () => {
+    mount({
+      ...EXISTING,
+      latestVerification: { verdict: "pass", reasons: [] },
+    })
+    const passed = document.querySelector<HTMLElement>(
+      '[data-slot="reply-checks"]'
+    )!
+    expect(passed).toHaveTextContent("Checks passed")
+    expect(passed).toHaveAttribute("data-verdict", "pass")
+    // Passing the checks is not being on Google: no green anywhere on it.
+    expect(passed.outerHTML).not.toMatch(/success/)
+    fireEvent.change(textbox(), { target: { value: "Changed words" } })
+    expect(document.querySelector('[data-slot="reply-checks"]')).toBeNull()
+  })
+
+  it("heads a warning with its own words and keeps it quiet", () => {
+    mount({
+      ...EXISTING,
+      drafts: [draft({ verificationStatus: "warn" })],
+      latestVerification: {
+        verdict: "warn",
+        reasons: [
+          { code: "tone", severity: "warn", message: "Reads a little stiff." },
+        ],
+      },
+    })
+    const note = document.querySelector<HTMLElement>(
+      '[data-slot="reply-note"]'
+    )!
+    expect(note).toHaveTextContent("Checked with a note")
+    expect(note).not.toHaveAttribute("role")
   })
 
   it("says nothing about length until the reply reaches 80% of Google's limit", () => {
@@ -1172,21 +1207,59 @@ describe("ReplyComposer — first draft on `g`", () => {
 // and a neutral count that appears with the first character; the limit itself
 // is the foot's, in the unit Google counts (bytes).
 describe("ReplyComposer — the insert bar", () => {
-  it("counts the characters neutrally and leaves the limit to the foot", () => {
+  it("counts in Google's unit, bytes, neutrally, and leaves the warning to the foot", () => {
     mount(EXISTING)
     const count = document.querySelector<HTMLElement>(
       '[data-slot="char-count"]'
     )!
-    expect(count).toHaveTextContent("19 characters")
-    expect(count).toHaveClass("text-count", "tabular-nums", "text-ink-muted")
+    expect(count).toHaveTextContent("19 of 4,096 bytes")
+    expect(count).toHaveClass("tabular-nums")
+    expect(count.parentElement).toHaveClass("text-count", "text-ink-muted")
+    // A multi-byte character counts as Google counts it.
+    fireEvent.change(textbox(), { target: { value: "é" } })
+    expect(count).toHaveTextContent("2 of 4,096 bytes")
     fireEvent.change(textbox(), { target: { value: "a".repeat(4097) } })
-    expect(count).toHaveTextContent("4,097 characters")
-    // Characters are not the limit's unit, so the bar never turns red on a
-    // byte count it does not show.
-    expect(count).toHaveClass("text-ink-muted")
-    expect(count).not.toHaveClass("text-danger-ink")
+    expect(count).toHaveTextContent("4,097 of 4,096 bytes")
+    expect(count.parentElement).not.toHaveClass("text-danger-ink")
     expect(textbox()).toHaveAttribute("aria-invalid", "true")
+    expect(
+      document.querySelector('[data-slot="length-note"]')
+    ).toHaveTextContent("Over Google's length limit")
   })
+
+  it("says the saved draft's source and time only while the box holds it", () => {
+    mount({ workflowStatus: "drafted", drafts: [draft({ source: "ai" })] })
+    const meta = document.querySelector<HTMLElement>(
+      '[data-slot="reply-meta"]'
+    )!
+    expect(meta).toHaveTextContent("Written with AI")
+    expect(meta.querySelector('[data-slot="draft-saved"]')).toHaveTextContent(
+      /^· Saved here /
+    )
+    // Typed-over text is no longer the AI's, nor saved.
+    fireEvent.change(textbox(), { target: { value: "My own words" } })
+    expect(meta).not.toHaveTextContent("Written with AI")
+    expect(meta.querySelector('[data-slot="draft-saved"]')).toBeNull()
+  })
+
+  it("does not credit AI with a reply someone wrote", () => {
+    mount(EXISTING)
+    expect(document.querySelector('[data-slot="draft-source"]')).toBeNull()
+  })
+
+  it("wears the fields' one focus language on the reply card", () => {
+    mount(EXISTING)
+    const editor = document.querySelector<HTMLElement>(
+      '[data-slot="reply-editor"]'
+    )!
+    expect(editor).toHaveClass(
+      "border-line",
+      "focus-within:border-accent-solid",
+      "focus-within:shadow-(--np-focus-halo)"
+    )
+    expect(editor).not.toHaveClass("focus-within:ring-fill")
+  })
+
   it("offers no template or variable insert (D10)", () => {
     mount(EXISTING)
     expect(

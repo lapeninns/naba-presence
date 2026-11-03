@@ -32,6 +32,7 @@ import { ReviewAvatar } from "@/components/inbox/review-avatar"
 import { ActionBar } from "@/components/ui/action-bar"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { ChangeTrack } from "@/components/ui/change-track"
 import { QueryError } from "@/components/ui/query-states"
 import {
   Dialog,
@@ -82,6 +83,8 @@ import {
   derivePrimaryAction,
   deriveReplyStatus,
   isAwaitingGoogleCheck,
+  replyApprovalStop,
+  replyTrackState,
   WAITING_FOR_GOOGLE_CHECK,
   type ReplyPendingKind,
   type ReplyStateInput,
@@ -1223,6 +1226,31 @@ function replyVisibility(review: Review): string {
 }
 
 /**
+ * Where the saved reply is on its way to Google (DIRECTION §1.1, principle
+ * 2), at the head of the reply for every role: the same ladder as the status
+ * line, so the two never disagree. Nothing while there is no reply yet.
+ */
+function ReplyTrack({ review }: { review: Review }) {
+  const state = replyTrackState(replyStateFor(review, false, null))
+  if (!state) return null
+  return (
+    <div data-slot="reply-track" className="flex min-w-0 flex-col gap-2 pb-1">
+      <p
+        aria-hidden
+        className="m-0 text-caption font-medium text-ink-secondary"
+      >
+        Where this reply is
+      </p>
+      <ChangeTrack
+        state={state}
+        approval={replyApprovalStop(review.timeline)}
+        aria-label="Where this reply is"
+      />
+    </div>
+  )
+}
+
+/**
  * The review, then the reply: one conversation, the customer's words above
  * the place the answer is written, with one hairline between the two.
  */
@@ -1315,6 +1343,7 @@ function ReviewThread({
           </p>
         </div>
         <div className={THREAD_BODY_CLASS}>
+          <ReplyTrack review={review} />
           {viewOnly ? (
             // No publish bar for a viewer (nothing in it could be pressed),
             // so the status it would carry is said here instead.
