@@ -34,7 +34,7 @@ describe("GoogleFreshness", () => {
   it("takes the caller's layout when the data is current", () => {
     stubClients("up_to_date")
     const { container } = render(
-      <GoogleFreshness className="not-desk:hidden min-w-0 truncate" />
+      <GoogleFreshness className="min-w-0 truncate not-desk:hidden" />
     )
     expect(screen.getByText(/Google checked/)).toBeInTheDocument()
     const note = container.firstElementChild!
@@ -45,7 +45,7 @@ describe("GoogleFreshness", () => {
   it("takes the caller's layout when the data is delayed, in the warning ink", () => {
     stubClients("data_delayed")
     const { container } = render(
-      <GoogleFreshness className="not-desk:hidden min-w-0 truncate" />
+      <GoogleFreshness className="min-w-0 truncate not-desk:hidden" />
     )
     const note = container.firstElementChild!
     expect(note).toHaveTextContent("delayed, retrying")
