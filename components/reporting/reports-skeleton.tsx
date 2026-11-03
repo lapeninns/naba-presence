@@ -95,8 +95,8 @@ function KeywordsBody() {
  * jumps on the swap.
  *
  * - `page` (the route's loading.tsx): the PageFrame paddings, the title, the
- *   one toolbar row (a summary button on a phone, three fields from `md`),
- *   the tab strip, then the tab body.
+ *   filter row from `md` (the period's track and the scope's words), the tab
+ *   strip, a phone's period chips, then the tab body.
  * - `tab`: only a tab's body: the caption line, tiles two to a row on a
  *   phone (four from 48rem of the report's container), and two chart cards.
  * - `google` and `keywords`: the body of those tabs (the tab draws its own
@@ -169,17 +169,18 @@ export function ReportsSkeleton({
         {/* The description is a desk's only, as on the page. */}
         <Skeleton className="hidden h-4 w-96 max-w-full md:block" />
       </div>
-      <div className="flex items-end gap-3">
-        <Skeleton className="h-(--np-touch) flex-1 rounded-(--np-radius-pill) md:hidden" />
-        {[0, 1, 2].map((field) => (
-          <div key={field} className="hidden flex-col gap-1.5 md:flex">
-            <Skeleton className="h-3.5 w-16" />
-            <Skeleton className="h-(--np-control-h) w-56 rounded-(--np-radius-control)" />
-          </div>
-        ))}
+      {/* A desk's filter row: the period's segmented track, then the scope
+          in words. A phone has no row here: its scope is the shell's
+          control and its period the chips under the tabs. */}
+      <div
+        data-skeleton="filter-row"
+        className="hidden items-center gap-3 md:flex"
+      >
+        <Skeleton className="h-(--np-control-h) w-[29rem] max-w-full rounded-(--np-radius-track)" />
+        <Skeleton className="h-3.5 w-40" />
       </div>
       <Skeleton className="h-11 w-full rounded-(--np-radius-control) sm:w-96" />
-      {/* A phone's period chips under the tabs; a desk's period is a field. */}
+      {/* A phone's period chips under the tabs; a desk's is in the row above. */}
       <div
         data-skeleton="period-strip"
         className="flex gap-2 overflow-hidden md:hidden"
