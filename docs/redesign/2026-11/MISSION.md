@@ -265,7 +265,7 @@ Seeded from BASELINE §5. Each id is resolved when a phase E/F row cites the fix
 | Defect | Route (INVENTORY id) | Severity | Status |
 | --- | --- | --- | --- |
 | D01–D30 | see BASELINE §5.1 | 2 high, 14 medium, 14 low | open (code-verified at 367719b3) |
-| S1 | Shell rail at 844x390 landscape cuts off Team/Settings | medium | fix merged `6f269f47`; at `c281ba68` account stays visible but Settings is still clipped in the static shot. Scroll reachability not yet verified (needs an interaction check) |
+| S1 | Shell rail at 844x390 landscape cuts off Team/Settings | medium | fix merged `6f269f47`; at `c281ba68` account stays visible but Settings is still clipped in the static shot. **Resolved:** interaction check at `c281ba68` (Chromium, touch) scrolls Settings into view and navigates to /settings at 844x390, 1024x600, 768x500 (`evidence/controller/rail-reach-c281ba68/rail-reach.json`, script `check-rail-reach.mjs`) |
 | S2 | Tablet scope pill truncates "All clients" at 768 despite free width | low | fixed, verified in render `shell-matrix-c281ba68/w768x1024/listings.png` |
 | S3 | Scope health words differ by size: tablet pill "Some clients need checking", desktop sidebar "1 client needs attention" for the same data | low | open (`shell-matrix-c281ba68/w768x1024`, `after-c281ba68/desktop/state--inbox-selected`) |
 | T1 | `tests/components/sign-in-recovery.test.tsx` "clears the last answer on a new attempt" failed once in full `pnpm test` at `c281ba68`; passed 3/3 in isolation; files untouched by the redesign | low (flaky) | open, watch in final gate |
