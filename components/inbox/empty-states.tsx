@@ -80,6 +80,8 @@ export type FilteredFacts = {
   queueLabel?: string
   /** The server's count for that queue in scope, filters aside. */
   queueTotal?: number
+  /** The date range ends before it starts, so it can match nothing. */
+  rangeInverted?: boolean
 }
 
 /** "Needs reply has 2 reviews", or nothing when the count is not known. */
@@ -99,6 +101,13 @@ function filteredContent(filtered: FilteredFacts | undefined): Content {
       description: filtered.queueLabel
         ? `Nothing in ${filtered.queueLabel} matches. Try other words, or choose another queue above. Your search stays.`
         : "Try other words.",
+    }
+  }
+  if (filtered?.rangeInverted) {
+    return {
+      title: "No reviews match these filters.",
+      description:
+        "The end date is before the start date. Change the dates in Filters, or clear them all.",
     }
   }
   const has = filtered ? queueHas(filtered) : null

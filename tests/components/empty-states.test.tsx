@@ -211,6 +211,22 @@ describe("EmptyState", () => {
     expect(screen.queryByText(/caught up|No reviews yet/)).toBeNull()
   })
 
+  it("names an inverted date range as the reason nothing matches", () => {
+    render(
+      <EmptyState
+        reason="filtered"
+        filtered={{ searchOnly: false, rangeInverted: true }}
+        onClear={() => {}}
+      />
+    )
+    expect(
+      screen.getByText(/end date is before the start date/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear all filters" })
+    ).toBeInTheDocument()
+  })
+
   it("clears filters on request", async () => {
     const user = userEvent.setup()
     const onClear = vi.fn()

@@ -485,6 +485,13 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The end date must be on or after the start date."
     )
+    // Each date field is described by the error, so it is heard on focus.
+    expect(screen.getByLabelText("From date")).toHaveAccessibleDescription(
+      "The end date must be on or after the start date."
+    )
+    expect(screen.getByLabelText("To date")).toHaveAccessibleDescription(
+      "The end date must be on or after the start date."
+    )
   })
 
   it("clears every filter and closes from the panel footer", async () => {

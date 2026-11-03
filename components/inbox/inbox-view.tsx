@@ -684,6 +684,9 @@ function InboxViewInner({
         queueTotal: shownQueue
           ? countsQuery.data?.byQueue[shownQueue]
           : undefined,
+        rangeInverted: Boolean(
+          state.dateFrom && state.dateTo && state.dateFrom > state.dateTo
+        ),
       }
       return (
         <div className="flex min-h-0 flex-1 flex-col justify-center">
