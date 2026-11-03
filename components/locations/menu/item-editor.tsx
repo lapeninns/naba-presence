@@ -2,6 +2,7 @@
 
 import {
   ChevronDownIcon,
+  CircleAlert,
   ChevronUpIcon,
   Copy,
   MoreHorizontal,
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { currencySymbol, readLabel } from "@/lib/locations/forms/menu-editor"
+import { cn } from "@/lib/utils"
 
 type Json = Record<string, unknown>
 
@@ -117,9 +119,20 @@ export function RowActionsMenu({
 
 export function InlineError({ id, message }: { id: string; message?: string }) {
   if (!message) return null
+  // Drawn as the shared FieldError (icon, then words), so a menu field's
+  // problem reads like every other field's.
   return (
-    <p id={id} className="text-caption font-medium text-danger-ink">
-      {message}
+    <p
+      id={id}
+      data-slot="field-error"
+      className="flex items-start gap-1.5 text-caption font-medium text-danger-ink"
+    >
+      <CircleAlert
+        aria-hidden
+        strokeWidth={1.75}
+        className="mt-px size-3.5 shrink-0"
+      />
+      <span className="min-w-0">{message}</span>
     </p>
   )
 }
@@ -147,6 +160,7 @@ export function MenuItemRow({
   priceText,
   disabled,
   errors,
+  edited = false,
   onOpen,
   onMove,
   onDuplicate,
@@ -162,6 +176,8 @@ export function MenuItemRow({
   disabled: boolean
   /** The item's problems, once a review has been attempted. */
   errors: string[]
+  /** The item differs from Google: an ink edge and the word "Edited". */
+  edited?: boolean
   onOpen: () => void
   onMove: (direction: -1 | 1) => void
   onDuplicate: () => void
@@ -171,6 +187,7 @@ export function MenuItemRow({
   const name = label.displayName || `item ${itemIndex + 1}`
   const options = Array.isArray(item.options) ? item.options.length : 0
   const describedBy = [
+    edited ? `${rowId}-edited` : null,
     `${rowId}-price`,
     label.description ? `${rowId}-description` : null,
     errors.length > 0 ? `${rowId}-errors` : null,
@@ -181,7 +198,13 @@ export function MenuItemRow({
   return (
     <li
       data-slot="menu-item-row"
-      className="flex min-w-0 items-start gap-1 border-b border-line-subtle last:border-b-0"
+      data-edited={edited || undefined}
+      className={cn(
+        "flex min-w-0 items-start gap-1 border-b border-line-subtle last:border-b-0",
+        // An edited row (SYSTEM 9.3): the ink edge down its leading side.
+        // Ink, not blue: nothing has gone to Google yet.
+        edited && "shadow-np-edge-select"
+      )}
     >
       <ListRow
         as="div"
@@ -199,7 +222,18 @@ export function MenuItemRow({
           )
         }
         meta={
-          <span id={`${rowId}-price`}>{priceWords(currency, priceText)}</span>
+          <>
+            {edited ? (
+              <span
+                id={`${rowId}-edited`}
+                className="text-caption font-medium text-ink"
+              >
+                Edited
+              </span>
+            ) : null}
+            {edited ? <span aria-hidden> · </span> : null}
+            <span id={`${rowId}-price`}>{priceWords(currency, priceText)}</span>
+          </>
         }
         preview={
           label.description ? (
@@ -335,7 +369,10 @@ export function MenuItemSheet({
             {label.displayName || "Untitled item"}
           </SheetTitle>
           <SheetDescription>
-            {sectionName} · item {itemIndex + 1} of {count}
+            {sectionName} · item {itemIndex + 1} of {count}.{" "}
+            {disabled
+              ? "View only."
+              : "Edits stay here until you save; nothing changes on Google until you publish."}
           </SheetDescription>
         </SheetHeader>
         <SheetBody>
