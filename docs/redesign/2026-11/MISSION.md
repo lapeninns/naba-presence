@@ -253,6 +253,7 @@ A row is done only when every applicable column is `done`.
 | --- | --- | --- | --- |
 | O01 | Machine e2e runner mismatch: `@e2e-dev/web@0.11.2` imports `rejectUnknownOptions`, absent from installed `e2e@0.15.2` (`CONFIG_LOAD_FAILED`) | Agentic journeys (`tests/agentic`) cannot run | Machine-level reinstall of a matching pair in `~/node_modules` (outside repo; owner's install). Playwright suite unaffected |
 | O03 | Fixture tenant has one client and no reachable share-report / disconnect dialog states in nm-capture | 3 interaction states uncaptured before and after | Add a second fixture client and fix the capture state scripts in a QA slice |
+| O04 | 2026-11-03 08:3x: Outbox agent (session 6a624bb7) failed twice with `model_request_rejected` from the model provider | Outbox page/API unfinished; WIP committed on `redesign-2026-11/d-outbox`; S1/S2 fix committed `6f269f47` (unrendered) | Owner checks provider/account; then resume the same agent. Not retried further |
 | O02 | 2026-11-03 07:56-07:58: two worker starts (team8, team2) returned "delivery not confirmed"; no worktree or branch was created | c-system completion and later slices not delegated | Not retried further; re-check scheduler, then one start per slot |
 
 ## Open defects
