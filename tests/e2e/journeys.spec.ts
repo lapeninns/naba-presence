@@ -166,7 +166,7 @@ test.describe("inbox critical journeys", () => {
       selected.getByText("Waiting for another approver").first()
     ).toBeVisible()
     await expect(
-      page.getByRole("button", { name: "Approve reply" })
+      page.getByRole("button", { name: "Approve and publish" })
     ).toHaveCount(0)
 
     // Approver (owner) — a fresh context. Approval is one tab now: the
@@ -215,7 +215,7 @@ test.describe("inbox critical journeys", () => {
         new URL(r.url()).pathname ===
           `/api/reviews/${state.approval.reviewId}/approval`
     )
-    await approver.getByRole("button", { name: "Approve reply" }).click()
+    await approver.getByRole("button", { name: "Approve and publish" }).click()
     expect((await approved).status()).toBe(200)
     // Sent, under Google's check (the stub sends no moderation state).
     await expect(

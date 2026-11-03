@@ -179,6 +179,24 @@ export type OutcomeToastContext = {
 // reached (or is on its way to) Google, which can never offer Undo, and
 // "local" for workflow-only outcomes (sent back, an unpublished draft
 // removed).
+/**
+ * The answer to deleting a live reply. Only an ambiguous answer differs
+ * from a publish's: the reply was live, so the honest line is that it may
+ * still be there.
+ */
+export function describeDeleteToast(status: string): OutcomeToastOptions {
+  if (status === "ambiguous") {
+    return {
+      kind: "google",
+      title: describeOutcome("uncertain").title,
+      description:
+        "Your reply may still be on Google. This review updates once we check again.",
+      type: "warning",
+    }
+  }
+  return describeOutcomeToast(status)
+}
+
 export function describeOutcomeToast(
   status: string,
   context: OutcomeToastContext = {}
@@ -240,6 +258,25 @@ export function describeOutcomeToast(
         title: "Draft reply removed",
         description: "Nothing was on Google.",
         type: "success",
+      }
+    case "failed":
+      // Settled as failed: Google did not apply it. The exception under the
+      // reply says why and whether a retry can help.
+      return {
+        kind: "google",
+        title: describeOutcome("failed").title,
+        description: "The reply says what went wrong and what to do next.",
+        type: "error",
+      }
+    case "ambiguous":
+      // Google's answer was lost: the write may or may not have landed, so
+      // say neither, and point at Google rather than a blind retry.
+      return {
+        kind: "google",
+        title: describeOutcome("uncertain").title,
+        description:
+          "This review updates once we hear from Google. Check Google before trying again.",
+        type: "warning",
       }
     case "pending":
       // Google has the reply and has not said what became of it: "sent",

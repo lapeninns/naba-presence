@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  describeDeleteToast,
   describeOutcomeToast,
   evaluateApproval,
   evaluateDelete,
@@ -198,6 +199,36 @@ describe("describeOutcomeToast", () => {
       description: "This review updates when Google confirms it.",
       type: "info",
     })
+  })
+  it("says a settled failed publish did not reach Google", () => {
+    expect(describeOutcomeToast("failed")).toMatchObject({
+      kind: "google",
+      title: "It didn’t go through. Nothing changed on Google.",
+      type: "error",
+    })
+  })
+  it("says neither sent nor failed when Google's answer was lost", () => {
+    const toast = describeOutcomeToast("ambiguous")
+    expect(toast).toMatchObject({
+      kind: "google",
+      title: "We can’t tell whether Google applied it",
+      type: "warning",
+    })
+    expect(String(toast.description)).toMatch(/Check Google/)
+    expect(String(toast.title)).not.toMatch(/published|submitted|sent/i)
+  })
+  it("says an ambiguous delete may have left the reply on Google", () => {
+    expect(describeDeleteToast("ambiguous")).toMatchObject({
+      kind: "google",
+      title: "We can’t tell whether Google applied it",
+      type: "warning",
+    })
+    expect(String(describeDeleteToast("ambiguous").description)).toMatch(
+      /may still be on Google/
+    )
+    expect(describeDeleteToast("deleted")).toEqual(
+      describeOutcomeToast("deleted")
+    )
   })
   it("never claims 'published' for an unknown status", () => {
     const toast = describeOutcomeToast("something_new")

@@ -151,6 +151,7 @@ function replyStateFor(
     verification: review.latestVerification,
     isDirty,
     pending,
+    sentBack: Boolean(review.lastRejection),
     approvalScope: review.capabilities.canPublish ? "me" : "others",
   }
 }

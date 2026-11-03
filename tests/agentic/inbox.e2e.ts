@@ -163,10 +163,10 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         selected.getByText(state.approval.text, { exact: true })
       ).toBeVisible()
       await agent.assert(
-        "The selected review shows a reply waiting for approval, with an Approve reply button"
+        "The selected review shows a reply waiting for approval, with an Approve and publish button"
       )
 
-      await agent.act('Approve the reply with the "Approve reply" button')
+      await agent.act('Approve the reply with the "Approve and publish" button')
       await expect(
         // "Reply sent" when Google holds the reply for moderation (the stub
         // can answer PENDING); either way it reached Google
