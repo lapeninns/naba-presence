@@ -28,6 +28,11 @@ describe("inbox loading outline", () => {
     expect(status).toHaveTextContent("Loading reviews")
   })
 
+  it("keeps the document titled while the page streams in", () => {
+    render(<InboxLoading />)
+    expect(document.title).toBe("Inbox · NabaPresence")
+  })
+
   it("outlines the six queue tabs and puts each row's pill where the row will", () => {
     const { container } = render(<InboxLoading />)
     expect(container.querySelectorAll(".h-11.desk\\:h-10")).toHaveLength(6)

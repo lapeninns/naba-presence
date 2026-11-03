@@ -7,7 +7,7 @@ import { ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { ViewHeader } from "@/components/ui/view-header"
-import { INBOX_SPLIT_STYLE } from "@/lib/inbox/layout"
+import { INBOX_SPLIT_STYLE, INBOX_TITLE } from "@/lib/inbox/layout"
 import { cn } from "@/lib/utils"
 
 // Needs reply, Approval, Sending, Failed, Done, All.
@@ -30,6 +30,10 @@ const QUEUE_TAB_WIDTHS = ["w-20", "w-16", "w-14", "w-12", "w-10", "w-6"]
  * layout after hydration: a phone opened on `?selected=` is served the
  * review straight away (inbox-view.tsx keys the layout on `data-view`).
  * Says it is loading in words, not only in grey blocks.
+ *
+ * Carries the page's title as a React `<title>`: on a client navigation the
+ * previous page's streamed title unmounts with it, and the inbox's metadata
+ * only arrives with the page, so without this the document has no title.
  */
 export default function InboxLoading() {
   return (
@@ -37,6 +41,7 @@ export default function InboxLoading() {
       width="workspace"
       className="min-h-0 flex-1 gap-0 pt-0 max-md:px-4 md:px-0 md:pt-0 md:pb-0"
     >
+      <title>{INBOX_TITLE}</title>
       <div
         role="status"
         aria-busy="true"
