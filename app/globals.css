@@ -219,7 +219,6 @@
   --color-ink: var(--np-ink);
   --color-ink-secondary: var(--np-ink-secondary);
   --color-ink-muted: var(--np-ink-muted);
-  --color-ink-faint: var(--np-ink-faint);
   --color-ink-quaternary: var(--np-ink-quaternary);
   --color-ink-inverse: var(--np-ink-inverse);
   --color-ink-hover: var(--np-ink-hover);
@@ -448,13 +447,12 @@
   /* The accent as a quiet surface: the "needs a reply" summary tile. */
 
   /* Ink ladder. `secondary` is strong supporting text; `muted` is the
-     descriptive grey; `faint` is retired (SYSTEM §2.1): an alias of `muted`
-     for one release while the last `text-ink-faint` uses move. Quaternary is
+     descriptive grey (the old `faint` step equalled it and is retired,
+     SYSTEM §2.1). Quaternary is
      DECORATIVE ONLY and absent from the contrast manifest. */
   --np-ink: var(--np-ramp-neutral-900);
   --np-ink-secondary: var(--np-ramp-neutral-600);
   --np-ink-muted: var(--np-ramp-neutral-500);
-  --np-ink-faint: var(--np-ink-muted);
   --np-ink-quaternary: var(--np-ramp-neutral-400);
   --np-ink-inverse: var(--np-ramp-neutral-0);
   /* The ink button's hover and pressed fills ("ink saves", D1). */
@@ -867,7 +865,6 @@
   --np-ink: oklch(0.95 0.006 250);
   --np-ink-secondary: oklch(0.85 0.01 240);
   --np-ink-muted: oklch(0.72 0.014 240);
-  --np-ink-faint: var(--np-ink-muted);
   --np-ink-quaternary: oklch(0.5 0.014 240);
   --np-ink-inverse: oklch(0.18 0.012 240);
   --np-ink-hover: oklch(0.85 0.01 240);
@@ -1001,7 +998,6 @@
     --np-ink: oklch(0.95 0.006 250);
     --np-ink-secondary: oklch(0.85 0.01 240);
     --np-ink-muted: oklch(0.72 0.014 240);
-    --np-ink-faint: var(--np-ink-muted);
     --np-ink-quaternary: oklch(0.5 0.014 240);
     --np-ink-inverse: oklch(0.18 0.012 240);
     --np-ink-hover: oklch(0.85 0.01 240);

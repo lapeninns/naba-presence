@@ -181,22 +181,6 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
     kind: "text",
     note: "ink (primary) button label, pressed or menu open",
   },
-  // DECORATIVE ONLY: separators and inert icons. Gated at the non-text
-  // threshold precisely because it is not allowed to carry words — anything
-  // readable uses --np-ink-muted, which is measured at 4.5:1 above.
-  {
-    fg: "--np-ink-faint",
-    bg: "--np-surface-canvas",
-    kind: "graphic",
-    note: "separators and inert icons",
-  },
-  {
-    fg: "--np-ink-faint",
-    bg: "--np-surface",
-    kind: "graphic",
-    note: "inert icons inside a card",
-  },
-
   // Fill ladder: the grey a control is made of.
   {
     fg: "--np-ink",

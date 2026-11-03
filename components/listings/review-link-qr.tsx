@@ -59,7 +59,7 @@ export function QrImage({
         <QrCodeIcon
           aria-hidden
           strokeWidth={1.75}
-          className="size-5 text-ink-faint"
+          className="size-5 text-ink-muted"
         />
         <p className="text-ui text-ink-secondary">{title}</p>
         <p className="text-caption text-ink-muted">{body}</p>

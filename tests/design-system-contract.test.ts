@@ -50,7 +50,6 @@ const SEMANTIC_ROLES = [
   "--np-surface-overlay",
   "--np-ink",
   "--np-ink-muted",
-  "--np-ink-faint",
   "--np-ink-inverse",
   "--np-line-subtle",
   "--np-line",
@@ -220,6 +219,19 @@ describe("NabaPresence design tokens", () => {
       expect(globals).not.toMatch(new RegExp(`@keyframes ${name}\\b`))
     }
     expect(globals).not.toContain("enter-stagger")
+  })
+
+  it("keeps no retired roles (SYSTEM §2.1)", () => {
+    // ink-faint equalled ink-muted in both themes; the focus line and field
+    // rings had no consumer.
+    for (const role of [
+      "--np-ink-faint",
+      "--color-ink-faint",
+      "--np-line-focus",
+      "--np-field-ring",
+    ]) {
+      expect(globals).not.toContain(role)
+    }
   })
 
   it("does not import the prototype runtime", () => {
