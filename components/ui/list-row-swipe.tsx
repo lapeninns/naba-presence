@@ -39,6 +39,12 @@ import { cn } from "@/lib/utils"
 export type ListRowSwipeAction = {
   /** One or two words ("Archive", "Delete"). Shown under the icon. */
   label: string
+  /**
+   * The name with the row in it ("Remove Alex Smith"). Revealed actions sit
+   * outside the row's own text, so a screen reader's list of buttons can't
+   * otherwise tell one row's "Remove" from the next. Defaults to `label`.
+   */
+  accessibleLabel?: string
   icon?: React.ReactNode
   onAction: () => void
   /** `"danger"` draws the danger token and a destructive menu item. */
@@ -293,6 +299,7 @@ function ListRowSwipe({
               type="button"
               disabled={action.disabled}
               tabIndex={offset === 0 ? -1 : undefined}
+              aria-label={action.accessibleLabel}
               data-slot="list-row-swipe-action"
               data-tone={action.tone ?? "default"}
               onClick={() => {

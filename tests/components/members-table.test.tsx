@@ -709,6 +709,9 @@ describe("MembersTable on a phone", () => {
       "Client access",
       "Remove",
     ])
+    // Named with the row, so a list of buttons tells the rows apart.
+    expect(actions[0]).toHaveAccessibleName("Client access: Ben Member")
+    expect(actions[1]).toHaveAccessibleName("Remove Ben Member")
     // Closed, they are out of the tab order; the ⋯ button is the way in.
     expect(
       row[0].querySelector("[data-slot=list-row-swipe-actions]")
