@@ -25,5 +25,6 @@ export {
   reviewedWriteStage,
   reviewedWriteSteps,
   type ReviewedWriteStage,
+  type ReviewedWriteStepsOptions,
 } from "./steps"
 export { ResourceRef, SummaryList, TechnicalDetails, type SummaryRow } from "./summary-list"

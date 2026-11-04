@@ -10,7 +10,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { ReviewedWriteSteps, type ReviewedWriteStage } from "./steps"
+import {
+  ReviewedWriteSteps,
+  type ReviewedWriteStage,
+  type ReviewedWriteStepsOptions,
+} from "./steps"
 
 /**
  * A reviewed write that interrupts an editor (lodging, services, place
@@ -32,6 +36,8 @@ export function ReviewedWriteSheet({
   description,
   stage,
   secondApprover,
+  sending,
+  outcome,
   footer,
   finalFocus,
   children,
@@ -42,6 +48,8 @@ export function ReviewedWriteSheet({
   readonly description?: ReactNode
   readonly stage?: ReviewedWriteStage
   readonly secondApprover?: boolean
+  readonly sending?: ReviewedWriteStepsOptions["sending"]
+  readonly outcome?: ReviewedWriteStepsOptions["outcome"]
   readonly footer: ReactNode
   /** Where focus goes once the sheet has closed (Base UI `finalFocus`). */
   readonly finalFocus?: ComponentProps<typeof SheetContent>["finalFocus"]
@@ -62,6 +70,8 @@ export function ReviewedWriteSheet({
             <ReviewedWriteSteps
               stage={stage}
               secondApprover={secondApprover}
+              sending={sending}
+              outcome={outcome}
               className="mt-2"
             />
           ) : null}

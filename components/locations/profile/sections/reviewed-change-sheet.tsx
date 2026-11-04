@@ -7,6 +7,7 @@ import {
   type ChangeRow,
 } from "@/components/editors/change-diff"
 import {
+  attemptOutcome,
   ConsentSlot,
   Expiry,
   OutcomeSummary,
@@ -134,6 +135,17 @@ export function ReviewedChangeSheet({
         recorded,
       })}
       secondApprover={review.requiresSecondApprover}
+      sending={sending}
+      outcome={
+        workflow.outcome
+          ? attemptOutcome(
+              workflow.outcome.executionState,
+              workflow.outcome.confirmationState
+            )
+          : workflow.uncertain
+            ? "uncertain"
+            : undefined
+      }
       footer={
         <>
           <Button
