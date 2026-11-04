@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import ShareReportError from "@/app/share/report/[token]/error"
 import ShareReportNotFound from "@/app/share/report/[token]/not-found"
 import SharedReportPage from "@/app/share/report/[token]/page"
-import { SharedClientReportView } from "@/components/share/shared-client-report"
+import {
+  SharedClientReportView,
+  zoneTimeName,
+} from "@/components/share/shared-client-report"
 import type { SharedClientReport } from "@/lib/contracts/report-shares"
 import {
   GOOGLE_PERFORMANCE_METRICS,
@@ -438,7 +441,7 @@ describe("SharedClientReportView", () => {
       .closest("section") as HTMLElement
     expect(
       within(section).getByText(
-        /^24 Aug( 2026)? – 20 Sept( 2026)? · Figures up to 18 Sept( 2026)?, as reported by Google$/
+        /^24 Aug( 2026)? – 20 Sept( 2026)? · Google’s days, in UTC · Figures up to 18 Sept( 2026)?, as reported by Google$/
       )
     ).toBeInTheDocument()
     expect(section).not.toHaveTextContent(/fetch/i)
@@ -458,7 +461,9 @@ describe("SharedClientReportView", () => {
       .getByRole("heading", { level: 2, name: "Google Business Profile" })
       .closest("section") as HTMLElement
     expect(
-      within(section).getByText(/^24 Aug( 2026)? – 20 Sept( 2026)?$/)
+      within(section).getByText(
+        /^24 Aug( 2026)? – 20 Sept( 2026)? · Google’s days, in UTC$/
+      )
     ).toBeInTheDocument()
     expect(section).not.toHaveTextContent(/Figures up to/)
   })
@@ -549,6 +554,42 @@ describe("SharedClientReportView", () => {
       />
     )
     expect(screen.getByText("No reviews in this period")).toBeInTheDocument()
+  })
+
+  it("names the period once up top and lets each section state its own dates", () => {
+    render(<SharedClientReportView report={REPORT} />)
+    // The reply window (organisation's days) and Google's (UTC days) are a
+    // day apart here; neither is stated as the whole report's.
+    expect(document.getElementById("period")).toHaveTextContent(
+      /^Last 28 days$/
+    )
+    const replies = screen
+      .getByRole("heading", { level: 2, name: "Reviews and replies" })
+      .closest("section") as HTMLElement
+    expect(
+      within(replies).getByText(
+        /^23 Aug( 2026)? – 20 Sept( 2026)? · days in London time$/
+      )
+    ).toBeInTheDocument()
+    const google = screen
+      .getByRole("heading", { level: 2, name: "Google Business Profile" })
+      .closest("section") as HTMLElement
+    expect(google).toHaveTextContent(/24 Aug( 2026)? – 20 Sept( 2026)?/)
+    expect(google).toHaveTextContent("Google’s days, in UTC")
+    expect(google).not.toHaveTextContent(/23 Aug/)
+  })
+
+  it("names the organisation's zone by its place, and UTC as UTC", () => {
+    render(
+      <SharedClientReportView
+        report={{ ...REPORT, timezone: "America/New_York" }}
+      />
+    )
+    expect(screen.getByText(/days in New York time$/)).toBeInTheDocument()
+    expect(zoneTimeName("UTC")).toBe("UTC")
+    expect(zoneTimeName("America/Argentina/Buenos_Aires")).toBe(
+      "Buenos Aires time"
+    )
   })
 
   it("has landmarks, a skip link and the figures' main region", () => {

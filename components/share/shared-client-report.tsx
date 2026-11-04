@@ -38,6 +38,12 @@ import { LISTING_TERMS } from "@/lib/workspace/terms"
  * 320px, charts that scroll inside their own box with a table behind them,
  * and every time written in the organisation's zone with the zone named, so
  * the server's HTML and the browser's agree.
+ *
+ * The header names the period only. Each section states its own dates from
+ * its own figures: reviews are counted in the organisation's days, Google
+ * reports whole UTC days, and the two ranges can be a day apart. One range
+ * up top would sit beside a different one under Google with nothing to say
+ * why.
  */
 export function SharedClientReportView({
   report,
@@ -100,10 +106,14 @@ export function SharedClientReportView({
           : null,
       }
     : null
+  const repliesCaption = periodText
+    ? `${periodText} · days in ${zoneTimeName(timezone)}`
+    : ""
   // Google's own days, never shifted into the organisation's zone.
+  const googlePeriod = presence ? formatPeriod(presence, "UTC") : ""
   const googleCaption = presence
     ? [
-        formatPeriod(presence, "UTC"),
+        googlePeriod ? `${googlePeriod} · Google’s days, in UTC` : "",
         presence.freshThrough
           ? `Figures up to ${formatDate(presence.freshThrough, "UTC")}, as reported by Google`
           : "",
@@ -133,9 +143,6 @@ export function SharedClientReportView({
         </h1>
         <p id="period" className="scroll-mt-4 text-ui text-ink">
           {period.label}
-          {periodText ? (
-            <span className="text-ink-muted"> · {periodText}</span>
-          ) : null}
         </p>
         {/* Notion Mail text tabs, drawn with the TextTabs item style but as
             plain anchors in a wrapping row: TabNav's Next links would
@@ -167,12 +174,19 @@ export function SharedClientReportView({
           aria-labelledby="shared-replies"
           className="flex flex-col gap-(--np-gap-section)"
         >
-          <h2
-            id="shared-replies"
-            className="text-section font-semibold text-ink"
-          >
-            Reviews and replies
-          </h2>
+          <div className="flex flex-col gap-1">
+            <h2
+              id="shared-replies"
+              className="text-section font-semibold text-ink"
+            >
+              Reviews and replies
+            </h2>
+            {repliesCaption ? (
+              <p className="text-caption text-ink-muted tabular-nums">
+                {repliesCaption}
+              </p>
+            ) : null}
+          </div>
 
           {/* No listings filed under the client: say that, rather than
               "no reviews for these listings" beside a footer of none. */}
@@ -280,4 +294,16 @@ export function SharedClientReportView({
       </footer>
     </div>
   )
+}
+
+/**
+ * "London time" for Europe/London, "New York time" for America/New_York,
+ * "UTC" for UTC: named after the place the IANA zone is, so the text is the
+ * same on the server and in every browser (Intl's generic zone names vary
+ * with the ICU data each one ships).
+ */
+export function zoneTimeName(timeZone: string): string {
+  if (!timeZone.includes("/")) return timeZone
+  const place = timeZone.split("/").pop() ?? timeZone
+  return `${place.replaceAll("_", " ")} time`
 }
