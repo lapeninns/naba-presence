@@ -21,9 +21,7 @@ vi.mock("@/components/settings/operations-view", () => ({
   OperationsView: () => <section aria-label="Operations health" />,
 }))
 vi.mock("@/components/app-shell/access-denied", () => ({
-  AccessDenied: ({ area }: { area: string }) => (
-    <p>{`No access to ${area}`}</p>
-  ),
+  AccessDenied: ({ area }: { area: string }) => <p>{`No access to ${area}`}</p>,
 }))
 
 import SettingsOperationsPage from "@/app/(dashboard)/settings/operations/page"

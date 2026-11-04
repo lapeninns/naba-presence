@@ -644,7 +644,9 @@ describe("OperationsView attention, figures and recovery", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /Retry 2 failed emails/ })
     )
-    expect(await screen.findByText("2 emails queued again.")).toBeInTheDocument()
+    expect(
+      await screen.findByText("2 emails queued again.")
+    ).toBeInTheDocument()
     expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
       "data-type",
       "info"

@@ -123,8 +123,8 @@ export function ScheduledJobsDisclosure({
                       job still runs. */}
                   {paused ? (
                     <p className="text-caption text-ink-secondary">
-                      Paused on purpose: this job won’t run until it is
-                      switched back on. The other jobs keep running.
+                      Paused on purpose: this job won’t run until it is switched
+                      back on. The other jobs keep running.
                     </p>
                   ) : null}
                   <p className="text-caption text-ink-muted">
