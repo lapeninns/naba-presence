@@ -1,7 +1,12 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { CircleAlertIcon, CircleCheckIcon, RefreshCwIcon } from "lucide-react"
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  EyeOffIcon,
+  RefreshCwIcon,
+} from "lucide-react"
 import Link from "next/link"
 
 import { LocationTab } from "@/components/locations/location-tab"
@@ -332,15 +337,17 @@ function SuggestionsView({
     return (
       <Empty
         placement="page"
-        icon={<CircleCheckIcon />}
+        icon={<EyeOffIcon />}
         titleAs="h2"
         title="Suggested updates aren’t checked for this listing"
-        description={`NabaPresence isn’t comparing this listing with Google for suggested updates${
+        // Switched off for the whole installation; the editors linked below
+        // still show where Google differs.
+        description={
           // The panel above can still hold protected fields to decide.
           liveAbove.length === 0
-            ? ", so there is nothing to review here"
-            : ". Protected fields Google changed are still decided above"
-        }. The check is switched off for this whole NabaPresence installation, so whoever runs it for your team can turn it on. Until then, the profile and menu editors still show where Google differs.`}
+            ? "The check is off: nothing to review here."
+            : "Protected fields are still decided above."
+        }
         action={
           <>
             <Link
@@ -368,11 +375,10 @@ function SuggestionsView({
         {decidedAboveNote}
         <Empty
           placement="page"
-          tone="ok"
           icon={<CircleCheckIcon />}
           titleAs="h2"
           title="No suggestions from Google"
-          description="When Google or a customer changes this listing on Google, the change shows up here for you to accept or ignore."
+          description="Google’s changes to this listing show here."
         />
       </div>
     )

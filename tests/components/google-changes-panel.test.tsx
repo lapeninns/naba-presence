@@ -551,7 +551,10 @@ describe("GoogleChangesPanel", () => {
     renderPanel()
 
     const row = await rowFor("Business name")
-    expect(within(row).getByText("Ready to publish")).toBeInTheDocument()
+    // Amber: approved, and a person still has to send it.
+    expect(
+      within(row).getByText("Ready to publish").closest("[data-tone]")
+    ).toHaveAttribute("data-tone", "attention")
     expect(within(row).queryByRole("button", { name: "Approve" })).toBeNull()
 
     await userEvent.click(
@@ -569,7 +572,9 @@ describe("GoogleChangesPanel", () => {
         expectedGoogleHash: set.baselineHash,
       },
     ])
-    expect(await screen.findByText("Sent to Google")).toBeInTheDocument()
+    const sent = await screen.findByText("Sent to Google")
+    // Sent is not confirmed: the toast is info, never the green success.
+    expect(sent.closest("[data-type]")).toHaveAttribute("data-type", "info")
   })
 
   it("does not call an unconfirmed publish sent", async () => {
