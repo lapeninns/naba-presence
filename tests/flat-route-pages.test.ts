@@ -120,3 +120,27 @@ describe("R08 /posts", async () => {
     expect(await landing(posts)).toBe("/sign-in?next=%2Fposts")
   })
 })
+
+describe("R10 /profile", async () => {
+  const { default: page } = await import("@/app/profile/page")
+  const profile = page as unknown as FlatPage
+
+  it("goes to the one listing's overview, not its profile editor", async () => {
+    primary.current = ONE
+    expect(await landing(profile, QUERY)).toBe(`/listings/loc-1?${FORWARDED}`)
+    expect(await landing(profile)).toBe("/listings/loc-1")
+  })
+
+  it("lands several listings on Clients with moved=profile", async () => {
+    expect(await landing(profile, QUERY)).toBe(
+      `/clients?${FORWARDED}&moved=profile`
+    )
+  })
+
+  it("asks a signed-out visitor to sign in and come back", async () => {
+    signedOutInProduction("/profile?section=hours")
+    expect(await landing(profile, { section: "hours" })).toBe(
+      "/sign-in?next=%2Fprofile%3Fsection%3Dhours"
+    )
+  })
+})
