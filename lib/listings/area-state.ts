@@ -171,7 +171,7 @@ export function areaState(
       return syncedState(summary.menu, googleUnreachable(summary), now)
     case "booking":
       return {
-        tone: "neutral",
+        tone: "healthy",
         label: "On Google",
         line:
           summary.booking.count === 0
@@ -184,7 +184,7 @@ export function areaState(
       }
     case "photos":
       return {
-        tone: "neutral",
+        tone: "healthy",
         label: "On Google",
         line:
           summary.photos.count === 0
@@ -243,7 +243,7 @@ export function areaState(
           line: "This account no longer manages the listing on Google",
         }
       return {
-        tone: "neutral",
+        tone: "healthy",
         label: "On Google",
         line: "Owners, managers and invitations on Google",
       }
