@@ -193,7 +193,7 @@ function NmLists1bDemo() {
           <SettingsRow
             label="Business name"
             description="As it appears on Google."
-            changed={name !== "The Old Crown" ? "Changed" : undefined}
+            changed={name !== "The Old Crown" ? "Edited" : undefined}
             controlId="demo-business-name"
             control={
               <Input
