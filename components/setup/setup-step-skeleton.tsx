@@ -24,7 +24,10 @@ function SetupStepSkeleton({
         {label}
       </p>
       <div className="flex flex-col items-start gap-6 @3xl/setup:flex-row">
-        <div aria-hidden className="hidden w-55 shrink-0 flex-col gap-2 @3xl/setup:flex">
+        <div
+          aria-hidden
+          className="hidden w-55 shrink-0 flex-col gap-2 @3xl/setup:flex"
+        >
           {Array.from({ length: steps }, (_, index) => (
             <Skeleton key={index} className="h-8" />
           ))}
