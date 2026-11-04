@@ -263,6 +263,24 @@ describe("MfaVerifyForm", () => {
     )
   })
 
+  it("says the submit is waiting while the apps load", async () => {
+    let finish: (value: typeof factors) => void = () => {}
+    vi.spyOn(mfaApi, "pendingFactors").mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    render(<MfaVerifyForm />)
+    const submit = screen.getByRole("button", { name: "Verify and sign in" })
+    expect(submit).toHaveAttribute("aria-disabled", "true")
+    expect(submit).toHaveAccessibleDescription("Getting your sign-in ready…")
+    finish(factors)
+    await waitFor(() => expect(submit).not.toHaveAttribute("aria-disabled"))
+    expect(submit).not.toHaveAccessibleDescription()
+    expect(screen.queryByText("Getting your sign-in ready…")).toBeNull()
+  })
+
   it("offers to load the apps again when that fails", async () => {
     const user = userEvent.setup()
     const load = vi
@@ -272,9 +290,9 @@ describe("MfaVerifyForm", () => {
     render(<MfaVerifyForm />)
     const alert = await screen.findByRole("alert")
     await waitFor(() => expect(alert.parentElement).toHaveFocus())
-    expect(
-      screen.getByRole("button", { name: "Verify and sign in" })
-    ).toBeDisabled()
+    const submit = screen.getByRole("button", { name: "Verify and sign in" })
+    expect(submit).toHaveAttribute("aria-disabled", "true")
+    expect(submit).toHaveAccessibleDescription("Choose Try again first.")
     await user.click(screen.getByRole("button", { name: "Try again" }))
     await screen.findByText(/Backup authenticator/)
     expect(load).toHaveBeenCalledTimes(2)
