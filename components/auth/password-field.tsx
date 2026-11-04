@@ -69,7 +69,7 @@ function PasswordField({
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="size-(--np-touch) rounded-md text-ink-muted hover:text-ink desk:size-8 [&_svg:not([class*='size-'])]:size-4"
+            className="size-(--np-touch) rounded-md text-ink-muted hover-fine:hover:text-ink desk:size-8 [&_svg:not([class*='size-'])]:size-4"
             accessibleNameFromChildren
             onClick={() => setVisible((current) => !current)}
           >

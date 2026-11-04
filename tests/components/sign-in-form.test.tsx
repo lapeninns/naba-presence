@@ -557,6 +557,27 @@ describe("mode toggle", () => {
       screen.getByRole("button", { name: "Switch to create account" })
     )
     expect(screen.queryByText(/you’ll go back to/)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Create account" })
+    ).not.toHaveAttribute("aria-describedby")
+  })
+
+  it("reads the return hint as the submit button's description", () => {
+    render(<SignInForm nextPath="/settings" />)
+    expect(
+      screen.getByRole("button", { name: "Sign in" })
+    ).toHaveAccessibleDescription(
+      "After signing in you’ll go back to /settings."
+    )
+  })
+
+  it("keeps hover feedback on the disclosure and links to fine pointers", () => {
+    const { container } = render(<SignInForm />)
+    const summary = container.querySelector("summary")
+    expect(summary?.className).toContain("hover-fine:hover:text-ink")
+    for (const element of container.querySelectorAll("a, summary")) {
+      expect(element.className).not.toMatch(/(?:^|\s)hover:/)
+    }
   })
 })
 

@@ -136,6 +136,7 @@ function SignInForm({
   const offersWorkspaceChoice = workspaceChoice && !inviteToken
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("business")
   const workspaceLabelId = useId()
+  const nextHintId = useId()
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<AuthMessage | null>(
     statusMessage ?? null
@@ -280,6 +281,9 @@ function SignInForm({
     })
   }
 
+  const showNextHint =
+    mode === "sign-in" && Boolean(nextPath) && nextPath !== "/inbox"
+
   if (stage === "confirm-sent") {
     return (
       <div className="flex flex-col gap-6">
@@ -347,7 +351,11 @@ function SignInForm({
       className="flex flex-col gap-5"
     >
       {message ? (
-        <div ref={alertRef} tabIndex={-1} className="outline-none">
+        <div
+          ref={alertRef}
+          tabIndex={-1}
+          className="rounded-(--np-radius-card) focus-halo outline-none"
+        >
           <AuthErrorAlert
             message={message}
             email={email}
@@ -488,6 +496,7 @@ function SignInForm({
         type="submit"
         size="lg"
         block
+        aria-describedby={showNextHint ? nextHintId : undefined}
         pending={pending}
         pendingLabel={mode === "sign-in" ? "Signing in…" : "Creating account…"}
       >
@@ -496,8 +505,8 @@ function SignInForm({
 
       {/* Sign-in only: a new account confirms by email, and the emailed
           link lands on the inbox, so the promise would not hold there. */}
-      {mode === "sign-in" && nextPath && nextPath !== "/inbox" ? (
-        <p className="-mt-2 text-caption text-ink-muted">
+      {showNextHint ? (
+        <p id={nextHintId} className="-mt-2 text-caption text-ink-muted">
           After signing in you’ll go back to{" "}
           <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-caption [overflow-wrap:anywhere] text-ink">
             {nextPath}
@@ -516,7 +525,7 @@ function SignInForm({
         // and it sat under the form competing with the one action they came
         // for. Still always present, so the no-enumeration rule above holds.
         <details className="group border-t border-line pt-4">
-          <summary className="inline-flex min-h-(--np-touch) cursor-pointer list-none items-center gap-1 rounded-sm text-caption text-ink-muted focus-halo hover:text-ink focus-visible:outline-none desk:min-h-6 [&::-webkit-details-marker]:hidden">
+          <summary className="inline-flex min-h-(--np-touch) cursor-pointer list-none items-center gap-1 rounded-sm text-caption text-ink-muted focus-halo focus-visible:outline-none hover-fine:hover:text-ink desk:min-h-6 [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               strokeWidth={1.75}

@@ -48,6 +48,25 @@ describe("AuthCard", () => {
     expect(container.innerHTML).not.toMatch(/(?:max|min)-\[\d+px\]:/)
     expect(screen.getByRole("main").className).toMatch(/\bpt-safe\b/)
   })
+
+  it("sizes its two columns with tokens, the card column fixed from lg", () => {
+    const { container } = render(<AuthCard title="Sign in">body</AuthCard>)
+    const main = screen.getByRole("main")
+    expect(main.className).toMatch(/\blg:w-130\b/)
+    expect(main.className).toMatch(/\blg:flex-none\b/)
+    const aside = container.querySelector("aside")
+    expect(aside?.className).toMatch(/\bflex-1\b/)
+    expect(aside?.className).toMatch(/\bmin-w-0\b/)
+  })
+
+  it("underlines the legal links on hover only for a fine pointer", () => {
+    render(<AuthCard title="Sign in">body</AuthCard>)
+    const legal = screen.getByRole("navigation", { name: "Legal" })
+    for (const link of within(legal).getAllByRole("link")) {
+      expect(link.className).toContain("hover-fine:hover:underline")
+      expect(link.className).not.toMatch(/(?:^|\s)hover:/)
+    }
+  })
 })
 
 describe("AuthCard copy", () => {
@@ -215,5 +234,17 @@ describe("password requirements", () => {
         name: "Not yet met: Between 15 and 128 characters",
       })
     ).toBeInTheDocument()
+  })
+
+  it("ticks a met rule in ink, with a different glyph from an unmet one", () => {
+    const { container, rerender } = render(<PasswordRequirements value="" />)
+    const row = () => container.querySelector("li") as HTMLElement
+    expect(row().querySelector("svg")).toBeNull()
+    expect(row()).not.toHaveAttribute("data-met")
+    rerender(<PasswordRequirements value="correct-horse-9" />)
+    expect(row()).toHaveAttribute("data-met", "true")
+    const tick = row().querySelector("svg")
+    expect(tick).toHaveClass("text-ink")
+    expect(tick?.getAttribute("class")).not.toMatch(/success/)
   })
 })
