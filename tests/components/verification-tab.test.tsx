@@ -182,6 +182,11 @@ describe("independent verification workspace", () => {
     expect(screen.getByLabelText("PIN from Google")).toBeDisabled()
     expect(screen.getAllByText("Pending with Google")).toHaveLength(2)
   })
+  it("shows pending verification in amber, never the with-Google blue", async () => {
+    fixture(); await screen.findByLabelText("PIN from Google")
+    for (const pill of screen.getAllByText("Pending with Google"))
+      expect(pill.closest('[data-slot="status-pill"]')).toHaveAttribute("data-tone", "attention")
+  })
   it("dates History so an empty list never reads as contradicting a newer saved outcome", async () => {
     vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [] })
     fixture()

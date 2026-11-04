@@ -69,7 +69,7 @@ export function VerificationPinField({
       className="self-start"
       disabled={!parsed.success || blocked || busy || !consented}
       pending={busy}
-      pendingLabel="Request action in progress…"
+      pendingLabel={reentry ? "Sending…" : "Reviewing…"}
     >
       {reentry ? "Send approved PIN" : "Review PIN completion"}
     </Button>

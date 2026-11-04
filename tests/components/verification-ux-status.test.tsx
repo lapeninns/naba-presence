@@ -103,13 +103,13 @@ describe("verification status pill", () => {
       "Google says not verified, request pending",
       merchant({ hasPendingVerification: true }),
       "In progress",
-      "pending",
+      "attention",
     ],
     [
       "Google says not verified and asks to wait",
       merchant({ action: "wait" }),
       "In progress",
-      "pending",
+      "attention",
     ],
     ["Google says not verified", merchant(), "Not verified", "attention"],
     [

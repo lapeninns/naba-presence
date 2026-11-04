@@ -440,10 +440,10 @@ describe("reviewed PIN completion", () => {
     await approve()
     await send()
     expect(
-      screen.getByRole("button", { name: "Request action in progress…" })
+      screen.getByRole("button", { name: "Sending…" })
     ).toHaveAttribute("aria-disabled", "true")
     await userEvent.click(
-      screen.getByRole("button", { name: "Request action in progress…" })
+      screen.getByRole("button", { name: "Sending…" })
     )
     expect(executeGoogleVerificationCompletion).toHaveBeenCalledTimes(1)
     expect(
