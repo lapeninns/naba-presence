@@ -242,6 +242,11 @@ describe("the not-found page", () => {
         name: "This report link isn’t available",
       })
     ).toBeInTheDocument()
+    // One sentence, naming no cause: mistyped, expired and revoked read alike.
+    expect(
+      screen.getByText("Ask whoever sent it to you for a new one.")
+    ).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(/expired|revoked|switched off/i)
     expect(screen.queryAllByRole("link")).toHaveLength(0)
     expect(screen.queryAllByRole("button")).toHaveLength(0)
   })
