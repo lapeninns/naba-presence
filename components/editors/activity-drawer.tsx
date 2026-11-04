@@ -73,7 +73,14 @@ function ActivityDrawer({
             Google change attempts and confirmation results for this location.
           </SheetDescription>
         </SheetHeader>
-        <SheetBody>
+        {/* The rows are read-only, so a long history scrolls with nothing to
+            focus inside it: the body itself takes focus for keyboard scrolling. */}
+        <SheetBody
+          tabIndex={0}
+          role="region"
+          aria-label="Activity history"
+          className="focus-ring-inset"
+        >
           {open ? (
             <LocationActivityPanel key={locationId} locationId={locationId} />
           ) : null}

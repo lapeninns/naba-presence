@@ -284,10 +284,14 @@ describe("mobile listing area navigation", () => {
         '[data-slot="listing-header-activity"]'
       )!
     )
-    expect(
-      await screen.findByRole("dialog", { name: "Recent activity" })
-    ).toBeInTheDocument()
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recent activity",
+    })
     expect(historyMounted).toHaveBeenCalled()
+    // Read-only rows: the scrolling body is the keyboard's way to scroll.
+    expect(
+      within(dialog).getByRole("region", { name: "Activity history" })
+    ).toHaveAttribute("tabindex", "0")
   })
   it("opens Activity from the phone's overflow menu, fetching history only then", async () => {
     const summary = {
