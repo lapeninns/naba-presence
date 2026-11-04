@@ -190,3 +190,26 @@ describe("R11 /profile/[...section]", async () => {
     }
   })
 })
+
+describe("R13 /settings/listing", async () => {
+  const { default: page } = await import("@/app/settings/listing/page")
+  const listing = page as unknown as FlatPage
+
+  it("goes to the one listing's People area with the query", async () => {
+    primary.current = ONE
+    expect(await landing(listing, QUERY)).toBe(
+      `/listings/loc-1/people?${FORWARDED}`
+    )
+  })
+
+  it("lands several listings on Clients with moved=listing", async () => {
+    expect(await landing(listing, { moved: "x", clientId: "c-1" })).toBe(
+      "/clients?moved=listing&clientId=c-1"
+    )
+  })
+
+  it("asks a signed-out visitor to sign in and come back", async () => {
+    signedOutInProduction("/settings/listing")
+    expect(await landing(listing)).toBe("/sign-in?next=%2Fsettings%2Flisting")
+  })
+})
