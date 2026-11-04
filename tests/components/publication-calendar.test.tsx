@@ -578,6 +578,11 @@ describe("PublicationCalendar period summary", () => {
     expect(
       await screen.findByText(/^Nothing scheduled in 15 Oct\s?–\s?14 Nov 2026$/)
     ).toBeInTheDocument()
+    // One short sentence under an empty state's title (SYSTEM §12).
+    const sentence = screen.getByText(
+      "Schedule posts from a listing’s Posts tab."
+    )
+    expect(sentence.textContent!.length).toBeLessThanOrEqual(44)
     expect(
       screen.getByRole("link", { name: "Go to Listings" })
     ).toBeInTheDocument()
