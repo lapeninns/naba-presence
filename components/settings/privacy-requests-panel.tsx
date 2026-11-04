@@ -44,12 +44,13 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
-import { ApiClientError } from "@/lib/api/client"
+import { ApiClientError, isMfaStepUpError } from "@/lib/api/client"
 import {
   createPrivacyRequest,
   updatePrivacyRequest,
   type PrivacyRequest,
 } from "@/lib/api/privacy"
+import { MFA_ENROLLMENT_REQUIRED } from "@/lib/contracts/wire-codes"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import {
@@ -72,6 +73,20 @@ import {
   sortPrivacyRequests,
 } from "@/lib/settings/privacy"
 import { formatDay } from "@/lib/settings/roles"
+
+/**
+ * A privacy action's refusal, in words. Logging and resolving are step-up
+ * actions: a 403 asking for two-step verification also opens the shell's
+ * prompt (lib/api/client.ts), so the dialog names that same next step
+ * instead of the generic "You do not have permission", which is untrue for
+ * an owner or admin.
+ */
+function describePrivacyError(error: unknown, unchanged: string): string {
+  if (!isMfaStepUpError(error)) return describeActionError(error)
+  return error.code === MFA_ENROLLMENT_REQUIRED
+    ? `Set up two-step verification first. ${unchanged}`
+    : `Confirm it’s you with your two-step code first. ${unchanged}`
+}
 
 /**
  * Log a data-subject request. Owners and admins may (POST is `["owner",
@@ -113,7 +128,8 @@ function CreateRequestDialog({
       reset()
       onOpenChange(false)
     },
-    onError: (error) => setFormError(describeActionError(error)),
+    onError: (error) =>
+      setFormError(describePrivacyError(error, "Nothing was logged.")),
   })
 
   const onSubmit = (event: React.FormEvent) => {
@@ -349,7 +365,7 @@ function ResolveDialog({
           target?.mode === "reject"
             ? "The request wasn’t rejected"
             : "The request wasn’t fulfilled",
-        message: describeActionError(error),
+        message: describePrivacyError(error, "Nothing was changed."),
       })
     },
   })
