@@ -143,6 +143,15 @@ function mockBilling(data: BillingOverview | undefined, extra: object = {}) {
   return { checkout, change, portal, cancel }
 }
 
+/** Confirms the open plan-change dialog with its primary button. */
+async function confirmIn(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  const dialog = await screen.findByRole("alertdialog")
+  await user.click(within(dialog).getByRole("button", { name }))
+}
+
 const plan = (code: string) =>
   screen
     .getAllByRole("listitem")
@@ -245,13 +254,16 @@ describe("BillingCard", () => {
     ).toBeVisible()
     await user.click(screen.getByRole("button", { name: /Payment details/ }))
     expect(portal.mutate).toHaveBeenCalled()
-    await user.click(
-      within(plan("small")).getByRole("button", { name: "Switch to Small" })
-    )
-    expect(change.mutate).toHaveBeenCalledWith(SMALL.id, expect.anything())
     expect(
       within(plan("large")).getByRole("button", { name: "Current plan" })
     ).toHaveAttribute("aria-disabled", "true")
+    await user.click(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    )
+    // Nothing is sent until the confirm says what, when and the price.
+    expect(change.mutate).not.toHaveBeenCalled()
+    await confirmIn(user, "Switch to Small")
+    expect(change.mutate).toHaveBeenCalledWith(SMALL.id, expect.anything())
   })
 
   it("shows a scheduled downgrade, its lower link limit, and lets the owner keep the plan", async () => {
@@ -270,6 +282,8 @@ describe("BillingCard", () => {
       screen.getByText(/new links must already fit that limit/)
     ).toBeVisible()
     await user.click(screen.getAllByRole("button", { name: "Keep Large" })[0])
+    expect(change.mutate).not.toHaveBeenCalled()
+    await confirmIn(user, "Keep Large")
     expect(change.mutate).toHaveBeenCalledWith(LARGE.id, expect.anything())
   })
 
@@ -661,9 +675,11 @@ describe("BillingCard recovery, outcomes and notices", () => {
     await user.click(
       within(plan("small")).getByRole("button", { name: "Switch to Small" })
     )
+    await confirmIn(user, "Switch to Small")
     expect(add).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "success",
+        // A Stripe change, not a Google one: neutral, never the green.
+        type: "info",
         title: "Small starts on 14 November 2026",
         description: "Nothing is charged now.",
       })
@@ -688,6 +704,7 @@ describe("BillingCard recovery, outcomes and notices", () => {
     )
     const { unmount } = render(<BillingCard />)
     await user.click(screen.getAllByRole("button", { name: "Keep Large" })[0])
+    await confirmIn(user, "Keep Large")
     expect(add).toHaveBeenCalledWith(
       expect.objectContaining({ title: "You’ll stay on Large" })
     )
@@ -702,7 +719,121 @@ describe("BillingCard recovery, outcomes and notices", () => {
     )
     render(<BillingCard />)
     await user.click(screen.getAllByRole("button", { name: "Keep Large" })[0])
+    await confirmIn(user, "Keep Large")
     expect(add).not.toHaveBeenCalled()
+  })
+
+  it("says what a plan change does, when, and what is charged before sending it", async () => {
+    const user = userEvent.setup()
+    const { change } = mockBilling(ACTIVE)
+    render(<BillingCard />)
+    const trigger = within(plan("small")).getByRole("button", {
+      name: "Switch to Small",
+    })
+    await user.click(trigger)
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Switch to Small?",
+    })
+    expect(dialog).toHaveTextContent(
+      "Small replaces Large on 14 November 2026."
+    )
+    expect(dialog).toHaveTextContent(
+      "Large becomes Small: 2 locations · 3 team members · 100 AI reply credits per period."
+    )
+    expect(dialog).toHaveTextContent("14 November 2026, at the next renewal.")
+    expect(dialog).toHaveTextContent(
+      "Nothing is charged or prorated now. From then Stripe bills the Small price instead of the Large price"
+    )
+    // Not now sends nothing and gives focus back to the plan's button.
+    await user.click(within(dialog).getByRole("button", { name: "Not now" }))
+    expect(change.mutate).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it("says a downgrade limits new links from now, and an upgrade changes nothing until then", async () => {
+    const user = userEvent.setup()
+    // Large (10) to Small (2): new links must fit 2 at once.
+    mockBilling(ACTIVE)
+    const { unmount } = render(<BillingCard />)
+    await user.click(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    )
+    const down = await screen.findByRole("alertdialog")
+    expect(down).toHaveTextContent(
+      "14 November 2026, at the next renewal. From now on new links must fit the Small limit of 2; existing links stay."
+    )
+    expect(down).not.toHaveTextContent("Until then nothing changes.")
+    unmount()
+    // Small (2) to Large (10): nothing changes before the renewal.
+    mockBilling({
+      ...ACTIVE,
+      plan: SMALL,
+      access: { ...ACTIVE.access, locationLimit: 2, newLinkLimit: 2 },
+    })
+    render(<BillingCard />)
+    await user.click(
+      within(plan("large")).getByRole("button", { name: "Switch to Large" })
+    )
+    const up = await screen.findByRole("alertdialog")
+    expect(up).toHaveTextContent(
+      "14 November 2026, at the next renewal. Until then nothing changes."
+    )
+    expect(up).not.toHaveTextContent("new links must fit")
+  })
+
+  it("times a plan change during a trial from the trial's end", async () => {
+    const user = userEvent.setup()
+    mockBilling({
+      ...ACTIVE,
+      state: "trialing",
+      trialEndsAt: "2026-11-20T08:00:00.000Z",
+      access: { ...ACTIVE.access, reason: "trialing" },
+    })
+    render(<BillingCard />)
+    await user.click(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent(
+      "20 November 2026, when the trial ends. From now on new links must fit the Small limit of 2; existing links stay."
+    )
+  })
+
+  it("says keeping the plan drops the scheduled change and charges nothing", async () => {
+    const user = userEvent.setup()
+    mockBilling({
+      ...ACTIVE,
+      pendingPlan: SMALL,
+      pendingEffectiveAt: "2026-11-14T08:00:00.000Z",
+    })
+    render(<BillingCard />)
+    await user.click(screen.getAllByRole("button", { name: "Keep Large" })[0])
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Keep Large?",
+    })
+    expect(dialog).toHaveTextContent("Small will not start.")
+    expect(dialog).toHaveTextContent(
+      "The scheduled change to Small is dropped. You stay on Large"
+    )
+    expect(dialog).toHaveTextContent(
+      "Nothing is charged now. Renewal stays at the Large price."
+    )
+  })
+
+  it("keeps a refused plan change in the dialog, said in words", async () => {
+    const user = userEvent.setup()
+    mockBilling(ACTIVE)
+    vi.spyOn(billingHooks, "useChangePlan").mockReturnValue(
+      mutation({ error: new Error("Stripe refused the change") }) as never
+    )
+    render(<BillingCard />)
+    await user.click(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/\S/)
+    // Said once, in the dialog, not again under the plan list.
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
   })
 
   it("confirms a cancellation and returns focus to the subscription", async () => {
@@ -727,7 +858,8 @@ describe("BillingCard recovery, outcomes and notices", () => {
     )
     expect(add).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "success",
+        // A Stripe change, not a Google one: neutral, never the green.
+        type: "info",
         title: "Subscription cancelled",
         description: "Full access continues until 14 November 2026.",
       })
@@ -793,7 +925,7 @@ describe("BillingCard recovery, outcomes and notices", () => {
       screen.getByRole("button", { name: "Resume subscription" })
     )
     expect(add).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Subscription resumed" })
+      expect.objectContaining({ type: "info", title: "Subscription resumed" })
     )
   })
 

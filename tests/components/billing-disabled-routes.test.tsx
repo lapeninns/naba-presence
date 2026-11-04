@@ -34,9 +34,6 @@ vi.mock("next/navigation", () => ({
   redirect: stubs.redirect,
   usePathname: () => "/settings/billing",
 }))
-vi.mock("@/components/settings/settings-nav", () => ({
-  SettingsNav: () => <nav aria-label="Settings sections" />,
-}))
 vi.mock("@/components/settings/billing-card", () => ({
   BillingCard: () => <section aria-label="Billing card" />,
 }))
@@ -154,15 +151,15 @@ describe("settings billing routes with billing on", () => {
     stubs.billingEnabled = true
   })
 
-  it("billing keeps its header, tab row and card for the owner", async () => {
+  it("billing is one header with no tab row, then the card, for the owner", async () => {
     render(await SettingsBillingPage({ searchParams: searchParams() }))
     expect(stubs.getSession).toHaveBeenCalledTimes(1)
     expect(
       screen.getByRole("heading", { level: 1, name: "Billing" })
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole("navigation", { name: "Settings sections" })
-    ).toBeInTheDocument()
+    // From md the layout's section list is the way round, not a tab row.
+    expect(screen.getByRole("banner").querySelector("nav")).toBeNull()
+    expect(screen.queryByRole("navigation")).toBeNull()
     expect(screen.getByLabelText("Billing card")).toBeInTheDocument()
     expect(
       screen.queryByText("This page doesn’t exist")
@@ -203,7 +200,7 @@ describe("settings billing routes with billing on", () => {
         expect(
           screen.getByRole("button", { name: /Ask for access/ })
         ).toBeInTheDocument()
-        // None of the owner's page: no header, tab row or card.
+        // None of the owner's page: no header, navigation or card.
         expect(
           screen.queryByRole("heading", { level: 1, name: "Billing" })
         ).not.toBeInTheDocument()
@@ -220,26 +217,30 @@ describe("settings billing routes with billing on", () => {
     }
   )
 
-  it("usage renders its header, tab row and both cards", async () => {
-    render(await SettingsUsagePage())
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Usage" })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("navigation", { name: "Settings sections" })
-    ).toBeInTheDocument()
-    expect(screen.getByLabelText("Usage card")).toBeInTheDocument()
-    expect(screen.getByLabelText("Plan usage card")).toBeInTheDocument()
-  })
+  it.each(["owner", "admin", "member", "viewer"])(
+    "usage is one header with no tab row, then both cards, for a %s",
+    async (role) => {
+      stubs.getSession.mockResolvedValue({ role, organisationId: "o1" })
+      render(await SettingsUsagePage())
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Usage" })
+      ).toBeInTheDocument()
+      // From md the layout's section list is the way round, not a tab row.
+      expect(screen.getByRole("banner").querySelector("nav")).toBeNull()
+      expect(screen.queryByRole("navigation")).toBeNull()
+      expect(screen.getByLabelText("Usage card")).toBeInTheDocument()
+      expect(screen.getByLabelText("Plan usage card")).toBeInTheDocument()
+    }
+  )
 
-  it("confirming renders the owner's header, tab row and screen", async () => {
+  it("confirming is the owner's header with no tab row, then the screen", async () => {
     render(await BillingConfirmingPage())
     expect(
       screen.getByRole("heading", { level: 1, name: "Billing" })
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole("navigation", { name: "Settings sections" })
-    ).toBeInTheDocument()
+    // From md the layout's section list is the way round, not a tab row.
+    expect(screen.getByRole("banner").querySelector("nav")).toBeNull()
+    expect(screen.queryByRole("navigation")).toBeNull()
     expect(screen.getByLabelText("Billing confirming")).toBeInTheDocument()
   })
 

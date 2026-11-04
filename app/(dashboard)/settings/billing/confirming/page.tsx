@@ -1,7 +1,6 @@
 import { AccessDenied } from "@/components/app-shell/access-denied"
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { BillingConfirming } from "@/components/settings/billing-confirming"
-import { SettingsNav } from "@/components/settings/settings-nav"
 import { getSession } from "@/lib/server/session"
 
 import {
@@ -32,7 +31,6 @@ export default async function BillingConfirmingPage() {
       <PageHeader
         title="Billing"
         description="Your plan, its limits and renewal, payment details and invoices. Only the workspace owner can change billing."
-        tabs={<SettingsNav role={session.role} />}
       />
       <BillingConfirming />
     </>

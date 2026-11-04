@@ -35,7 +35,10 @@ describe("UsageCard", () => {
   it("shows a pilot month's balance and its reset date", () => {
     mount({})
     expect(screen.getByText(/credits used this month/)).toBeVisible()
-    expect(screen.getByText("Credits reset on 1 Nov.")).toBeVisible()
+    // The period is said from both ends: what is counted, and the reset.
+    expect(
+      screen.getByText("Counted since 1 Oct. Credits reset on 1 Nov.")
+    ).toBeVisible()
   })
 
   it("names a paid period and resets on the period row's end", () => {
@@ -44,7 +47,37 @@ describe("UsageCard", () => {
       periodEnd: "2026-11-14T08:00:00.000Z",
     })
     expect(screen.getByText(/credits used this period/)).toBeVisible()
-    expect(screen.getByText("Credits reset on 14 Nov.")).toBeVisible()
+    expect(
+      screen.getByText("Counted since 1 Oct. Credits reset on 14 Nov.")
+    ).toBeVisible()
+  })
+
+  it("calls out the last tenth before it runs out, and what happens then", () => {
+    mount({ used: 92, remaining: 8 })
+    expect(
+      document.querySelector("[data-slot='usage-near-limit']")
+    ).toHaveTextContent(
+      "8 credits left this month. When they run out, AI drafting stops until 1 Nov; writing a reply yourself still works."
+    )
+  })
+
+  it("says nothing about a limit while plenty is left, or once it has run out", () => {
+    mount({})
+    expect(document.querySelector("[data-slot='usage-near-limit']")).toBeNull()
+    vi.restoreAllMocks()
+    document.body.innerHTML = ""
+    mount({ used: 100, remaining: 0 })
+    expect(document.querySelector("[data-slot='usage-near-limit']")).toBeNull()
+    expect(
+      document.querySelector("[data-slot='usage-exhausted']")
+    ).toBeInTheDocument()
+  })
+
+  it("counts one last credit in the singular", () => {
+    mount({ used: 99, remaining: 1 })
+    expect(
+      document.querySelector("[data-slot='usage-near-limit']")
+    ).toHaveTextContent(/^1 credit left this month\./)
   })
 
   it("says an unknown allowance in words instead of showing zero", () => {
