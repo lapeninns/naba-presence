@@ -1,5 +1,16 @@
 "use client"
 
+import * as React from "react"
+
+import { SettingsFacts } from "@/components/settings/settings-section"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/toast"
@@ -26,7 +37,8 @@ export function billingActionError(error: unknown): string {
 }
 
 /**
- * What a plan change did, from the server's answer only: a change scheduled
+ * What a plan change did, from the server's answer only. A Stripe change,
+ * not a Google one, so the toast is neutral: a change scheduled
  * for its boundary, or a scheduled change dropped. "unchanged" says nothing.
  */
 export function showPlanChangeToast(
@@ -38,7 +50,7 @@ export function showPlanChangeToast(
       overview.catalog.find((plan) => plan.id === result.pendingPlanId)?.name ??
       "The new plan"
     toast.add({
-      type: "success",
+      type: "info",
       title: result.pendingEffectiveAt
         ? `${name} starts on ${formatBillingDate(result.pendingEffectiveAt)}`
         : `${name} is scheduled`,
@@ -46,7 +58,7 @@ export function showPlanChangeToast(
     })
   } else if (result.outcome === "cleared") {
     toast.add({
-      type: "success",
+      type: "info",
       title: overview.plan
         ? `You’ll stay on ${overview.plan.name}`
         : "The scheduled change was dropped",
@@ -64,16 +76,125 @@ function planFacts(plan: Plan): string {
 }
 
 /**
+ * When a plan change takes effect: the trial end while trialing, otherwise
+ * the end of the paid period.
+ */
+function changeBoundary(overview: BillingOverview): string | null {
+  return overview.state === "trialing"
+    ? (overview.trialEndsAt ?? overview.currentPeriodEnd)
+    : overview.currentPeriodEnd
+}
+
+/**
+ * Asks before a plan change, saying what changes, when, and what is
+ * charged. The catalog holds no amounts, so the price is named as the
+ * plan's Stripe price rather than a figure this screen cannot vouch for.
+ * Keeping the current plan (`plan` is the current one while a change is
+ * scheduled) drops the scheduled change instead.
+ */
+export function PlanChangeConfirm({
+  overview,
+  plan,
+  open,
+  onOpenChange,
+}: {
+  overview: BillingOverview
+  plan: Plan | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const change = useChangePlan()
+  const current = overview.plan
+  if (!plan || !current) return null
+  const keep = plan.id === current.id
+  const boundary = changeBoundary(overview)
+  const when = boundary
+    ? `${formatBillingDate(boundary)}, ${overview.state === "trialing" ? "when the trial ends" : "at the next renewal"}`
+    : overview.state === "trialing"
+      ? "When the trial ends"
+      : "At the next renewal"
+  const facts: Array<readonly [string, string]> = keep
+    ? [
+        [
+          "What changes",
+          `The scheduled change to ${overview.pendingPlan?.name ?? "another plan"} is dropped. You stay on ${current.name}: ${planFacts(current)}.`,
+        ],
+        ["When", "Now"],
+        [
+          "Price",
+          `Nothing is charged now. Renewal stays at the ${current.name} price.`,
+        ],
+      ]
+    : [
+        [
+          "What changes",
+          `${current.name} becomes ${plan.name}: ${planFacts(plan)}.`,
+        ],
+        ["When", `${when}. Until then nothing changes.`],
+        [
+          "Price",
+          `Nothing is charged or prorated now. From then Stripe bills the ${plan.name} price instead of the ${current.name} price; Payment details and invoices shows the amounts.`,
+        ],
+      ]
+  const title = keep ? `Keep ${current.name}?` : `Switch to ${plan.name}?`
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) change.reset()
+        onOpenChange(next)
+      }}
+    >
+      <AlertDialogContent
+        data-slot="plan-change-confirm"
+        className="grid-cols-[minmax(0,1fr)]"
+      >
+        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogDescription>
+          {keep
+            ? `${overview.pendingPlan?.name ?? "The scheduled plan"} will not start.`
+            : `${plan.name} replaces ${current.name}${boundary ? ` on ${formatBillingDate(boundary)}` : ""}.`}
+        </AlertDialogDescription>
+        <SettingsFacts facts={facts} />
+        {change.error ? (
+          <p role="alert" className="m-0 text-caption text-danger-ink">
+            {billingActionError(change.error)}
+          </p>
+        ) : null}
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="ghost">Not now</Button>} />
+          <Button
+            pending={change.isPending}
+            onClick={() =>
+              change.mutate(plan.id, {
+                onSuccess: (result) => {
+                  onOpenChange(false)
+                  showPlanChangeToast(result, overview)
+                },
+              })
+            }
+          >
+            {keep ? `Keep ${current.name}` : `Switch to ${plan.name}`}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
  * The plans on offer (reference `choice-card` list). Before a subscription
  * each plan starts Stripe Checkout; during a trial or active subscription it
- * schedules a change at the next renewal, without proration. A test offer
+ * schedules a change at the next renewal, without proration, after a
+ * confirm that says what changes, when and what is charged. A test offer
  * is marked on the plan itself, never only in a page note. Prices are not
  * shown here: the catalog holds no amounts, and Stripe's Checkout page
  * shows the price and terms before anything is charged.
  */
 export function PlanPicker({ overview }: { overview: BillingOverview }) {
   const checkout = useStartCheckout()
-  const change = useChangePlan()
+  const [confirmPlan, setConfirmPlan] = React.useState<Plan | null>(null)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
   const subscribed = isSubscribed(overview.state)
   const changeable = canChangePlan(overview)
   const checkoutBlocked = describeCheckoutUnavailable(overview.checkout)
@@ -81,14 +202,9 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
     ? null
     : "Only the workspace owner can change billing, and not from a support session."
   const pending = overview.checkoutPending
-  // A change starts at the next boundary: the trial end while trialing,
-  // otherwise the end of the paid period.
-  const boundary =
-    overview.state === "trialing"
-      ? (overview.trialEndsAt ?? overview.currentPeriodEnd)
-      : overview.currentPeriodEnd
-  const busy = checkout.isPending || change.isPending
-  const error = checkout.error ?? change.error
+  const boundary = changeBoundary(overview)
+  const busy = checkout.isPending
+  const error = checkout.error
 
   if (overview.catalog.length === 0) {
     return (
@@ -214,20 +330,16 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
                 size="sm"
                 className="shrink-0"
                 disabledReason={reason ?? undefined}
-                pending={
-                  busy &&
-                  (checkout.variables === plan.id ||
-                    change.variables === plan.id)
-                }
+                pending={busy && checkout.variables === plan.id}
                 disabled={busy}
-                onClick={() =>
-                  subscribed
-                    ? change.mutate(plan.id, {
-                        onSuccess: (result) =>
-                          showPlanChangeToast(result, overview),
-                      })
-                    : checkout.mutate(plan.id)
-                }
+                onClick={() => {
+                  if (subscribed) {
+                    setConfirmPlan(plan)
+                    setConfirmOpen(true)
+                  } else {
+                    checkout.mutate(plan.id)
+                  }
+                }}
               >
                 {label}
               </Button>
@@ -240,6 +352,12 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
           {billingActionError(error)}
         </p>
       ) : null}
+      <PlanChangeConfirm
+        overview={overview}
+        plan={confirmPlan}
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+      />
     </div>
   )
 }

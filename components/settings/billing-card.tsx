@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation"
 import * as React from "react"
 
 import {
+  PlanChangeConfirm,
   PlanPicker,
   billingActionError,
-  showPlanChangeToast,
 } from "@/components/settings/plan-picker"
 import {
   SettingsFacts,
@@ -50,7 +50,6 @@ import { useHydrated } from "@/lib/hooks/use-hydrated"
 import {
   useBilling,
   useCancelSubscription,
-  useChangePlan,
   useOpenBillingPortal,
 } from "@/lib/queries/use-billing"
 
@@ -144,7 +143,7 @@ const SUPPORT_REASONS = new Set<BillingOverview["access"]["reason"]>([
 export function BillingDetails({ overview }: { overview: BillingOverview }) {
   const portal = useOpenBillingPortal()
   const cancel = useCancelSubscription()
-  const keep = useChangePlan()
+  const [confirmKeep, setConfirmKeep] = React.useState(false)
   const [confirmCancel, setConfirmCancel] = React.useState(false)
   const cancelBlockedId = React.useId()
   // Where focus goes once the cancel dialog closes. Only a confirmed
@@ -200,7 +199,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
   const recoveryAction =
     recovery === "portal" && reason === "subscription_ended" ? null : recovery
   const linkNote = pendingLinkLimitNote(overview)
-  const actionError = portal.error ?? cancel.error ?? keep.error
+  const actionError = portal.error ?? cancel.error
   // When full access ends if the subscription is cancelled now: the trial
   // end while trialing, the grace end after a failed payment, else the
   // period end.
@@ -332,17 +331,17 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
                   variant="outline"
                   size="sm"
                   disabledReason={manageBlocked}
-                  pending={keep.isPending}
-                  onClick={() =>
-                    keep.mutate(overview.plan!.id, {
-                      onSuccess: (result) =>
-                        showPlanChangeToast(result, overview),
-                    })
-                  }
+                  onClick={() => setConfirmKeep(true)}
                 >
                   Keep {overview.plan.name}
                 </Button>
               ) : null}
+              <PlanChangeConfirm
+                overview={overview}
+                plan={overview.plan}
+                open={confirmKeep}
+                onOpenChange={setConfirmKeep}
+              />
             </div>
           ) : null}
           {linkNote ? (
