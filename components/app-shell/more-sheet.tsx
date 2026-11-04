@@ -32,10 +32,7 @@ import {
 } from "./notifications-link"
 import { useScopeControl } from "./scope-sheet-model"
 import { ShellLink } from "./shell-link"
-import {
-  outboxFailuresPhrase,
-  useOutboxFailures,
-} from "./use-outbox-failures"
+import { outboxFailuresPhrase, useOutboxFailures } from "./use-outbox-failures"
 
 /**
  * A drawer row, after Notion Mail's "Navigate to" list: 48px or more, a

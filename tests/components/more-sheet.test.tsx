@@ -237,7 +237,10 @@ describe("More sheet contents", () => {
 
   it("never asks a viewer's Outbox counts", async () => {
     outbox.ready = true
-    renderShell({ session: { ...baseSession, role: "viewer" }, outboxFailed: 2 })
+    renderShell({
+      session: { ...baseSession, role: "viewer" },
+      outboxFailed: 2,
+    })
     await openMore()
     const urls = vi.mocked(fetch).mock.calls.map(([input]) => String(input))
     expect(urls.some((url) => url.includes("/api/outbox"))).toBe(false)

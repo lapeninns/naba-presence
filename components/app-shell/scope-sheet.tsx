@@ -678,7 +678,7 @@ function ScopeOptions({
             style={{ "--scope-row": index + 1 } as React.CSSProperties}
             className={cn(
               "col-start-2 row-start-(--scope-row) flex size-11 shrink-0 items-center justify-center self-center rounded-(--np-radius-pill) text-ink-muted",
-              "transition-colors duration-(--np-duration-fast) hover-fine:hover:bg-fill active:bg-fill",
+              "transition-colors duration-(--np-duration-fast) active:bg-fill hover-fine:hover:bg-fill",
               "focus-halo focus-visible:outline-none"
             )}
           >

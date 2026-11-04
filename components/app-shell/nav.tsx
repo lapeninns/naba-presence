@@ -142,11 +142,7 @@ function NavRow({
             )}
           >
             {alert ? (
-              <TriangleAlert
-                className="size-3.5"
-                strokeWidth={2}
-                aria-hidden
-              />
+              <TriangleAlert className="size-3.5" strokeWidth={2} aria-hidden />
             ) : null}
             {count > 99 ? "99+" : count}
           </span>
