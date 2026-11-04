@@ -65,15 +65,15 @@ A row is done only when every applicable column is `done`.
 
 | ID | Path | Kind | design | implemented | phone | tablet | desktop | a11y | e2e |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| R01 | / | layout | not run | not run | not run | not run | not run | not run | not run |
-| R02 | / | redirect | not run | not run | not run | not run | not run | not run | not run |
-| R03 | / (root not-found) | not-found | not run | not run | not run | not run | not run | not run | not run |
-| R04 | / (global-error) | global-error | not run | not run | not run | not run | not run | not run | not run |
+| R01 | / | layout | not run | not run (app/layout.tsx; owned by the shell chunk with R59; / signed in/out captured in `evidence/e-public-1/final-65fa26c3`) | not run | not run | not run | not run | not run |
+| R02 | / | redirect | done (DIRECTION/SYSTEM) | done (9ccedc6d) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (axe 0 raw; skip link first, rings at every stop; statuses/headers recorded; legal 200% text) | not run |
+| R03 | / (root not-found) | not-found | done (DIRECTION/SYSTEM) | done (9ccedc6d) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (axe 0 raw; skip link first, rings at every stop; statuses/headers recorded; legal 200% text) | not run |
+| R04 | / (global-error) | global-error | done (DIRECTION/SYSTEM) | done (9ccedc6d) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (axe 0 raw; skip link first, rings at every stop; statuses/headers recorded; legal 200% text) | not run |
 | R05 | /auth/confirm | handler | not run | not run | not run | not run | not run | not run | not run |
 | R06 | /design-system | page | not run | not run | not run | not run | not run | not run | not run |
 | R07 | /photos | redirect | not run | not run | not run | not run | not run | not run | not run |
 | R08 | /posts | redirect | not run | not run | not run | not run | not run | not run | not run |
-| R09 | /privacy | page | not run | not run | not run | not run | not run | not run | not run |
+| R09 | /privacy | page | done (DIRECTION/SYSTEM) | done (9ccedc6d) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (axe 0 raw; skip link first, rings at every stop; statuses/headers recorded; legal 200% text) | not run |
 | R10 | /profile | redirect | not run | not run | not run | not run | not run | not run | not run |
 | R11 | /profile/[...section] | redirect | not run | not run | not run | not run | not run | not run | not run |
 | R12 | /r/[code] | handler | not run | not run | not run | not run | not run | not run | not run |
@@ -82,7 +82,7 @@ A row is done only when every applicable column is `done`.
 | R15 | /share/report/[token] | page | done (DIRECTION/SYSTEM) | done (e7dd7616) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (axe 0 raw; keyboard skip link, period switch, Show values; headers private no-store + noindex for valid and invalid tokens) | not run |
 | R16 | /share/report/[token] | error | done (DIRECTION/SYSTEM) | done (e7dd7616) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (axe 0 raw; keyboard skip link, period switch, Show values; headers private no-store + noindex for valid and invalid tokens) | not run |
 | R17 | /share/report/[token] | not-found | done (DIRECTION/SYSTEM) | done (e7dd7616) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (axe 0 raw; keyboard skip link, period switch, Show values; headers private no-store + noindex for valid and invalid tokens) | not run |
-| R18 | /terms | page | not run | not run | not run | not run | not run | not run | not run |
+| R18 | /terms | page | done (DIRECTION/SYSTEM) | done (9ccedc6d) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (`evidence/e-public-1/final-65fa26c3` @ 65fa26c3) | done (axe 0 raw; skip link first, rings at every stop; statuses/headers recorded; legal 200% text) | not run |
 | R19 | surface: proxy request-path header (all page routes) | surface | not run | not run | not run | not run | not run | not run | not run |
 | R20 | surface: shared report header and period switcher (on /share/report/[token]) | surface | done (DIRECTION/SYSTEM) | done (e7dd7616) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (axe 0 raw; keyboard skip link, period switch, Show values; headers private no-store + noindex for valid and invalid tokens) | not run |
 | R21 | surface: shared report reviews and replies section (on /share/report/[token]) | surface | done (DIRECTION/SYSTEM) | done (e7dd7616) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (`evidence/e-share-1/final-206f7dae` @ 206f7dae) | done (axe 0 raw; keyboard skip link, period switch, Show values; headers private no-store + noindex for valid and invalid tokens) | not run |
