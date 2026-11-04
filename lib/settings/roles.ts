@@ -190,9 +190,14 @@ export function accessSummary(
   }
 }
 
+/**
+ * Neutral in every case: publishing access is a right held here, not a
+ * change confirmed on Google, so it never takes the green that only `live`
+ * carries. The pill's edge tells the cases apart instead.
+ */
 export type PublishingState = {
   label: string
-  tone: "ok" | "info" | "neutral"
+  tone: "neutral"
   dashed?: boolean
   plain?: boolean
 }
@@ -202,26 +207,26 @@ export function publishingState(
   member: Pick<Member, "role" | "canPublish" | "locations">
 ): PublishingState {
   if (member.role === "owner" || member.role === "admin") {
-    return { label: "Can publish", tone: "ok" }
+    return { label: "Can publish", tone: "neutral" }
   }
   if (member.role === "viewer") {
     return { label: "View only", tone: "neutral", plain: true }
   }
   if (member.locations.length === 0) {
     return member.canPublish
-      ? { label: "Can publish", tone: "ok" }
+      ? { label: "Can publish", tone: "neutral" }
       : { label: "Drafts only", tone: "neutral", dashed: true }
   }
   const publishable = member.locations.filter((l) => l.canPublish).length
   if (publishable === member.locations.length) {
-    return { label: "Can publish", tone: "ok" }
+    return { label: "Can publish", tone: "neutral" }
   }
   if (publishable === 0) {
     return { label: "Drafts only", tone: "neutral", dashed: true }
   }
   return {
     label: `Publishes to ${publishable} of ${member.locations.length}`,
-    tone: "info",
+    tone: "neutral",
   }
 }
 

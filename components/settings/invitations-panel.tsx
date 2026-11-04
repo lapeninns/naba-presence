@@ -137,7 +137,7 @@ async function copyInviteLink(url: string, toast: Toasts) {
     toast.add({
       title: "Invite link copied",
       description: "Send it to them. It works once and expires after 7 days.",
-      type: "success",
+      type: "info",
     })
   } catch {
     toast.add({
@@ -193,7 +193,7 @@ async function shareInviteLink(url: string, toast: Toasts) {
     toast.add({
       title: "Invite link copied",
       description: "Send it to them. It works once and expires after 7 days.",
-      type: "success",
+      type: "info",
     })
   } else if (outcome === "failed") {
     toast.add({
@@ -981,7 +981,7 @@ function invitationScope(invitation: Invitation, business: boolean): string {
 /** What the invitation lets them publish, as its row's pill. */
 function invitationPublishing(invitation: Invitation): {
   label: string
-  tone: "neutral" | "ok"
+  tone: "neutral"
   dashed?: boolean
   plain?: boolean
 } {
@@ -992,7 +992,7 @@ function invitationPublishing(invitation: Invitation): {
     invitation.role === "owner" ||
     invitation.role === "admin"
   )
-    return { label: "Can publish", tone: "ok" }
+    return { label: "Can publish", tone: "neutral" }
   return { label: "Drafts only", tone: "neutral", dashed: true }
 }
 
@@ -1035,7 +1035,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
           description: view.detail,
           type:
             delivery.status === "sent" || delivery.status === "pending"
-              ? "success"
+              ? "info"
               : "error",
         })
       },
@@ -1053,7 +1053,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
         description: email
           ? `The link for ${email} no longer works.`
           : undefined,
-        type: "success",
+        type: "info",
       })
     },
     onError: (error) =>
@@ -1078,7 +1078,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
             <Empty
               icon={<Mail />}
               title="No pending invitations"
-              description="Invite a teammate to give them access. Accepted invitations move to Members."
+              description="Accepted invitations move to Members."
               action={
                 onInvite ? (
                   <Button variant="secondary" onClick={onInvite}>

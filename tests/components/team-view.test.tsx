@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -125,5 +125,14 @@ describe("TeamView members section", () => {
     ).toContainElement(target!)
     target!.focus()
     expect(target).toHaveFocus()
+  })
+})
+
+describe("TeamView roles card", () => {
+  it("draws a role's yes in ink, not the green kept for changes live on Google", () => {
+    renderPage()
+    const table = screen.getByRole("table", { name: "What each role can do" })
+    expect(table.querySelectorAll(".text-success-ink")).toHaveLength(0)
+    expect(within(table).getAllByText("Yes").length).toBeGreaterThan(0)
   })
 })

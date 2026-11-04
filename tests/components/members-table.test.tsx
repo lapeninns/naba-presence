@@ -217,6 +217,10 @@ describe("MembersTable", () => {
     expect(screen.getByText("View only")).toBeInTheDocument()
     expect(screen.getByText("Can publish")).toBeInTheDocument()
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
+    // A right held here, not a change confirmed on Google: never green.
+    for (const pill of document.querySelectorAll("[data-slot=status-pill]")) {
+      expect(pill).toHaveAttribute("data-tone", "neutral")
+    }
   })
 
   it("says per-listing publishing is set from Client access", () => {
@@ -974,6 +978,11 @@ describe("MembersTable: outcomes", () => {
       expect(
         await screen.findByText("Ben Viewer is now a member")
       ).toBeInTheDocument()
+      // Saved here, not on Google: a neutral toast.
+      expect(document.querySelector("[data-slot=toast]")).toHaveAttribute(
+        "data-type",
+        "info"
+      )
       expect(screen.getByText(expected)).toBeInTheDocument()
       expect(onSelfRoleChanged).not.toHaveBeenCalled()
     }
@@ -1001,6 +1010,10 @@ describe("MembersTable: outcomes", () => {
     expect(
       await screen.findByText("Ben Member was removed from the team")
     ).toBeInTheDocument()
+    expect(document.querySelector("[data-slot=toast]")).toHaveAttribute(
+      "data-type",
+      "info"
+    )
     await waitFor(() =>
       expect(screen.getByText("Members", { selector: "span" })).toHaveFocus()
     )

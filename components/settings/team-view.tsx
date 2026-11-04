@@ -40,7 +40,7 @@ import { ROLE_MATRIX, type Capability } from "@/lib/settings/roles"
 function CapabilityValue({ value }: { value: Capability }) {
   if (value.kind === "yes") {
     return (
-      <span className="inline-flex items-center gap-1 font-semibold text-success-ink">
+      <span className="inline-flex items-center gap-1 font-semibold text-ink">
         <Check className="size-3.5" strokeWidth={2} aria-hidden />
         Yes
       </span>
