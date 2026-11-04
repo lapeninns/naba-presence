@@ -164,19 +164,19 @@ describe("DIRECTION §6.3 vocabulary fixes", () => {
     expect(checkOutcomeTitle(state(null), "p1")).not.toMatch(PREMATURE)
   })
 
-  it("#7 keeps posts still sending out of the On Google filter", () => {
+  it("#7 includes pending and confirmed sends in the Sent to Google filter", () => {
     expect(
       matchesPostFilter(
         { status: "publishing", googleState: null },
         "published"
       )
-    ).toBe(false)
+    ).toBe(true)
     expect(
       matchesPostFilter(
         { status: "published", googleState: "PROCESSING" },
         "published"
       )
-    ).toBe(false)
+    ).toBe(true)
     expect(
       matchesPostFilter(
         { status: "published", googleState: "LIVE" },
