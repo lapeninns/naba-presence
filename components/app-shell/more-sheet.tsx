@@ -176,7 +176,14 @@ function MoreSheetContent({
           className={SEARCH_ROW_CLASS}
         >
           <Search className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-          <span className="min-w-0 flex-1 truncate">
+          <span
+            className="min-w-0 flex-1 truncate"
+            title={
+              agency
+                ? "Search clients, listings and pages"
+                : "Search listings and pages"
+            }
+          >
             {agency
               ? "Search clients, listings and pages"
               : "Search listings and pages"}
@@ -207,7 +214,9 @@ function MoreSheetContent({
                   <span className="text-caption text-ink-muted">
                     Working on
                   </span>
-                  <span className="truncate font-medium">{scope.title}</span>
+                  <span className="truncate font-medium" title={scope.title}>
+                    {scope.title}
+                  </span>
                   {scope.detail ? (
                     <span className="flex min-w-0 items-center gap-1.5 text-caption text-ink-muted">
                       <span
@@ -216,7 +225,9 @@ function MoreSheetContent({
                           TONE_CLASSES[scope.tone].dot
                         )}
                       />
-                      <span className="truncate">{scope.detail}</span>
+                      <span className="truncate" title={scope.detail}>
+                        {scope.detail}
+                      </span>
                     </span>
                   ) : null}
                 </span>
@@ -252,7 +263,9 @@ function MoreSheetContent({
                   <span className="text-caption text-ink-muted">
                     Connections
                   </span>
-                  <span className="truncate font-medium">{health.label}</span>
+                  <span className="truncate font-medium" title={health.label}>
+                    {health.label}
+                  </span>
                 </span>
                 <ChevronRight
                   className={ICON_CLASS}

@@ -321,6 +321,26 @@ describe("ClientSwitcher", () => {
       scroll: false,
     })
   })
+
+  it("keeps an option in the listbox when no client matches", async () => {
+    const many = Array.from({ length: 9 }, (_, index) =>
+      client(`c${index + 1}`, `Client ${String.fromCharCode(65 + index)}`)
+    )
+    stubClients(many)
+    const user = userEvent.setup()
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: MANY_ALL_NAME }))
+    const search = await screen.findByRole("combobox", {
+      name: "Search clients",
+    })
+    await user.type(search, "zzqx")
+    // A listbox with no option child fails axe aria-required-children; the
+    // no-match line is the one disabled option.
+    const options = screen.getAllByRole("option")
+    expect(options).toHaveLength(1)
+    expect(options[0]).toHaveAccessibleName("No client matches that.")
+    expect(options[0]).toHaveAttribute("aria-disabled", "true")
+  })
 })
 
 /**

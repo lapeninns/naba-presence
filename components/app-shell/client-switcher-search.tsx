@@ -1,8 +1,9 @@
 "use client"
 
+import { useCommandState } from "cmdk"
+
 import {
   Command,
-  CommandEmpty,
   CommandInput,
   CommandItem,
   CommandList,
@@ -26,6 +27,30 @@ import {
  */
 
 const ALL = "__all__"
+
+/**
+ * The no-match line, drawn as a disabled option: cmdk's own Empty renders
+ * with role="presentation", which leaves the listbox with no option child
+ * at all while a search matches nothing (axe aria-required-children). Not a
+ * cmdk item, so the keyboard navigation never lands on it.
+ */
+function NoMatch() {
+  const empty = useCommandState(
+    (state) => state.search.trim().length > 0 && state.filtered.count === 0
+  )
+  if (!empty) return null
+  return (
+    <div
+      role="option"
+      aria-disabled="true"
+      aria-selected={false}
+      data-slot="command-empty"
+      className="px-4 py-8 text-center text-ui text-ink-muted"
+    >
+      No client matches that.
+    </div>
+  )
+}
 
 function ClientSearchList({
   clients,
@@ -60,7 +85,7 @@ function ClientSearchList({
         autoFocus
       />
       <CommandList className="max-h-[min(50vh,--spacing(96))]">
-        <CommandEmpty>No client matches that.</CommandEmpty>
+        <NoMatch />
         <CommandItem
           value={ALL}
           keywords={["All clients"]}

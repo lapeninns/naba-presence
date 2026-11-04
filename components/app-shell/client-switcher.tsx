@@ -205,7 +205,11 @@ function ScopeFace({
               <span className="flex h-(--np-text-caption-lh) items-center">
                 <ToneDot tone={control.tone} />
               </span>
-              <span data-slot="scope-detail" className="line-clamp-2">
+              <span
+                data-slot="scope-detail"
+                title={control.detail}
+                className="line-clamp-2"
+              >
                 {control.detail}
               </span>
             </span>
