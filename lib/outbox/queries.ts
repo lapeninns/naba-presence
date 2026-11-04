@@ -61,6 +61,7 @@ export function useOutboxCounts(
   scope: OutboxScope,
   options: { enabled?: boolean; background?: boolean } = {}
 ) {
+  const scoped = Boolean(scope.clientId || scope.locationId)
   return useQuery({
     enabled: options.enabled ?? true,
     queryKey: outboxKeys.counts(scope),
@@ -70,5 +71,11 @@ export function useOutboxCounts(
         ...(options.background ? { background: true } : {}),
       }),
     placeholderData: keepPreviousData,
+    // The shell refreshes unscoped counts. A scoped count must follow its
+    // own pending work, even when a different group is selected in the list.
+    refetchInterval: (query) =>
+      scoped && (query.state.data?.google ?? 0) > 0
+        ? OUTBOX_SETTLING_MS
+        : false,
   })
 }
