@@ -1,10 +1,7 @@
 import { apiFetch, type RequestOptions } from "@/lib/api/client"
 
-import {
-  encodeOutboxQuery,
-  type OutboxQuery,
-  type OutboxScope,
-} from "./contract"
+import type { OutboxQuery, OutboxScope } from "./contract"
+import { encodeOutboxQuery } from "./wire"
 
 export type { OutboxCounts, OutboxResponse } from "./contract"
 

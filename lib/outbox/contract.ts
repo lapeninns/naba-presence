@@ -15,12 +15,14 @@ import {
   OUTBOX_STATES,
   type OutboxGroupKey,
 } from "./vocabulary"
+import { OUTBOX_PAGE_SIZE, OUTBOX_QUERY_PARAMS } from "./wire"
+
+export { encodeOutboxQuery, OUTBOX_PAGE_SIZE } from "./wire"
 
 export const OUTBOX_KINDS = ["reply", "listing_change", "post", "bulk"] as const
 export type OutboxKind = (typeof OUTBOX_KINDS)[number]
 
-/** Rows per page, by default and at most. */
-export const OUTBOX_PAGE_SIZE = 50
+/** Maximum rows per page. */
 export const OUTBOX_MAX_PAGE_SIZE = 100
 
 export const outboxItemSchema = z.object({
@@ -95,41 +97,16 @@ export const outboxCountsSchema = z.object({
 })
 export type OutboxCounts = z.infer<typeof outboxCountsSchema>
 
-// ---------------------------------------------------------------------------
-// Wire codec
-// ---------------------------------------------------------------------------
-
-const WIRE = {
-  clientId: "client_id",
-  locationId: "location_id",
-  group: "group",
-  cursor: "cursor",
-  limit: "limit",
-} as const
-
-/** The route's query string for one read. Defaults are left out. */
-export function encodeOutboxQuery(
-  query: Partial<OutboxQuery>
-): URLSearchParams {
-  const params = new URLSearchParams()
-  if (query.clientId) params.set(WIRE.clientId, query.clientId)
-  if (query.locationId) params.set(WIRE.locationId, query.locationId)
-  if (query.group) params.set(WIRE.group, query.group)
-  if (query.cursor) params.set(WIRE.cursor, query.cursor)
-  if (query.limit && query.limit !== OUTBOX_PAGE_SIZE)
-    params.set(WIRE.limit, String(query.limit))
-  return params
-}
-
 /** Parses the route's query string; throws a ZodError on a bad value. */
 export function decodeOutboxQuery(params: URLSearchParams): OutboxQuery {
-  const read = (key: string) => params.get(key) || undefined
+  const read = (key: keyof typeof OUTBOX_QUERY_PARAMS) =>
+    params.get(OUTBOX_QUERY_PARAMS[key]) || undefined
   return outboxQuerySchema.parse({
-    clientId: read(WIRE.clientId),
-    locationId: read(WIRE.locationId),
-    group: read(WIRE.group),
-    cursor: read(WIRE.cursor),
-    limit: read(WIRE.limit),
+    clientId: read("clientId"),
+    locationId: read("locationId"),
+    group: read("group"),
+    cursor: read("cursor"),
+    limit: read("limit"),
   })
 }
 
