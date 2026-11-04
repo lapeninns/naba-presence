@@ -1,5 +1,6 @@
 "use client"
 
+import { TriangleAlert } from "lucide-react"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
@@ -16,6 +17,7 @@ import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 import { CountBadge } from "./count-badge"
 import { ShellLink } from "./shell-link"
+import { outboxFailuresPhrase } from "./use-outbox-failures"
 
 /**
  * The primary destinations for a workspace mode, as the desk sidebar lists
@@ -67,6 +69,7 @@ function NavRow({
   onNavigate,
   count,
   countLabel,
+  alert = false,
 }: {
   href: string
   label: string
@@ -75,6 +78,12 @@ function NavRow({
   onNavigate?: () => void
   count?: number
   countLabel?: string
+  /**
+   * The count is of failures (the Outbox): drawn in danger ink with a
+   * warning glyph, never as the ink chrome badge, so it does not read as
+   * one more thing waiting.
+   */
+  alert?: boolean
 }) {
   const countId = React.useId()
   const showCount = typeof count === "number" && count > 0
@@ -101,7 +110,14 @@ function NavRow({
             strokeWidth={active ? 2 : 1.75}
             aria-hidden
           />
-          {showCount ? (
+          {showCount && alert ? (
+            <TriangleAlert
+              data-slot="rail-alert"
+              aria-hidden
+              strokeWidth={2}
+              className="absolute -top-1.5 left-3 hidden size-3.5 rounded-full bg-canvas text-danger-ink md:max-wide:block"
+            />
+          ) : showCount ? (
             // The rail has no count column, so the number rides on the
             // icon as a badge there instead of disappearing.
             <CountBadge
@@ -115,12 +131,24 @@ function NavRow({
         {showCount ? (
           <span
             aria-hidden
+            data-slot={alert ? "nav-alert" : undefined}
             className={cn(
-              "ml-auto text-count font-normal tabular-nums md:max-wide:hidden",
-              active ? "text-ink" : "text-ink-muted"
+              "ml-auto inline-flex items-center gap-1 text-count font-normal tabular-nums md:max-wide:hidden",
+              alert
+                ? "font-medium text-danger-ink"
+                : active
+                  ? "text-ink"
+                  : "text-ink-muted"
             )}
           >
-            {count}
+            {alert ? (
+              <TriangleAlert
+                className="size-3.5"
+                strokeWidth={2}
+                aria-hidden
+              />
+            ) : null}
+            {count > 99 ? "99+" : count}
           </span>
         ) : null}
       </ShellLink>
@@ -151,6 +179,7 @@ function NavRow({
 function Nav({
   onNavigate,
   waiting,
+  outboxFailures,
   role,
   scopeClientId = null,
   mode = "agency",
@@ -166,6 +195,8 @@ function Nav({
   scopeClientId?: string | null
   /** What the Inbox has waiting on this person (replies and approvals), when the app has it. */
   waiting?: InboxWaiting
+  /** This person's failed sends, for the Outbox row's alert. */
+  outboxFailures?: number
   /**
    * The session's role. Team is for owners and admins (the page answers
    * everyone else with Access denied), so it is left out for the rest, and
@@ -208,12 +239,21 @@ function Nav({
               icon={item.icon}
               active={current === item.href}
               onNavigate={onNavigate}
-              count={item.id === "inbox" ? waiting?.total : undefined}
+              count={
+                item.id === "inbox"
+                  ? waiting?.total
+                  : item.id === "outbox"
+                    ? outboxFailures
+                    : undefined
+              }
               countLabel={
                 item.id === "inbox" && waiting?.total
                   ? waitingPhrase(waiting, { reviews: true })
-                  : undefined
+                  : item.id === "outbox" && outboxFailures
+                    ? outboxFailuresPhrase(outboxFailures)
+                    : undefined
               }
+              alert={item.id === "outbox"}
             />
           </li>
         ))}

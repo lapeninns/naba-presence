@@ -346,6 +346,35 @@ describe("primary navigation", () => {
     )
   })
 
+  // SYSTEM §10: the Outbox row counts failures only, in danger ink with a
+  // warning glyph, never the ink chrome badge the Inbox uses.
+  it("marks Outbox failures in danger ink, described, not renamed", () => {
+    const { container } = render(
+      <Nav role="member" showOutbox outboxFailures={3} />
+    )
+    const outbox = screen.getByRole("link", { name: "Outbox" })
+    expect(outbox).toHaveAccessibleDescription("3 failed")
+    const figures = container.querySelector("[data-slot='nav-alert']")
+    expect(figures).toHaveTextContent("3")
+    expect(figures).toHaveClass("text-danger-ink")
+    expect(figures?.querySelector("svg")).not.toBeNull()
+    expect(container.querySelector("[data-slot='rail-alert']")).toHaveClass(
+      "text-danger-ink"
+    )
+    // The rail draws the glyph, not the ink count pill.
+    expect(outbox.querySelector("[data-slot='rail-count']")).toBeNull()
+  })
+
+  it("draws nothing on Outbox with no failures", () => {
+    const { container } = render(
+      <Nav role="member" showOutbox outboxFailures={0} />
+    )
+    expect(
+      screen.getByRole("link", { name: "Outbox" })
+    ).not.toHaveAccessibleDescription()
+    expect(container.querySelector("[data-slot='nav-alert']")).toBeNull()
+  })
+
   it("leaves Outbox out until the route exists", () => {
     render(<Nav role="owner" />)
     expect(screen.queryByRole("link", { name: "Outbox" })).toBeNull()

@@ -18,6 +18,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchSession } from "@/lib/api/session"
 import { withClientScope } from "@/lib/clients/scope"
 import {
+  hasOutbox,
   isActivePath,
   type NavigationContext,
 } from "@/lib/navigation/destinations"
@@ -53,6 +54,7 @@ import { TabBar } from "./tab-bar"
 import { Toolbar } from "./topbar"
 import type { ShellSession } from "./shell-session"
 import { useInboxWaiting } from "./use-needs-reply-count"
+import { useOutboxFailures } from "./use-outbox-failures"
 
 // The shell's session props are display fields only (shell-session.ts):
 // the dashboard layout projects its server `Session` with `toShellSession`.
@@ -111,6 +113,9 @@ function SidebarNav({
   showOutbox: boolean
 }) {
   const waiting = useInboxWaiting()
+  const outboxFailures = useOutboxFailures(
+    hasOutbox({ role, mode, hideCalendar, showOutbox })
+  )
   const { remembered } = useRememberedClient()
   return (
     <Nav
@@ -120,6 +125,7 @@ function SidebarNav({
       showOutbox={showOutbox}
       scopeClientId={mode === "business" ? null : remembered}
       waiting={waiting}
+      outboxFailures={outboxFailures}
     />
   )
 }

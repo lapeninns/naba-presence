@@ -242,6 +242,13 @@ export function isDestinationVisible(
   return true
 }
 
+/** Whether this session has an Outbox (it exists and the role can send). */
+export function hasOutbox(context: NavigationContext): boolean {
+  return visibleDestinations(context).some(
+    (destination) => destination.id === "outbox"
+  )
+}
+
 /** The destinations this session may see, in registry order. */
 export function visibleDestinations(context: NavigationContext): Destination[] {
   return DESTINATIONS.filter((destination) =>

@@ -1,6 +1,6 @@
 "use client"
 
-import { Building2, ChevronRight, Search } from "lucide-react"
+import { Building2, ChevronRight, Search, TriangleAlert } from "lucide-react"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
@@ -13,6 +13,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import {
+  hasOutbox,
   isActivePath,
   moreDestinations,
   navigationPath,
@@ -31,6 +32,10 @@ import {
 } from "./notifications-link"
 import { useScopeControl } from "./scope-sheet-model"
 import { ShellLink } from "./shell-link"
+import {
+  outboxFailuresPhrase,
+  useOutboxFailures,
+} from "./use-outbox-failures"
 
 /**
  * A drawer row, after Notion Mail's "Navigate to" list: 48px or more, a
@@ -155,6 +160,7 @@ function MoreSheetContent({
 }) {
   const pathname = navigationPath(usePathname(), context.mode)
   const unread = useUnreadNotificationCount()
+  const failures = useOutboxFailures(hasOutbox(context)) ?? 0
   const health = useContextHealth()
   const scope = useScopeControl(context.mode, organisationName)
   const agency = context.mode === "agency"
@@ -275,7 +281,13 @@ function MoreSheetContent({
         <ul aria-labelledby={goToLabelId} className="flex flex-col">
           {destinations.map((destination) => {
             const Icon = destination.icon
-            const count = destination.id === "notifications" ? unread : 0
+            const count =
+              destination.id === "notifications"
+                ? unread
+                : destination.id === "outbox"
+                  ? failures
+                  : 0
+            const alert = destination.id === "outbox"
             const current = isActivePath(pathname, destination.href)
             return (
               <li key={destination.id}>
@@ -286,7 +298,9 @@ function MoreSheetContent({
                   aria-label={
                     destination.id === "notifications"
                       ? notificationsName(unread)
-                      : undefined
+                      : alert && count > 0
+                        ? `${destination.label}, ${outboxFailuresPhrase(count)}`
+                        : undefined
                   }
                   className={ROW_CLASS}
                 >
@@ -302,11 +316,23 @@ function MoreSheetContent({
                     // Plain figures, not a pill: the count is in the name.
                     <span
                       aria-hidden
+                      data-slot={alert ? "more-alert" : undefined}
                       className={cn(
-                        "shrink-0 text-count font-normal tabular-nums",
-                        current ? "text-ink" : "text-ink-muted"
+                        "inline-flex shrink-0 items-center gap-1 text-count font-normal tabular-nums",
+                        alert
+                          ? "font-medium text-danger-ink"
+                          : current
+                            ? "text-ink"
+                            : "text-ink-muted"
                       )}
                     >
+                      {alert ? (
+                        <TriangleAlert
+                          className="size-3.5"
+                          strokeWidth={2}
+                          aria-hidden
+                        />
+                      ) : null}
                       {count > 99 ? "99+" : count}
                     </span>
                   ) : null}

@@ -74,17 +74,27 @@ function renderShell({
   organisations = [{ organisationId: "o", name: "Lapen Inns Agency" }],
   unread = 0,
   hideCalendar = false,
+  outboxFailed = 0,
 }: {
   session?: ShellSession
   clients?: unknown[]
   organisations?: { organisationId: string; name: string }[]
   unread?: number
   hideCalendar?: boolean
+  outboxFailed?: number
 } = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn<typeof fetch>(async (input) => {
       const url = String(input)
+      if (url.includes("/api/outbox/counts"))
+        return Response.json({
+          person: 0,
+          google: 0,
+          failed: outboxFailed,
+          live: 0,
+          partial: false,
+        })
       const body = url.includes("/api/clients")
         ? { items: clients, unassignedLocationCount: 0 }
         : url.includes("/api/organisations")
@@ -213,6 +223,24 @@ describe("More sheet contents", () => {
       "Team",
       "Settings",
     ])
+  })
+
+  it("names Outbox failures in the row and draws them in danger ink", async () => {
+    outbox.ready = true
+    renderShell({ outboxFailed: 2 })
+    const { sheet } = await openMore()
+    const row = await sheet.findByRole("link", { name: "Outbox, 2 failed" })
+    const figures = row.querySelector("[data-slot='more-alert']")
+    expect(figures).toHaveTextContent("2")
+    expect(figures).toHaveClass("text-danger-ink")
+  })
+
+  it("never asks a viewer's Outbox counts", async () => {
+    outbox.ready = true
+    renderShell({ session: { ...baseSession, role: "viewer" }, outboxFailed: 2 })
+    await openMore()
+    const urls = vi.mocked(fetch).mock.calls.map(([input]) => String(input))
+    expect(urls.some((url) => url.includes("/api/outbox"))).toBe(false)
   })
 
   it("keeps Outbox for a member, who can send", async () => {
