@@ -9,7 +9,6 @@ import { ConnectionCard } from "@/components/settings/connection-card"
 import { NotificationsCard } from "@/components/settings/notifications-card"
 import { OAuthReturn } from "@/components/settings/oauth-return"
 import { ReconnectAlert } from "@/components/settings/reconnect-alert"
-import { SettingsNav } from "@/components/settings/settings-nav"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { SectionHeader } from "@/components/ui/section-header"
 import { useClients } from "@/lib/queries/use-clients"
@@ -30,7 +29,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * What stays here is the account-level view: what is connected, what is
  * broken, who depends on it, and how Google tells us about new reviews.
  */
-export function ConnectionsWorkspace({ role }: { role: string | null }) {
+export function ConnectionsWorkspace() {
   const { query, connect } = useConnectionWorkspace()
   const clients = useClients()
   const business = useWorkspaceMode() === "business"
@@ -85,7 +84,6 @@ export function ConnectionsWorkspace({ role }: { role: string | null }) {
             </Button>
           ) : undefined
         }
-        tabs={<SettingsNav role={role} />}
       />
 
       <OAuthReturn />
