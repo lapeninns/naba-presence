@@ -70,6 +70,28 @@ describe("route error boundary", () => {
     expect(document.querySelector('[data-slot="page-frame"]')).not.toBeNull()
   })
 
+  it("prefers the stable retry, which re-fetches the segment's server data", async () => {
+    const retry = vi.fn()
+    const unstable_retry = vi.fn()
+    const reset = vi.fn()
+    render(
+      <DashboardError
+        error={new Error("x")}
+        reset={reset}
+        retry={retry}
+        unstable_retry={unstable_retry}
+      />
+    )
+    const button = screen.getByRole("button", { name: "Try again" })
+    button.focus()
+    await userEvent.click(button)
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(unstable_retry).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+    expect(button).not.toHaveAttribute("disabled")
+    expect(document.activeElement).toBe(button)
+  })
+
   it("falls back to reset when retry is unavailable", async () => {
     const reset = vi.fn()
     render(<DashboardError error={new Error("x")} reset={reset} />)

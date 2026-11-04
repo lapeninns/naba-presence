@@ -37,10 +37,13 @@ const AREAS: Record<string, string> = {
 export default function DashboardError({
   error,
   reset,
+  retry: retrySegment,
   unstable_retry,
 }: {
   error: Error & { digest?: string }
   reset: () => void
+  /** Re-fetches and re-renders the segment (Next 16.3+); reset only re-renders. */
+  retry?: () => void
   unstable_retry?: () => void
 }) {
   const pathname = usePathname() ?? ""
@@ -55,10 +58,12 @@ export default function DashboardError({
       timeStyle: "short",
     }).format(new Date())
   )
-  const retry = () =>
+  const retry = () => {
+    if (pending) return
     startTransition(() => {
-      ;(unstable_retry ?? reset)()
+      ;(retrySegment ?? unstable_retry ?? reset)()
     })
+  }
   const summary = [
     "NabaPresence error",
     area,
@@ -119,7 +124,9 @@ export default function DashboardError({
           <button
             type="button"
             onClick={retry}
-            disabled={pending}
+            // aria-disabled, not disabled: a natively disabled button drops
+            // focus to <body> mid-retry.
+            aria-disabled={pending || undefined}
             aria-busy={pending || undefined}
             className={boundaryButtonClass(
               "primary",
