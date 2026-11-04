@@ -391,8 +391,10 @@ export function TwoStepVerificationCard({
   return (
     <SettingsSection id={titleId} title="Two-step verification" variant="group">
       <div className="flex flex-col gap-4">
+        {/* Neutral, not success green: green is kept for changes confirmed
+            on Google, and this one stays in NabaPresence. */}
         {justEnabled ? (
-          <Alert variant="success">
+          <Alert>
             <AlertTitle>
               {justEnabled === 1
                 ? "Two-step verification is on."

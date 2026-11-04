@@ -306,6 +306,7 @@ export function OperationsView() {
                     ) : null}
                     <SupportDetails
                       items={[item.eventType, item.status, item.lastErrorCode]}
+                      subject={`${type} received ${formatZonedTime(item.receivedAt, zone, now)}`}
                     />
                   </div>
                   <Button

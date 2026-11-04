@@ -12,9 +12,16 @@ import { cn } from "@/lib/utils"
  */
 function SupportDetails({
   items,
+  subject,
   className,
 }: {
   items: ReadonlyArray<string | null | undefined>
+  /**
+   * What these details belong to, for a list that repeats the disclosure
+   * per row: a screen reader's list of controls then tells the rows apart.
+   * The visible words stay "Details for support" and lead the name.
+   */
+  subject?: string
   className?: string
 }) {
   const shown = items.filter((item): item is string => Boolean(item))
@@ -24,7 +31,10 @@ function SupportDetails({
       data-slot="support-details"
       className={cn("group/support text-caption text-ink-muted", className)}
     >
-      <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 rounded-sm focus-halo pointer-coarse:min-h-(--np-touch) [&::-webkit-details-marker]:hidden">
+      <summary
+        aria-label={subject ? `Details for support: ${subject}` : undefined}
+        className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 rounded-sm focus-halo pointer-coarse:min-h-(--np-touch) [&::-webkit-details-marker]:hidden"
+      >
         <ChevronRightIcon
           aria-hidden
           className="size-3.5 transition-transform group-open/support:rotate-90 motion-reduce:transition-none"

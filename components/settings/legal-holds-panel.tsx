@@ -95,7 +95,7 @@ function ApplyHoldDialog({
     mutationFn: createLegalHold,
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: queryKeys.privacyAll })
-      toast.add({ title: "Legal hold applied", type: "success" })
+      toast.add({ title: "Legal hold applied", type: "info" })
       reset()
       onOpenChange(false)
     },
@@ -232,7 +232,7 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
     mutationFn: (reviewId: string) => releaseLegalHold(reviewId),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: queryKeys.privacyAll })
-      toast.add({ title: "Legal hold released", type: "success" })
+      toast.add({ title: "Legal hold released", type: "info" })
       setReleaseTarget(null)
     },
     // The confirmation stays open with the reason beside its buttons, so

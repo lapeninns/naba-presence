@@ -185,7 +185,7 @@ export function PrivacyExportForm() {
           </Alert>
         ) : null}
         {state.phase === "done" ? (
-          <Alert variant={state.result.complete ? "success" : "warning"}>
+          <Alert variant={state.result.complete ? "default" : "warning"}>
             <AlertTitle>
               {state.result.complete
                 ? `Export ready: ${formatNumber(state.result.reviews.length)} ${state.result.reviews.length === 1 ? "review" : "reviews"}`
