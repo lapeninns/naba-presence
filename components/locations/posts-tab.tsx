@@ -198,14 +198,7 @@ function scheduleSummary(schedule: PublicationSchedule) {
   }`
 }
 
-/**
- * The views' names on this list. The `published` view also holds posts still
- * being sent, waiting for Google, or rejected by it (lib/server/posts.ts
- * postFilterCondition), so "On Google" would claim more than is true; every
- * post in it has been sent.
- */
 function filterLabel(filter: PostFilter) {
-  if (filter === "published") return "Sent to Google"
   return POST_FILTERS.find((option) => option.value === filter)?.label ?? ""
 }
 
@@ -460,7 +453,7 @@ function PostsList({
                   }
                   onClick={() => setFilter(option.value)}
                 >
-                  {filterLabel(option.value)}
+                  {option.label}
                 </FilterChip>
               )
             })}

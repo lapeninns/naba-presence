@@ -87,6 +87,8 @@ const post = (overrides: Partial<PostRow> = {}): PostRow => ({
   id: "post-1",
   status: "published",
   googleState: "PROCESSING",
+  attemptOperation: null,
+  attemptStatus: null,
   lastErrorCode: null,
   topicType: "STANDARD",
   summary: "Autumn menu launches on Friday",

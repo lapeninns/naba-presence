@@ -588,6 +588,45 @@ describeDatabase("GET /api/outbox", () => {
     })
   })
 
+  it("keeps an unresolved post deletion out of the confirmed group", async () => {
+    const tenant = await createTestTenant(admin)
+    organisations.push(tenant.organisationId)
+    const { reviewId, locationId } = await seedReview(admin, {
+      organisationId: tenant.organisationId,
+    })
+    const [{ externalLocationId }] = await admin<
+      { externalLocationId: string }[]
+    >`
+      select external_location_id::text as "externalLocationId"
+      from review where id = ${reviewId}
+    `
+    const [post] = await admin`
+      insert into gbp_local_post (
+        organisation_id, location_id, external_location_id, topic_type,
+        summary, status, google_state
+      ) values (
+        ${tenant.organisationId}, ${locationId}, ${externalLocationId}, 'STANDARD',
+        'Previously confirmed post', 'published', 'LIVE'
+      ) returning id
+    `
+    await admin`
+      insert into gbp_local_post_attempt (
+        organisation_id, post_id, actor_user_id, operation, status,
+        idempotency_key, intended_payload, started_at
+      ) values
+      (${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'create', 'succeeded',
+        ${randomUUID()}, '{}'::jsonb, now() - interval '3 days'),
+      (${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'delete', 'ambiguous',
+        ${randomUUID()}, '{}'::jsonb, now() - interval '2 days')
+    `
+    expect(
+      byId(await readAll(tenant.cookie)).get(`post:${post.id}`)
+    ).toMatchObject({
+      state: "uncertain",
+      title: "Delete post",
+    })
+  })
+
   it("needs a session", async () => {
     expect((await fetch(`${server.baseUrl}/api/outbox`)).status).toBe(401)
     expect((await fetch(`${server.baseUrl}/api/outbox/counts`)).status).toBe(

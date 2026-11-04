@@ -78,7 +78,7 @@ export const POST_FILTERS: ReadonlyArray<{ value: PostFilter; label: string }> =
     { value: "all", label: "All" },
     { value: "draft", label: "Drafts" },
     { value: "awaiting", label: "Awaiting approval" },
-    { value: "published", label: "On Google" },
+    { value: "published", label: "Sent to Google" },
     { value: "attention", label: "Needs attention" },
   ]
 
@@ -104,9 +104,8 @@ export function matchesPostFilter(
     case "awaiting":
       return post.status === "awaiting_approval"
     case "published":
-      // "On Google": Google's own state says the post is live. A post on
-      // its way or still processing is not there yet.
-      return localPostOutcome(post) === "confirmed_applied"
+      // Match the server's sent view and counts, including sends in progress.
+      return post.status === "published" || post.status === "publishing"
     case "attention":
       return postNeedsAttention(post)
   }

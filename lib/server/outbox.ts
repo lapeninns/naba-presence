@@ -177,13 +177,21 @@ export type ReplyRow = Place & {
   at: Date
 }
 
-function pendingReplyDeletion(row: ReplyRow): OutboxState | null {
-  if (row.workflowStatus !== "published" || row.attemptOperation !== "delete")
-    return null
-  if (row.attemptStatus === "started") return "sending"
-  if (row.attemptStatus === "retryable") return "retrying"
-  if (row.attemptStatus === "ambiguous") return "uncertain"
+function pendingDeletionState(
+  operation: string | null,
+  status: string | null
+): OutboxState | null {
+  if (operation !== "delete") return null
+  if (status === "started") return "sending"
+  if (status === "retryable") return "retrying"
+  if (status === "ambiguous") return "uncertain"
   return null
+}
+
+function pendingReplyDeletion(row: ReplyRow): OutboxState | null {
+  return row.workflowStatus === "published"
+    ? pendingDeletionState(row.attemptOperation, row.attemptStatus)
+    : null
 }
 
 /** One reply row's Outbox state, or null when it does not belong there. */
@@ -516,6 +524,8 @@ export type PostRow = Place & {
   id: string
   status: string
   googleState: string | null
+  attemptOperation: string | null
+  attemptStatus: string | null
   lastErrorCode: string | null
   topicType: string
   summary: string
@@ -523,7 +533,15 @@ export type PostRow = Place & {
   at: Date
 }
 
+function pendingPostDeletion(row: PostRow): OutboxState | null {
+  return row.status === "published"
+    ? pendingDeletionState(row.attemptOperation, row.attemptStatus)
+    : null
+}
+
 export function postState(row: PostRow): OutboxState | null {
+  const deletion = pendingPostDeletion(row)
+  if (deletion) return deletion
   switch (row.status) {
     case "awaiting_approval":
       return "approval"
@@ -560,7 +578,9 @@ export function postItem(row: PostRow): OutboxItem | null {
     id: `post:${row.id}`,
     kind: "post",
     state,
-    title: POST_TITLE[row.topicType] ?? "Post",
+    title: pendingPostDeletion(row)
+      ? "Delete post"
+      : (POST_TITLE[row.topicType] ?? "Post"),
     detail: summary
       ? summary.length > 80
         ? `${summary.slice(0, 79).trimEnd()}…`
@@ -579,6 +599,8 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
       p.id::text as id,
       p.status,
       p.google_state as "googleState",
+      la.operation as "attemptOperation",
+      la.status as "attemptStatus",
       p.last_error_code as "lastErrorCode",
       p.topic_type as "topicType",
       p.summary,
@@ -595,10 +617,10 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
     left join lateral (
       -- The newest send from here. A post synced in from Google has none,
       -- and a sync rewrites updated_at, so the send's own time is used.
-      select coalesce(a.finished_at, a.started_at) as at
+      select a.operation, a.status, coalesce(a.finished_at, a.started_at) as at
       from gbp_local_post_attempt a
-      where a.post_id = p.id
-      order by a.started_at desc
+      where a.organisation_id = p.organisation_id and a.post_id = p.id
+      order by a.started_at desc, a.id desc
       limit 1
     ) la on true
     left join lateral (
@@ -622,6 +644,11 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
       ${scopeFilter(sql, scope)}
       and (
         p.status = 'awaiting_approval'
+        or (
+          p.status = 'published'
+          and la.operation = 'delete'
+          and la.status in ('started', 'ambiguous')
+        )
         or (
           p.status = 'draft'
           and sent_back.created_at > now() - ${WINDOW}::interval
