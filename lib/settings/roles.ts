@@ -4,7 +4,7 @@ import {
   describeMemberAccess,
   summariseClientAccess,
 } from "@/lib/settings/client-access"
-import type { MemberRole } from "@/lib/settings/forms/invitation"
+import { MEMBER_ROLES, type MemberRole } from "@/lib/settings/forms/invitation"
 
 /**
  * Presentation copy for the four organisation roles, written against the
@@ -119,6 +119,27 @@ export const ROLE_MATRIX: { capability: string; cells: Capability[] }[] = [
   { capability: "Turn reply approval off", cells: [YES, NO, NO, NO] },
   { capability: "Change or remove an owner", cells: [YES, NO, NO, NO] },
 ]
+
+/**
+ * One role's column of `ROLE_MATRIX`, split into what it can and can't do,
+ * for the change-role dialog. A conditional cell stays a "can", with its
+ * condition after a colon.
+ */
+export function roleCapabilities(role: MemberRole): {
+  can: string[]
+  cannot: string[]
+} {
+  const index = MEMBER_ROLES.indexOf(role)
+  const can: string[] = []
+  const cannot: string[] = []
+  for (const row of ROLE_MATRIX) {
+    const cell = row.cells[index]
+    if (cell.kind === "no") cannot.push(row.capability)
+    else if (cell.kind === "yes") can.push(row.capability)
+    else can.push(`${row.capability}: ${cell.text.toLowerCase()}`)
+  }
+  return { can, cannot }
+}
 
 /**
  * Which clients a member can see, for the Team row. Owners and admins see
