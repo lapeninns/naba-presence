@@ -1,12 +1,20 @@
 "use client"
 
-import { OutcomeSummary, ReviewedWritePanel } from "@/components/reviewed-write"
+import {
+  attemptOutcome,
+  OutcomeSummary,
+  ReviewedWritePanel,
+} from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
 import type { LifecycleAttempt } from "@/lib/contracts/google-lifecycle-review"
 import type { useLifecycle } from "./use-lifecycle"
 
-/** What an independent read of Google showed after the lifecycle request. */
-function observedEffect(attempt: LifecycleAttempt): string {
+/**
+ * What an independent read of Google showed after the lifecycle request. A
+ * rejection keeps the shared words: Google refused it and nothing changed.
+ */
+function observedEffect(attempt: LifecycleAttempt): string | undefined {
+  if (attempt.executionState === "rejected") return undefined
   if (attempt.postcondition === "location_transferred_between_accounts")
     return "The exact location was observed in the destination account and absent from the source account."
   if (attempt.postcondition === "location_absent_from_managed_account")
@@ -34,15 +42,26 @@ export function LifecycleOutcome({
   const attempt = workflow.attempt
   if (!attempt) return null
   const transfer = attempt.request.operation === "transfer_location"
+  const outcome = attemptOutcome(
+    attempt.executionState,
+    attempt.confirmationState
+  )
   return (
     <ReviewedWritePanel
       id="lifecycle-outcome-title"
       tone="danger"
       title="Saved lifecycle outcome"
       stage="outcome"
+      outcome={outcome}
       focusKey={focusKey}
     >
       <OutcomeSummary
+        outcome={outcome}
+        titles={{
+          confirmed_applied: transfer
+            ? "Transfer confirmed on Google"
+            : "Deletion confirmed on Google",
+        }}
         execution={attempt.executionState}
         confirmation={attempt.confirmationState}
         observedAt={attempt.observedAt}
