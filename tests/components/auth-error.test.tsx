@@ -26,7 +26,9 @@ describe("auth error boundary", () => {
     expect(
       screen.getByRole("heading", { name: "This page didn’t load" })
     ).toBeInTheDocument()
-    expect(screen.getByText("d1")).toBeInTheDocument()
+    // The same reference chip as every other boundary, wrapping anywhere
+    // so a long digest never spills past a 320px screen.
+    expect(screen.getByText("d1")).toHaveClass("[overflow-wrap:anywhere]")
     expect(screen.queryByText(/secret detail/)).not.toBeInTheDocument()
     expect(
       screen.getAllByRole("link", { name: "Back to sign in" })[0]
@@ -51,6 +53,14 @@ describe("auth error boundary", () => {
     expect(retry).toHaveBeenCalledTimes(1)
     expect(unstable_retry).not.toHaveBeenCalled()
     expect(reset).not.toHaveBeenCalled()
+  })
+
+  it("keeps its retry an enabled native button that draws the halo", async () => {
+    render(<AuthError error={new Error("x")} reset={vi.fn()} />)
+    const button = screen.getByRole("button", { name: "Try again" })
+    expect(button).not.toHaveAttribute("aria-disabled")
+    expect(button.className).toContain("focus-halo")
+    expect(button).not.toBeDisabled()
   })
 })
 

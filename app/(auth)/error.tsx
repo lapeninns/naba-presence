@@ -5,6 +5,7 @@ import * as React from "react"
 
 import {
   BoundaryAlert,
+  BoundaryCode,
   boundaryButtonClass,
 } from "@/components/app-shell/boundary"
 import { AuthCard } from "@/components/auth/auth-card"
@@ -44,10 +45,7 @@ export default function AuthError({
         Nothing about your account changed. Try again in a moment.
         {error.digest ? (
           <span className="mt-1 block text-caption text-ink-muted">
-            Reference{" "}
-            <code className="rounded-sm bg-surface px-1 font-mono">
-              {error.digest}
-            </code>
+            Reference <BoundaryCode>{error.digest}</BoundaryCode>
           </span>
         ) : null}
       </BoundaryAlert>
