@@ -627,7 +627,10 @@ export function PolicyForm({ role }: { role: string | null }) {
       <SettingsSection
         id="settings-approval"
         title="Approval"
-        description="Who has to look at a reply before it goes to Google."
+        // Approval decides who checks a reply, never whether a person sends
+        // it: a draft must pass verification and be sent by someone
+        // (lib/server/publishing/intent.ts), AI-written or not.
+        description="Who has to look at a reply before it goes to Google. No reply is sent by itself: an AI draft is checked like any other and goes only when a person sends it."
         variant="group"
         contentClassName="gap-4"
       >
@@ -671,8 +674,8 @@ export function PolicyForm({ role }: { role: string | null }) {
                   ? "Approval will be off"
                   : "Approval is off"
                 : turningApprovalOff
-                  ? "Replies will publish straight to Google"
-                  : "Replies publish straight to Google"}
+                  ? "Sent replies will go straight to Google"
+                  : "Sent replies go straight to Google"}
             </AlertTitle>
             <AlertDescription className="flex flex-col gap-2.5">
               <span>{consequence}</span>
