@@ -610,6 +610,39 @@ describe("OperationsView attention, figures and recovery", () => {
     ])
   })
 
+  it("says a retry queued the emails again in a neutral toast, not a success", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(
+      withHealth({
+        notificationDeliveries: {
+          queued: 0,
+          oldestQueuedAt: null,
+          states7d: [{ state: "bounced", count: 2 }],
+          retryable: 2,
+        },
+      })
+    )
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    api.retryNotificationDeliveries.mockResolvedValue({ requeued: 2 })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <OperationsView />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Retry 2 failed emails/ })
+    )
+    expect(await screen.findByText("2 emails queued again.")).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+      "data-type",
+      "info"
+    )
+  })
+
   // What the replay leaves on the row (app/api/webhooks/google/pubsub/replay):
   // retry count and error cleared, due now.
   const afterReplay = () =>
