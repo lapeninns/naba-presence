@@ -133,6 +133,40 @@ describe("legal pages on a phone", () => {
       links.find((a) => a.textContent === "Privacy policy")
     ).not.toHaveAttribute("aria-current")
   })
+
+  it.each([
+    ["privacy", PrivacyPage, "Privacy policy"],
+    ["terms", TermsPage, "Terms of service"],
+  ] as const)(
+    "%s: the skip link comes first, then banner, main and footer landmarks",
+    (_page, Page, title) => {
+      const { container } = render(<Page />)
+      const first = container.querySelector("a, button")
+      expect(first).toHaveTextContent("Skip to content")
+      expect(first).toHaveAttribute("href", "#main")
+      expect(screen.getByRole("main")).toHaveAttribute("id", "main")
+      expect(screen.getByRole("banner")).toContainElement(
+        screen.getByRole("link", { name: "NabaPresence home" })
+      )
+      expect(screen.getByRole("contentinfo")).toContainElement(
+        screen.getByRole("navigation", { name: "Legal" })
+      )
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
+      expect(
+        screen.getByRole("heading", { level: 1, name: title })
+      ).toBeInTheDocument()
+    }
+  )
+
+  it("lets the bar grow with enlarged text, and draws its back link in ink", () => {
+    render(<TermsPage />)
+    const home = screen.getByRole("link", { name: "NabaPresence home" })
+    const bar = screen.getByRole("banner")
+    expect(bar.className).toContain("min-h-(--np-appbar-h)")
+    expect(bar.className).not.toMatch(/(^|\s)h-\(--np-appbar-h\)/)
+    expect(home.className).toMatch(/\btext-ink\b/)
+    expect(home.className).not.toContain("text-ink-secondary")
+  })
 })
 
 describe("legal page contents", () => {
