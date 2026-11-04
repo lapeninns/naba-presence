@@ -322,6 +322,22 @@ describe("ClientSwitcher", () => {
     })
   })
 
+  it("owns only options in the listbox", async () => {
+    const many = Array.from({ length: 9 }, (_, index) =>
+      client(`c${index + 1}`, `Client ${String.fromCharCode(65 + index)}`)
+    )
+    stubClients(many)
+    const user = userEvent.setup()
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: MANY_ALL_NAME }))
+    const listbox = await screen.findByRole("listbox")
+    await waitFor(() =>
+      expect(within(listbox).getAllByRole("option")).toHaveLength(10)
+    )
+    // A separator role inside a listbox fails axe aria-required-children.
+    expect(within(listbox).queryByRole("separator")).toBeNull()
+  })
+
   it("keeps an option in the listbox when no client matches", async () => {
     const many = Array.from({ length: 9 }, (_, index) =>
       client(`c${index + 1}`, `Client ${String.fromCharCode(65 + index)}`)

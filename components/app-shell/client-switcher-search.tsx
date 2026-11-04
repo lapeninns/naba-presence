@@ -7,7 +7,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command"
 import type { ClientSummary } from "@/lib/contracts/clients"
 
@@ -50,6 +49,17 @@ function NoMatch() {
       No client matches that.
     </div>
   )
+}
+
+/**
+ * The rule under "All clients", hidden from assistive tech: cmdk's Separator
+ * is role="separator", which a listbox may not own (axe
+ * aria-required-children). Like cmdk's, it steps aside while a search runs.
+ */
+function AllClientsRule() {
+  const searching = useCommandState((state) => state.search.length > 0)
+  if (searching) return null
+  return <div aria-hidden="true" className="mx-1 my-1 h-px bg-line" />
 }
 
 function ClientSearchList({
@@ -95,7 +105,7 @@ function ClientSearchList({
           <AllClientsOption />
           <CurrentMark current={current === null} />
         </CommandItem>
-        <CommandSeparator />
+        <AllClientsRule />
         {clients.map((entry) => (
           <CommandItem
             key={entry.id}
