@@ -79,10 +79,14 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         'Publish the reply to Google with the "Publish reply" button (it reads "Update reply" if a reply is already live)'
       )
       await expect(
-        // "Reply sent" when Google holds the reply for moderation (the stub
-        // can answer PENDING); either way it reached Google
-        // (lib/inbox/actions.ts describeOutcomeToast).
-        screen.getByText(/^Reply (published|sent)$/).first()
+        // "Confirmed on Google" once readback confirms it, or "Sent, waiting
+        // for Google to confirm" while Google holds it; never "published"
+        // before Google says so (lib/inbox/actions.ts describeOutcomeToast).
+        screen
+          .getByText(
+            /^(Confirmed on Google|Sent, waiting for Google to confirm)$/
+          )
+          .first()
       ).toBeVisible({
         timeout: 30_000,
       })
@@ -130,7 +134,7 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         'Send the reply on: press the primary reply button below it ("Publish reply", "Update reply" or "Submit for approval"). This organisation needs approval, so it should be submitted for approval.'
       )
       await expect(
-        screen.getByText("Submitted for approval", { exact: true }).first()
+        screen.getByText("Awaiting approval", { exact: true }).first()
       ).toBeVisible({
         timeout: 30_000,
       })
@@ -168,10 +172,14 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
 
       await agent.act('Approve the reply with the "Approve and publish" button')
       await expect(
-        // "Reply sent" when Google holds the reply for moderation (the stub
-        // can answer PENDING); either way it reached Google
-        // (lib/inbox/actions.ts describeOutcomeToast).
-        screen.getByText(/^Reply (published|sent)$/).first()
+        // "Confirmed on Google" once readback confirms it, or "Sent, waiting
+        // for Google to confirm" while Google holds it; never "published"
+        // before Google says so (lib/inbox/actions.ts describeOutcomeToast).
+        screen
+          .getByText(
+            /^(Confirmed on Google|Sent, waiting for Google to confirm)$/
+          )
+          .first()
       ).toBeVisible({
         timeout: 30_000,
       })
