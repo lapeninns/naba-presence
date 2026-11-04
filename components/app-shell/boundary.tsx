@@ -27,11 +27,11 @@ const BUTTON_BASE =
 // never with opacity.
 const BUTTON_VARIANT: Record<BoundaryButtonVariant, string> = {
   primary:
-    "border-transparent bg-primary text-primary-foreground hover:not-disabled:bg-ink-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
+    "border-transparent bg-primary text-primary-foreground hover-fine:hover:not-disabled:bg-ink-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
   outline:
-    "border-line-strong bg-surface text-ink hover:not-disabled:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
+    "border-line-strong bg-surface text-ink hover-fine:hover:not-disabled:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
   ghost:
-    "border-transparent bg-transparent text-ink hover:not-disabled:bg-fill drawn-disabled:text-disabled-ink",
+    "border-transparent bg-transparent text-ink hover-fine:hover:not-disabled:bg-fill drawn-disabled:text-disabled-ink",
 }
 
 const BUTTON_SIZE: Record<BoundaryButtonSize, string> = {

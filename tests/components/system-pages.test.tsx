@@ -27,7 +27,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import DashboardError from "@/app/(dashboard)/error"
 import DashboardLoading from "@/app/(dashboard)/loading"
-import { BoundaryErrorState } from "@/components/app-shell/boundary"
+import {
+  BoundaryErrorState,
+  boundaryButtonClass,
+} from "@/components/app-shell/boundary"
 import DashboardNotFound from "@/app/(dashboard)/not-found"
 import { queryKeys } from "@/lib/queries/keys"
 import GlobalError from "@/app/global-error"
@@ -74,6 +77,17 @@ describe("route error boundary", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(reset).toHaveBeenCalledTimes(1)
   })
+})
+
+describe("boundaryButtonClass", () => {
+  it.each(["primary", "outline", "ghost"] as const)(
+    "draws the %s hover fill for a fine pointer only (no sticky hover on touch)",
+    (variant) => {
+      const classes = boundaryButtonClass(variant).split(" ")
+      expect(classes.filter((c) => c.startsWith("hover:"))).toEqual([])
+      expect(classes.some((c) => c.startsWith("hover-fine:hover:"))).toBe(true)
+    }
+  )
 })
 
 describe("BoundaryErrorState", () => {
