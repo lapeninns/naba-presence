@@ -79,7 +79,7 @@ function FoldedCrumbs({ crumbs }: { crumbs: Crumb[] }) {
       <DropdownMenuTrigger
         data-slot="breadcrumb-folded"
         aria-label="Earlier pages in the trail"
-        className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-sm text-ink-muted focus-halo hover:text-ink focus-visible:outline-none"
+        className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-sm text-ink-muted focus-halo hover-fine:hover:text-ink focus-visible:outline-none"
       >
         <span aria-hidden>…</span>
       </DropdownMenuTrigger>
@@ -178,7 +178,7 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
                 <ShellLink
                   href={crumb.href}
                   title={crumb.label}
-                  className="max-w-[16rem] min-w-0 truncate rounded-sm text-ink-muted underline-offset-3 focus-halo hover:text-ink hover:underline focus-visible:outline-none"
+                  className="max-w-[16rem] min-w-0 truncate rounded-sm text-ink-muted underline-offset-3 focus-halo hover-fine:hover:text-ink hover-fine:hover:underline focus-visible:outline-none"
                 >
                   {crumb.label}
                 </ShellLink>

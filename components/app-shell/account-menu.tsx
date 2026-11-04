@@ -304,7 +304,7 @@ function AccountMenu({
               type="button"
               className={cn(
                 "flex min-h-11 w-full items-center gap-2.5 rounded-md p-2 text-left",
-                "transition-colors duration-(--np-duration-fast) hover:bg-fill aria-expanded:bg-fill",
+                "transition-colors duration-(--np-duration-fast) hover-fine:hover:bg-fill aria-expanded:bg-fill",
                 "focus-halo focus-visible:outline-none",
                 rail && "md:max-wide:justify-center",
                 className

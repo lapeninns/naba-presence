@@ -53,7 +53,7 @@ export function NotificationsLink({ className }: { className?: string }) {
       className={cn(
         // An outline icon button: muted at rest, ink under the pointer or
         // focus; 44px on touch, 36px on a desk.
-        "relative grid size-11 shrink-0 place-items-center rounded-md text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) hover:bg-fill hover:text-ink focus-visible:text-ink focus-visible:outline-none desk:size-9",
+        "relative grid size-11 shrink-0 place-items-center rounded-md text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) hover-fine:hover:bg-fill hover-fine:hover:text-ink focus-visible:text-ink focus-visible:outline-none desk:size-9",
         className
       )}
     >
