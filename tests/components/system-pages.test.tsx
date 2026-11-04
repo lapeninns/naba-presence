@@ -267,6 +267,9 @@ describe("dashboard loading", () => {
     // The list-row shapes are decoration only, hidden from assistive tech.
     const skeletons = status.querySelectorAll('[data-slot="skeleton"]')
     expect(skeletons.length).toBeGreaterThan(0)
+    // The title bar is one page-title line tall, as PageHeader's h1 is.
+    expect(skeletons[0]!.parentElement).toHaveClass("text-page-title")
+    expect(skeletons[0]).toHaveClass("h-lh")
     for (const skeleton of Array.from(skeletons)) {
       expect(skeleton.closest('[aria-hidden="true"]')).not.toBeNull()
     }

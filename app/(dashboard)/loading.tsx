@@ -24,8 +24,10 @@ export default function DashboardLoading() {
       role="status"
       className="mx-auto flex w-full max-w-(--np-page-default-width) flex-col gap-4 px-5 py-6 md:px-(--np-page-pad-x) md:py-(--np-page-pad-y)"
     >
-      <div className="flex items-center gap-2">
-        <Skeleton className="h-6 w-40 max-w-full rounded-sm" />
+      {/* One page-title line box tall (PageHeader's h1), so the header
+          does not jump when the page replaces this state. */}
+      <div className="flex items-center gap-2 text-page-title">
+        <Skeleton className="h-lh w-40 max-w-full rounded-sm" />
         <Skeleton className="h-6 w-8 rounded-sm opacity-60" />
       </div>
       <p className="flex items-center gap-2 text-ui text-ink-muted">
