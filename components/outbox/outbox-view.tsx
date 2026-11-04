@@ -79,6 +79,8 @@ export function OutboxView() {
   const unavailable = first?.unavailable ?? []
   const paused = first?.paused ?? []
   const truncated = first?.truncated ?? false
+  const incomplete =
+    truncated || unavailable.length > 0 || counts.data?.partial === true
   const narrowed = Boolean(view.clientId || view.locationId)
 
   function navigate(change: Record<string, string | null>) {
@@ -121,6 +123,7 @@ export function OutboxView() {
           current={view.group}
           counts={counts.data}
           countsPending={counts.isPending}
+          countsPartial={incomplete}
           onChange={(group) => navigate({ group })}
         />
         {narrowed ? (
@@ -182,6 +185,13 @@ export function OutboxView() {
         </div>
       ) : null}
 
+      {truncated ? (
+        <p className="text-caption text-ink-muted">
+          The list and counts include only the newest 200 items of each kind.
+          Older items may be missing.
+        </p>
+      ) : null}
+
       <QueryStates
         status={queryStatus(
           { isPending: query.isPending, isError: query.isError && !query.data },
@@ -196,13 +206,15 @@ export function OutboxView() {
               titleAs="h2"
               placement="page"
               title={
-                view.group
-                  ? `Nothing in ${groupTitle(view.group)}`
-                  : "Nothing here for this filter"
+                incomplete
+                  ? "No matches in the available results"
+                  : view.group
+                    ? `Nothing in ${groupTitle(view.group)}`
+                    : "Nothing here for this filter"
               }
               description={
-                unavailable.length
-                  ? "Some kinds could not be read, so this may not be the whole picture."
+                incomplete
+                  ? "Some items are missing from this list, so other items may still need attention."
                   : "Nothing else needs looking at here."
               }
               action={
@@ -221,10 +233,14 @@ export function OutboxView() {
               titleAs="h2"
               placement="page"
               icon={<SendIcon />}
-              title="Nothing on its way to Google"
+              title={
+                incomplete
+                  ? "No matches in the available results"
+                  : "Nothing on its way to Google"
+              }
               description={
-                unavailable.length
-                  ? "Some kinds could not be read, so this may not be the whole picture."
+                incomplete
+                  ? "Some items are missing from this list, so other items may still need attention."
                   : "Replies, listing changes, posts and bulk changes show here while they wait for a person or for Google, and when they fail. Changes confirmed on Google stay for a day."
               }
               action={
@@ -244,11 +260,6 @@ export function OutboxView() {
             <OutboxSection key={section.key} section={section} />
           ))}
         </div>
-        {truncated ? (
-          <p className="text-caption text-ink-muted">
-            Only the newest 200 of each kind are listed.
-          </p>
-        ) : null}
         {query.isFetchNextPageError ? (
           <div
             role="alert"
@@ -349,11 +360,13 @@ function GroupStrip({
   current,
   counts,
   countsPending,
+  countsPartial,
   onChange,
 }: {
   current: OutboxGroupKey | undefined
   counts: OutboxCounts | undefined
   countsPending: boolean
+  countsPartial: boolean
   onChange: (group: OutboxGroupKey | null) => void
 }) {
   const tabs: { key: OutboxGroupKey | null; title: string }[] = [
@@ -378,8 +391,8 @@ function GroupStrip({
               onClick={() => onChange(tab.key)}
               aria-label={[
                 tab.title,
-                figure && !countsPending && count > 0
-                  ? `${count} ${count === 1 ? "item" : "items"}`
+                figure && !countsPending && (count > 0 || countsPartial)
+                  ? `${count} ${count === 1 ? "item" : "items"}${countsPartial ? " shown in the available results" : ""}`
                   : null,
               ]
                 .filter(Boolean)
@@ -395,6 +408,7 @@ function GroupStrip({
                   className={cn(alert && "font-semibold text-danger-ink")}
                 >
                   {formatNumber(count)}
+                  {countsPartial ? " shown" : null}
                 </TabCount>
               )}
             </button>

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import type { TransactionSql } from "postgres"
+import { describe, expect, it, vi } from "vitest"
 
 import { OUTCOME_PRESENTATION } from "@/lib/editors/outcome"
 import {
@@ -29,11 +30,20 @@ import {
   postState,
   replyItem,
   replyState,
+  readOutboxCounts,
+  readOutboxPage,
+  SOURCE_LIMIT,
   type BulkRow,
   type ChangeRow,
   type PostRow,
   type ReplyRow,
 } from "@/lib/server/outbox"
+
+import type { Session } from "@/lib/server/session"
+
+vi.mock("@/lib/server/org-features", () => ({
+  isOrgFeatureEnabled: async () => false,
+}))
 
 const place = {
   locationId: "loc-1",
@@ -459,4 +469,47 @@ describe("wire codec", () => {
       "failed",
     ])
   })
+})
+
+describe("capped Outbox counts", () => {
+  it.each([SOURCE_LIMIT, SOURCE_LIMIT + 1])(
+    "reports incomplete counts in both read paths when %i replies exceed the cap",
+    async (total) => {
+      // The oldest failure falls outside the retained rows only at cap + 1.
+      const replies = Array.from({ length: total }, (_, index) =>
+        reply({
+          reviewId: `review-${index}`,
+          workflowStatus:
+            index === SOURCE_LIMIT ? "failed" : "awaiting_approval",
+        })
+      )
+      const sql = (async (parts: TemplateStringsArray) =>
+        parts.join(" ").includes("from review r")
+          ? replies
+          : []) as unknown as TransactionSql
+      sql.savepoint = (async (read: (tx: TransactionSql) => Promise<unknown>) =>
+        read(sql)) as TransactionSql["savepoint"]
+      const session = {
+        role: "owner",
+        organisationId: "org-1",
+        userId: "user-1",
+      } as Session
+      const { page, counts } = await readOutboxPage(sql, session, {
+        group: "failed",
+        limit: 50,
+      })
+      expect(page.items).toEqual([])
+      expect(page.nextCursor).toBeNull()
+      expect(page.truncated).toBe(total > SOURCE_LIMIT)
+      expect(page.unavailable).toEqual([])
+      expect(counts).toEqual({
+        person: SOURCE_LIMIT,
+        google: 0,
+        failed: 0,
+        live: 0,
+        partial: total > SOURCE_LIMIT,
+      })
+      expect(await readOutboxCounts(sql, session, {})).toEqual(counts)
+    }
+  )
 })

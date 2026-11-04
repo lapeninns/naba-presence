@@ -980,7 +980,10 @@ export async function readOutboxPage(
       paused,
       generatedAt,
     },
-    counts: countOutbox(sources.items, sources.unavailable.length > 0),
+    counts: countOutbox(
+      sources.items,
+      sources.truncated || sources.unavailable.length > 0
+    ),
   }
 }
 
@@ -1016,5 +1019,8 @@ export async function readOutboxCounts(
 ): Promise<OutboxCounts> {
   if (session.role === "viewer") return countOutbox([])
   const sources = await readSources(sql, session, scope)
-  return countOutbox(sources.items, sources.unavailable.length > 0)
+  return countOutbox(
+    sources.items,
+    sources.truncated || sources.unavailable.length > 0
+  )
 }

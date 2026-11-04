@@ -90,7 +90,7 @@ export const outboxCountsSchema = z.object({
   ...(Object.fromEntries(
     OUTBOX_GROUP_KEYS.map((key) => [key, z.number().int().nonnegative()])
   ) as Record<OutboxGroupKey, z.ZodNumber>),
-  /** As on the list: the counts leave out a source that could not be read. */
+  /** Counts omit older rows beyond the source cap or an unreadable source. */
   partial: z.boolean(),
 })
 export type OutboxCounts = z.infer<typeof outboxCountsSchema>

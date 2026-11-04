@@ -218,10 +218,53 @@ describe("OutboxView", () => {
     expect(
       await screen.findByRole("heading", { name: "Nothing in Failed" })
     ).toBeInTheDocument()
+    expect(
+      screen.getByText("Nothing else needs looking at here.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Older items may be missing/)).toBeNull()
     fireEvent.click(
       screen.getByRole("button", { name: "Show the whole Outbox" })
     )
     expect(replace).toHaveBeenCalledWith("/outbox", { scroll: false })
+  })
+
+  it("does not claim an empty Failed group is clear when older rows were capped", async () => {
+    search = new URLSearchParams("group=failed")
+    renderView(page({ items: [], truncated: true }), {
+      person: 200,
+      google: 0,
+      failed: 0,
+      live: 0,
+      partial: true,
+    })
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "No matches in the available results",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/The list and counts include only the newest 200/)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Older items may be missing/)).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", {
+        name: "Failed, 0 items shown in the available results",
+      })
+    ).toHaveTextContent("0 shown")
+    expect(screen.queryByText("Nothing else needs looking at here.")).toBeNull()
+    expect(
+      screen.queryByRole("heading", { name: "Nothing in Failed" })
+    ).toBeNull()
+  })
+
+  it("qualifies counts from a capped source even when the list has rows", async () => {
+    renderView(page({ truncated: true }), { ...COUNTS, partial: true })
+    expect(
+      await screen.findByRole("button", {
+        name: "Failed, 1 item shown in the available results",
+      })
+    ).toHaveTextContent("1 shown")
   })
 
   it("says it is loading, and claims no rows or counts, until the first answer", async () => {
