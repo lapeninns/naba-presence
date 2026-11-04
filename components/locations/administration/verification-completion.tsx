@@ -362,7 +362,7 @@ export function ReviewedCompletionVerification({
                     emphasis="neutral"
                     title={verificationMethodName(item.method)}
                     trailing={
-                      <StatusPill tone="pending">
+                      <StatusPill tone="attention">
                         Pending with Google
                       </StatusPill>
                     }

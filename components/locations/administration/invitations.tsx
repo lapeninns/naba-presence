@@ -99,7 +99,7 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
         </Avatar>
       }
       title={role ? `${adminRoleLabel(role)} invitation` : "Invitation"}
-      trailing={<StatusPill tone="pending">Invited</StatusPill>}
+      trailing={<StatusPill tone="attention">Invited</StatusPill>}
       subtitle={
         <span className="block whitespace-normal">
           {`${place ? `To manage ${place}` : "For the connected Google account"} · waiting for your answer`}

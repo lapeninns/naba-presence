@@ -741,7 +741,16 @@ describe("AccessTab (roster truthfulness)", () => {
         /^3 people, 1 not yet accepted · 0 invitations to answer · Read from Google at/
       )
     ).toBeInTheDocument()
-    expect(screen.getByText("Invitation pending")).toBeInTheDocument()
+    expect(
+      screen
+        .getByText("Invitation pending")
+        .closest('[data-slot="status-pill"]')
+    ).toHaveAttribute("data-tone", "attention")
+    for (const pill of screen.getAllByText("Has access"))
+      expect(pill.closest('[data-slot="status-pill"]')).toHaveAttribute(
+        "data-tone",
+        "neutral"
+      )
     expect(
       screen.getByRole("heading", { name: "Invitations to answer" })
     ).toBeInTheDocument()

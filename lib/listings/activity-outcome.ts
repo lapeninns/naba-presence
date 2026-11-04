@@ -3,42 +3,6 @@ import {
   describeErrorCode,
 } from "@/lib/errors/action-errors"
 
-/**
- * How one recorded Google change attempt reads: the word and the tone. One
- * helper, so the same outcome is never amber in one place and red in
- * another. A failure is danger; an attempt whose outcome Google never
- * confirmed ("ambiguous") is a warning: it may have landed.
- */
-
-export type ActivityTone = "success" | "warning" | "danger" | "neutral"
-
-export function activityTone(status: string): ActivityTone {
-  switch (status) {
-    case "succeeded":
-      return "success"
-    case "failed":
-      return "danger"
-    case "ambiguous":
-      return "warning"
-    default:
-      return "neutral"
-  }
-}
-
-/** The same tone in the status pill's vocabulary. */
-export function activityPillTone(
-  status: string
-): "ok" | "warn" | "bad" | "outline" {
-  const tone = activityTone(status)
-  return tone === "success"
-    ? "ok"
-    : tone === "warning"
-      ? "warn"
-      : tone === "danger"
-        ? "bad"
-        : "outline"
-}
-
 /** "publish_food_menus" → "Publish food menus". Only for words that are not on a map. */
 export function humaniseActivity(value: string): string {
   const lower = value.toLowerCase().replace(/[_-]+/g, " ").trim()
@@ -305,4 +269,36 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function activityStatusLabel(status: string): string {
   return STATUS_LABELS[status] ?? "Other"
+}
+
+const SENT_STATUSES = new Set(["succeeded", "published", "accepted"])
+
+/**
+ * The status pill for one attempt in the publishing vocabulary. A send that
+ * Google took is only "On Google" (green) once its confirmation is recorded;
+ * until then it is waiting (blue), and an unresolved confirmation or an
+ * ambiguous answer asks the reader to check Google (amber).
+ */
+export function activityStatusPresentation(
+  status: string,
+  confirmationState?: string | null
+): { label: string; tone: "ok" | "info" | "warn" | "bad" | "outline" } {
+  if (SENT_STATUSES.has(status)) {
+    if (confirmationState === "confirmed")
+      return { label: "On Google", tone: "ok" }
+    if (confirmationState === "unresolved")
+      return { label: "Not confirmed: check Google", tone: "warn" }
+    return { label: "Sent, waiting for Google", tone: "info" }
+  }
+  switch (status) {
+    case "ambiguous":
+      return { label: "Not confirmed: check Google", tone: "warn" }
+    case "publishing":
+      return { label: "Sending to Google", tone: "info" }
+    case "failed":
+    case "rejected":
+      return { label: activityStatusLabel(status), tone: "bad" }
+    default:
+      return { label: activityStatusLabel(status), tone: "outline" }
+  }
 }

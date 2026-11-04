@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -123,6 +124,28 @@ export function AdministrationAccessWorkspace({
   // The sheet is up while its form is open, and for an invitation review or outcome until it is closed on.
   const inviteShown =
     inviteOpen || (invitation && dismissedAt !== action.selectionRevision)
+  // The sheet opens from state, not from a trigger, so the dialog has nowhere
+  // to return focus and it falls to the page. Once the sheet has gone, put it
+  // back on the opener unless something else (the review panel) took it.
+  const inviteOpener = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const opener = inviteOpener.current
+    if (inviteShown || !opener) return
+    inviteOpener.current = null
+    let frames = 0
+    let frame = 0
+    const restore = () => {
+      const active = document.activeElement
+      if (!active || active === document.body) {
+        if (opener.isConnected) opener.focus()
+        return
+      }
+      if (!active.closest('[role="dialog"]')) return
+      if (++frames < 60) frame = requestAnimationFrame(restore)
+    }
+    frame = requestAnimationFrame(restore)
+    return () => cancelAnimationFrame(frame)
+  }, [inviteShown])
   const publishReason =
     section.publishReason ??
     (action.busy
@@ -156,6 +179,10 @@ export function AdministrationAccessWorkspace({
         rosterUnavailable,
         retryRoster,
         openInvite: () => {
+          inviteOpener.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null
           setDismissedAt(null)
           setInviteOpen(true)
         },

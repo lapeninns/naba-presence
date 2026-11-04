@@ -232,6 +232,47 @@ describe("OperationReceiptNotice", () => {
     }
   )
 
+  it("stops promising another check once the receipt cannot be read", async () => {
+    vi.spyOn(mutationsApi, "fetchMutationReceipt").mockRejectedValue(
+      new ApiClientError(404, "not_found", "No receipt")
+    )
+    renderWithProviders(<OperationReceiptNotice receiptId="op-1" />)
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "stopped checking automatically"
+      )
+    )
+    expect(screen.getByRole("status")).not.toHaveTextContent(
+      "checking again automatically"
+    )
+    expect(screen.getByRole("status")).not.toHaveTextContent("On Google")
+  })
+
+  it("stops promising another check after the last poll", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const fetchReceipt = vi
+      .spyOn(mutationsApi, "fetchMutationReceipt")
+      .mockResolvedValue(receipt("uncertain"))
+    renderWithProviders(<OperationReceiptNotice receiptId="op-1" />)
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "checking again automatically"
+      )
+    )
+    for (let asked = 0; asked < RECEIPT_POLL_LIMIT; asked += 1)
+      await vi.advanceTimersByTimeAsync(receiptPollDelay(asked) as number)
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "stopped checking automatically"
+      )
+    )
+    expect(fetchReceipt).toHaveBeenCalledTimes(RECEIPT_POLL_LIMIT + 1)
+    expect(screen.getByRole("status")).toHaveAttribute(
+      "data-outcome",
+      "uncertain"
+    )
+  })
+
   it("moves on by itself when a polled receipt settles, and reports it once", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const fetchReceipt = vi
