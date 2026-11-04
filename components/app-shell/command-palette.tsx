@@ -243,7 +243,7 @@ function CommandPaletteButton({
       data-slot="search-button"
       className={cn(
         "flex h-9 shrink-0 items-center gap-2 rounded-md border border-line bg-surface pr-2 pl-2.5 text-ui text-ink-muted lg:min-w-50 wide:min-w-72",
-        "transition-colors duration-(--np-duration-fast) hover:border-line-strong hover:text-ink",
+        "transition-colors duration-(--np-duration-fast) hover-fine:hover:border-line-strong hover-fine:hover:text-ink",
         "focus-halo focus-visible:outline-none",
         // Below lg a bare outline icon (like the bell beside it): no
         // field-like box, a 44px hit on touch, 36px with a cursor.

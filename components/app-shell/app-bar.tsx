@@ -83,7 +83,7 @@ function ShellBackLink({
       }
       className={cn(
         "flex h-11 max-w-full min-w-11 items-center gap-0.5 rounded-md pr-2 pl-1 text-ui font-medium text-ink",
-        "transition-colors duration-(--np-duration-fast) hover:bg-fill",
+        "transition-colors duration-(--np-duration-fast) hover-fine:hover:bg-fill",
         "focus-halo focus-visible:outline-none",
         className
       )}
@@ -375,7 +375,7 @@ function AppBarAction({ action }: { action: ShellAction }) {
     pending && action.pendingLabel ? action.pendingLabel : action.label
   const className = cn(
     "grid h-11 min-w-11 shrink-0 place-items-center rounded-md text-ink",
-    "transition-colors duration-(--np-duration-fast) hover:bg-fill",
+    "transition-colors duration-(--np-duration-fast) hover-fine:hover:bg-fill",
     "focus-halo focus-visible:outline-none aria-busy:cursor-progress aria-disabled:text-disabled-ink",
     Icon ? "w-11" : "px-2 text-ui font-medium whitespace-nowrap"
   )

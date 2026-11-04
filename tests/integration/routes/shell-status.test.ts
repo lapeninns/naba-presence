@@ -59,6 +59,9 @@ describeDatabase("GET /api/shell-status", () => {
       nextCursor: notifications.nextCursor,
       unreadCount: notifications.unreadCount,
     })
+    expect(status.outbox).toEqual(
+      await read("/api/outbox/counts", owner.cookie)
+    )
   })
 
   it("needs a session", async () => {
