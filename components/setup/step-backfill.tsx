@@ -3,13 +3,10 @@
 import { useQueryClient } from "@tanstack/react-query"
 
 import { BackfillCard } from "@/components/settings/backfill-card"
-import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+import { CircleAlertIcon } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
+import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
@@ -55,32 +52,38 @@ function StepBackfill({
   return (
     <>
       {directory.isPending ? (
-        <Skeleton
-          aria-busy="true"
-          className="h-28 w-full rounded-(--np-radius-card)"
-        />
+        <div aria-busy="true">
+          <p role="status" className="sr-only">
+            {business
+              ? "Loading your listings…"
+              : `Loading ${clientName}’s listings…`}
+          </p>
+          <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
+        </div>
       ) : directory.isError ? (
         // Never fall back to the whole organisation: Start would then import
         // every other client's listings too.
-        <Alert variant="destructive">
-          <AlertTitle>
-            {business
+        <Empty
+          variant="error"
+          role="alert"
+          icon={<CircleAlertIcon />}
+          title={
+            business
               ? "We couldn’t load your listings"
-              : `We couldn’t load ${clientName}’s listings`}
-          </AlertTitle>
-          <AlertDescription>
-            {describeActionError(directory.error)}
-          </AlertDescription>
-          <AlertActions>
+              : `We couldn’t load ${clientName}’s listings`
+          }
+          description={`${describeActionError(directory.error)} Nothing was changed.`}
+          actions={
             <Button
               variant="secondary"
-              size="sm"
+              pending={directory.isFetching}
+              pendingLabel="Trying again…"
               onClick={() => void directory.refetch()}
             >
               Try again
             </Button>
-          </AlertActions>
-        </Alert>
+          }
+        />
       ) : (
         <BackfillCard
           externalLocationIds={externalLocationIds}
