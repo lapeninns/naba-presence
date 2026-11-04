@@ -42,12 +42,13 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
       const replyBox = screen.getByRole("textbox", { name: "Your reply" })
       await expect(replyBox).toBeVisible()
 
-      // No OpenAI key here, so Generate answers with an error (or is off).
-      // One try, then the typed reply below is what the journey publishes.
-      await agent.act(
-        'Press "Generate reply" (or "Regenerate") once to ask for a suggested reply. This test environment has no AI provider, so a message such as "No reply was generated" is an expected result: the goal is done once you have pressed it, or found it disabled. Do not retry and do not type anything.'
-      )
-      await expect(replyBox).toBeVisible()
+      // The fixture has no AI provider. Wait for that capability to resolve
+      // before taking the manual compose path.
+      await expect(
+        selected.getByText("AI replies aren’t set up here. Write your own.", {
+          exact: true,
+        })
+      ).toBeVisible({ timeout: 30_000 })
 
       const reply = `Thank you for your kind review. We are delighted you enjoyed your stay (ref ${runTag()}).`
       await agent.act(
