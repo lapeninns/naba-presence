@@ -14,6 +14,10 @@ import {
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
 import { PasswordField } from "@/components/auth/password-field"
+import {
+  stepUpFinalFocus,
+  stepUpFocusOrigin,
+} from "@/components/auth/step-up-focus"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -62,6 +66,7 @@ type Mode = "closed" | "step_up" | "enroll" | "verified"
  */
 function MfaStepUpPrompt({
   initialCode,
+  initialOrigin = null,
 }: {
   /**
    * The event that caused this prompt to load, when it was loaded on demand
@@ -69,6 +74,8 @@ function MfaStepUpPrompt({
    * of waiting for the next one.
    */
   initialCode?: MfaStepUpEventDetail["code"]
+  /** What had focus when that first event fired (see `stepUpFocusOrigin`). */
+  initialOrigin?: HTMLElement | null
 } = {}) {
   const [mode, setMode] = useState<Mode>(() =>
     initialCode === undefined
@@ -91,6 +98,7 @@ function MfaStepUpPrompt({
   const [username, setUsername] = useState("")
   const codeRef = useRef<HTMLDivElement>(null)
   const alertRef = useRef<HTMLDivElement>(null)
+  const originRef = useRef<HTMLElement | null>(initialOrigin)
 
   // A failure with no field to blame lands on its banner, as on sign-in,
   // so the answer is read out where focus is.
@@ -101,6 +109,7 @@ function MfaStepUpPrompt({
   useEffect(() => {
     function onStepUp(event: Event) {
       const detail = (event as CustomEvent<MfaStepUpEventDetail>).detail
+      originRef.current = stepUpFocusOrigin()
       setUsername(
         queryClient?.getQueryData<SessionResponse>(queryKeys.session)?.session
           ?.email ?? ""
@@ -193,7 +202,7 @@ function MfaStepUpPrompt({
       dirty={mode === "step_up" && (password !== "" || code !== "")}
       onDiscard={close}
     >
-      <DialogContent>
+      <DialogContent finalFocus={() => stepUpFinalFocus(originRef.current)}>
         {mode === "enroll" ? (
           <>
             <DialogHeader>

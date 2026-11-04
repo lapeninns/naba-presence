@@ -27,7 +27,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import DashboardError from "@/app/(dashboard)/error"
 import DashboardLoading from "@/app/(dashboard)/loading"
-import { BoundaryErrorState } from "@/components/app-shell/boundary"
+import {
+  BoundaryErrorState,
+  boundaryButtonClass,
+} from "@/components/app-shell/boundary"
 import DashboardNotFound from "@/app/(dashboard)/not-found"
 import { queryKeys } from "@/lib/queries/keys"
 import GlobalError from "@/app/global-error"
@@ -67,6 +70,53 @@ describe("route error boundary", () => {
     expect(document.querySelector('[data-slot="page-frame"]')).not.toBeNull()
   })
 
+  it("hands focus to the recovered page once a retry succeeds", async () => {
+    const retry = vi.fn()
+    const { rerender } = render(
+      <main id="main" tabIndex={-1}>
+        <DashboardError
+          error={Object.assign(new Error("x"), { digest: "d-1" })}
+          reset={vi.fn()}
+          retry={retry}
+        />
+      </main>
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(retry).toHaveBeenCalledTimes(1)
+    rerender(
+      <main id="main" tabIndex={-1}>
+        <h1>Reports</h1>
+      </main>
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Reports" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("prefers the stable retry, which re-fetches the segment's server data", async () => {
+    const retry = vi.fn()
+    const unstable_retry = vi.fn()
+    const reset = vi.fn()
+    render(
+      <DashboardError
+        error={new Error("x")}
+        reset={reset}
+        retry={retry}
+        unstable_retry={unstable_retry}
+      />
+    )
+    const button = screen.getByRole("button", { name: "Try again" })
+    button.focus()
+    await userEvent.click(button)
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(unstable_retry).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+    expect(button).not.toHaveAttribute("disabled")
+    expect(document.activeElement).toBe(button)
+  })
+
   it("falls back to reset when retry is unavailable", async () => {
     const reset = vi.fn()
     render(<DashboardError error={new Error("x")} reset={reset} />)
@@ -74,6 +124,17 @@ describe("route error boundary", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(reset).toHaveBeenCalledTimes(1)
   })
+})
+
+describe("boundaryButtonClass", () => {
+  it.each(["primary", "outline", "ghost"] as const)(
+    "draws the %s hover fill for a fine pointer only (no sticky hover on touch)",
+    (variant) => {
+      const classes = boundaryButtonClass(variant).split(" ")
+      expect(classes.filter((c) => c.startsWith("hover:"))).toEqual([])
+      expect(classes.some((c) => c.startsWith("hover-fine:hover:"))).toBe(true)
+    }
+  )
 })
 
 describe("BoundaryErrorState", () => {
@@ -231,6 +292,9 @@ describe("dashboard loading", () => {
     // The list-row shapes are decoration only, hidden from assistive tech.
     const skeletons = status.querySelectorAll('[data-slot="skeleton"]')
     expect(skeletons.length).toBeGreaterThan(0)
+    // The title bar is one page-title line tall, as PageHeader's h1 is.
+    expect(skeletons[0]!.parentElement).toHaveClass("text-page-title")
+    expect(skeletons[0]).toHaveClass("h-lh")
     for (const skeleton of Array.from(skeletons)) {
       expect(skeleton.closest('[aria-hidden="true"]')).not.toBeNull()
     }

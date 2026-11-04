@@ -80,8 +80,11 @@ export type OutcomePresentation = {
   /** One sentence on what it means and what to do next. */
   description: string
   tone: StatusTone
-  /** The toast kind that matches the tone. */
-  toast: "success" | "info" | "warning" | "error"
+  /**
+   * The toast kind that matches the tone: `neutral` for a state nobody
+   * acts on and Google does not hold, `success` only for On Google.
+   */
+  toast: "neutral" | "success" | "info" | "warning" | "error"
   /** True only when evidence shows Google holds the change. */
   live: boolean
   glyph: StatusGlyph
@@ -119,7 +122,7 @@ export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
       description:
         "NabaPresence’s copy is saved. It isn’t on Google until you publish it.",
       tone: "neutral",
-      toast: "success",
+      toast: "neutral",
       live: false,
       glyph: "hard-drive",
       track: { stop: "saved" },
@@ -207,7 +210,7 @@ export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
       title: "{n} unsaved changes",
       description: "Only in this browser tab. Save to keep them.",
       tone: "neutral",
-      toast: "info",
+      toast: "neutral",
       live: false,
       glyph: "circle-dashed",
       track: null,
@@ -271,7 +274,7 @@ export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
       title: "Withdrawn. Nothing was sent to Google.",
       description: "The change was withdrawn before it was sent.",
       tone: "neutral",
-      toast: "info",
+      toast: "neutral",
       live: false,
       glyph: "circle-minus",
       track: null,
@@ -281,7 +284,7 @@ export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
       title: "Expired. Nothing was sent to Google.",
       description: "The change waited too long and was not sent.",
       tone: "neutral",
-      toast: "info",
+      toast: "neutral",
       live: false,
       glyph: "circle-minus",
       track: null,
@@ -291,7 +294,7 @@ export const OUTCOME_PRESENTATION: Record<PresentedState, OutcomePresentation> =
       title: "Replaced. Nothing was sent to Google.",
       description: "A newer change took its place before it was sent.",
       tone: "neutral",
-      toast: "info",
+      toast: "neutral",
       live: false,
       glyph: "circle-minus",
       track: null,
@@ -379,8 +382,8 @@ export function outcomeToast(message: OutcomeMessage): {
 
 /**
  * What a success toast option may be: plain words (a success that is not a
- * Google write, "Post deleted") or an outcome message, whose toast kind then
- * follows the outcome.
+ * Google write, "Post deleted", drawn neutral) or an outcome message, whose
+ * toast kind then follows the outcome.
  */
 export type SuccessToastCopy = string | OutcomeMessage
 
@@ -391,6 +394,6 @@ export function successToastFields(copy: SuccessToastCopy): {
   type: OutcomePresentation["toast"]
 } {
   return typeof copy === "string"
-    ? { title: copy, description: undefined, type: "success" }
+    ? { title: copy, description: undefined, type: "neutral" }
     : outcomeToast(copy)
 }

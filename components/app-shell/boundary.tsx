@@ -27,11 +27,11 @@ const BUTTON_BASE =
 // never with opacity.
 const BUTTON_VARIANT: Record<BoundaryButtonVariant, string> = {
   primary:
-    "border-transparent bg-primary text-primary-foreground hover:not-disabled:bg-ink-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
+    "border-transparent bg-primary text-primary-foreground hover-fine:hover:not-disabled:bg-ink-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
   outline:
-    "border-line-strong bg-surface text-ink hover:not-disabled:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
+    "border-line-strong bg-surface text-ink hover-fine:hover:not-disabled:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
   ghost:
-    "border-transparent bg-transparent text-ink hover:not-disabled:bg-fill drawn-disabled:text-disabled-ink",
+    "border-transparent bg-transparent text-ink hover-fine:hover:not-disabled:bg-fill drawn-disabled:text-disabled-ink",
 }
 
 const BUTTON_SIZE: Record<BoundaryButtonSize, string> = {
@@ -253,12 +253,38 @@ function BoundaryAlert({
   )
 }
 
+/**
+ * After a boundary's retry succeeds the boundary unmounts, and focus on its
+ * Try again button falls to <body>. Hand it to the recovered page the way a
+ * navigation does: the first drawn h1 in #main, else #main itself.
+ */
+function focusRecoveredPage() {
+  window.requestAnimationFrame(() => {
+    const active = document.activeElement
+    if (active && active !== document.body && active.isConnected) return
+    const main = document.getElementById("main")
+    if (!main) return
+    const headings = [...main.querySelectorAll<HTMLElement>("h1")]
+    const heading =
+      headings.find((h) => h.getClientRects().length > 0) ?? headings[0]
+    if (heading) {
+      if (!heading.hasAttribute("tabindex")) {
+        heading.setAttribute("tabindex", "-1")
+        heading.classList.add("outline-none")
+      }
+      heading.focus({ preventScroll: true })
+    }
+    if (document.activeElement !== heading) main.focus({ preventScroll: true })
+  })
+}
+
 export {
   BoundaryAlert,
   BoundaryCode,
   BoundaryErrorState,
   BoundaryFrame,
   boundaryButtonClass,
+  focusRecoveredPage,
   NOT_FOUND_DESCRIPTION,
   NOT_FOUND_TITLE,
   notFoundActionLabel,

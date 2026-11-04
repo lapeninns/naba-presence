@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic"
 import { useEffect, useState } from "react"
 
+import { stepUpFocusOrigin } from "@/components/auth/step-up-focus"
 import { MFA_STEP_UP_EVENT, type MfaStepUpEventDetail } from "@/lib/api/client"
 
 const MfaStepUpPrompt = dynamic(
@@ -21,19 +22,23 @@ const MfaStepUpPrompt = dynamic(
  * on the prompt listens for itself.
  */
 export function MfaStepUpHost() {
-  const [firstCode, setFirstCode] = useState<
-    MfaStepUpEventDetail["code"] | null
-  >(null)
+  const [first, setFirst] = useState<{
+    code: MfaStepUpEventDetail["code"]
+    origin: HTMLElement | null
+  } | null>(null)
 
   useEffect(() => {
-    if (firstCode) return
+    if (first) return
     function onStepUp(event: Event) {
       const detail = (event as CustomEvent<MfaStepUpEventDetail>).detail
-      if (detail?.code) setFirstCode(detail.code)
+      if (detail?.code)
+        setFirst({ code: detail.code, origin: stepUpFocusOrigin() })
     }
     window.addEventListener(MFA_STEP_UP_EVENT, onStepUp)
     return () => window.removeEventListener(MFA_STEP_UP_EVENT, onStepUp)
-  }, [firstCode])
+  }, [first])
 
-  return firstCode ? <MfaStepUpPrompt initialCode={firstCode} /> : null
+  return first ? (
+    <MfaStepUpPrompt initialCode={first.code} initialOrigin={first.origin} />
+  ) : null
 }

@@ -32,7 +32,8 @@ import {
 } from "@/lib/editors/outcome"
 
 const EXPECTED = {
-  saved_locally: { label: "Draft saved", toast: "success" },
+  // Local-only outcomes are neutral, never green (SYSTEM §12).
+  saved_locally: { label: "Draft saved", toast: "neutral" },
   awaiting_approval: { label: "Awaiting approval", toast: "info" },
   sent: { label: "Sending to Google", toast: "info" },
   awaiting_confirmation: { label: "Sent, waiting for Google", toast: "info" },
@@ -124,8 +125,19 @@ describe("operation outcome vocabulary", () => {
     expect(successToastFields("Post deleted")).toEqual({
       title: "Post deleted",
       description: undefined,
-      type: "success",
+      type: "neutral",
     })
+  })
+
+  it("gives every neutral-tone state a neutral toast, and only On Google a success", () => {
+    for (const [state, presentation] of Object.entries(OUTCOME_PRESENTATION)) {
+      if (presentation.tone === "neutral") {
+        expect([state, presentation.toast]).toEqual([state, "neutral"])
+      }
+      expect(presentation.toast === "success").toBe(
+        state === "confirmed_applied"
+      )
+    }
   })
 })
 

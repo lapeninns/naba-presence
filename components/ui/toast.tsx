@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import {
+  CheckIcon,
   CircleCheckIcon,
   InfoIcon,
   Loader2Icon,
@@ -321,9 +322,17 @@ function ToastClose({
  * The leading status glyph in the family's SOLID step, which reads on the
  * charcoal in both themes (reference `.toast-icon`). Loading uses a spinner
  * in the muted on-charcoal ink: it is not a status, it is the absence of one.
+ * Neutral (done here, nobody acts next, nothing on Google) is a plain tick in
+ * the same muted ink: green is kept for what Google confirmed (SYSTEM §12).
  */
 function ToastIcon({ type }: { type: string | undefined }) {
   let icon: React.ReactNode = null
+
+  if (type === "neutral") {
+    icon = (
+      <CheckIcon className="text-ink-muted-on-charcoal" aria-hidden="true" />
+    )
+  }
 
   if (type === "success") {
     icon = <CircleCheckIcon className="text-success-solid" aria-hidden="true" />
@@ -518,8 +527,14 @@ function useToastManager() {
  */
 export type ToastKind = "local" | "google"
 
-/** The result types; `loading` is the progress phase (`toastProgress`). */
-export type ToastResultType = "success" | "info" | "warning" | "error"
+/**
+ * The result types; `loading` is the progress phase (`toastProgress`).
+ * `neutral` is the app-only result (saved here, copied, moved): nobody acts
+ * next and nothing reached Google. `success` is green and means Google
+ * confirmed it; a caller must ask for it.
+ */
+export type ToastResultType =
+  "neutral" | "success" | "info" | "warning" | "error"
 
 /** Opt-in Undo for a local reversible action. Closes the toast when used. */
 export type ToastUndo = {
@@ -539,7 +554,7 @@ type OutcomeToastBase = {
   id?: string
   title: React.ReactNode
   description?: React.ReactNode
-  /** Default "success". */
+  /** Default "neutral": only a confirmed Google result is "success". */
   type?: ToastResultType
   /** Milliseconds; 0 keeps it until dismissed. Defaults per `withToastDefaults`. */
   timeout?: number
@@ -651,7 +666,7 @@ function outcomeToManagerOptions(
   const resolved = withToastDefaults({
     title,
     description,
-    type: type ?? "success",
+    type: type ?? "neutral",
     data,
     onClose,
     ...(actionProps ? { actionProps } : {}),
@@ -807,7 +822,7 @@ export function toastProgress<K extends ToastKind = "local">(
   return {
     id,
     success: (resultTitle, options) =>
-      settle(resultTitle, options, options?.type ?? "success"),
+      settle(resultTitle, options, options?.type ?? "neutral"),
     error: (resultTitle, options) =>
       settle(resultTitle, options as ResultOptionsFor<K> | undefined, "error"),
     update: (nextTitle, nextDescription) =>
