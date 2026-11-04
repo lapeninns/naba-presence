@@ -123,6 +123,13 @@ describe("root pages", () => {
     )
   })
 
+  it("the root 404 names the product in its banner and offers one way back", () => {
+    render(<NotFound />)
+    expect(screen.getByRole("banner")).toHaveTextContent("NabaPresence")
+    expect(screen.getByRole("main")).not.toHaveTextContent("NabaPresence")
+    expect(screen.getAllByRole("link")).toHaveLength(1)
+  })
+
   it("the global error shows the digest in mono, never the message", () => {
     // global-error renders its own <html>; mount it into the document.
     render(
