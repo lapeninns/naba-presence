@@ -20,9 +20,10 @@ import { cn } from "@/lib/utils"
  * The reports' bar chart (reference `.vchart`), drawn in the DOM rather than
  * SVG so it lays out with the page at any width.
  *
- * - Filled bars on the `chart-*` tokens; series are told apart by lightness
- *   (chart-1 dark, chart-2 light, chart-3 grey) and the legend names them
- *   whenever there is more than one.
+ * - Filled bars on the `chart-*` tokens; series are told apart by hue and
+ *   lightness (green, blue, amber; grey for a context series) and the legend
+ *   names them whenever there is more than one, so colour is never the only
+ *   cue: the readout and the table name every series too.
  * - Figures are printed on the peak bar and the latest bar, each with its
  *   date ("2 on 14 Oct"), in tabular mono; every bar when there are seven or
  *   fewer. The latest is left to the readout when it would sit on the peak's
@@ -55,7 +56,13 @@ import { cn } from "@/lib/utils"
 
 type ChartVars = React.CSSProperties & Record<`--${string}`, string>
 
-type SlotColor = 1 | 2 | 3
+/**
+ * Identity series take 1 (green), 4 (blue), 5 (amber) in that order; 3 (grey)
+ * is a context series drawn behind one (reviews received behind replies),
+ * never an identity beside others. 2 is the old light green, kept for
+ * callers outside the reports.
+ */
+type SlotColor = 1 | 2 | 3 | 4 | 5
 
 export type ReportBarSeries = {
   key: string
@@ -73,12 +80,16 @@ const BAR_CLASS: Record<SlotColor, string> = {
   1: "bg-chart-1",
   2: "bg-chart-2",
   3: "bg-chart-3",
+  4: "bg-chart-4",
+  5: "bg-chart-5",
 }
 
 const LINE_CLASS: Record<SlotColor, string> = {
   1: "stroke-chart-1",
   2: "stroke-chart-2",
   3: "stroke-chart-3",
+  4: "stroke-chart-4",
+  5: "stroke-chart-5",
 }
 
 /** Below this many pixels a day, a daily chart is drawn a week at a time. */
@@ -524,9 +535,18 @@ export function ReportBarChart({
           absolutely positioned one still widens the page: at 320px a
           four-column table pushed the document to 359px. A clipping sr-only
           box around it keeps it out of the page's scroll width. */}
+      {/* On screen the table scrolls inside its own box, so the box is a
+          keyboard stop of its own: arrow keys scroll it once focused. */}
       <div
         id={tableId}
-        className={showValues ? "max-h-72 min-w-0 overflow-auto" : "sr-only"}
+        role={showValues ? "region" : undefined}
+        aria-label={showValues ? `${title}, values` : undefined}
+        tabIndex={showValues ? 0 : undefined}
+        className={
+          showValues
+            ? "max-h-72 min-w-0 overflow-auto rounded-(--np-radius-control) focus-halo focus-visible:outline-none"
+            : "sr-only"
+        }
       >
         <ChartDataTable
           caption={title}

@@ -275,3 +275,43 @@ describe("ReportBarChart as a line", () => {
     expect(slider).toHaveAttribute("aria-valuetext", "2 Sep: Average rating —")
   })
 })
+
+describe("ReportBarChart values on screen", () => {
+  it("puts the values on screen as one labelled keyboard stop", () => {
+    render(chart)
+    expect(
+      screen.queryByRole("region", {
+        name: "Reviews received and replied, values",
+      })
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /Show values/ }))
+    const region = screen.getByRole("region", {
+      name: "Reviews received and replied, values",
+    })
+    // It scrolls inside its own box, so the keyboard must be able to reach it.
+    expect(region).toHaveAttribute("tabindex", "0")
+    expect(within(region).getByRole("table")).toBeInTheDocument()
+  })
+
+  it("draws blue and amber identity series, named in the legend", () => {
+    const { container } = render(
+      <ReportBarChart
+        title="Actions"
+        categoryHeading="Day"
+        unitName="day"
+        unitNote="Daily totals."
+        stacked
+        data={[{ label: "1 Sep", values: { a: 1, b: 2, c: 3 } }]}
+        series={[
+          { key: "a", label: "Calls", color: 1 },
+          { key: "b", label: "Website clicks", color: 4 },
+          { key: "c", label: "Directions", color: 5 },
+        ]}
+      />
+    )
+    expect(container.querySelector(".bg-chart-4")).not.toBeNull()
+    expect(container.querySelector(".bg-chart-5")).not.toBeNull()
+    expect(screen.getAllByText("Website clicks").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Directions").length).toBeGreaterThan(0)
+  })
+})

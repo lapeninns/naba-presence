@@ -249,12 +249,28 @@ function stubAgency(
     onlyOneClient = false,
     locationCount = 2,
     mode = "agency",
+    directory = [],
   }: {
     onlyOneClient?: boolean
     locationCount?: number
     mode?: "agency" | "business"
+    /** Listing names filed under the first client, in the directory. */
+    directory?: string[]
   } = {}
 ) {
+  const directoryRow = (name: string, index: number) => ({
+    locationId: `00000000-0000-4000-9000-00000000000${index + 1}`,
+    name,
+    address: null,
+    timezone: "Europe/London",
+    linkId: `link-${index}`,
+    externalLocationId: `e-${index}`,
+    googleLocationName: `locations/${index}`,
+    googleTitle: name,
+    verified: true,
+    clientId: "00000000-0000-4000-8000-000000000001",
+    clientName: "Old Crown",
+  })
   const client = (id: string, name: string) => ({
     id,
     name,
@@ -291,7 +307,7 @@ function stubAgency(
             },
           }
         : url.includes("/api/location-links")
-          ? { locations: [] }
+          ? { locations: directory.map(directoryRow) }
           : url.includes("/api/clients")
             ? {
                 items: [
@@ -369,32 +385,55 @@ describe("PerformanceView share from All clients (CLR-10)", () => {
 })
 
 describe("PerformanceView scope on a phone (one client)", () => {
-  // The app bar's scope chip hides itself with one client to switch between,
-  // so the report keeps its own Client field (and Location) on a phone.
-  it("draws the report's own scope fields on a phone when the app bar has no chip", async () => {
-    stubAgency("owner", { onlyOneClient: true })
+  // The scope control has nothing to switch between with one client, so the
+  // report keeps its Listing field on a phone. The client itself is never a
+  // field here: the shell's scope control chooses it (DIRECTION §7.3).
+  it("draws the report's Listing field on a phone when the scope control has nothing to switch", async () => {
+    stubAgency("owner", {
+      onlyOneClient: true,
+      directory: ["Girton", "Histon"],
+    })
+    search = "clientId=00000000-0000-4000-8000-000000000001"
     renderAgencyView()
     const toolbar = screen.getByRole("region", { name: "Report scope" })
     await waitFor(() => expect(toolbar).toHaveClass("block"))
     expect(toolbar).not.toHaveClass("hidden")
     expect(
-      within(toolbar).getByRole("combobox", { name: /Client/ })
+      within(toolbar).getByRole("combobox", { name: /Listing/ })
     ).toBeInTheDocument()
+    expect(
+      within(toolbar).queryByRole("combobox", { name: /Client/ })
+    ).not.toBeInTheDocument()
     // The period is the strip's on a phone: the toolbar's own is desk-only.
-    expect(toolbar.querySelector(".max-md\\:hidden")).not.toBeNull()
+    expect(
+      within(toolbar)
+        .getByRole("radiogroup", { name: "Period" })
+        .closest(".max-md\\:hidden")
+    ).not.toBeNull()
   })
 
-  it("leaves the app bar's chip as the only phone scope control with several clients", async () => {
+  it("draws no empty scope row on a phone when there is no listing to choose", async () => {
+    stubAgency("owner", { onlyOneClient: true, directory: ["Girton"] })
+    search = "clientId=00000000-0000-4000-8000-000000000001"
+    renderAgencyView()
+    const toolbar = screen.getByRole("region", { name: "Report scope" })
+    expect(
+      await within(toolbar).findByText("Old Crown · 2 listings")
+    ).toBeInTheDocument()
+    expect(toolbar).toHaveClass("hidden", "md:block")
+  })
+
+  it("states the scope in words and offers no Client field with several clients", async () => {
     stubAgency("owner")
     renderAgencyView()
     await screen.findByRole("tab", { name: "Reply performance" })
     const toolbar = screen.getByRole("region", { name: "Report scope" })
-    // Wait for the client list; the chip would be visible by then.
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole("combobox", { name: /Client/ })
-      ).not.toHaveLength(0)
-    )
+    expect(
+      await within(toolbar).findByText("All clients · 4 listings")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: /Client/ })
+    ).not.toBeInTheDocument()
     expect(toolbar).toHaveClass("hidden", "md:block")
   })
 })

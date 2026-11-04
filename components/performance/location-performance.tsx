@@ -95,7 +95,11 @@ export function LocationPerformance({
             with the tile once it has (both break the pinned test). */}
         <SectionHeader
           title="Review activity"
-          description={[rangeLabel, period].filter(Boolean).join(" · ")}
+          // The dates once the figures say which zone they were counted in,
+          // so they never change under the reader.
+          description={[rangeLabel, overview.data ? period : null]
+            .filter(Boolean)
+            .join(" · ")}
           actions={
             onRangeChange ? (
               <RangeSelect
