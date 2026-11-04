@@ -444,4 +444,51 @@ describe("ConnectionCard", () => {
     await user.click(confirm)
     expect(mutate).toHaveBeenCalledTimes(1)
   })
+
+  it("keeps Disconnect a danger action that another login's email never arms", async () => {
+    const user = userEvent.setup()
+    const mutate = vi.fn()
+    renderCard([connection({})], mutate)
+    await chooseDisconnect(user, "owner@riverside.test")
+    const dialog = await screen.findByRole("alertdialog")
+    const confirm = within(dialog).getByRole("button", { name: "Disconnect" })
+    // Destructive, so danger: never the green kept for publishing to Google.
+    expect(confirm).toHaveAttribute("data-variant", "danger")
+    expect(dialog.querySelector('[data-variant="send"]')).toBeNull()
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /to confirm/ }),
+      "ops@harbour.test"
+    )
+    expect(confirm).toBeDisabled()
+    await user.click(confirm)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it("starts empty and disarmed again when the dialog is reopened", async () => {
+    const user = userEvent.setup()
+    renderCard([connection({})])
+    await chooseDisconnect(user, "owner@riverside.test")
+    let dialog = await screen.findByRole("alertdialog")
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /to confirm/ }),
+      "owner@riverside.test"
+    )
+    expect(
+      within(dialog).getByRole("button", { name: "Disconnect" })
+    ).toBeEnabled()
+    await user.click(
+      within(dialog).getByRole("button", { name: "Keep it connected" })
+    )
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    await chooseDisconnect(user, "owner@riverside.test")
+    dialog = await screen.findByRole("alertdialog")
+    expect(
+      within(dialog).getByRole("textbox", { name: /to confirm/ })
+    ).toHaveValue("")
+    expect(
+      within(dialog).getByRole("button", { name: "Disconnect" })
+    ).toBeDisabled()
+  })
 })
