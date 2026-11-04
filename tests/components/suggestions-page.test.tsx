@@ -364,6 +364,15 @@ describe("SuggestionsTab", () => {
     ).toBeInTheDocument()
   })
 
+  it("says there are no suggestions in neutral, not as a Google success", async () => {
+    serve([])
+    renderWithProviders(<SuggestionsTab locationId={LOCATION} />)
+    const empty = (
+      await screen.findByRole("heading", { name: "No suggestions from Google" })
+    ).closest('[data-slot="empty"]')
+    expect(empty).toHaveAttribute("data-tone", "neutral")
+  })
+
   it("with suggestions off, says there is nothing to review only when nothing is open above", async () => {
     vi.spyOn(importReviewApi, "fetchImportReview").mockResolvedValue({
       ...list([]),
@@ -373,7 +382,7 @@ describe("SuggestionsTab", () => {
       <SuggestionsTab locationId={LOCATION} />
     )
     expect(
-      await screen.findByText(/so there is nothing to review here/)
+      await screen.findByText("The check is off: nothing to review here.")
     ).toBeInTheDocument()
     unmount()
 
@@ -398,9 +407,7 @@ describe("SuggestionsTab", () => {
     ]
     renderWithProviders(<SuggestionsTab locationId={LOCATION} />)
     expect(
-      await screen.findByText(
-        /Protected fields Google changed are still decided above/
-      )
+      await screen.findByText("Protected fields are still decided above.")
     ).toBeInTheDocument()
     expect(screen.queryByText(/nothing to review here/)).toBeNull()
   })

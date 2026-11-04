@@ -134,7 +134,8 @@ function revertState(change: GoogleChange, now: number) {
     return {
       label: "Ready to publish",
       detail: "Approved. Publish it to put ours back on Google.",
-      tone: "pending" as const,
+      // Amber: approved, and a person still has to send it.
+      tone: "attention" as const,
     }
   }
   if (revert?.kind === "change_request") {
@@ -297,7 +298,9 @@ export function GoogleChangesPanel({
           clearFailure(change)
           toasts.add({
             ...outcomeToast(change, data.outcome),
-            type: "success",
+            // Green is for what Google confirmed; a send or an approval
+            // request is still on its way.
+            type: data.outcome === "accepted" ? "success" : "info",
           })
           settled()
         },
@@ -454,7 +457,7 @@ export function GoogleChangesPanel({
                                         title: "Approved",
                                         description:
                                           "Publish it to put ours back on Google.",
-                                        type: "success",
+                                        type: "info",
                                       })
                                     },
                                     onError: (error) => fail(change, error),
@@ -487,7 +490,7 @@ export function GoogleChangesPanel({
                                 publish.isPending &&
                                 publish.variables?.id === changeSet.id
                               }
-                              pendingLabel="Publishing…"
+                              pendingLabel="Sending…"
                               onClick={() =>
                                 publish.mutate(changeSet, {
                                   onSuccess: () => {
@@ -496,7 +499,7 @@ export function GoogleChangesPanel({
                                       title: "Sent to Google",
                                       description:
                                         "This row updates after the next check with Google.",
-                                      type: "success",
+                                      type: "info",
                                     })
                                     settled()
                                   },

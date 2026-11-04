@@ -206,9 +206,12 @@ describe("ReviewLinkTab: no link yet", () => {
     expect(
       screen.queryByRole("button", { name: "Create review link" })
     ).not.toBeInTheDocument()
-    await userEvent.click(
-      screen.getByRole("button", { name: "Check for a new review form" })
-    )
+    const checkButton = screen.getByRole("button", {
+      name: "Check for a new review form",
+    })
+    // A read of Google, so never the filled primary.
+    expect(checkButton).toHaveAttribute("data-variant", "secondary")
+    await userEvent.click(checkButton)
     expect(check.mutate).toHaveBeenCalledOnce()
   })
 
@@ -253,6 +256,10 @@ describe("ReviewLinkTab: a live link", () => {
       screen.getByRole("heading", { name: "Your review link" })
     ).toBeInTheDocument()
     expect(screen.getByText("Live")).toBeInTheDocument()
+    expect(screen.getByText("Live").closest("[data-tone]")).toHaveAttribute(
+      "data-tone",
+      "neutral"
+    )
     const field = screen.getByRole("textbox", { name: "Link" })
     expect(field).toHaveValue("https://app.test/r/abcdefghjk")
     expect(field).toHaveAttribute("readonly")
@@ -548,6 +555,16 @@ describe("ReviewLinkTab: stats", () => {
       screen.queryByText("No opens or new reviews in this period.")
     ).not.toBeInTheDocument()
     expect(useReviewLinkStatsMock).toHaveBeenCalledWith(LOCATION, 30)
+  })
+
+  it("draws opens and new reviews in the report data colours, never the old light green", () => {
+    loaded(makeState())
+    statsLoaded({ clicks: 12, qrClicks: 5, newReviews: 3 })
+    const { container } = renderTab()
+    const chart = container.querySelector('[data-slot="review-link-chart"]')!
+    expect(chart.querySelector(".bg-chart-1")).not.toBeNull()
+    expect(chart.querySelector(".bg-chart-4")).not.toBeNull()
+    expect(chart.querySelector(".bg-chart-2, .stroke-chart-2")).toBeNull()
   })
 
   it("says so when nothing happened in the period", () => {

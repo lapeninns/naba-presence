@@ -122,7 +122,7 @@ export function ReviewLinkStats({ locationId }: { locationId: string }) {
                   }))}
                   series={[
                     { key: "opens", label: "Link opens", color: 1 },
-                    { key: "reviews", label: "New reviews", color: 2 },
+                    { key: "reviews", label: "New reviews", color: 4 },
                   ]}
                 />
               )}
