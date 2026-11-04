@@ -3,7 +3,6 @@
 import { EYEBROW_CLASS } from "@/components/app-shell/page-frame"
 import { PresenceFigures } from "@/components/performance/presence-figures"
 import { PartialCoverageAlert } from "@/components/reporting/partial-coverage-alert"
-import { ZonedTime } from "@/components/reporting/presence-provenance"
 import { ReplyLocationsTable } from "@/components/performance/reply-locations-table"
 import { ReplyFigures } from "@/components/reporting/reply-figures"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
@@ -14,7 +13,7 @@ import {
   SHARE_PERIODS,
   type SharedClientReport,
 } from "@/lib/contracts/report-shares"
-import { formatDate } from "@/lib/format"
+import { formatDate, formatDateTime } from "@/lib/format"
 import { formatPeriod } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
 import { LISTING_TERMS } from "@/lib/workspace/terms"
@@ -281,7 +280,11 @@ export function SharedClientReportView({
           </dd>
           <dt className="mt-2 first:mt-0 sm:mt-0">Generated</dt>
           <dd className="text-ink tabular-nums">
-            <ZonedTime iso={report.generatedAt} timeZone={timezone} />
+            {/* The zone named as the reviews caption names it, not as an
+                offset ("GMT+13") beside "Auckland time" above. */}
+            <time dateTime={report.generatedAt}>
+              {`${formatDateTime(report.generatedAt, timezone)} ${zoneTimeName(timezone)}`}
+            </time>
           </dd>
         </dl>
         <p>

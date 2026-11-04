@@ -634,7 +634,7 @@ describe("SharedClientReportView", () => {
       'time[datetime="2026-09-20T12:00:00.000Z"]'
     )
     // Noon UTC on 20 Sep is midnight on the 21st in Auckland (NZST).
-    expect(time?.textContent).toMatch(/21 Sept( 2026)?, 00:00 GMT\+12/)
+    expect(time?.textContent).toMatch(/^21 Sept( 2026)?, 00:00 Auckland time$/)
   })
 
   it("warns in the client's words when the figures may be incomplete", () => {
