@@ -618,6 +618,11 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
     and la.operation = 'delete' and la.status = 'failed'
     and (sent_back.created_at is null or sent_back.created_at <= la.at)
   `
+  // An update can return LIVE without a Google state transition. A later
+  // first LIVE observation still wins for a post that was processing.
+  const confirmedAt = sql`
+    coalesce(greatest(p.google_live_observed_at, la.live_finished_at), la.at)
+  `
   return sql<PostRow[]>`
     select
       p.id::text as id,
@@ -634,7 +639,7 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
         when ${failedDeletion} then la.at
         when p.status = 'published' and p.google_state = 'LIVE'
           and not coalesce(la.operation = 'delete' and la.status in ('started', 'ambiguous'), false)
-          then coalesce(p.google_live_observed_at, la.at, p.updated_at)
+          then ${confirmedAt}
         else coalesce(sent_back.created_at, la.at, p.updated_at)
       end as at,
       l.id::text as "locationId",
@@ -648,7 +653,10 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
     left join lateral (
       -- The newest send from here. A post synced in from Google has none,
       -- and a sync rewrites updated_at, so the send's own time is used.
-      select a.operation, a.status, coalesce(a.finished_at, a.started_at) as at
+      select a.operation, a.status, coalesce(a.finished_at, a.started_at) as at,
+        case when a.operation in ('create', 'update') and a.status = 'succeeded'
+          and a.provider_response->>'state' = 'LIVE' then a.finished_at
+        end as live_finished_at
       from gbp_local_post_attempt a
       where a.organisation_id = p.organisation_id and a.post_id = p.id
       order by a.started_at desc, a.id desc
@@ -695,7 +703,7 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
           p.status = 'published'
           and la.at is not null
           and case when p.google_state = 'LIVE'
-            then coalesce(p.google_live_observed_at, la.at) > now() - ${CONFIRMED_WINDOW}::interval
+            then ${confirmedAt} > now() - ${CONFIRMED_WINDOW}::interval
             else la.at > now() - ${WINDOW}::interval
           end
         )

@@ -642,7 +642,7 @@ describeDatabase("GET /api/outbox", () => {
     }
   )
 
-  it("starts the confirmed window when Google first shows a delayed post as live", async () => {
+  it("dates post confirmation from a delayed LIVE observation or an immediately LIVE update", async () => {
     const tenant = await createTestTenant(admin)
     organisations.push(tenant.organisationId)
     const { reviewId, locationId } = await seedReview(admin, {
@@ -698,6 +698,43 @@ describeDatabase("GET /api/outbox", () => {
     `
     expect(resynced.at).toEqual(aged.at)
     expect(await item()).toBeUndefined()
+
+    const [edited] = await admin<{ id: string; at: Date }[]>`
+      insert into gbp_local_post_attempt (
+        organisation_id, post_id, actor_user_id, operation, status,
+        idempotency_key, intended_payload, provider_response, started_at, finished_at
+      ) values (
+        ${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'update',
+        'succeeded', ${randomUUID()}, '{}'::jsonb, '{"state":"LIVE"}'::jsonb,
+        now() - interval '2 hours', now() - interval '1 hour'
+      ) returning id, finished_at as at
+    `
+    const [sameState] = await admin<{ at: Date }[]>`
+      update gbp_local_post set summary = 'Edited post', google_state = 'LIVE'
+      where id = ${post.id} returning google_live_observed_at as at
+    `
+    expect(sameState.at).toEqual(aged.at)
+    expect(
+      byId(await readAll(tenant.cookie, "group=live")).get(`post:${post.id}`)
+    ).toMatchObject({
+      state: "live",
+      detail: "Edited post",
+      at: edited.at.toISOString(),
+    })
+    const counts = () => read(tenant.cookie, "/api/outbox/counts")
+    expect((await counts()).body).toMatchObject({ live: 1, partial: false })
+
+    await admin`
+      update gbp_local_post_attempt
+      set started_at = now() - interval '27 hours', finished_at = now() - interval '26 hours'
+      where id = ${edited.id}
+    `
+    await admin`
+      update gbp_local_post set google_state = 'LIVE', provider_update_time = now()
+      where id = ${post.id}
+    `
+    expect(await item()).toBeUndefined()
+    expect((await counts()).body).toMatchObject({ live: 0, partial: false })
   })
 
   it.each([
