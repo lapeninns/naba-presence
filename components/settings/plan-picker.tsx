@@ -22,6 +22,7 @@ import {
   formatBillingDate,
   formatBillingDateTime,
   isSubscribed,
+  pendingLinkLimitNote,
   planLimitWarning,
   planUnavailableReason,
 } from "@/lib/billing/presentation"
@@ -113,6 +114,21 @@ export function PlanChangeConfirm({
     : overview.state === "trialing"
       ? "When the trial ends"
       : "At the next renewal"
+  // A scheduled downgrade limits new links at once (the server's
+  // minLimit of the current and scheduled limits); existing links stay.
+  const lowersNewLinks =
+    !keep &&
+    pendingLinkLimitNote({
+      access: {
+        ...overview.access,
+        pendingLocationLimit: plan.locationLimit,
+        newLinkLimit:
+          overview.access.locationLimit === null
+            ? plan.locationLimit
+            : Math.min(overview.access.locationLimit, plan.locationLimit),
+      },
+      pendingEffectiveAt: boundary,
+    }) !== null
   const facts: Array<readonly [string, string]> = keep
     ? [
         [
@@ -130,7 +146,12 @@ export function PlanChangeConfirm({
           "What changes",
           `${current.name} becomes ${plan.name}: ${planFacts(plan)}.`,
         ],
-        ["When", `${when}. Until then nothing changes.`],
+        [
+          "When",
+          lowersNewLinks
+            ? `${when}. From now on new links must fit the ${plan.name} limit of ${plan.locationLimit}; existing links stay.`
+            : `${when}. Until then nothing changes.`,
+        ],
         [
           "Price",
           `Nothing is charged or prorated now. From then Stripe bills the ${plan.name} price instead of the ${current.name} price; Payment details and invoices shows the amounts.`,

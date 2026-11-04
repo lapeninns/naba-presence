@@ -740,9 +740,7 @@ describe("BillingCard recovery, outcomes and notices", () => {
     expect(dialog).toHaveTextContent(
       "Large becomes Small: 2 locations · 3 team members · 100 AI reply credits per period."
     )
-    expect(dialog).toHaveTextContent(
-      "14 November 2026, at the next renewal. Until then nothing changes."
-    )
+    expect(dialog).toHaveTextContent("14 November 2026, at the next renewal.")
     expect(dialog).toHaveTextContent(
       "Nothing is charged or prorated now. From then Stripe bills the Small price instead of the Large price"
     )
@@ -750,6 +748,37 @@ describe("BillingCard recovery, outcomes and notices", () => {
     await user.click(within(dialog).getByRole("button", { name: "Not now" }))
     expect(change.mutate).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it("says a downgrade limits new links from now, and an upgrade changes nothing until then", async () => {
+    const user = userEvent.setup()
+    // Large (10) to Small (2): new links must fit 2 at once.
+    mockBilling(ACTIVE)
+    const { unmount } = render(<BillingCard />)
+    await user.click(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    )
+    const down = await screen.findByRole("alertdialog")
+    expect(down).toHaveTextContent(
+      "14 November 2026, at the next renewal. From now on new links must fit the Small limit of 2; existing links stay."
+    )
+    expect(down).not.toHaveTextContent("Until then nothing changes.")
+    unmount()
+    // Small (2) to Large (10): nothing changes before the renewal.
+    mockBilling({
+      ...ACTIVE,
+      plan: SMALL,
+      access: { ...ACTIVE.access, locationLimit: 2, newLinkLimit: 2 },
+    })
+    render(<BillingCard />)
+    await user.click(
+      within(plan("large")).getByRole("button", { name: "Switch to Large" })
+    )
+    const up = await screen.findByRole("alertdialog")
+    expect(up).toHaveTextContent(
+      "14 November 2026, at the next renewal. Until then nothing changes."
+    )
+    expect(up).not.toHaveTextContent("new links must fit")
   })
 
   it("times a plan change during a trial from the trial's end", async () => {
@@ -766,7 +795,7 @@ describe("BillingCard recovery, outcomes and notices", () => {
     )
     const dialog = await screen.findByRole("alertdialog")
     expect(dialog).toHaveTextContent(
-      "20 November 2026, when the trial ends. Until then nothing changes."
+      "20 November 2026, when the trial ends. From now on new links must fit the Small limit of 2; existing links stay."
     )
   })
 
