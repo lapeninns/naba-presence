@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -150,6 +150,75 @@ describe("root pages", () => {
     })
     expect(document.body.textContent).not.toMatch(/agency|client/i)
     expect(document.body.textContent).toMatch(/in your workspace/)
+  })
+
+  it("the global error says nothing was changed, and names the reference only when there is one", () => {
+    const { rerender } = render(
+      <GlobalError error={new Error("x")} reset={vi.fn()} />,
+      { container: document }
+    )
+    expect(document.body.textContent).toMatch(/Nothing was changed\./)
+    expect(document.body.textContent).not.toMatch(/reference/i)
+    rerender(
+      <GlobalError
+        error={Object.assign(new Error("x"), { digest: "g-1" })}
+        reset={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/^Error reference/)).toBeInTheDocument()
+    expect(document.body.textContent).toMatch(/share the error reference/)
+  })
+
+  it("the global error retries with retry first, from a button that is never disabled", () => {
+    const reset = vi.fn()
+    const unstable_retry = vi.fn()
+    const retry = vi.fn()
+    // A document of its own: the roots earlier tests mounted on `document`
+    // would otherwise be the ones that see the click.
+    const own = document.implementation.createHTMLDocument()
+    render(
+      <GlobalError
+        error={new Error("x")}
+        reset={reset}
+        unstable_retry={unstable_retry}
+        retry={retry}
+      />,
+      { container: own, baseElement: own.body }
+    )
+    const button = own.querySelector("button")!
+    expect(button.textContent).toBe("Try again")
+    expect(button.hasAttribute("disabled")).toBe(false)
+    act(() => button.click())
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(unstable_retry).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+  })
+
+  it("the global error has a banner, one main and one primary", () => {
+    render(<GlobalError error={new Error("x")} reset={vi.fn()} />, {
+      container: document,
+    })
+    expect(screen.getByRole("banner")).toHaveTextContent("NabaPresence")
+    expect(screen.getAllByRole("main")).toHaveLength(1)
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Something went wrong" })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Go to Inbox" })).toHaveAttribute(
+      "href",
+      "/inbox"
+    )
+  })
+
+  it("the global error puts back a stored theme, which the root layout would have applied", async () => {
+    window.localStorage.setItem("theme", "dark")
+    try {
+      render(<GlobalError error={new Error("x")} reset={vi.fn()} />, {
+        container: document,
+      })
+      await waitFor(() => expect(document.documentElement).toHaveClass("dark"))
+    } finally {
+      window.localStorage.removeItem("theme")
+    }
   })
 })
 
