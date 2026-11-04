@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { GET, POST } from "@/app/auth/confirm/route"
 import { takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
+import { ApiError } from "@/lib/server/http"
 import { verifyEmailToken } from "@/lib/server/password-auth"
 
 /**
@@ -115,7 +116,10 @@ describe("POST /auth/confirm", () => {
       type: "email",
     })
     expect(completeEmailAuthentication).toHaveBeenCalledWith(
-      expect.objectContaining({ inviteToken: "inv-1", authMethod: "email_link" })
+      expect.objectContaining({
+        inviteToken: "inv-1",
+        authMethod: "email_link",
+      })
     )
   })
 
@@ -151,5 +155,76 @@ describe("POST /auth/confirm", () => {
     )
     expect(target.pathname).toBe("/sign-in")
     expect(verifyEmailToken).not.toHaveBeenCalled()
+  })
+})
+
+describe("/auth/confirm redirect contract", () => {
+  it("answers GET with a 307 for both link types", async () => {
+    for (const type of ["email", "recovery"]) {
+      const response = await GET(
+        new Request(`${APP}/auth/confirm?token_hash=${TOKEN}&type=${type}`)
+      )
+      expect(response.status).toBe(307)
+    }
+  })
+
+  it("drops an invite token from a recovery link", async () => {
+    const target = location(
+      await GET(
+        new Request(
+          `${APP}/auth/confirm?token_hash=${TOKEN}&type=recovery&inviteToken=inv-1`
+        )
+      )
+    )
+    expect(target.pathname).toBe("/reset-password")
+    expect(target.searchParams.has("inviteToken")).toBe(false)
+  })
+
+  it("forwards only its own fields, never a destination from the link", async () => {
+    const target = location(
+      await GET(
+        new Request(
+          `${APP}/auth/confirm?token_hash=${TOKEN}&type=email&next=https://evil.example&redirect_to=//evil.example`
+        )
+      )
+    )
+    expect([...target.searchParams.keys()]).toEqual(["token_hash"])
+  })
+
+  it("builds every Location on the configured origin, not the request host", async () => {
+    const ok = await GET(
+      new Request(
+        `https://evil.example/auth/confirm?token_hash=${TOKEN}&type=email`
+      )
+    )
+    const bad = await GET(new Request("https://evil.example/auth/confirm"))
+    expect(location(ok).origin).toBe(APP)
+    expect(location(bad).origin).toBe(APP)
+    expect(bad.status).toBe(307)
+    expect(location(bad).searchParams.get("email")).toBe("error")
+  })
+
+  it("lands a rate-limited POST on sign-in before the token is looked at", async () => {
+    vi.mocked(takeAbuseBudget).mockRejectedValue(
+      new ApiError(429, "auth_rate_limited", "Too many attempts")
+    )
+    const response = await confirmPost({ token_hash: TOKEN, type: "email" })
+    expect(response.status).toBe(303)
+    const target = location(response)
+    expect(target.pathname).toBe("/sign-in")
+    expect(target.searchParams.get("status")).toBe("auth_rate_limited")
+    expect(verifyEmailToken).not.toHaveBeenCalled()
+  })
+
+  it("lands a spent or bad token on sign-in with its code", async () => {
+    vi.mocked(verifyEmailToken).mockRejectedValue(
+      new ApiError(400, "invalid_email_link", "Expired")
+    )
+    const response = await confirmPost({ token_hash: TOKEN, type: "email" })
+    expect(response.status).toBe(303)
+    expect(location(response).searchParams.get("status")).toBe(
+      "invalid_email_link"
+    )
+    expect(completeEmailAuthentication).not.toHaveBeenCalled()
   })
 })

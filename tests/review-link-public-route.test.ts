@@ -248,3 +248,17 @@ describe("no session", () => {
     expect(recordReviewLinkClick).toHaveBeenCalledWith(link, "link")
   })
 })
+
+describe("the redirect target", () => {
+  it("is the stored review form only, whatever the link carries", async () => {
+    const response = await get(
+      "?s=qr&next=https://evil.example&redirect=//evil.example&utm_source=x"
+    )
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe(TARGET)
+    expect(response.headers.get("set-cookie")).toBeNull()
+    expectPrivateHeaders(response)
+    expect(recordReviewLinkClick).toHaveBeenCalledTimes(1)
+    expect(recordReviewLinkClick).toHaveBeenCalledWith(link, "qr")
+  })
+})
