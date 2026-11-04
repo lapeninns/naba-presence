@@ -150,18 +150,17 @@ test.describe("reports", () => {
       page,
     }) => {
       const state = await readJourneyState()
-      // The report has no Client field of its own (R120): the shell's scope
-      // decides the client. The journey org has one client, so the app
-      // bar's scope chip is drawn inert, not a button.
-      await page.goto(`/reports?tab=google&clientId=${state.clientId}`)
+      // With one client the shell has no interactive scope switcher.
+      // Start unscoped and choose the client in the report itself.
+      await page.goto("/reports?tab=google")
       await expect(
         page
           .locator('header[data-slot="app-bar"]')
           .getByRole("button", { name: /^Working on / })
       ).toHaveCount(0)
-      await expect(page.getByRole("combobox", { name: /Client/ })).toHaveCount(
-        0
-      )
+      await page.getByRole("combobox", { name: /Client/ }).tap()
+      await page.getByRole("option", { name: state.clientName }).tap()
+      await expect(page).toHaveURL(new RegExp(`[?&]clientId=${state.clientId}`))
       await page
         .getByRole("group", { name: "Period" })
         .getByRole("button", { name: "Last 12 months" })
