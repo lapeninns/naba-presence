@@ -146,7 +146,7 @@ export function ScheduledJobsDisclosure({
                   <p className="text-caption text-ink-muted">
                     {describeSchedule(info, tick.staleAfterSeconds)}
                   </p>
-                  <SupportDetails items={[tick.name]} />
+                  <SupportDetails items={[tick.name]} subject={info.label} />
                 </>
               }
             />

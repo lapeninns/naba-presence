@@ -145,6 +145,22 @@ describe("OperationsView scheduler rows", () => {
       expect(support).not.toBeNull()
       expect(keys).toContain(support!.querySelector("code")!.textContent)
     }
+    // One disclosure per row, each named for its job, so a screen reader's
+    // list of controls tells them apart (L17). The visible words lead.
+    const names = rows.map((row) =>
+      row.querySelector("summary")!.getAttribute("aria-label")
+    )
+    expect(new Set(names).size).toBe(rows.length)
+    for (const name of Object.keys(STALE_AFTER)) {
+      expect(names).toContain(
+        `Details for support: ${SCHEDULED_JOBS[name].label}`
+      )
+    }
+    for (const row of rows) {
+      expect(row.querySelector("summary")).toHaveTextContent(
+        "Details for support"
+      )
+    }
   })
 
   it("marks overdue jobs against each job's own schedule and says why", async () => {
@@ -487,6 +503,13 @@ describe("time zone", () => {
         name: "Replay New reviews received 15 Oct, 14:30 (New Zealand time)",
       })
     ).toBeInTheDocument()
+    // Its disclosure is named for the same event as its Replay (L17).
+    expect(
+      document.querySelector('[data-slot="support-details"] summary')
+    ).toHaveAttribute(
+      "aria-label",
+      "Details for support: New reviews received 15 Oct, 14:30 (New Zealand time)"
+    )
     // The raw type and code are for support, not the visible sentence.
     expect(
       screen.getByText(/New reviews · Failed · received/)
