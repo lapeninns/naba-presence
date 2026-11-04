@@ -210,7 +210,8 @@ export function OperationsView() {
     onSuccess: (data) => {
       toast.add({
         title: `${data.requeued} ${data.requeued === 1 ? "email" : "emails"} queued again.`,
-        type: "success",
+        // Queued, not delivered: success green is kept for outcomes on Google.
+        type: "info",
       })
       refresh()
     },

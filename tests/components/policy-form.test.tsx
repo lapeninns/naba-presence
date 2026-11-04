@@ -363,6 +363,34 @@ describe("PolicyForm", () => {
       expect(screen.queryByText(/Direct publishing/)).not.toBeInTheDocument()
     })
 
+    it.each([
+      ["approval on", {}],
+      ["two-person rule on", { requireTwoPersonApproval: true }],
+      [
+        "approval off",
+        {
+          approvalRequired: false,
+          directPublishConsentAt: "2026-10-14T09:00:00.000Z",
+        },
+      ],
+    ] as const)(
+      "says with %s that an AI draft is checked and sent by a person, never on its own",
+      (_, overrides) => {
+        open(overrides)
+        renderForm("owner")
+        expect(
+          screen.getByText(
+            "Who has to look at a reply before it goes to Google. No reply is sent by itself: an AI draft is checked like any other and goes only when a person sends it."
+          )
+        ).toBeInTheDocument()
+        const form = screen.getByRole("form", { name: "Reply policy" })
+        expect(form).not.toHaveTextContent(/automatic|auto-?publish|instantly/i)
+        for (const alert of alertsIn()) {
+          expect(alert).not.toHaveTextContent(/AI|by itself|on its own/)
+        }
+      }
+    )
+
     it("says it once, with the consequence and the date, when approval is already off", () => {
       open({
         approvalRequired: false,
@@ -371,7 +399,7 @@ describe("PolicyForm", () => {
       renderForm("owner")
       const alerts = alertsIn()
       expect(alerts).toHaveLength(1)
-      expect(alerts[0]).toHaveTextContent("Replies publish straight to Google")
+      expect(alerts[0]).toHaveTextContent("Sent replies go straight to Google")
       expect(alerts[0]).toHaveTextContent("Confirmed on 14 October 2026.")
       expect(alerts[0]).toHaveTextContent(
         "People who can’t publish can’t send replies."
@@ -407,7 +435,7 @@ describe("PolicyForm", () => {
         })
       )
       expect(alertsIn()[0]).toHaveTextContent(
-        "Replies will publish straight to Google"
+        "Sent replies will go straight to Google"
       )
     })
 

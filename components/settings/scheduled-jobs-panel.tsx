@@ -117,6 +117,16 @@ export function ScheduledJobsDisclosure({
               footerLayout="stack"
               footer={
                 <>
+                  {/* A pause is switched on our side (lib/server/pause-
+                      controls.ts), never from this page: say what stops and
+                      what doesn't, since the purpose above reads as if the
+                      job still runs. */}
+                  {paused ? (
+                    <p className="text-caption text-ink-secondary">
+                      Paused on purpose: this job won’t run until it is switched
+                      back on. The other jobs keep running.
+                    </p>
+                  ) : null}
                   <p className="text-caption text-ink-muted">
                     {tick.lastCompletedAt ? (
                       <>
