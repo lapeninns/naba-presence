@@ -426,8 +426,10 @@ describe("InvitationView", () => {
       )
     ).toBeInTheDocument()
     expect(lookup).toHaveBeenCalledTimes(1)
-    expect(
-      screen.getByRole("button", { name: "Accept invitation" })
-    ).toBeInTheDocument()
+    const accept = screen.getByRole("button", { name: "Accept invitation" })
+    // Focus stayed on the button, so the failure describes it.
+    expect(accept).toHaveAccessibleDescription(
+      "This invitation changed while you were looking at it. Reload the page to see the current invitation."
+    )
   })
 })

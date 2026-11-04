@@ -61,9 +61,14 @@ describe("InvitationView leaving the page", () => {
       )
     ).toBeInTheDocument()
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument()
-    await user.click(
-      screen.getByRole("button", { name: "Sign out and continue" })
+    const signOut = screen.getByRole("button", {
+      name: "Sign out and continue",
+    })
+    // Reaching the button by keyboard says why signing out is needed.
+    expect(signOut).toHaveAccessibleDescription(
+      "You are signed in as other@example.test, but this invitation is for invited@example.test."
     )
+    await user.click(signOut)
     await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
     // Back to the invite in sign-in mode: the invited address is someone
     // else's, and usually one that already has an account.
