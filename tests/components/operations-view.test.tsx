@@ -281,6 +281,14 @@ describe("OperationsView summary", () => {
     const row = screen.getByText("Billing check").closest("li") as HTMLElement
     expect(within(row).getByText("Paused")).toBeInTheDocument()
     expect(within(row).queryByText("Overdue")).toBeNull()
+    // What stops and what doesn't, on the paused row only; no control here.
+    expect(row).toHaveTextContent(
+      "Paused on purpose: this job won’t run until it is switched back on. The other jobs keep running."
+    )
+    const running = screen.getByText("Work queue").closest("li") as HTMLElement
+    expect(running).not.toHaveTextContent("Paused on purpose")
+    expect(within(row).queryByRole("button")).toBeNull()
+    expect(screen.queryByRole("button", { name: /pause|resume/i })).toBeNull()
     expect(
       document.querySelector("details[data-slot=scheduled-jobs]")
     ).not.toHaveAttribute("open")
