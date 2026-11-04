@@ -179,12 +179,12 @@ describe("describeOutcomeToast", () => {
     expect(toast.type).not.toBe("success")
     expect(toast.title).not.toMatch(/published/i)
   })
-  it("shows success copy when a reject decision returns the reply to draft", () => {
+  it("shows neutral copy when a reject decision returns the reply to draft (local only)", () => {
     expect(describeOutcomeToast("returned_to_draft")).toEqual({
       kind: "local",
       title: "Sent back",
       description: "Its author can revise it and submit it again.",
-      type: "success",
+      type: "neutral",
     })
   })
   it("never claims 'published' for an unrecognised resolved status", () => {

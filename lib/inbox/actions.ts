@@ -243,7 +243,7 @@ export function describeOutcomeToast(
         kind: "local",
         title: describeOutcome("changes").label,
         description: "Its author can revise it and submit it again.",
-        type: "success",
+        type: "neutral",
       }
     case "deleted":
       return {

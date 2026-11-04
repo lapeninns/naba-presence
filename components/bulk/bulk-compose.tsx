@@ -752,10 +752,17 @@ export function BulkCompose() {
       (changes.length >= BULK_MAX_CHANGES
         ? `A batch holds at most ${BULK_MAX_CHANGES} changes.`
         : "Check the change."))
-  /** Why the preview can't be asked for now: the batch's limit first, then the change. */
+  /**
+   * Why the preview can't be asked for now: the batch's limit first, then
+   * the change, then warnings on screen and not yet ticked (the server would
+   * only refuse again).
+   */
   const previewBlocked =
     batchProblem ??
-    (batch.length ? undefined : (problem ?? "Nothing to preview yet"))
+    (batch.length ? undefined : (problem ?? "Nothing to preview yet")) ??
+    (shownWarning && consents[shownWarning.key] !== shownWarning.token
+      ? "Acknowledge the content warnings first"
+      : undefined)
   const batchKey = JSON.stringify({ ids, batch })
   const shownFailure = failure?.key === batchKey ? failure : null
   const move = (from: number, to: number) =>

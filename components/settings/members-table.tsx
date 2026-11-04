@@ -499,6 +499,7 @@ function MemberRows({
           view.accessReason === null
             ? {
                 label: terms.access,
+                accessibleLabel: `${terms.access}: ${m.displayName}`,
                 icon: <Building2 aria-hidden />,
                 onAction: () => openAccess(m),
                 disabled: busy,
@@ -507,6 +508,7 @@ function MemberRows({
           view.gate.removeReason === null
             ? {
                 label: "Remove",
+                accessibleLabel: `Remove ${m.displayName}`,
                 icon: <Trash2 aria-hidden />,
                 tone: "danger" as const,
                 onAction: () => openRemove(m),

@@ -104,7 +104,7 @@ function CompletenessSkipDialog({
         toast.add({
           title: "Check skipped",
           description: `“${check.title}” no longer counts towards the score.`,
-          type: "success",
+          type: "neutral",
         })
         reset()
         onOpenChange(false)

@@ -502,7 +502,7 @@ export function PolicyForm({ role }: { role: string | null }) {
     if (results.some((result) => result.status === "fulfilled"))
       router.refresh()
     if (results.every((result) => result.status === "fulfilled")) {
-      toast.add({ title: "Settings saved", type: "success" })
+      toast.add({ title: "Settings saved", type: "neutral" })
       // The bar (and the Save button that had focus) goes with the last
       // unsaved change; keep focus in the form rather than dropping it on
       // the page body.

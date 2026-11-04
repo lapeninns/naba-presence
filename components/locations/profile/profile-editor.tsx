@@ -507,6 +507,16 @@ function ProfileEditor({
     contentWarningsAccepted && contentWarning?.values === JSON.stringify(values)
       ? contentWarning.token
       : undefined
+  // "Save here" warnings on screen for these values and not yet ticked: a
+  // save would only be refused again, so it waits for the tick (focus is on
+  // the warnings block by then). Publish is not gated here: the review sheet
+  // disables natively, which would drop focus from the button just pressed.
+  const saveWarningUnacknowledged =
+    contentWarning?.action === "save" &&
+    contentWarning.values === JSON.stringify(values) &&
+    !contentWarningsAccepted
+      ? "Acknowledge the content warnings first"
+      : undefined
   // The page's warnings block: a refused "Save here" moves focus to it.
   const contentWarningsRef = useRef<HTMLDivElement>(null)
   const [focusWarnings, setFocusWarnings] = useState(0)
@@ -1699,7 +1709,7 @@ function ProfileEditor({
             saveDisabledReason={
               (serviceStatus.dirty || lodgingDirty) && !valuesDirty
                 ? "Services and lodging are saved through their own review."
-                : saveReason
+                : (saveReason ?? saveWarningUnacknowledged)
             }
             disabledReason={
               lodgingOnly

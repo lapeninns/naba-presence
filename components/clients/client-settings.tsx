@@ -801,7 +801,7 @@ async function undoArchive(
       }
     }
   }
-  return { type: "success", title: `${name} restored` }
+  return { type: "neutral", title: `${name} restored` }
 }
 
 /**

@@ -150,7 +150,7 @@ describe("inbox summary of a queued batch", () => {
           { reviewId: "b", status: "queued" },
         ],
       })
-    ).toMatchObject({ title: "2 replies queued", tone: "success", allOk: true })
+    ).toMatchObject({ title: "2 replies queued", tone: "info", allOk: true })
     expect(
       summariseBulkOutcome({
         operationId: REVIEW,
