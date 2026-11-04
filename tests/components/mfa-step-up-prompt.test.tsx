@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import { MfaStepUpHost } from "@/components/auth/mfa-step-up-host"
 import { MfaStepUpPrompt } from "@/components/auth/mfa-step-up-prompt"
+import { stepUpFinalFocus } from "@/components/auth/step-up-focus"
 import {
   ApiClientError,
   apiFetch,
@@ -250,5 +251,53 @@ describe("MfaStepUpHost", () => {
     render(<MfaStepUpHost />)
     raise("mfa_enrollment_required")
     expect(await screen.findByText("Set up two-step verification")).toBeTruthy()
+  })
+
+  it("returns focus to the control that asked for it when closed, not to body (L21)", async () => {
+    // jsdom lays nothing out; give every element a box so "on screen" holds.
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([
+      {},
+    ] as unknown as DOMRectList)
+    render(
+      <>
+        <button type="button">Save hours</button>
+        <MfaStepUpHost />
+      </>
+    )
+    const save = screen.getByRole("button", { name: "Save hours" })
+    save.focus()
+    raise("mfa_step_up_required")
+    expect(await screen.findByText("Confirm it’s you")).toBeTruthy()
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(screen.queryByText("Confirm it’s you")).toBeNull()
+    )
+    await waitFor(() => expect(document.activeElement).toBe(save))
+  })
+})
+
+describe("stepUpFinalFocus", () => {
+  afterEach(() => {
+    document.body.innerHTML = ""
+  })
+
+  it("prefers the origin, then the page heading, then #main", () => {
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([
+      {},
+    ] as unknown as DOMRectList)
+    document.body.innerHTML =
+      '<main id="main" tabindex="-1"><h1 tabindex="-1">Hours</h1><button>Save</button></main>'
+    const save = document.querySelector("button")!
+    const main = document.getElementById("main")!
+    const heading = document.querySelector("h1")!
+    expect(stepUpFinalFocus(save)).toBe(save)
+    save.remove()
+    expect(stepUpFinalFocus(save)).toBe(heading)
+    heading.removeAttribute("tabindex")
+    expect(stepUpFinalFocus(null)).toBe(main)
+  })
+
+  it("falls back to Base UI's default with no shell", () => {
+    expect(stepUpFinalFocus(null)).toBe(true)
   })
 })
