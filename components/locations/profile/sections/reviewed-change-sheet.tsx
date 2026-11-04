@@ -15,6 +15,7 @@ import {
   reviewedWriteStage,
   type ConfirmationState,
   type ExecutionState,
+  useOpenerFocus,
 } from "@/components/reviewed-write"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -68,6 +69,7 @@ export function ReviewedChangeSheet({
   disabled,
   reviewTitle = `Review ${noun} changes`,
   resetKey = "",
+  savedWorkId,
 }: {
   readonly workflow: ReviewedChangeWorkflow
   /** Lower case, as it reads mid-sentence: "lodging", "service". */
@@ -77,6 +79,11 @@ export function ReviewedChangeSheet({
   readonly reviewTitle?: string
   /** Anything else that should clear the consent and pending action when it changes. */
   readonly resetKey?: string
+  /**
+   * The saved-work section, where focus lands on close when the sheet has no
+   * opener to return to (a review restored on load).
+   */
+  readonly savedWorkId?: string
 }) {
   const review = workflow.review
   const expired = useDeadline(review?.expiresAt ?? "1970-01-01T00:00:00Z")
@@ -89,6 +96,9 @@ export function ReviewedChangeSheet({
     setConsent(false)
     setAction(null)
   }
+  const finalFocus = useOpenerFocus(workflow.open, () =>
+    savedWorkId ? document.getElementById(savedWorkId) : null
+  )
   if (!review) return null
   const blocked =
     disabled ||
@@ -112,6 +122,7 @@ export function ReviewedChangeSheet({
     <ReviewedWriteSheet
       open={workflow.open}
       onOpenChange={workflow.setOpen}
+      finalFocus={finalFocus}
       title={recorded ? `Saved ${noun} outcome` : reviewTitle}
       description={
         recorded

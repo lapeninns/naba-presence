@@ -16,6 +16,7 @@ import {
   stepOutcome,
   type PublishStepResult,
 } from "@/lib/editors/use-publish-flow"
+import { useOpenerFocus } from "./opener-focus"
 import { ReviewedWriteSheet } from "./sheet"
 
 /**
@@ -273,6 +274,7 @@ export function CombinedReviewSheet({
   const diffRows: ChangeRow[] = [...rows]
   const unresolved = rows.filter((row) => row.blocking)
   const conflicts = rows.filter((row) => row.state === "conflict")
+  const finalFocus = useOpenerFocus(open)
   const [acknowledged, setAcknowledged] = React.useState(false)
   // A fresh sheet asks again: a tick carried over from an earlier review
   // would publish an overwrite nobody saw. Reset during render (React's
@@ -330,6 +332,7 @@ export function CombinedReviewSheet({
     <ReviewedWriteSheet
       open={open}
       onOpenChange={onOpenChange}
+      finalFocus={finalFocus}
       title="Review changes"
       description={
         rows.length === 1

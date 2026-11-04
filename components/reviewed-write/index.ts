@@ -15,6 +15,7 @@ export {
   type ConfirmationState,
   type ExecutionState,
 } from "./outcome-summary"
+export { useOpenerFocus } from "./opener-focus"
 export { ReviewedWritePanel, useClaimFocus } from "./panel"
 export { SavedWorkList, type SavedWorkItem } from "./saved-work-list"
 export { SendBar } from "./send-bar"

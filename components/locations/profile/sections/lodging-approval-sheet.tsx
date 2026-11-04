@@ -16,5 +16,6 @@ export function LodgingApprovalSheet({ workflow, disabled }: {
     reviewTitle="Review changes"
     rows={review ? lodgingReviewRows(review).map((row) => ({ ...row, before: instantCell(row.before), after: instantCell(row.after) })) : []}
     disabled={disabled}
+    savedWorkId="section-saved-lodging"
   />
 }

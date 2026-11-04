@@ -14,6 +14,7 @@ export function ServiceApprovalSheet({ workflow, rows, disabled }: {
     noun="service"
     rows={rows}
     disabled={disabled}
+    savedWorkId="section-saved-services"
     // A change in whether sending is allowed clears the consent, as before.
     resetKey={String(disabled)}
   />
