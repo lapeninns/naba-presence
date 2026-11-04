@@ -63,12 +63,17 @@ export function LifecycleReview({
   const token = `${review?.changeSet.id}:${review?.changeSet.approvedBy}:${workflow.revision}:${disabled}`
   const [key, setKey] = useState(token),
     [consent, setConsent] = useState(false),
-    [typedName, setTypedName] = useState("")
+    [typedName, setTypedName] = useState(""),
+    [sendStarted, setSendStarted] = useState(false)
   if (key !== token) {
     setKey(token)
     setConsent(false)
     setTypedName("")
   }
+  // Only a send this panel started is "Sending…"; a refresh or a read that
+  // keeps the workflow busy is not.
+  if (sendStarted && !workflow.busy) setSendStarted(false)
+  const sending = sendStarted && workflow.busy
   if (!review) return null
   const transfer = review.request.operation === "transfer_location"
   const approved = Boolean(review.changeSet.approvedBy)
@@ -125,20 +130,22 @@ export function LifecycleReview({
       technical: true,
     },
   ]
-  const sendStatus = workflow.uncertain
-    ? "Read the saved outcome before sending again."
-    : workflow.stale || expired
-      ? "This request can no longer be sent."
-      : disabled
-        ? (disabledReason ??
-          "Sending is paused until the other Google change is resolved.")
-        : !locationName
-          ? "The listing name is unavailable, so this can’t be confirmed."
-          : !nameMatches
-            ? "Type the listing name exactly to confirm."
-            : !consent
-              ? "Tick the box to send this exact request."
-              : "Ready to send once to Google. This can’t be undone here."
+  const sendStatus = sending
+    ? "Sending to Google…"
+    : workflow.uncertain
+      ? "Read the saved outcome before sending again."
+      : workflow.stale || expired
+        ? "This request can no longer be sent."
+        : disabled
+          ? (disabledReason ??
+            "Sending is paused until the other Google change is resolved.")
+          : !locationName
+            ? "The listing name is unavailable, so this can’t be confirmed."
+            : !nameMatches
+              ? "Type the listing name exactly to confirm."
+              : !consent
+                ? "Tick the box to send this exact request."
+                : "Ready to send once to Google. This can’t be undone here."
   return (
     <ReviewedWritePanel
       id="lifecycle-review-title"
@@ -147,6 +154,7 @@ export function LifecycleReview({
       description="Approval records this exact request. Sending is a separate action and can change your management access."
       stage={reviewedWriteStage({ approved, recorded: false })}
       secondApprover={review.changeSet.requiresSecondApprover}
+      sending={sending}
       focusKey={focusKey}
     >
       <SummaryList rows={rows} aria-label="Reviewed lifecycle request" />
@@ -218,8 +226,12 @@ export function LifecycleReview({
           <Button
             variant="danger"
             disabled={blocked || !consent || !nameMatches}
-            pending={workflow.busy}
-            onClick={workflow.execute}
+            pending={sending}
+            pendingLabel="Sending…"
+            onClick={() => {
+              setSendStarted(true)
+              workflow.execute()
+            }}
           >
             Send approved {transfer ? "transfer" : "deletion"}
           </Button>

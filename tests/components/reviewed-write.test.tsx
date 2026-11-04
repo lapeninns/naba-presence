@@ -53,6 +53,37 @@ describe("reviewedWriteSteps", () => {
       "current",
     ])
   })
+  it("says a send is in flight on the Send step", () => {
+    expect(reviewedWriteSteps("send", { sending: true })[2]?.meta).toBe(
+      "Sending to Google"
+    )
+    expect(reviewedWriteSteps("send")[2]?.meta).toBeUndefined()
+  })
+  it("names the recorded outcome and only finishes once Google confirms it", () => {
+    const waiting = reviewedWriteSteps("outcome", {
+      outcome: "awaiting_confirmation",
+    })[3]
+    expect(waiting).toMatchObject({
+      state: "current",
+      meta: "Sent, waiting for Google",
+    })
+    expect(
+      reviewedWriteSteps("outcome", { outcome: "rejected" })[3]
+    ).toMatchObject({ state: "current", meta: "Rejected by Google" })
+    expect(
+      reviewedWriteSteps("outcome", { outcome: "uncertain" })[3]
+    ).toMatchObject({ state: "current", meta: "Not confirmed: check Google" })
+    expect(
+      reviewedWriteSteps("outcome", { outcome: "confirmed_applied" })[3]
+    ).toMatchObject({ state: "done", meta: "On Google" })
+    // Nothing on the track says On Google before the outcome is recorded.
+    for (const stage of ["approve", "send"] as const)
+      expect(
+        reviewedWriteSteps(stage, { outcome: "confirmed_applied" })
+          .map((step) => step.meta)
+          .filter(Boolean)
+      ).not.toContain("On Google")
+  })
   it("says when another person must approve", () => {
     expect(
       reviewedWriteSteps("approve", { secondApprover: true })[1]?.meta

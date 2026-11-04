@@ -1,4 +1,5 @@
 import { Stepper, type Step } from "@/components/ui/stepper"
+import { describeOutcome, type OperationOutcome } from "@/lib/editors/outcome"
 
 /** Where a reviewed write is: waiting for approval, ready to send, or sent. */
 export type ReviewedWriteStage = "approve" | "send" | "outcome"
@@ -20,13 +21,27 @@ export function reviewedWriteStage({
 
 const ORDER: ReviewedWriteStage[] = ["approve", "send", "outcome"]
 
+export type ReviewedWriteStepsOptions = {
+  readonly secondApprover?: boolean
+  /** A send is in flight: the Send step says so. */
+  readonly sending?: boolean
+  /** The recorded outcome, named on the Outcome step in the shared words. */
+  readonly outcome?: OperationOutcome
+}
+
 /**
  * Review → Approve → Send → Outcome, the four steps every Google write in
  * this area takes. The review step is always done (a saved review exists).
+ * The Outcome step is only done once Google is independently confirmed to
+ * hold the change; until then it stays current and names where it stands.
  */
 export function reviewedWriteSteps(
   stage: ReviewedWriteStage,
-  { secondApprover = false }: { readonly secondApprover?: boolean } = {}
+  {
+    secondApprover = false,
+    sending = false,
+    outcome,
+  }: ReviewedWriteStepsOptions = {}
 ): Step[] {
   const at = ORDER.indexOf(stage)
   const state = (step: ReviewedWriteStage): Step["state"] => {
@@ -44,11 +59,26 @@ export function reviewedWriteSteps(
       meta:
         secondApprover && stage === "approve" ? "Another person" : undefined,
     },
-    { id: "send", label: "Send", state: state("send") },
+    {
+      id: "send",
+      label: "Send",
+      state: state("send"),
+      meta:
+        sending && stage === "send" ? describeOutcome("sent").label : undefined,
+    },
     {
       id: "outcome",
       label: "Outcome",
-      state: stage === "outcome" ? "current" : "todo",
+      state:
+        stage !== "outcome"
+          ? "todo"
+          : outcome === "confirmed_applied"
+            ? "done"
+            : "current",
+      meta:
+        stage === "outcome" && outcome
+          ? describeOutcome(outcome).label
+          : undefined,
     },
   ]
 }
@@ -56,10 +86,11 @@ export function reviewedWriteSteps(
 export function ReviewedWriteSteps({
   stage,
   secondApprover,
+  sending,
+  outcome,
   className,
-}: {
+}: ReviewedWriteStepsOptions & {
   readonly stage: ReviewedWriteStage
-  readonly secondApprover?: boolean
   /** Placement only (the steps sit flush with the title above them). */
   readonly className?: string
 }) {
@@ -68,7 +99,7 @@ export function ReviewedWriteSteps({
       aria-label="Steps to send this change"
       className={className}
       showLabels
-      steps={reviewedWriteSteps(stage, { secondApprover })}
+      steps={reviewedWriteSteps(stage, { secondApprover, sending, outcome })}
     />
   )
 }
