@@ -273,6 +273,23 @@ describe("the error page", () => {
     expect(screen.queryAllByRole("link")).toHaveLength(0)
   })
 
+  it("is the shared error state: danger tone, one sentence, one action", () => {
+    const { container } = render(<ShareReportError reset={vi.fn()} />)
+    const state = container.querySelector('[data-slot="empty"]')
+    expect(state).toHaveAttribute("data-variant", "error")
+    expect(state).toHaveAttribute("data-tone", "bad")
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "This report couldn’t be loaded",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Something went wrong on our side.")
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole("button")).toHaveLength(1)
+  })
+
   it("falls back to unstable_retry, then to reset", async () => {
     const unstableRetry = vi.fn()
     const reset = vi.fn()

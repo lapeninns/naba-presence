@@ -1,11 +1,13 @@
 import type * as React from "react"
 
-import { Empty } from "@/components/ui/empty"
+import { Empty, type EmptyVariant } from "@/components/ui/empty"
 
 /**
  * The one state the public report shows when there is no report to show (a
  * link that does not work, or a failed read): the page's `h1`, one sentence
- * and at most one action. No links into the app.
+ * and at most one action. No links into the app. `variant="error"` draws a
+ * failed read in the danger tone; a link that does not work is a plain
+ * empty state, because nothing has failed.
  *
  * The shared `Empty` state at page placement (the mark, title and sentence
  * at about a third of the screen's height, NM's "All caught up" layout), in
@@ -13,12 +15,14 @@ import { Empty } from "@/components/ui/empty"
  * its title is the page's one `h1`.
  */
 export function ShareStateCard({
+  variant,
   icon,
   title,
   description,
   action,
 }: {
-  icon: React.ReactNode
+  variant?: EmptyVariant
+  icon?: React.ReactNode
   title: string
   description: string
   action?: React.ReactNode
@@ -32,6 +36,7 @@ export function ShareStateCard({
       <Empty
         placement="page"
         titleAs="h1"
+        variant={variant}
         icon={icon}
         title={title}
         description={description}
