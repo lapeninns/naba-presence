@@ -196,7 +196,7 @@ export function SharedClientReportView({
               titleAs="h3"
               variant="empty"
               title="No listings in this report yet"
-              description={`${report.agencyName} hasn’t added any listings for ${report.clientName} yet. Figures appear here once they do.`}
+              description="Figures appear here once a listing is added."
             />
           ) : (
             <ReplyFigures

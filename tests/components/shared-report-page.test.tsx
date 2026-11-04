@@ -431,7 +431,7 @@ describe("SharedClientReportView", () => {
       })
     ).toBeInTheDocument()
     expect(main).toHaveTextContent(
-      "Harbour Agency hasn’t added any listings for Old Crown Group yet. Figures appear here once they do."
+      "Figures appear here once a listing is added."
     )
     // Not the reply panel's "for these listings", and no zero tiles.
     expect(
