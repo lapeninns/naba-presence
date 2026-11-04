@@ -9,6 +9,7 @@ import {
   BoundaryCode,
   BoundaryFrame,
   boundaryButtonClass,
+  focusRecoveredPage,
 } from "@/components/app-shell/boundary"
 import { useWorkspaceTerms } from "@/lib/workspace/mode"
 
@@ -58,8 +59,17 @@ export default function DashboardError({
       timeStyle: "short",
     }).format(new Date())
   )
+  const retried = React.useRef(false)
+  // Unmounting after a retry means the page came back.
+  React.useEffect(
+    () => () => {
+      if (retried.current) focusRecoveredPage()
+    },
+    []
+  )
   const retry = () => {
     if (pending) return
+    retried.current = true
     startTransition(() => {
       ;(retrySegment ?? unstable_retry ?? reset)()
     })

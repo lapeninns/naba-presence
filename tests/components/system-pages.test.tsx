@@ -70,6 +70,31 @@ describe("route error boundary", () => {
     expect(document.querySelector('[data-slot="page-frame"]')).not.toBeNull()
   })
 
+  it("hands focus to the recovered page once a retry succeeds", async () => {
+    const retry = vi.fn()
+    const { rerender } = render(
+      <main id="main" tabIndex={-1}>
+        <DashboardError
+          error={Object.assign(new Error("x"), { digest: "d-1" })}
+          reset={vi.fn()}
+          retry={retry}
+        />
+      </main>
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(retry).toHaveBeenCalledTimes(1)
+    rerender(
+      <main id="main" tabIndex={-1}>
+        <h1>Reports</h1>
+      </main>
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Reports" })
+      ).toHaveFocus()
+    )
+  })
+
   it("prefers the stable retry, which re-fetches the segment's server data", async () => {
     const retry = vi.fn()
     const unstable_retry = vi.fn()
