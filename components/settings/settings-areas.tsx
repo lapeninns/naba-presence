@@ -71,6 +71,28 @@ export const SETTINGS_AREAS: readonly SettingsArea[] =
     icon: AREA_ICONS[area.id],
   }))
 
+// "You" is reserved for the signed-in person's own settings
+// (settings-setup-auth-24): today Notifications, Sign-in security and
+// Appearance (the theme, also in More; SET-26). A signed-in account area
+// (name, change password) belongs here once the API has one; nothing is
+// offered before it exists.
+export const SETTINGS_GROUPS: readonly {
+  id: SettingsArea["group"]
+  header: string
+  footer: string
+}[] = [
+  {
+    id: "personal",
+    header: "You",
+    footer: "Only you. Your choices here don’t change anyone else’s.",
+  },
+  {
+    id: "workspace",
+    header: "Workspace",
+    footer: "Shared by everyone in the workspace.",
+  },
+]
+
 /**
  * Whether `pathname` is inside `area`. Reply policy has two addresses:
  * `/settings` (its desk home) and `/settings/policy` (where the phone's

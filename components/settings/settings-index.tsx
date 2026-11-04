@@ -2,9 +2,9 @@
 
 import { AppearanceRow } from "@/components/settings/appearance"
 import {
+  SETTINGS_GROUPS,
   useVisibleSettingsAreas,
   WithPrivacyAccess,
-  type SettingsArea,
 } from "@/components/settings/settings-areas"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
@@ -17,25 +17,6 @@ import {
   settingsGatingFromRole,
   type PrivacyAccess,
 } from "@/lib/settings/gating"
-
-// "You" is reserved for the signed-in person's own settings
-// (settings-setup-auth-24): today Notifications, Sign-in security and
-// Appearance (the theme, also in More; SET-26). A
-// signed-in account area (name, change password) belongs here once the API
-// has one; nothing is offered before it exists.
-const GROUPS: { id: SettingsArea["group"]; header: string; footer: string }[] =
-  [
-    {
-      id: "personal",
-      header: "You",
-      footer: "Only you. Your choices here don’t change anyone else’s.",
-    },
-    {
-      id: "workspace",
-      header: "Workspace",
-      footer: "Shared by everyone in the workspace.",
-    },
-  ]
 
 // Local exemption (Review R1 S5; FOUNDATION request filed): the row's
 // `focus-halo` draws its ring outside the row, so draw it inset instead, and
@@ -57,7 +38,7 @@ function SettingsIndexGroups({
   const canEditPolicy = settingsGatingFromRole(role).canEditSettings
   return (
     <nav aria-label="Settings" className="flex flex-col gap-(--np-gap-section)">
-      {GROUPS.map((group) => {
+      {SETTINGS_GROUPS.map((group) => {
         const rows = areas.filter((area) => area.group === group.id)
         if (rows.length === 0) return null
         const footerId = `settings-index-${group.id}-footer`
