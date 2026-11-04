@@ -32,9 +32,6 @@ vi.mock("@/components/settings/oauth-return", () => ({
 vi.mock("@/components/settings/reconnect-alert", () => ({
   ReconnectAlert: () => null,
 }))
-vi.mock("@/components/settings/settings-nav", () => ({
-  SettingsNav: () => null,
-}))
 
 function Probe() {
   const { action } = usePageChromeOverride()
@@ -66,7 +63,7 @@ function renderPage(count: number, mutate = vi.fn(), isPending = false) {
   return render(
     <PageChromeProvider>
       <Probe />
-      <ConnectionsWorkspace role="owner" />
+      <ConnectionsWorkspace />
     </PageChromeProvider>
   )
 }
@@ -108,5 +105,15 @@ describe("ConnectionsWorkspace chrome", () => {
       .click(screen.getByRole("button", { name: "Run registered action" }))
     expect(mutate).toHaveBeenCalledTimes(1)
     expect(mutate).toHaveBeenCalledWith({})
+  })
+
+  it("is one header with no tab row: the settings section list is the way round", () => {
+    renderPage(1)
+    const header = screen.getByRole("banner")
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Google connections" })
+    ).toBeInTheDocument()
+    expect(header.querySelector("nav")).toBeNull()
+    expect(screen.queryByRole("navigation")).toBeNull()
   })
 })
