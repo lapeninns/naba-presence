@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { pageSettled, profileLoadedFromGoogle } from "./helpers/settled"
+import { pageSettled } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // The shell's fixed chrome under the two things a phone user changes about
@@ -70,58 +70,93 @@ test.describe("shell chrome with enlarged text", () => {
   })
 })
 
-test.describe("the profile's section strip on a phone", () => {
+test.describe("the profile's section index on a phone", () => {
   test.beforeEach(async ({ page, baseURL }) => {
     await applyCookie(page, baseURL)
   })
 
-  // Tall: the strip sticks under the app bar. Short or sideways: the app
-  // bar, the strip and the tab bar would cover over 40% of the screen, so
-  // the strip scrolls away with the page.
-  for (const { width, height, sticks } of [
-    { width: 390, height: 844, sticks: true },
-    { width: 667, height: 375, sticks: false },
-    { width: 568, height: 320, sticks: false },
+  // The section index stays in the page flow at all phone heights.
+  for (const { width, height } of [
+    { width: 390, height: 844 },
+    { width: 667, height: 375 },
+    { width: 568, height: 320 },
   ]) {
-    test(`${sticks ? "sticks" : "scrolls with the page"} at ${width}x${height}`, async ({
+    test(`opens and returns to a section at ${width}x${height}`, async ({
       page,
     }) => {
       const { primaryLocationId } = await readJourneyState()
       await page.setViewportSize({ width, height })
       await page.goto(`/listings/${primaryLocationId}/profile`)
-      await profileLoadedFromGoogle(page)
-      const nav = page.locator('[data-slot="section-nav"]')
-      await expect(nav).toBeVisible()
-      await page.evaluate(() => window.scrollTo(0, 1200))
-      const appBar = (await page
-        .locator('[data-slot="app-bar"]')
-        .boundingBox())!
-      await expect
-        .poll(async () => {
-          const box = (await nav.boundingBox())!
-          return Math.round(box.y + box.height)
-        })
-        [sticks ? "toBeGreaterThan" : "toBeLessThanOrEqual"](
-          Math.round(appBar.y + appBar.height)
-        )
-      // The section marked current is one the reader can see, under the
-      // app bar, not one that scrolled away above it.
-      await expect
-        .poll(async () => {
-          const id = await nav
-            .locator('a[aria-current="location"]')
-            .getAttribute("href")
-          return page.evaluate(
-            ([selector, top]) => {
-              const box = document
-                .querySelector(selector as string)!
-                .getBoundingClientRect()
-              return box.bottom > (top as number)
-            },
-            [id, appBar.y + appBar.height] as const
-          )
-        })
-        .toBe(true)
+      const nav = page.getByRole("navigation", { name: "Profile sections" })
+      const identity = nav.getByRole("button", {
+        name: "Identity",
+        exact: true,
+      })
+      const businessName = page.getByRole("textbox", { name: "Business name" })
+      await expect(identity).toBeVisible()
+      await expect(businessName).toBeHidden()
+      await identity.press("Enter")
+      await expect(page).toHaveURL(/\?section=identity$/)
+      await expect(
+        page.getByRole("heading", { name: "Identity", exact: true })
+      ).toBeFocused()
+      await expect(businessName).toBeVisible()
+      await nav.getByRole("link", { name: "All sections", exact: true }).click()
+      await expect(page).toHaveURL(/\/profile$/)
+      await expect(identity).toBeFocused()
+      await expect(businessName).toBeHidden()
     })
   }
+})
+
+test.describe("the profile's section strip on a touch tablet", () => {
+  test.use({ hasTouch: true, viewport: { width: 834, height: 1112 } })
+
+  test("stays visible when its editor pane scrolls and can scroll sideways", async ({
+    page,
+    baseURL,
+  }) => {
+    await applyCookie(page, baseURL)
+    const { primaryLocationId } = await readJourneyState()
+    await page.goto(`/listings/${primaryLocationId}/profile`)
+    const pane = page.locator(
+      '[role="region"][aria-label="Business profile"][tabindex="0"]'
+    )
+    const nav = pane.getByRole("navigation", { name: "Profile sections" })
+    await expect(nav.getByRole("link", { name: "Identity" })).toBeVisible()
+    await pageSettled(page)
+
+    const strip = nav.getByRole("list")
+    await expect
+      .poll(() => strip.evaluate((list) => list.scrollWidth - list.clientWidth))
+      .toBeGreaterThan(0)
+    await strip.evaluate((list) => (list.scrollLeft = 100))
+    await expect
+      .poll(() => strip.evaluate((list) => list.scrollLeft))
+      .toBeGreaterThan(0)
+
+    await pane.evaluate((editor) => (editor.scrollTop = 1200))
+    await expect
+      .poll(() => pane.evaluate((editor) => editor.scrollTop))
+      .toBeGreaterThan(300)
+    await expect
+      .poll(async () => {
+        const [header, editor] = await Promise.all([
+          nav.boundingBox(),
+          pane.boundingBox(),
+        ])
+        return Math.abs(header!.y - editor!.y)
+      })
+      .toBeLessThanOrEqual(2)
+    const current = nav.locator('a[aria-current="location"]')
+    await expect(current).toHaveCount(1)
+    const href = (await current.getAttribute("href"))!
+    const [section, header] = await Promise.all([
+      page.locator(href).boundingBox(),
+      nav.boundingBox(),
+    ])
+    expect(section!.y + section!.height).toBeGreaterThan(
+      header!.y + header!.height
+    )
+  })
 })

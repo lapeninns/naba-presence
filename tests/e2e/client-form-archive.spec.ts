@@ -332,6 +332,13 @@ test.describe("client settings at a 1280px desk", () => {
       .getByRole("button", { name: `Archive ${state.clientName}` })
     await expect(archive).toBeEnabled()
     await archive.click()
+    const confirmation = page.getByRole("alertdialog", {
+      name: `Archive ${state.clientName}?`,
+    })
+    expect(writes).toHaveLength(0)
+    await confirmation
+      .getByRole("button", { name: "Archive and unfile", exact: true })
+      .click()
 
     await expect(page).toHaveURL(/\/clients$/)
     expect(writes).toHaveLength(1)
@@ -364,6 +371,10 @@ test.describe("client settings at a 1280px desk", () => {
     })
     await expect(archive).toBeEnabled()
     await archive.click()
+    await page
+      .getByRole("alertdialog", { name: `Archive ${state.clientName}?` })
+      .getByRole("button", { name: "Archive and unfile", exact: true })
+      .click()
 
     await expect(page.getByText(/wasn.t archived/)).toBeVisible()
     await expect(page).toHaveURL(

@@ -99,7 +99,9 @@ test("an owner puts a business name Google changed back, through review, approva
 
   await row.getByRole("button", { name: "Put ours back" }).click()
   await expect(page.getByText("Ours is ready to review")).toBeVisible()
-  await expect(row.getByText("Waiting for approval")).toBeVisible()
+  await expect(
+    row.getByText("Awaiting approval", { exact: true })
+  ).toBeVisible()
   expect(f.writes).toHaveLength(0)
 
   await row.getByRole("button", { name: "Approve" }).click()
@@ -109,7 +111,7 @@ test("an owner puts a business name Google changed back, through review, approva
 
   await row.getByRole("button", { name: "Publish to Google" }).click()
   await expect(
-    row.getByText("Sent to Google, waiting for Google to confirm")
+    row.getByText("Sent, waiting for Google to confirm", { exact: true })
   ).toBeVisible()
   // Only the name went to Google: nothing else on the listing was written.
   expect(f.writes).toEqual([expect.objectContaining({ title: "Old Crown" })])

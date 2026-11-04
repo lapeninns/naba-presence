@@ -712,6 +712,22 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Business profile", level: 1 })
         ).toBeVisible()
+        if (viewport.name === "mobile") {
+          const sections = page.getByRole("navigation", {
+            name: "Profile sections",
+          })
+          const identity = sections.getByRole("button", {
+            name: "Identity",
+            exact: true,
+          })
+          await expect(identity).toBeVisible()
+          await pageSettled(page)
+          await expectAccessible(
+            page,
+            `${viewport.name} ${theme} profile index`
+          )
+          await identity.click()
+        }
         await expect(
           page.getByRole("textbox", { name: "Business name" })
         ).toBeVisible()

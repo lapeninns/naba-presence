@@ -68,7 +68,23 @@ async function completePin(
   await page.keyboard.press("Space")
   await panel.getByRole("button", { name: "Send approved PIN" }).focus()
   await capturePin(page, info, "keyboard-ready")
-  await page.keyboard.press("Enter")
+  const [executed] = await Promise.all([
+    page.waitForResponse(
+      (response) => {
+        const path = new URL(response.url()).pathname
+        return (
+          response.request().method() === "POST" &&
+          path.startsWith(
+            `/api/locations/${fixture.linked.locationId}/verification-completion-reviews/`
+          ) &&
+          path.endsWith("/execute")
+        )
+      },
+      { timeout: 20_000 }
+    ),
+    page.keyboard.press("Enter"),
+  ])
+  expect(executed.status()).toBe(200)
   await expect(
     panel.getByText("Accepted by Google", { exact: true })
   ).toBeVisible()

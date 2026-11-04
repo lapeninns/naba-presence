@@ -1160,6 +1160,11 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(page).toHaveURL(
       new RegExp(`/listings/${state.primaryLocationId}/profile$`)
     )
+    await tap(
+      page
+        .getByRole("navigation", { name: "Profile sections" })
+        .getByRole("button", { name: "Identity", exact: true })
+    )
     // Google's half of the listing arrives after the NabaPresence copy.
     await profileLoadedFromGoogle(page)
 

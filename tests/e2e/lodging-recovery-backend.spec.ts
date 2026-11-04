@@ -5,6 +5,7 @@ import {
   lodgingEditor,
   lodgingSheet,
 } from "./helpers/lodging-capture"
+import { openProfileSectionOnPhone } from "./helpers/profile-section"
 import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startLodgingBackend>>
@@ -24,6 +25,7 @@ test.beforeEach(async ({ context }) => {
 async function approved(page: Page) {
   const fixture = await backend.lodgingFixture(page)
   await fixture.open()
+  await openProfileSectionOnPhone(page, "Lodging")
   await lodgingEditor(page)
     .getByRole("searchbox", { name: "Find a lodging detail" })
     .fill("Pets allowed")
