@@ -848,6 +848,11 @@ describe("InvitationsPanel", () => {
       )
       await user.click(screen.getByRole("button", { name: "Send invitation" }))
       expect(await screen.findByText("Invitation emailed")).toBeInTheDocument()
+      // Created here, not confirmed on Google: no green.
+      expect(
+        screen.getByText("Invitation emailed").closest("[data-slot=alert]")!
+          .className
+      ).not.toMatch(/success/)
     })
   })
 })

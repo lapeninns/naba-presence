@@ -77,6 +77,13 @@ export function TeamView({
   actorUserId: string
 }) {
   const [inviteOpen, setInviteOpen] = useState(false)
+  // Opened from `#invite`, the dialog has no opener to hand focus back to.
+  const [inviteFromHash, setInviteFromHash] = useState(false)
+  const inviteButton = useRef<HTMLButtonElement>(null)
+  const openInvite = () => {
+    setInviteFromHash(false)
+    setInviteOpen(true)
+  }
   const terms = workspaceTerms(useWorkspaceMode())
   const router = useRouter()
   // Focus lands here after a member is removed: their row, and so the
@@ -85,7 +92,9 @@ export function TeamView({
 
   useEffect(() => {
     const openFromHash = () => {
-      if (window.location.hash === "#invite") setInviteOpen(true)
+      if (window.location.hash !== "#invite") return
+      setInviteFromHash(true)
+      setInviteOpen(true)
     }
     openFromHash()
     window.addEventListener("hashchange", openFromHash)
@@ -111,14 +120,14 @@ export function TeamView({
         action={{
           label: "Invite a teammate",
           icon: UserPlus,
-          onSelect: () => setInviteOpen(true),
+          onSelect: openInvite,
         }}
       />
       <PageHeader
         title="Team"
         description={terms.teamDescription}
         actions={
-          <Button onClick={() => setInviteOpen(true)}>
+          <Button ref={inviteButton} onClick={openInvite}>
             <UserPlus aria-hidden />
             Invite a teammate
           </Button>
@@ -163,7 +172,7 @@ export function TeamView({
               : "Invite links expire after 7 days. Members and viewers see every client unless you choose clients when inviting them, or later from Client access."
           }
         />
-        <InvitationsList onInvite={() => setInviteOpen(true)} />
+        <InvitationsList onInvite={openInvite} />
       </section>
 
       <section aria-labelledby="team-roles">
@@ -211,6 +220,7 @@ export function TeamView({
         actorRole={actorRole}
         open={inviteOpen}
         onOpenChange={onInviteOpenChange}
+        finalFocus={inviteFromHash ? inviteButton : undefined}
       />
     </>
   )

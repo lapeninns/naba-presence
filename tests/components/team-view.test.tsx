@@ -23,6 +23,9 @@ type MembersTableProps = {
   onSelfRoleChanged?: () => void
   removedFocus?: { current: HTMLElement | null }
 }
+const inviteFinalFocus: {
+  current: { current: HTMLElement | null } | undefined
+} = { current: undefined }
 const membersTableProps: { current: MembersTableProps | null } = {
   current: null,
 }
@@ -34,9 +37,18 @@ vi.mock("@/components/settings/members-table", () => ({
 }))
 vi.mock("@/components/settings/invitations-panel", () => ({
   InvitationsList: () => null,
-  InviteDialog: ({ open }: { open: boolean }) => (
-    <output data-testid="invite-dialog">{open ? "open" : "closed"}</output>
-  ),
+  InviteDialog: ({
+    open,
+    finalFocus,
+  }: {
+    open: boolean
+    finalFocus?: { current: HTMLElement | null }
+  }) => {
+    inviteFinalFocus.current = finalFocus
+    return (
+      <output data-testid="invite-dialog">{open ? "open" : "closed"}</output>
+    )
+  },
 }))
 
 function Probe() {
@@ -134,5 +146,26 @@ describe("TeamView roles card", () => {
     const table = screen.getByRole("table", { name: "What each role can do" })
     expect(table.querySelectorAll(".text-success-ink")).toHaveLength(0)
     expect(within(table).getAllByText("Yes").length).toBeGreaterThan(0)
+  })
+})
+
+describe("TeamView invite from the address", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"))
+
+  it("hands focus to the header's invite when #invite opened it", () => {
+    window.history.replaceState(null, "", "/team#invite")
+    renderPage()
+    expect(screen.getByTestId("invite-dialog")).toHaveTextContent("open")
+    expect(inviteFinalFocus.current?.current).toBe(
+      screen.getByRole("button", { name: "Invite a teammate" })
+    )
+  })
+
+  it("leaves focus to the opener when a button opened it", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole("button", { name: "Invite a teammate" }))
+    expect(screen.getByTestId("invite-dialog")).toHaveTextContent("open")
+    expect(inviteFinalFocus.current).toBeUndefined()
   })
 })
