@@ -235,4 +235,16 @@ describe("password requirements", () => {
       })
     ).toBeInTheDocument()
   })
+
+  it("ticks a met rule in ink, with a different glyph from an unmet one", () => {
+    const { container, rerender } = render(<PasswordRequirements value="" />)
+    const row = () => container.querySelector("li") as HTMLElement
+    expect(row().querySelector("svg")).toBeNull()
+    expect(row()).not.toHaveAttribute("data-met")
+    rerender(<PasswordRequirements value="correct-horse-9" />)
+    expect(row()).toHaveAttribute("data-met", "true")
+    const tick = row().querySelector("svg")
+    expect(tick).toHaveClass("text-ink")
+    expect(tick?.getAttribute("class")).not.toMatch(/success/)
+  })
 })

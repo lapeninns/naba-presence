@@ -24,8 +24,9 @@ function checkPasswordRules(value: string): PasswordRule[] {
 
 /**
  * The rule as a small checklist that ticks itself as the password grows.
- * Each row's state is in its accessible name, so the success glyph and the
- * ink change are never the only signal.
+ * Each row's state is in its accessible name, so the glyph and the ink
+ * change are never the only signal. The tick is ink, not success green:
+ * green is kept for what is live on Google.
  */
 function PasswordRequirements({ value }: { value: string }) {
   return (
@@ -46,7 +47,7 @@ function PasswordRequirements({ value }: { value: string }) {
         >
           {rule.met ? (
             <CircleCheck
-              className="size-3.5 shrink-0 text-success-ink"
+              className="size-3.5 shrink-0 text-ink"
               strokeWidth={1.75}
               aria-hidden
             />
