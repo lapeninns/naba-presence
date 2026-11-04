@@ -13,7 +13,7 @@ export default function ShareReportNotFound() {
     <ShareStateCard
       icon={<LinkIcon />}
       title="This report link isn’t available"
-      description="The link may be mistyped, or it may have expired or been switched off. Ask whoever sent it to you for a new one."
+      description="Ask whoever sent it to you for a new one."
     />
   )
 }

@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import ShareReportError from "@/app/share/report/[token]/error"
 import ShareReportNotFound from "@/app/share/report/[token]/not-found"
 import SharedReportPage from "@/app/share/report/[token]/page"
-import { SharedClientReportView } from "@/components/share/shared-client-report"
+import {
+  SharedClientReportView,
+  zoneTimeName,
+} from "@/components/share/shared-client-report"
 import type { SharedClientReport } from "@/lib/contracts/report-shares"
 import {
   GOOGLE_PERFORMANCE_METRICS,
@@ -239,6 +242,11 @@ describe("the not-found page", () => {
         name: "This report link isn’t available",
       })
     ).toBeInTheDocument()
+    // One sentence, naming no cause: mistyped, expired and revoked read alike.
+    expect(
+      screen.getByText("Ask whoever sent it to you for a new one.")
+    ).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(/expired|revoked|switched off/i)
     expect(screen.queryAllByRole("link")).toHaveLength(0)
     expect(screen.queryAllByRole("button")).toHaveLength(0)
   })
@@ -268,6 +276,23 @@ describe("the error page", () => {
     expect(reset).not.toHaveBeenCalled()
     // Nothing to follow into the app.
     expect(screen.queryAllByRole("link")).toHaveLength(0)
+  })
+
+  it("is the shared error state: danger tone, one sentence, one action", () => {
+    const { container } = render(<ShareReportError reset={vi.fn()} />)
+    const state = container.querySelector('[data-slot="empty"]')
+    expect(state).toHaveAttribute("data-variant", "error")
+    expect(state).toHaveAttribute("data-tone", "bad")
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "This report couldn’t be loaded",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Something went wrong on our side.")
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole("button")).toHaveLength(1)
   })
 
   it("falls back to unstable_retry, then to reset", async () => {
@@ -406,7 +431,7 @@ describe("SharedClientReportView", () => {
       })
     ).toBeInTheDocument()
     expect(main).toHaveTextContent(
-      "Harbour Agency hasn’t added any listings for Old Crown Group yet. Figures appear here once they do."
+      "Figures appear here once a listing is added."
     )
     // Not the reply panel's "for these listings", and no zero tiles.
     expect(
@@ -438,7 +463,7 @@ describe("SharedClientReportView", () => {
       .closest("section") as HTMLElement
     expect(
       within(section).getByText(
-        /^24 Aug( 2026)? – 20 Sept( 2026)? · Figures up to 18 Sept( 2026)?, as reported by Google$/
+        /^24 Aug( 2026)? – 20 Sept( 2026)? · Google’s days, in UTC · Figures up to 18 Sept( 2026)?, as reported by Google$/
       )
     ).toBeInTheDocument()
     expect(section).not.toHaveTextContent(/fetch/i)
@@ -458,7 +483,9 @@ describe("SharedClientReportView", () => {
       .getByRole("heading", { level: 2, name: "Google Business Profile" })
       .closest("section") as HTMLElement
     expect(
-      within(section).getByText(/^24 Aug( 2026)? – 20 Sept( 2026)?$/)
+      within(section).getByText(
+        /^24 Aug( 2026)? – 20 Sept( 2026)? · Google’s days, in UTC$/
+      )
     ).toBeInTheDocument()
     expect(section).not.toHaveTextContent(/Figures up to/)
   })
@@ -551,6 +578,42 @@ describe("SharedClientReportView", () => {
     expect(screen.getByText("No reviews in this period")).toBeInTheDocument()
   })
 
+  it("names the period once up top and lets each section state its own dates", () => {
+    render(<SharedClientReportView report={REPORT} />)
+    // The reply window (organisation's days) and Google's (UTC days) are a
+    // day apart here; neither is stated as the whole report's.
+    expect(document.getElementById("period")).toHaveTextContent(
+      /^Last 28 days$/
+    )
+    const replies = screen
+      .getByRole("heading", { level: 2, name: "Reviews and replies" })
+      .closest("section") as HTMLElement
+    expect(
+      within(replies).getByText(
+        /^23 Aug( 2026)? – 20 Sept( 2026)? · days in London time$/
+      )
+    ).toBeInTheDocument()
+    const google = screen
+      .getByRole("heading", { level: 2, name: "Google Business Profile" })
+      .closest("section") as HTMLElement
+    expect(google).toHaveTextContent(/24 Aug( 2026)? – 20 Sept( 2026)?/)
+    expect(google).toHaveTextContent("Google’s days, in UTC")
+    expect(google).not.toHaveTextContent(/23 Aug/)
+  })
+
+  it("names the organisation's zone by its place, and UTC as UTC", () => {
+    render(
+      <SharedClientReportView
+        report={{ ...REPORT, timezone: "America/New_York" }}
+      />
+    )
+    expect(screen.getByText(/days in New York time$/)).toBeInTheDocument()
+    expect(zoneTimeName("UTC")).toBe("UTC")
+    expect(zoneTimeName("America/Argentina/Buenos_Aires")).toBe(
+      "Buenos Aires time"
+    )
+  })
+
   it("has landmarks, a skip link and the figures' main region", () => {
     render(<SharedClientReportView report={REPORT} />)
     expect(screen.getByRole("banner")).toBeInTheDocument()
@@ -571,7 +634,7 @@ describe("SharedClientReportView", () => {
       'time[datetime="2026-09-20T12:00:00.000Z"]'
     )
     // Noon UTC on 20 Sep is midnight on the 21st in Auckland (NZST).
-    expect(time?.textContent).toMatch(/21 Sept( 2026)?, 00:00 GMT\+12/)
+    expect(time?.textContent).toMatch(/^21 Sept( 2026)?, 00:00 Auckland time$/)
   })
 
   it("warns in the client's words when the figures may be incomplete", () => {
