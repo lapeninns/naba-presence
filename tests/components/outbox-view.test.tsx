@@ -137,6 +137,23 @@ describe("OutboxView", () => {
     expect(link).toHaveTextContent(outboxStatus("failed").label)
   })
 
+  it("links a failed removal to its details without promising a resend", async () => {
+    renderView(
+      page({
+        items: [
+          item({
+            state: "failed",
+            operation: "delete",
+            href: "/inbox?queue=done&selected=a",
+          }),
+        ],
+      })
+    )
+    const failed = await screen.findByRole("region", { name: /^Failed/ })
+    const link = within(failed).getByRole("link", { name: /View details/ })
+    expect(link).toHaveAttribute("href", "/inbox?queue=done&selected=a")
+  })
+
   it("never calls a queued or unconfirmed write published, and only a confirmed one On Google", async () => {
     renderView(page())
     await screen.findAllByRole("heading", { level: 2 })

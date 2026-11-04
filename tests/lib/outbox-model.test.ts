@@ -64,6 +64,7 @@ const reply = (overrides: Partial<ReplyRow> = {}): ReplyRow => ({
   googleReplyState: null,
   attemptStatus: null,
   attemptOperation: null,
+  failedDeletion: false,
   nextAttemptAt: null,
   sentBackAt: null,
   at: new Date("2026-11-02T10:00:00Z"),
@@ -89,6 +90,7 @@ const post = (overrides: Partial<PostRow> = {}): PostRow => ({
   googleState: "PROCESSING",
   attemptOperation: null,
   attemptStatus: null,
+  failedDeletion: false,
   lastErrorCode: null,
   topicType: "STANDARD",
   summary: "Autumn menu launches on Friday",
@@ -157,7 +159,7 @@ describe("reply mapping", () => {
     ["started", "sending"],
     ["retryable", "retrying"],
     ["ambiguous", "uncertain"],
-    ["failed", "live"],
+    ["failed", "failed"],
   ])(
     "maps the latest delete attempt %s over a confirmed reply",
     (attemptStatus, expected) => {
@@ -169,11 +171,32 @@ describe("reply mapping", () => {
             googleReplyState: "APPROVED",
             attemptOperation: "delete",
             attemptStatus,
+            failedDeletion: attemptStatus === "failed",
           })
         )
       ).toBe(expected)
     }
   )
+
+  it("links a definitively failed deletion to the existing reply", () => {
+    expect(
+      replyItem(
+        reply({
+          workflowStatus: "published",
+          publishStatus: "published",
+          googleReplyState: "APPROVED",
+          attemptOperation: "delete",
+          attemptStatus: "failed",
+          failedDeletion: true,
+        })
+      )
+    ).toMatchObject({
+      state: "failed",
+      operation: "delete",
+      title: "Delete reply to Sam K.",
+      href: "/inbox?queue=done&selected=review-1",
+    })
+  })
 
   it.each<[Partial<ReplyRow>, OutboxState | null]>([
     [{ workflowStatus: "awaiting_approval" }, "approval"],
@@ -309,6 +332,28 @@ describe("listing change mapping", () => {
 })
 
 describe("post mapping", () => {
+  it.each(["published", "failed", "ambiguous", "draft"])(
+    "shows a definitively failed deletion for a %s post",
+    (status) => {
+      expect(
+        postItem(
+          post({
+            status,
+            googleState: "LIVE",
+            attemptOperation: "delete",
+            attemptStatus: "failed",
+            failedDeletion: true,
+          })
+        )
+      ).toMatchObject({
+        state: "failed",
+        operation: "delete",
+        title: "Delete post",
+        href: "/listings/loc-1/posts",
+      })
+    }
+  )
+
   it.each<[Partial<PostRow>, OutboxState | null]>([
     [{ status: "awaiting_approval" }, "approval"],
     [{ status: "draft", sentBackAt: new Date() }, "changes"],

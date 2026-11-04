@@ -548,46 +548,99 @@ describeDatabase("GET /api/outbox", () => {
     }
   })
 
-  it("shows an ambiguous deletion even when the previous confirmation is too old for the Outbox", async () => {
-    const tenant = await createTestTenant(admin)
-    organisations.push(tenant.organisationId)
-    const review = await seedReview(admin, {
-      organisationId: tenant.organisationId,
-    })
-    for (const step of [
-      "drafted",
-      "verified",
-      "publish_requested",
-      "published",
-    ])
-      await admin`update review set workflow_status = ${step} where id = ${review.reviewId}`
-    const [reply] = await admin`
+  it.each([
+    { status: "ambiguous", state: "uncertain", group: "google" },
+    { status: "failed", state: "failed", group: "failed" },
+  ])(
+    "shows a $status reply deletion after the confirmation ages out",
+    async ({ status, state, group }) => {
+      const tenant = await createTestTenant(admin)
+      organisations.push(tenant.organisationId)
+      const review = await seedReview(admin, {
+        organisationId: tenant.organisationId,
+      })
+      for (const step of [
+        "drafted",
+        "verified",
+        "publish_requested",
+        "published",
+      ])
+        await admin`update review set workflow_status = ${step} where id = ${review.reviewId}`
+      const [reply] = await admin`
       insert into review_reply (
         organisation_id, review_id, current_body, publish_status,
         google_reply_state, google_reply_updated_at, published_by
       )
       values (${tenant.organisationId}, ${review.reviewId}, 'Previous reply',
-        'published', 'APPROVED', now() - interval '2 days', ${tenant.userId})
+        'published', 'APPROVED', now() - interval '40 days', ${tenant.userId})
       returning id
     `
-    expect(
-      byId(await readAll(tenant.cookie)).has(`reply:${review.reviewId}`)
-    ).toBe(false)
-    await admin`
+      expect(
+        byId(await readAll(tenant.cookie)).has(`reply:${review.reviewId}`)
+      ).toBe(false)
+      const [attempt] = await admin<{ id: string; at: Date }[]>`
       insert into publish_attempt (
         organisation_id, review_reply_id, idempotency_key, request_body_hash,
-        operation, status, attempt_no
+        operation, status, attempt_no, started_at, finished_at
       )
       values (${tenant.organisationId}, ${reply.id}, ${randomUUID()}, 'delete',
-        'delete', 'ambiguous', 1)
+        'delete', ${status}, 1, now() - interval '32 days', now() - interval '2 days')
+      returning id, finished_at as at
     `
-    expect(
-      byId(await readAll(tenant.cookie)).get(`reply:${review.reviewId}`)
-    ).toMatchObject({
-      state: "uncertain",
-      title: expect.stringMatching(/^Delete reply to /),
-    })
-  })
+      const id = `reply:${review.reviewId}`
+      const item = byId(await readAll(tenant.cookie, `group=${group}`)).get(id)
+      expect(item).toMatchObject({
+        state,
+        title: expect.stringMatching(/^Delete reply to /),
+      })
+
+      if (status === "failed") {
+        expect(item).toMatchObject({
+          operation: "delete",
+          at: attempt.at.toISOString(),
+        })
+        const counts = await read(tenant.cookie, "/api/outbox/counts")
+        expect(counts.body).toMatchObject({
+          failed: 1,
+          live: 0,
+          partial: false,
+        })
+
+        await admin`
+        update publish_attempt set finished_at = now() - interval '31 days'
+        where id = ${attempt.id}
+      `
+        await admin`
+        update review_reply set google_reply_updated_at = now()
+        where id = ${reply.id}
+      `
+        expect(byId(await readAll(tenant.cookie)).has(id)).toBe(false)
+
+        for (const step of ["drafted", "verified", "awaiting_approval"])
+          await admin`update review set workflow_status = ${step} where id = ${review.reviewId}`
+        expect(
+          byId(await readAll(tenant.cookie, "group=person")).get(id)
+        ).toMatchObject({
+          state: "approval",
+          title: expect.stringMatching(/^Reply to /),
+        })
+
+        const [sentBack] = await admin<{ at: Date }[]>`
+          insert into approval_decision (organisation_id, review_id, decision, created_at)
+          values (${tenant.organisationId}, ${review.reviewId}, 'rejected', now() - interval '1 day')
+          returning created_at as at
+        `
+        await admin`update review set workflow_status = 'drafted' where id = ${review.reviewId}`
+        expect(
+          byId(await readAll(tenant.cookie, "group=person")).get(id)
+        ).toMatchObject({
+          state: "changes",
+          title: expect.stringMatching(/^Reply to /),
+          at: sentBack.at.toISOString(),
+        })
+      }
+    }
+  )
 
   it("starts the confirmed window when Google first shows a delayed post as live", async () => {
     const tenant = await createTestTenant(admin)
@@ -647,44 +700,137 @@ describeDatabase("GET /api/outbox", () => {
     expect(await item()).toBeUndefined()
   })
 
-  it("keeps an unresolved post deletion out of the confirmed group", async () => {
-    const tenant = await createTestTenant(admin)
-    organisations.push(tenant.organisationId)
-    const { reviewId, locationId } = await seedReview(admin, {
-      organisationId: tenant.organisationId,
-    })
-    const [{ externalLocationId }] = await admin<
-      { externalLocationId: string }[]
-    >`
+  it.each([
+    {
+      postStatus: "published",
+      status: "ambiguous",
+      state: "uncertain",
+      group: "google",
+    },
+    {
+      postStatus: "published",
+      status: "failed",
+      state: "failed",
+      group: "failed",
+    },
+    {
+      postStatus: "failed",
+      status: "failed",
+      state: "failed",
+      group: "failed",
+    },
+  ])(
+    "keeps a $status deletion of a $postStatus post out of confirmations",
+    async ({ postStatus, status, state, group }) => {
+      const tenant = await createTestTenant(admin)
+      organisations.push(tenant.organisationId)
+      const { reviewId, locationId } = await seedReview(admin, {
+        organisationId: tenant.organisationId,
+      })
+      const [{ externalLocationId }] = await admin<
+        { externalLocationId: string }[]
+      >`
       select external_location_id::text as "externalLocationId"
       from review where id = ${reviewId}
     `
-    const [post] = await admin`
+      const [post] = await admin`
       insert into gbp_local_post (
         organisation_id, location_id, external_location_id, topic_type,
-        summary, status, google_state
+        summary, status, google_state, google_post_name
       ) values (
         ${tenant.organisationId}, ${locationId}, ${externalLocationId}, 'STANDARD',
-        'Previously confirmed post', 'published', 'LIVE'
+        'Previously confirmed post', ${postStatus}, 'LIVE',
+        ${`accounts/qa/locations/qa/localPosts/${randomUUID()}`}
       ) returning id
     `
-    await admin`
+      await admin`
+      update gbp_local_post
+      set google_live_observed_at = now() - interval '40 days'
+      where id = ${post.id}
+    `
+      await admin`
       insert into gbp_local_post_attempt (
         organisation_id, post_id, actor_user_id, operation, status,
         idempotency_key, intended_payload, started_at
-      ) values
-      (${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'create', 'succeeded',
-        ${randomUUID()}, '{}'::jsonb, now() - interval '3 days'),
-      (${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'delete', 'ambiguous',
-        ${randomUUID()}, '{}'::jsonb, now() - interval '2 days')
+      ) values (
+        ${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'create',
+        'succeeded', ${randomUUID()}, '{}'::jsonb, now() - interval '41 days'
+      )
     `
-    expect(
-      byId(await readAll(tenant.cookie)).get(`post:${post.id}`)
-    ).toMatchObject({
-      state: "uncertain",
-      title: "Delete post",
-    })
-  })
+      const [attempt] = await admin<{ id: string; at: Date }[]>`
+      insert into gbp_local_post_attempt (
+        organisation_id, post_id, actor_user_id, operation, status,
+        idempotency_key, intended_payload, started_at, finished_at
+      ) values (
+        ${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'delete',
+        ${status}, ${randomUUID()}, '{}'::jsonb, now() - interval '32 days',
+        now() - interval '2 days'
+      ) returning id, finished_at as at
+    `
+      const id = `post:${post.id}`
+      const item = byId(await readAll(tenant.cookie, `group=${group}`)).get(id)
+      expect(item).toMatchObject({ state, title: "Delete post" })
+
+      if (status === "failed") {
+        expect(item).toMatchObject({
+          operation: "delete",
+          at: attempt.at.toISOString(),
+        })
+        const counts = await read(tenant.cookie, "/api/outbox/counts")
+        expect(counts.body).toMatchObject({
+          failed: 1,
+          live: 0,
+          partial: false,
+        })
+
+        await admin`
+        update gbp_local_post_attempt set finished_at = now() - interval '31 days'
+        where id = ${attempt.id}
+      `
+        await admin`
+        update gbp_local_post set google_live_observed_at = now()
+        where id = ${post.id}
+      `
+        expect(byId(await readAll(tenant.cookie)).has(id)).toBe(false)
+
+        await admin`update gbp_local_post set status = 'awaiting_approval' where id = ${post.id}`
+        expect(
+          byId(await readAll(tenant.cookie, "group=person")).get(id)
+        ).toMatchObject({ state: "approval", title: "Post" })
+
+        const [sentBack] = await admin<{ at: Date }[]>`
+          insert into post_approval_decision (
+            organisation_id, post_id, content_revision, content_hash, decision, created_at
+          )
+          select organisation_id, id, content_revision, repeat('0', 64), 'rejected',
+            now() - interval '1 day'
+          from gbp_local_post where id = ${post.id}
+          returning created_at as at
+        `
+        await admin`update gbp_local_post set status = 'draft' where id = ${post.id}`
+        expect(
+          byId(await readAll(tenant.cookie, "group=person")).get(id)
+        ).toMatchObject({
+          state: "changes",
+          title: "Post",
+          at: sentBack.at.toISOString(),
+        })
+
+        const [newer] = await admin<{ at: Date }[]>`
+          update gbp_local_post_attempt set finished_at = now()
+          where id = ${attempt.id} returning finished_at as at
+        `
+        expect(
+          byId(await readAll(tenant.cookie, "group=failed")).get(id)
+        ).toMatchObject({
+          state: "failed",
+          operation: "delete",
+          title: "Delete post",
+          at: newer.at.toISOString(),
+        })
+      }
+    }
+  )
 
   it("needs a session", async () => {
     expect((await fetch(`${server.baseUrl}/api/outbox`)).status).toBe(401)

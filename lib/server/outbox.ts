@@ -42,16 +42,15 @@ import type { Session } from "@/lib/server/session"
  * mapping table:
  *
  * - Replies: `review.workflow_status`, the reply's `publish_status` and
- *   Google's `google_reply_state`, the latest publish attempt (a scheduled
- *   retry, an ambiguous answer) and the latest approval decision (an
- *   approver's send-back).
+ *   Google's `google_reply_state`, the latest publish or delete attempt
+ *   and the latest approval decision (an approver's send-back).
  * - Listing changes: the `mutation_operation` receipts of the single-listing
  *   editors (hours, profile, menu, photos) and their change requests. An
  *   approved change request and the dispatch it ran show as one row, the
  *   request's. Bulk children's receipts are left to the bulk rows.
  * - Posts: `gbp_local_post.status` and Google's `google_state`, for posts
- *   sent from here (a post synced in from Google has no attempt), plus the
- *   approver's send-back (`post_approval_decision`).
+ *   sent or deleted from here (a post synced in from Google has no attempt),
+ *   plus the approver's send-back (`post_approval_decision`).
  * - Bulk: one row per bulk operation and state, counting the operation's
  *   listings the session can see. Reply and post batches are left out:
  *   their replies and posts are rows of their own.
@@ -172,6 +171,7 @@ export type ReplyRow = Place & {
   googleReplyState: string | null
   attemptStatus: string | null
   attemptOperation: "publish" | "delete" | null
+  failedDeletion: boolean
   nextAttemptAt: Date | null
   sentBackAt: Date | null
   at: Date
@@ -188,7 +188,8 @@ function pendingDeletionState(
   return null
 }
 
-function pendingReplyDeletion(row: ReplyRow): OutboxState | null {
+function replyDeletion(row: ReplyRow): OutboxState | null {
+  if (row.failedDeletion) return "failed"
   return row.workflowStatus === "published"
     ? pendingDeletionState(row.attemptOperation, row.attemptStatus)
     : null
@@ -196,7 +197,7 @@ function pendingReplyDeletion(row: ReplyRow): OutboxState | null {
 
 /** One reply row's Outbox state, or null when it does not belong there. */
 export function replyState(row: ReplyRow): OutboxState | null {
-  const deletion = pendingReplyDeletion(row)
+  const deletion = replyDeletion(row)
   if (deletion) return deletion
   const publishStatus =
     row.attemptOperation === "delete" ? null : row.attemptStatus
@@ -243,6 +244,7 @@ const REPLY_QUEUE: Record<string, string> = {
 export function replyItem(row: ReplyRow): OutboxItem | null {
   const state = replyState(row)
   if (!state) return null
+  const deletion = replyDeletion(row)
   const name = row.reviewerAnonymous
     ? "an anonymous reviewer"
     : row.reviewerName?.trim() || "a reviewer"
@@ -254,9 +256,8 @@ export function replyItem(row: ReplyRow): OutboxItem | null {
     id: `reply:${row.reviewId}`,
     kind: "reply",
     state,
-    title: pendingReplyDeletion(row)
-      ? `Delete reply to ${name}`
-      : `Reply to ${name}`,
+    ...(deletion === "failed" ? { operation: "delete" as const } : {}),
+    title: deletion ? `Delete reply to ${name}` : `Reply to ${name}`,
     detail: row.starRating ? `${row.starRating}-star review` : null,
     ...placeOf(row),
     at: iso(state === "changes" && row.sentBackAt ? row.sentBackAt : row.at),
@@ -271,6 +272,12 @@ function readReplies(
   session: Session,
   scope: OutboxScope
 ) {
+  const failedDeletion = sql`
+    rr.publish_status not in ('deleted', 'not_published')
+    and pa.operation = 'delete' and pa.status = 'failed'
+    and r.workflow_status not in ('awaiting_approval', 'publish_requested')
+    and (sent_back.created_at is null or sent_back.created_at <= pa.settled_at)
+  `
   return sql<ReplyRow[]>`
     select
       r.id::text as "reviewId",
@@ -282,9 +289,13 @@ function readReplies(
       rr.google_reply_state as "googleReplyState",
       pa.status as "attemptStatus",
       pa.operation as "attemptOperation",
+      coalesce(${failedDeletion}, false) as "failedDeletion",
       pa.next_attempt_at as "nextAttemptAt",
       sent_back.created_at as "sentBackAt",
-      greatest(r.updated_at, rr.updated_at, pa.started_at) as at,
+      case
+        when ${failedDeletion} then pa.settled_at
+        else greatest(r.updated_at, rr.updated_at, pa.started_at)
+      end as at,
       l.id::text as "locationId",
       l.name as "locationName",
       c.id::text as "clientId",
@@ -297,7 +308,8 @@ function readReplies(
     left join lateral (
       -- The newest reply write: a retry bumps attempt_no on its own row, so a
       -- newer write (attempt 1) must still win on started_at.
-      select a.status, a.operation, a.started_at, a.next_attempt_at
+      select a.status, a.operation, a.started_at, a.next_attempt_at,
+        coalesce(a.finished_at, a.started_at) as settled_at
       from publish_attempt a
       where a.review_reply_id = rr.id
       order by a.started_at desc, a.id desc
@@ -326,7 +338,11 @@ function readReplies(
       and r.provider_deleted_at is null
       and ${visibilityPredicate(sql, session, sql`r.location_id`)}
       ${scopeFilter(sql, scope)}
-      and (
+      and case
+      -- Keep a refused deletion from its own settlement, even if the
+      -- original publication has already left the Outbox.
+      when ${failedDeletion} then pa.settled_at > now() - ${WINDOW}::interval
+      else (
         r.workflow_status in ('awaiting_approval', 'publish_requested')
         or (
           r.workflow_status = 'published'
@@ -357,6 +373,7 @@ function readReplies(
           )
         )
       )
+      end
     order by at desc
     limit ${SOURCE_LIMIT + 1}
   `
@@ -526,6 +543,7 @@ export type PostRow = Place & {
   googleState: string | null
   attemptOperation: string | null
   attemptStatus: string | null
+  failedDeletion: boolean
   lastErrorCode: string | null
   topicType: string
   summary: string
@@ -533,14 +551,15 @@ export type PostRow = Place & {
   at: Date
 }
 
-function pendingPostDeletion(row: PostRow): OutboxState | null {
+function postDeletion(row: PostRow): OutboxState | null {
+  if (row.failedDeletion) return "failed"
   return row.status === "published"
     ? pendingDeletionState(row.attemptOperation, row.attemptStatus)
     : null
 }
 
 export function postState(row: PostRow): OutboxState | null {
-  const deletion = pendingPostDeletion(row)
+  const deletion = postDeletion(row)
   if (deletion) return deletion
   switch (row.status) {
     case "awaiting_approval":
@@ -573,14 +592,14 @@ const POST_TITLE: Record<string, string> = {
 export function postItem(row: PostRow): OutboxItem | null {
   const state = postState(row)
   if (!state) return null
+  const deletion = postDeletion(row)
   const summary = row.summary.replace(/\s+/g, " ").trim()
   return {
     id: `post:${row.id}`,
     kind: "post",
     state,
-    title: pendingPostDeletion(row)
-      ? "Delete post"
-      : (POST_TITLE[row.topicType] ?? "Post"),
+    ...(deletion === "failed" ? { operation: "delete" as const } : {}),
+    title: deletion ? "Delete post" : (POST_TITLE[row.topicType] ?? "Post"),
     detail: summary
       ? summary.length > 80
         ? `${summary.slice(0, 79).trimEnd()}…`
@@ -594,6 +613,11 @@ export function postItem(row: PostRow): OutboxItem | null {
 }
 
 function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
+  const failedDeletion = sql`
+    p.status not in ('deleted', 'awaiting_approval', 'publishing')
+    and la.operation = 'delete' and la.status = 'failed'
+    and (sent_back.created_at is null or sent_back.created_at <= la.at)
+  `
   return sql<PostRow[]>`
     select
       p.id::text as id,
@@ -601,11 +625,13 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
       p.google_state as "googleState",
       la.operation as "attemptOperation",
       la.status as "attemptStatus",
+      coalesce(${failedDeletion}, false) as "failedDeletion",
       p.last_error_code as "lastErrorCode",
       p.topic_type as "topicType",
       p.summary,
       sent_back.created_at as "sentBackAt",
       case
+        when ${failedDeletion} then la.at
         when p.status = 'published' and p.google_state = 'LIVE'
           and not coalesce(la.operation = 'delete' and la.status in ('started', 'ambiguous'), false)
           then coalesce(p.google_live_observed_at, la.at, p.updated_at)
@@ -647,7 +673,9 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
     where p.organisation_id = ${session.organisationId}
       and ${visibilityPredicate(sql, session, sql`p.location_id`)}
       ${scopeFilter(sql, scope)}
-      and (
+      and case
+      when ${failedDeletion} then la.at > now() - ${WINDOW}::interval
+      else (
         p.status = 'awaiting_approval'
         or (
           p.status = 'published'
@@ -672,6 +700,7 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
           end
         )
       )
+      end
     order by at desc
     limit ${SOURCE_LIMIT + 1}
   `

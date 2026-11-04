@@ -32,7 +32,10 @@ export function OutboxRow({ item }: { item: OutboxItem }) {
         ? TIME_OF_DAY.format(new Date(item.retryAt))
         : undefined,
   })
-  const verb = outboxRecoveryVerb(item.kind, item.state)
+  const verb =
+    item.operation === "delete"
+      ? "View details"
+      : outboxRecoveryVerb(item.kind, item.state)
   const place = [item.locationName, item.clientName].filter(Boolean).join(" · ")
 
   return (

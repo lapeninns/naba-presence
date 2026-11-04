@@ -34,6 +34,8 @@ export const outboxItemSchema = z.object({
   title: z.string(),
   /** A short second line: the post's opening words, "3 listings". */
   detail: z.string().nullable(),
+  /** A failed removal needs a details link instead of a publishing retry. */
+  operation: z.literal("delete").optional(),
   /** Null for a bulk row that spans more than one listing. */
   locationId: z.string().nullable(),
   /** The listing's name, or "4 listings" for a bulk row. */
