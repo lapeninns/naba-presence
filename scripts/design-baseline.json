@@ -3,29 +3,13 @@
   "totals": {
     "R1": 12,
     "R2": 9,
-    "R3": 43,
+    "R3": 40,
     "R4": 7,
     "R5": 1,
     "R6": 2,
-    "R7": 13
+    "R7": 10
   },
   "files": {
-    "app/(auth)/layout.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_minmax(22.5rem,32.5rem)]": 1
-        }
-      }
-    },
-    "app/(dashboard)/setup/loading.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[13.75rem_minmax(0,1fr)]": 1
-        }
-      }
-    },
     "app/design-system/page.tsx": {
       "R1": {
         "total": 5,
@@ -182,14 +166,6 @@
         }
       }
     },
-    "components/listings/area-frame.tsx": {
-      "R7": {
-        "total": 3,
-        "patterns": {
-          "[@media(min-height:620px)]:": 3
-        }
-      }
-    },
     "components/locations/photos/photo-preview.tsx": {
       "R3": {
         "total": 1,
@@ -208,9 +184,9 @@
     },
     "components/setup/setup-wizard.tsx": {
       "R3": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "grid-cols-[13.75rem_minmax(0,1fr)]": 2
+          "grid-cols-[13.75rem_minmax(0,1fr)]": 1
         }
       }
     },
