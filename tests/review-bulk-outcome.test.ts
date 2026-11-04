@@ -234,7 +234,7 @@ describe("bulk outcome summary", () => {
   it("clears the selection only when every row took effect", () => {
     expect(
       summariseBulkOutcome({ results: [{ reviewId: "a", status: "ok" }] })
-    ).toMatchObject({ title: "1 review updated", tone: "success", allOk: true })
+    ).toMatchObject({ title: "1 review updated", tone: "neutral", allOk: true })
   })
 
   it("names every kind of outcome in a mixed batch", () => {

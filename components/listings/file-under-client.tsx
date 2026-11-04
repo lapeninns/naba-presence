@@ -114,7 +114,7 @@ function FileUnderClient({
             .then(() =>
               toasts.add({
                 title: `${locationName} filed under ${client?.name ?? "the client"}`,
-                type: "success",
+                type: "neutral",
               })
             )
             .catch((error: unknown) =>

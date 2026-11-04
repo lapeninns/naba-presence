@@ -118,7 +118,7 @@ export function useReviewTriage() {
       if (input.action === "mark_unreviewed" && summary.allOk) {
         toast.add({
           title: `${reviewCount(input) === 1 ? "Review" : "Reviews"} back in Needs reply`,
-          type: "success",
+          type: "neutral",
         })
         return result
       }
@@ -151,7 +151,7 @@ export function useReviewTriage() {
         toast.add(
           input.action === "approve"
             ? { title: okTitle, description: summary.description, type: "info" }
-            : { title: okTitle, type: "success" }
+            : { title: okTitle, type: "neutral" }
         )
         return result
       }

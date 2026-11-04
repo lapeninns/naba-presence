@@ -181,7 +181,7 @@ function CheckGoogleButton({
             else if (next.googleTarget === currentTarget)
               toast.add({
                 title: "Google’s review form hasn’t changed",
-                type: "success",
+                type: "neutral",
               })
           },
           onError: (cause) =>
@@ -251,7 +251,7 @@ function NoLinkYet({
                   onSuccess: () =>
                     toast.add({
                       title: "Review link created",
-                      type: "success",
+                      type: "neutral",
                     }),
                   onError: (cause) =>
                     toast.add({
@@ -329,7 +329,7 @@ function LinkCard({
     update.mutate(action, {
       onSuccess: () => {
         setConfirming(null)
-        toast.add({ title: success, type: "success" })
+        toast.add({ title: success, type: "neutral" })
         // The button that was pressed may be gone (Switch off becomes
         // Switch back on): keep focus in the card, after the dialog has
         // handed it back.
@@ -579,7 +579,7 @@ function QrCard({
       {
         onSuccess: (next) => {
           setDraft(next.link?.caption ?? "")
-          toast.add({ title: "Caption saved", type: "success" })
+          toast.add({ title: "Caption saved", type: "neutral" })
         },
         onError: (cause) =>
           toast.add({ title: describeActionError(cause), type: "error" }),

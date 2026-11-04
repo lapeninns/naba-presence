@@ -186,7 +186,7 @@ export function GoogleWatchSettings({ locationId }: { locationId: string }) {
       {
         onSuccess: () => {
           setDraft(null)
-          toasts.add({ title: "Protection settings saved", type: "success" })
+          toasts.add({ title: "Protection settings saved", type: "neutral" })
         },
       }
     )

@@ -20,7 +20,7 @@ export const BULK_ROW_STATUS_LABEL: Record<BulkReviewRowStatus, string> = {
 export type BulkOutcomeSummary = {
   title: string
   description: string | undefined
-  tone: "success" | "info" | "warning" | "error"
+  tone: "neutral" | "info" | "warning" | "error"
   /** Every row took effect, so the selection can be cleared. */
   allOk: boolean
 }
@@ -65,7 +65,7 @@ export function summariseBulkOutcome(
       ),
       description:
         "They are sent in the background. Follow them on the batch page, even after closing this tab.",
-      tone: failed > 0 ? "error" : others.length > 0 ? "warning" : "success",
+      tone: failed > 0 ? "error" : others.length > 0 ? "warning" : "info",
       allOk: others.length === 0,
     }
   }
@@ -81,7 +81,7 @@ export function summariseBulkOutcome(
       : {
           title: `${plural(ok, "review", "reviews")} updated`,
           description: undefined,
-          tone: "success",
+          tone: "neutral",
           allOk: true,
         }
   }
