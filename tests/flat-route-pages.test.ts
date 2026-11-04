@@ -144,3 +144,49 @@ describe("R10 /profile", async () => {
     )
   })
 })
+
+describe("R11 /profile/[...section]", async () => {
+  const { existsSync } = await import("node:fs")
+  const { FLAT_SEGMENT_MAP } = await import("@/lib/server/flat-route-redirect")
+  const { default: page } = await import("@/app/profile/[...section]/page")
+  const section = page as unknown as FlatPage
+
+  it("maps the old section onto the listing area, keeping the query", async () => {
+    primary.current = ONE
+    expect(await landing(section, QUERY, ["hours"])).toBe(
+      `/listings/loc-1/hours?${FORWARDED}`
+    )
+    expect(await landing(section, {}, ["details"])).toBe(
+      "/listings/loc-1/profile"
+    )
+  })
+
+  it("reads only the first segment and sends unknown ones to the overview", async () => {
+    primary.current = ONE
+    expect(await landing(section, {}, ["photos", "extra", "more"])).toBe(
+      "/listings/loc-1/photos"
+    )
+    expect(await landing(section, {}, ["nope"])).toBe("/listings/loc-1")
+    expect(await landing(section, {}, ["constructor"])).toBe("/listings/loc-1")
+  })
+
+  it("lands several listings on Clients with moved=profile", async () => {
+    expect(await landing(section, QUERY, ["hours"])).toBe(
+      `/clients?${FORWARDED}&moved=profile`
+    )
+  })
+
+  it("asks a signed-out visitor to sign in and come back to the subpath", async () => {
+    signedOutInProduction("/profile/hours?clientId=c-1")
+    expect(await landing(section, { clientId: "c-1" }, ["hours"])).toBe(
+      "/sign-in?next=%2Fprofile%2Fhours%3FclientId%3Dc-1"
+    )
+  })
+
+  it("only names listing areas that exist", () => {
+    for (const area of new Set(Object.values(FLAT_SEGMENT_MAP))) {
+      const dir = `app/(dashboard)/listings/[id]/${area}`
+      expect(existsSync(`${dir}/page.tsx`), dir).toBe(true)
+    }
+  })
+})
