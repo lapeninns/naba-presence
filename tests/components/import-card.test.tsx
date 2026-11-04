@@ -390,8 +390,17 @@ describe("ImportCard", () => {
       ],
       { mutateAsync, isPending: false } as never
     )
-    fireEvent.click(screen.getByRole("button", { name: "Link selected (3)" }))
+    const linkSelected = screen.getByRole("button", {
+      name: "Link selected (3)",
+    })
+    linkSelected.focus()
+    fireEvent.click(linkSelected)
     const status = await screen.findByText(/^Linked 2 of 3\./)
+    // The run unticks everything; the button stays focusable with its reason.
+    const after = screen.getByRole("button", { name: "Link selected (0)" })
+    expect(after).toHaveAttribute("aria-disabled", "true")
+    expect(after).toHaveAccessibleDescription("Tick a listing to link it.")
+    expect(document.activeElement).toBe(after)
     expect(status).toHaveAttribute("role", "status")
     expect(status).toHaveTextContent(
       "1 didn’t link: the reason is on its row, and Link tries it again."
@@ -401,6 +410,21 @@ describe("ImportCard", () => {
       "Something went wrong. Please try again."
     )
     expect(screen.getByRole("button", { name: "Link Canal Bar" })).toBeEnabled()
+  })
+
+  it("moves focus to the tally when every ticked listing linked", async () => {
+    const mutateAsync = vi.fn(async () => ({ link: {} }))
+    renderCard([discovered({ id: "e1", title: "Riverside Rooms" })], {
+      mutateAsync,
+      isPending: false,
+    } as never)
+    const linkSelected = screen.getByRole("button", {
+      name: "Link selected (1)",
+    })
+    linkSelected.focus()
+    fireEvent.click(linkSelected)
+    const status = await screen.findByText(/^Linked 1 of 1\./)
+    await waitFor(() => expect(document.activeElement).toBe(status))
   })
 
   it("switches a login with many accounts to a Select instead of a scrolling track", () => {

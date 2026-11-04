@@ -1,7 +1,7 @@
 "use client"
 
 import { BadgeCheckIcon, CheckIcon, MapPin } from "lucide-react"
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Badge } from "@/components/ui/badge"
@@ -105,6 +105,7 @@ export function ImportCard({
   // null until the operator ticks or unticks something (see `checked`).
   const [selection, setSelection] = useState<string[] | null>(null)
   const [bulkPending, setBulkPending] = useState(false)
+  const bulkStatusRef = useRef<HTMLParagraphElement>(null)
   // What the last "Link selected" did, kept until the next one, so a partial
   // run says how far it got and where the failures are.
   const [bulkResult, setBulkResult] = useState<{
@@ -404,6 +405,12 @@ export function ImportCard({
     setSelection([])
     setBulkPending(false)
     setBulkResult(tally)
+    // When every listing linked, the Link selected row goes away with the
+    // focus on it; the tally is where the run's outcome is.
+    requestAnimationFrame(() => {
+      if (!document.activeElement || document.activeElement === document.body)
+        bulkStatusRef.current?.focus()
+    })
   }
   const bulkTotal = bulkResult
     ? bulkResult.linked + bulkResult.failed + bulkResult.confirm
@@ -421,6 +428,13 @@ export function ImportCard({
           <Button
             size="sm"
             disabled={checked.size === 0 || bulkPending}
+            // A run unticks what it linked; the reason keeps the button
+            // focusable, so focus is not dropped to the page when it ends.
+            disabledReason={
+              checked.size === 0 && !bulkPending
+                ? "Tick a listing to link it."
+                : undefined
+            }
             pending={bulkPending}
             pendingLabel="Linking…"
             onClick={() => void linkSelected()}
@@ -431,7 +445,12 @@ export function ImportCard({
       ) : null}
       {/* Announced once per run. Linking files listings in NabaPresence; it
           changes nothing on Google, so the words stay neutral. */}
-      <p role="status" className="text-ui text-ink-secondary empty:hidden">
+      <p
+        ref={bulkStatusRef}
+        role="status"
+        tabIndex={-1}
+        className="text-ui text-ink-secondary outline-none empty:hidden"
+      >
         {bulkResult && bulkTotal > 0
           ? [
               `Linked ${bulkResult.linked} of ${bulkTotal}.`,
