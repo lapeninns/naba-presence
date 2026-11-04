@@ -2214,6 +2214,12 @@ describe("ProfileTab content warnings", () => {
       name: "I have reviewed these content warnings.",
     })
     expect(checkbox).toHaveAccessibleDescription("Tick this, then save again.")
+    // A save would only be refused again: it waits for the tick, and the
+    // bar says why.
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(
+      screen.getByText("Acknowledge the content warnings first")
+    ).toBeInTheDocument()
     const block = document.querySelector<HTMLElement>(
       '[data-slot="content-warnings"]'
     )
