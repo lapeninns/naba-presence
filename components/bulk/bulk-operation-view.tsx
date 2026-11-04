@@ -76,7 +76,11 @@ const CHILD: Record<BulkChild["status"], { label: string; tone: PillTone }> = {
 export function childPill(
   child: Pick<
     BulkChild,
-    "status" | "confirmationState" | "resultCode" | "operation"
+    | "status"
+    | "confirmationState"
+    | "resultCode"
+    | "operation"
+    | "googleReplyState"
   >
 ): { label: string; tone: PillTone } {
   if (child.operation === "post_draft") {
@@ -88,6 +92,15 @@ export function childPill(
   if (child.status !== "succeeded") return CHILD[child.status]
   if (child.resultCode === "submitted_for_approval")
     return { label: describeOutcome("awaiting_approval").label, tone: "warn" }
+  if (isBulkReviewOperation(child.operation)) {
+    if (child.googleReplyState === "REJECTED")
+      return { label: describeOutcome("rejected").label, tone: "bad" }
+    if (
+      child.confirmationState === "confirmed" &&
+      child.googleReplyState !== "APPROVED"
+    )
+      return { label: "Waiting for Google", tone: "info" }
+  }
   if (child.confirmationState === "confirmed")
     return { label: describeOutcome("confirmed_applied").label, tone: "ok" }
   if (child.confirmationState === "unresolved")

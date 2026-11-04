@@ -225,6 +225,14 @@ describeDatabase("bulk review work on the engine", { timeout: 60_000 }, () => {
     const [review] = await admin<{ workflow_status: string }[]>`
       select workflow_status from review where id = ${a.reviewId}`
     expect(review.workflow_status).toBe("published")
+    for (const state of ["PENDING", "APPROVED", "REJECTED"]) {
+      await admin`update review_reply set google_reply_state = ${state} where review_id = ${a.reviewId}`
+      const moderated = await t.batch(result.operationId!)
+      expect(t.childFor(moderated, a.reviewId)).toMatchObject({
+        confirmationState: "confirmed",
+        googleReplyState: state,
+      })
+    }
     // A second tick sends nothing more.
     await tick()
     expect(puts()).toHaveLength(2)

@@ -133,6 +133,8 @@ export const bulkChildSchema = z.object({
   reviewId: z.uuid().nullable().optional(),
   /** A review child's reply publish attempt, once its publish started. */
   publishAttemptId: z.uuid().nullable().optional(),
+  /** Current Google moderation state for this exact reply publish. */
+  googleReplyState: z.string().nullable().optional(),
 })
 export type BulkChild = z.infer<typeof bulkChildSchema>
 

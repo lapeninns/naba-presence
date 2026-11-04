@@ -17,6 +17,7 @@ const describeDatabase = run ? describe : describe.skip
 type Item = {
   id: string
   kind: string
+  at: string
   state: string
   title: string
   detail: string | null
@@ -586,6 +587,64 @@ describeDatabase("GET /api/outbox", () => {
       state: "uncertain",
       title: expect.stringMatching(/^Delete reply to /),
     })
+  })
+
+  it("starts the confirmed window when Google first shows a delayed post as live", async () => {
+    const tenant = await createTestTenant(admin)
+    organisations.push(tenant.organisationId)
+    const { reviewId, locationId } = await seedReview(admin, {
+      organisationId: tenant.organisationId,
+    })
+    const [{ externalLocationId }] = await admin<
+      { externalLocationId: string }[]
+    >`
+      select external_location_id::text as "externalLocationId"
+      from review where id = ${reviewId}
+    `
+    const [post] = await admin`
+      insert into gbp_local_post (
+        organisation_id, location_id, external_location_id, topic_type,
+        summary, status, google_state
+      ) values (
+        ${tenant.organisationId}, ${locationId}, ${externalLocationId}, 'STANDARD',
+        'Delayed post', 'published', 'PROCESSING'
+      ) returning id
+    `
+
+    await admin`
+      insert into gbp_local_post_attempt (
+        organisation_id, post_id, actor_user_id, operation, status,
+        idempotency_key, intended_payload, started_at
+      ) values (
+        ${tenant.organisationId}, ${post.id}, ${tenant.userId}, 'create',
+        'succeeded', ${randomUUID()}, '{}'::jsonb, now() - interval '3 days'
+      )
+    `
+    const item = async () =>
+      byId(await readAll(tenant.cookie)).get(`post:${post.id}`)
+    expect(await item()).toMatchObject({ state: "waiting" })
+
+    const [observed] = await admin<{ at: Date }[]>`
+      update gbp_local_post set google_state = 'LIVE' where id = ${post.id}
+      returning google_live_observed_at as at
+    `
+    expect(await item()).toMatchObject({
+      state: "live",
+      at: observed.at.toISOString(),
+    })
+
+    const [aged] = await admin<{ at: Date }[]>`
+      update gbp_local_post
+      set google_live_observed_at = now() - interval '2 days'
+      where id = ${post.id}
+      returning google_live_observed_at as at
+    `
+    const [resynced] = await admin<{ at: Date }[]>`
+      update gbp_local_post set google_state = 'LIVE' where id = ${post.id}
+      returning google_live_observed_at as at
+    `
+    expect(resynced.at).toEqual(aged.at)
+    expect(await item()).toBeUndefined()
   })
 
   it("keeps an unresolved post deletion out of the confirmed group", async () => {

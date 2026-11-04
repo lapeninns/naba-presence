@@ -605,7 +605,12 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
       p.topic_type as "topicType",
       p.summary,
       sent_back.created_at as "sentBackAt",
-      coalesce(sent_back.created_at, la.at, p.updated_at) as at,
+      case
+        when p.status = 'published' and p.google_state = 'LIVE'
+          and not coalesce(la.operation = 'delete' and la.status in ('started', 'ambiguous'), false)
+          then coalesce(p.google_live_observed_at, la.at, p.updated_at)
+        else coalesce(sent_back.created_at, la.at, p.updated_at)
+      end as at,
       l.id::text as "locationId",
       l.name as "locationName",
       c.id::text as "clientId",
@@ -660,11 +665,11 @@ function readPosts(sql: TransactionSql, session: Session, scope: OutboxScope) {
         )
         or (
           p.status = 'published'
-          and la.at > now() - ${WINDOW}::interval
-          and not (
-            coalesce(p.google_state, '') = 'LIVE'
-            and la.at <= now() - ${CONFIRMED_WINDOW}::interval
-          )
+          and la.at is not null
+          and case when p.google_state = 'LIVE'
+            then coalesce(p.google_live_observed_at, la.at) > now() - ${CONFIRMED_WINDOW}::interval
+            else la.at > now() - ${WINDOW}::interval
+          end
         )
       )
     order by at desc

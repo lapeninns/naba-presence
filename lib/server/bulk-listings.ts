@@ -400,8 +400,21 @@ async function project(
       c.confirmation_state as "confirmationState", ${effectiveChildCode(sql)} as "resultCode", c.current_value as "currentValue", c.proposed_value as "proposedValue",
       c.update_mask as "updateMask", c.attempts, c.finished_at as "finishedAt", c.mutation_operation_id::text as "mutationOperationId",
       c.review_id::text as "reviewId", c.publish_attempt_id::text as "publishAttemptId",
+      rr.google_reply_state as "googleReplyState",
       c.seq, c.item_key as "itemKey", c.input->>'operation' as operation, c.input, array(select d::text from unnest(c.depends_on) d) as "dependsOn"
     from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id join location l on l.id = c.location_id
+    left join publish_attempt pa on pa.id = c.publish_attempt_id
+      and pa.organisation_id = o.organisation_id and pa.operation = 'publish'
+      and pa.status = 'succeeded'
+    left join review_reply rr on rr.id = pa.review_reply_id
+      and rr.organisation_id = o.organisation_id and rr.review_id = c.review_id
+      and rr.publish_generation = pa.publish_generation
+      and not exists (
+        select 1 from publish_attempt newer
+        where newer.review_reply_id = pa.review_reply_id
+          and newer.operation = 'publish' and newer.status = 'succeeded'
+          and (newer.started_at, newer.id) > (pa.started_at, pa.id)
+      )
     where c.operation_id = ${operationId} order by l.name, c.location_id, c.seq, c.id`
   const counts: Record<string, number> = {}
   for (const child of children)

@@ -141,7 +141,22 @@ describe("DIRECTION §6.3 vocabulary fixes", () => {
       label: "On Google",
       tone: "ok",
     })
-    expect(childPill(child({}))).not.toMatchObject({ label: "Confirmed" })
+    const reply = child({
+      operation: "review_approval",
+      confirmationState: "confirmed",
+    })
+    expect(childPill({ ...reply, googleReplyState: "PENDING" }).label).toBe(
+      "Waiting for Google"
+    )
+    expect(childPill({ ...reply, googleReplyState: null }).label).toBe(
+      "Waiting for Google"
+    )
+    expect(childPill({ ...reply, googleReplyState: "APPROVED" }).label).toBe(
+      "On Google"
+    )
+    expect(childPill({ ...reply, googleReplyState: "REJECTED" }).label).toBe(
+      "Rejected by Google"
+    )
   })
 
   it("#5 calls a scheduled run that settled published sent, not published", () => {
