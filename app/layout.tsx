@@ -62,8 +62,8 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
   // The browser chrome matches the canvas (--np-surface-canvas). Hex because
   // not every browser takes oklch here: #f6f9fc ≈ oklch(0.98 0.005 250),
-  // #0d1216 ≈ oklch(0.18 0.012 240). These follow the system preference; a
-  // user who forces the other theme in-app keeps the system's bar colour.
+  // #0d1216 ≈ oklch(0.18 0.012 240). These follow the system preference
+  // until hydration; ThemeProvider then repoints both at an in-app choice.
   // design-exempt-start R2: meta theme-color is read before any CSS loads
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f6f9fc" },
@@ -80,7 +80,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
-      lang="en"
+      // The product writes British English (organisation, en-GB dates), and
+      // global-error.tsx, which replaces this document, says the same.
+      lang="en-GB"
       suppressHydrationWarning
       className={cn(
         "font-sans antialiased",
