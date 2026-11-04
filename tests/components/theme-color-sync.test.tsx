@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { useTheme } from "next-themes"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -11,11 +11,20 @@ function metas() {
   ]
 }
 
-let setThemeRef: ((theme: string) => void) | null = null
-function Grab() {
-  setThemeRef = useTheme().setTheme
-  return null
+function Picker() {
+  const { setTheme } = useTheme()
+  return (
+    <>
+      {["light", "dark", "system"].map((theme) => (
+        <button key={theme} type="button" onClick={() => setTheme(theme)}>
+          {theme}
+        </button>
+      ))}
+    </>
+  )
 }
+const pick = (theme: string) =>
+  fireEvent.click(screen.getByRole("button", { name: theme }))
 
 describe("theme-color follows the in-app theme choice (R59)", () => {
   beforeEach(() => {
@@ -65,7 +74,7 @@ describe("theme-color follows the in-app theme choice (R59)", () => {
   it("repoints both metas on a mid-session switch and restores them for system", () => {
     render(
       <ThemeProvider>
-        <Grab />
+        <Picker />
       </ThemeProvider>
     )
     expect(metas().map((m) => m.content)).toEqual([
@@ -73,20 +82,20 @@ describe("theme-color follows the in-app theme choice (R59)", () => {
       THEME_COLOR.dark,
     ])
 
-    act(() => setThemeRef?.("dark"))
+    pick("dark")
     expect(document.documentElement.classList.contains("dark")).toBe(true)
     expect(metas().map((m) => m.content)).toEqual([
       THEME_COLOR.dark,
       THEME_COLOR.dark,
     ])
 
-    act(() => setThemeRef?.("light"))
+    pick("light")
     expect(metas().map((m) => m.content)).toEqual([
       THEME_COLOR.light,
       THEME_COLOR.light,
     ])
 
-    act(() => setThemeRef?.("system"))
+    pick("system")
     expect(metas().map((m) => m.content)).toEqual([
       THEME_COLOR.light,
       THEME_COLOR.dark,
