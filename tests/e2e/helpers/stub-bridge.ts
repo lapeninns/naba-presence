@@ -432,21 +432,6 @@ export default async function startJourneyBridge(config: FullConfig) {
         },
       })
     )
-    // Settings > Connections notifications card (Task 11): the Google
-    // notifications GET, so the card loads clean off the M5-seeded active
-    // account (`google_account.is_active = true` -> deriveAutoSelection
-    // resolves an accountId -> useNotificationSetting fetches this).
-    stub.respond(
-      { method: "GET", pathIncludes: "notificationSetting" },
-      () => ({
-        status: 200,
-        json: {
-          name: "accounts/stub/notificationSetting",
-          pubsubTopic: "",
-          notificationTypes: [],
-        },
-      })
-    )
     stub.respond({ method: "GET", pathIncludes: "/foodMenus" }, () => ({
       status: 200,
       json: { name: "locations/stub/foodMenus", menus: [] },
@@ -865,6 +850,22 @@ export default async function startJourneyBridge(config: FullConfig) {
         ],
       },
     }))
+    // Settings > Connections notifications card (Task 11): the Google
+    // notifications GET, so the card loads clean off the M5-seeded active
+    // account (`google_account.is_active = true` -> deriveAutoSelection
+    // resolves an accountId -> useNotificationSetting fetches this). Register
+    // it after the accounts list so this specific resource takes precedence.
+    stub.respond(
+      { method: "GET", pathEndsWith: "/notificationSetting" },
+      () => ({
+        status: 200,
+        json: {
+          name: "accounts/stub/notificationSetting",
+          pubsubTopic: "",
+          notificationTypes: [],
+        },
+      })
+    )
     // The primary account's own resource, for the reviewed lifecycle request.
     // Registered after the `/accounts` list rule above so this exact match
     // wins over it.
